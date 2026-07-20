@@ -1,0 +1,633 @@
+/* 
+  Localizable.strings (English)
+  AMD Power Gadget
+*/
+
+/* NOTE: Some keys use Spanish text for historical reasons. */
+/* These are used as lookup identifiers and work correctly. */
+/* A future refactor should standardize all keys to English. */
+
+"Dashboard" = "Dashboard";
+"Telemetry" = "Telemetry";
+"Fan Control" = "Fan Control";
+"Profiles" = "Profiles";
+"Advanced" = "Advanced";
+"Menu Bar" = "Menu Bar";
+"System Info" = "System Info";
+"Desktop Widgets" = "Desktop Widgets";
+
+"AMD Power" = "AMD Power";
+"Gadget" = "Gadget";
+
+"CPU" = "CPU";
+"GPU" = "GPU";
+"Freq" = "Freq";
+"Average" = "Average";
+"Avg: %@" = "Avg: %@";
+"Collecting data…" = "Collecting data…";
+
+"Low Power Mode (LPM)" = "Low Power Mode (LPM)";
+"Allows macOS to auto-manage CPU frequency" = "Allows macOS to auto-manage CPU frequency";
+"Forces CPU to lowest frequency for minimum power" = "Forces CPU to lowest frequency for minimum power";
+"Core Performance Boost (CPB)" = "Core Performance Boost (CPB)";
+"Update Interval" = "Update Interval";
+"Adjust how frequently telemetry data updates. Lower = more responsive, higher = less CPU usage." = "Adjust how frequently telemetry data updates. Lower = more responsive, higher = less CPU usage.";
+
+"Opciones en Menú Bar" = "Menu Bar Options";
+"Choose which items appear in the menu bar. Changes apply immediately." = "Choose which items appear in the menu bar. Changes apply immediately.";
+"Customize the visual appearance of the menu bar items." = "Customize the visual appearance of the menu bar items.";
+"Límite de Temp de Alerta" = "Alert Temp Limit";
+"Color de Alerta de Temp" = "Alert Temp Color";
+"Color de Flechas" = "Arrows Color";
+"Additional telemetry for the menu bar." = "Additional telemetry for the menu bar.";
+"GPU data is shown inside Temp, Power, Memory and Fan columns when enabled." = "GPU data is shown inside Temp, Power, Memory and Fan columns when enabled.";
+"Show GPU VRAM" = "Show GPU VRAM";
+"G:X.XG in Memory column" = "G:X.XG in Memory column";
+"Show GPU Fan Speed" = "Show GPU Fan Speed";
+"G:XXXX in Fan column" = "G:XXXX in Fan column";
+
+"No fans detected." = "No fans detected.";
+"SMC driver not available" = "SMC driver not available";
+"Your SMC chip may not be supported." = "Your SMC chip may not be supported.";
+"RPM" = "RPM";
+"Throttle" = "Throttle";
+"↩ Reset to Auto" = "↩ Reset to Auto";
+
+"Select a profile to adjust the CPU operating range. Changes take effect immediately." = "Select a profile to adjust the CPU operating range. Changes take effect immediately.";
+
+"Directly edit raw P-State registers. Requires kext privilege check disabled via boot-arg or root." = "Directly edit raw P-State registers. Requires kext privilege check disabled via boot-arg or root.";
+"This will write the raw P-State definitions directly to the CPU. Proceed?" = "This will write the raw P-State definitions directly to the CPU. Proceed?";
+"Disabled — work in progress" = "Disabled — work in progress";
+"WIP" = "WIP";
+
+"Enable in OC: Misc → Security → ExposeSensitiveData = 0x08" = "Enable in OC: Misc → Security → ExposeSensitiveData = 0x08";
+"Motherboard info not available" = "Motherboard info not available";
+
+"Vista previa de la Barra de Menús:" = "Menu Bar Preview:";
+"Ancho estimado: %dpt" = "Estimated Width: %dpt";
+"Restart the app to fully apply width changes." = "Restart the app to fully apply width changes.";
+"Small (%dpt)" = "Small (%dpt)";
+"Medium (%dpt)" = "Medium (%dpt)";
+"Large (%dpt)" = "Large (%dpt)";
+
+"Green" = "Green";
+"Blue" = "Blue";
+"Orange" = "Orange";
+"Red" = "Red";
+"Purple" = "Purple";
+"Pink" = "Pink";
+"Teal" = "Teal";
+"Turquoise" = "Turquoise";
+
+"Verde" = "Green";
+"Azul" = "Blue";
+"Naranja" = "Orange";
+"Rojo" = "Red";
+"Morado" = "Purple";
+"Rosa" = "Pink";
+"Turquesa" = "Teal";
+
+"Dynamic Colors (Temp Only)" = "Dynamic Colors (Temp Only)";
+"Temp Alert Color" = "Temp Alert Color";
+"Temp Alert Limit" = "Temp Alert Limit";
+"Network" = "Network";
+"Network Arrows Color" = "Network Arrows Color";
+"Exit" = "Exit";
+"AMD Power Gadget" = "AMD Power Gadget";
+"AMD Power Tool" = "AMD Power Tool";
+"SMC Fans" = "SMC Fans";
+
+"Fan 1" = "Fan 1";
+"Fan 2" = "Fan 2";
+"Fan 3" = "Fan 3";
+"Fan 4" = "Fan 4";
+"Fan 5" = "Fan 5";
+"Fan 6" = "Fan 6";
+"Fan 7" = "Fan 7";
+"Fan 8" = "Fan 8";
+
+/* Alerts */
+"To enable motherboard display:" = "To enable motherboard display:";
+"Open your OpenCore config file,\n\nGo to Misc -> Security -> ExposeSensitiveData,\n\nSet the value to 0x08 to expose board information." = "Open your OpenCore config file,\n\nGo to Misc -> Security -> ExposeSensitiveData,\n\nSet the value to 0x08 to expose board information.";
+"Done" = "Done";
+"Invalid Input" = "Invalid Input";
+"Please type in numbers in hexadecimal." = "Please type in numbers in hexadecimal.";
+"Unable to Set PStateDef" = "Unable to Set PStateDef";
+"Action was denied as current user does not have enough privilege,\nor was canceled by current user.\n\nRun AMD Power Gadget as root user or disable privilege check with boot-arg '-amdpnopchk'\n\nOtherwise, click 'Once' in the warning message to allow this change." = "Action was denied as current user does not have enough privilege,\nor was canceled by current user.\n\nRun AMD Power Gadget as root user or disable privilege check with boot-arg '-amdpnopchk'\n\nOtherwise, click 'Once' in the warning message to allow this change.";
+"Your changes will not be saved" = "Your changes will not be saved";
+"Click apply to save changes before closing this windows." = "Click apply to save changes before closing this windows.";
+"Cancel" = "Cancel";
+"Close without saving" = "Close without saving";
+"Invalid File" = "Invalid File";
+"The selected file could not be read or is not a valid pstate file." = "The selected file could not be read or is not a valid pstate file.";
+"OK" = "OK";
+
+/* Dynamic format strings */
+"Avg: %.2f GHz, Max: %.2f GHz" = "Avg: %.2f GHz, Max: %.2f GHz";
+"%.2f °C" = "%.2f °C";
+"%.2f Watt" = "%.2f W";
+
+/* Session Peaks */
+"Session Peaks" = "Session Peaks";
+"Reset Peaks" = "Reset Peaks";
+
+/* GPU Fan Control */
+"GPU Fan Control (Zero RPM / Curves)" = "GPU Fan Control (Zero RPM / Curves)";
+"macOS Hardware Limitation" = "macOS Hardware Limitation";
+"Direct software-based GPU fan speed overrides (such as zero-rpm toggle or drawing fan curves in macOS) are not supported by the macOS kernel/IOKit driver for AMD GPUs. The GPU's onboard firmware (vBIOS) manages the fans." = "Direct software-based GPU fan speed overrides (such as zero-rpm toggle or drawing fan curves in macOS) are not supported by the macOS kernel/IOKit driver for AMD GPUs. The GPU's onboard firmware (vBIOS) manages the fans.";
+"Standard Hackintosh Solution:" = "Standard Hackintosh Solution:";
+"The only way to modify this behavior (like forcing fans to spin at lower temperatures or disabling Zero RPM) is by exporting the vBIOS, creating a Soft PowerPlay Table (SPPT), and injecting it via OpenCore's config.plist under DeviceProperties." = "The only way to modify this behavior (like forcing fans to spin at lower temperatures or disabling Zero RPM) is by exporting the vBIOS, creating a Soft PowerPlay Table (SPPT), and injecting it via OpenCore's config.plist under DeviceProperties.";
+"Open SPPT Guide" = "Open SPPT Guide";
+"MorePowerTool" = "MorePowerTool";
+
+/* CPPC & EPP */
+"Native CPPC Active Mode (EPP)" = "Native CPPC Active Mode (EPP)";
+"Enables autonomous hardware frequency scaling (recommended)" = "Enables autonomous hardware frequency scaling (recommended)";
+"Power Management Mode" = "Power Management Mode";
+"Energy Preference (EPP)" = "Energy Preference (EPP)";
+"Select a hardware autonomous profile. The CPU will scale frequency dynamically." = "Select a hardware autonomous profile. The CPU will scale frequency dynamically.";
+"Performance" = "Performance";
+"Balanced Perf" = "Balanced Perf";
+"Balanced Power" = "Balanced Power";
+"Power Save" = "Power Save";
+"Active Profile Status" = "Active Profile Status";
+"CPU Speed Profiles (Legacy)" = "CPU Speed Profiles (Legacy)";
+"Select a manual P-State override profile. Frequencies will be restricted to the selected step." = "Select a manual P-State override profile. Frequencies will be restricted to the selected step.";
+"Mode" = "Mode";
+"EPP Profile" = "EPP Profile";
+
+/* Desktop Widgets */
+"Show CPU Widget" = "Show CPU Widget";
+"Show GPU Widget" = "Show GPU Widget";
+"Show RAM Widget" = "Show RAM Widget";
+"Show Disk Widget" = "Show Disk Widget";
+"Show Network Widget" = "Show Network Widget";
+"Show Fan Widget" = "Show Fan Widget";
+"Disable All Widgets" = "Disable All Widgets";
+"Sort by Rank" = "Sort by Rank";
+"Edit Widget Layout" = "Edit Widget Layout";
+"Unlock widgets to drag them around the screen" = "Unlock widgets to drag them around the screen";
+"Widget Options" = "Widget Options";
+"Customize the appearance and behavior of your desktop widgets." = "Customize the appearance and behavior of your desktop widgets.";
+"Auto-Align Active Widgets" = "Auto-Align Active Widgets";
+"Automatically stack active widgets at a corner" = "Automatically stack active widgets at a corner";
+"Alignment Corner" = "Alignment Corner";
+"Top Right" = "Top Right";
+"Top Left" = "Top Left";
+"Bottom Right" = "Bottom Right";
+"Bottom Left" = "Bottom Left";
+"Show Clock Widget" = "Show Clock Widget";
+"Clock" = "Clock";
+"Stats Table" = "Stats Table";
+"Classic Glass" = "Classic Glass";
+"Pro Monitor" = "Pro Monitor";
+"Core Matrix" = "Core Matrix";
+
+"United" = "United";
+"Show United Widget" = "Show United Widget";
+"Configure Combined Metrics" = "Configure Combined Metrics";
+"Include CPU" = "Include CPU";
+"Include GPU" = "Include GPU";
+"Include RAM" = "Include RAM";
+"Include Disk" = "Include Disk";
+"Include Network" = "Include Network";
+"Include Fan" = "Include Fan";
+
+"Temas & Apariencia" = "Themes & Appearance";
+"Análisis" = "Analysis";
+
+"Select Visual Theme (Instant Application)" = "Select Visual Theme (Instant Application)";
+"Custom Theme Creator & Exchange (JSON)" = "Custom Theme Creator & Exchange (JSON)";
+"Chart Rendering Style" = "Chart Rendering Style";
+"Custom Theme Editor" = "Custom Theme Editor";
+"Showing active theme colors. Adjust any color to customize." = "Showing active theme colors. Adjust any color to customize.";
+"Use the Opacity slider for transparency (macOS color panel alone often resets alpha)." = "투명도는 불투명도 슬라이더로 설정하세요(macOS 색상 패널만 쓰면 알파가 자주 초기화됩니다).";
+"Opacity" = "불투명도";
+"Edit Active Theme" = "Edit Active Theme";
+"Export Theme (JSON)" = "Export Theme (JSON)";
+"Import Theme (JSON)" = "Import Theme (JSON)";
+"Card Background" = "Card Background";
+"Cyan Accent" = "Cyan Accent";
+"Orange Accent" = "Orange Accent";
+"Green Accent" = "Green Accent";
+"Purple Accent" = "Purple Accent";
+
+/* ===== Auto-extracted / curated for Crowdin (v3.16.1+) ===== */
+"%.0f" = "%.0f";
+"%.0f K/s" = "%.0f K/s";
+"%.0f MHz" = "%.0f MHz";
+"%.0f%%" = "%.0f%%";
+"%.0fG" = "%.0fG";
+"%.0f°" = "%.0f°";
+"%.0f°C" = "%.0f°C";
+"%.0f°C • %.0fW" = "%.0f°C • %.0fW";
+"%.1f %@" = "%.1f %@";
+"%.1f Ghz" = "%.1f Ghz";
+"%.1f M/s" = "%.1f M/s";
+"%.1f s" = "%.1f s";
+"%.1f%%" = "%.1f%%";
+"%.1f°C" = "%.1f°C";
+"%.2f GHz" = "%.2f GHz";
+"%.3f V" = "%.3f V";
+"%.4f V" = "%.4f V";
+"100°C" = "100°C";
+"1h" = "1h";
+"24h" = "24h";
+"30d" = "30d";
+"60°C" = "60°C";
+"7d" = "7d";
+"Accept & Continue" = "Accept & Continue";
+"Active" = "Active";
+"All Auto" = "All Auto";
+"All Combined" = "All Combined";
+"All Fans Auto" = "All Fans Auto";
+"AMD CPU Cores" = "AMD CPU Cores";
+"AMD Power Gadget recolecta datos automáticamente cada minuto." = "AMD Power Gadget recolecta datos automáticamente cada minuto.";
+"AMD Processor Power Manager (PPM)" = "AMD Processor Power Manager (PPM)";
+"Analysis" = "Analysis";
+"Apply" = "Apply";
+"Apply P-States?" = "Apply P-States?";
+"Arrange the order in which resource widgets appear. Click arrows to swap position." = "Arrange the order in which resource widgets appear. Click arrows to swap position.";
+"Arrow Color" = "Arrow Color";
+"Automatically switches EPP profiles based on live CPU load" = "Automatically switches EPP profiles based on live CPU load";
+"Average core frequency in GHz" = "Average core frequency in GHz";
+"Average utilization over time" = "Average utilization over time";
+"Avg Frequency" = "Avg Frequency";
+"Avg." = "Avg.";
+"Avg: %.0f%%" = "Avg: %.0f%%";
+"Balanced\n%.1f GHz" = "Balanced\n%.1f GHz";
+"Base\n%.1f GHz" = "Base\n%.1f GHz";
+"BIOS / Auto" = "BIOS / Auto";
+"Buscando actualizaciones..." = "Buscando actualizaciones...";
+"Bytes (Read)" = "Bytes (Read)";
+"Bytes (Write)" = "Bytes (Write)";
+"Cargando tendencias de telemetría..." = "Cargando tendencias de telemetría...";
+"Chart Metric" = "Chart Metric";
+"Chart Type" = "Chart Type";
+"Charts require macOS 13+" = "Charts require macOS 13+";
+"Charts require macOS 13.0+" = "Charts require macOS 13.0+";
+"Check for new releases of SMCAMDProcessor and AMD Power Gadget on GitHub." = "Check for new releases of SMCAMDProcessor and AMD Power Gadget on GitHub.";
+"Check for Updates" = "Check for Updates";
+"Check Now" = "Check Now";
+"Circular Ring" = "Circular Ring";
+"Column Bars" = "Column Bars";
+"Configure Charts" = "Configure Charts";
+"Configure labels and layout details for widgets inside the popover." = "Configure labels and layout details for widgets inside the popover.";
+"Connection Error: %@" = "Connection Error: %@";
+"Continuous Background Logging" = "Continuous Background Logging";
+"Continuously write telemetry samples to a CSV file in the background" = "Continuously write telemetry samples to a CSV file in the background";
+"Control Mode" = "Control Mode";
+"Core Rankings (Estimated by Freq)" = "Core Rankings (Estimated by Freq)";
+"Could not fetch release info." = "Could not fetch release info.";
+"CPPC hardware rankings are active and loaded from the processor." = "CPPC hardware rankings are active and loaded from the processor.";
+"CPPC hardware values could not be read. Rankings are estimated from the maximum observed clock frequency of each core." = "CPPC hardware values could not be read. Rankings are estimated from the maximum observed clock frequency of each core.";
+"CPPC Preferred Cores (Silicon Quality)" = "CPPC Preferred Cores (Silicon Quality)";
+"CPPC: Active" = "CPPC: HW OK";
+"CPPC: Estimated" = "CPPC: Estimated";
+"CPU and GPU temperatures" = "CPU and GPU temperatures";
+"CPU Average Frequency" = "CPU Average Frequency";
+"CPU Freq Avg (GHz)" = "CPU Freq Avg (GHz)";
+"CPU Frequency" = "CPU Frequency";
+"CPU Load" = "CPU Load";
+"CPU Load (%)" = "CPU Load (%)";
+"CPU Package Power" = "CPU Package Power";
+"CPU Per-Core Thread Load" = "CPU Per-Core Thread Load";
+"CPU Power" = "CPU Power";
+"CPU Power (W)" = "CPU Power (W)";
+"CPU Power Alert" = "CPU Power Alert";
+"CPU power has been at %.1fW (above limit of %dW) for over %d seconds!" = "CPU power has been at %.1fW (above limit of %dW) for over %d seconds!";
+"CPU Temp" = "CPU Temp";
+"CPU Temp (°C)" = "CPU Temp (°C)";
+"CPU Temperature" = "CPU Temperature";
+"CPU Temperature Alert" = "CPU Temperature Alert";
+"CPU temperature has reached %.1f°C!" = "CPU temperature has reached %.1f°C!";
+"CPU Tracker" = "CPU Tracker";
+"Current version: v%@\nNew version: %@\n\nRelease Notes:\n%@" = "Current version: v%@\nNew version: %@\n\nRelease Notes:\n%@";
+"Curve" = "Curve";
+"Curve Optimizer is only active when the AMDRyzenCPUPowerManagement kext supports Zen 3 SMU mailbox interface." = "Curve Optimizer is only active when the AMDRyzenCPUPowerManagement kext supports Zen 3 SMU mailbox interface.";
+"Custom" = "Custom";
+"Customize the behavior and visibility of the menu bar popover." = "Customize the behavior and visibility of the menu bar popover.";
+"Cyberpunk Neon" = "Cyberpunk Neon";
+"Delete Point" = "Delete Point";
+"Device Utilization %" = "Device Utilization %";
+"Disable heavy visual effects if your system lacks Metal graphics acceleration." = "Disable heavy visual effects if your system lacks Metal graphics acceleration.";
+"DISCLAIMER: This software interacts directly with low-level hardware control registers. By using it, you agree that absolute responsibility for any system instability, hardware damage, or alien invasion lies entirely with the user." = "DISCLAIMER: This software interacts directly with low-level hardware control registers. By using it, you agree that absolute responsibility for any system instability, hardware damage, or alien invasion lies entirely with the user.";
+"DISCLAIMER: This software interacts directly with low-level hardware control registers. By using it, you agree that absolute responsibility rests entirely with the user." = "DISCLAIMER: This software interacts directly with low-level hardware control registers. By using it, you agree that absolute responsibility rests entirely with the user.";
+"Disk" = "Disk";
+"DISK" = "DISK";
+"Disk Activity" = "Disk Activity";
+"Disk Activity (MB/s)" = "Disk Activity (MB/s)";
+"Disk Activity (Read+Write)" = "Disk Activity (Read+Write)";
+"Disk I/O" = "Disk I/O";
+"Disk Tracker" = "Disk Tracker";
+"Do you want AMD Power Gadget to start in menu bar at login? \n\n This will only be asked once. You can change this setting later under Appearance menu." = "Do you want AMD Power Gadget to start in menu bar at login? \n\n This will only be asked once. You can change this setting later under Appearance menu.";
+"Donate (PayPal)" = "Donate (PayPal)";
+"Download" = "Download";
+"Download on GitHub" = "Download on GitHub";
+"Download Update" = "Download Update";
+"Drag control points to edit curve. Double-click empty space to add (max 8). Double-click a point or right-click to delete." = "Drag control points to edit curve. Double-click empty space to add (max 8). Double-click a point or right-click to delete.";
+"Dynamic Auto-EPP Workload Engine" = "Dynamic Auto-EPP Workload Engine";
+"Dynamic Next-Gen Fan Curves" = "Dynamic Next-Gen Fan Curves";
+"Edit Layout" = "Edit Layout";
+"Efficient\n%.1f GHz" = "Efficient\n%.1f GHz";
+"Enable additional stats columns inside the popover." = "Enable additional stats columns inside the popover.";
+"Enable System Alerts" = "Enable System Alerts";
+"Error reading CPU data." = "Error reading CPU data.";
+"Evaluated in the kernel with 256-step LUT interpolation, hysteresis, and smooth ramping." = "Evaluated in the kernel with 256-step LUT interpolation, hysteresis, and smooth ramping.";
+"Export" = "Export";
+"Export CSV" = "Export CSV";
+"Export Telemetry History" = "Export Telemetry History";
+"Export the history of samples currently in memory to a CSV file" = "Export the history of samples currently in memory to a CSV file";
+"Failed — check kext privileges (-amdpnopchk)." = "실패 — kext 권한을 확인하세요(-amdpnopchk).";
+"Fan" = "Fan";
+"Fan Number" = "Fan Number";
+"Fan Speed" = "Fan Speed";
+"Fan Speed (RPM)" = "Fan Speed (RPM)";
+"Fan Speed(RPM)" = "Fan Speed(RPM)";
+"Filled Area" = "Filled Area";
+"Freq:" = "Freq:";
+"Frequency" = "Frequency";
+"Frequency Max:" = "Frequency Max:";
+"GHz" = "GHz";
+"GitHub Repository" = "GitHub Repository";
+"GitHub Repository\n\nSpecial thanks to the AMD OS X community!\n\nCopyright © 2020-2026 Droga. All rights reserved." = "GitHub Repository\n\nSpecial thanks to the AMD OS X community!\n\nCopyright © 2020-2026 Droga. All rights reserved.";
+"GPU Load" = "GPU Load";
+"GPU Model" = "GPU Model";
+"GPU Power" = "GPU Power";
+"GPU Power (W)" = "GPU Power (W)";
+"GPU Temp" = "GPU Temp";
+"GPU Temp (°C)" = "GPU Temp (°C)";
+"GPU Temperature" = "GPU Temperature";
+"GPU Tracker" = "GPU Tracker";
+"H.264 & HEVC Active" = "H.264 & HEVC Active";
+"H.264 Active (HEVC Inactive)" = "H.264 Active (HEVC Inactive)";
+"HEVC Active (H.264 Inactive)" = "HEVC Active (H.264 Inactive)";
+"Hide this fan" = "Hide this fan";
+"High Load Threshold (Performance)" = "High Load Threshold (Performance)";
+"Histograma de Barras" = "Histograma de Barras";
+"Hysteresis" = "Hysteresis";
+"I accept that absolute responsibility lies entirely with the user." = "I accept that absolute responsibility lies entirely with the user.";
+"Idle Threshold (Power Save)" = "Idle Threshold (Power Save)";
+"Import" = "Import";
+"Inactive" = "Inactive";
+"Inactive / Not Supported" = "Inactive / Not Supported";
+"Index" = "Index";
+"Inject positive or negative voltage offsets per core. Center is 0 (no override). Limit: -30 (undervolt) to +30 (overvolt) counts." = "Inject positive or negative voltage offsets per core. Center is 0 (no override). Limit: -30 (undervolt) to +30 (overvolt) counts.";
+"Inst(s) Retired:" = "Inst(s) Retired:";
+"Kext Update Available" = "Kext Update Available";
+"Later" = "Later";
+"Line Only" = "Line Only";
+"Load" = "Load";
+"Loading..." = "Loading...";
+"Log File Location" = "Log File Location";
+"Logical Cores" = "Logical Cores";
+"Low Performance Mode" = "Low Performance Mode";
+"Low Power\n%.1f GHz" = "Low Power\n%.1f GHz";
+"Línea Escalonada (Step)" = "Línea Escalonada (Step)";
+"Línea Suave (Spline)" = "Línea Suave (Spline)";
+"Manual Override" = "Manual Override";
+"Max Speed" = "Max Speed";
+"Max." = "Max.";
+"MB/s" = "MB/s";
+"Memory Usage" = "Memory Usage";
+"Menu Bar Preview:" = "Menu Bar Preview:";
+"Mi Tema Custom" = "Mi Tema Custom";
+"Min." = "Min.";
+"Monochrome Stealth" = "Monochrome Stealth";
+"Máx." = "Máx.";
+"Máx:" = "Máx:";
+"Mín." = "Mín.";
+"Mín:" = "Mín:";
+"N/A" = "N/A";
+"Net" = "Net";
+"Net Download (MB/s)" = "Net Download (MB/s)";
+"Net Upload (MB/s)" = "Net Upload (MB/s)";
+"Network Speed" = "Network Speed";
+"Network Throughput" = "Network Throughput";
+"Network Total Speed" = "Network Total Speed";
+"New version %@ available!" = "New version %@ available!";
+"New Version Available: %@" = "New Version Available: %@";
+"No" = "No";
+"No AMDRyzenCPUPowerManagement Found!" = "No AMDRyzenCPUPowerManagement Found!";
+"No curves configured." = "No curves configured.";
+"No hay suficientes datos recolectados aún." = "No hay suficientes datos recolectados aún.";
+"No location selected" = "No location selected";
+"No metrics active" = "No metrics active";
+"No release notes available." = "No release notes available.";
+"Nordic Frost" = "Nordic Frost";
+"Not Supported" = "Not Supported";
+"Not supported by your CPU" = "Not supported by your CPU";
+"Not yet" = "Not yet";
+"Open Dashboard" = "Open Dashboard";
+"Other Popover Widgets" = "Other Popover Widgets";
+"P-State Editor" = "P-State Editor";
+"P-States applied successfully." = "P-States applied successfully.";
+"P-States Configuration" = "P-States Configuration";
+"Package" = "Package";
+"Package Power" = "Package Power";
+"Peak Fan" = "Peak Fan";
+"Peak Freq" = "Peak Freq";
+"Peak Power" = "Peak Power";
+"Peak Temp" = "Peak Temp";
+"Performance\n%.1f GHz" = "Performance\n%.1f GHz";
+"Performance & Fallback" = "Performance & Fallback";
+"Personalizado" = "Personalizado";
+"Physical Cores" = "Physical Cores";
+"Pin Popover Open" = "Pin Popover Open";
+"Platform" = "Platform";
+"Please download AMDRyzenCPUPowerManagement from the release page." = "Please download AMDRyzenCPUPowerManagement from the release page.";
+"Popover Config" = "Popover Config";
+"Popover General Settings" = "Popover General Settings";
+"Popover Menu" = "Popover Menu";
+"Power" = "Power";
+"Power Warning Threshold (PPT)" = "Power Warning Threshold (PPT)";
+"Prevent the popover from closing when clicking outside" = "Prevent the popover from closing when clicking outside";
+"Preview" = "Preview";
+"Processor" = "Processor";
+"Profile" = "Profile";
+"Progress Bar" = "Progress Bar";
+"Prom." = "Prom.";
+"PWR" = "PWR";
+"Quick Fan Access" = "Quick Fan Access";
+"Quit" = "Quit";
+"Quit and Download" = "Quit and Download";
+"Radeon GPU" = "Radeon GPU";
+"Radeon Graphics utilization percentage" = "Radeon Graphics utilization percentage";
+"RAM" = "RAM";
+"RAM Tracker" = "RAM Tracker";
+"RAM Usage" = "RAM Usage";
+"RAM Usage (%)" = "RAM Usage (%)";
+"RAM Utilization" = "RAM Utilization";
+"RAM utilization percentage" = "RAM utilization percentage";
+"Ramp Rate" = "Ramp Rate";
+"Raw Register Details" = "Raw Register Details";
+"Read Speed" = "Read Speed";
+"Real-time energy consumption in Watts" = "Real-time energy consumption in Watts";
+"Real-time History" = "Real-time History";
+"Real-time upload / download speed (↑/↓)" = "Real-time upload / download speed (↑/↓)";
+"Receive native macOS alerts when the CPU exceeds configured thermal or power limits." = "Receive native macOS alerts when the CPU exceeds configured thermal or power limits.";
+"Refresh Rate" = "Refresh Rate";
+"Relative Time (s)" = "Relative Time (s)";
+"Replaces translucent blurs with solid colors to save CPU" = "Replaces translucent blurs with solid colors to save CPU";
+"Requests permission and enables hardware limit warnings" = "Requests permission and enables hardware limit warnings";
+"Revert" = "Revert";
+"Right-click any widget directly on your desktop to change its style dynamically (Classic Glass, Pro Monitor, or Core Matrix)." = "Right-click any widget directly on your desktop to change its style dynamically (Classic Glass, Pro Monitor, or Core Matrix).";
+"SAFETY DISCLAIMER & LIABILITY AGREEMENT" = "SAFETY DISCLAIMER & LIABILITY AGREEMENT";
+"Seleccioná una gráfica en el panel superior para visualizar su histórico." = "Seleccioná una gráfica en el panel superior para visualizar su histórico.";
+"Select File..." = "Select File...";
+"Select which metrics are shown and choose their visualization style." = "Select which metrics are shown and choose their visualization style.";
+"Series" = "Series";
+"Show a floating, non-interactive widget on your desktop for live telemetry." = "Show a floating, non-interactive widget on your desktop for live telemetry.";
+"Show All (%d hidden)" = "Show All (%d hidden)";
+"Show CPU" = "Show CPU";
+"Show Fan RPM" = "Show Fan RPM";
+"Show GPU Power" = "Show GPU Power";
+"Show GPU Row" = "Show GPU Row";
+"Show GPU Temp" = "Show GPU Temp";
+"Show Memory" = "Show Memory";
+"Show Network" = "Show Network";
+"Show Network Row" = "Show Network Row";
+"Show Network Speed Sparkline Graph below" = "Show Network Speed Sparkline Graph below";
+"Show Per-Core Utilization Grid below" = "Show Per-Core Utilization Grid below";
+"Show Power" = "Show Power";
+"Show Ring Details" = "Show Ring Details";
+"Show Ring Labels" = "Show Ring Labels";
+"Show Temperature" = "Show Temperature";
+"Show Temperature Sparkline Graph below" = "Show Temperature Sparkline Graph below";
+"Show Top Processes" = "Show Top Processes";
+"Single large value instead of max/avg stack" = "Single large value instead of max/avg stack";
+"SMC Fan Control" = "SMC Fan Control";
+"Smooth Curves" = "Smooth Curves";
+"Software" = "Software";
+"Software Updates" = "Software Updates";
+"Solarized Amber" = "Solarized Amber";
+"Speed" = "Speed";
+"SSD" = "SSD";
+"Startup at login?" = "Startup at login?";
+"Statistics" = "Statistics";
+"Storage" = "Storage";
+"Style" = "Style";
+"Style Options" = "Style Options";
+"Styles & Themes" = "Styles & Themes";
+"Supported by your CPU" = "Supported by your CPU";
+"Sustained Duration" = "Sustained Duration";
+"Swap Total" = "Swap Total";
+"Swap Used" = "Swap Used";
+"System Alert Notifications" = "System Alert Notifications";
+"System Up to Date" = "System Up to Date";
+"Tahoe Glass" = "Tahoe Glass";
+"Temp" = "Temp";
+"Temp Source" = "Temp Source";
+"Temperature" = "Temperature";
+"Temperature Warning Threshold" = "Temperature Warning Threshold";
+"Temperature(C)" = "Temperature(C)";
+"Temperatures" = "Temperatures";
+"Themes & Appearance" = "Themes & Appearance";
+"Thermal History" = "Thermal History";
+"This application can not be launched due to AMDRyzenCPUPowerManagement is reporting incorrect data." = "This application can not be launched due to AMDRyzenCPUPowerManagement is reporting incorrect data.";
+"This software interacts directly with low-level CPU hardware registers, Model-Specific Registers (MSRs), and the System Management Unit (SMU) to control CPU voltages, frequencies, and power limits.\n\nIncorrect settings, unstable undervolting, or wrong configurations can cause system instability, data loss, kernel panics, or permanent hardware damage.\n\nBy continuing, you agree that absolute responsibility for any system instability, hardware damage, or alien invasion lies entirely with the user. The authors and contributors assume no liability whatsoever for any damage, loss, or side effects to your hardware, software, or personal property. Use at your own risk." = "This software interacts directly with low-level CPU hardware registers, Model-Specific Registers (MSRs), and the System Management Unit (SMU) to control CPU voltages, frequencies, and power limits.\n\nIncorrect settings, unstable undervolting, or wrong configurations can cause system instability, data loss, kernel panics, or permanent hardware damage.\n\nBy continuing, you agree that absolute responsibility for any system instability, hardware damage, or alien invasion lies entirely with the user. The authors and contributors assume no liability whatsoever for any damage, loss, or side effects to your hardware, software, or personal property. Use at your own risk.";
+"Thread %d: %.1f%%" = "Thread %d: %.1f%%";
+"Time" = "Time";
+"Timeframe" = "Timeframe";
+"Timestamp" = "Timestamp";
+"TMP" = "TMP";
+"Todas las gráficas están ocultas." = "Todas las gráficas están ocultas.";
+"Top Processes" = "Top Processes";
+"Total" = "Total";
+"Total Power(W)" = "Total Power(W)";
+"Tracks active memory usage and pressure." = "Tracks active memory usage and pressure.";
+"Tracks CPU utilization average and core temperature." = "Tracks CPU utilization average and core temperature.";
+"Tracks graphics memory (VRAM) utilization." = "Tracks graphics memory (VRAM) utilization.";
+"Tracks graphics utilization and temperature." = "Tracks graphics utilization and temperature.";
+"Tracks primary storage capacity usage." = "Tracks primary storage capacity usage.";
+"Unknown" = "Unknown";
+"Unknown GPU" = "Unknown GPU";
+"Unlock Curve Optimizer (DANGEROUS: unstable undervolting can cause kernel panic or instant reboot)" = "Unlock Curve Optimizer (DANGEROUS: unstable undervolting can cause kernel panic or instant reboot)";
+"Unlock P-State Editor (DANGEROUS: incorrect settings can crash or damage hardware)" = "Unlock P-State Editor (DANGEROUS: incorrect settings can crash or damage hardware)";
+"Upload" = "Upload";
+"Uptime" = "Uptime";
+"Use Popover Menu" = "Use Popover Menu";
+"Used memory in GB" = "Used memory in GB";
+"Used RAM" = "Used RAM";
+"UTC Time" = "UTC Time";
+"V-F Operating Curve" = "V-F Operating Curve";
+"Value" = "Value";
+"VDA Decoder" = "VDA Decoder";
+"Visible charts:" = "Visible charts:";
+"Volt:" = "Volt:";
+"VRAM" = "VRAM";
+"VRAM Tracker" = "VRAM Tracker";
+"VRAM Used" = "VRAM Used";
+"VRAM: %.2fG%@" = "VRAM: %.2fG%@";
+"W" = "W";
+"Weekday" = "Weekday";
+"Widget Reordering" = "Widget Reordering";
+"Widget Selection & Display Style" = "Widget Selection & Display Style";
+"Widget Style" = "Widget Style";
+"Write Speed" = "Write Speed";
+"Yes" = "Yes";
+"You are running the most recent version of AMD Power Gadget (v%@)." = "You are running the most recent version of AMD Power Gadget (v%@).";
+"You have the latest version installed (v%@)." = "You have the latest version installed (v%@).";
+"°C" = "°C";
+"Área Rellena (Gradient)" = "Área Rellena (Gradient)";
+
+/* Compatibility / format keys */
+"Your AMDRyzenCPUPowerManagement version (%@) is outdated and no longer API compatible. Please use version 3.0.0 or newer and start this application again." = "Your AMDRyzenCPUPowerManagement version (%@) is outdated and no longer API compatible. Please use version 3.0.0 or newer and start this application again.";
+
+/* App language picker */
+"Language" = "Language";
+"App Language" = "앱 언어";
+"Choose the interface language. The app will restart to apply the change." = "인터페이스 언어를 선택하세요. 변경을 적용하려면 앱이 다시 시작됩니다.";
+"System Default" = "시스템 기본값";
+"Current: %@" = "현재: %@";
+"Restart required" = "재시작 필요";
+"Apply & Restart" = "적용 후 재시작";
+"The app needs to restart to load the selected language." = "선택한 언어를 불러오려면 앱을 다시 시작해야 합니다.";
+
+/* Popover EPP slider labels */
+"Power Save" = "Power Save";
+"Balanced Power" = "Balanced Power";
+"Balanced Perf" = "Balanced Perf";
+"Advanced Controls" = "Advanced Controls";
+
+/* Popover settings sections */
+"Active Monitors" = "Active Monitors";
+"Shortcut Application" = "Shortcut Application";
+
+/* Privilege UX */
+"This action requires administrator privileges. Run AMD Power Gadget as root, or add the boot argument -amdpnopchk for debugging." = "이 작업에는 관리자 권한이 필요합니다. AMD Power Gadget을 root로 실행하거나 부트 인자 -amdpnopchk를 추가하세요.";
+
+/* Crowdin: recent UI strings — CPPC badge vs EPP Active Mode */
+"CPPC: HW OK" = "CPPC: HW OK";
+"CPPC: EPP On" = "CPPC: EPP On";
+"This CPU did not report CPPC support to the kext." = "This CPU did not report CPPC support to the kext.";
+"If the switch snaps back to Off: enable writes with boot-arg -amdpnopchk (or run as root). The green “CPPC: HW OK” badge only means rankings exist — it is not this switch." = "If the switch snaps back to Off: enable writes with boot-arg -amdpnopchk (or run as root). The green “CPPC: HW OK” badge only means rankings exist — it is not this switch.";
+"Native CPPC Active Mode (EPP) is ON. Cores scale autonomously; rankings come from the processor." = "Native CPPC Active Mode (EPP) is ON. Cores scale autonomously; rankings come from the processor.";
+"CPPC hardware scores could not be read. Rankings are estimated from observed clocks. This is not the Profiles EPP toggle." = "CPPC hardware scores could not be read. Rankings are estimated from observed clocks. This is not the Profiles EPP toggle.";
+"The CPU reports CPPC rankings (HW OK). That does not mean Active Mode is on — enable “Native CPPC Active Mode (EPP)” under Profiles (needs -amdpnopchk or root)." = "The CPU reports CPPC rankings (HW OK). That does not mean Active Mode is on — enable “Native CPPC Active Mode (EPP)” under Profiles (needs -amdpnopchk or root).";
+/* Deprecated badge key — kept so old locales still resolve */
+"CPPC: Active" = "CPPC: HW OK";
+
+/* Menu Bar toggles (fabiosun IT) */
+"Show Max Freq Only" = "Show Max Freq Only";
+
+/* Menu Bar toggles (fabiosun IT) */
+"Use Fahrenheit" = "Use Fahrenheit";
+
+/* Menu Bar toggles (fabiosun IT) */
+"Frequency column (max/avg GHz)" = "Frequency column (max/avg GHz)";
+
+/* Menu Bar toggles (fabiosun IT) */
+"CPU temp + optional GPU temp" = "CPU temp + optional GPU temp";
+
+/* Menu Bar toggles (fabiosun IT) */
+"Convert temperature values from Celsius to Fahrenheit" = "Convert temperature values from Celsius to Fahrenheit";
+
+/* Menu Bar toggles (fabiosun IT) */
+"CPU watts + optional GPU watts" = "CPU watts + optional GPU watts";
+
+/* CPPC support gate */
+"Active Mode and Auto-EPP stay off until the kext reports CPPC. Boot-arg -amdcppcactive alone is not enough if MSR/CPUID checks fail — reboot after updating kexts." = "Active Mode and Auto-EPP stay off until the kext reports CPPC. Boot-arg -amdcppcactive alone is not enough if MSR/CPUID checks fail — reboot after updating kexts.";
+"AMDRyzenCPUPowerManagement kext not connected." = "AMDRyzenCPUPowerManagement kext not connected.";
+"If the switch snaps back to Off: enable writes with boot-arg -amdpnopchk (or run as root). With -amdcppcactive the kext enables Active Mode at boot after reboot." = "If the switch snaps back to Off: enable writes with boot-arg -amdpnopchk (or run as root). With -amdcppcactive the kext enables Active Mode at boot after reboot.";
+"Checking for updates..." = "Checking for updates...";

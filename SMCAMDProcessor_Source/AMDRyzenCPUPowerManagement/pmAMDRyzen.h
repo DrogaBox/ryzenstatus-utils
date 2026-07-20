@@ -1,0 +1,125 @@
+//
+//  pmAMDRyzen.h
+//  AMDRyzenCPUPowerManagement
+//
+//  Created by trulyspinach, modified by Droga (2026) on 3/27/20.
+//
+
+#ifndef pmAMDRyzen_h
+#define pmAMDRyzen_h
+
+
+#include <Headers/mach/mach_types.h>
+#include <IOKit/IOLib.h>
+
+#include "Headers/osfmk/i386/pmCPU.h"
+#include "Headers/osfmk/i386/cpu_topology.h"
+
+#include "symresolver/kernel_resolver.h"
+
+#include <i386/proc_reg.h>
+#include "Headers/pmRyzenSymbolTable.h"
+
+#define MOD_NAME pmARyzen
+#define XNU_MAX_CPU 64
+
+// Single idle strategy: sti; hlt — safe on all AMD CPUs.
+// MONITOR/MWAIT (Intel-style) was removed: AMD CPUs do not report
+// CPUID.01h:ECX[3] and the instructions are unsafe on this platform.
+// MONITORX/MWAITX (AMD-style) may be added as a future enhancement.
+typedef enum {
+    PMRYZEN_IDLE_STRATEGY_SIMPLE = 0,  // sti; hlt — safe for all AMD CPUs
+} pmRyzen_idle_strategy_t;
+
+// Runtime idle strategy — set by AMDRyzenCPUPowerManagement::start() based on cpuFamily.
+extern pmRyzen_idle_strategy_t pmRyzen_idle_strategy;
+
+#define MSR_PSTATE_CTL 0xC0010062
+#define MSR_PSTATE_0 0xC0010064
+
+#define EFF_INTERVAL 0.15
+#define PSTATE_LIMIT 1
+#define PSTATE_STEPDOWN_THRE 0.12
+#define PSTATE_STEPUP_THRE 0.38
+#define PSTATE_STEPDOWN_TIME 16
+#define PSTATE_STEPDOWN_MP_GAIN 5
+
+
+extern int cpu_number(void);
+extern void mp_rendezvous_no_intrs(void (*action_func)(void *), void *arg);
+
+extern x86_lcpu_t *pmRyzen_cpunum_to_lcpu[XNU_MAX_CPU];
+
+extern uint32_t pmRyzen_num_phys;
+extern uint32_t pmRyzen_num_logi;
+
+extern uint64_t pmRyzen_exit_idle_c;
+extern uint64_t pmRyzen_exit_idle_ipi_c;
+extern uint64_t pmRyzen_exit_idle_false_c;
+
+
+#pragma mark - Idle Strategy
+extern uint32_t pmRyzen_hpcpus;
+
+extern volatile uint32_t pmRyzen_pstatelimit;
+
+
+extern void pmRyzen_wrmsr_safe(void *, uint32_t, uint64_t);
+extern uint64_t pmRyzen_rdmsr_safe(void *, uint32_t);
+extern pmRyzen_symtable_t pmRyzen_symtable;
+
+
+typedef struct __attribute__((aligned(64))) pmProcessor {
+    // Cache Line 1 (64 bytes): Hot Idle & TSC tracking
+    x86_lcpu_t *lcpu;
+
+#pragma mark - Processor State & API
+    uint64_t stat_exit_idle;
+    uint64_t arm_flag;
+    uint64_t cpu_awake;
+    uint64_t last_idle_tsc;
+    uint64_t last_start_tsc;
+    uint64_t last_idle_length;
+    uint64_t last_running_time;
+
+    // Cache Line 2 (64 bytes): Hot Load accumulators & P-state control
+    uint64_t eff_timeacc;
+    uint64_t eff_idleacc;
+    uint64_t eff_timeaccd;
+    uint64_t eff_idleaccd;
+    float eff_load;
+    uint32_t ll_count;
+    uint8_t PState;
+    uint8_t _reserved[23]; // Align total structure size to exactly 128 bytes (2 cache lines)
+} pmProcessor_t;
+
+void pmRyzen_init(void*, int allowDispatch);
+void pmRyzen_stop(void);
+void pmRyzen_PState_reset(void);
+float pmRyzen_avgload_pcpu(uint32_t);
+
+uint64_t pmRyzen_machine_idle(uint64_t);
+
+int pmRyzen_choose_cpu(int,int,int);
+
+pmProcessor_t* pmRyzen_get_processor(uint32_t);
+
+inline uint32_t pmRyzen_cpu_phys_num(uint32_t cpunum){
+    if (cpunum >= XNU_MAX_CPU || !pmRyzen_cpunum_to_lcpu[cpunum] ||
+        !pmRyzen_cpunum_to_lcpu[cpunum]->core) return 0;
+    return pmRyzen_cpunum_to_lcpu[cpunum]->core->pcore_num;
+}
+
+inline uint32_t pmRyzen_cpu_primary_in_core(uint32_t cpunum){
+    if (cpunum >= XNU_MAX_CPU || !pmRyzen_cpunum_to_lcpu[cpunum] ||
+        !pmRyzen_cpunum_to_lcpu[cpunum]->core) return 0;
+    return pmRyzen_cpunum_to_lcpu[cpunum]->core->lcpus == pmRyzen_cpunum_to_lcpu[cpunum];
+}
+
+inline boolean_t pmRyzen_cpu_is_master(uint32_t cpunum){
+    if (cpunum >= XNU_MAX_CPU || !pmRyzen_cpunum_to_lcpu[cpunum]) return FALSE;
+    return pmRyzen_cpunum_to_lcpu[cpunum]->master;
+}
+
+
+#endif /* pmAMDRyzen_h */
