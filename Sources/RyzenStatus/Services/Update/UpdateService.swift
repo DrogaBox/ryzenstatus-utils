@@ -105,14 +105,19 @@ final class UpdateService: ObservableObject {
         request.setValue("RyzenStatus/\(AppInfo.version)", forHTTPHeaderField: "User-Agent")
         request.cachePolicy = .reloadIgnoringLocalCacheData
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self else { return }
             DispatchQueue.main.async {
                 self.lastChecked = Date()
+                if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 404 {
+                    self.availableNotes = nil
+                    self.state = .failed("No hay releases publicados en GitHub todavía.")
+                    return
+                }
                 guard let data, error == nil,
                       let release = try? JSONDecoder().decode(GitHubRelease.self, from: data) else {
                     self.availableNotes = nil
-                    self.state = .failed(error?.localizedDescription ?? "-")
+                    self.state = .failed(error?.localizedDescription ?? "Error de red o JSON inválido")
                     return
                 }
                 let latest = release.tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV "))
