@@ -169,6 +169,7 @@ The shelf and almost every quick toggle need no permission at all. Finder cut an
 
 - A Hackintosh with AMD or Intel CPU (or Apple Silicon)
 - macOS 13 Ventura or newer
+- **Kernel Extensions (For AMD CPU telemetry):** You must have `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` injected via OpenCore in your EFI folder. The source code for these is bundled in the `SMCAMDProcessor_Source` folder for reference.
 
 ### Build it yourself
 
