@@ -58,7 +58,7 @@ struct SystemSection: View {
                 let currentBlocks = blocks(editing: editing)
                 if hasMenuBarMetric {
                     menuBarMetricModeControl(editing: editing)
-                    if !currentBlocks.isEmpty {
+                    if !currentBlocks.isEmpty && (editing || separateMenuBarMetricsCaptionVisible) {
                         Divider()
                     }
                 }
@@ -93,23 +93,29 @@ struct SystemSection: View {
         }
     }
 
+    @ViewBuilder
     private func menuBarMetricModeControl(editing: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                Toggle(l10n.s.monitorSeparateMenuBarMetrics, isOn: $separateMenuBarMetrics)
-                    .toggleStyle(.checkbox)
-                    .font(.system(size: 11.5, weight: .medium))
-                Spacer(minLength: 0)
-                if editing {
-                    PanelInlineHideButton(isVisible: $separateMenuBarMetricsCaptionVisible)
-                }
+        if !separateMenuBarMetricsCaptionVisible {
+            if editing {
+                PanelHiddenItemRow(title: l10n.s.monitorSeparateMenuBarMetrics,
+                                   systemImage: "switch.2",
+                                   isVisible: $separateMenuBarMetricsCaptionVisible)
             }
-            if separateMenuBarMetricsCaptionVisible || editing {
+        } else {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Toggle(l10n.s.monitorSeparateMenuBarMetrics, isOn: $separateMenuBarMetrics)
+                        .toggleStyle(.checkbox)
+                        .font(.system(size: 11.5, weight: .medium))
+                    Spacer(minLength: 0)
+                    if editing {
+                        PanelInlineHideButton(isVisible: $separateMenuBarMetricsCaptionVisible)
+                    }
+                }
                 Text(l10n.s.monitorSeparateMenuBarMetricsCaption)
                     .font(.system(size: 9.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .opacity(separateMenuBarMetricsCaptionVisible ? 1 : 0.3)
             }
         }
     }
