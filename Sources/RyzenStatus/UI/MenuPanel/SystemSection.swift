@@ -39,6 +39,7 @@ struct SystemSection: View {
     @AppStorage(DefaultsKey.menuBarPeripheralBattery) private var menuBarPeripheralBattery = false
     @AppStorage(DefaultsKey.menuBarPower) private var menuBarPower = false
     @AppStorage(DefaultsKey.menuBarSeparateMetrics) private var separateMenuBarMetrics = false
+    @AppStorage(DefaultsKey.menuBarSeparateMetricsCaptionVisible) private var separateMenuBarMetricsCaptionVisible = true
     @AppStorage(DefaultsKey.monitorSysTemps) private var sysTemps = true
     @AppStorage(DefaultsKey.monitorSysCPU) private var sysCPU = true
     @AppStorage(DefaultsKey.monitorSysGPU) private var sysGPU = true
@@ -56,7 +57,7 @@ struct SystemSection: View {
             VStack(alignment: .leading, spacing: 10) {
                 let currentBlocks = blocks(editing: editing)
                 if hasMenuBarMetric {
-                    menuBarMetricModeControl
+                    menuBarMetricModeControl(editing: editing)
                     if !currentBlocks.isEmpty {
                         Divider()
                     }
@@ -92,15 +93,24 @@ struct SystemSection: View {
         }
     }
 
-    private var menuBarMetricModeControl: some View {
+    private func menuBarMetricModeControl(editing: Bool) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Toggle(l10n.s.monitorSeparateMenuBarMetrics, isOn: $separateMenuBarMetrics)
-                .toggleStyle(.checkbox)
-                .font(.system(size: 11.5, weight: .medium))
-            Text(l10n.s.monitorSeparateMenuBarMetricsCaption)
-                .font(.system(size: 9.5))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                Toggle(l10n.s.monitorSeparateMenuBarMetrics, isOn: $separateMenuBarMetrics)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 11.5, weight: .medium))
+                Spacer(minLength: 0)
+                if editing {
+                    PanelInlineHideButton(isVisible: $separateMenuBarMetricsCaptionVisible)
+                }
+            }
+            if separateMenuBarMetricsCaptionVisible || editing {
+                Text(l10n.s.monitorSeparateMenuBarMetricsCaption)
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .opacity(separateMenuBarMetricsCaptionVisible ? 1 : 0.3)
+            }
         }
     }
 
