@@ -184,7 +184,7 @@ The kext includes SuperIO support for reading and controlling fans on the follow
 - **Nuvoton (NCT668X / NCT67XX)**: NCT610XD, NCT6771F, NCT6776F, NCT6779D, NCT6791D, NCT6792D(A), NCT6793D, NCT6795D, NCT6796D(R), NCT6797D, NCT6798D, NCT6799D, NCT6701D, and NCT668X series.
 - **ITE (IT86XXE)**: IT8688E, IT8686E, IT8665E, IT8689E.
 
-This allows RyzenStatus to read fan speeds, hide/show headers, and apply dynamic custom fan curves directly from the macOS menu bar. For full documentation, refer to the [SMCAMDProcessor Source Docs](SMCAMDProcessor_Source/docs).
+This allows RyzenStatus to read fan speeds, hide/show headers, and apply dynamic custom fan curves directly from the macOS menu bar.
 
 ### Build it yourself
 
