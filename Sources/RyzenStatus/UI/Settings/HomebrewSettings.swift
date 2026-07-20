@@ -318,6 +318,7 @@ struct HomebrewSettings: View {
                         popularityBadge(popularity)
                     }
                 }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
