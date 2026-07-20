@@ -171,6 +171,21 @@ The shelf and almost every quick toggle need no permission at all. Finder cut an
 - macOS 13 Ventura or newer
 - **Kernel Extensions (For AMD CPU telemetry):** You must have `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` injected via OpenCore in your EFI folder. The source code for these is bundled in the `SMCAMDProcessor_Source` folder for reference.
 
+### Kernel Extension Boot Arguments & Features
+
+To get the most out of the AMD telemetry and fan control, you can add the following to your OpenCore `boot-args`:
+
+- **`-amdpnopchk`**: (Recommended) Bypasses privilege checks, allowing RyzenStatus to control fans, EPP, P-States, and Curve Optimizer without running as `root`. Without this, the app is read-only.
+- **`-amdcppcactive`**: Enables CPPC Active Mode at boot, allowing the OS to respect EPP (Energy Performance Preference) profiles like Power Save or Performance.
+- **`-amdpdbg`**: Enables verbose debug logging (for troubleshooting panics or missing sensors).
+
+#### Supported Sensors & Fan Control
+The kext includes SuperIO support for reading and controlling fans on the following chip families:
+- **Nuvoton**: NCT668X, NCT67XX
+- **ITE**: IT86XXE
+
+This allows RyzenStatus to read fan speeds, hide/show headers, and apply dynamic custom fan curves directly from the macOS menu bar. For full documentation, refer to the [SMCAMDProcessor Source Docs](SMCAMDProcessor_Source/docs).
+
 ### Build it yourself
 
 ```sh
