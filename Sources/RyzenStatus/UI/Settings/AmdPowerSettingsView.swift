@@ -12,6 +12,7 @@ struct AmdPowerSettingsView: View {
     @State private var ppmEnabled: Bool = false
     @State private var lpmEnabled: Bool = false
     @ObservedObject private var autoEpp = AutoEppService.shared
+    @ObservedObject private var monitor = SystemMonitor.shared
 
     @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 10
     @AppStorage(DefaultsKey.autoEppLoadThreshold) private var loadThreshold: Int = 50
@@ -41,6 +42,16 @@ struct AmdPowerSettingsView: View {
                         .foregroundColor(.red)
                 }
             } else {
+                Section {
+                    CoreGridDashboard(
+                        cores: monitor.snapshot.cores,
+                        ccdTemperatures: monitor.snapshot.ccdTemperatures,
+                        physicalCoresCount: ProcessorModel.shared.snapshotTelemetry(forceMetric: false).numPhysicalCores
+                    )
+                } footer: {
+                    Text("⚠️ Atención: Mantener esta ventana abierta mantendrá activa la lectura del hardware en segundo plano (SystemMonitor), lo cual puede impactar el consumo de batería y la CPU a lo largo del tiempo. Cierra las preferencias cuando no necesites monitorear.")
+                }
+
                 if cppcSupported {
                     Section {
                         Toggle("Auto EPP (Zen 3)", isOn: $isCPPCActive)
@@ -191,7 +202,11 @@ struct AmdPowerSettingsView: View {
         }
         .formStyle(.grouped)
         .onAppear {
+            SystemMonitor.shared.setMenuPanelNeeds(SystemMonitorPanelNeeds(cpu: true))
             fetchState()
+        }
+        .onDisappear {
+            SystemMonitor.shared.setMenuPanelNeeds(.none)
         }
     }
 

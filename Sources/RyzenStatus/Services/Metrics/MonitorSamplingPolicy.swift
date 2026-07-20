@@ -73,17 +73,15 @@ enum MonitorSamplingPolicy {
             case .peripheralBattery:
                 return 15
             case .cpu, .memory, .network, .disk, .power, .gpuUsage, .temperature:
-                return 1
+                return 0
             }
         }
 
         switch kind {
-        case .cpu, .memory, .network:
-            return 1
+        case .cpu, .memory, .network, .power, .temperature:
+            return 0
         case .gpuUsage:
             return 10
-        case .power, .temperature:
-            return 15
         case .disk:
             // Must stay comfortably under DiskSampler.maxGap (15 s) even
             // after timer tolerance and scheduling slop, or the delta guard
