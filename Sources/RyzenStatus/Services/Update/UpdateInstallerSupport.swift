@@ -1,0 +1,177 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 RyzenStatus
+
+import Foundation
+
+/// Pure helpers for the self-update installer: the shell script text, the
+/// quoting for its elevated (admin) variant and the parsing of the result
+/// marker the script leaves behind. No AppKit, so the unit tests cover the
+/// quoting and the script's failure-reporting contract.
+enum UpdateInstallerSupport {
+    /// Marker the script writes before each fallible step (write-ahead, so
+    /// the marker names the failing step even if the script dies mid-way)
+    /// and replaces with "ok" once the new bundle is in place.
+    static func installFailureCode(fromMarker marker: String) -> String? {
+        let trimmed = marker.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("fail") else { return nil }
+        return trimmed
+    }
+
+    /// The installer: waits for the app to exit, mounts the DMG, stages a
+    /// copy of the new bundle, verifies its signature, swaps it in and
+    /// relaunches. Arguments: $1 app path, $2 dmg path, $3 pid to wait for,
+    /// $4 result marker path, $5 uid to relaunch as (used when running as
+    /// root, where a plain `open` could launch the app as root).
+    static func installerScript() -> String {
+        """
+        #!/bin/sh
+        APP="$1"; DMG="$2"; PID="$3"; RESULT="$4"; ASUSER="$5"
+        SCRIPT="$0"
+        # Write-ahead markers go to a progress file; only a FINISHED run
+        # promotes it to the real marker. The app may relaunch while this
+        # script is still mid-install, and a transient step must not be
+        # reported as a failure.
+        note() { /bin/echo "$1" > "$RESULT.progress" 2>/dev/null; }
+        finalize() { /bin/mv -f "$RESULT.progress" "$RESULT" 2>/dev/null; }
+        cleanup_script() { case "$SCRIPT" in /*) /bin/rm -f "$SCRIPT";; esac; }
+        relaunch() {
+            if [ -n "$ASUSER" ] && [ "$(/usr/bin/id -u)" = "0" ]; then
+                /bin/launchctl asuser "$ASUSER" /usr/bin/open "$1" && return
+            fi
+            /usr/bin/open "$1"
+        }
+        while kill -0 "$PID" 2>/dev/null; do sleep 0.3; done
+        note fail-tempdir
+        MNT="$(/usr/bin/mktemp -d)" || { /bin/rm -f "$DMG"; finalize; relaunch "$APP"; cleanup_script; exit 1; }
+        note fail-mount
+        if ! /usr/bin/hdiutil attach "$DMG" -nobrowse -quiet -mountpoint "$MNT"; then
+            /bin/rmdir "$MNT" 2>/dev/null
+            /bin/rm -f "$DMG"
+            finalize
+            relaunch "$APP"
+            cleanup_script
+            exit 1
+        fi
+        SRC="$(/usr/bin/find "$MNT" -maxdepth 1 -name '*.app' -print -quit)"
+        LAUNCH="$APP"
+        if [ -z "$SRC" ]; then
+            note fail-no-app-in-dmg
+        else
+            # Install under the name the DMG ships, in the same folder. A rebrand
+            # changes the bundle filename, so this renames it on disk too; a plain
+            # update keeps the same name and replaces it in place.
+            DEST="$(/usr/bin/dirname "$APP")/$(/usr/bin/basename "$SRC")"
+            # Stage the full copy FIRST; the old app is only removed after the
+            # copy completed, so a failure mid-copy never leaves the user with no
+            # app at all.
+            STAGE="$DEST.update-new"
+            /bin/rm -rf "$STAGE"
+            note fail-copy
+            if /usr/bin/ditto "$SRC" "$STAGE"; then
+                # Clear ALL xattrs (quarantine + FinderInfo the DMG round-trip
+                # adds): FinderInfo breaks strict signature verification.
+                /usr/bin/xattr -cr "$STAGE" 2>/dev/null
+                # When the user disabled Gatekeeper, spctl cannot assess anything
+                # and rejects even a healthy bundle; the codesign identity check
+                # below stays as the gate in that case.
+                GATEKEEPER_OK=0
+                if /usr/sbin/spctl --status 2>/dev/null | /usr/bin/grep -q disabled; then
+                    GATEKEEPER_OK=1
+                elif /usr/sbin/spctl -a -t exec "$STAGE" >/dev/null 2>&1; then
+                    GATEKEEPER_OK=1
+                fi
+                VERIFY_REQ='identifier "com.ryzenstatus.utils" and anchor apple generic and certificate leaf[subject.OU] = "3D485NHW29"'
+                note fail-verify
+                if /usr/bin/codesign -v --deep --strict -R="$VERIFY_REQ" "$STAGE" 2>/dev/null \
+                    && [ "$GATEKEEPER_OK" = 1 ]; then
+                    note fail-swap
+                    # The backup name is unique per run: after an elevated
+                    # install the old bundle is root-owned, a later user-run
+                    # cannot delete that backup, and reusing a fixed name
+                    # would make the NEXT swap fail on it. Strays from
+                    # earlier runs are swept best-effort (an elevated run
+                    # clears even the root-owned ones).
+                    BACKUP="$DEST.update-old.$PID"
+                    /bin/rm -rf "$DEST".update-old "$DEST".update-old.* 2>/dev/null
+                    if { [ ! -d "$DEST" ] || /bin/mv "$DEST" "$BACKUP"; } \
+                        && /bin/mv "$STAGE" "$DEST"; then
+                        LAUNCH="$DEST"
+                        note ok
+                        # Installed as root: hand the bundle to the user, or
+                        # the next user-path update cannot replace it.
+                        if [ "$(/usr/bin/id -u)" = "0" ] && [ -n "$ASUSER" ]; then
+                            /usr/sbin/chown -R "$ASUSER" "$DEST" 2>/dev/null
+                        fi
+                        /bin/rm -rf "$BACKUP"
+                        # If the bundle was renamed, remove the old-named one.
+                        # This happens only after the new bundle is in place.
+                        [ "$DEST" != "$APP" ] && /bin/rm -rf "$APP"
+                    else
+                        [ -d "$BACKUP" ] && [ ! -d "$DEST" ] && /bin/mv "$BACKUP" "$DEST"
+                    fi
+                fi
+            fi
+            /bin/rm -rf "$STAGE"
+        fi
+        /usr/bin/hdiutil detach "$MNT" -quiet 2>/dev/null \
+            || /usr/bin/hdiutil detach "$MNT" -force -quiet 2>/dev/null \
+            || true
+        /bin/rmdir "$MNT" 2>/dev/null
+        /bin/rm -f "$DMG"
+        finalize
+        relaunch "$LAUNCH"
+        cleanup_script
+        """
+    }
+
+    /// Single-quotes a string for POSIX sh, closing and reopening the quote
+    /// around every embedded single quote (same scheme as
+    /// HomebrewSupport.shellQuote, minus its bare-word fast path).
+    static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// The shell command run with admin rights when the app's folder is not
+    /// writable by the current user. The whole installer travels inline (no
+    /// script file that another process could rewrite before root runs it)
+    /// and is detached with nohup so the prompt returns while the installer
+    /// waits for the app to quit.
+    static func elevatedInstallCommand(appPath: String,
+                                       dmgPath: String,
+                                       pid: Int32,
+                                       resultPath: String,
+                                       uid: uid_t) -> String {
+        let script = shellSingleQuoted(installerScript())
+        let args = [appPath, dmgPath, "\(pid)", resultPath, "\(uid)"]
+            .map(shellSingleQuoted)
+            .joined(separator: " ")
+        return "/usr/bin/nohup /bin/sh -c \(script) ryzenstatus-installer \(args) >/dev/null 2>&1 &"
+    }
+
+    /// Whether the next install attempt should go straight through the admin
+    /// prompt: a previous run failed at the copy or swap step, which is what
+    /// missing write permission looks like from inside the installer. Other
+    /// codes (bad mount, failed verification) are not permission problems, so
+    /// elevating would just add a password prompt to the same failure.
+    static func shouldForceAdminInstall(afterFailureCode code: String?) -> Bool {
+        code == "fail-copy" || code == "fail-swap"
+    }
+
+    /// Whether a new download fraction crossed into the next whole percent,
+    /// so the published state changes ~100 times per download instead of on
+    /// every URLSession callback. The first known fraction always counts.
+    static func progressStepAdvanced(from current: Double?, to fraction: Double) -> Bool {
+        guard let current else { return true }
+        return Int(fraction * 100) > Int(current * 100)
+    }
+
+    /// True when the app cannot be updated in place at all: running from the
+    /// randomized read-only mount Gatekeeper uses for translocated apps, or
+    /// from any other read-only volume (the mounted DMG). External writable
+    /// volumes are fine, so this asks the file system instead of guessing
+    /// from the path.
+    static func runsFromImmutableLocation(appPath: String,
+                                          volumeIsReadOnly: (String) -> Bool) -> Bool {
+        appPath.contains("/AppTranslocation/") || volumeIsReadOnly(appPath)
+    }
+}

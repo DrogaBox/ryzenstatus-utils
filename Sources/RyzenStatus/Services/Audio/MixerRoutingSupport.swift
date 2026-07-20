@@ -1,0 +1,243 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 RyzenStatus
+
+import Foundation
+
+struct MixerInputRouteResolution: Equatable {
+    let effectiveUID: String?
+    let selectedUnavailable: Bool
+    let shouldApplyPreferred: Bool
+}
+
+struct MixerOutputPreferences: Equatable {
+    let outputDeviceUIDs: [String: String]
+    let volumes: [String: Double]
+}
+
+enum MixerRoutingSupport {
+    static let systemDefaultSelectionID = "__system_default__"
+    static let finderBundleIdentifier = "com.apple.finder"
+
+    private static let forbiddenScalars = CharacterSet.controlCharacters.union(.newlines)
+
+    static func isUnity(_ volume: Double) -> Bool {
+        abs(volume - 1) < 0.005
+    }
+
+    static func sanitizedDeviceUID(_ value: Any?) -> String? {
+        guard let raw = value as? String else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 512 else { return nil }
+        guard !trimmed.unicodeScalars.contains(where: { forbiddenScalars.contains($0) }) else {
+            return nil
+        }
+        return trimmed
+    }
+
+    static func sanitizedRouteMap(_ raw: [String: Any]) -> [String: String] {
+        var sanitized: [String: String] = [:]
+        for (rawID, rawUID) in raw {
+            guard let appID = sanitizedAppID(rawID),
+                  let deviceUID = sanitizedDeviceUID(rawUID) else { continue }
+            sanitized[appID] = deviceUID
+        }
+        return sanitized
+    }
+
+    static func effectiveDeviceUID(selectedUID: String?,
+                                   availableUIDs: Set<String>,
+                                   defaultUID: String?) -> String? {
+        if let selectedUID, availableUIDs.contains(selectedUID) {
+            return selectedUID
+        }
+        return defaultUID
+    }
+
+    static func selectedDeviceUnavailable(selectedUID: String?,
+                                          availableUIDs: Set<String>) -> Bool {
+        guard let selectedUID else { return false }
+        return !availableUIDs.contains(selectedUID)
+    }
+
+    static func preferencesAfterUniversalOutputSwitch(outputDeviceUIDs: [String: String],
+                                                      volumes: [String: Double],
+                                                      switchSucceeded: Bool) -> MixerOutputPreferences {
+        MixerOutputPreferences(outputDeviceUIDs: switchSucceeded ? [:] : outputDeviceUIDs,
+                               volumes: volumes)
+    }
+
+    static func nextSelectedOutputDeviceUID(currentUID: String?,
+                                            selectedUIDs: [String],
+                                            availableUIDs: Set<String>) -> String? {
+        var seen = Set<String>()
+        let candidates = selectedUIDs.compactMap { rawUID -> String? in
+            guard let uid = sanitizedDeviceUID(rawUID),
+                  availableUIDs.contains(uid),
+                  seen.insert(uid).inserted else { return nil }
+            return uid
+        }
+        guard !candidates.isEmpty else { return nil }
+        guard let currentUID,
+              let index = candidates.firstIndex(of: currentUID) else {
+            return candidates[0]
+        }
+        guard candidates.count > 1 else { return nil }
+        return candidates[(index + 1) % candidates.count]
+    }
+
+    static func outputLooksLikeHeadphones(name: String,
+                                          uid: String,
+                                          dataSourceName: String?) -> Bool {
+        let haystack = [name, uid, dataSourceName ?? ""]
+            .joined(separator: " ")
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .lowercased()
+        let normalized = haystack.replacingOccurrences(of: #"[^a-z0-9]+"#,
+                                                       with: " ",
+                                                       options: .regularExpression)
+        let directTerms = [
+            "headphone", "headphones", "headset",
+            "earphone", "earphones", "earbud", "earbuds",
+            "airpod", "airpods", "earpod", "earpods",
+            "galaxy buds", "pixel buds", "beats", "bose qc",
+            "sony wh", "sony wf", "jabra", "soundcore"
+        ]
+        return directTerms.contains { normalized.contains($0) }
+    }
+
+    static func requiresEngine(hasAudioObjects: Bool = true,
+                               volume: Double,
+                               selectedOutputDeviceUID: String?,
+                               targetOutputDeviceUID: String?,
+                               defaultOutputDeviceUID: String?) -> Bool {
+        guard hasAudioObjects else { return false }
+        guard let targetOutputDeviceUID else { return false }
+        if !isUnity(volume) { return true }
+        guard let selectedOutputDeviceUID else { return false }
+        guard let defaultOutputDeviceUID else { return true }
+        return selectedOutputDeviceUID != defaultOutputDeviceUID
+            && targetOutputDeviceUID != defaultOutputDeviceUID
+    }
+
+    /// Pro audio hosts (DAWs and live rack hosts) own their output device,
+    /// clock and latency chain; the mixer's stereo-mixdown tap mutes their
+    /// real output and replays it elsewhere, which silences them outright
+    /// (issue #170: Logic and rack hosts stopped playing once routed). They
+    /// are never tapped, so they keep their own audio path and stay out of
+    /// the mixer list.
+    private static let proAudioBundlePrefixes = [
+        "com.apple.logic",       // Logic Pro
+        "com.apple.garageband",
+        "com.apple.mainstage",
+        "com.ableton.",          // Live
+        "com.avid.",             // Pro Tools
+        "com.cockos.reaper",
+        "com.steinberg.",        // Cubase, Nuendo, Dorico
+        "com.presonus.",         // Studio One
+        "com.bitwig.",
+        "com.image-line.",       // FL Studio
+        "com.motu.",             // Digital Performer
+    ]
+
+    static func isHiddenFromMixer(bundleIdentifier: String?, showFinder: Bool) -> Bool {
+        bundleIdentifier == finderBundleIdentifier && !showFinder
+    }
+
+    /// How many parent processes to inspect when the responsible process is
+    /// not a regular app. Browser audio helpers are direct children of their
+    /// app; a small cap keeps a bad parent chain from being walked forever.
+    static let owningAppSearchDepth = 6
+
+    /// The regular app a helper's audio belongs to. Normally that is the
+    /// helper's responsible process, but some browsers detach their helpers
+    /// from the responsibility chain, macOS reports each one as responsible
+    /// for itself, and the browser vanished from the mixer (issue #256). The BSD
+    /// parent chain still leads to the app that spawned the helper, so walk
+    /// it and bill the helper to the nearest regular app.
+    static func owningRegularAppPid(responsiblePid: pid_t,
+                                    isRegularApp: (pid_t) -> Bool,
+                                    parentPid: (pid_t) -> pid_t) -> pid_t? {
+        guard responsiblePid > 0 else { return nil }
+        if isRegularApp(responsiblePid) { return responsiblePid }
+        var current = responsiblePid
+        for _ in 0..<owningAppSearchDepth {
+            current = parentPid(current)
+            guard current > 1 else { return nil }
+            if isRegularApp(current) { return current }
+        }
+        return nil
+    }
+
+    static func needsPersistentFinderRow(showFinder: Bool, hasFinderRow: Bool) -> Bool {
+        showFinder && !hasFinderRow
+    }
+
+    static func bypassesProcessTap(bundleIdentifier: String?, name: String) -> Bool {
+        let bundle = (bundleIdentifier ?? "")
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .lowercased()
+        if bundle == "us.zoom.xos" || bundle.hasPrefix("us.zoom.") {
+            return true
+        }
+        if proAudioBundlePrefixes.contains(where: { bundle.hasPrefix($0) }) {
+            return true
+        }
+
+        let normalizedName = name
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalizedName == "zoom"
+            || normalizedName == "zoom.us"
+            || normalizedName == "zoom workplace"
+    }
+
+    /// Ordering for mixer rows: display name, then id. Swift's sort is not
+    /// stable, so two apps with the same display name need the explicit
+    /// tie-break or their rows can swap places between two refreshes.
+    static func displayOrderedBefore(name: String, id: String,
+                                     otherName: String, otherID: String) -> Bool {
+        switch name.localizedCaseInsensitiveCompare(otherName) {
+        case .orderedAscending: return true
+        case .orderedDescending: return false
+        case .orderedSame: return id < otherID
+        }
+    }
+
+    /// Ordering for device lists: the default device first, then display name,
+    /// then uid — deterministic even for identically named devices (two pairs
+    /// of the same headphone model, two identical USB interfaces).
+    static func deviceDisplayOrderedBefore(isDefault: Bool, name: String, uid: String,
+                                           otherIsDefault: Bool, otherName: String,
+                                           otherUID: String) -> Bool {
+        if isDefault != otherIsDefault { return isDefault }
+        return displayOrderedBefore(name: name, id: uid, otherName: otherName, otherID: otherUID)
+    }
+
+    static func resolveInputDevice(preferredUID: String?,
+                                   availableUIDs: Set<String>,
+                                   currentUID: String?) -> MixerInputRouteResolution {
+        guard let preferredUID else {
+            return MixerInputRouteResolution(effectiveUID: currentUID,
+                                             selectedUnavailable: false,
+                                             shouldApplyPreferred: false)
+        }
+        guard availableUIDs.contains(preferredUID) else {
+            return MixerInputRouteResolution(effectiveUID: currentUID,
+                                             selectedUnavailable: true,
+                                             shouldApplyPreferred: false)
+        }
+        return MixerInputRouteResolution(effectiveUID: preferredUID,
+                                         selectedUnavailable: false,
+                                         shouldApplyPreferred: preferredUID != currentUID)
+    }
+
+    private static func sanitizedAppID(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 512 else { return nil }
+        guard !trimmed.unicodeScalars.contains(where: { forbiddenScalars.contains($0) }) else {
+            return nil
+        }
+        return trimmed
+    }
+}
