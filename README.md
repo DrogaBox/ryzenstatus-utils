@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://ryzenstatus.com">Website</a> ·
+  <a href="https://github.com/DrogaBox/ryzenstatus-utils">GitHub</a> ·
   <a href="#install">Install</a> ·
   <a href="#everything-it-does">Features</a> ·
   <a href="#private-by-default">Privacy</a> ·
@@ -21,15 +21,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ryzenstatus/ryzenstatus-utils/releases"><img src="https://img.shields.io/github/v/release/ryzenstatus/ryzenstatus-utils?label=release&color=4c8dff" alt="Latest release"></a>
-  <a href="https://github.com/ryzenstatus/ryzenstatus-utils/releases"><img src="https://img.shields.io/github/downloads/ryzenstatus/ryzenstatus-utils/total?color=4c8dff" alt="Downloads"></a>
-  <a href="https://github.com/ryzenstatus/ryzenstatus-utils/actions/workflows/ci.yml"><img src="https://github.com/ryzenstatus/ryzenstatus-utils/actions/workflows/ci.yml/badge.svg?branch=main&event=push" alt="CI status"></a>
-  <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-14%2B%20Apple%20Silicon-black" alt="macOS 14 and newer, Apple Silicon"></a>
+  <a href="https://github.com/DrogaBox/ryzenstatus-utils/releases"><img src="https://img.shields.io/github/v/release/DrogaBox/ryzenstatus-utils?label=release&color=4c8dff" alt="Latest release"></a>
+  <a href="https://github.com/DrogaBox/ryzenstatus-utils/releases"><img src="https://img.shields.io/github/downloads/DrogaBox/ryzenstatus-utils/total?color=4c8dff" alt="Downloads"></a>
+  <a href="https://github.com/DrogaBox/ryzenstatus-utils/actions/workflows/ci.yml"><img src="https://github.com/DrogaBox/ryzenstatus-utils/actions/workflows/ci.yml/badge.svg?branch=main&event=push" alt="CI status"></a>
+  <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-13%2B%20AMD%2FIntel-black" alt="macOS 13 and newer, AMD/Intel"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License GPL 3.0 or later"></a>
-</p>
-
-<p align="center">
-  <a href="https://trendshift.io/repositories/53716"><img src="https://img.shields.io/badge/Trendshift-%231%20Swift%20Repository%20of%20the%20Day-e8663d?labelColor=2b2b2b" alt="Number 1 Swift repository of the day on Trendshift"></a>
 </p>
 
 <p align="center">
@@ -130,7 +126,7 @@ With [Homebrew](https://brew.sh):
 brew install --cask ryzenstatus
 ```
 
-Or grab the disk image from the [releases page](https://github.com/ryzenstatus/ryzenstatus-utils/releases) and drag RyzenStatus into Applications.
+Or grab the disk image from the [releases page](https://github.com/DrogaBox/ryzenstatus-utils/releases) and drag RyzenStatus into Applications.
 
 Builds are signed with an Apple Developer ID and notarized, so macOS opens them without a fuss and your permissions survive updates.
 
@@ -171,13 +167,13 @@ The shelf and almost every quick toggle need no permission at all. Finder cut an
 
 ## What you need
 
-- A Mac with Apple Silicon
-- macOS 14 Sonoma or newer
+- A Hackintosh with AMD or Intel CPU (or Apple Silicon)
+- macOS 13 Ventura or newer
 
 ### Build it yourself
 
 ```sh
-git clone https://github.com/ryzenstatus/ryzenstatus-utils.git
+git clone https://github.com/DrogaBox/ryzenstatus-utils.git
 cd ryzenstatus-utils
 ./build.sh            # compile, generate the icon, assemble the signed bundle
 ./build.sh --install  # the same, then install into Applications and launch
@@ -200,14 +196,14 @@ The [troubleshooting guide](docs/TROUBLESHOOTING.md) walks through the common ca
 
 ## Community
 
-RyzenStatus went from first commit to the front of GitHub trending in three days, top of the Swift charts, and issues and pull requests have shaped every release since. Bug reports, feature ideas and translations are all welcome, starting from the [contributing guide](CONTRIBUTING.md).
+Bug reports, feature ideas and translations are all welcome, starting from the [contributing guide](CONTRIBUTING.md).
 
-RyzenStatus is free and will stay that way. If it earned its place in your menu bar, a star helps other people find it, and a [coffee](https://buymeacoffee.com/ryzenstatus) keeps the maintainer awake, with or without the Keep awake feature.
+RyzenStatus is free and open source. If it earned its place in your menu bar, a star helps other people find it!
 
 ## License
 
 [GPL 3.0 or later](LICENSE), copyright 2026 RyzenStatus. The license covers the source code; the RyzenStatus name, logo and look are covered separately in [TRADEMARKS.md](TRADEMARKS.md).
 
 <p align="center">
-  <sub>Made by <a href="https://x.com/ryzenstatus">@ryzenstatus</a></sub>
+  <sub>Made by DrogaBox</sub>
 </p>
