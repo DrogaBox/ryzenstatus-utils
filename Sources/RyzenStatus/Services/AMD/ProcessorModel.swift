@@ -238,6 +238,9 @@ actor ProcessorModel {
         loadPStateDef()
         loadPStateDefClock()
 
+        // Initialize SuperIO for fan reading (selector 90)
+        _ = kernelGetUInt64(count: 2, selector: 90)
+
         if numberOfCores < 1 {
             await MainActor.run {
                 let alert = NSAlert()
