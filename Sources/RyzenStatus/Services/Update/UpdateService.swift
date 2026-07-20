@@ -27,7 +27,7 @@ final class UpdateService: ObservableObject {
     /// preview. Set alongside `.available`; cleared otherwise.
     @Published private(set) var availableNotes: String?
 
-    private let repository = "ryzenstatus/ryzenstatus-utils"
+    private let repository = "DrogaBox/ryzenstatus-utils"
     private var downloadURL: URL?
     private var refreshTimer: Timer?
     private var notifiedVersion: String?   // last release we posted a notification for

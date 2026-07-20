@@ -990,6 +990,7 @@ actor ProcessorModel {
         let gpuUtil: Float
         let gpuVram: Float
         let gpuFan: Float
+        let ccdTemperatures: [Float]
     }
 
     /// Fetches all kext/mach telemetry in a single actor-isolated call,
@@ -1008,7 +1009,8 @@ actor ProcessorModel {
             gpuPower: cachedGPUStats.power,
             gpuUtil: cachedGPUStats.util,
             gpuVram: cachedGPUStats.vram,
-            gpuFan: cachedGPUStats.fan
+            gpuFan: cachedGPUStats.fan,
+            ccdTemperatures: getCCDTemperatures()
         )
     }
 

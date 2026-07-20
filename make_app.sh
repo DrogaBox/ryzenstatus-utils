@@ -22,6 +22,7 @@ done
 printf 'APPL????' > "$STAGE/Contents/PkgInfo"
 cp build/AppIcon.icns "$STAGE/Contents/Resources/AppIcon.icns" 2>/dev/null || true
 cp build/MenuBarIcon.png build/MenuBarIcon@2x.png build/BrandMark.png "$STAGE/Contents/Resources/" 2>/dev/null || true
+cp CHANGELOG.md "$STAGE/Contents/Resources/CHANGELOG.md" 2>/dev/null || true
 
 echo "Signing App Bundle..."
 codesign --force --sign - "$STAGE"

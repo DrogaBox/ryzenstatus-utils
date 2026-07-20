@@ -139,6 +139,7 @@ enum DefaultsKey {
     static let panelToggleScreenSaver = "panelToggleScreenSaver"
 
     // System monitor — live metrics shown next to the menu bar icon (opt-in).
+    static let monitorGraphCPUMode = "monitorGraphCPUMode"
     static let menuBarCPU = "menuBarCPU"
     static let menuBarGPU = "menuBarGPU"
     static let menuBarCPUPower = "menuBarCPUPower"

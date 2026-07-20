@@ -8,7 +8,7 @@ enum AppInfo {
     static let name = "RyzenStatus"
     static let copyright = "© 2026 RyzenStatus"
     static let websiteURL = URL(string: "https://ryzenstatus.com")!
-    static let repositoryURL = URL(string: "https://github.com/ryzenstatus/ryzenstatus-utils")!
+    static let repositoryURL = URL(string: "https://github.com/DrogaBox/ryzenstatus-utils")!
     /// PayPal page. The project stays free; donations and stars are how
     /// the community keeps it alive.
     static let donateURL = URL(string: "https://www.paypal.com/donate/?business=mrleisures@gmail.com")!

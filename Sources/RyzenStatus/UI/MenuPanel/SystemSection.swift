@@ -23,6 +23,7 @@ struct SystemSection: View {
     @State private var lastBreakdownRefresh = Date.distantPast
     private let breakdownLimit = 15
     @AppStorage(DefaultsKey.monitorGraphCPU) private var graphCPU = true
+    @AppStorage(DefaultsKey.monitorGraphCPUMode) private var graphCPUMode = false
     @AppStorage(DefaultsKey.monitorGraphGPU) private var graphGPU = true
     @AppStorage(DefaultsKey.monitorGraphMemory) private var graphMemory = true
     @AppStorage(DefaultsKey.monitorGraphBattery) private var graphBattery = true
@@ -368,12 +369,27 @@ struct SystemSection: View {
             if sysCPU, cpuAvailable {
                 usageRow(label: l10n.s.cpuLabel, fraction: monitor.snapshot.cpuUsage,
                          kind: .cpu, editing: editing, visible: $sysCPU)
-                if graphCPU, monitor.snapshot.cpuHistory.count >= 2 {
-                    Sparkline(values: monitor.snapshot.cpuHistory,
-                              color: .accentColor,
-                              maxValue: 1,
-                              showsZeroBaseline: true)
-                        .frame(height: 22)
+                
+                if editing {
+                    Toggle("Per-Core Grid", isOn: $graphCPUMode)
+                        .toggleStyle(.checkbox)
+                        .font(.system(size: 10))
+                        .padding(.leading, 18)
+                        .padding(.bottom, 4)
+                }
+
+                if graphCPU {
+                    if graphCPUMode, !monitor.snapshot.cores.isEmpty {
+                        CPUCoreGridView(cores: monitor.snapshot.cores)
+                            .padding(.top, 4)
+                            .padding(.bottom, 6)
+                    } else if monitor.snapshot.cpuHistory.count >= 2 {
+                        Sparkline(values: monitor.snapshot.cpuHistory,
+                                  color: .accentColor,
+                                  maxValue: 1,
+                                  showsZeroBaseline: true)
+                            .frame(height: 22)
+                    }
                 }
                 breakdownList(for: .cpu)
             } else if editing, cpuAvailable {

@@ -64,6 +64,10 @@ struct SystemSnapshot {
     var systemPowerHistory: [Double] = []  // watts
     var batteryHistory: [Double] = []      // 0...1 charge level
     var gpuMemoryHistory: [Double] = []    // 0...1
+
+    // Detailed AMD Telemetry
+    var cores: [CoreSnapshot] = []
+    var ccdTemperatures: [Float] = []
 }
 
 /// What parts of the menu panel are actually visible right now. The popover can
@@ -135,6 +139,7 @@ final class SystemMonitor: ObservableObject {
 
     // Running state
     private var previousCPUTicks: (busy: UInt64, total: UInt64)?
+    private var previousCoreTicks: [(busy: UInt64, total: UInt64)] = []
     private var tickCount = 0
     /// Timer cadence in base ticks (GCD of the needed strides); 1 = every tick.
     private var scheduledWakeTicks = 1
@@ -144,6 +149,9 @@ final class SystemMonitor: ObservableObject {
     /// what triggers the immediate resample instead of a wait of up to 60 s.
     private var lastSyncedPlan: SamplingPlan?
     private var lastCPUUsage: Double?
+    private var cores: [CoreSnapshot] = []
+    private var ccdTemperatures: [Double] = []
+    private var lastAmdSnapshot: ProcessorModel.TelemetrySnapshot?
     private var missedCPUUsageSamples = 0
     private var lastGPUUsage: Double?
     private var missedGPUUsageSamples = 0
@@ -578,8 +586,14 @@ final class SystemMonitor: ObservableObject {
         tickCount &+= scheduledWakeTicks
         // If AMD power metrics are needed, trigger a fresh kext read on the actor
         // so the nonisolated PowerCache is populated before the queue reads it.
-        if plan.needAMDPower {
-            Task { await ProcessorModel.shared.refreshPowerCache() }
+        if plan.needAMDPower || plan.needCPU {
+            Task { [weak self] in
+                await ProcessorModel.shared.refreshPowerCache()
+                let snap = await ProcessorModel.shared.snapshotTelemetry(forceMetric: false)
+                self?.queue.async {
+                    self?.lastAmdSnapshot = snap
+                }
+            }
         }
         queue.async { [weak self] in
             guard let self else { return }
@@ -608,12 +622,19 @@ final class SystemMonitor: ObservableObject {
                     self.lastCPUUsage = cpu
                     self.missedCPUUsageSamples = 0
                     self.cpuHistory.push(cpu)
+                    
+                    // Fetch per-core metrics
+                    let (cores, ccdTemps) = self.readCoreUsageAndTelemetry()
+                    self.cores = cores
+                    self.ccdTemperatures = ccdTemps.map { Double($0) }
                 } else if self.missedCPUUsageSamples < 3 {
                     self.missedCPUUsageSamples += 1
                 } else {
                     self.lastCPUUsage = nil
                 }
                 next.cpuUsage = self.lastCPUUsage
+                next.cores = self.cores
+                next.ccdTemperatures = self.ccdTemperatures.map { Float($0) }
             }
 
             if plan.needMemory {
@@ -940,6 +961,83 @@ final class SystemMonitor: ObservableObject {
         defer { previousCPUTicks = (busy, total) }
         guard let previous = previousCPUTicks, total > previous.total else { return nil }
         return Double(busy - previous.busy) / Double(total - previous.total)
+    }
+
+    /// Fetches per-core load using host_processor_info and combines it with
+    /// AMD telemetry (frequencies, temperatures) from ProcessorModel.
+    private func readCoreUsageAndTelemetry() -> (cores: [CoreSnapshot], ccdTemps: [Float]) {
+        let amdSnap = self.lastAmdSnapshot ?? ProcessorModel.TelemetrySnapshot(metric: [], loadIndex: [], numPhysicalCores: 16, gpuTemp: 0, gpuPower: 0, gpuUtil: 0, gpuVram: 0, gpuFan: 0, ccdTemperatures: [])
+        let numPhysical = amdSnap.numPhysicalCores > 0 ? amdSnap.numPhysicalCores : 16 // fallback
+
+        // Get Host Processor Info for per-core load
+        var cpuCount: natural_t = 0
+        var cpuInfo: processor_info_array_t?
+        var numCpuInfo: mach_msg_type_number_t = 0
+        let host = mach_host_self()
+        defer { mach_port_deallocate(mach_task_self_, host) }
+        
+        var coreLoads: [Float] = []
+        let kr = host_processor_info(host, PROCESSOR_CPU_LOAD_INFO, &cpuCount, &cpuInfo, &numCpuInfo)
+        
+        if kr == KERN_SUCCESS, let cpuInfo = cpuInfo {
+            let cpuLoadInfo = cpuInfo.withMemoryRebound(to: integer_t.self, capacity: Int(numCpuInfo)) { ptr in
+                UnsafeBufferPointer(start: ptr, count: Int(numCpuInfo))
+            }
+            
+            var newTicks: [(busy: UInt64, total: UInt64)] = []
+            for i in 0..<Int(cpuCount) {
+                let offset = i * Int(CPU_STATE_MAX)
+                let user = UInt64(cpuLoadInfo[offset + Int(CPU_STATE_USER)])
+                let system = UInt64(cpuLoadInfo[offset + Int(CPU_STATE_SYSTEM)])
+                let idle = UInt64(cpuLoadInfo[offset + Int(CPU_STATE_IDLE)])
+                let nice = UInt64(cpuLoadInfo[offset + Int(CPU_STATE_NICE)])
+                let busy = user + system + nice
+                let total = busy + idle
+                newTicks.append((busy, total))
+                
+                var load: Float = 0
+                if previousCoreTicks.count > i {
+                    let prev = previousCoreTicks[i]
+                    if total > prev.total {
+                        load = Float(busy - prev.busy) / Float(total - prev.total)
+                    }
+                }
+                coreLoads.append(load * 100.0)
+            }
+            
+            previousCoreTicks = newTicks
+            let deallocSize = vm_size_t(numCpuInfo) * vm_size_t(MemoryLayout<integer_t>.size)
+            vm_deallocate(mach_task_self_, vm_address_t(bitPattern: cpuInfo), deallocSize)
+        }
+        
+        // Build CoreSnapshots
+        var cores: [CoreSnapshot] = []
+        let numLogical = Int(cpuCount)
+        if numLogical > 0 {
+            // For Ryzen, logical thread N maps to physical core N % numPhysical
+            for logicalIdx in 0..<numLogical {
+                let physicalIdx = logicalIdx % numPhysical
+                // Core clocks start at index 3 in the metric array (0=Power, 1=Temp, 2=PStateCur)
+                let freqIdx = physicalIdx + 3
+                let freq = amdSnap.metric.count > freqIdx ? amdSnap.metric[freqIdx] : 0.0
+                let load = coreLoads.count > logicalIdx ? coreLoads[logicalIdx] : 0.0
+                let isLogical = logicalIdx >= numPhysical
+                
+                cores.append(CoreSnapshot(
+                    id: logicalIdx,
+                    freqMHz: freq,
+                    loadPct: load,
+                    isLogical: isLogical,
+                    cppcScore: nil, // We'd need to fetch CPPC scores separately if required
+                    cppcScoreEstimated: false,
+                    coreRank: nil
+                ))
+            }
+        }
+        
+        let ccdTemps = amdSnap.ccdTemperatures
+        
+        return (cores, ccdTemps)
     }
 
     // MARK: - GPU usage
