@@ -419,6 +419,8 @@ struct HomebrewSettings: View {
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            
             if homebrew.operationStatus != nil {
                 Divider()
                 operationLog
