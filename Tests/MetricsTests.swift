@@ -1879,7 +1879,7 @@ struct MetricsTests {
         expect(Defaults.sanitizedClipboardHistoryLimit(999) == 50,
                "unsupported clipboard history limits fall back to default")
         expect(Defaults.sanitizedMonitorInterval(5) == 5, "valid monitor interval is preserved")
-        expect(Defaults.sanitizedMonitorInterval(7) == 1.0, "invalid monitor interval falls back to default")
+        expect(Defaults.sanitizedMonitorInterval(7) == 5.0, "invalid monitor interval is clamped to nearest allowed value")
         expect(Defaults.sanitizedKeyboardDebounceWindow(80) == 80,
                "valid debounce window is preserved")
         expect(Defaults.sanitizedKeyboardDebounceWindow(999) == Defaults.defaultKeyboardDebounceWindowMs,
