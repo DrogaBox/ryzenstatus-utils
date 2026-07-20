@@ -15,16 +15,6 @@ let iconSizes: [(name: String, px: Int)] = [
     ("icon_512x512", 512), ("icon_512x512@2x", 1024),
 ]
 
-let icnsTypesByPixelSize: [Int: String] = [
-    16: "icp4",
-    32: "icp5",
-    64: "icp6",
-    128: "ic07",
-    256: "ic08",
-    512: "ic09",
-    1024: "ic10",
-]
-
 let outDir = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "AppIcon.iconset"
 let scriptDir = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
 let projectDir = scriptDir.deletingLastPathComponent()
@@ -124,45 +114,15 @@ func renderMenuBarIcon(scale: Int) -> Data? {
     return rep.representation(using: .png, properties: [:])
 }
 
-func appendFourCC(_ value: String, to data: inout Data) {
-    data.append(contentsOf: value.utf8)
-}
-
-func appendUInt32BE(_ value: Int, to data: inout Data) {
-    let clamped = UInt32(value)
-    data.append(UInt8((clamped >> 24) & 0xff))
-    data.append(UInt8((clamped >> 16) & 0xff))
-    data.append(UInt8((clamped >> 8) & 0xff))
-    data.append(UInt8(clamped & 0xff))
-}
-
-func writeICNS(entries: [(type: String, data: Data)], to url: URL) throws {
-    let totalLength = 8 + entries.reduce(0) { $0 + 8 + $1.data.count }
-    var icns = Data()
-    appendFourCC("icns", to: &icns)
-    appendUInt32BE(totalLength, to: &icns)
-    for entry in entries {
-        appendFourCC(entry.type, to: &icns)
-        appendUInt32BE(8 + entry.data.count, to: &icns)
-        icns.append(entry.data)
-    }
-    try icns.write(to: url)
-}
 
 try? FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
-var icnsEntries: [(type: String, data: Data)] = []
-var usedICNSTypes = Set<String>()
 for (name, px) in iconSizes {
     guard let data = renderAppIcon(px: px) else {
         print("failed to render \(name)")
         exit(1)
     }
     try data.write(to: URL(fileURLWithPath: "\(outDir)/\(name).png"))
-    if let type = icnsTypesByPixelSize[px], usedICNSTypes.insert(type).inserted {
-        icnsEntries.append((type: type, data: data))
-    }
 }
-try writeICNS(entries: icnsEntries, to: URL(fileURLWithPath: "\(outDir)/../AppIcon.icns"))
 
 for scale in [1, 2] {
     guard let data = renderMenuBarIcon(scale: scale) else {

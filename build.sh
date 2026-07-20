@@ -173,6 +173,7 @@ swiftc -O -target "$TARGET" -sdk "$SDK" \
 
 echo "▸ Generating app icon…"
 swift Tools/MakeIcon.swift build/AppIcon.iconset
+iconutil -c icns build/AppIcon.iconset
 xattr -c -r build/AppIcon.iconset build/AppIcon.icns build/MenuBarIcon.png build/MenuBarIcon@2x.png build/BrandMark.png 2>/dev/null || true
 
 echo "▸ Assembling and signing bundle…"
