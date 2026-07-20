@@ -1,0 +1,183 @@
+//
+//  ISSuperIONCT6683.cpp
+//  AMDRyzenCPUPowerManagement
+//
+//  Created by trulyspinach, modified by Droga (2026) on 5/17/20.
+//
+
+#include "ISSuperIONCT668X.hpp"
+
+ISSuperIONCT668X::ISSuperIONCT668X(int psel, uint16_t addr, uint16_t chipIntel){
+    lpcPortSel = psel;
+    chipAddr = addr;
+    
+    activeFansOnSystem = NCT668X_MAX_NUMFAN;
+    
+    //backup default ctrl mode
+//    for (int i = 0; i < activeFansOnSystem; i++) {
+//        fanDefaultControlMode[i] = readByte(kFAN_CTRL_MODE_REGS[i]);
+//    }
+}
+
+ISSuperIONCT668X* ISSuperIONCT668X::getDevice(uint16_t *chipIntel){
+    
+    i386_ioport_t regport = 0;
+    uint8_t deviceID=0, revision=0;
+    bool found = false;
+    int portSel = 0;
+    IOLog("probe NCT668X\n");
+    
+    for (; portSel < 2; portSel++) {
+        regport = ISLPCPort::kREGISTER_PORTS[portSel];
+        
+        //open port
+        outb(regport, CHIP_SIO_OPEN);
+        outb(regport, CHIP_SIO_OPEN);
+        
+        
+        deviceID = ISLPCPort::readByte(portSel, ISLPCPort::kCHIP_ID_REG);
+        revision = ISLPCPort::readByte(portSel, ISLPCPort::kCHIP_REVISION_REG);
+        found = false;
+        
+        switch (((deviceID << 8) | revision) & 0xfff0) {
+            case CHIP_NCT6681:
+            case CHIP_NCT6683:
+                found = true;
+                IOLog("NCT668X chip identified\n");
+                break;
+                
+            default:
+                
+                break;
+        }
+        
+        
+        if(found) break;
+        else{
+            //close port
+            outb(regport, CHIP_SIO_CLOSE);
+            //668X needs additional step to close port.
+            outb(regport, 0x02);
+            outb(regport, 0x02);
+        }
+    }
+    *chipIntel = (deviceID << 8) | revision;
+    if(!found) return nullptr;
+    
+    IOLog("SMC Chip id:%X revision:%X \n", deviceID, revision);
+    ISLPCPort::select(portSel, CHIP_HWM_LDN);
+    
+    uint16_t devAddr = ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER) & (~7);
+    
+    IOLog("Chip address: 0x%X\n", devAddr);
+    
+    IODelay(10);
+    uint16_t devAddrVerify = ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER) & (~7);
+    if (devAddrVerify != devAddr) {
+        IOLog("NCT668X address verification failed: 0x%X != 0x%X\n", devAddrVerify, devAddr);
+        return nullptr;
+    }
+    
+    //Now that the present of chip is confirmed, disable IO address space lock.
+    uint8_t conf = 0;
+    switch (*chipIntel) {
+        //in short these is all of what we currentlt supports.
+        case CHIP_NCT6681:
+        case CHIP_NCT6683:
+            conf = ISLPCPort::readByte(portSel, 0x30);
+            if(conf & 0x01){
+                ISLPCPort::writeByte(portSel, 0x30, conf & ~0x01);
+            }
+            break;
+            
+        default:
+            break;
+    }
+    
+    //close port
+    outb(regport, CHIP_SIO_CLOSE);
+    outb(regport, 0x02);
+    outb(regport, 0x02);
+    
+    return new ISSuperIONCT668X(portSel, devAddr, *chipIntel);
+}
+
+uint8_t ISSuperIONCT668X::readByte(uint16_t addr){
+    outb(chipAddr + EC_BANK_REG_OFFSET, 0xff);
+    outb(chipAddr + EC_BANK_REG_OFFSET, addr >> 8);
+    outb(chipAddr + EC_INDEX_REG_OFFSET, addr & 0xff);
+    return inb(chipAddr + EC_DAT_REG_OFFSET);
+}
+
+uint16_t ISSuperIONCT668X::readWord(uint16_t addr){
+    return (readByte(addr) << 8) | readByte(addr + 1);
+}
+
+void ISSuperIONCT668X::writeByte(uint16_t addr, uint8_t val){
+    outb(chipAddr + EC_BANK_REG_OFFSET, 0xff);
+    outb(chipAddr + EC_BANK_REG_OFFSET, addr >> 8);
+    outb(chipAddr + EC_INDEX_REG_OFFSET, addr & 0xff);
+    outb(chipAddr + EC_DAT_REG_OFFSET, val);
+}
+
+int ISSuperIONCT668X::getNumberOfFans(){
+    return activeFansOnSystem;
+}
+
+const char *ISSuperIONCT668X::getReadableStringForFan(int fan){
+    if (fan < 0 || fan >= activeFansOnSystem) return nullptr;
+    const int kLabelCount = (int)(sizeof(kFAN_READABLE_STRS) / sizeof(kFAN_READABLE_STRS[0]));
+    if (fan >= kLabelCount) return "Fan";
+    return kFAN_READABLE_STRS[fan];
+}
+
+uint32_t ISSuperIONCT668X::getRPMForFan(int fan){
+    if(fan < 0 || fan >= activeFansOnSystem) return 0;
+    return fanRPMs[fan];
+}
+
+bool ISSuperIONCT668X::getFanAutoControlMode(int fan){
+    if(fan < 0 || fan >= activeFansOnSystem) return 0;
+    return fanControlMode[fan] != 0;
+}
+
+uint8_t ISSuperIONCT668X::getFanThrottle(int fan){
+    if(fan < 0 || fan >= activeFansOnSystem) return 0;
+    return fanThrottles[fan];
+}
+
+void ISSuperIONCT668X::updateFanRPMS(){
+   
+    for (int i = 0; i < activeFansOnSystem; i++) {
+        int v = (int)readWord(FAN_RPM_REGS(i));
+        fanRPMs[i] = v;
+//        IOLog("fan %d: %d\n", i, (int)v);
+    }
+}
+
+void ISSuperIONCT668X::updateFanControl(){
+    for (int i = 0; i < activeFansOnSystem; i++) {
+        uint8_t mode = readByte(FAN_PWMCMD_REGS(i));
+        fanControlMode[i] = (mode == 0) ? 1 : 0;
+        fanThrottles[i] = readByte(FAN_PWM_REGS(i));
+    }
+}
+
+void ISSuperIONCT668X::overrideFanControl(int fan, uint8_t thr){
+    if(fan < 0 || fan >= activeFansOnSystem) return;
+    writeByte(FAN_CFG_CTRL_REG, FAN_CFG_REQ);
+    // IODelay (µs) instead of IOSleep (ms): evaluateFanCurves may hold superIOLock;
+    // sleeping while holding the lock stalls concurrent UserClient SuperIO calls.
+    IODelay(50);
+    writeByte(FAN_PWMCMD_REGS(fan), thr);
+    writeByte(FAN_CFG_CTRL_REG, FAN_CFG_DONE);
+}
+
+void ISSuperIONCT668X::setDefaultFanControl(int fan){
+    if(fan < 0 || fan >= activeFansOnSystem) return;
+    writeByte(FAN_CFG_CTRL_REG, FAN_CFG_REQ);
+    IODelay(50);
+    writeByte(FAN_PWMCMD_REGS(fan), 0);
+    writeByte(FAN_CFG_CTRL_REG, FAN_CFG_DONE);
+    fanControlMode[fan] = 1;
+}

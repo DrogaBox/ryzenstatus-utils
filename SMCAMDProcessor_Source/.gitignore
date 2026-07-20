@@ -1,0 +1,37 @@
+Lilu.kext/
+VirtualSMC.kext/
+VirtualSMC/
+SMCAMDProcessor.xcodeproj/xcuserdata/
+SMCAMDProcessor.xcodeproj/project.xcworkspace/
+.DS_Store
+cleanup.py
+build/
+*.zip
+Binaries_Release/
+Binaries_*/
+*.dSYM
+Tools/
+!Tools/cpu_compat_report.sh
+dSYM/
+.opencode/
+AGENTS.md
+CONTEXT.md
+.agents/
+*.log
+build_ci/
+build_release/
+# Scratch diagnostic binaries (keep sources only)
+scratch/dump_sio
+scratch/write_sio
+scratch/*.o
+scratch/*.c
+
+# Local Crowdin API credentials (never commit)
+.crowdin-credentials
+.crowdin.env
+crowdin-credentials.env
+
+# Local xcodebuild derived data
+build_unit_test/
+build-test/
+.freebuff/
