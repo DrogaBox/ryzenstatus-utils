@@ -4730,8 +4730,8 @@ struct MetricsTests {
 
         expect(MonitorSamplingPolicy.wakeTicks(for: [.cpu, .disk], intervalSeconds: 2, foreground: false) == 1,
                "monitor wakes every tick while an every-tick metric is on")
-        expect(MonitorSamplingPolicy.wakeTicks(for: [.temperature], intervalSeconds: 2, foreground: false) == 8,
-               "monitor with only temperature wakes once per temperature stride")
+        expect(MonitorSamplingPolicy.wakeTicks(for: [.temperature], intervalSeconds: 2, foreground: false) == 1,
+               "monitor with only temperature wakes every tick")
         expect(MonitorSamplingPolicy.wakeTicks(for: [.peripheralBattery], intervalSeconds: 2, foreground: false) == 30,
                "monitor with only peripheral battery wakes once per minute")
         expect(MonitorSamplingPolicy.wakeTicks(for: [.disk, .peripheralBattery], intervalSeconds: 2, foreground: false) == 5,
