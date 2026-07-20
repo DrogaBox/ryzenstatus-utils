@@ -43,14 +43,14 @@ jobs:
         run: ./build.sh
 
       - name: Selftest
-        run: ./build/ZenStatus --selftest
+        run: ./build/RyzenStatus --selftest
 
       - name: Notarize app
         env:
           NOTARY_API_KEY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
-        run: ./Tools/notarize.sh build/stage/ZenStatus.app
+        run: ./Tools/notarize.sh build/stage/RyzenStatus.app
 
       - name: Package DMG
         run: ./Tools/make-dmg.sh
@@ -68,7 +68,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist/showcase
           if [[ "$VERSION" == "3.1.4" ]]; then
-            ASSET="zenstatus-3.1.4-showcase-1.mp4"
+            ASSET="ryzenstatus-3.1.4-showcase-1.mp4"
             SOURCE="ReleaseAssets/$ASSET"
             TARGET="dist/showcase/$ASSET"
             if [[ -f "$SOURCE" ]]; then
@@ -76,7 +76,7 @@ jobs:
             fi
             if [[ ! -s "$TARGET" ]]; then
               echo "Missing required showcase media: $TARGET" >&2
-              echo "The app expects https://github.com/zenstatus/zenstatus-utils/releases/download/v3.1.4/$ASSET" >&2
+              echo "The app expects https://github.com/DrogaBox/ryzenstatus-utils/releases/download/v3.1.4/$ASSET" >&2
               exit 1
             fi
           fi
@@ -100,9 +100,9 @@ jobs:
           }
           trap cleanup EXIT
           hdiutil attach -nobrowse -readonly -mountpoint "$MP" "$DMG"
-          spctl -a -t exec -vv "$MP/ZenStatus.app" 2>&1 | tee /tmp/spctl.txt
+          spctl -a -t exec -vv "$MP/RyzenStatus.app" 2>&1 | tee /tmp/spctl.txt
           grep -q "source=Notarized Developer ID" /tmp/spctl.txt
-          xcrun stapler validate "$MP/ZenStatus.app"
+          xcrun stapler validate "$MP/RyzenStatus.app"
 
       - name: Release notes from CHANGELOG
         id: notes
@@ -121,7 +121,7 @@ jobs:
             echo "NOTES<<__VRSS_EOF__"
             printf '%s\n' "$NOTES"
             echo ""
-            echo "Signed with an Apple Developer ID and notarized by Apple, so it downloads and opens normally. Requires macOS 14 or later. Open the .dmg below and drag ZenStatus to Applications."
+            echo "Signed with an Apple Developer ID and notarized by Apple, so it downloads and opens normally. Requires macOS 14 or later. Open the .dmg below and drag RyzenStatus to Applications."
             echo "__VRSS_EOF__"
           } >> "$GITHUB_OUTPUT"
 

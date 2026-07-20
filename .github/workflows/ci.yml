@@ -25,14 +25,14 @@ jobs:
         run: ./build.sh
 
       - name: Selftest
-        run: ./build/ZenStatus --selftest
+        run: ./build/RyzenStatus --selftest
 
       - name: Package DMG
         run: ./Tools/make-dmg.sh
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
-          name: ZenStatus-dmg
+          name: RyzenStatus-dmg
           path: dist/*.dmg
           if-no-files-found: error
