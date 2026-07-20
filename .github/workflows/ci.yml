@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: Build & selftest
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Unit tests
+        run: ./build.sh --test
+
+      - name: Set up signing
+        env:
+          SIGNING_CERT_P12: ${{ secrets.SIGNING_CERT_P12 }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
+        run: ./Tools/ci-setup-signing.sh
+
+      - name: Build
+        run: ./build.sh
+
+      - name: Selftest
+        run: ./build/ZenStatus --selftest
+
+      - name: Package DMG
+        run: ./Tools/make-dmg.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ZenStatus-dmg
+          path: dist/*.dmg
+          if-no-files-found: error

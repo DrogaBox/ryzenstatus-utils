@@ -1,0 +1,417 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 RyzenStatus
+
+import AppKit
+import Combine
+
+/// Checks GitHub Releases for a newer version and, when asked, downloads the
+/// release DMG and installs it over the running app. Self-update for an app
+/// distributed outside the App Store, with no third-party framework.
+final class UpdateService: ObservableObject {
+    static let shared = UpdateService()
+
+    enum State: Equatable {
+        case idle
+        case checking
+        case upToDate
+        case available(version: String)
+        /// nil while the total size is still unknown (indeterminate spinner).
+        case downloading(progress: Double?)
+        case installing
+        case failed(String)
+    }
+
+    @Published private(set) var state: State = .idle
+    @Published private(set) var lastChecked: Date?
+    /// Markdown release notes for the available update, shown in the pre-install
+    /// preview. Set alongside `.available`; cleared otherwise.
+    @Published private(set) var availableNotes: String?
+
+    private let repository = "ryzenstatus/ryzenstatus-utils"
+    private var downloadURL: URL?
+    private var refreshTimer: Timer?
+    private var notifiedVersion: String?   // last release we posted a notification for
+    private var downloadObservation: NSKeyValueObservation?
+
+    private init() {}
+
+    var autoCheckEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: DefaultsKey.autoCheckUpdates) as? Bool ?? true }
+        set {
+            UserDefaults.standard.set(newValue, forKey: DefaultsKey.autoCheckUpdates)
+            configureAutomaticChecks()
+        }
+    }
+
+    // MARK: - Scheduling
+
+    /// Called at launch: checks shortly after start and then daily, if enabled.
+    func startAutomaticChecks() {
+        consumeInstallResult()
+        // The local dev build never auto-updates, but can simulate the
+        // "update available" UI via the `simulateUpdate` default, for testing.
+        if AppInfo.isDeveloperBuild {
+            if UserDefaults.standard.bool(forKey: DefaultsKey.simulateUpdate) {
+                state = .available(version: "9.9.9")
+                availableNotes = ReleaseNotes.rawNotes(for: AppInfo.version)
+            }
+            return
+        }
+        configureAutomaticChecks()
+        if autoCheckEnabled {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+                self?.check(manual: false)
+            }
+        }
+    }
+
+    private func configureAutomaticChecks() {
+        refreshTimer?.invalidate()
+        refreshTimer = nil
+        guard autoCheckEnabled else { return }
+        // Hourly (was daily). Combined with the activate / panel-open checks, a new
+        // release surfaces within the hour instead of up to a day later.
+        let timer = Timer(timeInterval: 60 * 60, repeats: true) { [weak self] _ in
+            self?.check(manual: false)
+        }
+        timer.tolerance = 60 * 5
+        RunLoop.main.add(timer, forMode: .common)
+        refreshTimer = timer
+    }
+
+    // MARK: - Check
+
+    func check(manual: Bool) {
+        if AppInfo.isDeveloperBuild {
+            // No real update target; reflect the simulation default so the
+            // notification UI can be exercised locally.
+            if UserDefaults.standard.bool(forKey: DefaultsKey.simulateUpdate) {
+                state = .available(version: "9.9.9")
+                availableNotes = ReleaseNotes.rawNotes(for: AppInfo.version)
+            } else {
+                state = .upToDate
+                availableNotes = nil
+            }
+            lastChecked = Date()
+            return
+        }
+        if case .checking = state { return }
+        if case .downloading = state { return }
+        if case .installing = state { return }
+        state = .checking
+
+        var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("RyzenStatus/\(AppInfo.version)", forHTTPHeaderField: "User-Agent")
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                self.lastChecked = Date()
+                guard let data, error == nil,
+                      let release = try? JSONDecoder().decode(GitHubRelease.self, from: data) else {
+                    self.availableNotes = nil
+                    self.state = .failed(error?.localizedDescription ?? "-")
+                    return
+                }
+                let latest = release.tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV "))
+                let asset = release.assets.first { $0.name.hasSuffix(".dmg") }
+                self.downloadURL = asset?.browserDownloadURL
+
+                if Self.isNewer(latest, than: AppInfo.version), self.downloadURL != nil {
+                    self.availableNotes = ReleaseNotes.inAppUpdateNotes(from: release.body)
+                    self.state = .available(version: latest)
+                    // Notify once per distinct release, not on every hourly re-check.
+                    if !manual, latest != self.notifiedVersion {
+                        self.notifiedVersion = latest
+                        let s = L10n.shared.s
+                        Notifier.post(title: s.updateNotifyTitle,
+                                      body: "\(s.updateAvailablePrefix) \(latest)")
+                    }
+                } else {
+                    self.availableNotes = nil
+                    self.state = .upToDate
+                }
+            }
+        }.resume()
+    }
+
+    /// Re-checks only if the last check is stale — called when the app reactivates
+    /// or the panel opens, so a new release surfaces promptly without hammering the
+    /// API. The hourly timer is the floor; this makes it feel immediate.
+    func checkIfStale(maxAge: TimeInterval = 15 * 60) {
+        if AppInfo.isDeveloperBuild { return }
+        guard autoCheckEnabled else { return }
+        switch state {
+        case .checking, .downloading, .installing: return
+        default: break
+        }
+        if let last = lastChecked, Date().timeIntervalSince(last) < maxAge { return }
+        check(manual: false)
+    }
+
+    // MARK: - Download & install
+
+    func downloadAndInstall() {
+        if AppInfo.isDeveloperBuild { return }  // never replace the local dev build over itself
+        guard let downloadURL else { return }
+        // Pre-flight BEFORE spending the download: a translocated app or one
+        // running from a read-only volume (the mounted DMG) can never be
+        // replaced in place, so say so now instead of after the download.
+        if UpdateInstallerSupport.runsFromImmutableLocation(appPath: Bundle.main.bundlePath,
+                                                            volumeIsReadOnly: Self.volumeIsReadOnly) {
+            let s = L10n.shared.s
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.messageText = s.updateNeedsApplicationsTitle
+            alert.informativeText = s.updateNeedsApplicationsBody
+            alert.runModal()
+            return
+        }
+        // Remember the offer so a failed download restores it (the user can retry)
+        // instead of dropping to a dead .failed state that hides the update and
+        // blocks checkIfStale for 15 min.
+        let offered: String?
+        if case let .available(version) = state { offered = version } else { offered = nil }
+        state = .downloading(progress: nil)
+
+        let task = URLSession.shared.downloadTask(with: downloadURL) { [weak self] tempURL, _, error in
+            guard let self else { return }
+            DispatchQueue.main.async { self.downloadObservation = nil }
+            guard let tempURL, error == nil else {
+                DispatchQueue.main.async {
+                    self.state = offered.map { State.available(version: $0) } ?? .failed(error?.localizedDescription ?? "-")
+                }
+                return
+            }
+            // Move out of the URL session's scratch space before handing off.
+            let dmgURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("RyzenStatus-update.dmg")
+            try? FileManager.default.removeItem(at: dmgURL)
+            do {
+                try FileManager.default.moveItem(at: tempURL, to: dmgURL)
+            } catch {
+                DispatchQueue.main.async {
+                    self.state = offered.map { State.available(version: $0) } ?? .failed(error.localizedDescription)
+                }
+                return
+            }
+            DispatchQueue.main.async {
+                self.state = .installing
+                self.launchInstaller(dmgPath: dmgURL.path, offered: offered)
+            }
+        }
+        // Publish download progress in whole-percent steps (Progress fires
+        // far more often than the bar can show). While the server has not
+        // sent a total size the fraction stays meaningless, so it publishes
+        // nil and the UI keeps its indeterminate spinner.
+        downloadObservation = task.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
+            let fraction = progress.totalUnitCount > 0 ? progress.fractionCompleted : nil
+            DispatchQueue.main.async {
+                guard let self, case let .downloading(current) = self.state else { return }
+                guard let fraction else { return }
+                if UpdateInstallerSupport.progressStepAdvanced(from: current, to: fraction) {
+                    self.state = .downloading(progress: fraction)
+                }
+            }
+        }
+        task.resume()
+    }
+
+    /// Hands the swap to a detached shell script: it waits for this process to
+    /// quit, mounts the DMG, replaces the bundle, clears quarantine and
+    /// relaunches. Running it outside the app means the bundle can be replaced
+    /// safely while we exit. When the app's folder is not writable by this
+    /// user (standard account with the app in /Applications), the script runs
+    /// through an admin prompt instead of failing silently.
+    private func launchInstaller(dmgPath: String, offered: String?) {
+        let appPath = Bundle.main.bundlePath
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let fm = FileManager.default
+
+        guard let resultURL = Self.installResultURL else {
+            abortInstall(dmgPath: dmgPath, offered: offered)
+            return
+        }
+        try? fm.createDirectory(at: resultURL.deletingLastPathComponent(),
+                                withIntermediateDirectories: true)
+        try? fm.removeItem(at: resultURL)
+        try? fm.removeItem(at: resultURL.appendingPathExtension("progress"))
+
+        let appDirectory = (appPath as NSString).deletingLastPathComponent
+        let lastFailure = UserDefaults.standard.string(forKey: DefaultsKey.updateLastInstallFailure)
+        if fm.isWritableFile(atPath: appDirectory),
+           !UpdateInstallerSupport.shouldForceAdminInstall(afterFailureCode: lastFailure) {
+            launchUserInstaller(appPath: appPath, dmgPath: dmgPath, pid: pid,
+                                resultPath: resultURL.path, offered: offered)
+        } else {
+            // Either the folder is not writable, or the last attempt died at
+            // the copy/swap step: retry with admin rights instead of failing
+            // the same way twice.
+            launchAdminInstaller(appPath: appPath, dmgPath: dmgPath, pid: pid,
+                                 resultPath: resultURL.path, offered: offered)
+        }
+    }
+
+    private func launchUserInstaller(appPath: String, dmgPath: String, pid: Int32,
+                                     resultPath: String, offered: String?) {
+        let scriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ryzenstatus-update-\(pid)-\(UUID().uuidString).sh")
+        do {
+            try UpdateInstallerSupport.installerScript()
+                .write(to: scriptURL, atomically: true, encoding: .utf8)
+        } catch {
+            failInstall(dmgPath: dmgPath, message: error.localizedDescription)
+            return
+        }
+
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = [scriptURL.path, appPath, dmgPath, "\(pid)", resultPath, "\(getuid())"]
+        do {
+            try task.run()
+        } catch {
+            try? FileManager.default.removeItem(at: scriptURL)
+            failInstall(dmgPath: dmgPath, message: error.localizedDescription)
+            return
+        }
+        // Quit so the installer can replace the bundle; it relaunches us.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// Same installer, behind the system admin prompt via AdminShell, which
+    /// serializes prompts and brings this menu bar app forward so the dialog
+    /// cannot open behind another window. The script goes inline inside the
+    /// elevated command (never a user-writable file run as root), detached
+    /// with nohup so the prompt returns while the installer waits for our
+    /// exit.
+    private func launchAdminInstaller(appPath: String, dmgPath: String, pid: Int32,
+                                      resultPath: String, offered: String?) {
+        let command = UpdateInstallerSupport.elevatedInstallCommand(appPath: appPath,
+                                                                    dmgPath: dmgPath,
+                                                                    pid: pid,
+                                                                    resultPath: resultPath,
+                                                                    uid: getuid())
+        AdminShell.run(command, prompt: L10n.shared.s.adminPromptUpdate) { [weak self] granted in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if granted {
+                    NSApp.terminate(nil)
+                } else {
+                    // The user dismissed the admin prompt: keep the offer so
+                    // the button simply works again.
+                    self.abortInstall(dmgPath: dmgPath, offered: offered)
+                }
+            }
+        }
+    }
+
+    /// Puts the world back as if the install had not been attempted: the
+    /// downloaded DMG is discarded and the offer (or idle state) returns.
+    private func abortInstall(dmgPath: String, offered: String?) {
+        try? FileManager.default.removeItem(atPath: dmgPath)
+        if let offered {
+            state = .available(version: offered)
+        } else {
+            state = .idle
+        }
+    }
+
+    private func failInstall(dmgPath: String, message: String) {
+        try? FileManager.default.removeItem(atPath: dmgPath)
+        state = .failed(message)
+    }
+
+    /// Whether the volume holding `path` is mounted read-only (the DMG). An
+    /// unanswerable query counts as read-only: refusing with a clear message
+    /// beats quitting for an install that cannot happen.
+    private static func volumeIsReadOnly(_ path: String) -> Bool {
+        let values = try? URL(fileURLWithPath: path)
+            .resourceValues(forKeys: [.volumeIsReadOnlyKey])
+        return values?.volumeIsReadOnly ?? true
+    }
+
+    // MARK: - Install result
+
+    /// Marker the installer script writes; read on the next launch so a swap
+    /// that failed after the app quit is reported instead of looking like the
+    /// update was simply ignored.
+    private static var installResultURL: URL? {
+        guard let base = FileManager.default.urls(for: .applicationSupportDirectory,
+                                                  in: .userDomainMask).first,
+              let bundleID = Bundle.main.bundleIdentifier
+        else { return nil }
+        return base
+            .appendingPathComponent(bundleID, isDirectory: true)
+            .appendingPathComponent("update-install-result", isDirectory: false)
+    }
+
+    private func consumeInstallResult() {
+        guard let url = Self.installResultURL else { return }
+        // A leftover progress file means an installer died mid-run (or is
+        // still running right now); it is never a finished verdict.
+        try? FileManager.default.removeItem(at: url.appendingPathExtension("progress"))
+        guard let marker = try? String(contentsOf: url, encoding: .utf8) else { return }
+        try? FileManager.default.removeItem(at: url)
+        guard let code = UpdateInstallerSupport.installFailureCode(fromMarker: marker) else {
+            // The swap finished: this launch IS the new version, so any
+            // remembered failure no longer applies.
+            UserDefaults.standard.removeObject(forKey: DefaultsKey.updateLastInstallFailure)
+            return
+        }
+        // Remember the failing step so the next attempt can route around it
+        // (copy/swap failures retry through the admin prompt), and check
+        // again soon so the update offer comes right back instead of
+        // looking silently dropped.
+        UserDefaults.standard.set(code, forKey: DefaultsKey.updateLastInstallFailure)
+        let s = L10n.shared.s
+        Notifier.post(title: s.updateNotifyTitle,
+                      body: "\(s.updateInstallFailedBody) (\(code))")
+        if !AppInfo.isDeveloperBuild {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                self?.check(manual: false)
+            }
+        }
+    }
+
+    // MARK: - Version compare
+
+    /// True when `latest` is a higher semantic version than `current`.
+    static func isNewer(_ latest: String, than current: String) -> Bool {
+        func parts(_ s: String) -> [Int] { s.split(separator: ".").map { Int($0) ?? 0 } }
+        let l = parts(latest), c = parts(current)
+        for i in 0..<max(l.count, c.count) {
+            let lv = i < l.count ? l[i] : 0
+            let cv = i < c.count ? c[i] : 0
+            if lv != cv { return lv > cv }
+        }
+        return false
+    }
+}
+
+// MARK: - GitHub API shapes
+
+private struct GitHubRelease: Decodable {
+    let tagName: String
+    let assets: [Asset]
+    let body: String?
+
+    enum CodingKeys: String, CodingKey {
+        case tagName = "tag_name"
+        case assets
+        case body
+    }
+
+    struct Asset: Decodable {
+        let name: String
+        let browserDownloadURL: URL
+
+        enum CodingKeys: String, CodingKey {
+            case name
+            case browserDownloadURL = "browser_download_url"
+        }
+    }
+}

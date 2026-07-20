@@ -1,0 +1,133 @@
+name: Release
+
+# Push a tag (vX.Y.Z) and CI does the whole release: build, sign (Developer ID +
+# hardened runtime), notarize the app and the DMG, staple both, verify, and
+# publish the GitHub release with the styled DMG. Releases are NOT cut locally, so
+# nothing ever has to enable/disable a workflow. If a run hits a transient
+# failure, re-run it with `gh run rerun <run-id>` (or from the Actions tab); no
+# need to retag.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & publish DMG
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Unit tests
+        run: ./build.sh --test
+
+      - name: Set up signing
+        env:
+          SIGNING_CERT_P12: ${{ secrets.SIGNING_CERT_P12 }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
+        run: ./Tools/ci-setup-signing.sh
+
+      - name: Verify release version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)"
+          if [[ "$APP_VERSION" != "$VERSION" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match app version $APP_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Build
+        run: ./build.sh
+
+      - name: Selftest
+        run: ./build/ZenStatus --selftest
+
+      - name: Notarize app
+        env:
+          NOTARY_API_KEY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: ./Tools/notarize.sh build/stage/ZenStatus.app
+
+      - name: Package DMG
+        run: ./Tools/make-dmg.sh
+
+      - name: Notarize DMG
+        env:
+          NOTARY_API_KEY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: ./Tools/notarize.sh dist/*.dmg
+
+      - name: Prepare release showcase media
+        id: release_files
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist/showcase
+          if [[ "$VERSION" == "3.1.4" ]]; then
+            ASSET="zenstatus-3.1.4-showcase-1.mp4"
+            SOURCE="ReleaseAssets/$ASSET"
+            TARGET="dist/showcase/$ASSET"
+            if [[ -f "$SOURCE" ]]; then
+              cp "$SOURCE" "$TARGET"
+            fi
+            if [[ ! -s "$TARGET" ]]; then
+              echo "Missing required showcase media: $TARGET" >&2
+              echo "The app expects https://github.com/zenstatus/zenstatus-utils/releases/download/v3.1.4/$ASSET" >&2
+              exit 1
+            fi
+          fi
+          {
+            echo "FILES<<__VRSS_FILES__"
+            printf '%s\n' dist/*.dmg
+            if compgen -G "dist/showcase/*.mp4" > /dev/null; then
+              printf '%s\n' dist/showcase/*.mp4
+            fi
+            echo "__VRSS_FILES__"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify notarization
+        run: |
+          DMG=$(ls dist/*.dmg | head -1)
+          xcrun stapler validate "$DMG"
+          MP=$(mktemp -d)
+          cleanup() {
+            hdiutil detach "$MP" >/dev/null 2>&1 || true
+            rmdir "$MP" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          hdiutil attach -nobrowse -readonly -mountpoint "$MP" "$DMG"
+          spctl -a -t exec -vv "$MP/ZenStatus.app" 2>&1 | tee /tmp/spctl.txt
+          grep -q "source=Notarized Developer ID" /tmp/spctl.txt
+          xcrun stapler validate "$MP/ZenStatus.app"
+
+      - name: Release notes from CHANGELOG
+        id: notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if ! grep -Fq "## [$VERSION]" CHANGELOG.md; then
+            echo "CHANGELOG.md has no entry for $VERSION" >&2
+            exit 1
+          fi
+          NOTES="$(awk -v hdr="## [$VERSION]" 'index($0,hdr)==1{g=1;next} /^## \[/&&g{exit} g{print}' CHANGELOG.md)"
+          if [[ -z "${NOTES//[[:space:]]/}" ]]; then
+            echo "CHANGELOG.md entry for $VERSION is empty" >&2
+            exit 1
+          fi
+          {
+            echo "NOTES<<__VRSS_EOF__"
+            printf '%s\n' "$NOTES"
+            echo ""
+            echo "Signed with an Apple Developer ID and notarized by Apple, so it downloads and opens normally. Requires macOS 14 or later. Open the .dmg below and drag ZenStatus to Applications."
+            echo "__VRSS_EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: ${{ steps.release_files.outputs.FILES }}
+          body: ${{ steps.notes.outputs.NOTES }}
+          make_latest: true

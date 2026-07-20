@@ -1,0 +1,87 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 RyzenStatus
+
+import AppKit
+import CoreGraphics
+
+/// One selectable entry in the switcher. Most entries are real user-facing
+/// windows; Finder can also appear as an app entry when it has no windows, so
+/// the user can still switch to the desktop/menu bar like the system switcher.
+struct SwitcherItem: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let appName: String
+    /// The regular app represented by this entry. App grouping, icons, MRU,
+    /// activation and quit actions use this process.
+    let pid: pid_t
+    /// The process that actually owns `windowID`. Multi-process apps can render
+    /// their user-facing windows in an embedded accessory helper.
+    let windowOwnerPID: pid_t
+    /// The backing CGWindow: thumbnails and AX raising go through it.
+    let windowID: CGWindowID?
+    let isOnScreen: Bool
+    let isMinimized: Bool
+    let isFullscreen: Bool
+    let frame: CGRect
+
+    /// The window whose thumbnail represents this entry.
+    var previewWindowID: CGWindowID? { windowID }
+
+    /// Label shown under the thumbnail; untitled windows fall back to the app name.
+    var displayTitle: String {
+        title.isEmpty ? appName : title
+    }
+
+    /// Secondary label used when the window title does not already identify the
+    /// app. This keeps crowded switcher grids readable without repeating text.
+    var displaySubtitle: String? {
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanAppName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanAppName.isEmpty,
+              !cleanTitle.isEmpty,
+              cleanTitle.caseInsensitiveCompare(cleanAppName) != .orderedSame
+        else { return nil }
+        return cleanAppName
+    }
+
+    var accessibilityTitle: String {
+        if let displaySubtitle {
+            return "\(displayTitle), \(displaySubtitle)"
+        }
+        return displayTitle
+    }
+
+    var appIcon: NSImage? {
+        NSRunningApplication(processIdentifier: pid)?.icon
+    }
+
+    func withMinimized(_ minimized: Bool) -> SwitcherItem {
+        SwitcherItem(id: id,
+                     title: title,
+                     appName: appName,
+                     pid: pid,
+                     windowOwnerPID: windowOwnerPID,
+                     windowID: windowID,
+                     isOnScreen: minimized ? false : true,
+                     isMinimized: minimized,
+                     isFullscreen: isFullscreen,
+                     frame: frame)
+    }
+
+    static func window(id: CGWindowID, title: String, appName: String, pid: pid_t,
+                       windowOwnerPID: pid_t? = nil,
+                       isOnScreen: Bool, isMinimized: Bool = false,
+                       isFullscreen: Bool = false, frame: CGRect) -> SwitcherItem {
+        SwitcherItem(id: "w:\(id)", title: title, appName: appName,
+                     pid: pid, windowOwnerPID: windowOwnerPID ?? pid,
+                     windowID: id, isOnScreen: isOnScreen,
+                     isMinimized: isMinimized, isFullscreen: isFullscreen,
+                     frame: frame)
+    }
+
+    static func appOnly(appName: String, pid: pid_t) -> SwitcherItem {
+        SwitcherItem(id: "a:\(pid)", title: appName, appName: appName,
+                     pid: pid, windowOwnerPID: pid, windowID: nil, isOnScreen: false,
+                     isMinimized: false, isFullscreen: false, frame: .zero)
+    }
+}
