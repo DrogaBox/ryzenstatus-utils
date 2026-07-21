@@ -38,8 +38,40 @@ struct AmdPowerSettingsView: View {
         }
     }
 
+    private var averageFrequency: Double {
+        let cores = monitor.snapshot.cores
+        guard !cores.isEmpty else { return 0 }
+        var sum = 0.0
+        for c in cores { sum += Double(c.freqMHz) }
+        return sum / Double(cores.count)
+    }
+
     var body: some View {
         Form {
+            Section(header: Text("Información del CPU (HWMonitorSMC2)")) {
+                HStack {
+                    Text("Package Power")
+                    Spacer()
+                    Text(String(format: "%.2f W", monitor.snapshot.cpuPower ?? 0))
+                        .font(.system(.body, design: .monospaced))
+                }
+                HStack {
+                    Text("Package Temp")
+                    Spacer()
+                    Text(String(format: "%.1f °C", monitor.snapshot.cpuTemperature ?? 0))
+                        .font(.system(.body, design: .monospaced))
+                }
+                
+                if !monitor.snapshot.cores.isEmpty {
+                    HStack {
+                        Text("Frecuencia Promedio")
+                        Spacer()
+                        Text(String(format: "%.0f MHz", averageFrequency))
+                            .font(.system(.body, design: .monospaced))
+                    }
+                }
+            }
+            
             if !cppcSupported && !cpbSupported {
                 Section {
                     Text("AMD Power Control no es compatible con tu procesador o versión de kext.")
@@ -58,16 +90,6 @@ struct AmdPowerSettingsView: View {
                             .font(.system(size: 13, weight: .bold, design: .monospaced))
                             .foregroundColor(.green)
                     }
-                }
-
-                Section {
-                    CoreGridDashboard(
-                        cores: monitor.snapshot.cores,
-                        ccdTemperatures: monitor.snapshot.ccdTemperatures,
-                        physicalCoresCount: monitor.snapshot.numPhysicalCores > 0 ? monitor.snapshot.numPhysicalCores : 16
-                    )
-                } footer: {
-                    Text("⚠️ Atención: Mantener esta ventana abierta mantendrá activa la lectura del hardware en segundo plano (SystemMonitor), lo cual puede impactar el consumo de batería y la CPU a lo largo del tiempo. Cierra las preferencias cuando no necesites monitorear.")
                 }
 
                 if cppcSupported {

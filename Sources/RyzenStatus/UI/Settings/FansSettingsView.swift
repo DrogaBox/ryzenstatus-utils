@@ -1,8 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 RyzenStatus
-
 import SwiftUI
-
 
 struct FansSettingsView: View {
     @State private var fans: [FanSnapshot] = []
@@ -14,7 +10,7 @@ struct FansSettingsView: View {
         Form {
             Section {
                 if !hasSMCWriteAccess {
-                    Text("No se pudo acceder a los ventiladores de AMD. Ejecuta como root o revisa SMCAMDProcessor / SuperIO kext.")
+                    Text("No se pudo acceder a los ventiladores de AMD. Ejecuta como root o revisa SMCAMDProcessor.")
                         .font(.caption)
                         .foregroundColor(.red)
                 } else if fans.isEmpty {
@@ -22,96 +18,97 @@ struct FansSettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else {
-                    if let temp = monitor.snapshot.cpuTemperature {
-                        HStack {
-                            Text("Temperatura CPU")
-                            Spacer()
-                            Text(String(format: "%.0f °C", temp))
-                                .font(.system(.body, design: .monospaced))
-                                .foregroundColor(temp > 85 ? .red : (temp > 70 ? .orange : .secondary))
-                        }
-                        .padding(.vertical, 4)
-                        
-                        Divider()
-                    }
-
                     ForEach($fans) { $fan in
                         FanControlRow(fan: $fan)
                             .padding(.vertical, 4)
+                        Divider()
                     }
                     
                     HStack {
                         Spacer()
-                        Button("Todos Automáticos") {
-                            for f in fans {
-                                _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: f.id)
+                        Button("Todos en Auto") {
+                            Task {
+                                for f in fans {
+                                    _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: f.id)
+                                    FanCurveController.shared.fanMappings[f.id] = -1
+                                }
+                                fetchState()
                             }
-                            fetchState()
                         }
                         Button("Máxima Velocidad") {
-                            for f in fans {
-                                _ = ProcessorModel.shared.setFanSpeed(rpm: 255, fanIndex: f.id)
+                            Task {
+                                for f in fans {
+                                    _ = ProcessorModel.shared.setFanSpeed(rpm: 255, fanIndex: f.id)
+                                    FanCurveController.shared.fanMappings[f.id] = -1
+                                }
+                                fetchState()
                             }
-                            fetchState()
                         }
                     }
                     .padding(.top, 8)
                 }
             } header: {
-                Text("Control de Ventiladores AMD")
+                Text("AMD Power Gadget - Fan Control")
             } footer: {
-                Text("El control de ventiladores funciona interceptando los registros SuperIO soportados por tu placa base. Algunos ventiladores (GPU, etc.) son controlados independientemente por su firmware.")
+                Text("Control directo sobre los ventiladores del sistema. Asigna una curva a cada ventilador o usa BIOS / Auto.")
+            }
+            
+            Section {
+                InteractiveFanCurveEditor()
+                    .padding(.vertical, 4)
+            } header: {
+                Text("Custom Curves")
+            }
+            
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("GPU Fan Control")
+                        .font(.headline)
+                    Text("Los ventiladores de la GPU en macOS (como la RX 6800 XT) no pueden ser controlados directamente desde herramientas de CPU a menos que se haya inyectado un Zero RPM override vía PowerPlay Tables. El control nativo recae sobre WhateverGreen o los drivers nativos de Apple.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
         }
         .formStyle(.grouped)
         .onAppear {
-            SystemMonitor.shared.setMenuPanelNeeds(SystemMonitorPanelNeeds(cpuTemperature: true))
             setupFans()
             loadTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
                 fetchState()
             }
         }
         .onDisappear {
-            SystemMonitor.shared.setMenuPanelNeeds(.none)
             loadTimer?.invalidate()
             loadTimer = nil
         }
     }
     
     private func setupFans() {
-        hasSMCWriteAccess = ProcessorModel.shared.connect != 0
-        
-        let fansRes = ProcessorModel.shared.kernelGetUInt64(count: 1, selector: 91)
-        guard fansRes.count > 0 else { return }
-        let numFans = Int(fansRes[0])
-        
-        var initFans: [FanSnapshot] = []
-        for i in 0..<numFans {
-            let name = ProcessorModel.shared.kernelGetString(selector: 92, args: [UInt64(i)])
-            let finalName = name.isEmpty ? "Fan \(i + 1)" : name
-            let customName = UserDefaults.standard.string(forKey: "FanName_\(i)") ?? finalName
-            initFans.append(FanSnapshot(id: i, name: customName, rpm: 0, throttle: 0, isOverrided: false))
+        Task {
+            let conn = ProcessorModel.shared.connect
+            let hasAccess = conn != 0
+            let currentFans = ProcessorModel.shared.getFans()
+            await MainActor.run {
+                self.hasSMCWriteAccess = hasAccess
+                self.fans = currentFans
+                self.fetchState()
+            }
         }
-        self.fans = initFans
-        fetchState()
     }
     
     private func fetchState() {
-        let numFans = fans.count
-        guard numFans > 0 else { return }
-        
-        let fanRpms = ProcessorModel.shared.kernelGetUInt64(count: numFans, selector: 93)
-        let fanCtrls = ProcessorModel.shared.kernelGetUInt64(count: numFans, selector: 94)
-        
-        for i in 0..<numFans {
-            if i < fanRpms.count {
-                // Clamp to a sane RPM range to avoid display issues
-                fans[i].rpm = min(fanRpms[i], 9999)
-            }
-            if i < fanCtrls.count {
-                // Mask to 8 bits — kernel can return garbage high bytes;
-                // force-casting UInt64 > 255 to UInt8 is an overflow trap (SIGILL release)
-                fans[i].throttle = UInt8(fanCtrls[i] & 0xFF)
+        Task {
+            let currentFans = ProcessorModel.shared.getFans()
+            await MainActor.run {
+                if self.fans.count != currentFans.count {
+                    self.fans = currentFans
+                } else {
+                    for i in 0..<currentFans.count {
+                        self.fans[i].rpm = currentFans[i].rpm
+                        self.fans[i].throttle = currentFans[i].throttle
+                        self.fans[i].isOverrided = currentFans[i].isOverrided
+                    }
+                }
             }
         }
     }
@@ -119,25 +116,13 @@ struct FansSettingsView: View {
 
 struct FanControlRow: View {
     @Binding var fan: FanSnapshot
-    
-    @State private var sliderValue: Double = 0
-    @State private var isManual: Bool = false
-    
-    private var displayedPct: Int {
-        if isManual {
-            return Int(sliderValue)
-        } else {
-            // En Auto, ignoramos fan.throttle (puede reportar valores engañosos como 1 o 2)
-            // y usamos RPM puro para estimar el porcentaje (asumiendo 2500RPM como 100%).
-            return Int(min(100.0, max(0.0, (Double(fan.rpm) / 2500.0) * 100.0)))
-        }
-    }
+    @ObservedObject var controller = FanCurveController.shared
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let curveIdx = controller.fanMappings[fan.id] ?? -1
+        
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-
-                
                 VStack(alignment: .leading) {
                     TextField("", text: Binding(
                         get: { fan.name },
@@ -149,76 +134,76 @@ struct FanControlRow: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: 14, weight: .bold))
                     
-                    Text("\(fan.rpm) RPM · \(displayedPct)%")
+                    Text("\(fan.rpm) RPM")
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(.secondary)
                 }
                 
                 Spacer()
                 
-                Picker("", selection: $isManual) {
-                    Text("Auto").tag(false)
-                    Text("Manual").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 120)
-                .onChange(of: isManual) { _, manual in
-                    if manual {
-                        var targetPct = sliderValue
-                        if fan.throttle == 0 && fan.rpm > 0 {
-                            // Estimar % inicial para que al pasar a manual no se caiga a 0
-                            let estimatedPct = (Double(fan.rpm) / 2500.0) * 100.0
-                            targetPct = min(100.0, max(25.0, estimatedPct)) // Mínimo seguro de 25%
-                            sliderValue = targetPct
-                        } else if fan.throttle > 0 {
-                            targetPct = Double(fan.throttle) / 255.0 * 100.0
-                            sliderValue = targetPct
+                Picker("", selection: Binding(
+                    get: { curveIdx },
+                    set: { newIdx in
+                        controller.fanMappings[fan.id] = newIdx
+                        if newIdx == -1 {
+                            // Automatically disable manual override and revert to BIOS auto
+                            fan.isOverrided = false
+                            Task {
+                                _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fan.id)
+                            }
                         }
-                        
-                        let rawPWM = Int((targetPct / 100.0) * 255.0)
-                        _ = ProcessorModel.shared.setFanSpeed(rpm: rawPWM, fanIndex: fan.id)
-                    } else {
-                        _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fan.id)
+                    }
+                )) {
+                    Text("BIOS / Auto").tag(-1)
+                    Divider()
+                    ForEach(controller.customCurves.indices, id: \.self) { idx in
+                        Text(controller.customCurves[idx].name).tag(idx)
                     }
                 }
+                .frame(width: 150)
             }
             
-            if isManual {
+            if curveIdx == -1 {
                 HStack {
-                    Text("Min")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Slider(value: $sliderValue, in: 0...100, step: 1) { editing in
-                        if !editing {
-                            let rawPWM = Int((sliderValue / 100.0) * 255.0)
-                            _ = ProcessorModel.shared.setFanSpeed(rpm: rawPWM, fanIndex: fan.id)
+                    Toggle("Manual Override", isOn: Binding(
+                        get: { fan.isOverrided },
+                        set: { manual in
+                            fan.isOverrided = manual
+                            Task {
+                                if manual {
+                                    let currentThrottle = fan.throttle > 0 ? Double(fan.throttle) : 127.0
+                                    _ = ProcessorModel.shared.setFanSpeed(rpm: Int(currentThrottle), fanIndex: fan.id)
+                                } else {
+                                    _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fan.id)
+                                }
+                            }
                         }
-                    }
-                    .tint(.orange)
-                    Image(systemName: "wind")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    ))
+                    .toggleStyle(.switch)
+                    .font(.system(size: 12))
+                    
+                    Spacer()
                 }
-            }
-        }
-        .onAppear {
-            isManual = fan.isOverrided
-            if fan.isOverrided {
-                sliderValue = fan.throttle > 0 ? Double(fan.throttle) / 255.0 * 100.0 : 50.0
-            } else {
-                sliderValue = min(100.0, max(25.0, (Double(fan.rpm) / 2500.0) * 100.0))
-            }
-        }
-        .onChange(of: fan.throttle) { _, newVal in
-            if !isManual && newVal > 0 {
-                // If it's manual, we don't let external throttle override the slider unless we just opened the view
-            }
-        }
-        .onChange(of: fan.isOverrided) { _, overridden in
-            if isManual != overridden {
-                isManual = overridden
+                
+                if fan.isOverrided {
+                    HStack {
+                        Slider(value: Binding(
+                            get: {
+                                fan.throttle > 0 ? (Double(fan.throttle) / 255.0 * 100.0) : 50.0
+                            },
+                            set: { newValue in
+                                let rawPWM = Int((newValue / 100.0) * 255.0)
+                                fan.throttle = UInt8(rawPWM)
+                                Task {
+                                    _ = ProcessorModel.shared.setFanSpeed(rpm: rawPWM, fanIndex: fan.id)
+                                }
+                            }
+                        ), in: 0...100, step: 1)
+                        .labelsHidden()
+                        .tint(.cyan)
+                    }
+                }
             }
         }
     }
 }
-

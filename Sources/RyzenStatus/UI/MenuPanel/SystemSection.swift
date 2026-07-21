@@ -16,7 +16,7 @@ struct SystemSection: View {
     @ObservedObject private var monitor = SystemMonitor.shared
     @Environment(\.colorScheme) private var colorScheme
     var collapsible = true
-    @State private var expanded: BreakdownKind?
+    @State private var expandedKinds: Set<BreakdownKind> = []
     @State private var alertsExpanded = false
     @State private var breakdownRows: [ProcessUsage] = []
     @State private var breakdownIsLoading = false
@@ -84,11 +84,11 @@ struct SystemSection: View {
         .onReceive(monitor.$snapshot) { _ in
             // The breakdown forks `ps` (and walks IORegistry for GPU), so refresh it
             // at most every ~4 s while expanded instead of on every ~2 s snapshot.
-            guard expanded != nil, Date().timeIntervalSince(lastBreakdownRefresh) > 4 else { return }
+            guard !expandedKinds.isEmpty, Date().timeIntervalSince(lastBreakdownRefresh) > 4 else { return }
             refreshBreakdown()
         }
         .onDisappear {
-            expanded = nil
+            expandedKinds.removeAll()
             breakdownRows = []
             breakdownIsLoading = false
         }
@@ -218,25 +218,27 @@ struct SystemSection: View {
     // MARK: Per-app breakdown
 
     private func toggleBreakdown(_ kind: BreakdownKind) {
-        if expanded == kind {
-            expanded = nil
-            breakdownRows = []
-            breakdownIsLoading = false
+        if expandedKinds.contains(kind) {
+            expandedKinds.remove(kind)
         } else {
-            expanded = kind
+            expandedKinds.insert(kind)
             breakdownRows = ProcessUsageService.shared.cachedTop(kind, limit: breakdownLimit) ?? []
             refreshBreakdown()
         }
     }
 
     private func refreshBreakdown() {
-        guard let kind = expanded else { return }
-        lastBreakdownRefresh = Date()
+        guard !expandedKinds.isEmpty else { return }
+        
+        let now = Date()
+        guard now.timeIntervalSince(lastBreakdownRefresh) > 4 else { return }
+        
+        lastBreakdownRefresh = now
         breakdownIsLoading = breakdownRows.isEmpty
         DispatchQueue.global(qos: .utility).async {
-            let rows = ProcessUsageService.shared.top(kind, limit: breakdownLimit)
+            let rows = ProcessUsageService.shared.top(expandedKinds.first!, limit: breakdownLimit)
             DispatchQueue.main.async {
-                guard expanded == kind else { return }
+                guard !expandedKinds.isEmpty else { return }
                 breakdownIsLoading = false
                 if !rows.isEmpty || breakdownRows.isEmpty {
                     breakdownRows = rows
@@ -247,7 +249,7 @@ struct SystemSection: View {
 
     @ViewBuilder
     private func breakdownList(for kind: BreakdownKind) -> some View {
-        if expanded == kind {
+        if expandedKinds.contains(kind) {
             VStack(alignment: .leading, spacing: 4) {
                 if breakdownRows.isEmpty {
                     Text(breakdownIsLoading ? l10n.s.breakdownMeasuring : emptyBreakdownText(for: kind))
@@ -293,18 +295,29 @@ struct SystemSection: View {
                 }
                 HStack(spacing: 8) {
                     if cpuAvailable {
-                        temperatureCell(icon: "cpu", label: l10n.s.cpuLabel,
-                                        value: monitor.snapshot.cpuTemperature)
+                        PanelSquareCard(
+                            title: "CPU",
+                            icon: "cpu",
+                            usage: monitor.snapshot.cpuUsage ?? 0,
+                            temp: monitor.snapshot.cpuTemperature ?? 0,
+                            freq: averageCPUFreq > 0 ? String(format: "%.3f GHz", averageCPUFreq) : "",
+                            power: monitor.snapshot.cpuPower ?? 0,
+                            accentColor: .cyan,
+                            backgroundColor: Color(red: 0.1, green: 0.2, blue: 0.2, opacity: 0.3)
+                        )
                     }
                     if gpuAvailable {
-                        temperatureCell(icon: "memorychip", label: l10n.s.gpuLabel,
-                                        value: monitor.snapshot.gpuTemperature)
-                    }
-                    if let cpuW = monitor.snapshot.cpuPower, cpuW > 0 {
-                        powerCell(label: "CPU W", watts: cpuW)
-                    }
-                    if let gpuW = monitor.snapshot.gpuPower, gpuW > 0 {
-                        powerCell(label: "GPU W", watts: gpuW)
+                        let gpuFreqVal = monitor.snapshot.gpuFreq ?? 0
+                        PanelSquareCard(
+                            title: "GPU",
+                            icon: "display",
+                            usage: monitor.snapshot.gpuUsage ?? 0,
+                            temp: monitor.snapshot.gpuTemperature ?? 0,
+                            freq: gpuFreqVal > 0 ? String(format: "%.0f MHz", gpuFreqVal) : "",
+                            power: monitor.snapshot.gpuPower ?? 0,
+                            accentColor: .orange,
+                            backgroundColor: Color(red: 0.2, green: 0.15, blue: 0.05, opacity: 0.3)
+                        )
                     }
                 }
                 if monitor.snapshot.cpuTemperature == nil,
@@ -316,6 +329,14 @@ struct SystemSection: View {
                 }
             }
         }
+    }
+    
+    private var averageCPUFreq: Double {
+        let cores = monitor.snapshot.cores
+        guard !cores.isEmpty else { return 0 }
+        let physicalCores = cores.filter { !$0.isLogical }
+        let sum = physicalCores.reduce(0.0) { $0 + Double($1.freqMHz) }
+        return (sum / Double(physicalCores.count)) / 1000.0
     }
 
     private func temperatureCell(icon: String, label: String, value: Double?) -> some View {
@@ -371,6 +392,12 @@ struct SystemSection: View {
                          kind: .cpu, editing: editing, visible: $sysCPU)
                 
                 if editing {
+                    Toggle(l10n.s.monitorShowCPU, isOn: $graphCPU)
+                        .toggleStyle(.checkbox)
+                        .font(.system(size: 10))
+                        .padding(.leading, 18)
+                        .padding(.bottom, 2)
+                        
                     Toggle("Per-Core Grid", isOn: $graphCPUMode)
                         .toggleStyle(.checkbox)
                         .font(.system(size: 10))
@@ -398,13 +425,23 @@ struct SystemSection: View {
             if sysGPU, gpuAvailable {
                 usageRow(label: l10n.s.gpuLabel, fraction: monitor.snapshot.gpuUsage,
                          kind: .gpu, editing: editing, visible: $sysGPU)
+                
+                if editing {
+                    Toggle(l10n.s.monitorShowGPU, isOn: $graphGPU)
+                        .toggleStyle(.checkbox)
+                        .font(.system(size: 10))
+                        .padding(.leading, 18)
+                        .padding(.bottom, 4)
+                }
+                
                 if graphGPU, monitor.snapshot.gpuHistory.count >= 2 {
                     Sparkline(values: monitor.snapshot.gpuHistory,
-                              color: PanelMetricColor.cyan(for: colorScheme),
+                              color: PanelMetricColor.orange(for: colorScheme),
                               maxValue: 1,
                               showsZeroBaseline: true)
                         .frame(height: 22)
                 }
+
                 breakdownList(for: .gpu)
             } else if editing, gpuAvailable {
                 PanelHiddenItemRow(title: l10n.s.gpuLabel, systemImage: "memorychip", isVisible: $sysGPU)
@@ -449,13 +486,6 @@ struct SystemSection: View {
                     if editing {
                         PanelInlineHideButton(isVisible: $sysBattery)
                     }
-                }
-                if graphBattery, monitor.snapshot.batteryHistory.count >= 2 {
-                    Sparkline(values: monitor.snapshot.batteryHistory,
-                              color: PanelMetricColor.green(for: colorScheme),
-                              maxValue: 1,
-                              showsZeroBaseline: true)
-                        .frame(height: 22)
                 }
                 energyAppsHeader
                 breakdownList(for: .energy)
@@ -510,7 +540,7 @@ struct SystemSection: View {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 8, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .rotationEffect(.degrees(expanded == .energy ? 90 : 0))
+                    .rotationEffect(.degrees(expandedKinds.contains(.energy) ? 90 : 0))
                 Text(l10n.s.energyAppsTitle)
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(.secondary)
@@ -587,7 +617,7 @@ struct SystemSection: View {
             Image(systemName: "chevron.right")
                 .font(.system(size: 8, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .rotationEffect(.degrees(expanded == kind ? 90 : 0))
+                .rotationEffect(.degrees(expandedKinds.contains(kind) ? 90 : 0))
                 .opacity(isInteractive ? 1 : 0.35)
             Text(label)
                 .font(.system(size: 11))
@@ -624,20 +654,15 @@ struct SystemSection: View {
                 if editing {
                     memoryRowContent(isInteractive: false)
                 } else {
-                    Button {
-                        toggleBreakdown(.memory)
-                    } label: {
+                    Button(action: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            toggleBreakdown(.memory)
+                        }
+                    }) {
                         memoryRowContent(isInteractive: true)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                }
-                if graphMemory, monitor.snapshot.memoryHistory.count >= 2 {
-                    Sparkline(values: monitor.snapshot.memoryHistory,
-                              color: PanelMetricColor.mint(for: colorScheme),
-                              maxValue: 1,
-                              showsZeroBaseline: true)
-                        .frame(height: 22)
                 }
                 
                 if let gpuUsed = monitor.snapshot.gpuMemoryUsed, let gpuTotal = monitor.snapshot.gpuMemoryTotal {
@@ -652,13 +677,6 @@ struct SystemSection: View {
                             .font(.system(size: 11, weight: .medium))
                             .monospacedDigit()
                     }
-                    if graphMemory, monitor.snapshot.gpuMemoryHistory.count >= 2 {
-                        Sparkline(values: monitor.snapshot.gpuMemoryHistory,
-                                  color: PanelMetricColor.pink(for: colorScheme),
-                                  maxValue: 1,
-                                  showsZeroBaseline: true)
-                            .frame(height: 22)
-                    }
                 }
                 
                 breakdownList(for: .memory)
@@ -671,7 +689,7 @@ struct SystemSection: View {
             Image(systemName: "chevron.right")
                 .font(.system(size: 8, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .rotationEffect(.degrees(expanded == .memory ? 90 : 0))
+                .rotationEffect(.degrees(expandedKinds.contains(.memory) ? 90 : 0))
                 .opacity(isInteractive ? 1 : 0.35)
             Text(l10n.s.memoryPressure)
                 .font(.system(size: 11))
@@ -798,6 +816,73 @@ struct PressureIndicator: View {
         case .warning: return l10n.s.pressureWarning
         case .critical: return l10n.s.pressureCritical
         case .unknown: return "-"
+        }
+    }
+}
+
+struct PanelSquareCard: View {
+    let title: String
+    let icon: String
+    let usage: Double
+    let temp: Double
+    let freq: String
+    let power: Double
+    let accentColor: Color
+    let backgroundColor: Color
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(accentColor)
+                    .frame(width: 24, height: 24)
+                    .background(accentColor.opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.primary)
+            }
+            
+            Text("\(Int(usage * 100))%")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundColor(accentColor)
+                .padding(.vertical, 2)
+            
+            VStack(alignment: .leading, spacing: 6) {
+                PanelStatRow(icon: "thermometer", value: String(format: "%.1f °C", temp), color: .red)
+                if !freq.isEmpty {
+                    PanelStatRow(icon: "waveform.path.ecg", value: freq, color: accentColor)
+                }
+                PanelStatRow(icon: "bolt.fill", value: String(format: "%.2f W", power), color: .yellow)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(backgroundColor)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.white.opacity(0.05), lineWidth: 1)
+        )
+    }
+}
+
+struct PanelStatRow: View {
+    let icon: String
+    let value: String
+    let color: Color
+    
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .foregroundColor(color)
+                .font(.system(size: 10))
+                .frame(width: 14)
+            Text(value)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.secondary)
         }
     }
 }

@@ -79,6 +79,7 @@ struct MenuPanelView: View {
     @AppStorage(DefaultsKey.panelShowControls) private var showControls = true
     @AppStorage(DefaultsKey.panelShowToggles) private var showToggles = true
     @AppStorage(DefaultsKey.panelSectionOrder) private var sectionOrderRaw = ""
+    @AppStorage(DefaultsKey.panelAccordionMode) private var accordionMode = false
     @AppStorage(DefaultsKey.cleanerBadgeSeen) private var cleanerBadgeSeen = false
     @AppStorage(DefaultsKey.panelUtilityCleaner) private var cleanerRowVisible = true
     @State private var navigableContentHeight: CGFloat = 0
@@ -164,13 +165,23 @@ struct MenuPanelView: View {
             UpdateBanner()
                 .reportHeight($updateBannerHeight)
             header
-            sectionNavigation
+            
+            if !accordionMode {
+                sectionNavigation
+            }
 
             OverlayScrollView(measuredHeight: $navigableContentHeight) {
                 VStack(alignment: .leading, spacing: 12) {
-                    section(for: activeSection, collapsible: false)
+                    if accordionMode {
+                        ForEach(visibleSections) { id in
+                            section(for: id, collapsible: true)
+                        }
+                    } else {
+                        section(for: activeSection, collapsible: false)
+                    }
                 }
                 .frame(width: 308)
+                .padding(.bottom, accordionMode ? 12 : 0)
             }
             .frame(width: 308, height: navigableScrollHeight)
 
@@ -397,7 +408,22 @@ struct MenuPanelView: View {
     }
 
     private var header: some View {
-        EmptyView()
+        HStack {
+            MenuPanelHeader()
+            Spacer()
+            Button(action: {
+                appDelegate()?.detachPanel()
+            }) {
+                Image(systemName: "macwindow")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Separar panel en ventana flotante")
+        }
+        .padding(.horizontal, 4)
     }
 
     private var footer: some View {

@@ -7,9 +7,9 @@
 // Usage: swift Tools/MakeDMGBackground.swift <output.png>
 import AppKit
 
-// Window is 600×400 pt; render at 2× for Retina sharpness.
+// Window is 600×480 pt; render at 2× for Retina sharpness.
 let scale: CGFloat = 2
-let widthPt: CGFloat = 600, heightPt: CGFloat = 400
+let widthPt: CGFloat = 600, heightPt: CGFloat = 480
 let px = Int(widthPt * scale), py = Int(heightPt * scale)
 
 let out = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "dmg-background.png"
@@ -53,9 +53,9 @@ let subAttrs: [NSAttributedString.Key: Any] = [
 let subSize = subtitle.size(withAttributes: subAttrs)
 subtitle.draw(at: NSPoint(x: (widthPt - subSize.width) / 2, y: 54), withAttributes: subAttrs)
 
-// Arrow between the icon columns (icons sit at x≈150 and x≈450, centered at y≈200
-// from the top → y≈200 from the bottom in this 400-tall canvas).
-let arrowY: CGFloat = heightPt - 200
+// Arrow between the icon columns (icons sit at x≈150 and x≈450, centered at y≈240
+// from the top → y≈240 from the bottom in this 480-tall canvas).
+let arrowY: CGFloat = heightPt - 240
 let arrow = NSBezierPath()
 arrow.lineWidth = 9
 arrow.lineCapStyle = .round

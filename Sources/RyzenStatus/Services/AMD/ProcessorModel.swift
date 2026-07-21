@@ -7,6 +7,7 @@
 
 import Cocoa
 import Darwin
+import Metal
 
 
 actor ProcessorModel {
@@ -49,7 +50,7 @@ actor ProcessorModel {
     private var emulatedPStateDefClock : [Float] = []
     
     // Performance optimization: cache for expensive kernel calls
-    private var cachedGPUStats: (temp: Float, power: Float, util: Float, vram: Float, fan: Float, lastUpdate: Date) = (0, 0, 0, 0, 0, .distantPast)
+    private var cachedGPUStats: (temp: Float, power: Float, util: Float, vram: Float, fan: Float, freq: Float, lastUpdate: Date) = (0, 0, 0, 0, 0, 0, .distantPast)
     private let gpuStatsCacheInterval: TimeInterval = 0.5 // Update GPU stats every 500ms
 
     // Thread-safe power cache: readable nonisolated from any queue (SystemMonitor, MenuBarRenderer)
@@ -888,9 +889,10 @@ actor ProcessorModel {
         let power = getIOAcceleratorStat(key: "Total Power(W)")
         let util = getIOAcceleratorStat(key: "Device Utilization %")
         let vram = getIOAcceleratorStat(key: "inUseVidMemoryBytes")
+        let freq = getIOAcceleratorStat(key: "Core Clock(MHz)")
         let fan = (temp > 0 && temp < 50.0) ? 0 : getIOAcceleratorStat(key: "Fan Speed(RPM)")
         
-        cachedGPUStats = (temp, power, util, vram, fan, now)
+        cachedGPUStats = (temp, power, util, vram, fan, freq, now)
 
         // Update thread-safe GPU power cache
         powerCache.setGPU(Double(power))
@@ -919,6 +921,11 @@ actor ProcessorModel {
     func getGPUFanRPM() -> Float {
         updateGPUStatsCache()
         return cachedGPUStats.fan
+    }
+
+    func getGPUFreq() -> Float {
+        updateGPUStatsCache()
+        return cachedGPUStats.freq
     }
 
     nonisolated func getCCDTemperatures() -> [Float] {
@@ -990,6 +997,7 @@ actor ProcessorModel {
         let gpuUtil: Float
         let gpuVram: Float
         let gpuFan: Float
+        let gpuFreq: Float
         let ccdTemperatures: [Float]
     }
 
@@ -1010,6 +1018,7 @@ actor ProcessorModel {
             gpuUtil: cachedGPUStats.util,
             gpuVram: cachedGPUStats.vram,
             gpuFan: cachedGPUStats.fan,
+            gpuFreq: cachedGPUStats.freq,
             ccdTemperatures: getCCDTemperatures()
         )
     }
@@ -1020,6 +1029,44 @@ actor ProcessorModel {
     func refreshPowerCache() {
         loadMetric()        // updates powerCache.cpu via setCPU
         updateGPUStatsCache() // updates powerCache.gpu via setGPU
+    }
+    
+    // MARK: - CPU Details (sysctl)
+    
+    struct CPUDetails {
+        let name: String
+        let vendor: String
+        let physicalCores: Int64
+        let logicalCores: Int64
+        let family: Int64
+        let model: Int64
+        let extModel: Int64
+        let extFamily: Int64
+        let stepping: Int64
+        let signature: Int64
+        let brand: Int64
+        let features: String
+        let extFeatures: String
+        let microcodeVersion: Int64
+    }
+    
+    nonisolated func getCPUDetails() -> CPUDetails {
+        return CPUDetails(
+            name: ProcessorModel.sysctlString(key: "machdep.cpu.brand_string"),
+            vendor: ProcessorModel.sysctlString(key: "machdep.cpu.vendor"),
+            physicalCores: ProcessorModel.sysctlInt64(key: "hw.physicalcpu"),
+            logicalCores: ProcessorModel.sysctlInt64(key: "hw.logicalcpu"),
+            family: ProcessorModel.sysctlInt64(key: "machdep.cpu.family"),
+            model: ProcessorModel.sysctlInt64(key: "machdep.cpu.model"),
+            extModel: ProcessorModel.sysctlInt64(key: "machdep.cpu.extmodel"),
+            extFamily: ProcessorModel.sysctlInt64(key: "machdep.cpu.extfamily"),
+            stepping: ProcessorModel.sysctlInt64(key: "machdep.cpu.stepping"),
+            signature: ProcessorModel.sysctlInt64(key: "machdep.cpu.signature"),
+            brand: ProcessorModel.sysctlInt64(key: "machdep.cpu.brand"),
+            features: ProcessorModel.sysctlString(key: "machdep.cpu.features"),
+            extFeatures: ProcessorModel.sysctlString(key: "machdep.cpu.extfeatures"),
+            microcodeVersion: ProcessorModel.sysctlInt64(key: "machdep.cpu.microcode_version")
+        )
     }
 
     nonisolated func getCurveOptimizerOffsets() -> [Int8] {
@@ -1036,6 +1083,29 @@ actor ProcessorModel {
             NSLog("getCurveOptimizerOffsets failed: %@", String(cString: mach_error_string(res)))
             return []
         }
+    }
+    
+    nonisolated func getFans() -> [FanSnapshot] {
+        let fansRes = kernelGetUInt64(count: 1, selector: 91)
+        guard fansRes.count > 0 else { return [] }
+        let numFans = Int(fansRes[0])
+        guard numFans > 0 else { return [] }
+        
+        let fanRpms = kernelGetUInt64(count: numFans, selector: 93)
+        let fanCtrls = kernelGetUInt64(count: numFans, selector: 94)
+        
+        var fans: [FanSnapshot] = []
+        for i in 0..<numFans {
+            let name = kernelGetString(selector: 92, args: [UInt64(i)])
+            let finalName = name.isEmpty ? "Fan \(i + 1)" : name
+            let customName = UserDefaults.standard.string(forKey: "FanName_\(i)") ?? finalName
+            
+            let rpm = (i < fanRpms.count) ? min(fanRpms[i], 9999) : 0
+            let throttle = (i < fanCtrls.count) ? UInt8(fanCtrls[i] & 0xFF) : 0
+            
+            fans.append(FanSnapshot(id: i, name: customName, rpm: rpm, throttle: throttle, isOverrided: throttle > 0))
+        }
+        return fans
     }
     
     // MARK: - SMC Fan Control (SMCAMDProcessor)

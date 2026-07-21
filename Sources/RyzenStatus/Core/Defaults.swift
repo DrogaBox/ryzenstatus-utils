@@ -128,6 +128,7 @@ enum DefaultsKey {
     static let panelShowUtilities = "panelShowUtilities"
     static let panelShowControls = "panelShowControls"
     static let panelShowToggles = "panelShowToggles"
+    static let panelAccordionMode = "panelAccordionMode"
     // Quick toggles tab: per-action visibility (the order lives in panelToggleOrder).
     static let panelToggleDarkMode = "panelToggleDarkMode"
     static let panelToggleEmptyTrash = "panelToggleEmptyTrash"
