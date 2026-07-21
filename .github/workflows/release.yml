@@ -122,7 +122,7 @@ jobs:
             echo "NOTES<<__VRSS_EOF__"
             printf '%s\n' "$NOTES"
             echo ""
-            echo "Signed with an Apple Developer ID and notarized by Apple, so it downloads and opens normally. Requires macOS 14 or later. Open the .dmg below and drag RyzenStatus to Applications."
+            echo "Open the .dmg below and drag RyzenStatus to Applications. You will need to bypass Gatekeeper on first launch."
             echo "__VRSS_EOF__"
           } >> "$GITHUB_OUTPUT"
 
