@@ -11,6 +11,10 @@ struct AmdPowerSettingsView: View {
     @State private var corePerformanceBoost: Bool = false
     @State private var ppmEnabled: Bool = false
     @State private var lpmEnabled: Bool = false
+    @State private var legacyPstateAllowed: Bool = false
+    @State private var selectedPState: Int = 0
+    @State private var validPStateLabels: [String] = []
+    
     @ObservedObject private var autoEpp = AutoEppService.shared
     @ObservedObject private var monitor = SystemMonitor.shared
 
@@ -42,11 +46,25 @@ struct AmdPowerSettingsView: View {
                         .foregroundColor(.red)
                 }
             } else {
+                if cppcSupported {
+                    Section {
+                        Text("Modo Detectado: CPPC (Auto-EPP - Zen 3+)")
+                            .font(.system(size: 13, weight: .bold, design: .monospaced))
+                            .foregroundColor(.green)
+                    }
+                } else if legacyPstateAllowed {
+                    Section {
+                        Text("Modo Detectado: Legacy P-States (Zen/Zen+)")
+                            .font(.system(size: 13, weight: .bold, design: .monospaced))
+                            .foregroundColor(.green)
+                    }
+                }
+
                 Section {
                     CoreGridDashboard(
                         cores: monitor.snapshot.cores,
                         ccdTemperatures: monitor.snapshot.ccdTemperatures,
-                        physicalCoresCount: ProcessorModel.shared.snapshotTelemetry(forceMetric: false).numPhysicalCores
+                        physicalCoresCount: monitor.snapshot.numPhysicalCores > 0 ? monitor.snapshot.numPhysicalCores : 16
                     )
                 } footer: {
                     Text("⚠️ Atención: Mantener esta ventana abierta mantendrá activa la lectura del hardware en segundo plano (SystemMonitor), lo cual puede impactar el consumo de batería y la CPU a lo largo del tiempo. Cierra las preferencias cuando no necesites monitorear.")
@@ -174,6 +192,27 @@ struct AmdPowerSettingsView: View {
                     } footer: {
                         Text("Auto EPP monitorea la carga de la CPU y alterna entre Power Save (inactividad) y Rendimiento (carga alta) segun los umbrales configurados.")
                     }
+                } else if legacyPstateAllowed {
+                    Section {
+                        if !validPStateLabels.isEmpty {
+                            Picker("", selection: $selectedPState) {
+                                ForEach(0..<validPStateLabels.count, id: \.self) { idx in
+                                    Text(validPStateLabels[idx]).tag(idx)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                            .onChange(of: selectedPState) { _, newValue in
+                                Task {
+                                    _ = await ProcessorModel.shared.setPState(state: newValue)
+                                }
+                            }
+                        }
+                    } header: {
+                        Text("CPU Speed Profiles (Legacy P-States)")
+                    } footer: {
+                        Text("Modifica el multiplicador y voltaje global bloqueando el P-State.")
+                    }
                 }
 
                 Section {
@@ -250,6 +289,28 @@ struct AmdPowerSettingsView: View {
 
             ppmEnabled = ProcessorModel.shared.getPPM()
             lpmEnabled = ProcessorModel.shared.getLPM()
+            
+            // P-States (Legacy Zen)
+            let profile = await ProcessorModel.shared.cpuProfile
+            legacyPstateAllowed = profile.legacyPstateAllowed
+            
+            if legacyPstateAllowed {
+                let curState = await ProcessorModel.shared.getPState()
+                if selectedPState != curState {
+                    selectedPState = curState
+                }
+                
+                if validPStateLabels.isEmpty {
+                    let clocks = await ProcessorModel.shared.getValidPStateClocks()
+                    if !clocks.isEmpty {
+                        var labels: [String] = []
+                        for (i, c) in clocks.enumerated() {
+                            labels.append(String(format: "P%d (%.1f GHz)", i, Double(c)/1000.0))
+                        }
+                        validPStateLabels = labels
+                    }
+                }
+            }
         }
     }
 }

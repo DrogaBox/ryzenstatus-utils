@@ -11,6 +11,9 @@ struct AmdControlSection: View {
     @State private var cppcSupported: Bool = false
     @State private var cpbSupported: Bool = false
     @State private var corePerformanceBoost: Bool = false
+    @State private var legacyPstateAllowed: Bool = false
+    @State private var selectedPState: Int = 0
+    @State private var validPStateLabels: [String] = []
     @ObservedObject private var autoEpp = AutoEppService.shared
     @State private var loadTimer: Timer?
     @State private var showThresholds: Bool = false
@@ -87,12 +90,17 @@ struct AmdControlSection: View {
                     Divider().padding(.top, -6).padding(.bottom, -6)
                 }
                 
-                if !cppcSupported && !cpbSupported {
+                if !cppcSupported && !legacyPstateAllowed && !cpbSupported {
                     Text("AMD Power Control no es compatible con tu procesador o versión de kext.")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 } else {
                     if cppcSupported {
+                        Text("Modo Detectado: CPPC (Auto-EPP)")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundColor(.green)
+                            .padding(.bottom, 2)
+
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(isCPPCActive ? "Auto EPP Activo" : "Energy Profile (Manual)")
@@ -180,6 +188,35 @@ struct AmdControlSection: View {
                             .background(Color.secondary.opacity(0.05))
                             .cornerRadius(6)
                         }
+                    } else if legacyPstateAllowed {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Modo Detectado: Legacy P-States")
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .foregroundColor(.green)
+                                .padding(.bottom, -2)
+
+                            Text("CPU Speed Profiles (Legacy)")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.cyan)
+                            
+                            Text("P-State overrides (Frequencies locked).")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                            
+                            if !validPStateLabels.isEmpty {
+                                Picker("", selection: $selectedPState) {
+                                    ForEach(0..<validPStateLabels.count, id: \.self) { idx in
+                                        Text(validPStateLabels[idx]).tag(idx)
+                                    }
+                                }
+                                .pickerStyle(.segmented)
+                                .onChange(of: selectedPState) { _, newValue in
+                                    Task {
+                                        _ = await ProcessorModel.shared.setPState(state: newValue)
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     Divider().padding(.vertical, 4)
@@ -265,17 +302,47 @@ struct AmdControlSection: View {
     private func checkCapabilities() {
         Task { @MainActor in
             let kernelAnswered = ProcessorModel.shared.connect != 0
-            cppcSupported = kernelAnswered
             if kernelAnswered {
-                let state = ProcessorModel.shared.getCPPCActiveMode()
-                if isCPPCActive != state.active {
-                    isCPPCActive = state.active
+                let profile = await ProcessorModel.shared.cpuProfile
+                cppcSupported = profile.supportsCPPC
+                legacyPstateAllowed = profile.legacyPstateAllowed
+                
+                if cppcSupported {
+                    let state = ProcessorModel.shared.getCPPCActiveMode()
+                    if isCPPCActive != state.active {
+                        isCPPCActive = state.active
+                    }
+                    // Snap to segmented value
+                    let target = snapEPP(state.epp)
+                    if selectedEpp != target {
+                        selectedEpp = target
+                    }
+                } else if legacyPstateAllowed {
+                    let curState = await ProcessorModel.shared.getPState()
+                    if selectedPState != curState {
+                        selectedPState = curState
+                    }
+                    
+                    if validPStateLabels.isEmpty {
+                        let clocks = await ProcessorModel.shared.getValidPStateClocks()
+                        if !clocks.isEmpty {
+                            var labels: [String] = []
+                            for i in 0..<clocks.count {
+                                if i == 0 {
+                                    labels.append(String(format: "P%d (Max)", i))
+                                } else if i == clocks.count - 1 {
+                                    labels.append(String(format: "P%d (Low)", i))
+                                } else {
+                                    labels.append(String(format: "P%d", i))
+                                }
+                            }
+                            validPStateLabels = labels
+                        }
+                    }
                 }
-                // Snap to segmented value
-                let target = snapEPP(state.epp)
-                if selectedEpp != target {
-                    selectedEpp = target
-                }
+            } else {
+                cppcSupported = false
+                legacyPstateAllowed = false
             }
 
             let cpb = ProcessorModel.shared.getCPB()
