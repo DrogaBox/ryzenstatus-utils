@@ -67,6 +67,12 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist/showcase
+          
+          # Always include the Kexts
+          if [[ -f "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" ]]; then
+            cp "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" dist/
+          fi
+
           if [[ "$VERSION" == "3.1.4" ]]; then
             ASSET="ryzenstatus-3.1.4-showcase-1.mp4"
             SOURCE="ReleaseAssets/$ASSET"
@@ -83,6 +89,9 @@ jobs:
           {
             echo "FILES<<__VRSS_FILES__"
             printf '%s\n' dist/*.dmg
+            if compgen -G "dist/*.zip" > /dev/null; then
+              printf '%s\n' dist/*.zip
+            fi
             if compgen -G "dist/showcase/*.mp4" > /dev/null; then
               printf '%s\n' dist/showcase/*.mp4
             fi
