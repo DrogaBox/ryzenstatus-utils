@@ -31,10 +31,10 @@ struct AmdPowerSettingsView: View {
 
     private var eppLabel: String {
         switch snapEPP(selectedEpp) {
-        case 255: return "Rendimiento"
-        case 170: return "Balanced Perf"
-        case 85: return "Balanced Power"
-        default: return "Power Save"
+        case 0:   return "Rendimiento"
+        case 85:  return "Balanced Perf"
+        case 170: return "Balanced Power"
+        default:  return "Power Save"
         }
     }
 
@@ -146,7 +146,7 @@ struct AmdPowerSettingsView: View {
                                             .font(.system(size: 12, weight: .medium, design: .monospaced))
                                             .foregroundColor(.green)
                                     }
-                                    Text("Por debajo de este % de carga -> Power Save (maxima eficiencia)")
+                                    Text("Por debajo de este % de carga -> Power Save (máxima eficiencia)")
                                         .font(.caption2)
                                         .foregroundColor(.secondary)
                                     Slider(value: Binding(
@@ -164,7 +164,7 @@ struct AmdPowerSettingsView: View {
                                             .font(.system(size: 12, weight: .medium, design: .monospaced))
                                             .foregroundColor(.red)
                                     }
-                                    Text("Por encima de este % de carga -> Rendimiento (maxima velocidad)")
+                                    Text("Por encima de este % de carga -> Rendimiento (máxima velocidad)")
                                         .font(.caption2)
                                         .foregroundColor(.secondary)
                                     Slider(value: Binding(
@@ -195,10 +195,10 @@ struct AmdPowerSettingsView: View {
                             }
 
                             Picker("", selection: $selectedEpp) {
-                                Text("Max").tag(UInt8(255))
-                                Text("Bal+").tag(UInt8(170))
-                                Text("Bal-").tag(UInt8(85))
-                                Text("Eco").tag(UInt8(0))
+                                Text("Max").tag(UInt8(0))
+                                Text("Bal+").tag(UInt8(85))
+                                Text("Bal-").tag(UInt8(170))
+                                Text("Eco").tag(UInt8(255))
                             }
                             .pickerStyle(.segmented)
                             .labelsHidden()
@@ -212,7 +212,7 @@ struct AmdPowerSettingsView: View {
                     } header: {
                         Text("Collaborative Processor Performance Control")
                     } footer: {
-                        Text("Auto EPP monitorea la carga de la CPU y alterna entre Power Save (inactividad) y Rendimiento (carga alta) segun los umbrales configurados.")
+                        Text("Auto EPP monitorea la carga de la CPU y alterna entre Power Save (inactividad) y Rendimiento (carga alta) según los umbrales configurados.")
                     }
                 } else if legacyPstateAllowed {
                     Section {
@@ -255,9 +255,9 @@ struct AmdPowerSettingsView: View {
                             _ = ProcessorModel.shared.setLPM(enabled: newValue)
                         }
                 } header: {
-                    Text("Controles Avanzados de Energia")
+                    Text("Controles Avanzados de Energía")
                 } footer: {
-                    Text("Desactivar CPB o activar LPM reducira las temperaturas y el consumo a costa del rendimiento maximo.")
+                    Text("Desactivar CPB o activar LPM reducirá las temperaturas y el consumo a costa del rendimiento máximo.")
                 }
             }
         }

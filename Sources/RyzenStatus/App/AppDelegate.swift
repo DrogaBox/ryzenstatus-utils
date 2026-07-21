@@ -670,9 +670,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     
     // MARK: - Popover Detachment
     
+    /// Whether the menu panel is inside the popover (as opposed to a detached window).
+    /// Checks `detachedWindowController != nil` instead of `window.isVisible` because
+    /// the window is created before it's shown, so isVisible would be false during
+    /// view construction in the detached window, incorrectly showing the button.
+    var isPanelInPopover: Bool {
+        detachedWindowController == nil
+    }
+    
     private var detachedWindowController: NSWindowController?
     
     @objc func detachPanel() {
+        // If already detached, re-attach: close the window and reopen the popover
+        // The willCloseNotification observer handles cleanup (detachedWindowController=nil, monitor stop)
+        if let window = detachedWindowController?.window, window.isVisible {
+            window.close()
+            // Reopen the popover via the standard toggle entry point
+            if !popover.isShown {
+                MenuPanelFocus.shared.showNormalPanel()
+                popoverClosedAt = .distantPast
+                togglePopover()
+            }
+            return
+        }
+        
         if detachedWindowController == nil {
             let panelView = MenuPanelView()
             let hostingController = NSHostingController(rootView: panelView)

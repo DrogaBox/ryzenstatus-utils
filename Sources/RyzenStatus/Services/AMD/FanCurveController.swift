@@ -86,6 +86,9 @@ class FanCurveController: ObservableObject {
             var lastTemp: [FanSensor: Double] = [:]
             var currentPWM: [Int: Double] = [:] // Fan ID -> PWM
             
+            // Track which fans are already in manual mode to avoid redundant IOKit calls
+            var manualFans: Set<Int> = []
+            
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 
@@ -93,7 +96,9 @@ class FanCurveController: ObservableObject {
                 
                 let telemetry = await ProcessorModel.shared.snapshotTelemetry(forceMetric: false)
                 let cpuTemp = Double(telemetry.metric[1]) // Package Temp
-                let gpuTemp = await SystemMonitor.shared.snapshot.gpuTemperature ?? cpuTemp
+                let gpuTemp = await MainActor.run {
+                    SystemMonitor.shared.snapshot.gpuTemperature ?? cpuTemp
+                }
                 
                 let mappings = await self.fanMappings
                 let curves = await self.customCurves
@@ -127,12 +132,16 @@ class FanCurveController: ObservableObject {
                     
                     currentPWM[fanId] = newPWM
                     
-                    // Convert PWM percentage (0-100) to SMC scale (0-255)
-                    let finalSMCValue = Int((newPWM / 100.0) * 255.0)
+                    // Only call setFanMode once per fan when transitioning to manual
+                    if !manualFans.contains(fanId) {
+                        _ = await ProcessorModel.shared.setFanMode(auto: false, fanIndex: fanId)
+                        manualFans.insert(fanId)
+                    }
                     
-                    // Set new fan speed via ProcessorModel
-                    // Assuming setFanMode(auto: false) has been called for this fan
-                    _ = await ProcessorModel.shared.setFanMode(auto: false, fanIndex: fanId)
+                    // Convert PWM percentage (0-100) to SMC scale (0-255) with clamp
+                    let clampedPWM = min(max(newPWM, 0), 100)
+                    let finalSMCValue = min(max(Int((clampedPWM / 100.0) * 255.0), 0), 255)
+                    
                     _ = await ProcessorModel.shared.setFanSpeed(rpm: finalSMCValue, fanIndex: fanId)
                 }
             }

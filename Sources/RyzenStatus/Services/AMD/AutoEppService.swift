@@ -83,15 +83,20 @@ final class AutoEppService: ObservableObject {
             currentCPULoad = avg
 
             if avg < Float(idleThreshold) {
-                _ = ProcessorModel.shared.setCPPCEPPValue(epp: 0)
-                currentTarget = "Power Save"
-                currentEPP = 0
-            } else if avg > Float(loadThreshold) {
+                // Idle: set to Power Save (max efficiency)
                 _ = ProcessorModel.shared.setCPPCEPPValue(epp: 255)
-                currentTarget = "Rendimiento"
+                currentTarget = "Power Save"
                 currentEPP = 255
+            } else if avg > Float(loadThreshold) {
+                // High load: set to Performance (max speed)
+                _ = ProcessorModel.shared.setCPPCEPPValue(epp: 0)
+                currentTarget = "Rendimiento"
+                currentEPP = 0
             } else {
+                // Moderate load: balanced EPP
+                _ = ProcessorModel.shared.setCPPCEPPValue(epp: 128)
                 currentTarget = "Balanced"
+                currentEPP = 128
             }
         }
     }

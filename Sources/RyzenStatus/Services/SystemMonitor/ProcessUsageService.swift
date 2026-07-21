@@ -468,6 +468,22 @@ final class ProcessUsageService {
 
     private var previousGPUSample: (time: TimeInterval, perPid: [pid_t: Double])?
     private let gpuSampleLock = NSLock()
+    
+    /// Global GPU utilization % read from IOAccelerator PerformanceStatistics.
+    private var totalGPUUtilPct: Double = 0
+    /// WindowServer PID, resolved once and cached.
+    private static var _windowServerPID: pid_t?
+    private static var windowServerPID: pid_t? {
+        if let cached = _windowServerPID { return cached }
+        // Find by bundle identifier — WindowServer is always com.apple.windowserver
+        for app in NSWorkspace.shared.runningApplications {
+            if app.bundleIdentifier == "com.apple.windowserver" {
+                _windowServerPID = app.processIdentifier
+                return _windowServerPID
+            }
+        }
+        return nil
+    }
 
     /// Per-process GPU share since the previous call. The first call after a
     /// while only primes the baseline and returns [] — callers show a
@@ -505,7 +521,7 @@ final class ProcessUsageService {
         let current = Self.gpuTimePerPid()
         gpuSampleLock.lock()
         let previous = previousGPUSample
-        previousGPUSample = (now, current)
+        previousGPUSample = (now, Dictionary(uniqueKeysWithValues: current.map { ($0.pid, $0.time) }))
         gpuSampleLock.unlock()
 
         guard let previous, now > previous.time,
@@ -514,13 +530,60 @@ final class ProcessUsageService {
 
         let elapsedNs = (now - previous.time) * 1_000_000_000
         var rows: [ProcessUsage] = []
-        for (pid, total) in current {
+        var computePercentSum: Double = 0
+        for (pid, name, total) in current {
             guard let before = previous.perPid[pid], total > before else { continue }
             let percent = (total - before) / elapsedNs * 100
             guard percent >= 0.05 else { continue }
-            rows.append(ProcessUsage(pid: pid, name: "pid \(pid)", value: min(percent, 100)))
+            let displayName = ResponsibleProcess.displayName(pid: pid,
+                                                             fallback: name)
+            rows.append(ProcessUsage(pid: pid, name: displayName, value: min(percent, 100)))
+            computePercentSum += percent
         }
+        
+        // Read total GPU utilization from PerformanceStatistics and attribute
+        // the unaccounted remainder to WindowServer (display compositing).
+        self.totalGPUUtilPct = Self.readTotalGPUUtilization()
+        if let wsPID = Self.windowServerPID,
+           self.totalGPUUtilPct > computePercentSum + 1,
+           self.totalGPUUtilPct > 2 {
+            let wsShare = max(0, self.totalGPUUtilPct - computePercentSum - 1)
+            let wsName = ResponsibleProcess.displayName(pid: wsPID,
+                                                        fallback: "WindowServer")
+            rows.append(ProcessUsage(pid: wsPID, name: wsName, value: min(wsShare, 100)))
+        }
+        
         return finishGPU(groupedByApp(rows), limit: limit)
+    }
+    
+    /// Reads the global GPU utilization (%) from IOAccelerator PerformanceStatistics.
+    private static func readTotalGPUUtilization() -> Double {
+        var iterator = io_iterator_t()
+        guard IOServiceGetMatchingServices(kIOMainPortDefault,
+                                           IOServiceMatching("IOAccelerator"),
+                                           &iterator) == kIOReturnSuccess else { return 0 }
+        defer { IOObjectRelease(iterator) }
+        
+        var entry = IOIteratorNext(iterator)
+        while entry != 0 {
+            defer {
+                IOObjectRelease(entry)
+                entry = IOIteratorNext(iterator)
+            }
+            guard let ref = IORegistryEntryCreateCFProperty(entry, "PerformanceStatistics" as CFString,
+                                                            kCFAllocatorDefault, 0),
+                  let stats = ref.takeRetainedValue() as? [String: Any]
+            else { continue }
+            
+            if let util = stats["Device Utilization %"] as? Int {
+                return Double(util)
+            } else if let util = stats["GPU Activity(%)"] as? Int {
+                return Double(util)
+            } else if let util = stats["Device Utilization %"] as? Double {
+                return util
+            }
+        }
+        return 0
     }
 
     private func finishCPU(_ rows: [ProcessUsage]?, limit: Int) -> [ProcessUsage] {
@@ -568,8 +631,9 @@ final class ProcessUsageService {
 
     /// Walks the accelerator's user clients and sums `accumulatedGPUTime`
     /// (nanoseconds of GPU work since the context was created) per process.
-    private static func gpuTimePerPid() -> [pid_t: Double] {
-        var perPid: [pid_t: Double] = [:]
+    /// Returns the PID, process name (from IOUserClientCreator), and accumulated time.
+    private static func gpuTimePerPid() -> [(pid: pid_t, name: String, time: Double)] {
+        var perPid: [pid_t: (name: String, time: Double)] = [:]
 
         let classes = ["IOAccelerator", "IOGraphicsAccelerator2", "AMDRadeonX6000_AmdRadeonGraphicsAccelerator", "AMDRadeonX6000_AmdRadeonGraphicsAccelerator2"]
         
@@ -602,7 +666,7 @@ final class ProcessUsageService {
                     guard let creatorRef = IORegistryEntryCreateCFProperty(
                               client, "IOUserClientCreator" as CFString, kCFAllocatorDefault, 0),
                           let creator = creatorRef.takeRetainedValue() as? String,
-                          let pid = Self.pid(fromCreator: creator)
+                          let info = Self.nameAndPid(fromCreator: creator)
                     else { continue }
 
                 // Try Apple Silicon (AppUsage array) first, then fallback to root properties for AMD GPUs
@@ -610,9 +674,13 @@ final class ProcessUsageService {
                    let usage = usageRef.takeRetainedValue() as? [[String: Any]] {
                     for entry in usage {
                         if let time = entry["accumulatedGPUTime"] as? Double {
-                            perPid[pid, default: 0] += time
+                            var existing = perPid[info.pid] ?? (info.name, 0)
+                            existing.time += time
+                            perPid[info.pid] = existing
                         } else if let time = entry["accumulatedGPUTime"] as? Int64 {
-                            perPid[pid, default: 0] += Double(time)
+                            var existing = perPid[info.pid] ?? (info.name, 0)
+                            existing.time += Double(time)
+                            perPid[info.pid] = existing
                         }
                     }
                 } else {
@@ -620,26 +688,38 @@ final class ProcessUsageService {
                     var props: Unmanaged<CFMutableDictionary>?
                     if IORegistryEntryCreateCFProperties(client, &props, kCFAllocatorDefault, 0) == kIOReturnSuccess,
                        let dict = props?.takeRetainedValue() as? [String: Any] {
-                        if let time = dict["accumulatedGPUTime"] as? Double {
-                            perPid[pid, default: 0] += time
-                        } else if let time = dict["accumulatedGPUTime"] as? Int64 {
-                            perPid[pid, default: 0] += Double(time)
-                        } else if let time = dict["accumulatedGPUTime"] as? NSNumber {
-                            perPid[pid, default: 0] += time.doubleValue
+                        let rawTime: Double
+                        if let t = dict["accumulatedGPUTime"] as? Double {
+                            rawTime = t
+                        } else if let t = dict["accumulatedGPUTime"] as? Int64 {
+                            rawTime = Double(t)
+                        } else if let t = dict["accumulatedGPUTime"] as? NSNumber {
+                            rawTime = t.doubleValue
+                        } else {
+                            rawTime = 0
                         }
+                        var existing = perPid[info.pid] ?? (info.name, 0)
+                        existing.time += rawTime
+                        perPid[info.pid] = existing
                     }
                 }
                 }
             }
         }
-        return perPid
+        return perPid.map { (pid: $0.key, name: $0.value.name, time: $0.value.time) }
     }
 
-    /// "pid 437, WindowServer" → 437
-    private static func pid(fromCreator creator: String) -> pid_t? {
+    /// "pid 437, WindowServer" → (437, "WindowServer")
+    private static func nameAndPid(fromCreator creator: String) -> (pid: pid_t, name: String)? {
         guard creator.hasPrefix("pid ") else { return nil }
-        let digits = creator.dropFirst(4).prefix { $0.isNumber }
-        return pid_t(digits)
+        let rest = creator.dropFirst(4)
+        let digits = rest.prefix { $0.isNumber }
+        guard let pid = pid_t(digits) else { return nil }
+        let afterPid = rest.dropFirst(digits.count).drop(while: { $0 == " " })
+        let name = afterPid.hasPrefix(",")
+            ? String(afterPid.dropFirst().drop(while: { $0 == " " }))
+            : ""
+        return (pid, name.isEmpty ? "pid \(pid)" : name)
     }
 
 }
