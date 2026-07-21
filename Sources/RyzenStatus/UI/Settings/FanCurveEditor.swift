@@ -24,7 +24,7 @@ struct InteractiveFanCurveEditor: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
-                    .frame(width: 160)
+                    .frame(width: 140)
                     
                     TextField("Name", text: Binding(
                         get: { curve.name },
@@ -35,7 +35,44 @@ struct InteractiveFanCurveEditor: View {
                         }
                     ))
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 120)
+                    .frame(width: 100)
+                    
+                    Button("+") {
+                        var updated = controller.customCurves
+                        let newCurve = FanCurve(
+                            name: "Curve \(updated.count + 1)",
+                            points: [
+                                FanCurvePoint(temp: 40, pwm: 30),
+                                FanCurvePoint(temp: 70, pwm: 60),
+                                FanCurvePoint(temp: 85, pwm: 100)
+                            ],
+                            sourceSensor: .cpu,
+                            hysteresis: 2.0,
+                            rampRate: 5.0
+                        )
+                        updated.append(newCurve)
+                        controller.customCurves = updated
+                        selectedCurveIndex = updated.count - 1
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Add new curve")
+                    
+                    if controller.customCurves.count > 1 {
+                        Button("−") {
+                            var updated = controller.customCurves
+                            guard selectedCurveIndex < updated.count else { return }
+                            updated.remove(at: selectedCurveIndex)
+                            controller.customCurves = updated
+                            if selectedCurveIndex >= updated.count {
+                                selectedCurveIndex = max(0, updated.count - 1)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .foregroundColor(.red)
+                        .help("Delete this curve")
+                    }
                     
                     Spacer()
                 }

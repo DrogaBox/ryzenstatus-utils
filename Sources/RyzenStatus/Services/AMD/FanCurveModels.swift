@@ -20,9 +20,15 @@ struct FanSnapshot: Identifiable {
 // MARK: - Fan Curve Point
 
 struct FanCurvePoint: Codable, Identifiable, Hashable {
-    var id = UUID()
+    let id: UUID
     var temp: Double
     var pwm: Double
+    
+    init(id: UUID = UUID(), temp: Double, pwm: Double) {
+        self.id = id
+        self.temp = temp
+        self.pwm = pwm
+    }
 }
 
 // MARK: - Fan Curve

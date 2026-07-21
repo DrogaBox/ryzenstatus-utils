@@ -18,8 +18,8 @@ struct SystemSection: View {
     var collapsible = true
     @State private var expandedKinds: Set<BreakdownKind> = []
     @State private var alertsExpanded = false
-    @State private var breakdownRows: [ProcessUsage] = []
-    @State private var breakdownIsLoading = false
+    @State private var breakdownRows: [BreakdownKind: [ProcessUsage]] = [:]
+    @State private var breakdownLoading: [BreakdownKind: Bool] = [:]
     @State private var lastBreakdownRefresh = Date.distantPast
     private let breakdownLimit = 15
     @AppStorage(DefaultsKey.monitorGraphCPU) private var graphCPU = true
@@ -89,8 +89,8 @@ struct SystemSection: View {
         }
         .onDisappear {
             expandedKinds.removeAll()
-            breakdownRows = []
-            breakdownIsLoading = false
+            breakdownRows = [:]
+            breakdownLoading = [:]
         }
     }
 
@@ -220,9 +220,10 @@ struct SystemSection: View {
     private func toggleBreakdown(_ kind: BreakdownKind) {
         if expandedKinds.contains(kind) {
             expandedKinds.remove(kind)
+            breakdownRows.removeValue(forKey: kind)
         } else {
             expandedKinds.insert(kind)
-            breakdownRows = ProcessUsageService.shared.cachedTop(kind, limit: breakdownLimit) ?? []
+            breakdownRows[kind] = ProcessUsageService.shared.cachedTop(kind, limit: breakdownLimit) ?? []
             refreshBreakdown()
         }
     }
@@ -234,14 +235,18 @@ struct SystemSection: View {
         guard now.timeIntervalSince(lastBreakdownRefresh) > 4 else { return }
         
         lastBreakdownRefresh = now
-        breakdownIsLoading = breakdownRows.isEmpty
-        DispatchQueue.global(qos: .utility).async {
-            let rows = ProcessUsageService.shared.top(expandedKinds.first!, limit: breakdownLimit)
-            DispatchQueue.main.async {
-                guard !expandedKinds.isEmpty else { return }
-                breakdownIsLoading = false
-                if !rows.isEmpty || breakdownRows.isEmpty {
-                    breakdownRows = rows
+        for kind in expandedKinds {
+            if breakdownLoading[kind] == true { continue }
+            breakdownLoading[kind] = (breakdownRows[kind]?.isEmpty ?? true)
+            let capturedKind = kind
+            DispatchQueue.global(qos: .utility).async {
+                let rows = ProcessUsageService.shared.top(capturedKind, limit: breakdownLimit)
+                DispatchQueue.main.async {
+                    guard expandedKinds.contains(capturedKind) else { return }
+                    breakdownLoading[capturedKind] = false
+                    if !rows.isEmpty {
+                        breakdownRows[capturedKind] = rows
+                    }
                 }
             }
         }
@@ -250,14 +255,16 @@ struct SystemSection: View {
     @ViewBuilder
     private func breakdownList(for kind: BreakdownKind) -> some View {
         if expandedKinds.contains(kind) {
+            let rows = breakdownRows[kind] ?? []
+            let isLoading = breakdownLoading[kind] ?? false
             VStack(alignment: .leading, spacing: 4) {
-                if breakdownRows.isEmpty {
-                    Text(breakdownIsLoading ? l10n.s.breakdownMeasuring : emptyBreakdownText(for: kind))
+                if rows.isEmpty {
+                    Text(isLoading ? l10n.s.breakdownMeasuring : emptyBreakdownText(for: kind))
                         .font(.system(size: 10.5))
                         .foregroundStyle(.tertiary)
                         .padding(.leading, 38)
                 } else {
-                    ForEach(breakdownRows) { row in
+                    ForEach(rows) { row in
                         ProcessUsageRow(row: row,
                                         value: breakdownValue(row, for: kind),
                                         iconSize: 14,
@@ -300,7 +307,7 @@ struct SystemSection: View {
                             icon: "cpu",
                             usage: monitor.snapshot.cpuUsage ?? 0,
                             temp: monitor.snapshot.cpuTemperature ?? 0,
-                            freq: averageCPUFreq > 0 ? String(format: "%.3f GHz", averageCPUFreq) : "",
+                            freq: String(format: "%.3f GHz", averageCPUFreq),
                             power: monitor.snapshot.cpuPower ?? 0,
                             accentColor: .cyan,
                             backgroundColor: Color(red: 0.1, green: 0.2, blue: 0.2, opacity: 0.3)
@@ -313,7 +320,7 @@ struct SystemSection: View {
                             icon: "display",
                             usage: monitor.snapshot.gpuUsage ?? 0,
                             temp: monitor.snapshot.gpuTemperature ?? 0,
-                            freq: gpuFreqVal > 0 ? String(format: "%.0f MHz", gpuFreqVal) : "",
+                            freq: String(format: "%.0f MHz", gpuFreqVal),
                             power: monitor.snapshot.gpuPower ?? 0,
                             accentColor: .orange,
                             backgroundColor: Color(red: 0.2, green: 0.15, blue: 0.05, opacity: 0.3)
@@ -852,9 +859,7 @@ struct PanelSquareCard: View {
             
             VStack(alignment: .leading, spacing: 6) {
                 PanelStatRow(icon: "thermometer", value: String(format: "%.1f °C", temp), color: .red)
-                if !freq.isEmpty {
-                    PanelStatRow(icon: "waveform.path.ecg", value: freq, color: accentColor)
-                }
+                PanelStatRow(icon: "waveform.path.ecg", value: freq.isEmpty ? "--" : freq, color: accentColor)
                 PanelStatRow(icon: "bolt.fill", value: String(format: "%.2f W", power), color: .yellow)
             }
         }

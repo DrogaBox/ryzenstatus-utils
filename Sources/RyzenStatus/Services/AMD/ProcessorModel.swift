@@ -66,8 +66,16 @@ actor ProcessorModel {
         var gpuWatts: Double {
             lock.lock(); defer { lock.unlock() }; return _gpuWatts
         }
-        func setCPU(_ w: Double) { if w > 0 { lock.lock(); _cpuWatts = w; lock.unlock() } }
-        func setGPU(_ w: Double) { if w > 0 { lock.lock(); _gpuWatts = w; lock.unlock() } }
+        func setCPU(_ w: Double) {
+            lock.lock()
+            _cpuWatts = max(0, w)
+            lock.unlock()
+        }
+        func setGPU(_ w: Double) {
+            lock.lock()
+            _gpuWatts = max(0, w)
+            lock.unlock()
+        }
     }
     nonisolated let powerCache = PowerCache()
 
@@ -1088,7 +1096,7 @@ actor ProcessorModel {
     nonisolated func getFans() -> [FanSnapshot] {
         let fansRes = kernelGetUInt64(count: 1, selector: 91)
         guard fansRes.count > 0 else { return [] }
-        let numFans = Int(fansRes[0])
+        let numFans = min(Int(fansRes[0]), 16) // Cap at 16 to prevent unbounded allocation
         guard numFans > 0 else { return [] }
         
         let fanRpms = kernelGetUInt64(count: numFans, selector: 93)
@@ -1101,9 +1109,15 @@ actor ProcessorModel {
             let customName = UserDefaults.standard.string(forKey: "FanName_\(i)") ?? finalName
             
             let rpm = (i < fanRpms.count) ? min(fanRpms[i], 9999) : 0
-            let throttle = (i < fanCtrls.count) ? UInt8(fanCtrls[i] & 0xFF) : 0
             
-            fans.append(FanSnapshot(id: i, name: customName, rpm: rpm, throttle: throttle, isOverrided: throttle > 0))
+            // Selector 94 packs: (throttle << 8) | autoFlag
+            // - Bits 15:8 = throttle/PWM value (0-255)
+            // - Bit 0    = autoFlag (1 = Auto/SmartGuardian, 0 = Manual/Override)
+            let raw = (i < fanCtrls.count) ? fanCtrls[i] : 0
+            let throttle = UInt8((raw >> 8) & 0xFF)  // Extract actual throttle from bits 15:8
+            let isAuto = (raw & 1) == 1               // Extract auto flag from bit 0
+            
+            fans.append(FanSnapshot(id: i, name: customName, rpm: rpm, throttle: throttle, isOverrided: !isAuto))
         }
         return fans
     }

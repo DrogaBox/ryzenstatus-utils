@@ -411,17 +411,21 @@ struct MenuPanelView: View {
         HStack {
             MenuPanelHeader()
             Spacer()
-            Button(action: {
-                appDelegate()?.detachPanel()
-            }) {
-                Image(systemName: "macwindow")
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
+            // Detach button: only visible when the panel is inside the popover
+            // (not when already detached to a standalone window)
+            if (NSApp.delegate as? AppDelegate)?.isPanelInPopover ?? true {
+                Button(action: {
+                    appDelegate()?.detachPanel()
+                }) {
+                    Image(systemName: "macwindow.badge.plus")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Separar panel en ventana flotante")
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .help("Separar panel en ventana flotante")
         }
         .padding(.horizontal, 4)
     }

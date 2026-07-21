@@ -39,20 +39,20 @@ struct AmdControlSection: View {
             return autoEpp.currentTarget.isEmpty ? "Monitor…" : autoEpp.currentTarget
         }
         switch snapEPP(selectedEpp) {
-        case 255: return "Rendimiento"
-        case 170: return "Balanced Perf"
-        case 85: return "Balanced Power"
-        default: return "Power Save"
+        case 0:   return "Rendimiento"
+        case 85:  return "Balanced Perf"
+        case 170: return "Balanced Power"
+        default:  return "Power Save"
         }
     }
 
     private var eppColor: Color {
         if isCPPCActive { return .secondary }
         switch snapEPP(selectedEpp) {
-        case 0: return .green
-        case 85: return .yellow
-        case 170: return .orange
-        default: return .red
+        case 0:   return .red      // Rendimiento = high power
+        case 85:  return .orange
+        case 170: return .yellow
+        default:  return .green    // Power Save = efficient
         }
     }
 
@@ -131,10 +131,10 @@ struct AmdControlSection: View {
 
                         VStack(spacing: 8) {
                             Picker("", selection: $selectedEpp) {
-                                Text("Max").tag(UInt8(255))
-                                Text("Bal+").tag(UInt8(170))
-                                Text("Bal-").tag(UInt8(85))
-                                Text("Eco").tag(UInt8(0))
+                                Text("Max").tag(UInt8(0))
+                                Text("Bal+").tag(UInt8(85))
+                                Text("Bal-").tag(UInt8(170))
+                                Text("Eco").tag(UInt8(255))
                             }
                             .pickerStyle(.segmented)
                             .disabled(isCPPCActive)
