@@ -122,7 +122,7 @@ struct UpdateShowcaseIntroView: View {
     @StateObject private var mediaLoader = UpdateShowcaseMediaLoader()
     @ObservedObject private var l10n = L10n.shared
     @Environment(\.openURL) private var openURL
-    @State private var step: Step = .demo
+    @State private var step: Step = .support // Disabled video showcase temporarily until new branding videos are created
 
     private enum Step {
         case demo
