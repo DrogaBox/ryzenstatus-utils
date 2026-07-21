@@ -2,9 +2,9 @@
 
 ## [1.0.2]
 
-- Agregada detección dinámica de CPUs: ahora diferencia correctamente entre procesadores antiguos (Legacy P-States en Zen/Zen+) y modernos (CPPC en Zen 2+).
-- Solucionado un crash crítico (Actor isolation) al acceder a la configuración de P-States en arquitecturas recientes.
-- Eliminados rastros de la marca antigua (Vorssaint) en la ventana de actualizaciones.
+- Added dynamic CPU architecture detection: now correctly differentiates between legacy (Zen/Zen+) and modern (Zen 2+ CPPC) processors for P-State support.
+- Fixed a critical crash (Actor isolation) when accessing P-States on modern architectures.
+- Removed legacy branding and assets from the update showcase view.
 
 ## [1.0.1]
 
