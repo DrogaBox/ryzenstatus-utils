@@ -73,27 +73,11 @@ jobs:
             cp "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" dist/
           fi
 
-          if [[ "$VERSION" == "1.0.2" ]]; then
-            ASSET="ryzenstatus-1.0.2-showcase-1.mp4"
-            SOURCE="ReleaseAssets/$ASSET"
-            TARGET="dist/showcase/$ASSET"
-            if [[ -f "$SOURCE" ]]; then
-              cp "$SOURCE" "$TARGET"
-            fi
-            if [[ ! -s "$TARGET" ]]; then
-              echo "Missing required showcase media: $TARGET" >&2
-              echo "The app expects https://github.com/DrogaBox/ryzenstatus-utils/releases/download/v1.0.2/$ASSET" >&2
-              exit 1
-            fi
-          fi
           {
             echo "FILES<<__VRSS_FILES__"
             printf '%s\n' dist/*.dmg
             if compgen -G "dist/*.zip" > /dev/null; then
               printf '%s\n' dist/*.zip
-            fi
-            if compgen -G "dist/showcase/*.mp4" > /dev/null; then
-              printf '%s\n' dist/showcase/*.mp4
             fi
             echo "__VRSS_FILES__"
           } >> "$GITHUB_OUTPUT"
