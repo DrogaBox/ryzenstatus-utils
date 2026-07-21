@@ -17,7 +17,7 @@ cd ryzenstatus-utils
 ./build.sh --install               # install into /Applications and launch
 ```
 
-You need macOS 14 or newer, Apple Silicon and the Xcode Command Line Tools. The
+You need macOS 13 or newer, an AMD Ryzen CPU (Zen architecture or newer), and the Xcode Command Line Tools. The
 build is a plain `swiftc` invocation, see `build.sh`, with no Xcode project and
 no external dependencies, reproducible by design. `Package.swift` is there so
 SwiftPM aware editors can index the code.
@@ -40,13 +40,7 @@ dedicated keychain. `build.sh` then signs local builds with it and gives them a
 constant designated requirement, so granted permissions stick across rebuilds.
 It is a local convenience only and never shows up outside the keychain.
 
-Official releases work differently. CI signs them with an Apple **Developer ID**,
-from the repo secrets `SIGNING_CERT_P12` and `SIGNING_CERT_PASSWORD`, then
-**notarizes** and staples them through `Tools/notarize.sh`, with secrets
-`NOTARY_API_KEY_P8`, `NOTARY_KEY_ID` and `NOTARY_ISSUER_ID`, so downloads open
-with no Gatekeeper warning. `build.sh` prefers the Developer ID identity when it
-is present, with the hardened runtime and `Resources/RyzenStatus.entitlements`,
-and falls back to the self signed identity, then to ad hoc.
+Official releases are built automatically by GitHub Actions CI without a paid Developer ID. Users must bypass Gatekeeper to open the app on the first launch.
 
 ## Project layout
 
@@ -83,9 +77,7 @@ translated.
 
 ## Sensors on new chips
 
-Temperature mapping lives in `SystemMonitor.prepareSensorsIfNeeded()`. CPU keys
-look like `Tp…` and `Te…`, GPU is `Tg…`, and battery runs from `TB0T` to
-`TB2T`. If a new Apple Silicon generation renames the keys, run this
+Temperature mapping for AMD processors is read via `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext`. CPU keys look like `TC0C` to `TCFC`. If a new AMD Zen architecture requires different telemetry logic, run this
 
 ```sh
 ./build/RyzenStatus --sensors
