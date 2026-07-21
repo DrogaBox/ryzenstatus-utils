@@ -5,8 +5,8 @@ import Combine
 import Foundation
 
 enum UpdateShowcaseInfo {
-    static let releaseVersion = "3.1.4"
-    static let mediaAssetName = "ryzenstatus-3.1.4-showcase-1.mp4"
+    static let releaseVersion = "1.0.2"
+    static let mediaAssetName = "ryzenstatus-1.0.2-showcase-1.mp4"
 
     static var remoteMediaURL: URL {
         URL(string: "https://github.com/DrogaBox/ryzenstatus-utils/releases/download/v\(releaseVersion)/\(mediaAssetName)")!

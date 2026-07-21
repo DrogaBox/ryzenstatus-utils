@@ -73,8 +73,8 @@ jobs:
             cp "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" dist/
           fi
 
-          if [[ "$VERSION" == "3.1.4" ]]; then
-            ASSET="ryzenstatus-3.1.4-showcase-1.mp4"
+          if [[ "$VERSION" == "1.0.2" ]]; then
+            ASSET="ryzenstatus-1.0.2-showcase-1.mp4"
             SOURCE="ReleaseAssets/$ASSET"
             TARGET="dist/showcase/$ASSET"
             if [[ -f "$SOURCE" ]]; then
@@ -82,7 +82,7 @@ jobs:
             fi
             if [[ ! -s "$TARGET" ]]; then
               echo "Missing required showcase media: $TARGET" >&2
-              echo "The app expects https://github.com/DrogaBox/ryzenstatus-utils/releases/download/v3.1.4/$ASSET" >&2
+              echo "The app expects https://github.com/DrogaBox/ryzenstatus-utils/releases/download/v1.0.2/$ASSET" >&2
               exit 1
             fi
           fi
