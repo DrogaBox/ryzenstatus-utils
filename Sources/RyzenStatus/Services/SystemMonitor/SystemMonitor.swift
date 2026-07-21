@@ -68,6 +68,7 @@ struct SystemSnapshot {
     // Detailed AMD Telemetry
     var cores: [CoreSnapshot] = []
     var ccdTemperatures: [Float] = []
+    var numPhysicalCores: Int = 0
 }
 
 /// What parts of the menu panel are actually visible right now. The popover can
@@ -783,6 +784,7 @@ final class SystemMonitor: ObservableObject {
                 if cpuW > 0 { next.cpuPower = cpuW; sampledAnything = true }
                 if gpuW > 0 { next.gpuPower = gpuW; sampledAnything = true }
             }
+            next.numPhysicalCores = self.lastAmdSnapshot?.numPhysicalCores ?? 16
             next.cpuHistory = plan.needCPU ? self.cpuHistory.values : []
             next.gpuHistory = plan.needGPUUsage ? self.gpuHistory.values : []
             next.memoryHistory = plan.needMemory ? self.memoryHistory.values : []
