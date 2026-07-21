@@ -40,6 +40,7 @@ struct SettingsView: View {
     private var sidebarSections: [(title: String, items: [SidebarItem])] {
         [
             (categories.essentials, [
+                SidebarItem(page: .dashboard, title: "Dashboard", icon: "gauge.with.dots.needle.bottom.100percent"),
                 SidebarItem(page: .general, title: l10n.s.tabGeneral, icon: "gearshape",
                             keywords: [l10n.s.launchAtLogin, l10n.s.languageLabel, l10n.s.showMenuBarIcon,
                                        l10n.s.musicBlockTitle, l10n.s.musicBlockSection]),
@@ -66,6 +67,7 @@ struct SettingsView: View {
                                        l10n.s.monitorMemoryPressureDot]),
                 SidebarItem(page: .fans, title: "Fans & Cooling", icon: "fanblades.fill"),
                 SidebarItem(page: .amdPower, title: "AMD Ryzen Power", icon: "cpu"),
+                SidebarItem(page: .sensors, title: "Sensors", icon: "thermometer.sun.fill"),
             ]),
             (categories.windowsControls, [
                 SidebarItem(page: .mouse, title: l10n.s.tabMouse, icon: "computermouse",
@@ -237,6 +239,8 @@ struct SettingsView: View {
         case .support: SupportSettings()
         case .fans: FansSettingsView()
         case .amdPower: AmdPowerSettingsView()
+        case .dashboard: DashboardView()
+        case .sensors: SensorsView()
         }
     }
 }
@@ -253,6 +257,7 @@ struct GeneralSettings: View {
     @AppStorage(DefaultsKey.showCountdown) private var showCountdown = false
     @AppStorage(DefaultsKey.musicBlockEnabled) private var musicBlockEnabled = false
     @AppStorage(DefaultsKey.musicBlockReplacementPath) private var musicBlockReplacementPath = ""
+    @AppStorage(DefaultsKey.panelAccordionMode) private var accordionMode = false
 
     var body: some View {
         Form {
@@ -295,6 +300,7 @@ struct GeneralSettings: View {
             // (which the hub can hide entirely).
             Section(l10n.s.monitorOrderSection) {
                 PanelOrderEditor()
+                Toggle("Modo Acordeón (mostrar todo en formato lista)", isOn: $accordionMode)
                 Text(l10n.s.monitorOrderHint)
                     .font(.caption)
                     .foregroundStyle(.secondary)

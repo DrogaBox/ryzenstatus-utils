@@ -29,6 +29,8 @@ struct SystemSnapshot {
     var gpuTemperature: Double?
     var cpuPower: Double?
     var gpuPower: Double?
+    var gpuFreq: Double?
+    var gpuFan: Double?
     var batteryTemperature: Double?
     var cpuUsage: Double?          // 0...1
     var gpuUsage: Double?          // 0...1
@@ -100,7 +102,7 @@ struct SystemMonitorPanelNeeds: Equatable {
 /// background queue. Runs while the panel is visible (full readings) and/or
 /// while a menu bar metric is enabled (only the readings that metric needs).
 /// When nothing needs it, the timer stops — zero idle cost.
-final class SystemMonitor: ObservableObject {
+final class SystemMonitor: ObservableObject, @unchecked Sendable {
     static let shared = SystemMonitor()
 
     @Published private(set) var snapshot = SystemSnapshot()
@@ -417,7 +419,7 @@ final class SystemMonitor: ObservableObject {
     private struct CachedSensorReading {
         var value: Double
         var updatedAt: TimeInterval
-        var missedSamples: Int
+        var missedSamples: Int = 0
     }
 
     private struct CachedMemoryReading {
@@ -740,28 +742,25 @@ final class SystemMonitor: ObservableObject {
             }
             // The anti-glitch bridge must span a couple of sampling gaps or it
             // is useless on the slow background cadence (15 s): one bad SMC
-            // read would land past the window and blank the metric.
-            let temperatureGap = Double(MonitorSamplingPolicy.sampleStride(
-                for: .temperature,
-                intervalSeconds: intervalSeconds,
-                foreground: foregroundSampling)) * intervalSeconds
-            let temperatureBridge = max(12, temperatureGap * 2.2)
+            let temperatureBridge: TimeInterval = 10.0
             if plan.needCPUTemperature {
                 if take(.temperature) {
-                    next.cpuTemperature = Self.stabilizedTemperature(self.cpuTemperature(),
-                                                                     cache: &self.cpuTemperatureCache,
-                                                                     now: now,
-                                                                     maxAge: temperatureBridge)
+                    let temp = self.cpuTemperature()
+                    next.cpuTemperature = temp
+                    if let t = temp {
+                        self.cpuTemperatureCache = CachedSensorReading(value: t, updatedAt: now)
+                    }
                 } else {
                     next.cpuTemperature = self.cpuTemperatureCache?.value
                 }
             }
             if plan.needGPUTemperature {
                 if take(.temperature) {
-                    next.gpuTemperature = Self.stabilizedTemperature(self.maxTemperature(of: self.gpuKeys),
-                                                                     cache: &self.gpuTemperatureCache,
-                                                                     now: now,
-                                                                     maxAge: temperatureBridge)
+                    let temp = self.maxTemperature(of: self.gpuKeys)
+                    next.gpuTemperature = temp
+                    if let t = temp {
+                        self.gpuTemperatureCache = CachedSensorReading(value: t, updatedAt: now)
+                    }
                 } else {
                     next.gpuTemperature = self.gpuTemperatureCache?.value
                 }
@@ -783,6 +782,17 @@ final class SystemMonitor: ObservableObject {
                 let gpuW = ProcessorModel.shared.lastGPUPowerWatts
                 if cpuW > 0 { next.cpuPower = cpuW; sampledAnything = true }
                 if gpuW > 0 { next.gpuPower = gpuW; sampledAnything = true }
+            }
+            if let amd = self.lastAmdSnapshot {
+                if amd.metric.count > 1 { next.cpuTemperature = Double(amd.metric[1]) }
+                if amd.gpuTemp > 0 { 
+                    next.gpuTemperature = Double(amd.gpuTemp) 
+                } else if next.cpuTemperature != nil {
+                    // Fallback for APUs (Mattyy's SuperIO / Vega) where GPU temp is the same as CPU package temp
+                    next.gpuTemperature = next.cpuTemperature
+                }
+                if amd.gpuFreq > 0 { next.gpuFreq = Double(amd.gpuFreq) }
+                if amd.gpuFan > 0 { next.gpuFan = Double(amd.gpuFan) }
             }
             next.numPhysicalCores = self.lastAmdSnapshot?.numPhysicalCores ?? 16
             next.cpuHistory = plan.needCPU ? self.cpuHistory.values : []
@@ -968,7 +978,7 @@ final class SystemMonitor: ObservableObject {
     /// Fetches per-core load using host_processor_info and combines it with
     /// AMD telemetry (frequencies, temperatures) from ProcessorModel.
     private func readCoreUsageAndTelemetry() -> (cores: [CoreSnapshot], ccdTemps: [Float]) {
-        let amdSnap = self.lastAmdSnapshot ?? ProcessorModel.TelemetrySnapshot(metric: [], loadIndex: [], numPhysicalCores: 16, gpuTemp: 0, gpuPower: 0, gpuUtil: 0, gpuVram: 0, gpuFan: 0, ccdTemperatures: [])
+        let amdSnap = self.lastAmdSnapshot ?? ProcessorModel.TelemetrySnapshot(metric: [], loadIndex: [], numPhysicalCores: 16, gpuTemp: 0, gpuPower: 0, gpuUtil: 0, gpuVram: 0, gpuFan: 0, gpuFreq: 0, ccdTemperatures: [])
         let numPhysical = amdSnap.numPhysicalCores > 0 ? amdSnap.numPhysicalCores : 16 // fallback
 
         // Get Host Processor Info for per-core load

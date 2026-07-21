@@ -35,25 +35,19 @@ struct FanCurve: Codable, Identifiable, Hashable {
     var hysteresis: Double // In °C
     var rampRate: Double   // In % PWM / sec
     
-    func generateLUT() -> [UInt8] {
-        var lut = [UInt8](repeating: 0, count: 256)
+    func generateRPMLUT() -> [Double] {
+        var lut = [Double](repeating: 0.0, count: 256)
         let sortedPoints = points.sorted { $0.temp < $1.temp }
         guard let firstPt = sortedPoints.first, let lastPt = sortedPoints.last else { return lut }
-
-        func pwmByte(_ rawPWM: Double) -> UInt8 {
-            let safePWM = rawPWM.isFinite ? min(max(rawPWM, 0.0), 100.0) : 0.0
-            let byteVal = UInt8(round((safePWM / 100.0) * 255.0))
-            return byteVal == 0 ? 1 : byteVal
-        }
         
         for temp in 0...255 {
             let tempD = Double(temp)
             if tempD <= firstPt.temp {
-                lut[temp] = pwmByte(firstPt.pwm)
+                lut[temp] = firstPt.pwm
                 continue
             }
             if tempD >= lastPt.temp {
-                lut[temp] = pwmByte(lastPt.pwm)
+                lut[temp] = lastPt.pwm
                 continue
             }
             for i in 0..<(sortedPoints.count - 1) {
@@ -63,7 +57,7 @@ struct FanCurve: Codable, Identifiable, Hashable {
                     let span = p2.temp - p1.temp
                     let pct = span > 0 ? (tempD - p1.temp) / span : 0.0
                     let interpPWM = p1.pwm + pct * (p2.pwm - p1.pwm)
-                    lut[temp] = pwmByte(interpPWM)
+                    lut[temp] = interpPWM
                     break
                 }
             }

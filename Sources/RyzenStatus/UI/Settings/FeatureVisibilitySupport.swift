@@ -8,7 +8,7 @@ import Foundation
 enum SettingsPage: Hashable {
     case general, features, energy, monitor
     case mouse, switcher, keyDebounce, cutPaste, autoQuit, uninstaller, urlCleaner, homebrew, media, clipboard, windowLayout, shelf, quickTools, textSnippets, screenshot, radialMenu
-    case shortcuts, advanced, about, releaseNotes, support, fans, amdPower
+    case shortcuts, advanced, about, releaseNotes, support, fans, amdPower, sensors, dashboard
 }
 
 /// Which hub features keep each Settings page alive. A page with several
@@ -41,7 +41,7 @@ enum FeatureVisibilitySupport {
         case .textSnippets: return [.textSnippets]
         case .screenshot: return [.screenshot]
         case .radialMenu: return [.radialMenu]
-        case .general, .features, .shortcuts, .advanced, .about, .releaseNotes, .support, .fans, .amdPower:
+        case .general, .features, .shortcuts, .advanced, .about, .releaseNotes, .support, .fans, .amdPower, .sensors, .dashboard:
             return []
         }
     }

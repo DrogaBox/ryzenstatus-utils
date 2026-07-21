@@ -667,6 +667,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
         popoverIsClosing || !PanelInteractionState.shared.keepsPopoverOpen
     }
+    
+    // MARK: - Popover Detachment
+    
+    private var detachedWindowController: NSWindowController?
+    
+    @objc func detachPanel() {
+        if detachedWindowController == nil {
+            let panelView = MenuPanelView()
+            let hostingController = NSHostingController(rootView: panelView)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 332, height: 600),
+                                  styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+                                  backing: .buffered, defer: false)
+            window.title = "RyzenStatus"
+            window.titlebarAppearsTransparent = true
+            window.isMovableByWindowBackground = true
+            window.contentViewController = hostingController
+            window.isReleasedWhenClosed = false
+            detachedWindowController = NSWindowController(window: window)
+            
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+                self?.detachedWindowController = nil
+                SystemMonitor.shared.setMenuPanelNeeds(.none)
+            }
+        }
+        
+        closePopoverNow(animated: true, completion: { [weak self] in
+            guard let self else { return }
+            self.detachedWindowController?.showWindow(nil)
+            if let window = self.detachedWindowController?.window, !window.isVisible {
+                window.center()
+            }
+            self.detachedWindowController?.window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            // Ensure monitor is active
+            SystemMonitor.shared.setMenuPanelNeeds(SystemMonitorPanelNeeds(system: true, power: true))
+        })
+    }
+
+    func popoverShouldDetach(_ popover: NSPopover) -> Bool {
+        return true
+    }
 
     func popoverDidClose(_ notification: Notification) {
         if !popoverIsSwitchingAnchor {
