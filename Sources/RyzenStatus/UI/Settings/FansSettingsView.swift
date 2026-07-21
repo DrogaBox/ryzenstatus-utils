@@ -8,6 +8,7 @@ struct FansSettingsView: View {
     @State private var fans: [FanSnapshot] = []
     @State private var hasSMCWriteAccess: Bool = true
     @State private var loadTimer: Timer?
+    @ObservedObject private var monitor = SystemMonitor.shared
     
     var body: some View {
         Form {
@@ -21,8 +22,21 @@ struct FansSettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else {
-                    ForEach(fans) { fan in
-                        FanControlRow(fan: fan)
+                    if let temp = monitor.snapshot.cpuTemperature {
+                        HStack {
+                            Text("Temperatura CPU")
+                            Spacer()
+                            Text(String(format: "%.0f °C", temp))
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundColor(temp > 85 ? .red : (temp > 70 ? .orange : .secondary))
+                        }
+                        .padding(.vertical, 4)
+                        
+                        Divider()
+                    }
+
+                    ForEach($fans) { $fan in
+                        FanControlRow(fan: $fan)
                             .padding(.vertical, 4)
                     }
                     
@@ -51,12 +65,14 @@ struct FansSettingsView: View {
         }
         .formStyle(.grouped)
         .onAppear {
+            SystemMonitor.shared.setMenuPanelNeeds(SystemMonitorPanelNeeds(cpuTemperature: true))
             setupFans()
             loadTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
                 fetchState()
             }
         }
         .onDisappear {
+            SystemMonitor.shared.setMenuPanelNeeds(.none)
             loadTimer?.invalidate()
             loadTimer = nil
         }
@@ -73,7 +89,8 @@ struct FansSettingsView: View {
         for i in 0..<numFans {
             let name = ProcessorModel.shared.kernelGetString(selector: 92, args: [UInt64(i)])
             let finalName = name.isEmpty ? "Fan \(i + 1)" : name
-            initFans.append(FanSnapshot(id: i, name: finalName, rpm: 0, throttle: 0, isOverrided: false))
+            let customName = UserDefaults.standard.string(forKey: "FanName_\(i)") ?? finalName
+            initFans.append(FanSnapshot(id: i, name: customName, rpm: 0, throttle: 0, isOverrided: false))
         }
         self.fans = initFans
         fetchState()
@@ -101,7 +118,7 @@ struct FansSettingsView: View {
 }
 
 struct FanControlRow: View {
-    let fan: FanSnapshot
+    @Binding var fan: FanSnapshot
     
     @State private var sliderValue: Double = 0
     @State private var isManual: Bool = false
@@ -122,8 +139,15 @@ struct FanControlRow: View {
 
                 
                 VStack(alignment: .leading) {
-                    Text(fan.name)
-                        .font(.system(size: 14, weight: .bold))
+                    TextField("", text: Binding(
+                        get: { fan.name },
+                        set: { newName in
+                            fan.name = newName
+                            UserDefaults.standard.set(newName, forKey: "FanName_\(fan.id)")
+                        }
+                    ))
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14, weight: .bold))
                     
                     Text("\(fan.rpm) RPM · \(displayedPct)%")
                         .font(.system(size: 11, design: .monospaced))
