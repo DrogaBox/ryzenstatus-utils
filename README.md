@@ -122,8 +122,6 @@ The rest bends the same way: panel sections reorder and hide, the compact layout
 
 Grab the disk image from the [releases page](https://github.com/DrogaBox/ryzenstatus-utils/releases) and drag RyzenStatus into Applications.
 
-Builds are signed with an Apple Developer ID and notarized, so macOS opens them without a fuss and your permissions survive updates.
-
 ## Uninstall
 
 To remove RyzenStatus completely, including its settings and permissions:
