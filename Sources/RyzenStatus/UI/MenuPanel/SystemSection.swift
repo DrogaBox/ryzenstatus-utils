@@ -399,12 +399,14 @@ struct SystemSection: View {
             HStack {
                 subsectionLabel(l10n.s.usageSection)
                 Spacer()
-                Picker("", selection: $panelViewStyle) {
-                    Text("Tarjetas").tag("cards")
-                    Text("iStats Widgets").tag("istats")
+                if editing {
+                    Picker("", selection: $panelViewStyle) {
+                        Text("Tarjetas").tag("cards")
+                        Text("iStats").tag("istats")
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 120)
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 140)
             }
             
             if panelViewStyle == "istats" {

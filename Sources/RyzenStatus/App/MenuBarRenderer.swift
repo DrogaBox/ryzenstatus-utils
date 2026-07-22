@@ -466,16 +466,16 @@ enum MenuBarRenderer {
                                       metrics: [MenuBarMetric],
                                       style: MenuBarBlockStyle) -> [MenuBarSegment] {
         var groups: [[MenuBarSegment]] = []
-        let appearance = MenuBarMetricAppearance.current
-        let usesBars = appearance == .bars
-        let combineTemperatures = appearance.allowsCombinedTemperatures
-            && UserDefaults.standard.bool(forKey: DefaultsKey.menuBarCombineTemperatures)
         let enabled = Set(metrics)
         var renderedCPU = false
         var renderedGPU = false
         var renderedBattery = false
 
         for metric in metrics {
+            let appearance = MenuBarMetricAppearance.appearance(for: metric.rawValue)
+            let usesBars = appearance == .bars
+            let combineTemperatures = appearance.allowsCombinedTemperatures
+                && UserDefaults.standard.bool(forKey: DefaultsKey.menuBarCombineTemperatures)
             switch metric {
             case .cpu, .cpuTemperature:
                 if combineTemperatures {
@@ -571,7 +571,13 @@ enum MenuBarRenderer {
                     break
                 }
                 if let usage = snapshot.gpuUsage {
-                    if usesBars {
+                    if appearance == .pie {
+                        let img = pieBlockImage(label: "GPU", fraction: usage, style: style, pressure: nil)
+                        groups.append([.customImage(img)])
+                    } else if appearance == .sparkline || appearance == .histogram {
+                        let img = sparklineBlockImage(label: "GPU", history: snapshot.gpuHistory, colorHex: "#FF9500", style: style)
+                        groups.append([.customImage(img)])
+                    } else if usesBars {
                         groups.append([.usageBarBlock(label: "GPU",
                                                       fraction: usage,
                                                       style: style,
@@ -629,10 +635,16 @@ enum MenuBarRenderer {
                 groups.append([.customImage(image)])
             case .memory:
                 let memoryStyle = MemoryMenuBarStyle.current
-                if usesBars {
+                let memFraction = MenuBarUsageBarSupport.memoryFraction(used: snapshot.memoryUsed, total: snapshot.memoryTotal)
+                if appearance == .pie {
+                    let img = pieBlockImage(label: "RAM", fraction: memFraction, style: style, pressure: memoryStyle.showsDot ? snapshot.memoryPressure : nil)
+                    groups.append([.customImage(img)])
+                } else if appearance == .sparkline || appearance == .histogram {
+                    let img = sparklineBlockImage(label: "RAM", history: snapshot.memoryHistory, colorHex: "#AF52DE", style: style)
+                    groups.append([.customImage(img)])
+                } else if usesBars {
                     groups.append([.usageBarBlock(label: "RAM",
-                                                  fraction: MenuBarUsageBarSupport.memoryFraction(used: snapshot.memoryUsed,
-                                                                                                  total: snapshot.memoryTotal),
+                                                  fraction: memFraction,
                                                   style: style,
                                                   pressure: memoryStyle.showsDot ? snapshot.memoryPressure : nil)])
                 } else {

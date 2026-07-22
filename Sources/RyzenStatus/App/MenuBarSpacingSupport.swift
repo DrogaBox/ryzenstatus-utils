@@ -30,6 +30,14 @@ enum MenuBarMetricAppearance: String, CaseIterable {
         let appearance = Defaults.sanitizedMenuBarMetricAppearance(raw)
         return MenuBarMetricAppearance(rawValue: appearance) ?? .values
     }
+
+    static func appearance(for metricKey: String) -> MenuBarMetricAppearance {
+        let specificRaw = UserDefaults.standard.string(forKey: "menuBarMetricAppearance_\(metricKey)") ?? ""
+        if !specificRaw.isEmpty, let specific = MenuBarMetricAppearance(rawValue: specificRaw) {
+            return specific
+        }
+        return current
+    }
 }
 
 enum MenuBarUsageBarSupport {
