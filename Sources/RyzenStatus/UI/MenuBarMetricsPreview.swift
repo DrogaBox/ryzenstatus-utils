@@ -12,7 +12,10 @@ struct MenuBarMetricsPreview: View {
     @AppStorage(DefaultsKey.menuBarGPU) private var gpu = true
     @AppStorage(DefaultsKey.menuBarMemory) private var memory = true
     @AppStorage(DefaultsKey.menuBarCPUTemperature) private var cpuTemperature = false
+    @AppStorage(DefaultsKey.menuBarCPUFrequency) private var cpuFrequency = false
+    @AppStorage(DefaultsKey.menuBarCPUTempPower) private var cpuTempPower = false
     @AppStorage(DefaultsKey.menuBarGPUTemperature) private var gpuTemperature = false
+    @AppStorage(DefaultsKey.menuBarGPUTempPower) private var gpuTempPower = false
     @AppStorage(DefaultsKey.menuBarBatteryTemperature) private var batteryTemperature = false
     @AppStorage(DefaultsKey.menuBarNetwork) private var network = true
     @AppStorage(DefaultsKey.menuBarDiskUsage) private var diskUsage = false

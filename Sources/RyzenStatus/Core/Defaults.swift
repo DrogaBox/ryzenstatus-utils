@@ -525,8 +525,8 @@ enum Defaults {
     static let allowedMenuBarMetricSpacings = ["standard", "compact"]
     static let allowedMenuBarMetricAppearances = ["values", "bars"]
     static let defaultMenuBarMetricOrder = [
-        "cpu", "cpuTemperature", "cpuPower",
-        "gpu", "gpuTemperature", "gpuPower",
+        "cpu", "cpuTemperature", "cpuPower", "cpuFrequency", "cpuTempPower",
+        "gpu", "gpuTemperature", "gpuPower", "gpuTempPower",
         "memory",
         "battery", "batteryTime", "batteryTemperature", "peripheralBattery",
         "network", "diskUsage", "diskActivity", "power",

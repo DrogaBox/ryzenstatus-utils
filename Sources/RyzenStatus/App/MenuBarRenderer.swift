@@ -79,8 +79,8 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
     }
 
     static let defaultOrder: [MenuBarMetric] = [
-        .cpu, .cpuTemperature, .cpuPower,
-        .gpu, .gpuTemperature, .gpuPower,
+        .cpu, .cpuTemperature, .cpuPower, .cpuFrequency, .cpuTempPower,
+        .gpu, .gpuTemperature, .gpuPower, .gpuTempPower,
         .memory,
         .battery, .batteryTime, .batteryTemperature, .peripheralBattery,
         .network, .diskUsage, .diskActivity, .power,
