@@ -622,16 +622,22 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             }
 
             if plan.needCPU {
-                if take(.cpu),
-                   let cpu = self.readCPUUsage() {
+                // Fetch per-core metrics
+                let (cores, ccdTemps) = self.readCoreUsageAndTelemetry()
+                self.cores = cores
+                self.ccdTemperatures = ccdTemps.map { Double($0) }
+
+                if take(.cpu), let cpu = self.readCPUUsage(), cpu >= 0 {
                     self.lastCPUUsage = cpu
                     self.missedCPUUsageSamples = 0
                     self.cpuHistory.push(cpu)
-                    
-                    // Fetch per-core metrics
-                    let (cores, ccdTemps) = self.readCoreUsageAndTelemetry()
-                    self.cores = cores
-                    self.ccdTemperatures = ccdTemps.map { Double($0) }
+                } else if !self.cores.isEmpty {
+                    let physicalCores = self.cores.filter { !$0.isLogical }
+                    let avgPct = physicalCores.reduce(0.0) { $0 + Double($1.loadPct) } / Double(max(1, physicalCores.count))
+                    let cpuLoad = avgPct / 100.0
+                    self.lastCPUUsage = cpuLoad
+                    self.missedCPUUsageSamples = 0
+                    self.cpuHistory.push(cpuLoad)
                 } else if self.missedCPUUsageSamples < 3 {
                     self.missedCPUUsageSamples += 1
                 } else {
@@ -729,13 +735,13 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 let suppressGPUForUI = suppressImmediateGPU || now < suppressGPUReadsUntil
                 let shouldSampleGPU = !suppressGPUForUI && take(.gpuUsage)
                 if shouldSampleGPU {
-                    if let rawGPU = Self.readGPUUsage() {
+                    if let rawGPU = self.readGPUUsage() {
                         self.lastGPUUsage = MetricFormat.stabilizedGPUUsage(previous: self.lastGPUUsage,
                                                                             current: rawGPU)
-                        self.missedCPUUsageSamples = 0
+                        self.missedGPUUsageSamples = 0
                         if let gpu = self.lastGPUUsage { self.gpuHistory.push(gpu) }
-                    } else if self.missedCPUUsageSamples < 3 {
-                        self.missedCPUUsageSamples += 1
+                    } else if self.missedGPUUsageSamples < 3 {
+                        self.missedGPUUsageSamples += 1
                     } else {
                         self.lastGPUUsage = nil
                     }
@@ -1058,32 +1064,56 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
 
     /// "Device Utilization %" published by the graphics accelerator
     /// (AGXAccelerator on Apple Silicon).
-    private static func readGPUUsage() -> Double? {
-        var iterator = io_iterator_t()
-        guard IOServiceGetMatchingServices(kIOMainPortDefault,
-                                           IOServiceMatching("IOAccelerator"),
-                                           &iterator) == kIOReturnSuccess else { return nil }
-        defer { IOObjectRelease(iterator) }
+    private static func extractUtilization(from stats: [String: Any]) -> Double? {
+        let keys = [
+            "Device Utilization %",
+            "GPU Activity",
+            "GPU Core Utilization",
+            "GPU Busy",
+            "Hardware Activity",
+            "Utilization",
+            "gpu-usage"
+        ]
+        for key in keys {
+            if let val = stats[key] {
+                if let num = val as? NSNumber {
+                    let d = num.doubleValue
+                    return d > 1.0 ? d / 100.0 : d
+                } else if let str = val as? String, let d = Double(str) {
+                    return d > 1.0 ? d / 100.0 : d
+                }
+            }
+        }
+        return nil
+    }
 
-        var entry = IOIteratorNext(iterator)
-        while entry != 0 {
-            defer {
-                IOObjectRelease(entry)
-                entry = IOIteratorNext(iterator)
+    private func readGPUUsage() -> Double? {
+        let serviceClasses = ["IOAccelerator", "AMDRadeonX6000_AMDAcceleratedVKDriver", "AMDGPUAccelerator"]
+        for serviceClass in serviceClasses {
+            var iterator = io_iterator_t()
+            guard IOServiceGetMatchingServices(kIOMainPortDefault,
+                                               IOServiceMatching(serviceClass),
+                                               &iterator) == kIOReturnSuccess else { continue }
+            defer { IOObjectRelease(iterator) }
+
+            var entry = IOIteratorNext(iterator)
+            while entry != 0 {
+                defer {
+                    IOObjectRelease(entry)
+                    entry = IOIteratorNext(iterator)
+                }
+                guard let ref = IORegistryEntryCreateCFProperty(entry, "PerformanceStatistics" as CFString,
+                                                                kCFAllocatorDefault, 0),
+                      let stats = ref.takeRetainedValue() as? [String: Any]
+                else { continue }
+                
+                if let util = Self.extractUtilization(from: stats) {
+                    return util
+                }
             }
-            // Fetch ONLY PerformanceStatistics, not the whole (large) property
-            // tree. Copying every property each tick is what made continuous GPU
-            // sampling for the menu bar expensive.
-            guard let ref = IORegistryEntryCreateCFProperty(entry, "PerformanceStatistics" as CFString,
-                                                            kCFAllocatorDefault, 0),
-                  let stats = ref.takeRetainedValue() as? [String: Any]
-            else { continue }
-            
-            if let utilization = stats["Device Utilization %"] as? Int {
-                return Double(utilization) / 100.0
-            } else if let utilization = stats["GPU Activity"] as? Int {
-                return Double(utilization) / 100.0
-            }
+        }
+        if let amdUtil = self.lastAmdSnapshot?.gpuUtil, amdUtil > 0 {
+            return Double(amdUtil) / 100.0
         }
         return nil
     }
