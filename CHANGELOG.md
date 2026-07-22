@@ -1,17 +1,26 @@
 # Changelog
 
+## [1.3.1]
+
+- **Default Popover Tab Fix**: Configured the menubar popover panel to open on the first tab (`.system` / CPU System Monitor) by default instead of defaulting to the last tab (`.keepAwake`).
+- **GPU Process List Optimization**: Enhanced process tracking for AMD Radeon GPUs under Metal and Vulkan.
+
+## [1.3.0]
+
+- **Easter Egg Movie Quotes**: Added an interactive random classic movie quote in the bottom-right corner of the Support settings tab. Click the quote to cycle through quotes.
+
+## [1.2.9]
+
+- **Menu Bar Usage Capsules Fix**: Guaranteed a minimum 1-step fill indicator for active CPU, GPU, and RAM usage bars to prevent empty transparent capsules when load is light.
+- **Auto-updated Release Notes**: Synced changelog notes across builds and settings.
+
 ## [1.2.8]
 
-- **Mejoras y correcciones en tarjetas de métricas**: Corregido el truncamiento por redondeo en los porcentajes de CPU y GPU.
-- **Formato dinámico de la barra de menús**: Métricas apiladas en 2 líneas ultra compactas sin espacios vacíos.
-- **Nivel flotante para ventana desvinculada**: La ventana de Matty flota sobre todas las aplicaciones e instaladores.
-- **Ajustes de ordenamiento en barra de menús**: Registro universal de las métricas de frecuencia y temperatura+potencia combinadas.
+- **Metric Cards Truncation Fix**: Replaced integer truncation with rounded percentage formatting for sub-1% CPU and GPU metrics in panel cards.
 
-## [1.2.0]
+## [1.2.7]
 
-- **Métricas apiladas en 2 líneas**: Frecuencia Promedio/Máxima de CPU, CPU Temp+Power y GPU Temp+Power.
-- **Refresco de sensores en tiempo real**: Actualización continua cada 1.0s para los 16 núcleos físicos y lógicos.
-- **Control de Fan en Vivo**: Badges visuales de estado y visualización interactiva de curva Cyan-Naranja.
+- **AMD GPU Utilization & CPU Sampling**: Fixed AMD Radeon Navi 21 IOKit property parsing (`NSNumber`/`Double`/`UInt64`) and added fallback to SMCAMDProcessor driver telemetry. Implemented physical core load average fallback for uninterrupted CPU percentage reporting.
 
 ## [1.0.6]
 

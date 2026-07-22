@@ -158,6 +158,8 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     private var missedCPUUsageSamples = 0
     private var lastGPUUsage: Double?
     private var missedGPUUsageSamples = 0
+    private var lastGPUVRAMUsed: UInt64?
+    private var lastGPUVRAMTotal: UInt64?
     private var memoryCache: CachedMemoryReading?
     private var cpuTemperatureCache: CachedSensorReading?
     private var gpuTemperatureCache: CachedSensorReading?
@@ -659,17 +661,17 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     }
                 }
                 
-                // Track GPU VRAM (assuming 16GB max for Ryzen Hackintosh if not specified)
+                // Track GPU VRAM with state persistence across sampling ticks
                 if take(.gpuUsage) {
-                    let vramUsed = Self.readGPUVRAM()
-                    if vramUsed > 0 {
-                        next.gpuMemoryUsed = vramUsed
-                        // VRAM total might not be easily accessible on all GPUs, default 16GB for 6800 XT
-                        let totalVram = UInt64(16 * 1024 * 1024 * 1024) 
-                        next.gpuMemoryTotal = totalVram
+                    if let vramUsed = self.readGPUVRAM() {
+                        self.lastGPUVRAMUsed = vramUsed
+                        let totalVram = self.readGPUVRAMTotal() ?? UInt64(16 * 1024 * 1024 * 1024)
+                        self.lastGPUVRAMTotal = totalVram
                         self.gpuMemoryHistory.push(Double(vramUsed) / Double(totalVram))
                     }
                 }
+                next.gpuMemoryUsed = self.lastGPUVRAMUsed
+                next.gpuMemoryTotal = self.lastGPUVRAMTotal
             }
 
             if plan.needNetwork {
@@ -1118,29 +1120,69 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         return nil
     }
 
-    private static func readGPUVRAM() -> UInt64 {
-        var iterator = io_iterator_t()
-        guard IOServiceGetMatchingServices(kIOMainPortDefault,
-                                           IOServiceMatching("IOAccelerator"),
-                                           &iterator) == kIOReturnSuccess else { return 0 }
-        defer { IOObjectRelease(iterator) }
+    private func readGPUVRAM() -> UInt64? {
+        let serviceClasses = ["IOAccelerator", "AMDRadeonX6000_AMDAcceleratedVKDriver", "AMDGPUAccelerator"]
+        let keys = ["inUseVidMemoryBytes", "vramUsed", "allocatedVidMemoryBytes", "usedVRAM", "VRAMUsed"]
+        
+        for cls in serviceClasses {
+            var iterator = io_iterator_t()
+            guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching(cls), &iterator) == kIOReturnSuccess else { continue }
+            defer { IOObjectRelease(iterator) }
 
-        while true {
-            let entry = IOIteratorNext(iterator)
-            if entry == 0 { break }
-            defer { IOObjectRelease(entry) }
-            
-            if let ref = IORegistryEntryCreateCFProperty(entry, "PerformanceStatistics" as CFString,
-                                                            kCFAllocatorDefault, 0),
-               let stats = ref.takeRetainedValue() as? [String: Any] {
-                if let vram = stats["inUseVidMemoryBytes"] as? NSNumber {
-                    return vram.uint64Value
-                } else if let vram = stats["inUseVidMemoryBytes"] as? UInt64 {
-                    return vram
+            while true {
+                let entry = IOIteratorNext(iterator)
+                if entry == 0 { break }
+                defer { IOObjectRelease(entry) }
+                
+                if let ref = IORegistryEntryCreateCFProperty(entry, "PerformanceStatistics" as CFString, kCFAllocatorDefault, 0),
+                   let stats = ref.takeRetainedValue() as? [String: Any] {
+                    for key in keys {
+                        if let vram = stats[key] as? NSNumber, vram.uint64Value > 0 {
+                            return vram.uint64Value
+                        } else if let vram = stats[key] as? UInt64, vram > 0 {
+                            return vram
+                        } else if let vram = stats[key] as? Double, vram > 0 {
+                            return UInt64(vram)
+                        }
+                    }
                 }
             }
         }
-        return 0
+        
+        if let vramMB = self.lastAmdSnapshot?.gpuVram, vramMB > 0 {
+            return UInt64(vramMB * 1024 * 1024)
+        }
+        return nil
+    }
+
+    private func readGPUVRAMTotal() -> UInt64? {
+        let serviceClasses = ["IOAccelerator", "AMDRadeonX6000_AMDAcceleratedVKDriver", "AMDGPUAccelerator"]
+        let keys = ["VRAM,totalMB", "vramTotal", "totalVidMemoryBytes", "VRAMTotal"]
+        
+        for cls in serviceClasses {
+            var iterator = io_iterator_t()
+            guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching(cls), &iterator) == kIOReturnSuccess else { continue }
+            defer { IOObjectRelease(iterator) }
+
+            while true {
+                let entry = IOIteratorNext(iterator)
+                if entry == 0 { break }
+                defer { IOObjectRelease(entry) }
+                
+                if let ref = IORegistryEntryCreateCFProperty(entry, "PerformanceStatistics" as CFString, kCFAllocatorDefault, 0),
+                   let stats = ref.takeRetainedValue() as? [String: Any] {
+                    for key in keys {
+                        if let total = stats[key] as? NSNumber {
+                            let val = total.uint64Value
+                            return val < 100000 ? val * 1024 * 1024 : val
+                        } else if let total = stats[key] as? UInt64 {
+                            return total < 100000 ? total * 1024 * 1024 : total
+                        }
+                    }
+                }
+            }
+        }
+        return UInt64(16 * 1024 * 1024 * 1024)
     }
 
     // MARK: - Memory pressure

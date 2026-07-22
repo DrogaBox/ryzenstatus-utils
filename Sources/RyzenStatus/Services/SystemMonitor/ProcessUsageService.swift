@@ -557,30 +557,35 @@ final class ProcessUsageService {
     }
     
     /// Reads the global GPU utilization (%) from IOAccelerator PerformanceStatistics.
+    /// Reads the global GPU utilization (%) from IOAccelerator PerformanceStatistics.
     private static func readTotalGPUUtilization() -> Double {
-        var iterator = io_iterator_t()
-        guard IOServiceGetMatchingServices(kIOMainPortDefault,
-                                           IOServiceMatching("IOAccelerator"),
-                                           &iterator) == kIOReturnSuccess else { return 0 }
-        defer { IOObjectRelease(iterator) }
+        let serviceClasses = ["IOAccelerator", "AMDRadeonX6000_AMDAcceleratedVKDriver", "AMDGPUAccelerator"]
+        let keys = ["Device Utilization %", "GPU Activity(%)", "GPU Core Utilization", "GPU Busy", "Hardware Activity"]
         
-        var entry = IOIteratorNext(iterator)
-        while entry != 0 {
-            defer {
-                IOObjectRelease(entry)
-                entry = IOIteratorNext(iterator)
-            }
-            guard let ref = IORegistryEntryCreateCFProperty(entry, "PerformanceStatistics" as CFString,
-                                                            kCFAllocatorDefault, 0),
-                  let stats = ref.takeRetainedValue() as? [String: Any]
-            else { continue }
+        for cls in serviceClasses {
+            var iterator = io_iterator_t()
+            guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching(cls), &iterator) == kIOReturnSuccess else { continue }
+            defer { IOObjectRelease(iterator) }
             
-            if let util = stats["Device Utilization %"] as? Int {
-                return Double(util)
-            } else if let util = stats["GPU Activity(%)"] as? Int {
-                return Double(util)
-            } else if let util = stats["Device Utilization %"] as? Double {
-                return util
+            while true {
+                let entry = IOIteratorNext(iterator)
+                if entry == 0 { break }
+                defer { IOObjectRelease(entry) }
+                
+                if let ref = IORegistryEntryCreateCFProperty(entry, "PerformanceStatistics" as CFString, kCFAllocatorDefault, 0),
+                   let stats = ref.takeRetainedValue() as? [String: Any] {
+                    for key in keys {
+                        if let util = stats[key] as? NSNumber {
+                            return util.doubleValue
+                        } else if let util = stats[key] as? Double {
+                            return util
+                        } else if let util = stats[key] as? Int {
+                            return Double(util)
+                        } else if let util = stats[key] as? UInt64 {
+                            return Double(util)
+                        }
+                    }
+                }
             }
         }
         return 0
@@ -635,7 +640,14 @@ final class ProcessUsageService {
     private static func gpuTimePerPid() -> [(pid: pid_t, name: String, time: Double)] {
         var perPid: [pid_t: (name: String, time: Double)] = [:]
 
-        let classes = ["IOAccelerator", "IOGraphicsAccelerator2", "AMDRadeonX6000_AmdRadeonGraphicsAccelerator", "AMDRadeonX6000_AmdRadeonGraphicsAccelerator2"]
+        let classes = [
+            "IOAccelerator",
+            "IOGraphicsAccelerator2",
+            "AMDRadeonX6000_AmdRadeonGraphicsAccelerator",
+            "AMDRadeonX6000_AmdRadeonGraphicsAccelerator2",
+            "AMDRadeonX6000_AMDAcceleratedVKDriver",
+            "AMDGPUAccelerator"
+        ]
         
         for className in classes {
             var accelIterator = io_iterator_t()
@@ -688,19 +700,25 @@ final class ProcessUsageService {
                     var props: Unmanaged<CFMutableDictionary>?
                     if IORegistryEntryCreateCFProperties(client, &props, kCFAllocatorDefault, 0) == kIOReturnSuccess,
                        let dict = props?.takeRetainedValue() as? [String: Any] {
-                        let rawTime: Double
-                        if let t = dict["accumulatedGPUTime"] as? Double {
-                            rawTime = t
-                        } else if let t = dict["accumulatedGPUTime"] as? Int64 {
-                            rawTime = Double(t)
-                        } else if let t = dict["accumulatedGPUTime"] as? NSNumber {
-                            rawTime = t.doubleValue
-                        } else {
-                            rawTime = 0
+                        let keys = ["accumulatedGPUTime", "gpuTime", "accumulatedTime", "CommandQueueGPUTime"]
+                        var rawTime: Double = 0
+                        for key in keys {
+                            if let t = dict[key] as? Double, t > 0 {
+                                rawTime = t
+                                break
+                            } else if let t = dict[key] as? Int64, t > 0 {
+                                rawTime = Double(t)
+                                break
+                            } else if let t = dict[key] as? NSNumber, t.doubleValue > 0 {
+                                rawTime = t.doubleValue
+                                break
+                            }
                         }
-                        var existing = perPid[info.pid] ?? (info.name, 0)
-                        existing.time += rawTime
-                        perPid[info.pid] = existing
+                        if rawTime > 0 {
+                            var existing = perPid[info.pid] ?? (info.name, 0)
+                            existing.time += rawTime
+                            perPid[info.pid] = existing
+                        }
                     }
                 }
                 }

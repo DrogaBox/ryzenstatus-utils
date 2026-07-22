@@ -85,7 +85,7 @@ struct MenuPanelView: View {
     @State private var navigableContentHeight: CGFloat = 0
     @State private var metricContentHeight: CGFloat = 0
     @State private var updateBannerHeight: CGFloat = 0
-    @State private var selectedSection: PanelSectionID = .keepAwake
+    @State private var selectedSection: PanelSectionID = .system
     @State private var selectedMetric: MetricDetailKind?
 
     /// Cap the panel to the usable screen height so it never overflows the menu
@@ -226,7 +226,7 @@ struct MenuPanelView: View {
     }
 
     private var activeSection: PanelSectionID {
-        visibleSections.contains(selectedSection) ? selectedSection : (visibleSections.first ?? .keepAwake)
+        visibleSections.contains(selectedSection) ? selectedSection : (visibleSections.first ?? .system)
     }
 
     private var navigableScrollHeight: CGFloat {

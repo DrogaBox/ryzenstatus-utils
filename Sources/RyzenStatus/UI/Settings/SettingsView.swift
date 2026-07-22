@@ -1173,33 +1173,53 @@ struct ReleaseNotesSettings: View {
 /// the donate page in the browser.
 struct SupportSettings: View {
     @ObservedObject private var l10n = L10n.shared
+    @State private var quote: String = MovieQuotes.randomQuote()
 
     var body: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            ZStack {
-                Circle()
-                    .fill(Theme.spaceGradient)
-                    .frame(width: 84, height: 84)
-                Image(systemName: "heart.fill")
-                    .font(.system(size: 33))
-                    .foregroundStyle(.white)
+        ZStack(alignment: .bottomTrailing) {
+            VStack(spacing: 16) {
+                Spacer()
+                ZStack {
+                    Circle()
+                        .fill(Theme.spaceGradient)
+                        .frame(width: 84, height: 84)
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 33))
+                        .foregroundStyle(.white)
+                }
+                Text(l10n.s.donateHeading)
+                    .font(.title2.bold())
+                Text(l10n.s.donateMessage)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+                DonateButton()
+                    .padding(.top, 4)
+                Text(l10n.s.donateThanks)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                Spacer()
             }
-            Text(l10n.s.donateHeading)
-                .font(.title2.bold())
-            Text(l10n.s.donateMessage)
-                .font(.system(size: 12.5))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 360)
-            DonateButton()
-                .padding(.top, 4)
-            Text(l10n.s.donateThanks)
-                .font(.caption)
+            .frame(maxWidth: .infinity)
+
+            Text("“\(quote)”")
+                .font(.system(size: 11, weight: .medium))
+                .italic()
                 .foregroundStyle(.tertiary)
-            Spacer()
+                .multilineTextAlignment(.trailing)
+                .padding(.trailing, 24)
+                .padding(.bottom, 20)
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        quote = MovieQuotes.randomQuote(excluding: quote)
+                    }
+                }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            quote = MovieQuotes.randomQuote()
+        }
     }
 }
 
