@@ -263,12 +263,48 @@ struct FanControlCard: View {
                 }
             }
             
-            // --- Control Mode ---
+            // --- Control Mode & Status Badge ---
             HStack {
-                Text("Control Mode")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                if isMappedToCurve {
+                    HStack(spacing: 5) {
+                        Image(systemName: "waveform.path.ecg")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("Curve: \(curveName)")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundColor(.orange)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.orange.opacity(0.15))
+                    .clipShape(Capsule())
+                } else if fan.isOverrided {
+                    HStack(spacing: 5) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("Manual: \(String(format: "%.0f%%", sliderValue / 255.0 * 100.0))")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundColor(.cyan)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.cyan.opacity(0.15))
+                    .clipShape(Capsule())
+                } else {
+                    HStack(spacing: 5) {
+                        Image(systemName: "leaf.fill")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("BIOS / Auto")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundColor(.teal)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.teal.opacity(0.15))
+                    .clipShape(Capsule())
+                }
+                
                 Spacer()
+                
                 Picker("", selection: Binding(
                     get: { controller.fanMappings[fan.id] ?? -1 },
                     set: { newVal in
@@ -284,16 +320,6 @@ struct FanControlCard: View {
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
-            }
-            
-            // --- Curva activa ---
-            if isMappedToCurve {
-                HStack {
-                    Spacer()
-                    Text("Controlled by Curve: \(curveName)")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(.orange)
-                }
             }
             
             // --- Slider (igual que AMD Power Gadget) ---
@@ -344,12 +370,12 @@ struct FanControlCard: View {
             // El kext ahora reporta PWM estimado desde RPM incluso en Auto mode
             sliderValue = Double(fan.throttle)
         }
-        .onChange(of: fan.throttle) { newVal in
+        .onChange(of: fan.throttle) { _, newVal in
             // Sincronizar slider con el throttle reportado por el kext
             // (PWM real en Manual, PWM estimado desde RPM en Auto)
             sliderValue = Double(newVal)
         }
-        .onChange(of: fan.isOverrided) { newVal in
+        .onChange(of: fan.isOverrided) { _, newVal in
             if newVal {
                 didDrag = false
             }

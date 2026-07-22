@@ -5,7 +5,7 @@ import AppKit
 
 /// A live reading the user can pin next to the menu bar icon.
 enum MenuBarMetric: String, CaseIterable, Identifiable {
-    case cpu, gpu, memory, cpuTemperature, gpuTemperature, cpuPower, gpuPower, batteryTemperature, network, diskUsage, diskActivity, battery, batteryTime, peripheralBattery, power
+    case cpu, gpu, memory, cpuTemperature, gpuTemperature, cpuPower, gpuPower, cpuFrequency, cpuTempPower, gpuTempPower, batteryTemperature, network, diskUsage, diskActivity, battery, batteryTime, peripheralBattery, power
 
     var id: String { rawValue }
 
@@ -18,6 +18,9 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
         case .gpuTemperature: return DefaultsKey.menuBarGPUTemperature
         case .cpuPower: return DefaultsKey.menuBarCPUPower
         case .gpuPower: return DefaultsKey.menuBarGPUPower
+        case .cpuFrequency: return DefaultsKey.menuBarCPUFrequency
+        case .cpuTempPower: return DefaultsKey.menuBarCPUTempPower
+        case .gpuTempPower: return DefaultsKey.menuBarGPUTempPower
         case .batteryTemperature: return DefaultsKey.menuBarBatteryTemperature
         case .network: return DefaultsKey.menuBarNetwork
         case .diskUsage: return DefaultsKey.menuBarDiskUsage
@@ -38,6 +41,9 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
         case .gpuTemperature: return "rectangle.connected.to.line.below"
         case .cpuPower: return "bolt.fill"
         case .gpuPower: return "bolt.fill"
+        case .cpuFrequency: return "waveform.path.ecg"
+        case .cpuTempPower: return "thermometer"
+        case .gpuTempPower: return "thermometer.snowflake"
         case .batteryTemperature: return "battery.100"
         case .network: return "network"
         case .diskUsage: return "internaldrive"
@@ -58,6 +64,9 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
         case .gpuTemperature: return strings.monitorShowGPUTemperature
         case .cpuPower: return "CPU Power"
         case .gpuPower: return "GPU Power"
+        case .cpuFrequency: return "Frecuencia CPU (2-Line Peak/Avg)"
+        case .cpuTempPower: return "CPU Temp + Power (2-Line)"
+        case .gpuTempPower: return "GPU Temp + Power (2-Line)"
         case .batteryTemperature: return strings.monitorShowBatteryTemperature
         case .network: return strings.monitorShowNetwork
         case .diskUsage: return strings.monitorItemDiskUsage
@@ -92,8 +101,8 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
     /// pinned in defaults but stops rendering (and sampling) until it returns.
     var feature: AppFeature {
         switch self {
-        case .cpu, .cpuTemperature, .cpuPower: return .monitorCPU
-        case .gpu, .gpuTemperature, .gpuPower: return .monitorGPU
+        case .cpu, .cpuTemperature, .cpuPower, .cpuFrequency, .cpuTempPower: return .monitorCPU
+        case .gpu, .gpuTemperature, .gpuPower, .gpuTempPower: return .monitorGPU
         case .memory: return .monitorMemory
         case .network: return .monitorNetwork
         case .diskUsage, .diskActivity: return .monitorDisk
@@ -162,6 +171,7 @@ enum MenuBarSegment {
     case networkBlock(down: String, up: String, style: MenuBarBlockStyle)
     case diskActivityBlock(read: String, write: String, style: MenuBarBlockStyle)
     case batteryBlock(percent: Int, isCharging: Bool, style: MenuBarBlockStyle)
+    case customImage(NSImage)
     case dot(MemoryPressure)
     case separator
 }
@@ -329,6 +339,28 @@ enum MenuBarRenderer {
                                             segments: [.symbol(metric.symbolName), .text(" " + text)],
                                             width: reservedWidth(for: metric, preset: preset)))
                 }
+            case .cpuFrequency:
+                let cores = snapshot.cores
+                let freqs = cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
+                let avg = freqs.isEmpty ? 0 : (freqs.reduce(0, +) / Double(freqs.count))
+                let text = "CPU " + String(format: "%.2fGHz", avg / 1000.0)
+                items.append(MetricItem(metric: metric,
+                                        segments: [.symbol(metric.symbolName), .text(" " + text)],
+                                        width: reservedWidth(for: metric, preset: preset)))
+            case .cpuTempPower:
+                let temp = snapshot.cpuTemperature.map { String(format: "%.0f°", $0) } ?? "--°"
+                let pwr = snapshot.cpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
+                let text = "CPU \(temp) \(pwr)"
+                items.append(MetricItem(metric: metric,
+                                        segments: [.symbol(metric.symbolName), .text(" " + text)],
+                                        width: reservedWidth(for: metric, preset: preset)))
+            case .gpuTempPower:
+                let temp = snapshot.gpuTemperature.map { String(format: "%.0f°", $0) } ?? "--°"
+                let pwr = snapshot.gpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
+                let text = "GPU \(temp) \(pwr)"
+                items.append(MetricItem(metric: metric,
+                                        segments: [.symbol(metric.symbolName), .text(" " + text)],
+                                        width: reservedWidth(for: metric, preset: preset)))
             case .memory:
                 let style = MemoryMenuBarStyle.current
                 var segments: [MenuBarSegment] = []
@@ -559,6 +591,35 @@ enum MenuBarRenderer {
                                                 style: style,
                                                 pressure: nil)])
                 }
+            case .cpuFrequency:
+                let cores = snapshot.cores
+                let freqs = cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
+                let avg = freqs.isEmpty ? 0 : (freqs.reduce(0, +) / Double(freqs.count))
+                let maxFreq = freqs.max() ?? 0
+                let avgStr = String(format: "%.2fG", avg / 1000.0)
+                let maxStr = String(format: "%.2fG", maxFreq / 1000.0)
+                
+                let image = stackedRatesImage(lines: ["A\(avgStr)", "P\(maxStr)"],
+                                             reservedLines: ["A0.00G", "P0.00G"],
+                                             cacheKey: "cpuFreq|\(avgStr)|\(maxStr)|\(style)" as NSString,
+                                             style: style)
+                groups.append([.customImage(image)])
+            case .cpuTempPower:
+                let temp = snapshot.cpuTemperature.map { String(format: "%.0f°", $0) } ?? "--°"
+                let pwr = snapshot.cpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
+                let image = stackedRatesImage(lines: ["T\(temp)", "P\(pwr)"],
+                                             reservedLines: ["T000°", "P000W"],
+                                             cacheKey: "cpuTempPwr|\(temp)|\(pwr)|\(style)" as NSString,
+                                             style: style)
+                groups.append([.customImage(image)])
+            case .gpuTempPower:
+                let temp = snapshot.gpuTemperature.map { String(format: "%.0f°", $0) } ?? "--°"
+                let pwr = snapshot.gpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
+                let image = stackedRatesImage(lines: ["T\(temp)", "P\(pwr)"],
+                                             reservedLines: ["T000°", "P000W"],
+                                             cacheKey: "gpuTempPwr|\(temp)|\(pwr)|\(style)" as NSString,
+                                             style: style)
+                groups.append([.customImage(image)])
             case .memory:
                 let memoryStyle = MemoryMenuBarStyle.current
                 if usesBars {
@@ -743,6 +804,8 @@ enum MenuBarRenderer {
         switch (preset, metric) {
         case (_, .cpu), (_, .gpu), (_, .cpuPower), (_, .gpuPower):
             return 11      // symbol + " CPU 100%"
+        case (_, .cpuFrequency), (_, .cpuTempPower), (_, .gpuTempPower):
+            return 15      // 2-line stacked block
         case (_, .memory):
             return MemoryMenuBarStyle.current.showsDot ? 13 : 11
         case (_, .cpuTemperature), (_, .gpuTemperature), (_, .batteryTemperature):
@@ -760,6 +823,13 @@ enum MenuBarRenderer {
         case (_, .batteryTime):
             return 12      // clock symbol + "99h 59m"
         }
+    }
+
+    private static func customImageAttachment(_ image: NSImage) -> NSAttributedString {
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        attachment.bounds = CGRect(x: 0, y: -2.0 + legacyBlockAttachmentNudge, width: image.size.width, height: image.size.height)
+        return NSAttributedString(attachment: attachment)
     }
 
     private static func joinedWidth(_ items: [MetricItem], usesSeparators: Bool) -> Int {
@@ -827,6 +897,8 @@ enum MenuBarRenderer {
                 result.append(batteryBlockAttachment(percent: percent,
                                                      isCharging: isCharging,
                                                      style: style))
+            case let .customImage(image):
+                result.append(customImageAttachment(image))
             case let .dot(pressure):
                 result.append(NSAttributedString(string: "●", attributes: [.foregroundColor: nsColor(for: pressure)]))
             case .separator:

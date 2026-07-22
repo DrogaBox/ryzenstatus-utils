@@ -175,6 +175,26 @@ struct InteractiveFanCurveEditor: View {
                             }
                         }
                         
+                        // Gradient Area Fill under the curve
+                        Path { path in
+                            let sorted = curve.points.sorted { $0.temp < $1.temp }
+                            guard let firstPt = sorted.first, let lastPt = sorted.last else { return }
+                            
+                            let startX = CGFloat(firstPt.temp / 100.0) * w
+                            path.move(to: CGPoint(x: startX, y: h))
+                            path.addLine(to: CGPoint(x: startX, y: h - CGFloat(firstPt.pwm / 100.0) * h))
+                            
+                            for pt in sorted.dropFirst() {
+                                path.addLine(to: CGPoint(x: CGFloat(pt.temp / 100.0) * w, y: h - CGFloat(pt.pwm / 100.0) * h))
+                            }
+                            
+                            let endX = CGFloat(lastPt.temp / 100.0) * w
+                            path.addLine(to: CGPoint(x: endX, y: h))
+                            path.closeSubpath()
+                        }
+                        .fill(LinearGradient(gradient: Gradient(colors: [Color.cyan.opacity(0.20), Color.orange.opacity(0.30)]),
+                                             startPoint: .leading, endPoint: .trailing))
+
                         // Line Path connecting points
                         Path { path in
                             let sorted = curve.points.sorted { $0.temp < $1.temp }
@@ -186,7 +206,7 @@ struct InteractiveFanCurveEditor: View {
                                 path.addLine(to: CGPoint(x: CGFloat(pt.temp / 100.0) * w, y: h - CGFloat(pt.pwm / 100.0) * h))
                             }
                         }
-                        .stroke(Color.blue, lineWidth: 2)
+                        .stroke(LinearGradient(gradient: Gradient(colors: [.cyan, .orange]), startPoint: .leading, endPoint: .trailing), lineWidth: 2.5)
                         
                         // Interactive points
                         ForEach(curve.points.indices, id: \.self) { ptIdx in

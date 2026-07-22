@@ -145,6 +145,9 @@ enum DefaultsKey {
     static let menuBarGPU = "menuBarGPU"
     static let menuBarCPUPower = "menuBarCPUPower"
     static let menuBarGPUPower = "menuBarGPUPower"
+    static let menuBarCPUFrequency = "menuBarCPUFrequency"
+    static let menuBarCPUTempPower = "menuBarCPUTempPower"
+    static let menuBarGPUTempPower = "menuBarGPUTempPower"
     static let menuBarMemory = "menuBarMemory"
     static let menuBarCPUTemperature = "menuBarCPUTemperature"
     static let menuBarGPUTemperature = "menuBarGPUTemperature"
@@ -663,6 +666,7 @@ enum Defaults {
         DefaultsKey.menuBarGPU: true,
         DefaultsKey.menuBarCPUPower: false,
         DefaultsKey.menuBarGPUPower: false,
+        DefaultsKey.menuBarCPUFrequency: false,
         DefaultsKey.menuBarMemory: true,
         DefaultsKey.menuBarNetwork: true,
         DefaultsKey.menuBarCPUTemperature: false,

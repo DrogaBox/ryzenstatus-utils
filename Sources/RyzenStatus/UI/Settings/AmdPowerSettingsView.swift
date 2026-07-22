@@ -38,17 +38,25 @@ struct AmdPowerSettingsView: View {
         }
     }
 
+    private var minFrequency: Double {
+        let freqs = monitor.snapshot.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
+        return freqs.min() ?? 0
+    }
+
+    private var maxFrequency: Double {
+        let freqs = monitor.snapshot.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
+        return freqs.max() ?? 0
+    }
+
     private var averageFrequency: Double {
-        let cores = monitor.snapshot.cores
-        guard !cores.isEmpty else { return 0 }
-        var sum = 0.0
-        for c in cores { sum += Double(c.freqMHz) }
-        return sum / Double(cores.count)
+        let freqs = monitor.snapshot.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
+        guard !freqs.isEmpty else { return 0 }
+        return freqs.reduce(0, +) / Double(freqs.count)
     }
 
     var body: some View {
         Form {
-            Section(header: Text("Información del CPU (HWMonitorSMC2)")) {
+            Section(header: Text("Información del Procesador AMD Ryzen")) {
                 HStack {
                     Text("Package Power")
                     Spacer()
@@ -63,6 +71,18 @@ struct AmdPowerSettingsView: View {
                 }
                 
                 if !monitor.snapshot.cores.isEmpty {
+                    HStack {
+                        Text("Frecuencia Mínima")
+                        Spacer()
+                        Text(String(format: "%.0f MHz", minFrequency))
+                            .font(.system(.body, design: .monospaced))
+                    }
+                    HStack {
+                        Text("Frecuencia Máxima (Peak)")
+                        Spacer()
+                        Text(String(format: "%.0f MHz", maxFrequency))
+                            .font(.system(.body, design: .monospaced))
+                    }
                     HStack {
                         Text("Frecuencia Promedio")
                         Spacer()

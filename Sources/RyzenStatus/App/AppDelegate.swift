@@ -703,6 +703,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             window.title = "RyzenStatus"
             window.titlebarAppearsTransparent = true
             window.isMovableByWindowBackground = true
+            window.collectionBehavior = [.fullScreenAuxiliary, .canJoinAllSpaces]
+            window.level = .floating
             window.contentViewController = hostingController
             window.isReleasedWhenClosed = false
             detachedWindowController = NSWindowController(window: window)

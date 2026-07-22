@@ -173,6 +173,8 @@ struct MenuBarMetricsPreview: View {
             }
             .foregroundStyle(.white)
             .fixedSize(horizontal: true, vertical: true)
+        case let .customImage(image):
+            Image(nsImage: image)
         case let .dot(pressure):
             Circle()
                 .fill(dotColor(pressure))

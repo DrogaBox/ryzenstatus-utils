@@ -28,9 +28,7 @@ class SMCDumpService: ObservableObject {
         // V* keys are usually Voltages
         // P* keys are usually Power
         
-        let keys = smc.keys { name in
-            name.hasPrefix("T") || name.hasPrefix("F") || name.hasPrefix("V") || name.hasPrefix("P") || name.hasPrefix("I")
-        }
+        let keys = smc.keys { name in !name.isEmpty }
         
         var newReadings: [SMCSensorReading] = []
         

@@ -469,12 +469,12 @@ final class StatusItemController {
 
         for metric in metrics {
             switch metric {
-            case .cpu, .cpuTemperature, .cpuPower:
+            case .cpu, .cpuTemperature, .cpuPower, .cpuFrequency, .cpuTempPower:
                 appendComponentGroup(id: "cpu",
                                      primary: .cpu,
                                      temperature: .cpuTemperature,
                                      primaryTitle: strings.monitorShowCPU)
-            case .gpu, .gpuTemperature, .gpuPower:
+            case .gpu, .gpuTemperature, .gpuPower, .gpuTempPower:
                 appendComponentGroup(id: "gpu",
                                      primary: .gpu,
                                      temperature: .gpuTemperature,

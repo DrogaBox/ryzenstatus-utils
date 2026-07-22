@@ -107,23 +107,24 @@ class FanCurveController: ObservableObject {
                     if curveIdx < 0 || curveIdx >= curves.count { continue }
                     
                     let curve = curves[curveIdx]
-                    let temp = curve.sourceSensor == .cpu ? cpuTemp : gpuTemp
-                    
-                    // Hysteresis
-                    let lastT = lastTemp[curve.sourceSensor] ?? temp
-                    if abs(temp - lastT) < curve.hysteresis {
-                        continue
+                    let rawTemp = curve.sourceSensor == .cpu ? cpuTemp : gpuTemp
+                    let lastT = lastTemp[curve.sourceSensor] ?? rawTemp
+                    let effectiveTemp: Double
+                    if abs(rawTemp - lastT) >= curve.hysteresis {
+                        effectiveTemp = rawTemp
+                        lastTemp[curve.sourceSensor] = rawTemp
+                    } else {
+                        effectiveTemp = lastT
                     }
-                    lastTemp[curve.sourceSensor] = temp
                     
                     // LUT Evaluation
-                    let lut = curve.generateRPMLUT() // Returns PWM now
-                    let safeTemp = min(max(Int(temp), 0), 255)
+                    let lut = curve.generateRPMLUT() // Returns PWM table
+                    let safeTemp = min(max(Int(effectiveTemp), 0), 255)
                     let targetPWM = lut[safeTemp]
                     
                     let current = currentPWM[fanId] ?? targetPWM
                     
-                    // Ramp rate limit
+                    // Ramp rate limit towards targetPWM
                     var newPWM = targetPWM
                     let diff = targetPWM - current
                     if abs(diff) > curve.rampRate {
@@ -134,7 +135,7 @@ class FanCurveController: ObservableObject {
                     
                     // Only call setFanMode once per fan when transitioning to manual
                     if !manualFans.contains(fanId) {
-                        _ = await ProcessorModel.shared.setFanMode(auto: false, fanIndex: fanId)
+                        _ = ProcessorModel.shared.setFanMode(auto: false, fanIndex: fanId)
                         manualFans.insert(fanId)
                     }
                     
@@ -142,7 +143,7 @@ class FanCurveController: ObservableObject {
                     let clampedPWM = min(max(newPWM, 0), 100)
                     let finalSMCValue = min(max(Int((clampedPWM / 100.0) * 255.0), 0), 255)
                     
-                    _ = await ProcessorModel.shared.setFanSpeed(rpm: finalSMCValue, fanIndex: fanId)
+                    _ = ProcessorModel.shared.setFanSpeed(rpm: finalSMCValue, fanIndex: fanId)
                 }
             }
         }
@@ -156,7 +157,7 @@ class FanCurveController: ObservableObject {
         Task {
             for (fanId, curveIdx) in fanMappings {
                 if curveIdx >= 0 {
-                    _ = await ProcessorModel.shared.setFanMode(auto: true, fanIndex: fanId)
+                    _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fanId)
                 }
             }
         }

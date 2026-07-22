@@ -32,6 +32,7 @@ struct SystemSection: View {
     @AppStorage(DefaultsKey.menuBarGPU) private var menuBarGPU = true
     @AppStorage(DefaultsKey.menuBarMemory) private var menuBarMemory = true
     @AppStorage(DefaultsKey.menuBarCPUTemperature) private var menuBarCPUTemperature = false
+    @AppStorage(DefaultsKey.menuBarCPUFrequency) private var menuBarCPUFrequency = false
     @AppStorage(DefaultsKey.menuBarGPUTemperature) private var menuBarGPUTemperature = false
     @AppStorage(DefaultsKey.menuBarBatteryTemperature) private var menuBarBatteryTemperature = false
     @AppStorage(DefaultsKey.menuBarNetwork) private var menuBarNetwork = true
@@ -126,6 +127,7 @@ struct SystemSection: View {
         menuBarGPU ||
         menuBarMemory ||
         menuBarCPUTemperature ||
+        menuBarCPUFrequency ||
         menuBarGPUTemperature ||
         menuBarBatteryTemperature ||
         menuBarNetwork ||

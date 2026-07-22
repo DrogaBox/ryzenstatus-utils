@@ -448,7 +448,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         let alertDisk = defaults.bool(forKey: DefaultsKey.monitorAlertDisk)
         let alertBattery = defaults.bool(forKey: DefaultsKey.monitorAlertBattery)
 
-        plan.needCPU = panelCPU || defaults.bool(forKey: DefaultsKey.menuBarCPU) || alertCPU
+        plan.needCPU = panelCPU || defaults.bool(forKey: DefaultsKey.menuBarCPU) || defaults.bool(forKey: DefaultsKey.menuBarCPUFrequency) || alertCPU
         plan.needMemory = panelMemory || defaults.bool(forKey: DefaultsKey.menuBarMemory) || alertMemory
         plan.needNetwork = panelNeedsNetwork || defaults.bool(forKey: DefaultsKey.menuBarNetwork)
         plan.needDisk = panelNeedsDisk
@@ -464,9 +464,9 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             || defaults.bool(forKey: DefaultsKey.menuBarPeripheralBattery)
         plan.needGPUUsage = panelGPU || defaults.bool(forKey: DefaultsKey.menuBarGPU)
         plan.needCPUTemperature = panelTemps || menuPanelNeeds.cpuTemperature ||
-            defaults.bool(forKey: DefaultsKey.menuBarCPUTemperature) || alertCPUTemperature
+            defaults.bool(forKey: DefaultsKey.menuBarCPUTemperature) || defaults.bool(forKey: DefaultsKey.menuBarCPUTempPower) || alertCPUTemperature
         plan.needGPUTemperature = panelTemps || menuPanelNeeds.gpuTemperature ||
-            defaults.bool(forKey: DefaultsKey.menuBarGPUTemperature)
+            defaults.bool(forKey: DefaultsKey.menuBarGPUTemperature) || defaults.bool(forKey: DefaultsKey.menuBarGPUTempPower)
         plan.needBatteryTemperature = panelTemps || menuPanelNeeds.batteryTemperature ||
             defaults.bool(forKey: DefaultsKey.menuBarBatteryTemperature)
 
@@ -475,6 +475,8 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         plan.needAMDPower = panelNeedsSystem
             || defaults.bool(forKey: DefaultsKey.menuBarCPUPower)
             || defaults.bool(forKey: DefaultsKey.menuBarGPUPower)
+            || defaults.bool(forKey: DefaultsKey.menuBarCPUTempPower)
+            || defaults.bool(forKey: DefaultsKey.menuBarGPUTempPower)
         // The hub gates whole metric families: an unavailable metric never
         // samples, no matter what is pinned, shown or alerting.
         func available(_ feature: AppFeature) -> Bool {
@@ -787,9 +789,9 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 if amd.metric.count > 1 { next.cpuTemperature = Double(amd.metric[1]) }
                 if amd.gpuTemp > 0 { 
                     next.gpuTemperature = Double(amd.gpuTemp) 
-                } else if next.cpuTemperature != nil {
+                } else if next.gpuTemperature == nil, let cpuTemp = next.cpuTemperature {
                     // Fallback for APUs (Mattyy's SuperIO / Vega) where GPU temp is the same as CPU package temp
-                    next.gpuTemperature = next.cpuTemperature
+                    next.gpuTemperature = cpuTemp
                 }
                 if amd.gpuFreq > 0 { next.gpuFreq = Double(amd.gpuFreq) }
                 if amd.gpuFan > 0 { next.gpuFan = Double(amd.gpuFan) }
