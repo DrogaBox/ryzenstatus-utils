@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.8]
+
+- **Mejoras y correcciones en tarjetas de métricas**: Corregido el truncamiento por redondeo en los porcentajes de CPU y GPU.
+- **Formato dinámico de la barra de menús**: Métricas apiladas en 2 líneas ultra compactas sin espacios vacíos.
+- **Nivel flotante para ventana desvinculada**: La ventana de Matty flota sobre todas las aplicaciones e instaladores.
+- **Ajustes de ordenamiento en barra de menús**: Registro universal de las métricas de frecuencia y temperatura+potencia combinadas.
+
+## [1.2.0]
+
+- **Métricas apiladas en 2 líneas**: Frecuencia Promedio/Máxima de CPU, CPU Temp+Power y GPU Temp+Power.
+- **Refresco de sensores en tiempo real**: Actualización continua cada 1.0s para los 16 núcleos físicos y lógicos.
+- **Control de Fan en Vivo**: Badges visuales de estado y visualización interactiva de curva Cyan-Naranja.
+
 ## [1.0.6]
 
 - **Fan control overhaul**: Fixed critical bugs in the kext SuperIO drivers (ITE 86XXE, Nuvoton NCT67XX/NCT668X) — RPM-to-PWM fallback now correctly estimates fan speed in Auto mode so the slider shows the actual RPM percentage instead of 0%.

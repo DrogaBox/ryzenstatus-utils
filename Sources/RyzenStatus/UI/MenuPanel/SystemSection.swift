@@ -854,7 +854,7 @@ struct PanelSquareCard: View {
                     .foregroundColor(.primary)
             }
             
-            Text("\(Int(usage * 100))%")
+            Text(MetricFormat.percent(usage))
                 .font(.system(size: 28, weight: .bold))
                 .foregroundColor(accentColor)
                 .padding(.vertical, 2)

@@ -63,7 +63,10 @@ enum MenuBarUsageBarSupport {
     /// bounded while retaining every visible fill level.
     static func fillLevel(for fraction: Double, steps: Int) -> Int {
         guard steps > 0 else { return 0 }
-        return Int((clampedFraction(fraction) * Double(steps)).rounded())
+        let clamped = clampedFraction(fraction)
+        guard clamped > 0 else { return 0 }
+        let raw = Int((clamped * Double(steps)).rounded())
+        return max(1, raw)
     }
 
     static func thresholds(medium: Int, high: Int) -> (medium: Int, high: Int) {
