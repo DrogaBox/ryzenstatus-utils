@@ -599,24 +599,24 @@ enum MenuBarRenderer {
                 let avgStr = String(format: "%.2fG", avg / 1000.0)
                 let maxStr = String(format: "%.2fG", maxFreq / 1000.0)
                 
-                let image = stackedRatesImage(lines: ["A\(avgStr)", "P\(maxStr)"],
-                                             reservedLines: ["A0.00G", "P0.00G"],
-                                             cacheKey: "cpuFreq|\(avgStr)|\(maxStr)|\(style)" as NSString,
+                let image = stackedRatesImage(lines: [maxStr, avgStr],
+                                             reservedLines: ["0.00G", "0.00G"],
+                                             cacheKey: "cpuFreq|\(maxStr)|\(avgStr)|\(style)" as NSString,
                                              style: style)
                 groups.append([.customImage(image)])
             case .cpuTempPower:
                 let temp = snapshot.cpuTemperature.map { String(format: "%.0f°", $0) } ?? "--°"
                 let pwr = snapshot.cpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
-                let image = stackedRatesImage(lines: ["T\(temp)", "P\(pwr)"],
-                                             reservedLines: ["T000°", "P000W"],
+                let image = stackedRatesImage(lines: [temp, pwr],
+                                             reservedLines: ["000°", "000W"],
                                              cacheKey: "cpuTempPwr|\(temp)|\(pwr)|\(style)" as NSString,
                                              style: style)
                 groups.append([.customImage(image)])
             case .gpuTempPower:
                 let temp = snapshot.gpuTemperature.map { String(format: "%.0f°", $0) } ?? "--°"
                 let pwr = snapshot.gpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
-                let image = stackedRatesImage(lines: ["T\(temp)", "P\(pwr)"],
-                                             reservedLines: ["T000°", "P000W"],
+                let image = stackedRatesImage(lines: [temp, pwr],
+                                             reservedLines: ["000°", "000W"],
                                              cacheKey: "gpuTempPwr|\(temp)|\(pwr)|\(style)" as NSString,
                                              style: style)
                 groups.append([.customImage(image)])
@@ -828,7 +828,9 @@ enum MenuBarRenderer {
     private static func customImageAttachment(_ image: NSImage) -> NSAttributedString {
         let attachment = NSTextAttachment()
         attachment.image = image
-        attachment.bounds = CGRect(x: 0, y: -2.0 + legacyBlockAttachmentNudge, width: image.size.width, height: image.size.height)
+        let preset = MenuBarPreset.current
+        let yOffset: CGFloat = (preset == .readable ? -6.1 : -5.5) + legacyBlockAttachmentNudge
+        attachment.bounds = CGRect(x: 0, y: yOffset, width: image.size.width, height: image.size.height)
         return NSAttributedString(attachment: attachment)
     }
 
