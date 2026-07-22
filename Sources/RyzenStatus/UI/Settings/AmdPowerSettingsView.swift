@@ -60,7 +60,7 @@ struct AmdPowerSettingsView: View {
                 HStack {
                     Text("Package Power")
                     Spacer()
-                    Text(String(format: "%.2f W", monitor.snapshot.cpuPower ?? 0))
+                    Text(String(format: "%.1f W", monitor.snapshot.cpuPower ?? 0))
                         .font(.system(.body, design: .monospaced))
                 }
                 HStack {

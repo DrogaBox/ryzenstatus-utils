@@ -76,6 +76,8 @@ struct SystemSnapshot {
     var cores: [CoreSnapshot] = []
     var ccdTemperatures: [Float] = []
     var numPhysicalCores: Int = 0
+    var peakCPUFreq: Double?
+    var avgCPUFreq: Double?
 }
 
 /// What parts of the menu panel are actually visible right now. The popover can
@@ -193,6 +195,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     private var cpuPowerHistory: MetricHistory
     private var gpuPowerHistory: MetricHistory
     private var cpuFreqHistory: MetricHistory
+    private var lastPeakCPUFreq: Double = 0
     private var powerSourceRunLoopSource: CFRunLoopSource?
 
     private init() {
@@ -825,8 +828,17 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             if let pwr = next.gpuPower { self.gpuPowerHistory.push(pwr) }
             let freqs = next.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
             if !freqs.isEmpty {
-                let avgGHz = (freqs.reduce(0, +) / Double(freqs.count)) / 1000.0
-                self.cpuFreqHistory.push(avgGHz)
+                let rawMax = freqs.max() ?? 0
+                let rawAvg = freqs.reduce(0, +) / Double(freqs.count)
+                if rawMax >= self.lastPeakCPUFreq {
+                    self.lastPeakCPUFreq = rawMax
+                } else {
+                    self.lastPeakCPUFreq = max(rawMax, self.lastPeakCPUFreq * 0.90)
+                }
+                let peak = max(self.lastPeakCPUFreq, rawAvg)
+                next.peakCPUFreq = peak
+                next.avgCPUFreq = rawAvg
+                self.cpuFreqHistory.push(rawAvg / 1000.0)
             }
             next.numPhysicalCores = self.lastAmdSnapshot?.numPhysicalCores ?? 16
             next.cpuHistory = plan.needCPU ? self.cpuHistory.values : []

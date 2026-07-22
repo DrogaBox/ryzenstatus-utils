@@ -29,6 +29,7 @@ struct SystemSection: View {
     @AppStorage(DefaultsKey.monitorGraphGPU) private var graphGPU = true
     @AppStorage(DefaultsKey.monitorGraphMemory) private var graphMemory = true
     @AppStorage(DefaultsKey.monitorGraphBattery) private var graphBattery = true
+    @AppStorage("panelViewStyle") private var panelViewStyle = "cards"
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnit = TemperatureUnit.celsius.rawValue
     @AppStorage(DefaultsKey.menuBarCPU) private var menuBarCPU = true
     @AppStorage(DefaultsKey.menuBarGPU) private var menuBarGPU = true
@@ -395,8 +396,22 @@ struct SystemSection: View {
 
     private func usageRows(editing: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            subsectionLabel(l10n.s.usageSection)
-            if sysCPU, cpuAvailable {
+            HStack {
+                subsectionLabel(l10n.s.usageSection)
+                Spacer()
+                Picker("", selection: $panelViewStyle) {
+                    Text("Tarjetas").tag("cards")
+                    Text("iStats Widgets").tag("istats")
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 140)
+            }
+            
+            if panelViewStyle == "istats" {
+                IStatsPopoverWidgetsView(monitor: monitor)
+                    .padding(.vertical, 4)
+            } else {
+                if sysCPU, cpuAvailable {
                 usageRow(label: l10n.s.cpuLabel, fraction: monitor.snapshot.cpuUsage,
                          kind: .cpu, editing: editing, visible: $sysCPU)
                 
@@ -464,6 +479,7 @@ struct SystemSection: View {
             }
             if menuBarPeripheralBattery, powerAvailable, !monitor.snapshot.peripheralBatteries.isEmpty {
                 peripheralBatteryRows
+            }
             }
         }
     }

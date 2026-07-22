@@ -114,7 +114,7 @@ struct SensorsView: View {
                         .buttonStyle(.plain)
                         
                         SensorRow(name: "CPU Package Temp", value: formatTemp(monitor.snapshot.cpuTemperature ?? 0), icon: "thermometer")
-                        SensorRow(name: "CPU Package Power", value: String(format: "%.2f W", monitor.snapshot.cpuPower ?? 0), icon: "bolt.fill")
+                        SensorRow(name: "CPU Package Power", value: String(format: "%.1f W", monitor.snapshot.cpuPower ?? 0), icon: "bolt.fill")
                         
                         Divider()
                             .padding(.vertical, 4)
@@ -162,7 +162,7 @@ struct SensorsView: View {
                 Section {
                     DisclosureGroup(isExpanded: $gpuExpanded) {
                         SensorRow(name: "GPU Global Temp", value: formatTemp(monitor.snapshot.gpuTemperature ?? 0), icon: "thermometer.snowflake")
-                        SensorRow(name: "GPU Global Power", value: String(format: "%.2f W", monitor.snapshot.gpuPower ?? 0), icon: "bolt")
+                        SensorRow(name: "GPU Global Power", value: String(format: "%.1f W", monitor.snapshot.gpuPower ?? 0), icon: "bolt")
                         
                         ForEach(gpuSensors) { sensor in
                             SensorRow(name: sensorDisplayName(for: sensor.key), value: formatValue(sensor), icon: "thermometer.snowflake")

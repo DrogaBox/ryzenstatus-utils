@@ -29,6 +29,7 @@ struct MonitorSettings: View {
     @AppStorage(DefaultsKey.monitorGraphDisk) private var graphDisk = true
     @AppStorage(DefaultsKey.monitorGraphPower) private var graphPower = true
     @AppStorage(DefaultsKey.monitorGraphBattery) private var graphBattery = true
+    @AppStorage("panelViewStyle") private var panelViewStyle = "cards"
 
     var body: some View {
         Form {
@@ -42,6 +43,14 @@ struct MonitorSettings: View {
                 Picker(appearanceStrings.label, selection: $metricAppearance) {
                     Text(appearanceStrings.values).tag("values")
                     Text(appearanceStrings.bars).tag("bars")
+                    Text(appearanceStrings.pie).tag("pie")
+                    Text(appearanceStrings.sparkline).tag("sparkline")
+                    Text(appearanceStrings.histogram).tag("histogram")
+                }
+                
+                Picker("Estilo del Popover", selection: $panelViewStyle) {
+                    Text("Tarjetas Clásicas").tag("cards")
+                    Text("iStats Widgets").tag("istats")
                 }
                 .pickerStyle(.segmented)
                 Text(appearanceStrings.caption)

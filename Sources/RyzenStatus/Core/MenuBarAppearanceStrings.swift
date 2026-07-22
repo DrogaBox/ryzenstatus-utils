@@ -7,6 +7,9 @@ struct MenuBarAppearanceStrings {
     let label: String
     let values: String
     let bars: String
+    var pie: String = "Donut Rings"
+    var sparkline: String = "Line Graph"
+    var histogram: String = "Histogram"
     let caption: String
     let customize: String
     let normalColor: String
@@ -41,7 +44,10 @@ extension MenuBarAppearanceStrings {
         label: "Usage display",
         values: "Values",
         bars: "Bars",
-        caption: "Bars apply to CPU, GPU, memory and disk usage. Other readings stay numeric.",
+        pie: "Donut Rings",
+        sparkline: "Line Graph",
+        histogram: "Histogram",
+        caption: "Graph styles apply to CPU, GPU, memory and disk usage. Other readings stay numeric.",
         customize: "Bar colors and limits",
         normalColor: "Normal color",
         mediumColor: "Medium color",
@@ -54,7 +60,10 @@ extension MenuBarAppearanceStrings {
         label: "Exibição de uso",
         values: "Valores",
         bars: "Barras",
-        caption: "As barras mostram o uso de CPU, GPU, memória e disco. As outras leituras continuam numéricas.",
+        pie: "Anéis Circular",
+        sparkline: "Gráfico de Linha",
+        histogram: "Histograma",
+        caption: "As barras e gráficos mostram o uso de CPU, GPU, memória e disco. As outras leituras continuam numéricas.",
         customize: "Cores e limites das barras",
         normalColor: "Cor normal",
         mediumColor: "Cor média",
@@ -67,6 +76,9 @@ extension MenuBarAppearanceStrings {
         label: "Kullanım görünümü",
         values: "Değerler",
         bars: "Çubuklar",
+        pie: "Halka Çember",
+        sparkline: "Çizgi Grafiği",
+        histogram: "Histogram",
         caption: "Çubuklar CPU, GPU, bellek ve disk kullanımını gösterir. Diğer ölçümler sayısal kalır.",
         customize: "Çubuk renkleri ve sınırları",
         normalColor: "Normal renk",
@@ -80,6 +92,9 @@ extension MenuBarAppearanceStrings {
         label: "Отображение нагрузки",
         values: "Значения",
         bars: "Шкалы",
+        pie: "Кольцевой",
+        sparkline: "Линейный график",
+        histogram: "Гистограмма",
         caption: "Шкалы показывают загрузку CPU, GPU, памяти и диска. Остальные показатели остаются числовыми.",
         customize: "Цвета и пороги шкал",
         normalColor: "Обычный цвет",
@@ -93,7 +108,10 @@ extension MenuBarAppearanceStrings {
         label: "Vista de uso",
         values: "Valores",
         bars: "Barras",
-        caption: "Las barras muestran el uso de CPU, GPU, memoria y disco. Las demás lecturas siguen siendo numéricas.",
+        pie: "Anillo Circular",
+        sparkline: "Gráfico de Línea",
+        histogram: "Histograma",
+        caption: "Los gráficos muestran el uso de CPU, GPU, memoria y disco. Las demás lecturas siguen siendo numéricas.",
         customize: "Colores y límites de las barras",
         normalColor: "Color normal",
         mediumColor: "Color medio",

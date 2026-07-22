@@ -513,7 +513,16 @@ enum MenuBarRenderer {
                     break
                 }
                 if let usage = snapshot.cpuUsage {
-                    if usesBars {
+                    if appearance == .histogram, !snapshot.cores.isEmpty {
+                        let img = coreHistogramBlockImage(cores: snapshot.cores, style: style)
+                        groups.append([.customImage(img)])
+                    } else if appearance == .pie {
+                        let img = pieBlockImage(label: "CPU", fraction: usage, style: style, pressure: nil)
+                        groups.append([.customImage(img)])
+                    } else if appearance == .sparkline {
+                        let img = sparklineBlockImage(label: "CPU", history: snapshot.cpuHistory, colorHex: "#64D2FF", style: style)
+                        groups.append([.customImage(img)])
+                    } else if usesBars {
                         groups.append([.usageBarBlock(label: "CPU",
                                                       fraction: usage,
                                                       style: style,
@@ -592,12 +601,10 @@ enum MenuBarRenderer {
                                                 pressure: nil)])
                 }
             case .cpuFrequency:
-                let cores = snapshot.cores
-                let freqs = cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
-                let avg = freqs.isEmpty ? 0 : (freqs.reduce(0, +) / Double(freqs.count))
-                let maxFreq = freqs.max() ?? 0
+                let peak = snapshot.peakCPUFreq ?? (snapshot.cores.map { Double($0.freqMHz) }.max() ?? 0)
+                let avg = snapshot.avgCPUFreq ?? (snapshot.cores.isEmpty ? 0 : snapshot.cores.map { Double($0.freqMHz) }.reduce(0, +) / Double(snapshot.cores.count))
+                let maxStr = String(format: "%.1fG", max(peak, avg) / 1000.0)
                 let avgStr = String(format: "%.1fG", avg / 1000.0)
-                let maxStr = String(format: "%.1fG", maxFreq / 1000.0)
                 
                 let image = stackedRatesImage(lines: [maxStr, avgStr],
                                              reservedLines: ["0.0G", "0.0G"],
@@ -640,9 +647,16 @@ enum MenuBarRenderer {
                 }
             case .network:
                 if let down = snapshot.netDownBytesPerSec, let up = snapshot.netUpBytesPerSec {
-                    groups.append([.networkBlock(down: MetricFormat.bytesPerSecCompact(down),
-                                                 up: MetricFormat.bytesPerSecCompact(up),
-                                                 style: style)])
+                    if appearance == .sparkline || appearance == .histogram || appearance == .bars || appearance == .pie {
+                        let img = networkDualGraphBlockImage(downHistory: snapshot.netDownHistory,
+                                                             upHistory: snapshot.netUpHistory,
+                                                             style: style)
+                        groups.append([.customImage(img)])
+                    } else {
+                        groups.append([.networkBlock(down: MetricFormat.bytesPerSecCompact(down),
+                                                     up: MetricFormat.bytesPerSecCompact(up),
+                                                     style: style)])
+                    }
                 }
             case .diskUsage:
                 if let disk = primaryDisk(from: snapshot.disk) {
@@ -1330,6 +1344,246 @@ enum MenuBarRenderer {
             PeripheralBatteryDevice(id: "mouse", name: "Magic Mouse", percent: 100, kind: .mouse),
         ]
         return snapshot
+    }
+
+    private static func networkDualGraphBlockImage(downHistory: [Double],
+                                                   upHistory: [Double],
+                                                   style: MenuBarBlockStyle) -> NSImage {
+        let downKey = downHistory.suffix(12).map { String(format: "%.0f", $0) }.joined(separator: ",")
+        let upKey = upHistory.suffix(12).map { String(format: "%.0f", $0) }.joined(separator: ",")
+        let cacheKey = "netDual|\(downKey)|\(upKey)|\(style)" as NSString
+        if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
+
+        let height: CGFloat = style == .readable ? 22 : 20
+        let graphWidth: CGFloat = style == .readable ? 38 : 34
+        let imageSize = NSSize(width: graphWidth, height: height)
+
+        let image = NSImage(size: imageSize, flipped: false) { rect in
+            NSColor.clear.setFill()
+            rect.fill()
+
+            let graphRect = NSRect(x: 0.5, y: 2, width: imageSize.width - 1, height: height - 4)
+            let boxPath = NSBezierPath(roundedRect: graphRect, xRadius: 3, yRadius: 3)
+            NSColor.labelColor.withAlphaComponent(0.35).setStroke()
+            boxPath.lineWidth = 1.2
+            boxPath.stroke()
+
+            let midY = graphRect.midY
+            
+            let centerPath = NSBezierPath()
+            centerPath.move(to: NSPoint(x: graphRect.minX + 2, y: midY))
+            centerPath.line(to: NSPoint(x: graphRect.maxX - 2, y: midY))
+            NSColor.labelColor.withAlphaComponent(0.25).setStroke()
+            centerPath.lineWidth = 0.8
+            centerPath.stroke()
+
+            let downs = Array(downHistory.suffix(12))
+            let ups = Array(upHistory.suffix(12))
+            let maxDown = max(1000.0, downs.max() ?? 1000.0)
+            let maxUp = max(1000.0, ups.max() ?? 1000.0)
+
+            let innerRect = graphRect.insetBy(dx: 2.0, dy: 1.5)
+            let halfHeight = (innerRect.height / 2.0) - 1.0
+            let count = max(1, max(downs.count, ups.count))
+            let barGap: CGFloat = 1.0
+            let singleBarWidth = max(1.2, (innerRect.width - CGFloat(count - 1) * barGap) / CGFloat(count))
+
+            for (i, val) in ups.enumerated() {
+                let norm = max(0.08, min(1.0, val / maxUp))
+                let bx = innerRect.minX + CGFloat(i) * (singleBarWidth + barGap)
+                let bh = halfHeight * CGFloat(norm)
+                let barRect = NSRect(x: bx, y: midY + 0.5, width: singleBarWidth, height: bh)
+                NSColor(srgbRed: 0.75, green: 0.45, blue: 0.95, alpha: 0.95).setFill()
+                NSBezierPath(roundedRect: barRect, xRadius: 0.5, yRadius: 0.5).fill()
+            }
+
+            for (i, val) in downs.enumerated() {
+                let norm = max(0.08, min(1.0, val / maxDown))
+                let bx = innerRect.minX + CGFloat(i) * (singleBarWidth + barGap)
+                let bh = halfHeight * CGFloat(norm)
+                let barRect = NSRect(x: bx, y: midY - 0.5 - bh, width: singleBarWidth, height: bh)
+                NSColor(srgbRed: 0.25, green: 0.82, blue: 0.98, alpha: 0.95).setFill()
+                NSBezierPath(roundedRect: barRect, xRadius: 0.5, yRadius: 0.5).fill()
+            }
+
+            return true
+        }
+        image.isTemplate = false
+        blockImageCache.setObject(image, forKey: cacheKey, cost: blockImageCost(image))
+        return image
+    }
+
+    private static func coreHistogramBlockImage(cores: [CoreSnapshot],
+                                                style: MenuBarBlockStyle) -> NSImage {
+        let sampleKey = cores.map { String(format: "%.0f", $0.loadPct) }.joined(separator: ",")
+        let cacheKey = "coreHistogram|\(sampleKey)|\(style)" as NSString
+        if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
+
+        let height: CGFloat = style == .readable ? 22 : 20
+        let count = max(1, min(32, cores.count))
+        let barWidth: CGFloat = style == .readable ? 2.5 : 2.0
+        let barGap: CGFloat = 1.0
+        let graphWidth = CGFloat(count) * barWidth + CGFloat(count - 1) * barGap + 6
+        let imageSize = NSSize(width: graphWidth, height: height)
+
+        let image = NSImage(size: imageSize, flipped: false) { rect in
+            NSColor.clear.setFill()
+            rect.fill()
+
+            let graphRect = NSRect(x: 0.5, y: 2, width: imageSize.width - 1, height: height - 4)
+            let boxPath = NSBezierPath(roundedRect: graphRect, xRadius: 3, yRadius: 3)
+            NSColor.labelColor.withAlphaComponent(0.35).setStroke()
+            boxPath.lineWidth = 1.2
+            boxPath.stroke()
+
+            let innerRect = graphRect.insetBy(dx: 2.0, dy: 2.0)
+            let coreList = Array(cores.prefix(32))
+            let singleBarWidth = max(1.5, (innerRect.width - CGFloat(coreList.count - 1) * barGap) / CGFloat(coreList.count))
+
+            for (i, core) in coreList.enumerated() {
+                let norm = max(0.06, min(1.0, core.loadPct / 100.0))
+                let bx = innerRect.minX + CGFloat(i) * (singleBarWidth + barGap)
+                let bh = innerRect.height * CGFloat(norm)
+                let barRect = NSRect(x: bx, y: innerRect.minY, width: singleBarWidth, height: bh)
+                NSColor.labelColor.withAlphaComponent(0.95).setFill()
+                NSBezierPath(roundedRect: barRect, xRadius: 0.8, yRadius: 0.8).fill()
+            }
+            return true
+        }
+        image.isTemplate = false
+        blockImageCache.setObject(image, forKey: cacheKey, cost: blockImageCost(image))
+        return image
+    }
+
+    private static func pieBlockImage(label: String,
+                                      fraction: Double?,
+                                      style: MenuBarBlockStyle,
+                                      pressure: MemoryPressure?) -> NSImage {
+        let frac = fraction ?? 0
+        let level = MenuBarUsageBarSupport.currentLevel(for: frac)
+        let fillColorHex = MenuBarUsageBarSupport.currentColorHex(for: level)
+        let cacheKey = "pie|\(label)|\(Int(frac * 100))|\(fillColorHex)|\(style)" as NSString
+        if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
+
+        let height: CGFloat = style == .readable ? 22 : 20
+        let diameter: CGFloat = style == .readable ? 15 : 13.5
+        let labelFont = NSFont.systemFont(ofSize: style == .readable ? 6.5 : 6.1, weight: .bold)
+        let labelAttrs = dynamicTextAttributes(font: labelFont)
+        let labelWidth: CGFloat = style == .readable ? 6.5 : 6
+        let gap: CGFloat = 3.0
+        let imageSize = NSSize(width: labelWidth + gap + diameter, height: height)
+
+        let image = NSImage(size: imageSize, flipped: false) { rect in
+            NSColor.clear.setFill()
+            rect.fill()
+
+            let characters = Array(label.prefix(3)).map(String.init)
+            let rowHeight = (height - 2) / 3
+            for (index, character) in characters.enumerated() {
+                let characterSize = (character as NSString).size(withAttributes: labelAttrs)
+                let x = (labelWidth - characterSize.width) / 2
+                let y = height - 1 - rowHeight * CGFloat(index + 1) + (rowHeight - characterSize.height) / 2
+                (character as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: labelAttrs)
+            }
+
+            let circleRect = NSRect(x: labelWidth + gap + 0.5, y: (height - diameter) / 2, width: diameter - 1, height: diameter - 1)
+            let center = NSPoint(x: circleRect.midX, y: circleRect.midY)
+            let radius = circleRect.width / 2
+
+            let bgPath = NSBezierPath(ovalIn: circleRect)
+            NSColor.labelColor.withAlphaComponent(0.2).setStroke()
+            bgPath.lineWidth = 2.0
+            bgPath.stroke()
+
+            if frac > 0 {
+                let startAngle: CGFloat = 90.0
+                let endAngle: CGFloat = 90.0 - CGFloat(frac * 360.0)
+                let arcPath = NSBezierPath()
+                arcPath.appendArc(withCenter: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: true)
+                usageBarColor(hex: fillColorHex).setStroke()
+                arcPath.lineWidth = 2.4
+                arcPath.lineCapStyle = .round
+                arcPath.stroke()
+            }
+            return true
+        }
+        image.isTemplate = false
+        blockImageCache.setObject(image, forKey: cacheKey, cost: blockImageCost(image))
+        return image
+    }
+
+    private static func sparklineBlockImage(label: String,
+                                            history: [Double],
+                                            colorHex: String = "#64D2FF",
+                                            style: MenuBarBlockStyle) -> NSImage {
+        let sampleKey = history.suffix(12).map { String(format: "%.1f", $0) }.joined(separator: ",")
+        let cacheKey = "sparkline|\(label)|\(sampleKey)|\(style)" as NSString
+        if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
+
+        let height: CGFloat = style == .readable ? 22 : 20
+        let graphWidth: CGFloat = style == .readable ? 34 : 30
+        let labelFont = NSFont.systemFont(ofSize: style == .readable ? 6.5 : 6.1, weight: .bold)
+        let labelAttrs = dynamicTextAttributes(font: labelFont)
+        let labelWidth: CGFloat = style == .readable ? 6.5 : 6
+        let gap: CGFloat = 3.0
+        let imageSize = NSSize(width: labelWidth + gap + graphWidth, height: height)
+
+        let image = NSImage(size: imageSize, flipped: false) { rect in
+            NSColor.clear.setFill()
+            rect.fill()
+
+            let characters = Array(label.prefix(3)).map(String.init)
+            let rowHeight = (height - 2) / 3
+            for (index, character) in characters.enumerated() {
+                let characterSize = (character as NSString).size(withAttributes: labelAttrs)
+                let x = (labelWidth - characterSize.width) / 2
+                let y = height - 1 - rowHeight * CGFloat(index + 1) + (rowHeight - characterSize.height) / 2
+                (character as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: labelAttrs)
+            }
+
+            let graphRect = NSRect(x: labelWidth + gap + 0.5, y: 2, width: graphWidth - 1, height: height - 4)
+            let points = history.suffix(15)
+            let maxVal = max(1.0, points.max() ?? 1.0)
+
+            let boxPath = NSBezierPath(roundedRect: graphRect, xRadius: 2, yRadius: 2)
+            NSColor.labelColor.withAlphaComponent(0.25).setStroke()
+            boxPath.lineWidth = 1.0
+            boxPath.stroke()
+
+            let innerRect = graphRect.insetBy(dx: 1.5, dy: 1.5)
+            guard !points.isEmpty else { return true }
+
+            let path = NSBezierPath()
+            let stepX = innerRect.width / CGFloat(max(1, points.count - 1))
+            
+            let pts = Array(points)
+            for (i, val) in pts.enumerated() {
+                let norm = max(0, min(1, val / maxVal))
+                let px = innerRect.minX + CGFloat(i) * stepX
+                let py = innerRect.minY + CGFloat(norm) * innerRect.height
+                if i == 0 { path.move(to: NSPoint(x: px, y: py)) }
+                else { path.line(to: NSPoint(x: px, y: py)) }
+            }
+
+            if let copy = path.copy() as? NSBezierPath {
+                let lastPt = NSPoint(x: innerRect.minX + CGFloat(pts.count - 1) * stepX, y: innerRect.minY)
+                let firstPt = NSPoint(x: innerRect.minX, y: innerRect.minY)
+                copy.line(to: lastPt)
+                copy.line(to: firstPt)
+                copy.close()
+                usageBarColor(hex: colorHex).withAlphaComponent(0.25).setFill()
+                copy.fill()
+            }
+
+            usageBarColor(hex: colorHex).setStroke()
+            path.lineWidth = 1.3
+            path.stroke()
+
+            return true
+        }
+        image.isTemplate = false
+        blockImageCache.setObject(image, forKey: cacheKey, cost: blockImageCost(image))
+        return image
     }
 
     private static func primaryDisk(from reading: DiskReading?) -> DiskDeviceReading? {

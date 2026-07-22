@@ -524,7 +524,7 @@ enum Defaults {
     static let allowedKeyboardDebounceWindowRange = 0...500
     static let allowedMenuBarPresets = ["dense"]
     static let allowedMenuBarMetricSpacings = ["standard", "compact"]
-    static let allowedMenuBarMetricAppearances = ["values", "bars"]
+    static let allowedMenuBarMetricAppearances = ["values", "bars", "pie", "sparkline", "histogram"]
     static let defaultMenuBarMetricOrder = [
         "cpu", "cpuTemperature", "cpuPower", "cpuFrequency", "cpuTempPower",
         "gpu", "gpuTemperature", "gpuPower", "gpuTempPower",
