@@ -608,7 +608,7 @@ enum MenuBarRenderer {
                 let temp = snapshot.cpuTemperature.map { String(format: "%.0f°", $0) } ?? "--°"
                 let pwr = snapshot.cpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
                 let image = stackedRatesImage(lines: [temp, pwr],
-                                             reservedLines: ["000°", "000W"],
+                                             reservedLines: ["00°", "00W"],
                                              cacheKey: "cpuTempPwr|\(temp)|\(pwr)|\(style)" as NSString,
                                              style: style)
                 groups.append([.customImage(image)])
@@ -616,7 +616,7 @@ enum MenuBarRenderer {
                 let temp = snapshot.gpuTemperature.map { String(format: "%.0f°", $0) } ?? "--°"
                 let pwr = snapshot.gpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
                 let image = stackedRatesImage(lines: [temp, pwr],
-                                             reservedLines: ["000°", "000W"],
+                                             reservedLines: ["00°", "00W"],
                                              cacheKey: "gpuTempPwr|\(temp)|\(pwr)|\(style)" as NSString,
                                              style: style)
                 groups.append([.customImage(image)])
@@ -1197,8 +1197,10 @@ enum MenuBarRenderer {
         let font = NSFont.monospacedSystemFont(ofSize: networkBlockFontSize(style: style),
                                                weight: .semibold)
         let lineHeight = networkBlockLineHeight(style: style)
+        let candidates = reservedLines.isEmpty ? lines : reservedLines
+        let blockWidth = rateBlockWidth(candidates: candidates, style: style)
         let height: CGFloat = style == .readable ? 22 : 20
-        let imageSize = NSSize(width: rateBlockWidth(style: style), height: height)
+        let imageSize = NSSize(width: blockWidth, height: height)
         let image = NSImage(size: imageSize, flipped: false) { rect in
             NSColor.clear.setFill()
             rect.fill()
