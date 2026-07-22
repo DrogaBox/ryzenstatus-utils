@@ -93,13 +93,13 @@ struct TopCardsView: View {
         HStack(spacing: 12) {
             let cpuTempStr = monitor.snapshot.cpuTemperature != nil ? String(format: "%.1f°C", monitor.snapshot.cpuTemperature!) : "---°C"
             let gpuTempStr = monitor.snapshot.gpuTemperature != nil ? String(format: "%.1f°C", monitor.snapshot.gpuTemperature!) : "---°C"
-            let cpuPwrStr = monitor.snapshot.cpuPower != nil ? String(format: "%.2f W", monitor.snapshot.cpuPower!) : "--- W"
-            let gpuPwrStr = monitor.snapshot.gpuPower != nil ? String(format: "%.2f W", monitor.snapshot.gpuPower!) : "--- W"
+            let cpuPwrStr = monitor.snapshot.cpuPower != nil ? String(format: "%.1f W", monitor.snapshot.cpuPower!) : "--- W"
+            let gpuPwrStr = monitor.snapshot.gpuPower != nil ? String(format: "%.1f W", monitor.snapshot.gpuPower!) : "--- W"
             
-            GadgetCard(title: "CPU Temp", value: cpuTempStr, icon: "cpu", history: monitor.snapshot.cpuHistory.map { Double($0) }, color: .red)
-            GadgetCard(title: "GPU Temp", value: gpuTempStr, icon: "display", history: monitor.snapshot.gpuHistory.map { Double($0) }, color: .orange)
-            GadgetCard(title: "CPU Power", value: cpuPwrStr, icon: "bolt.fill", history: monitor.snapshot.cpuHistory.map { Double($0) }, color: .blue)
-            GadgetCard(title: "GPU Power", value: gpuPwrStr, icon: "bolt.fill", history: monitor.snapshot.gpuHistory.map { Double($0) }, color: .green)
+            GadgetCard(title: "CPU Temp", value: cpuTempStr, icon: "cpu", history: monitor.snapshot.cpuTempHistory, color: .red)
+            GadgetCard(title: "GPU Temp", value: gpuTempStr, icon: "display", history: monitor.snapshot.gpuTempHistory, color: .orange)
+            GadgetCard(title: "CPU Power", value: cpuPwrStr, icon: "bolt.fill", history: monitor.snapshot.cpuPowerHistory, color: .blue)
+            GadgetCard(title: "GPU Power", value: gpuPwrStr, icon: "bolt.fill", history: monitor.snapshot.gpuPowerHistory, color: .green)
         }
         .padding(.horizontal)
     }
@@ -110,12 +110,12 @@ struct MainChartsView: View {
     
     var body: some View {
         VStack(spacing: 16) {
-            // Frequency Chart
-            ChartBox(title: "FREQUENCY", unit: "GHz", data: monitor.snapshot.cpuHistory.map { Double($0) * 0.04 }, color: .purple) // Fake freq history for now using load
-            // Temperature Chart
-            ChartBox(title: "TEMPERATURE", unit: "°C", data: monitor.snapshot.cpuHistory.map { Double($0) }, color: .red) // Fake temp history using load
-            // Power Chart
-            ChartBox(title: "POWER", unit: "W", data: monitor.snapshot.cpuHistory.map { Double($0) }, color: .blue) // Fake power history using load
+            // Real Frequency Chart
+            ChartBox(title: "FREQUENCY", unit: "GHz", data: monitor.snapshot.cpuFreqHistory, color: .purple)
+            // Real Temperature Chart
+            ChartBox(title: "TEMPERATURE", unit: "°C", data: monitor.snapshot.cpuTempHistory, color: .red)
+            // Real Power Chart
+            ChartBox(title: "POWER", unit: "W", data: monitor.snapshot.cpuPowerHistory, color: .blue)
         }
         .padding(.horizontal)
     }
@@ -214,6 +214,11 @@ struct ChartBox: View {
                 Text(title)
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
                     .foregroundColor(.white)
+                if let last = data.last {
+                    Text(String(format: "%.1f", last))
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .foregroundColor(color)
+                }
                 Spacer()
                 Text(unit)
                     .font(.system(size: 12, weight: .bold, design: .monospaced))

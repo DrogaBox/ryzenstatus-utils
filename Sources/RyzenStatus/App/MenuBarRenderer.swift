@@ -596,11 +596,11 @@ enum MenuBarRenderer {
                 let freqs = cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
                 let avg = freqs.isEmpty ? 0 : (freqs.reduce(0, +) / Double(freqs.count))
                 let maxFreq = freqs.max() ?? 0
-                let avgStr = String(format: "%.2fG", avg / 1000.0)
-                let maxStr = String(format: "%.2fG", maxFreq / 1000.0)
+                let avgStr = String(format: "%.1fG", avg / 1000.0)
+                let maxStr = String(format: "%.1fG", maxFreq / 1000.0)
                 
                 let image = stackedRatesImage(lines: [maxStr, avgStr],
-                                             reservedLines: ["0.00G", "0.00G"],
+                                             reservedLines: ["0.0G", "0.0G"],
                                              cacheKey: "cpuFreq|\(maxStr)|\(avgStr)|\(style)" as NSString,
                                              style: style)
                 groups.append([.customImage(image)])

@@ -309,7 +309,7 @@ struct SystemSection: View {
                             icon: "cpu",
                             usage: monitor.snapshot.cpuUsage ?? 0,
                             temp: monitor.snapshot.cpuTemperature ?? 0,
-                            freq: String(format: "%.3f GHz", averageCPUFreq),
+                            freq: String(format: "%.1f GHz", averageCPUFreq),
                             power: monitor.snapshot.cpuPower ?? 0,
                             accentColor: .cyan,
                             backgroundColor: Color(red: 0.1, green: 0.2, blue: 0.2, opacity: 0.3)

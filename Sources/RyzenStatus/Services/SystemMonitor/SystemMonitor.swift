@@ -66,6 +66,11 @@ struct SystemSnapshot {
     var systemPowerHistory: [Double] = []  // watts
     var batteryHistory: [Double] = []      // 0...1 charge level
     var gpuMemoryHistory: [Double] = []    // 0...1
+    var cpuTempHistory: [Double] = []      // °C
+    var gpuTempHistory: [Double] = []      // °C
+    var cpuPowerHistory: [Double] = []     // watts
+    var gpuPowerHistory: [Double] = []     // watts
+    var cpuFreqHistory: [Double] = []      // GHz
 
     // Detailed AMD Telemetry
     var cores: [CoreSnapshot] = []
@@ -183,6 +188,11 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     private var systemPowerHistory: MetricHistory
     private var batteryHistory: MetricHistory
     private var gpuMemoryHistory: MetricHistory
+    private var cpuTempHistory: MetricHistory
+    private var gpuTempHistory: MetricHistory
+    private var cpuPowerHistory: MetricHistory
+    private var gpuPowerHistory: MetricHistory
+    private var cpuFreqHistory: MetricHistory
     private var powerSourceRunLoopSource: CFRunLoopSource?
 
     private init() {
@@ -196,6 +206,11 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         systemPowerHistory = MetricHistory(capacity: historyCapacity)
         batteryHistory = MetricHistory(capacity: historyCapacity)
         gpuMemoryHistory = MetricHistory(capacity: historyCapacity)
+        cpuTempHistory = MetricHistory(capacity: historyCapacity)
+        gpuTempHistory = MetricHistory(capacity: historyCapacity)
+        cpuPowerHistory = MetricHistory(capacity: historyCapacity)
+        gpuPowerHistory = MetricHistory(capacity: historyCapacity)
+        cpuFreqHistory = MetricHistory(capacity: historyCapacity)
         installPowerSourceObserver()
     }
 
@@ -804,6 +819,15 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 if amd.gpuFreq > 0 { next.gpuFreq = Double(amd.gpuFreq) }
                 if amd.gpuFan > 0 { next.gpuFan = Double(amd.gpuFan) }
             }
+            if let temp = next.cpuTemperature { self.cpuTempHistory.push(temp) }
+            if let temp = next.gpuTemperature { self.gpuTempHistory.push(temp) }
+            if let pwr = next.cpuPower { self.cpuPowerHistory.push(pwr) }
+            if let pwr = next.gpuPower { self.gpuPowerHistory.push(pwr) }
+            let freqs = next.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
+            if !freqs.isEmpty {
+                let avgGHz = (freqs.reduce(0, +) / Double(freqs.count)) / 1000.0
+                self.cpuFreqHistory.push(avgGHz)
+            }
             next.numPhysicalCores = self.lastAmdSnapshot?.numPhysicalCores ?? 16
             next.cpuHistory = plan.needCPU ? self.cpuHistory.values : []
             next.gpuHistory = plan.needGPUUsage ? self.gpuHistory.values : []
@@ -815,6 +839,11 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             next.systemPowerHistory = plan.needPower ? self.systemPowerHistory.values : []
             next.batteryHistory = plan.needPower ? self.batteryHistory.values : []
             next.gpuMemoryHistory = (plan.needMemory || plan.needGPUUsage) ? self.gpuMemoryHistory.values : []
+            next.cpuTempHistory = self.cpuTempHistory.values
+            next.gpuTempHistory = self.gpuTempHistory.values
+            next.cpuPowerHistory = self.cpuPowerHistory.values
+            next.gpuPowerHistory = self.gpuPowerHistory.values
+            next.cpuFreqHistory = self.cpuFreqHistory.values
 
             DispatchQueue.main.async {
                 // Skip pure carry-over publishes (nothing sampled, same plan,
