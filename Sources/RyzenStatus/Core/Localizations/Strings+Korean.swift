@@ -615,6 +615,7 @@ extension Strings {
         monitorShowNetwork: "네트워크",
         monitorShowPowerLabel: "전원",
         monitorIntervalLabel: "갱신 간격",
+        processListRefreshIntervalLabel: "프로세스 목록 갱신 간격",
         monitorInterval1: "1초",
         monitorInterval2: "2초",
         monitorInterval5: "5초",

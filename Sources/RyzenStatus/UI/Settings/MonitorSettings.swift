@@ -19,6 +19,7 @@ struct MonitorSettings: View {
     @AppStorage(DefaultsKey.menuBarMetricAppearance) private var metricAppearance = "values"
     @AppStorage(DefaultsKey.menuBarHideIconWithMetrics) private var hideIconWithMetrics = false
     @AppStorage(DefaultsKey.monitorInterval) private var interval = 1.0
+    @AppStorage(DefaultsKey.processListRefreshInterval) private var processListInterval = 1.0
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnit = TemperatureUnit.celsius.rawValue
 
     @AppStorage(DefaultsKey.monitorGraphCPU) private var graphCPU = true
@@ -81,6 +82,12 @@ struct MonitorSettings: View {
                     Text(l10n.s.monitorInterval1).tag(1.0)
                     Text(l10n.s.monitorInterval2).tag(2.0)
                     Text(l10n.s.monitorInterval5).tag(5.0)
+                }
+                Picker(l10n.s.processListRefreshIntervalLabel, selection: $processListInterval) {
+                    Text("1.0s").tag(1.0)
+                    Text("2.0s").tag(2.0)
+                    Text("3.0s").tag(3.0)
+                    Text("5.0s").tag(5.0)
                 }
                 Picker(l10n.s.temperatures, selection: $temperatureUnit) {
                     Text("°C").tag(TemperatureUnit.celsius.rawValue)

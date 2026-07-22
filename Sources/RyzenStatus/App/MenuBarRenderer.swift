@@ -343,7 +343,7 @@ enum MenuBarRenderer {
                 let cores = snapshot.cores
                 let freqs = cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
                 let avg = freqs.isEmpty ? 0 : (freqs.reduce(0, +) / Double(freqs.count))
-                let text = "CPU " + String(format: "%.2fGHz", avg / 1000.0)
+                let text = "CPU " + String(format: "%.1fGHz", avg / 1000.0)
                 items.append(MetricItem(metric: metric,
                                         segments: [.symbol(metric.symbolName), .text(" " + text)],
                                         width: reservedWidth(for: metric, preset: preset)))

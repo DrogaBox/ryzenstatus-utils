@@ -614,6 +614,7 @@ extension Strings {
         monitorShowNetwork: "Red",
         monitorShowPowerLabel: "Energía",
         monitorIntervalLabel: "Actualizar cada",
+        processListRefreshIntervalLabel: "Refresco de lista de procesos",
         monitorInterval1: "1 segundo",
         monitorInterval2: "2 segundos",
         monitorInterval5: "5 segundos",

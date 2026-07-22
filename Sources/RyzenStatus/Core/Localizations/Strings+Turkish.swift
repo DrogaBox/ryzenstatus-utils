@@ -614,6 +614,7 @@ extension Strings {
         monitorShowNetwork: "Ağ",
         monitorShowPowerLabel: "Güç",
         monitorIntervalLabel: "Güncelleme aralığı",
+        processListRefreshIntervalLabel: "Süreç listesi yenileme hızı",
         monitorInterval1: "1 saniye",
         monitorInterval2: "2 saniye",
         monitorInterval5: "5 saniye",

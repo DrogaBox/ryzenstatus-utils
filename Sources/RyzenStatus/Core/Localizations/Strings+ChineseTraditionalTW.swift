@@ -615,6 +615,7 @@ extension Strings {
         monitorShowNetwork: "網路",
         monitorShowPowerLabel: "電源",
         monitorIntervalLabel: "更新間隔",
+        processListRefreshIntervalLabel: "進程列表更新頻率",
         monitorInterval1: "1 秒",
         monitorInterval2: "2 秒",
         monitorInterval5: "5 秒",

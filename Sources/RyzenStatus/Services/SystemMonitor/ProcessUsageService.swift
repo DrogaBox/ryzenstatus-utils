@@ -43,10 +43,14 @@ final class ProcessUsageService {
     }
 
     private let cacheLock = NSLock()
-    private let cacheFreshSeconds: TimeInterval = 5
-    private let memoryCacheFreshSeconds: TimeInterval = 8
-    private let staleCacheSeconds: TimeInterval = 18
-    private let minimumGPUSampleInterval: TimeInterval = 1.8
+    private var configuredCacheFreshSeconds: TimeInterval {
+        let val = UserDefaults.standard.double(forKey: DefaultsKey.processListRefreshInterval)
+        return val > 0 ? val : 1.0
+    }
+    private var cacheFreshSeconds: TimeInterval { configuredCacheFreshSeconds }
+    private var memoryCacheFreshSeconds: TimeInterval { configuredCacheFreshSeconds * 1.2 }
+    private var staleCacheSeconds: TimeInterval { configuredCacheFreshSeconds * 2.0 }
+    private let minimumGPUSampleInterval: TimeInterval = 0.8
     private let maximumCachedRows = 60
     private var cpuCache: CachedRows?
     private var memoryCache: CachedRows?
@@ -419,6 +423,7 @@ final class ProcessUsageService {
         var fallbackNames: [pid_t: String] = [:]
 
         for row in rows {
+            if kill(row.pid, 0) != 0 && errno == ESRCH { continue }
             let owner = ResponsibleProcess.owner(of: row.pid)
             totals[owner, default: 0] += row.value
             if fallbackNames[owner] == nil {

@@ -744,6 +744,7 @@ struct Strings {
     let monitorShowNetwork: String
     let monitorShowPowerLabel: String
     let monitorIntervalLabel: String
+    let processListRefreshIntervalLabel: String
     let monitorInterval1: String
     let monitorInterval2: String
     let monitorInterval5: String
@@ -1634,6 +1635,7 @@ extension Strings {
         monitorShowNetwork: "Rede",
         monitorShowPowerLabel: "Energia",
         monitorIntervalLabel: "Atualizar a cada",
+        processListRefreshIntervalLabel: "Atualização da lista de processos",
         monitorInterval1: "1 segundo",
         monitorInterval2: "2 segundos",
         monitorInterval5: "5 segundos",
@@ -2511,6 +2513,7 @@ extension Strings {
         monitorShowNetwork: "Network",
         monitorShowPowerLabel: "Power",
         monitorIntervalLabel: "Update every",
+        processListRefreshIntervalLabel: "Process list update rate",
         monitorInterval1: "1 second",
         monitorInterval2: "2 seconds",
         monitorInterval5: "5 seconds",

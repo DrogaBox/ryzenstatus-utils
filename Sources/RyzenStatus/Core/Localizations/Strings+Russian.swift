@@ -615,6 +615,7 @@ extension Strings {
         monitorShowNetwork: "Сеть",
         monitorShowPowerLabel: "Питание",
         monitorIntervalLabel: "Обновлять каждые",
+        processListRefreshIntervalLabel: "Частота списка процессов",
         monitorInterval1: "1 секунду",
         monitorInterval2: "2 секунды",
         monitorInterval5: "5 секунд",

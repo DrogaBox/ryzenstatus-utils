@@ -23,6 +23,8 @@ struct SystemSection: View {
     @State private var lastBreakdownRefresh = Date.distantPast
     private let breakdownLimit = 15
     @AppStorage(DefaultsKey.monitorGraphCPU) private var graphCPU = true
+    @AppStorage(DefaultsKey.panelAccordionMode) private var accordionMode = false
+    @AppStorage(DefaultsKey.processListRefreshInterval) private var processListRefreshInterval = 1.0
     @AppStorage(DefaultsKey.monitorGraphCPUMode) private var graphCPUMode = false
     @AppStorage(DefaultsKey.monitorGraphGPU) private var graphGPU = true
     @AppStorage(DefaultsKey.monitorGraphMemory) private var graphMemory = true
@@ -234,21 +236,19 @@ struct SystemSection: View {
         guard !expandedKinds.isEmpty else { return }
         
         let now = Date()
-        guard now.timeIntervalSince(lastBreakdownRefresh) > 4 else { return }
+        guard now.timeIntervalSince(lastBreakdownRefresh) >= max(0.5, processListRefreshInterval) else { return }
         
         lastBreakdownRefresh = now
         for kind in expandedKinds {
             if breakdownLoading[kind] == true { continue }
             breakdownLoading[kind] = (breakdownRows[kind]?.isEmpty ?? true)
             let capturedKind = kind
-            DispatchQueue.global(qos: .utility).async {
+            DispatchQueue.global(qos: .userInitiated).async {
                 let rows = ProcessUsageService.shared.top(capturedKind, limit: breakdownLimit)
                 DispatchQueue.main.async {
                     guard expandedKinds.contains(capturedKind) else { return }
                     breakdownLoading[capturedKind] = false
-                    if !rows.isEmpty {
-                        breakdownRows[capturedKind] = rows
-                    }
+                    breakdownRows[capturedKind] = rows
                 }
             }
         }
