@@ -1481,34 +1481,29 @@ enum MenuBarRenderer {
 
     private static func drawGraphValueOverlay(valueText: String, in rect: NSRect, style: MenuBarBlockStyle, fontScale: CGFloat = 1.0) {
         guard !valueText.isEmpty else { return }
-        let fontSize: CGFloat = (style == .readable ? 7.8 : 7.0) * fontScale
-        let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .bold)
-        let valAttrs: [NSAttributedString.Key: Any] = [
+        let fontSize: CGFloat = (style == .readable ? 8.5 : 7.8) * fontScale
+        let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .heavy)
+        
+        let mainAttrs: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor.white
+            .foregroundColor: NSColor.labelColor
         ]
-        let valSize = (valueText as NSString).size(withAttributes: valAttrs)
+        let valSize = (valueText as NSString).size(withAttributes: mainAttrs)
         let vx = floor(rect.minX + (rect.width - valSize.width) / 2.0)
         let vy = floor(rect.minY + (rect.height - valSize.height) / 2.0)
         
-        // High contrast dark pill background (prevents graph bars from slicing through text)
-        let pillRect = NSRect(x: vx - 2.0, y: vy - 0.5, width: valSize.width + 4.0, height: valSize.height + 1.0)
-        let pillPath = NSBezierPath(roundedRect: pillRect, xRadius: 2.5, yRadius: 2.5)
-        NSColor.black.withAlphaComponent(0.68).setFill()
-        pillPath.fill()
-        
-        // 4-direction outline stroke for maximum sharpness on light or dark menubars
-        let strokeAttrs: [NSAttributedString.Key: Any] = [
+        // Subtle contrast outline for sharpness without blocking graph bars behind it
+        let shadowAttrs: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor.black.withAlphaComponent(0.9)
+            .foregroundColor: NSColor.windowBackgroundColor.withAlphaComponent(0.85)
         ]
-        (valueText as NSString).draw(at: NSPoint(x: vx - 0.5, y: vy), withAttributes: strokeAttrs)
-        (valueText as NSString).draw(at: NSPoint(x: vx + 0.5, y: vy), withAttributes: strokeAttrs)
-        (valueText as NSString).draw(at: NSPoint(x: vx, y: vy - 0.5), withAttributes: strokeAttrs)
-        (valueText as NSString).draw(at: NSPoint(x: vx, y: vy + 0.5), withAttributes: strokeAttrs)
+        (valueText as NSString).draw(at: NSPoint(x: vx - 0.5, y: vy - 0.5), withAttributes: shadowAttrs)
+        (valueText as NSString).draw(at: NSPoint(x: vx + 0.5, y: vy - 0.5), withAttributes: shadowAttrs)
+        (valueText as NSString).draw(at: NSPoint(x: vx - 0.5, y: vy + 0.5), withAttributes: shadowAttrs)
+        (valueText as NSString).draw(at: NSPoint(x: vx + 0.5, y: vy + 0.5), withAttributes: shadowAttrs)
 
-        // Bold white text on top
-        (valueText as NSString).draw(at: NSPoint(x: vx, y: vy), withAttributes: valAttrs)
+        // Bold adaptive label text on top
+        (valueText as NSString).draw(at: NSPoint(x: vx, y: vy), withAttributes: mainAttrs)
     }
 
     private static func coreHistogramBlockImage(cores: [CoreSnapshot],

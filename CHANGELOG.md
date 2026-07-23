@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.5]
+
+- **Audio Mixer Sleep/Wake Recovery**: Integrated `EngineRenderVerdict` & `CycleBox` IO proc render tracking to automatically detect and recover wedged audio mixer engines when the Mac wakes from sleep.
+- **Crisp Graph Text Overlays**: Enlarge graph text overlays with `.heavy` bold typography and subtle outline stroke, preserving 100% graph bar visibility without dark box overlays.
+
+## [1.5.4]
+
+- **Clean Crisp Graph Text Overlay**: Removed black background box pill over graphs; enlarged text to `.heavy` bold font (`8.5pt` / `7.8pt`) with clean 4-directional outline shadow, preserving 100% graph bar visibility while making numbers sharp and legible.
+
 ## [1.5.3]
 
 - **High-Contrast Graph Numerical Overlay**: Rendered a dark capsule background pill (`black 0.68 alpha`) with a 4-direction outline stroke behind numerical text overlays in menu bar graphs (Histogram, Donut/Pie, Sparkline), guaranteeing 100% legibility on light and dark menu bar themes.

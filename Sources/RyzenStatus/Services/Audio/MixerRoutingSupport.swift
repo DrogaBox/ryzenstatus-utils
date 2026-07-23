@@ -240,4 +240,48 @@ enum MixerRoutingSupport {
         }
         return trimmed
     }
+
+    /// One look at an engine's render counter: how many IO callbacks it had
+    /// completed and when that was seen.
+    struct EngineRenderObservation: Equatable {
+        let cycles: UInt64
+        let at: Double
+    }
+
+    enum EngineRenderVerdict: Equatable {
+        /// Remember this observation. With `recheckAfter` set the picture is
+        /// not conclusive yet (first look at this engine), so another look is
+        /// scheduled instead of waiting for the next audio event.
+        case note(EngineRenderObservation, recheckAfter: Double?)
+        /// The counter has not moved, but not for long enough to be sure;
+        /// keep the previous observation and look again after the remaining
+        /// time.
+        case stalled(recheckAfter: Double)
+        /// The app is playing and the engine rendered nothing for the whole
+        /// window: its audio path is dead and only the mute remains.
+        case wedged
+    }
+
+    /// How long a live engine may go without a single render callback, while
+    /// its app is playing, before it counts as wedged.
+    static let engineRenderStallWindow: Double = 1.5
+
+    /// Whether an engine is still rendering. Waking from sleep can leave an aggregate
+    /// whose IO proc never runs again while its tap keeps muting the app.
+    static func engineRenderVerdict(previous: EngineRenderObservation?,
+                                    cycles: UInt64,
+                                    isPlaying: Bool,
+                                    now: Double,
+                                    window: Double = engineRenderStallWindow) -> EngineRenderVerdict? {
+        guard isPlaying else { return nil }
+        guard let previous else {
+            return .note(EngineRenderObservation(cycles: cycles, at: now), recheckAfter: window)
+        }
+        guard cycles == previous.cycles else {
+            return .note(EngineRenderObservation(cycles: cycles, at: now), recheckAfter: nil)
+        }
+        let elapsed = max(0, now - previous.at)
+        guard elapsed >= window else { return .stalled(recheckAfter: window - elapsed) }
+        return .wedged
+    }
 }

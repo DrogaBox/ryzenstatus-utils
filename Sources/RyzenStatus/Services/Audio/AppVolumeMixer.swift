@@ -948,7 +948,14 @@ private final class TapGainEngine: GainEngine {
     /// torn float write is harmless here (one transient sample scale).
     private final class GainBox { var value: Float = 1 }
 
+    /// Written on the realtime audio thread, read from the main thread; the
+    /// reader only asks whether the value moved at all, so being one
+    /// callback behind is harmless.
+    private final class CycleBox { var value: UInt64 = 0 }
+
     private let gainBox = GainBox()
+    private let cycleBox = CycleBox()
+    var renderCycles: UInt64 { cycleBox.value }
     private var tapID = AudioObjectID(0)
     private var aggregateID = AudioObjectID(0)
     private var ioProc: AudioDeviceIOProcID?
@@ -984,7 +991,9 @@ private final class TapGainEngine: GainEngine {
         }
 
         let box = gainBox
+        let cycles = cycleBox
         guard AudioDeviceCreateIOProcIDWithBlock(&ioProc, aggregateID, nil, { _, input, _, output, _ in
+            cycles.value &+= 1
             let inputBuffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
             let outputBuffers = UnsafeMutableAudioBufferListPointer(output)
             var gain = box.value
