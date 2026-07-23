@@ -42,6 +42,16 @@ struct FansSettingsView: View {
                             .buttonStyle(.plain)
                         }
                     }
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "info.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(.cyan)
+                        Text("Note: Manual fan speed control requires boot-arg -amdpnopchk in OpenCore config.plist and SMCAMDProcessor.kext v3.33.8+.")
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 2)
                     
                     ForEach(fans.filter { !hiddenFanIDs.contains($0.id) }) { fan in
                         FanControlCard(fan: fan, customFanNames: $customFanNames, onHide: {
