@@ -83,7 +83,7 @@ struct ClipboardQuickPanelView: View {
             emptyState(history.entries.isEmpty ? text.empty : text.noResults)
         } else {
             ScrollViewReader { proxy in
-                ScrollView {
+                ScrollView(showsIndicators: false) {
                     // Lazy: a large history would otherwise build every row,
                     // and decode every image thumbnail, each time the panel
                     // opens.

@@ -161,7 +161,7 @@ struct MenuPanelView: View {
     }
 
     private var navigablePanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 6) {
             UpdateBanner()
                 .reportHeight($updateBannerHeight)
             header
@@ -418,8 +418,8 @@ struct MenuPanelView: View {
                     appDelegate()?.detachPanel()
                 }) {
                     Image(systemName: "macwindow.badge.plus")
-                        .font(.system(size: 13, weight: .medium))
-                        .frame(width: 24, height: 24)
+                        .font(.system(size: 11, weight: .medium))
+                        .frame(width: 20, height: 20)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -428,6 +428,7 @@ struct MenuPanelView: View {
             }
         }
         .padding(.horizontal, 4)
+        .frame(height: 18)
     }
 
     private var footer: some View {
@@ -449,27 +450,20 @@ struct MenuPanelView: View {
         .padding(.top, 4)
     }
 
-    private func footerButton(_ title: String, systemImage: String,
-                              horizontalPadding: CGFloat = 8,
-                              action: @escaping () -> Void) -> some View {
+    private func footerButton(_ title: String,
+                             systemImage: String,
+                             horizontalPadding: CGFloat = 8,
+                             action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.system(size: 11, weight: .medium))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .minimumScaleFactor(0.78)
-                .labelStyle(.titleAndIcon)
-                .padding(.horizontal, horizontalPadding)
-                .frame(maxWidth: .infinity, minHeight: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(PanelSurface.cardFill(for: colorScheme))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .strokeBorder(PanelSurface.border(for: colorScheme), lineWidth: 0.8)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            HStack(spacing: 5) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 11))
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
@@ -480,9 +474,9 @@ private struct MenuPanelHeader: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        BrandMark(width: 48, tint: markTint)
-            .frame(height: 28)
-            .padding(.vertical, 4)
+        BrandMark(width: 32, tint: markTint)
+            .frame(height: 16)
+            .padding(.vertical, 1)
             .accessibilityHidden(true)
             .frame(maxWidth: .infinity, alignment: .center)
     }
@@ -1942,7 +1936,7 @@ private struct OverlayScrollView<Content: View>: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
-        scroll.hasVerticalScroller = true
+        scroll.hasVerticalScroller = false
         scroll.hasHorizontalScroller = false
         scroll.scrollerStyle = .overlay
         scroll.autohidesScrollers = true
@@ -1965,6 +1959,7 @@ private struct OverlayScrollView<Content: View>: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
+        scroll.hasVerticalScroller = false
         scroll.scrollerStyle = .overlay
         guard let host = context.coordinator.host else { return }
         host.rootView = content

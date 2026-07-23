@@ -1198,7 +1198,8 @@ enum MenuBarRenderer {
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
 
         let lines = uploadFirst ? ["↑\(up)", "↓\(down)"] : ["↓\(down)", "↑\(up)"]
-        return stackedRatesImage(lines: lines,
+        return stackedRatesImage(label: "NET",
+                                 lines: lines,
                                  reservedLines: ["↓000B", "↑000B"],
                                  cacheKey: cacheKey,
                                  style: style)
@@ -1210,13 +1211,15 @@ enum MenuBarRenderer {
         let cacheKey = "diskActivity|\(read)|\(write)|\(style)" as NSString
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
 
-        return stackedRatesImage(lines: ["R\(read)", "W\(write)"],
+        return stackedRatesImage(label: nil,
+                                 lines: ["R\(read)", "W\(write)"],
                                  reservedLines: ["R000B", "W000B"],
                                  cacheKey: cacheKey,
                                  style: style)
     }
 
-    private static func stackedRatesImage(lines: [String],
+    private static func stackedRatesImage(label: String? = nil,
+                                          lines: [String],
                                           reservedLines: [String],
                                           cacheKey: NSString,
                                           style: MenuBarBlockStyle) -> NSImage {
@@ -1224,12 +1227,35 @@ enum MenuBarRenderer {
                                                weight: .semibold)
         let lineHeight = networkBlockLineHeight(style: style)
         let candidates = reservedLines.isEmpty ? lines : reservedLines
-        let blockWidth = rateBlockWidth(candidates: candidates, style: style)
+        let rateWidth = rateBlockWidth(candidates: candidates, style: style)
         let height: CGFloat = style == .readable ? 22 : 20
-        let imageSize = NSSize(width: blockWidth, height: height)
+
+        let hasLabel = label != nil && !(label?.isEmpty ?? true)
+        let labelWidth: CGFloat = hasLabel ? (style == .readable ? 6.5 : 6.0) : 0
+        let labelGap: CGFloat = hasLabel ? 3.0 : 0
+        let totalWidth = labelWidth + labelGap + rateWidth
+
+        let imageSize = NSSize(width: totalWidth, height: height)
         let image = NSImage(size: imageSize, flipped: false) { rect in
             NSColor.clear.setFill()
             rect.fill()
+
+            // 1. Draw Vertical Stacked Label if present (e.g. "NET")
+            if let label, !label.isEmpty {
+                let labelFont = NSFont.systemFont(ofSize: style == .readable ? 6.5 : 6.1, weight: .bold)
+                let labelAttrs = dynamicTextAttributes(font: labelFont)
+                let characters = Array(label.prefix(3)).map(String.init)
+                let rowHeight = (height - 2) / 3
+                for (index, character) in characters.enumerated() {
+                    let characterSize = (character as NSString).size(withAttributes: labelAttrs)
+                    let x = (labelWidth - characterSize.width) / 2
+                    let y = height - 1 - rowHeight * CGFloat(index + 1) + (rowHeight - characterSize.height) / 2
+                    (character as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: labelAttrs)
+                }
+            }
+
+            // 2. Draw Rate Lines on the Right
+            let startX = labelWidth + labelGap
             let attrs = dynamicTextAttributes(font: font)
             let textSize = ((reservedLines.first ?? lines.first ?? "") as NSString).size(withAttributes: attrs)
             let contentHeight = lineHeight + textSize.height
@@ -1237,7 +1263,7 @@ enum MenuBarRenderer {
             for (index, line) in lines.enumerated() {
                 let y = bottomY + lineHeight * CGFloat(1 - index)
                 let lineSize = (line as NSString).size(withAttributes: attrs)
-                let x = max(0.5, imageSize.width - lineSize.width - 0.5)
+                let x = startX + max(0.5, rateWidth - lineSize.width - 0.5)
                 (line as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
             }
             return true
@@ -1368,28 +1394,24 @@ enum MenuBarRenderer {
 
         let height: CGFloat = style == .readable ? 22 : 20
         let graphWidth: CGFloat = style == .readable ? 38 : 34
-        let labelWidth: CGFloat = style == .readable ? 8.5 : 7.5
-        let labelGap: CGFloat = 2.5
+        let labelWidth: CGFloat = style == .readable ? 6.5 : 6.0
+        let labelGap: CGFloat = 3.0
         let imageSize = NSSize(width: labelWidth + labelGap + graphWidth, height: height)
 
         let image = NSImage(size: imageSize, flipped: false) { rect in
             NSColor.clear.setFill()
             rect.fill()
 
-            // 1. Draw Vertical "NET" Text on the Left
-            let text = "NET" as NSString
-            let textFont = NSFont.systemFont(ofSize: style == .readable ? 7.5 : 6.8, weight: .black)
-            let textAttrs = dynamicTextAttributes(font: textFont)
-            let textSize = text.size(withAttributes: textAttrs)
-
-            if let ctx = NSGraphicsContext.current?.cgContext {
-                ctx.saveGState()
-                let tx = (labelWidth - textSize.height) / 2 + 1.5
-                let ty = (height - textSize.width) / 2
-                ctx.translateBy(x: tx, y: ty)
-                ctx.rotate(by: .pi / 2)
-                text.draw(at: NSPoint(x: 0, y: 0), withAttributes: textAttrs)
-                ctx.restoreGState()
+            // 1. Draw Vertical "NET" Stacked Characters on the Left
+            let labelFont = NSFont.systemFont(ofSize: style == .readable ? 6.5 : 6.1, weight: .bold)
+            let labelAttrs = dynamicTextAttributes(font: labelFont)
+            let characters = Array("NET".prefix(3)).map(String.init)
+            let rowHeight = (height - 2) / 3
+            for (index, character) in characters.enumerated() {
+                let characterSize = (character as NSString).size(withAttributes: labelAttrs)
+                let x = (labelWidth - characterSize.width) / 2
+                let y = height - 1 - rowHeight * CGFloat(index + 1) + (rowHeight - characterSize.height) / 2
+                (character as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: labelAttrs)
             }
 
             // 2. Draw Dual Graph Box on the Right
@@ -1457,28 +1479,24 @@ enum MenuBarRenderer {
         let barGap: CGFloat = 1.0
         let graphWidth = CGFloat(count) * barWidth + CGFloat(count - 1) * barGap + 6
         
-        let labelWidth: CGFloat = style == .readable ? 8.5 : 7.5
-        let labelGap: CGFloat = 2.5
+        let labelWidth: CGFloat = style == .readable ? 6.5 : 6.0
+        let labelGap: CGFloat = 3.0
         let imageSize = NSSize(width: labelWidth + labelGap + graphWidth, height: height)
 
         let image = NSImage(size: imageSize, flipped: false) { rect in
             NSColor.clear.setFill()
             rect.fill()
 
-            // 1. Draw Vertical "CPU" Text on the Left
-            let text = "CPU" as NSString
-            let textFont = NSFont.systemFont(ofSize: style == .readable ? 7.5 : 6.8, weight: .black)
-            let textAttrs = dynamicTextAttributes(font: textFont)
-            let textSize = text.size(withAttributes: textAttrs)
-
-            if let ctx = NSGraphicsContext.current?.cgContext {
-                ctx.saveGState()
-                let tx = (labelWidth - textSize.height) / 2 + 1.5
-                let ty = (height - textSize.width) / 2
-                ctx.translateBy(x: tx, y: ty)
-                ctx.rotate(by: .pi / 2)
-                text.draw(at: NSPoint(x: 0, y: 0), withAttributes: textAttrs)
-                ctx.restoreGState()
+            // 1. Draw Vertical "CPU" Stacked Characters on the Left
+            let labelFont = NSFont.systemFont(ofSize: style == .readable ? 6.5 : 6.1, weight: .bold)
+            let labelAttrs = dynamicTextAttributes(font: labelFont)
+            let characters = Array("CPU".prefix(3)).map(String.init)
+            let rowHeight = (height - 2) / 3
+            for (index, character) in characters.enumerated() {
+                let characterSize = (character as NSString).size(withAttributes: labelAttrs)
+                let x = (labelWidth - characterSize.width) / 2
+                let y = height - 1 - rowHeight * CGFloat(index + 1) + (rowHeight - characterSize.height) / 2
+                (character as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: labelAttrs)
             }
 
             // 2. Draw Core Histogram Box on the Right

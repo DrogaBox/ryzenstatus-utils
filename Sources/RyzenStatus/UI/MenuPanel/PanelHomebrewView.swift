@@ -314,7 +314,7 @@ struct PanelHomebrewView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(height: 64)
             } else {
-                ScrollView {
+                ScrollView(showsIndicators: false) {
                     LazyVStack(alignment: .leading, spacing: 5) {
                         ForEach(packages) { package in
                             row(package)

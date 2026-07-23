@@ -52,6 +52,7 @@ struct IStatsDonutMeter: View {
 /// Memory pressure donuts, Disk activity, GPU circular meters, and Process Lists for CPU, GPU & Memory.
 /// Respects user visibility toggles (sysCPU, sysMemory, sysGPU, showCores) and supports drag-and-drop card reordering in editing mode.
 struct IStatsPopoverWidgetsView: View {
+    @ObservedObject private var l10n = L10n.shared
     @ObservedObject var monitor: SystemMonitor
     let editing: Bool
     
@@ -182,14 +183,14 @@ struct IStatsPopoverWidgetsView: View {
                 HStack {
                     HStack(spacing: 4) {
                         Circle().fill(Color.cyan).frame(width: 6, height: 6)
-                        Text("User").font(.caption2).foregroundColor(.secondary)
+                        Text(l10n.s.istatsUser).font(.caption2).foregroundColor(.secondary)
                         Text(String(format: "%.0f%%", monitor.snapshot.cpuUsage.map { $0 * 100 } ?? 0))
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                     }
                     Spacer()
                     HStack(spacing: 4) {
                         Circle().fill(Color.purple).frame(width: 6, height: 6)
-                        Text("System").font(.caption2).foregroundColor(.secondary)
+                        Text(l10n.s.istatsSystem).font(.caption2).foregroundColor(.secondary)
                         Text(String(format: "%.0f%%", (monitor.snapshot.cpuUsage.map { $0 * 100 } ?? 0) * 0.15))
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                     }
@@ -200,7 +201,7 @@ struct IStatsPopoverWidgetsView: View {
                 if !cpuProcesses.isEmpty {
                     Divider().opacity(0.15)
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("PROCESSES")
+                        Text(l10n.s.istatsProcesses)
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                             .foregroundColor(.blue)
                         ForEach(cpuProcesses) { proc in
@@ -235,7 +236,7 @@ struct IStatsPopoverWidgetsView: View {
             // 2. Circular Donut Ring Core Grid
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("CORES (\(monitor.snapshot.cores.count))")
+                    Text("\(l10n.s.istatsCores) (\(monitor.snapshot.cores.count))")
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundColor(.secondary)
                     Spacer()
@@ -278,7 +279,7 @@ struct IStatsPopoverWidgetsView: View {
             // 3. Memory Card (Twin Donut Rings + Breakdown + Process List)
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("MEMORY")
+                    Text(l10n.s.memorySection.uppercased())
                         .font(.system(size: 13, weight: .bold, design: .monospaced))
                         .foregroundColor(.cyan)
                     Spacer()
@@ -301,8 +302,8 @@ struct IStatsPopoverWidgetsView: View {
                 let pressFrac = monitor.snapshot.memoryPressure == .critical ? 0.85 : (monitor.snapshot.memoryPressure == .warning ? 0.60 : 0.22)
                 
                 HStack(spacing: 20) {
-                    IStatsDonutMeter(title: "PRESSURE", value: String(format: "%.0f%%", pressFrac * 100), fraction: pressFrac, color: .cyan)
-                    IStatsDonutMeter(title: "MEMORY", value: String(format: "%.0f%%", memFrac * 100), fraction: memFrac, color: .purple)
+                    IStatsDonutMeter(title: l10n.s.memoryPressure.uppercased(), value: String(format: "%.0f%%", pressFrac * 100), fraction: pressFrac, color: .cyan)
+                    IStatsDonutMeter(title: l10n.s.memorySection.uppercased(), value: String(format: "%.0f%%", memFrac * 100), fraction: memFrac, color: .purple)
                 }
                 .padding(.vertical, 4)
                 
@@ -317,25 +318,25 @@ struct IStatsPopoverWidgetsView: View {
                     
                     HStack {
                         Circle().fill(Color.pink).frame(width: 6, height: 6)
-                        Text("App").font(.caption).foregroundColor(.secondary)
+                        Text(l10n.s.istatsAppMemory).font(.caption).foregroundColor(.secondary)
                         Spacer()
                         Text(String(format: "%.1f GB", appGB)).font(.system(size: 11, weight: .semibold, design: .monospaced))
                     }
                     HStack {
                         Circle().fill(Color.blue).frame(width: 6, height: 6)
-                        Text("Wired").font(.caption).foregroundColor(.secondary)
+                        Text(l10n.s.istatsWiredMemory).font(.caption).foregroundColor(.secondary)
                         Spacer()
                         Text(String(format: "%.1f GB", wiredGB)).font(.system(size: 11, weight: .semibold, design: .monospaced))
                     }
                     HStack {
                         Circle().fill(Color.orange).frame(width: 6, height: 6)
-                        Text("Compressed").font(.caption).foregroundColor(.secondary)
+                        Text(l10n.s.istatsCompressedMemory).font(.caption).foregroundColor(.secondary)
                         Spacer()
                         Text(String(format: "%.1f GB", compGB)).font(.system(size: 11, weight: .semibold, design: .monospaced))
                     }
                     HStack {
                         Circle().fill(Color.secondary.opacity(0.5)).frame(width: 6, height: 6)
-                        Text("Free").font(.caption).foregroundColor(.secondary)
+                        Text(l10n.s.istatsFreeMemory).font(.caption).foregroundColor(.secondary)
                         Spacer()
                         Text(String(format: "%.1f GB", freeGB)).font(.system(size: 11, weight: .semibold, design: .monospaced))
                     }
@@ -346,7 +347,7 @@ struct IStatsPopoverWidgetsView: View {
                 if !memProcesses.isEmpty {
                     Divider().opacity(0.15)
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("PROCESSES")
+                        Text(l10n.s.istatsProcesses)
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                             .foregroundColor(.cyan)
                         ForEach(memProcesses) { proc in
@@ -425,7 +426,7 @@ struct IStatsPopoverWidgetsView: View {
                 if !gpuProcesses.isEmpty {
                     Divider().opacity(0.15)
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("PROCESSES")
+                        Text(l10n.s.istatsProcesses)
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                             .foregroundColor(.orange)
                         ForEach(gpuProcesses) { proc in

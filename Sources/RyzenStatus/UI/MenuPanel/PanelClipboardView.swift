@@ -107,7 +107,7 @@ struct PanelClipboardView: View {
         } else if filteredEntries.isEmpty {
             emptyState(text.noResults)
         } else {
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 // Lazy: a large history would otherwise build every row, and
                 // decode every image thumbnail, each time the panel opens.
                 LazyVStack(alignment: .leading, spacing: 7) {

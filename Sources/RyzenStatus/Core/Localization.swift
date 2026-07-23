@@ -190,6 +190,14 @@ struct Strings {
     let monitorUnavailable: String
     let energyAppsTitle: String
     let energyAppsIdle: String
+    let istatsProcesses: String
+    let istatsCores: String
+    let istatsUser: String
+    let istatsSystem: String
+    let istatsAppMemory: String
+    let istatsWiredMemory: String
+    let istatsCompressedMemory: String
+    let istatsFreeMemory: String
 
     // MARK: Notifications
     let notifySessionEndedTitle: String
@@ -1105,6 +1113,14 @@ extension Strings {
         monitorUnavailable: "Sensores indisponíveis neste Mac",
         energyAppsTitle: "Uso significativo de energia",
         energyAppsIdle: "Sem uso significativo de energia",
+        istatsProcesses: "PROCESSOS",
+        istatsCores: "NÚCLEOS",
+        istatsUser: "Usuário",
+        istatsSystem: "Sistema",
+        istatsAppMemory: "App",
+        istatsWiredMemory: "Wired",
+        istatsCompressedMemory: "Comprimida",
+        istatsFreeMemory: "Livre",
 
         notifySessionEndedTitle: "Sessão encerrada",
         notifySessionEndedBody: "O tempo acabou. O Mac voltará a suspender normalmente.",
@@ -1983,6 +1999,14 @@ extension Strings {
         monitorUnavailable: "Sensors unavailable on this Mac",
         energyAppsTitle: "Apps using significant energy",
         energyAppsIdle: "No significant energy use",
+        istatsProcesses: "PROCESSES",
+        istatsCores: "CORES",
+        istatsUser: "User",
+        istatsSystem: "System",
+        istatsAppMemory: "App",
+        istatsWiredMemory: "Wired",
+        istatsCompressedMemory: "Compressed",
+        istatsFreeMemory: "Free",
 
         notifySessionEndedTitle: "Session ended",
         notifySessionEndedBody: "Time is up. The Mac will sleep normally again.",
