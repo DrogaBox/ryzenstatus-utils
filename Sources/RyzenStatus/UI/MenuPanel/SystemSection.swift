@@ -400,17 +400,18 @@ struct SystemSection: View {
                 subsectionLabel(l10n.s.usageSection)
                 Spacer()
                 if editing {
+                    let appearanceStrings = FeatureStrings.menuBarAppearance(l10n.language)
                     Picker("", selection: $panelViewStyle) {
-                        Text("Tarjetas").tag("cards")
-                        Text("iStats").tag("istats")
+                        Text(appearanceStrings.classicCards).tag("cards")
+                        Text(appearanceStrings.iStatsWidgets).tag("istats")
                     }
                     .pickerStyle(.segmented)
-                    .frame(width: 120)
+                    .frame(width: 140)
                 }
             }
             
             if panelViewStyle == "istats" {
-                IStatsPopoverWidgetsView(monitor: monitor)
+                IStatsPopoverWidgetsView(monitor: monitor, editing: editing)
                     .padding(.vertical, 4)
             } else {
                 if sysCPU, cpuAvailable {

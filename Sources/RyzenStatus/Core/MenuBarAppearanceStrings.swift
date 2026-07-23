@@ -10,6 +10,10 @@ struct MenuBarAppearanceStrings {
     var pie: String = "Donut Rings"
     var sparkline: String = "Line Graph"
     var histogram: String = "Histogram"
+    var individualPerMetric: String = "Individual Per-Metric Style"
+    var popoverStyle: String = "Popover Style"
+    var classicCards: String = "Classic Cards"
+    var iStatsWidgets: String = "iStats Widgets"
     let caption: String
     let customize: String
     let normalColor: String

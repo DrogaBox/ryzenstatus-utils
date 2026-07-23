@@ -1432,8 +1432,8 @@ enum MenuBarRenderer {
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
 
         let height: CGFloat = style == .readable ? 22 : 20
-        let count = max(1, min(32, cores.count))
-        let barWidth: CGFloat = style == .readable ? 2.5 : 2.0
+        let count = max(1, min(64, cores.count))
+        let barWidth: CGFloat = style == .readable ? (count > 24 ? 1.8 : 2.5) : (count > 24 ? 1.4 : 2.0)
         let barGap: CGFloat = 1.0
         let graphWidth = CGFloat(count) * barWidth + CGFloat(count - 1) * barGap + 6
         let imageSize = NSSize(width: graphWidth, height: height)

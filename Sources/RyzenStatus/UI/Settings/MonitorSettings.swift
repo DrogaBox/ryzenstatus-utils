@@ -30,6 +30,11 @@ struct MonitorSettings: View {
     @AppStorage(DefaultsKey.monitorGraphPower) private var graphPower = true
     @AppStorage(DefaultsKey.monitorGraphBattery) private var graphBattery = true
     @AppStorage("panelViewStyle") private var panelViewStyle = "cards"
+    @AppStorage("menuBarMetricAppearance_cpu") private var appCPU = "values"
+    @AppStorage("menuBarMetricAppearance_gpu") private var appGPU = "values"
+    @AppStorage("menuBarMetricAppearance_memory") private var appRAM = "values"
+    @AppStorage("menuBarMetricAppearance_network") private var appNet = "values"
+    @AppStorage("menuBarMetricAppearance_diskUsage") private var appDisk = "values"
 
     var body: some View {
         Form {
@@ -48,9 +53,43 @@ struct MonitorSettings: View {
                     Text(appearanceStrings.histogram).tag("histogram")
                 }
                 
-                Picker("Estilo del Popover", selection: $panelViewStyle) {
-                    Text("Tarjetas Clásicas").tag("cards")
-                    Text("iStats Widgets").tag("istats")
+                DisclosureGroup(appearanceStrings.individualPerMetric) {
+                    Picker(MenuBarMetric.cpu.title(l10n.s), selection: $appCPU) {
+                        Text(appearanceStrings.values).tag("values")
+                        Text(appearanceStrings.bars).tag("bars")
+                        Text(appearanceStrings.pie).tag("pie")
+                        Text(appearanceStrings.sparkline).tag("sparkline")
+                        Text(appearanceStrings.histogram).tag("histogram")
+                    }
+                    
+                    Picker(MenuBarMetric.gpu.title(l10n.s), selection: $appGPU) {
+                        Text(appearanceStrings.values).tag("values")
+                        Text(appearanceStrings.bars).tag("bars")
+                        Text(appearanceStrings.pie).tag("pie")
+                        Text(appearanceStrings.sparkline).tag("sparkline")
+                    }
+                    
+                    Picker(MenuBarMetric.memory.title(l10n.s), selection: $appRAM) {
+                        Text(appearanceStrings.values).tag("values")
+                        Text(appearanceStrings.bars).tag("bars")
+                        Text(appearanceStrings.pie).tag("pie")
+                        Text(appearanceStrings.sparkline).tag("sparkline")
+                    }
+                    
+                    Picker(MenuBarMetric.network.title(l10n.s), selection: $appNet) {
+                        Text(appearanceStrings.values).tag("values")
+                        Text(appearanceStrings.sparkline).tag("sparkline")
+                    }
+                    
+                    Picker(MenuBarMetric.diskUsage.title(l10n.s), selection: $appDisk) {
+                        Text(appearanceStrings.values).tag("values")
+                        Text(appearanceStrings.bars).tag("bars")
+                    }
+                }
+                
+                Picker(appearanceStrings.popoverStyle, selection: $panelViewStyle) {
+                    Text(appearanceStrings.classicCards).tag("cards")
+                    Text(appearanceStrings.iStatsWidgets).tag("istats")
                 }
                 .pickerStyle(.segmented)
                 Text(appearanceStrings.caption)
