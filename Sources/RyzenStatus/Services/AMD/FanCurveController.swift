@@ -106,11 +106,9 @@ class FanCurveController: ObservableObject {
                 
                 for (fanId, curveIdx) in mappings {
                     if curveIdx < 0 || curveIdx >= curves.count {
-                        if manualFans.contains(fanId) {
-                            _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fanId)
-                            manualFans.remove(fanId)
-                            lastSentSMCValue.removeValue(forKey: fanId)
-                        }
+                        // Do not interfere with manual slider overrides set by the user
+                        manualFans.remove(fanId)
+                        lastSentSMCValue.removeValue(forKey: fanId)
                         continue
                     }
                     

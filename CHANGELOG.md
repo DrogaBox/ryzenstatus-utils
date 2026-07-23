@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.4.9]
+
+- **Fixed Manual Fan Override Reset**: Resolved bug in `FanCurveController` background loop that was automatically resetting manual fan slider overrides to BIOS control every 2 seconds, allowing manual fan speed overrides (100%, etc.) to take full effect on hardware.
+
 ## [1.4.8]
 
 - **Manual Fan Slider Target Hold**: Protected manual slider value from being reset by telemetry polling cycles in `FansSettingsView`, keeping user-selected fan speed overrides (100%, etc.) locked on screen and hardware.
