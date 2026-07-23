@@ -226,23 +226,27 @@ struct SystemSection: View {
         if expandedKinds.contains(kind) {
             expandedKinds.remove(kind)
             breakdownRows.removeValue(forKey: kind)
+            breakdownLoading.removeValue(forKey: kind)
         } else {
             expandedKinds.insert(kind)
-            breakdownRows[kind] = ProcessUsageService.shared.cachedTop(kind, limit: breakdownLimit) ?? []
-            refreshBreakdown()
+            // Synchronously populate initial rows if cached, and force a fresh background fetch
+            let cached = ProcessUsageService.shared.top(kind, limit: breakdownLimit)
+            breakdownRows[kind] = cached
+            breakdownLoading[kind] = cached.isEmpty
+            refreshBreakdown(force: true)
         }
     }
 
-    private func refreshBreakdown() {
+    private func refreshBreakdown(force: Bool = false) {
         guard !expandedKinds.isEmpty else { return }
         
         let now = Date()
-        guard now.timeIntervalSince(lastBreakdownRefresh) >= max(0.5, processListRefreshInterval) else { return }
+        if !force {
+            guard now.timeIntervalSince(lastBreakdownRefresh) >= max(0.5, processListRefreshInterval) else { return }
+        }
         
         lastBreakdownRefresh = now
         for kind in expandedKinds {
-            if breakdownLoading[kind] == true { continue }
-            breakdownLoading[kind] = (breakdownRows[kind]?.isEmpty ?? true)
             let capturedKind = kind
             DispatchQueue.global(qos: .userInitiated).async {
                 let rows = ProcessUsageService.shared.top(capturedKind, limit: breakdownLimit)
@@ -262,7 +266,7 @@ struct SystemSection: View {
             let isLoading = breakdownLoading[kind] ?? false
             VStack(alignment: .leading, spacing: 4) {
                 if rows.isEmpty {
-                    Text(isLoading ? l10n.s.breakdownMeasuring : emptyBreakdownText(for: kind))
+                    Text(isLoading ? l10n.s.breakdownMeasuring : l10n.s.energyAppsIdle)
                         .font(.system(size: 10.5))
                         .foregroundStyle(.tertiary)
                         .padding(.leading, 38)
@@ -279,7 +283,7 @@ struct SystemSection: View {
     }
 
     private func emptyBreakdownText(for kind: BreakdownKind) -> String {
-        kind == .energy ? l10n.s.energyAppsIdle : l10n.s.breakdownMeasuring
+        l10n.s.energyAppsIdle
     }
 
     private func breakdownValue(_ row: ProcessUsage, for kind: BreakdownKind) -> String {

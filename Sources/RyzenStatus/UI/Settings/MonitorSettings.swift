@@ -103,7 +103,7 @@ struct MonitorSettings: View {
                 Text(l10n.s.menuBarHideIconCaption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Toggle("Mostrar valor numérico dentro de la gráfica", isOn: $graphShowsValue)
+                Toggle(l10n.s.graphShowsNumericValue, isOn: $graphShowsValue)
                 Toggle(l10n.s.monitorSeparateMenuBarMetrics, isOn: $separateMetrics)
                 if appearance.allowsCombinedTemperatures {
                     Text(l10n.s.monitorSeparateMenuBarMetricsCaption)

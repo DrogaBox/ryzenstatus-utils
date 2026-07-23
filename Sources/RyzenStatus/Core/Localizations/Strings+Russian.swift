@@ -508,6 +508,19 @@ extension Strings {
         shelfActionOpenWith: "Открыть с помощью",
         shelfActionAirDrop: "Поделиться через AirDrop",
 
+        detachedNoticeTitle: "Отсоединенная панель",
+        detachedNoticeSubtitle: "Монитор системы активен в плавающем окне.",
+        detachedNoticeReattach: "Вернуть в строку меню",
+        panelDetachHelp: "Отсоединить панель в плавающее окно",
+
+        panelAccordionMode: "Режим гармошки (показывать всё списком)",
+        graphShowsNumericValue: "Показывать числовое значение внутри графика",
+        cpuFrequencyMetricTitle: "Частота ЦП (Пик/Ср 2 строки)",
+        amdRyzenProcessorInfo: "Информация о процессоре AMD Ryzen",
+        amdMinFrequency: "Минимальная частота",
+        amdMaxFrequency: "Максимальная частота (Пик)",
+        amdAvgFrequency: "Средняя частота",
+
         breakdownMeasuring: "Измерение…",
 
         mixerSection: "Микшер громкости",

@@ -507,6 +507,19 @@ extension Strings {
         shelfActionOpenWith: "Öffnen mit",
         shelfActionAirDrop: "Mit AirDrop teilen",
 
+        detachedNoticeTitle: "Abgekoppeltes Panel",
+        detachedNoticeSubtitle: "Der System-Monitor ist im schwebenden Fenster aktiv.",
+        detachedNoticeReattach: "Wieder an Menüleiste anheften",
+        panelDetachHelp: "Panel in schwebendes Fenster abkoppeln",
+
+        panelAccordionMode: "Akkordeon-Modus (alles als Liste anzeigen)",
+        graphShowsNumericValue: "Numerischen Wert im Diagramm anzeigen",
+        cpuFrequencyMetricTitle: "CPU-Frequenz (Peak/Schnitt 2 Zeilen)",
+        amdRyzenProcessorInfo: "AMD Ryzen Prozessorinformationen",
+        amdMinFrequency: "Mindestfrequenz",
+        amdMaxFrequency: "Maximalfrequenz (Peak)",
+        amdAvgFrequency: "Durchschnittsfrequenz",
+
         breakdownMeasuring: "Wird gemessen…",
 
         mixerSection: "Lautstärkemixer",

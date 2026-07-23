@@ -507,6 +507,19 @@ extension Strings {
         shelfActionOpenWith: "Birlikte aç",
         shelfActionAirDrop: "AirDrop ile paylaş",
 
+        detachedNoticeTitle: "Ayrılmış Panel",
+        detachedNoticeSubtitle: "Sistem izleyici yüzen penceresinde aktif.",
+        detachedNoticeReattach: "Menü Çubuğuna Yeniden Bağla",
+        panelDetachHelp: "Paneli yüzen pencereye ayır",
+
+        panelAccordionMode: "Akordeon modu (her şeyi liste biçiminde göster)",
+        graphShowsNumericValue: "Grafik içinde sayısal değeri göster",
+        cpuFrequencyMetricTitle: "CPU Frekansı (2 Satır Zirve/Ort)",
+        amdRyzenProcessorInfo: "AMD Ryzen İşlemci Bilgisi",
+        amdMinFrequency: "Minimum Frekans",
+        amdMaxFrequency: "Maksimum Frekans (Zirve)",
+        amdAvgFrequency: "Ortalama Frekans",
+
         breakdownMeasuring: "Ölçülüyor…",
 
         mixerSection: "Ses mikseri",

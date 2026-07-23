@@ -508,6 +508,19 @@ extension Strings {
         shelfActionOpenWith: "開啟方式",
         shelfActionAirDrop: "透過 AirDrop 分享",
 
+        detachedNoticeTitle: "獨立面板",
+        detachedNoticeSubtitle: "系統監視器正在浮動視窗中運行。",
+        detachedNoticeReattach: "重新固定到選單列",
+        panelDetachHelp: "將面板分離為浮動視窗",
+
+        panelAccordionMode: "手風琴模式（以清單形式顯示所有內容）",
+        graphShowsNumericValue: "在圖表內顯示數值",
+        cpuFrequencyMetricTitle: "CPU 時脈（雙行 峰值/均值）",
+        amdRyzenProcessorInfo: "AMD Ryzen 處理器資訊",
+        amdMinFrequency: "最低時脈",
+        amdMaxFrequency: "最高時脈（峰值）",
+        amdAvgFrequency: "平均時脈",
+
         breakdownMeasuring: "測量中…",
 
         mixerSection: "音量混音器",

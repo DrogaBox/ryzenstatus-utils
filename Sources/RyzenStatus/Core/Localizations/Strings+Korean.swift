@@ -508,6 +508,19 @@ extension Strings {
         shelfActionOpenWith: "다음으로 열기",
         shelfActionAirDrop: "AirDrop으로 공유",
 
+        detachedNoticeTitle: "분리된 패널",
+        detachedNoticeSubtitle: "시스템 모니터가 플로팅 창에서 활성화되어 있습니다.",
+        detachedNoticeReattach: "메뉴 막대에 다시 고정",
+        panelDetachHelp: "패널을 플로팅 창으로 분리",
+
+        panelAccordionMode: "아코디언 모드 (목록 형식으로 모두 표시)",
+        graphShowsNumericValue: "그래프 내에 수치 값 표시",
+        cpuFrequencyMetricTitle: "CPU 클럭 (피크/평균 2줄)",
+        amdRyzenProcessorInfo: "AMD Ryzen 프로세서 정보",
+        amdMinFrequency: "최소 클럭",
+        amdMaxFrequency: "최대 클럭 (피크)",
+        amdAvgFrequency: "평균 클럭",
+
         breakdownMeasuring: "측정 중…",
 
         mixerSection: "볼륨 믹서",

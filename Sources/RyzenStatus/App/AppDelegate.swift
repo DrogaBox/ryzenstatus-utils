@@ -683,9 +683,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     @objc func detachPanel() {
         // If already detached, re-attach: close the window and reopen the popover
         // The willCloseNotification observer handles cleanup (detachedWindowController=nil, monitor stop)
-        if let window = detachedWindowController?.window, window.isVisible {
+        if let window = detachedWindowController?.window {
+            detachedWindowController = nil
             window.close()
-            // Reopen the popover via the standard toggle entry point
+            if let hostingController = popover.contentViewController as? NSHostingController<MenuPanelView> {
+                hostingController.rootView = MenuPanelView(isDetachedWindow: false)
+            }
             if !popover.isShown {
                 MenuPanelFocus.shared.showNormalPanel()
                 popoverClosedAt = .distantPast
@@ -695,11 +698,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
         
         if detachedWindowController == nil {
-            let panelView = MenuPanelView()
+            let panelView = MenuPanelView(isDetachedWindow: true)
             let hostingController = NSHostingController(rootView: panelView)
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 332, height: 600),
-                                  styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+                                  styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                   backing: .buffered, defer: false)
+            window.contentMinSize = NSSize(width: 332, height: 220)
+            window.contentMaxSize = NSSize(width: 332, height: Double.greatestFiniteMagnitude)
             window.title = "RyzenStatus"
             window.titlebarAppearsTransparent = true
             window.isMovableByWindowBackground = true
@@ -978,6 +983,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             window.contentMinSize = NSSize(width: SettingsWindowSupport.minContentWidth,
                                            height: SettingsWindowSupport.minContentHeight)
+            window.contentMaxSize = NSSize(width: SettingsWindowSupport.minContentWidth,
+                                           height: Double.greatestFiniteMagnitude)
             let visible = NSScreen.pointerVisibleFrame
             let size = SettingsWindowSupport.initialContentSize(
                 savedWidth: UserDefaults.standard.double(forKey: DefaultsKey.settingsWindowWidth),

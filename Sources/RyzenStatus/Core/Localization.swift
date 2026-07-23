@@ -630,6 +630,21 @@ struct Strings {
     let shelfActionOpenWith: String
     let shelfActionAirDrop: String
 
+    // MARK: Detached Panel Notice
+    let detachedNoticeTitle: String
+    let detachedNoticeSubtitle: String
+    let detachedNoticeReattach: String
+    let panelDetachHelp: String
+
+    // MARK: Hardcoded string fixes
+    let panelAccordionMode: String
+    let graphShowsNumericValue: String
+    let cpuFrequencyMetricTitle: String
+    let amdRyzenProcessorInfo: String
+    let amdMinFrequency: String
+    let amdMaxFrequency: String
+    let amdAvgFrequency: String
+
     // MARK: Panel — per-app breakdown
     let breakdownMeasuring: String
 
@@ -1536,6 +1551,19 @@ extension Strings {
         shelfActionOpenWith: "Abrir com",
         shelfActionAirDrop: "Compartilhar por AirDrop",
 
+        detachedNoticeTitle: "Painel Destacado",
+        detachedNoticeSubtitle: "O monitor do sistema está ativo na sua janela flutuante.",
+        detachedNoticeReattach: "Reanexar à Barra de Menus",
+        panelDetachHelp: "Destacar painel em janela flutuante",
+
+        panelAccordionMode: "Modo sanfona (mostrar tudo em formato de lista)",
+        graphShowsNumericValue: "Mostrar valor numérico dentro do gráfico",
+        cpuFrequencyMetricTitle: "Frequência CPU (Pico/Média em 2 linhas)",
+        amdRyzenProcessorInfo: "Informações do Processador AMD Ryzen",
+        amdMinFrequency: "Frequência Mínima",
+        amdMaxFrequency: "Frequência Máxima (Pico)",
+        amdAvgFrequency: "Frequência Média",
+
         breakdownMeasuring: "Medindo…",
 
         mixerSection: "Mixer de volume",
@@ -2422,6 +2450,19 @@ extension Strings {
         shelfActionOpenWith: "Open With",
         shelfActionAirDrop: "Share with AirDrop",
 
+        detachedNoticeTitle: "Detached Panel",
+        detachedNoticeSubtitle: "The system monitor is active in its floating window.",
+        detachedNoticeReattach: "Reattach to Menu Bar",
+        panelDetachHelp: "Detach panel into floating window",
+
+        panelAccordionMode: "Accordion mode (show everything in list format)",
+        graphShowsNumericValue: "Show numeric value inside graph",
+        cpuFrequencyMetricTitle: "CPU Frequency (2-Line Peak/Avg)",
+        amdRyzenProcessorInfo: "AMD Ryzen Processor Information",
+        amdMinFrequency: "Minimum Frequency",
+        amdMaxFrequency: "Maximum Frequency (Peak)",
+        amdAvgFrequency: "Average Frequency",
+
         breakdownMeasuring: "Measuring…",
 
         mixerSection: "Volume mixer",
@@ -2699,11 +2740,11 @@ extension Strings {
         shortcutsPageTitle: "Keyboard shortcuts",
         settingsSearchPlaceholder: "Search settings",
         donateHeading: "Support RyzenStatus",
-        donateMessage: "Todos mis proyectos son gratuitos. Si RyzenStatus te ayuda, tu apoyo por PayPal marca una diferencia de verdad.",
+        donateMessage: "All of my projects are free. If RyzenStatus helps you, your PayPal support makes a real difference.",
         donateButton: "PayPal",
         donateThanks: "Thank you for being here. 🖤",
         supportIntroTitle: "RyzenStatus is 100% free and always will be",
-        supportIntroMessage: "Sigo cuidando la app. Si te ayuda, puedes apoyarme en PayPal o dejando una estrella en GitHub.",
+        supportIntroMessage: "I continue to maintain the app. If it helps you, you can support me on PayPal or by leaving a star on GitHub.",
         supportIntroStarButton: "Leave a star",
         supportIntroCoffeeButton: "PayPal",
         supportIntroLaterButton: "Not now",

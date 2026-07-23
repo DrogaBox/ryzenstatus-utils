@@ -64,7 +64,7 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
         case .gpuTemperature: return strings.monitorShowGPUTemperature
         case .cpuPower: return "CPU Power"
         case .gpuPower: return "GPU Power"
-        case .cpuFrequency: return "Frecuencia CPU (2-Line Peak/Avg)"
+        case .cpuFrequency: return strings.cpuFrequencyMetricTitle
         case .cpuTempPower: return "CPU Temp + Power (2-Line)"
         case .gpuTempPower: return "GPU Temp + Power (2-Line)"
         case .batteryTemperature: return strings.monitorShowBatteryTemperature

@@ -507,6 +507,19 @@ extension Strings {
         shelfActionOpenWith: "Abrir con",
         shelfActionAirDrop: "Compartir por AirDrop",
 
+        detachedNoticeTitle: "Panel Desacoplado",
+        detachedNoticeSubtitle: "El panel de monitoreo se encuentra activo en su ventana flotante.",
+        detachedNoticeReattach: "Reacoplar a la Barra de Menús",
+        panelDetachHelp: "Separar panel en ventana flotante",
+
+        panelAccordionMode: "Modo acordeón (mostrar todo en formato lista)",
+        graphShowsNumericValue: "Mostrar valor numérico dentro de la gráfica",
+        cpuFrequencyMetricTitle: "Frecuencia CPU (2-Line Peak/Avg)",
+        amdRyzenProcessorInfo: "Información del Procesador AMD Ryzen",
+        amdMinFrequency: "Frecuencia Mínima",
+        amdMaxFrequency: "Frecuencia Máxima (Peak)",
+        amdAvgFrequency: "Frecuencia Promedio",
+
         breakdownMeasuring: "Midiendo…",
 
         mixerSection: "Mezclador de volumen",

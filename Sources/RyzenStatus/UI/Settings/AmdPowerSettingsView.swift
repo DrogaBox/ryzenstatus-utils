@@ -17,6 +17,7 @@ struct AmdPowerSettingsView: View {
     
     @ObservedObject private var autoEpp = AutoEppService.shared
     @ObservedObject private var monitor = SystemMonitor.shared
+    @ObservedObject private var l10n = L10n.shared
 
     @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 10
     @AppStorage(DefaultsKey.autoEppLoadThreshold) private var loadThreshold: Int = 50
@@ -56,7 +57,7 @@ struct AmdPowerSettingsView: View {
 
     var body: some View {
         Form {
-            Section(header: Text("Información del Procesador AMD Ryzen")) {
+            Section(header: Text(l10n.s.amdRyzenProcessorInfo)) {
                 HStack {
                     Text("Package Power")
                     Spacer()
@@ -72,19 +73,19 @@ struct AmdPowerSettingsView: View {
                 
                 if !monitor.snapshot.cores.isEmpty {
                     HStack {
-                        Text("Frecuencia Mínima")
+                        Text(l10n.s.amdMinFrequency)
                         Spacer()
                         Text(String(format: "%.0f MHz", minFrequency))
                             .font(.system(.body, design: .monospaced))
                     }
                     HStack {
-                        Text("Frecuencia Máxima (Peak)")
+                        Text(l10n.s.amdMaxFrequency)
                         Spacer()
                         Text(String(format: "%.0f MHz", maxFrequency))
                             .font(.system(.body, design: .monospaced))
                     }
                     HStack {
-                        Text("Frecuencia Promedio")
+                        Text(l10n.s.amdAvgFrequency)
                         Spacer()
                         Text(String(format: "%.0f MHz", averageFrequency))
                             .font(.system(.body, design: .monospaced))

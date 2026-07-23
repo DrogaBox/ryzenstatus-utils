@@ -87,6 +87,11 @@ struct MenuPanelView: View {
     @State private var updateBannerHeight: CGFloat = 0
     @State private var selectedSection: PanelSectionID = .system
     @State private var selectedMetric: MetricDetailKind?
+    let isDetachedWindow: Bool
+    
+    init(isDetachedWindow: Bool = false) {
+        self.isDetachedWindow = isDetachedWindow
+    }
 
     /// Cap the panel to the usable screen height so it never overflows the menu
     /// bar; taller content scrolls inside.
@@ -96,7 +101,9 @@ struct MenuPanelView: View {
 
     var body: some View {
         Group {
-            if selectedMetric != nil {
+            if !isDetachedWindow && isDetached {
+                detachedPopoverNoticeView
+            } else if selectedMetric != nil {
                 metricPanel
             } else {
                 navigablePanel
@@ -160,6 +167,10 @@ struct MenuPanelView: View {
         }
     }
 
+    private var isDetached: Bool {
+        !((NSApp.delegate as? AppDelegate)?.isPanelInPopover ?? true)
+    }
+
     private var navigablePanel: some View {
         VStack(alignment: .leading, spacing: 6) {
             if updates.state.showsMenuPanelBanner {
@@ -172,27 +183,47 @@ struct MenuPanelView: View {
                 sectionNavigation
             }
 
-            OverlayScrollView(measuredHeight: $navigableContentHeight) {
-                VStack(alignment: .leading, spacing: 12) {
-                    if accordionMode {
-                        ForEach(visibleSections) { id in
-                            section(for: id, collapsible: true)
+            if isDetached {
+                OverlayScrollView(measuredHeight: $navigableContentHeight) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if accordionMode {
+                            ForEach(visibleSections) { id in
+                                section(for: id, collapsible: true)
+                            }
+                        } else {
+                            section(for: activeSection, collapsible: false)
                         }
-                    } else {
-                        section(for: activeSection, collapsible: false)
                     }
+                    .frame(width: 308)
+                    .padding(.bottom, accordionMode ? 12 : 0)
                 }
                 .frame(width: 308)
-                .padding(.bottom, accordionMode ? 12 : 0)
+                .frame(maxHeight: .infinity)
+            } else {
+                OverlayScrollView(measuredHeight: $navigableContentHeight) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if accordionMode {
+                            ForEach(visibleSections) { id in
+                                section(for: id, collapsible: true)
+                            }
+                        } else {
+                            section(for: activeSection, collapsible: false)
+                        }
+                    }
+                    .frame(width: 308)
+                    .padding(.bottom, accordionMode ? 12 : 0)
+                }
+                .frame(width: 308, height: navigableScrollHeight)
             }
-            .frame(width: 308, height: navigableScrollHeight)
 
             footer
         }
         .padding(.top, 0)
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
-        .frame(width: 332, height: navigablePanelHeight)
+        .frame(width: 332)
+        .frame(height: isDetached ? nil : navigablePanelHeight)
+        .frame(maxHeight: isDetached ? .infinity : nil)
     }
 
     private var metricPanel: some View {
@@ -205,11 +236,20 @@ struct MenuPanelView: View {
 
             if let selectedMetric {
                 metricNavigationHeader(selectedMetric)
-                OverlayScrollView(measuredHeight: $metricContentHeight) {
-                    MetricDetailView(kind: selectedMetric)
-                        .frame(width: 308)
+                if isDetached {
+                    OverlayScrollView(measuredHeight: $metricContentHeight) {
+                        MetricDetailView(kind: selectedMetric)
+                            .frame(width: 308)
+                    }
+                    .frame(width: 308)
+                    .frame(maxHeight: .infinity)
+                } else {
+                    OverlayScrollView(measuredHeight: $metricContentHeight) {
+                        MetricDetailView(kind: selectedMetric)
+                            .frame(width: 308)
+                    }
+                    .frame(width: 308, height: metricScrollHeight)
                 }
-                .frame(width: 308, height: metricScrollHeight)
             }
 
             footer
@@ -217,7 +257,72 @@ struct MenuPanelView: View {
         .padding(.top, 0)
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
-        .frame(width: 332, height: metricPanelHeight)
+        .frame(width: 332)
+        .frame(height: isDetached ? nil : metricPanelHeight)
+        .frame(maxHeight: isDetached ? .infinity : nil)
+    }
+
+    private var detachedPopoverNoticeView: some View {
+        VStack(spacing: 12) {
+            header
+            
+            VStack(spacing: 14) {
+                Image(systemName: "macwindow.on.rectangle")
+                    .font(.system(size: 32, weight: .regular))
+                    .foregroundColor(.accentColor)
+                    .padding(.top, 8)
+                
+                VStack(spacing: 4) {
+                    Text(l10n.s.detachedNoticeTitle)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.primary)
+                    
+                    Text(l10n.s.detachedNoticeSubtitle)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 12)
+                }
+                
+                Button(action: {
+                    appDelegate()?.detachPanel()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.down.right.and.arrow.up.left")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(l10n.s.detachedNoticeReattach)
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 7)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.18))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.accentColor.opacity(0.4), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(PanelSurface.cardFill(for: colorScheme))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(PanelSurface.border(for: colorScheme), lineWidth: 0.8)
+            )
+            
+            footer
+        }
+        .padding(.top, 0)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 10)
+        .frame(width: 332)
     }
 
     /// The major sections in the user's saved order. Reading `sectionOrderRaw`
@@ -432,10 +537,11 @@ struct MenuPanelView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("Separar panel en ventana flotante")
+                .help(l10n.s.panelDetachHelp)
             }
         }
         .padding(.horizontal, 4)
+        .padding(.top, -2)
         .frame(height: 14)
     }
 

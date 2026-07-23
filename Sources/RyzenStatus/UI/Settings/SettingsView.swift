@@ -147,7 +147,7 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .navigationSplitViewStyle(.balanced)
-        .frame(minWidth: 772, maxWidth: .infinity, minHeight: 528, maxHeight: .infinity)
+        .frame(minWidth: 772, maxWidth: 772, minHeight: 528, maxHeight: .infinity)
         .onAppear { ensureVisiblePage() }
         .onChange(of: features.revision) { _, _ in ensureVisiblePage() }
     }
@@ -300,7 +300,7 @@ struct GeneralSettings: View {
             // (which the hub can hide entirely).
             Section(l10n.s.monitorOrderSection) {
                 PanelOrderEditor()
-                Toggle("Modo Acordeón (mostrar todo en formato lista)", isOn: $accordionMode)
+                Toggle(l10n.s.panelAccordionMode, isOn: $accordionMode)
                 Text(l10n.s.monitorOrderHint)
                     .font(.caption)
                     .foregroundStyle(.secondary)

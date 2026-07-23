@@ -95,9 +95,11 @@ private struct CoreCell: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                 if showLoad {
-                    Spacer()
+                    Spacer(minLength: 2)
                     Text(String(format: "%.0f%%", core.loadPct))
                         .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
                         .foregroundColor(loadColor)
                 }
             }
@@ -115,10 +117,12 @@ private struct CoreCell: View {
             }
 
             if showFreq || showTemp {
-                HStack {
+                HStack(spacing: 2) {
                     if showFreq {
-                        Text(String(format: "%.0f MHz", core.freqMHz))
-                            .font(.system(size: 9, design: .monospaced))
+                        Text(String(format: "%.0fMHz", core.freqMHz))
+                            .font(.system(size: 8, design: .monospaced))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.5)
                             .foregroundColor(.secondary)
                     }
                     
@@ -126,24 +130,27 @@ private struct CoreCell: View {
                     let ccdIdx = (core.id % limitPhys) / 8
                     
                     if showFreq && showTemp && ccdTemperatures.count > ccdIdx {
-                        Spacer()
+                        Spacer(minLength: 1)
                     }
                     
                     if showTemp {
                         if ccdTemperatures.count > ccdIdx {
                             Text(String(format: "%.0f°C", ccdTemperatures[ccdIdx]))
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.6)
                                 .foregroundColor(.red)
                         } else {
                             Text("-")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.system(size: 8, weight: .bold, design: .monospaced))
                                 .foregroundColor(.secondary)
                         }
                     }
                 }
             }
         }
-        .padding(8)
+        .padding(6)
+        .frame(height: 52)
         .background(Color(NSColor.textBackgroundColor).opacity(0.5))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(loadColor.opacity(0.2)))
         .cornerRadius(6)

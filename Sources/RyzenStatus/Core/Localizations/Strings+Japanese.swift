@@ -507,6 +507,19 @@ extension Strings {
         shelfActionOpenWith: "このアプリケーションで開く",
         shelfActionAirDrop: "AirDropで共有",
 
+        detachedNoticeTitle: "切り離されたパネル",
+        detachedNoticeSubtitle: "システムモニターはフローティングウィンドウでアクティブです。",
+        detachedNoticeReattach: "メニューバーに再固定",
+        panelDetachHelp: "パネルをフローティングウィンドウに切り離す",
+
+        panelAccordionMode: "アコーディオンモード（すべてをリスト形式で表示）",
+        graphShowsNumericValue: "グラフ内に数値の値を表示",
+        cpuFrequencyMetricTitle: "CPU周波数（ピーク/平均 2行）",
+        amdRyzenProcessorInfo: "AMD Ryzen プロセッサ情報",
+        amdMinFrequency: "最小周波数",
+        amdMaxFrequency: "最大周波数（ピーク）",
+        amdAvgFrequency: "平均周波数",
+
         breakdownMeasuring: "計測中…",
 
         mixerSection: "音量ミキサー",

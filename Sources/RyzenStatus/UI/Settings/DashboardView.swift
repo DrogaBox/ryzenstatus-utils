@@ -1,6 +1,13 @@
 import SwiftUI
 import Charts
 
+enum DashboardPreset: String, Codable, CaseIterable, Identifiable {
+    case amdGadget = "AMD Power Gadget"
+    case iStats = "iStats Style"
+    case bTop = "BTop Cyberpunk"
+    var id: String { rawValue }
+}
+
 enum DashboardModule: String, Codable, CaseIterable, Identifiable {
     case topCards = "Tarjetas de Resumen"
     case mainCharts = "Gráficos Principales"
@@ -10,6 +17,7 @@ enum DashboardModule: String, Codable, CaseIterable, Identifiable {
 
 struct DashboardView: View {
     @ObservedObject private var monitor = SystemMonitor.shared
+    @AppStorage("dashboardPresetStyle") private var selectedPreset: DashboardPreset = .amdGadget
     
     // Default order
     @AppStorage("dashboardOrder2") private var orderData: Data = try! JSONEncoder().encode([DashboardModule.topCards, .mainCharts, .coreGrid])
@@ -29,25 +37,52 @@ struct DashboardView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header with Edit button
-            HStack {
-                Text("AMD Power Gadget")
+            // Header with Title, Style Selector & Edit button
+            HStack(alignment: .center, spacing: 12) {
+                Text("Dashboard")
                     .font(.headline)
                     .foregroundColor(.white)
+                
                 Spacer()
-                Button(action: {
-                    withAnimation { isEditing.toggle() }
-                }) {
-                    Image(systemName: isEditing ? "checkmark.circle.fill" : "slider.horizontal.3")
-                        .foregroundColor(isEditing ? .accentColor : .secondary)
+                
+                Picker("", selection: $selectedPreset) {
+                    ForEach(DashboardPreset.allCases) { preset in
+                        Text(preset.rawValue).tag(preset)
+                    }
                 }
-                .buttonStyle(PlainButtonStyle())
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 380)
+                
+                if selectedPreset == .amdGadget || selectedPreset == .iStats {
+                    Button(action: {
+                        withAnimation { isEditing.toggle() }
+                    }) {
+                        Image(systemName: isEditing ? "checkmark.circle.fill" : "slider.horizontal.3")
+                            .font(.system(size: 14))
+                            .foregroundColor(isEditing ? .accentColor : .secondary)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .help("Customize Modules")
+                }
             }
             .padding(.horizontal)
-            .padding(.top, 10)
-            .padding(.bottom, 10)
+            .padding(.top, 12)
+            .padding(.bottom, 12)
             
-            if isEditing {
+            if selectedPreset == .bTop {
+                ScrollView {
+                    BTopDashboardView(monitor: monitor)
+                        .padding(.top, 4)
+                        .padding(.bottom, 20)
+                }
+            } else if selectedPreset == .iStats {
+                ScrollView {
+                    IStatsPopoverWidgetsView(monitor: monitor, editing: isEditing, isDashboard: true)
+                        .padding(.horizontal)
+                        .padding(.top, 4)
+                        .padding(.bottom, 20)
+                }
+            } else if isEditing {
                 EditDashboardView(orderData: $orderData, hiddenData: $hiddenData)
             } else {
                 ScrollView {
@@ -64,7 +99,7 @@ struct DashboardView: View {
         }
         .background(Color(red: 0.1, green: 0.1, blue: 0.12).edgesIgnoringSafeArea(.all)) // Dark theme similar to AMD PG
         .onAppear {
-            SystemMonitor.shared.setMenuPanelNeeds(SystemMonitorPanelNeeds(power: true, cpu: true, gpu: true, cpuTemperature: true, gpuTemperature: true))
+            SystemMonitor.shared.setMenuPanelNeeds(SystemMonitorPanelNeeds(power: true, cpu: true, gpu: true, memory: true, cpuTemperature: true, gpuTemperature: true))
         }
         .onDisappear {
             SystemMonitor.shared.setMenuPanelNeeds(.none)
@@ -91,14 +126,21 @@ struct TopCardsView: View {
     
     var body: some View {
         HStack(spacing: 12) {
-            let cpuTempStr = monitor.snapshot.cpuTemperature != nil ? String(format: "%.1f°C", monitor.snapshot.cpuTemperature!) : "---°C"
-            let gpuTempStr = monitor.snapshot.gpuTemperature != nil ? String(format: "%.1f°C", monitor.snapshot.gpuTemperature!) : "---°C"
-            let cpuPwrStr = monitor.snapshot.cpuPower != nil ? String(format: "%.1f W", monitor.snapshot.cpuPower!) : "--- W"
+            let cpuLoadPct = (monitor.snapshot.cpuUsage ?? 0.0) * 100.0
+            let cpuLoadStr = String(format: "%.0f%%", cpuLoadPct)
+            
+            let usedMem = Double(monitor.snapshot.memoryUsed ?? 0)
+            let totalMem = Double(max(1, monitor.snapshot.memoryTotal ?? 1))
+            let ramPct = (usedMem / totalMem) * 100.0
+            let ramStr = String(format: "%.0f%%", ramPct)
+            
+            let gpuUsagePct = (monitor.snapshot.gpuUsage ?? 0.0) * 100.0
+            let gpuStr = gpuUsagePct > 0 ? String(format: "%.0f%%", gpuUsagePct) : (monitor.snapshot.gpuTemperature != nil ? String(format: "%.1f°C", monitor.snapshot.gpuTemperature!) : "---")
             let gpuPwrStr = monitor.snapshot.gpuPower != nil ? String(format: "%.1f W", monitor.snapshot.gpuPower!) : "--- W"
             
-            GadgetCard(title: "CPU Temp", value: cpuTempStr, icon: "cpu", history: monitor.snapshot.cpuTempHistory, color: .red)
-            GadgetCard(title: "GPU Temp", value: gpuTempStr, icon: "display", history: monitor.snapshot.gpuTempHistory, color: .orange)
-            GadgetCard(title: "CPU Power", value: cpuPwrStr, icon: "bolt.fill", history: monitor.snapshot.cpuPowerHistory, color: .blue)
+            GadgetCard(title: "CPU Load", value: cpuLoadStr, icon: "cpu", history: monitor.snapshot.cpuHistory, color: .cyan)
+            GadgetCard(title: "RAM Usage", value: ramStr, icon: "memorychip", history: monitor.snapshot.memoryHistory, color: .purple)
+            GadgetCard(title: "GPU Usage", value: gpuStr, icon: "display", history: monitor.snapshot.gpuHistory.isEmpty ? monitor.snapshot.gpuTempHistory : monitor.snapshot.gpuHistory, color: .orange)
             GadgetCard(title: "GPU Power", value: gpuPwrStr, icon: "bolt.fill", history: monitor.snapshot.gpuPowerHistory, color: .green)
         }
         .padding(.horizontal)

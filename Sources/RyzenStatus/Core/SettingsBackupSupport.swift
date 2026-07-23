@@ -43,6 +43,7 @@ enum SettingsBackupSupport {
         DefaultsKey.menuBarBattery,
         DefaultsKey.menuBarPower,
         DefaultsKey.panelSectionOrder,
+        DefaultsKey.panelShowAmdPower,
         DefaultsKey.panelUtilityOrder,
         DefaultsKey.panelControlOrder,
         DefaultsKey.panelToggleOrder,

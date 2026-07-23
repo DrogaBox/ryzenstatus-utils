@@ -646,6 +646,7 @@ enum Defaults {
         DefaultsKey.panelControlWindowsExpanded: false,
         DefaultsKey.panelControlInputExpanded: false,
         DefaultsKey.panelControlFilesExpanded: false,
+        DefaultsKey.panelShowAmdPower: true,
         DefaultsKey.panelShowKeepAwake: true,
         DefaultsKey.panelShowBrightness: true,
         DefaultsKey.panelShowUtilities: true,

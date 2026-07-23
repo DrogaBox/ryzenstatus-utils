@@ -44,7 +44,6 @@ struct IStatsDonutMeter: View {
             }
             .frame(width: 44, height: 44)
         }
-        .frame(maxWidth: .infinity)
     }
 }
 
@@ -55,6 +54,7 @@ struct IStatsPopoverWidgetsView: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject var monitor: SystemMonitor
     let editing: Bool
+    let isDashboard: Bool
     
     @AppStorage("istats_show_cpu") private var showCPU = true
     @AppStorage("istats_show_gpu") private var showGPU = true
@@ -64,9 +64,10 @@ struct IStatsPopoverWidgetsView: View {
     
     @State private var draggingCard: IStatsCardKind?
     
-    init(monitor: SystemMonitor, editing: Bool = false) {
+    init(monitor: SystemMonitor, editing: Bool = false, isDashboard: Bool = false) {
         self.monitor = monitor
         self.editing = editing
+        self.isDashboard = isDashboard
     }
     
     private var cardOrderBinding: Binding<[IStatsCardKind]> {
@@ -157,20 +158,35 @@ struct IStatsPopoverWidgetsView: View {
                     }
                 }
                 
-                // Per-Core Histogram Bars
+                // Per-Core Histogram Bars (Stacked User Cyan + System Purple Overlay)
                 let cores = monitor.snapshot.cores
                 if !cores.isEmpty {
                     HStack(alignment: .bottom, spacing: 2) {
                         ForEach(cores) { core in
                             VStack(spacing: 0) {
                                 Spacer(minLength: 0)
+                                
+                                let totalHeight = max(2, CGFloat(core.loadPct / 100.0) * 45)
+                                let sysHeight = max(0, totalHeight * 0.18)
+                                let userHeight = max(1.5, totalHeight - sysHeight)
+                                
+                                if sysHeight >= 1.0 {
+                                    RoundedRectangle(cornerRadius: 1)
+                                        .fill(LinearGradient(
+                                            gradient: Gradient(colors: [Color.purple, Color(red: 0.85, green: 0.35, blue: 1.0)]),
+                                            startPoint: .bottom,
+                                            endPoint: .top
+                                        ))
+                                        .frame(height: sysHeight)
+                                }
+                                
                                 RoundedRectangle(cornerRadius: 1.5)
                                     .fill(LinearGradient(
                                         gradient: Gradient(colors: [Color.cyan, Color.blue]),
                                         startPoint: .bottom,
                                         endPoint: .top
                                     ))
-                                    .frame(height: max(2, CGFloat(core.loadPct / 100.0) * 45))
+                                    .frame(height: userHeight)
                             }
                         }
                     }
@@ -233,7 +249,7 @@ struct IStatsPopoverWidgetsView: View {
             .opacity(showCPU ? 1.0 : 0.4)
             
         case .cores:
-            // 2. Circular Donut Ring Core Grid
+            // 2. Circular Donut Ring Core Grid (8 columns for 32 cores = 8x4 grid, fits popover cleanly)
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text("\(l10n.s.istatsCores) (\(monitor.snapshot.cores.count))")
@@ -246,7 +262,7 @@ struct IStatsPopoverWidgetsView: View {
                 }
                 
                 let cores = monitor.snapshot.cores
-                let columnsCount = cores.count <= 8 ? max(2, cores.count / 2) : (cores.count <= 16 ? 8 : (cores.count <= 32 ? 8 : 12))
+                let columnsCount = cores.count <= 8 ? max(2, cores.count / 2) : (cores.count <= 16 ? 8 : 8)
                 let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: columnsCount)
                 
                 LazyVGrid(columns: columns, spacing: 6) {
@@ -307,7 +323,7 @@ struct IStatsPopoverWidgetsView: View {
                 }
                 .padding(.vertical, 4)
                 
-                // Memory Breakdown
+                // Memory Breakdown (Vertical stack fits popover menu cleanly)
                 VStack(spacing: 4) {
                     let totalGB = Double(memoryTotal) / (1024 * 1024 * 1024)
                     let usedGB = Double(memoryUsed) / (1024 * 1024 * 1024)
@@ -341,6 +357,7 @@ struct IStatsPopoverWidgetsView: View {
                         Text(String(format: "%.1f GB", freeGB)).font(.system(size: 11, weight: .semibold, design: .monospaced))
                     }
                 }
+                .padding(.vertical, 4)
                 
                 // Top Memory Processes (iStats-style)
                 let memProcesses = ProcessUsageService.shared.top(.memory, limit: 4)
@@ -400,25 +417,28 @@ struct IStatsPopoverWidgetsView: View {
                     }
                 }
                 
-                HStack(spacing: 12) {
-                    let gpuPct = monitor.snapshot.gpuUsage ?? 0
-                    
-                    let memPct: Double = {
-                        if let used = monitor.snapshot.gpuMemoryUsed, let total = monitor.snapshot.gpuMemoryTotal, total > 0 {
-                            return Double(used) / Double(total)
-                        }
-                        return monitor.snapshot.gpuMemoryHistory.last ?? (gpuPct * 0.75)
-                    }()
-                    
-                    let gpuTemp = monitor.snapshot.gpuTemperature ?? 0
-                    let rawFreq = monitor.snapshot.gpuFreq ?? 0
-                    let gpuFreqGHz = rawFreq / 1000.0
-                    let maxFreqGHz = max(2.5, gpuFreqGHz)
-                    
+                let gpuPct = monitor.snapshot.gpuUsage ?? 0
+                let memPct: Double = {
+                    if let used = monitor.snapshot.gpuMemoryUsed, let total = monitor.snapshot.gpuMemoryTotal, total > 0 {
+                        return Double(used) / Double(total)
+                    }
+                    return monitor.snapshot.gpuMemoryHistory.last ?? (gpuPct * 0.75)
+                }()
+                let gpuTemp = monitor.snapshot.gpuTemperature ?? 0
+                let rawFreq = monitor.snapshot.gpuFreq ?? 0
+                let gpuFreqGHz = rawFreq / 1000.0
+                let maxFreqGHz = max(2.5, gpuFreqGHz)
+                
+                HStack {
+                    Spacer()
                     IStatsDonutMeter(title: "GPU", value: String(format: "%.0f%%", gpuPct * 100), fraction: gpuPct, color: .cyan)
+                    Spacer()
                     IStatsDonutMeter(title: "MEM", value: String(format: "%.0f%%", memPct * 100), fraction: memPct, color: .purple)
+                    Spacer()
                     IStatsDonutMeter(title: "TMP", value: String(format: "%.0f°", gpuTemp), fraction: min(1.0, gpuTemp / 100.0), color: .orange)
+                    Spacer()
                     IStatsDonutMeter(title: "GHZ", value: gpuFreqGHz > 0 ? String(format: "%.1f", gpuFreqGHz) : "--", fraction: min(1.0, gpuFreqGHz / maxFreqGHz), color: .green)
+                    Spacer()
                 }
                 
                 // Top GPU Processes (iStats-style)
