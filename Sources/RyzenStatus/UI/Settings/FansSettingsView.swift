@@ -306,20 +306,36 @@ struct FanControlCard: View {
                 Spacer()
                 
                 Picker("", selection: Binding(
-                    get: { controller.fanMappings[fan.id] ?? -1 },
+                    get: {
+                        if isMappedToCurve {
+                            return mappedCurveIdx
+                        } else if fan.isOverrided {
+                            return -2 // Manual Override
+                        } else {
+                            return -1 // BIOS / Auto
+                        }
+                    },
                     set: { newVal in
-                        var updated = controller.fanMappings
-                        updated[fan.id] = newVal
-                        controller.fanMappings = updated
                         if newVal == -1 {
+                            // Revert to BIOS / Auto control in kernel
+                            var updated = controller.fanMappings
+                            updated[fan.id] = -1
+                            controller.fanMappings = updated
                             didDrag = false
                             Task {
                                 _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fan.id)
                             }
+                        } else if newVal >= 0 {
+                            var updated = controller.fanMappings
+                            updated[fan.id] = newVal
+                            controller.fanMappings = updated
                         }
                     }
                 )) {
                     Text("BIOS / Auto").tag(-1)
+                    if fan.isOverrided && !isMappedToCurve {
+                        Text("Manual Override").tag(-2)
+                    }
                     ForEach(0..<controller.customCurves.count, id: \.self) { idx in
                         Text(controller.customCurves[idx].name).tag(idx)
                     }
@@ -379,17 +395,18 @@ struct FanControlCard: View {
                 .stroke(fan.isOverrided ? Color.orange.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: 1)
         )
         .onAppear {
-            // El kext ahora reporta PWM estimado desde RPM incluso en Auto mode
-            sliderValue = Double(fan.throttle)
+            if !fan.isOverrided && !didDrag {
+                sliderValue = Double(fan.throttle)
+            }
         }
         .onChange(of: fan.throttle) { _, newVal in
-            // Sincronizar slider con el throttle reportado por el kext sin disparar override manual
-            if !didDrag {
+            // Sincronizar slider con telemetria SOLO en modo Auto para no pisar el valor manual fijado por el usuario
+            if !fan.isOverrided && !didDrag {
                 sliderValue = Double(newVal)
             }
         }
         .onChange(of: fan.isOverrided) { _, newVal in
-            if newVal {
+            if !newVal {
                 didDrag = false
             }
         }
