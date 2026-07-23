@@ -31,7 +31,10 @@ struct FansSettingsView: View {
                             .textCase(.uppercase)
                         Spacer()
                         if !hiddenFanIDs.isEmpty {
-                            Button(action: { hiddenFanIDs.removeAll() }) {
+                            Button(action: {
+                                hiddenFanIDs.removeAll()
+                                UserDefaults.standard.set([], forKey: "HiddenFanIDs")
+                            }) {
                                 HStack(spacing: 4) {
                                     Image(systemName: "eye.fill")
                                     Text(String(format: "Show All (%d hidden)", hiddenFanIDs.count))
@@ -56,6 +59,7 @@ struct FansSettingsView: View {
                     ForEach(fans.filter { !hiddenFanIDs.contains($0.id) }) { fan in
                         FanControlCard(fan: fan, customFanNames: $customFanNames, onHide: {
                             hiddenFanIDs.insert(fan.id)
+                            UserDefaults.standard.set(Array(hiddenFanIDs), forKey: "HiddenFanIDs")
                         })
                         .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                     }
@@ -174,7 +178,10 @@ struct FansSettingsView: View {
             await MainActor.run {
                 self.hasSMCWriteAccess = hasAccess
                 self.fans = currentFans
-                // Load custom names
+                // Load hidden fans state & custom names
+                if let savedHidden = UserDefaults.standard.array(forKey: "HiddenFanIDs") as? [Int] {
+                    self.hiddenFanIDs = Set(savedHidden)
+                }
                 for fan in currentFans {
                     if let saved = UserDefaults.standard.string(forKey: "FanName_\(fan.id)") {
                         self.customFanNames[fan.id] = saved

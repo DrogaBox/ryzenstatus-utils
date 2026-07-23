@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.5.2]
+
+- **Persistent Hidden Fans State**: Saved hidden fan selections (`HiddenFanIDs`) to `UserDefaults`, ensuring hidden fans remain hidden when switching tabs in Settings or restarting the app.
+
 ## [1.5.1]
 
 - **Localization of AMD Power Control Views**: Fully localized all labels, headers, tooltips, mode badges, and footers in `AmdControlSection` and `AmdPowerSettingsView` via new `AMDPowerFeatureStrings`, ensuring seamless English and Spanish UI rendering.
