@@ -1126,17 +1126,15 @@ actor ProcessorModel {
     
     nonisolated func setFanMode(auto: Bool, fanIndex: Int = 0) -> Bool {
         if auto {
+            // Selector 96 in SMCAMDProcessor = setDefaultFanControl(fanSel)
             let res = kernelSetUInt64Status(selector: 96, args: [UInt64(fanIndex)])
-            if res != KERN_SUCCESS {
-                _ = kernelSetUInt64Status(selector: 97, args: [0])
-            }
-            return true
+            return res == KERN_SUCCESS
         }
         return true
     }
     
     nonisolated func setFanSpeed(rpm: Int, fanIndex: Int = 0) -> Bool {
-        // rpm is actually throttle 0-255 for SMCAMDProcessor
+        // Selector 95 in SMCAMDProcessor = overrideFanControl(fanSel, pwm)
         let res = kernelSetUInt64Status(selector: 95, args: [UInt64(fanIndex), UInt64(rpm)])
         return res == KERN_SUCCESS
     }

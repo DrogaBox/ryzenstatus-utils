@@ -18,6 +18,7 @@ struct MonitorSettings: View {
     @AppStorage(DefaultsKey.menuBarMetricSpacing) private var metricSpacing = "standard"
     @AppStorage(DefaultsKey.menuBarMetricAppearance) private var metricAppearance = "values"
     @AppStorage(DefaultsKey.menuBarHideIconWithMetrics) private var hideIconWithMetrics = false
+    @AppStorage(DefaultsKey.menuBarGraphShowsValue) private var graphShowsValue = true
     @AppStorage(DefaultsKey.monitorInterval) private var interval = 1.0
     @AppStorage(DefaultsKey.processListRefreshInterval) private var processListInterval = 1.0
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnit = TemperatureUnit.celsius.rawValue
@@ -102,6 +103,7 @@ struct MonitorSettings: View {
                 Text(l10n.s.menuBarHideIconCaption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Toggle("Mostrar valor numérico dentro de la gráfica", isOn: $graphShowsValue)
                 Toggle(l10n.s.monitorSeparateMenuBarMetrics, isOn: $separateMetrics)
                 if appearance.allowsCombinedTemperatures {
                     Text(l10n.s.monitorSeparateMenuBarMetricsCaption)

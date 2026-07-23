@@ -471,6 +471,7 @@ enum MenuBarRenderer {
         var renderedGPU = false
         var renderedBattery = false
 
+        let showsGraphValue = UserDefaults.standard.object(forKey: DefaultsKey.menuBarGraphShowsValue) as? Bool ?? true
         for metric in metrics {
             let appearance = MenuBarMetricAppearance.appearance(for: metric.rawValue)
             let usesBars = appearance == .bars
@@ -513,16 +514,17 @@ enum MenuBarRenderer {
                     break
                 }
                 if let usage = snapshot.cpuUsage {
+                    let valStr = showsGraphValue ? percent(usage) : nil
                     if appearance == .histogram, !snapshot.cores.isEmpty {
-                        let img = coreHistogramBlockImage(cores: snapshot.cores, style: style)
+                        let img = coreHistogramBlockImage(cores: snapshot.cores, valueText: valStr, style: style)
                         groups.append([.customImage(img)])
                     } else if appearance == .pie {
-                        let img = pieBlockImage(label: "CPU", fraction: usage, style: style, pressure: nil)
+                        let img = pieBlockImage(label: "CPU", fraction: usage, valueText: valStr, style: style, pressure: nil)
                         groups.append([.customImage(img)])
                     } else if appearance == .sparkline {
                         let cpuLevel = MenuBarUsageBarSupport.currentLevel(for: usage)
                         let cpuColorHex = MenuBarUsageBarSupport.currentColorHex(for: cpuLevel)
-                        let img = sparklineBlockImage(label: "CPU", history: snapshot.cpuHistory, colorHex: cpuColorHex, style: style)
+                        let img = sparklineBlockImage(label: "CPU", history: snapshot.cpuHistory, colorHex: cpuColorHex, valueText: valStr, style: style)
                         groups.append([.customImage(img)])
                     } else if usesBars {
                         groups.append([.usageBarBlock(label: "CPU",
@@ -573,13 +575,14 @@ enum MenuBarRenderer {
                     break
                 }
                 if let usage = snapshot.gpuUsage {
+                    let valStr = showsGraphValue ? percent(usage) : nil
                     if appearance == .pie {
-                        let img = pieBlockImage(label: "GPU", fraction: usage, style: style, pressure: nil)
+                        let img = pieBlockImage(label: "GPU", fraction: usage, valueText: valStr, style: style, pressure: nil)
                         groups.append([.customImage(img)])
                     } else if appearance == .sparkline || appearance == .histogram {
                         let gpuLevel = MenuBarUsageBarSupport.currentLevel(for: usage)
                         let gpuColorHex = MenuBarUsageBarSupport.currentColorHex(for: gpuLevel)
-                        let img = sparklineBlockImage(label: "GPU", history: snapshot.gpuHistory, colorHex: gpuColorHex, style: style)
+                        let img = sparklineBlockImage(label: "GPU", history: snapshot.gpuHistory, colorHex: gpuColorHex, valueText: valStr, style: style)
                         groups.append([.customImage(img)])
                     } else if usesBars {
                         groups.append([.usageBarBlock(label: "GPU",
@@ -640,13 +643,16 @@ enum MenuBarRenderer {
             case .memory:
                 let memoryStyle = MemoryMenuBarStyle.current
                 let memFraction = MenuBarUsageBarSupport.memoryFraction(used: snapshot.memoryUsed, total: snapshot.memoryTotal)
+                let valStr = showsGraphValue
+                    ? MetricFormat.menuBarMemoryPercent(used: snapshot.memoryUsed, total: snapshot.memoryTotal)
+                    : nil
                 if appearance == .pie {
-                    let img = pieBlockImage(label: "RAM", fraction: memFraction, style: style, pressure: memoryStyle.showsDot ? snapshot.memoryPressure : nil)
+                    let img = pieBlockImage(label: "RAM", fraction: memFraction, valueText: valStr, style: style, pressure: memoryStyle.showsDot ? snapshot.memoryPressure : nil)
                     groups.append([.customImage(img)])
                 } else if appearance == .sparkline || appearance == .histogram {
                     let ramLevel = MenuBarUsageBarSupport.currentLevel(for: memFraction ?? 0)
                     let ramColorHex = MenuBarUsageBarSupport.currentColorHex(for: ramLevel)
-                    let img = sparklineBlockImage(label: "RAM", history: snapshot.memoryHistory, colorHex: ramColorHex, style: style)
+                    let img = sparklineBlockImage(label: "RAM", history: snapshot.memoryHistory, colorHex: ramColorHex, valueText: valStr, style: style)
                     groups.append([.customImage(img)])
                 } else if usesBars {
                     groups.append([.usageBarBlock(label: "RAM",
@@ -1474,9 +1480,11 @@ enum MenuBarRenderer {
     }
 
     private static func coreHistogramBlockImage(cores: [CoreSnapshot],
+                                                valueText: String? = nil,
                                                 style: MenuBarBlockStyle) -> NSImage {
         let sampleKey = cores.map { String(format: "%.0f", $0.loadPct) }.joined(separator: ",")
-        let cacheKey = "coreHistogram|\(sampleKey)|\(style)" as NSString
+        let valKey = valueText ?? ""
+        let cacheKey = "coreHistogram|\(sampleKey)|\(valKey)|\(style)" as NSString
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
 
         let height: CGFloat = style == .readable ? 22 : 20
@@ -1525,6 +1533,17 @@ enum MenuBarRenderer {
                 NSColor.labelColor.withAlphaComponent(0.95).setFill()
                 NSBezierPath(roundedRect: barRect, xRadius: 0.8, yRadius: 0.8).fill()
             }
+
+            if let valueText, !valueText.isEmpty {
+                let font = NSFont.monospacedDigitSystemFont(ofSize: style == .readable ? 7.8 : 7.0, weight: .bold)
+                let valAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.white]
+                let shadowAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.black.withAlphaComponent(0.85)]
+                let valSize = (valueText as NSString).size(withAttributes: valAttrs)
+                let vx = graphRect.minX + (graphRect.width - valSize.width) / 2
+                let vy = graphRect.minY + (graphRect.height - valSize.height) / 2
+                (valueText as NSString).draw(at: NSPoint(x: vx + 0.5, y: vy - 0.5), withAttributes: shadowAttrs)
+                (valueText as NSString).draw(at: NSPoint(x: vx, y: vy), withAttributes: valAttrs)
+            }
             return true
         }
         image.isTemplate = false
@@ -1534,12 +1553,14 @@ enum MenuBarRenderer {
 
     private static func pieBlockImage(label: String,
                                       fraction: Double?,
+                                      valueText: String? = nil,
                                       style: MenuBarBlockStyle,
                                       pressure: MemoryPressure?) -> NSImage {
         let frac = fraction ?? 0
         let level = MenuBarUsageBarSupport.currentLevel(for: frac)
         let fillColorHex = MenuBarUsageBarSupport.currentColorHex(for: level)
-        let cacheKey = "pie|\(label)|\(Int(frac * 100))|\(fillColorHex)|\(style)" as NSString
+        let valKey = valueText ?? ""
+        let cacheKey = "pie|\(label)|\(Int(frac * 100))|\(fillColorHex)|\(valKey)|\(style)" as NSString
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
 
         let height: CGFloat = style == .readable ? 22 : 20
@@ -1582,6 +1603,15 @@ enum MenuBarRenderer {
                 arcPath.lineCapStyle = .round
                 arcPath.stroke()
             }
+
+            if let valueText, !valueText.isEmpty {
+                let font = NSFont.monospacedDigitSystemFont(ofSize: style == .readable ? 5.8 : 5.2, weight: .bold)
+                let valAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor]
+                let valSize = (valueText as NSString).size(withAttributes: valAttrs)
+                let vx = circleRect.minX + (circleRect.width - valSize.width) / 2
+                let vy = circleRect.minY + (circleRect.height - valSize.height) / 2
+                (valueText as NSString).draw(at: NSPoint(x: vx, y: vy), withAttributes: valAttrs)
+            }
             return true
         }
         image.isTemplate = false
@@ -1592,9 +1622,11 @@ enum MenuBarRenderer {
     private static func sparklineBlockImage(label: String,
                                             history: [Double],
                                             colorHex: String = "#64D2FF",
+                                            valueText: String? = nil,
                                             style: MenuBarBlockStyle) -> NSImage {
         let sampleKey = history.suffix(12).map { String(format: "%.1f", $0) }.joined(separator: ",")
-        let cacheKey = "sparkline|\(label)|\(sampleKey)|\(style)" as NSString
+        let valKey = valueText ?? ""
+        let cacheKey = "sparkline|\(label)|\(sampleKey)|\(valKey)|\(colorHex)|\(style)" as NSString
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
 
         let height: CGFloat = style == .readable ? 22 : 20
@@ -1628,33 +1660,44 @@ enum MenuBarRenderer {
             boxPath.stroke()
 
             let innerRect = graphRect.insetBy(dx: 1.5, dy: 1.5)
-            guard !points.isEmpty else { return true }
+            if !points.isEmpty {
+                let path = NSBezierPath()
+                let stepX = innerRect.width / CGFloat(max(1, points.count - 1))
+                
+                let pts = Array(points)
+                for (i, val) in pts.enumerated() {
+                    let norm = max(0, min(1, val / maxVal))
+                    let px = innerRect.minX + CGFloat(i) * stepX
+                    let py = innerRect.minY + CGFloat(norm) * innerRect.height
+                    if i == 0 { path.move(to: NSPoint(x: px, y: py)) }
+                    else { path.line(to: NSPoint(x: px, y: py)) }
+                }
 
-            let path = NSBezierPath()
-            let stepX = innerRect.width / CGFloat(max(1, points.count - 1))
-            
-            let pts = Array(points)
-            for (i, val) in pts.enumerated() {
-                let norm = max(0, min(1, val / maxVal))
-                let px = innerRect.minX + CGFloat(i) * stepX
-                let py = innerRect.minY + CGFloat(norm) * innerRect.height
-                if i == 0 { path.move(to: NSPoint(x: px, y: py)) }
-                else { path.line(to: NSPoint(x: px, y: py)) }
+                if let copy = path.copy() as? NSBezierPath {
+                    let lastPt = NSPoint(x: innerRect.minX + CGFloat(pts.count - 1) * stepX, y: innerRect.minY)
+                    let firstPt = NSPoint(x: innerRect.minX, y: innerRect.minY)
+                    copy.line(to: lastPt)
+                    copy.line(to: firstPt)
+                    copy.close()
+                    usageBarColor(hex: colorHex).withAlphaComponent(0.25).setFill()
+                    copy.fill()
+                }
+
+                usageBarColor(hex: colorHex).setStroke()
+                path.lineWidth = 1.3
+                path.stroke()
             }
 
-            if let copy = path.copy() as? NSBezierPath {
-                let lastPt = NSPoint(x: innerRect.minX + CGFloat(pts.count - 1) * stepX, y: innerRect.minY)
-                let firstPt = NSPoint(x: innerRect.minX, y: innerRect.minY)
-                copy.line(to: lastPt)
-                copy.line(to: firstPt)
-                copy.close()
-                usageBarColor(hex: colorHex).withAlphaComponent(0.25).setFill()
-                copy.fill()
+            if let valueText, !valueText.isEmpty {
+                let font = NSFont.monospacedDigitSystemFont(ofSize: style == .readable ? 7.8 : 7.0, weight: .bold)
+                let valAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.white]
+                let shadowAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.black.withAlphaComponent(0.85)]
+                let valSize = (valueText as NSString).size(withAttributes: valAttrs)
+                let vx = graphRect.minX + (graphRect.width - valSize.width) / 2
+                let vy = graphRect.minY + (graphRect.height - valSize.height) / 2
+                (valueText as NSString).draw(at: NSPoint(x: vx + 0.5, y: vy - 0.5), withAttributes: shadowAttrs)
+                (valueText as NSString).draw(at: NSPoint(x: vx, y: vy), withAttributes: valAttrs)
             }
-
-            usageBarColor(hex: colorHex).setStroke()
-            path.lineWidth = 1.3
-            path.stroke()
 
             return true
         }

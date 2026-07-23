@@ -311,6 +311,12 @@ struct FanControlCard: View {
                         var updated = controller.fanMappings
                         updated[fan.id] = newVal
                         controller.fanMappings = updated
+                        if newVal == -1 {
+                            didDrag = false
+                            Task {
+                                _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fan.id)
+                            }
+                        }
                     }
                 )) {
                     Text("BIOS / Auto").tag(-1)
@@ -327,15 +333,21 @@ struct FanControlCard: View {
                 Text("Override")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
-                Slider(value: $sliderValue, in: 0...255, step: 1) { editing in
-                    if editing {
-                        didDrag = true
-                    } else {
-                        Task {
-                            _ = ProcessorModel.shared.setFanSpeed(rpm: Int(sliderValue), fanIndex: fan.id)
+                Slider(
+                    value: Binding(
+                        get: { sliderValue },
+                        set: { newVal in
+                            sliderValue = newVal
+                            didDrag = true
+                            Task {
+                                _ = ProcessorModel.shared.setFanMode(auto: false, fanIndex: fan.id)
+                                _ = ProcessorModel.shared.setFanSpeed(rpm: Int(newVal), fanIndex: fan.id)
+                            }
                         }
-                    }
-                }
+                    ),
+                    in: 0...255,
+                    step: 1
+                )
                 .tint(.cyan)
                 Text(String(format: "%.0f%%", sliderValue / 255.0 * 100.0))
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
@@ -371,9 +383,10 @@ struct FanControlCard: View {
             sliderValue = Double(fan.throttle)
         }
         .onChange(of: fan.throttle) { _, newVal in
-            // Sincronizar slider con el throttle reportado por el kext
-            // (PWM real en Manual, PWM estimado desde RPM en Auto)
-            sliderValue = Double(newVal)
+            // Sincronizar slider con el throttle reportado por el kext sin disparar override manual
+            if !didDrag {
+                sliderValue = Double(newVal)
+            }
         }
         .onChange(of: fan.isOverrided) { _, newVal in
             if newVal {

@@ -189,7 +189,7 @@ struct MenuPanelView: View {
 
             footer
         }
-        .padding(.top, 6)
+        .padding(.top, 0)
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
         .frame(width: 332, height: navigablePanelHeight)
@@ -214,7 +214,7 @@ struct MenuPanelView: View {
 
             footer
         }
-        .padding(.top, 6)
+        .padding(.top, 0)
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
         .frame(width: 332, height: metricPanelHeight)
@@ -436,7 +436,7 @@ struct MenuPanelView: View {
             }
         }
         .padding(.horizontal, 4)
-        .frame(height: 18)
+        .frame(height: 14)
     }
 
     private var footer: some View {
