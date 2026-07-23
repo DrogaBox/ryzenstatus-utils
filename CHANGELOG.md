@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.6]
+
+- **BTop Cyberpunk Network Sparkline Fix**: Replaced Swift Charts ordinal rendering with native `Sparkline` path engine, resolving sparkline loops and diagonal line artifacts.
+- **Per-Core Dashboard Grid Alignment**: Fixed text wrapping (`47%`) and frequency truncation (`4680MHz`) in per-core cards with 52px fixed-height cell geometry.
+- **Detached Popover Re-attach Handling**: Restored interactive popover view immediately upon clicking "Reattach to Menu Bar".
+- **Full Multi-Language Localization**: Synchronized 11 locale files with 0 hardcoded strings, supporting English, Spanish, German, French, Italian, Turkish, Russian, Japanese, Korean, and Chinese.
+
 ## [1.5.5]
 
 - **Audio Mixer Sleep/Wake Recovery**: Integrated `EngineRenderVerdict` & `CycleBox` IO proc render tracking to automatically detect and recover wedged audio mixer engines when the Mac wakes from sleep.
