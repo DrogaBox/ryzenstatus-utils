@@ -94,19 +94,19 @@ struct AmdPowerSettingsView: View {
             
             if !cppcSupported && !cpbSupported {
                 Section {
-                    Text("AMD Power Control no es compatible con tu procesador o versión de kext.")
+                    Text(L10n.shared.amdPower.amdPowerControlUnsupported)
                         .foregroundColor(.red)
                 }
             } else {
                 if cppcSupported {
                     Section {
-                        Text("Modo Detectado: CPPC (Auto-EPP - Zen 3+)")
+                        Text(L10n.shared.amdPower.modeDetectedCPPC)
                             .font(.system(size: 13, weight: .bold, design: .monospaced))
                             .foregroundColor(.green)
                     }
                 } else if legacyPstateAllowed {
                     Section {
-                        Text("Modo Detectado: Legacy P-States (Zen/Zen+)")
+                        Text(L10n.shared.amdPower.modeDetectedPStates)
                             .font(.system(size: 13, weight: .bold, design: .monospaced))
                             .foregroundColor(.green)
                     }
@@ -147,7 +147,7 @@ struct AmdPowerSettingsView: View {
                             HStack {
                                 Image(systemName: "cpu")
                                     .foregroundColor(.cyan)
-                                Text("Auto EPP Activo")
+                                Text(L10n.shared.amdPower.autoEPPActive)
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                 Spacer()
@@ -159,14 +159,14 @@ struct AmdPowerSettingsView: View {
                             VStack(alignment: .leading, spacing: 16) {
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack {
-                                        Text("Umbral de Inactividad")
+                                        Text(L10n.shared.amdPower.idleThresholdLabel)
                                             .font(.caption)
                                         Spacer()
                                         Text("\(idleThreshold)%")
                                             .font(.system(size: 12, weight: .medium, design: .monospaced))
                                             .foregroundColor(.green)
                                     }
-                                    Text("Por debajo de este % de carga -> Power Save (máxima eficiencia)")
+                                    Text(L10n.shared.amdPower.idleThresholdHelp)
                                         .font(.caption2)
                                         .foregroundColor(.secondary)
                                     Slider(value: Binding(
@@ -177,14 +177,14 @@ struct AmdPowerSettingsView: View {
                                 }
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack {
-                                        Text("Umbral de Carga")
+                                        Text(L10n.shared.amdPower.loadThresholdLabel)
                                             .font(.caption)
                                         Spacer()
                                         Text("\(loadThreshold)%")
                                             .font(.system(size: 12, weight: .medium, design: .monospaced))
                                             .foregroundColor(.red)
                                     }
-                                    Text("Por encima de este % de carga -> Rendimiento (máxima velocidad)")
+                                    Text(L10n.shared.amdPower.loadThresholdHelp)
                                         .font(.caption2)
                                         .foregroundColor(.secondary)
                                     Slider(value: Binding(
@@ -199,7 +199,7 @@ struct AmdPowerSettingsView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Perfil de Energia (Energy Profile)")
+                            Text(L10n.shared.amdPower.energyProfileHeader)
                                 .font(.headline)
 
                             HStack {
@@ -232,7 +232,7 @@ struct AmdPowerSettingsView: View {
                     } header: {
                         Text("Collaborative Processor Performance Control")
                     } footer: {
-                        Text("Auto EPP monitorea la carga de la CPU y alterna entre Power Save (inactividad) y Rendimiento (carga alta) según los umbrales configurados.")
+                        Text(L10n.shared.amdPower.autoEPPFooter)
                     }
                 } else if legacyPstateAllowed {
                     Section {
@@ -253,7 +253,7 @@ struct AmdPowerSettingsView: View {
                     } header: {
                         Text("CPU Speed Profiles (Legacy P-States)")
                     } footer: {
-                        Text("Modifica el multiplicador y voltaje global bloqueando el P-State.")
+                        Text(L10n.shared.amdPower.legacyPStatesFooter)
                     }
                 }
 
@@ -275,9 +275,9 @@ struct AmdPowerSettingsView: View {
                             _ = ProcessorModel.shared.setLPM(enabled: newValue)
                         }
                 } header: {
-                    Text("Controles Avanzados de Energía")
+                    Text(L10n.shared.amdPower.advancedEnergyHeader)
                 } footer: {
-                    Text("Desactivar CPB o activar LPM reducirá las temperaturas y el consumo a costa del rendimiento máximo.")
+                    Text(L10n.shared.amdPower.advancedEnergyFooter)
                 }
             }
         }

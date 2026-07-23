@@ -164,12 +164,13 @@ if (( TEST )); then
     exit $?
 fi
 
-echo "▸ Compiling (release) against $(basename "$SDK")…"
-rm -rf build
-mkdir -p build
-swiftc -O -target "$TARGET" -sdk "$SDK" \
-    Sources/RyzenStatus/**/*.swift \
-    -o "build/$EXECUTABLE"
+if [[ ! -f "build/$EXECUTABLE" ]]; then
+    echo "▸ Compiling (release) against $(basename "$SDK")…"
+    mkdir -p build
+    swiftc -O -num-threads 16 -target "$TARGET" -sdk "$SDK" \
+        Sources/RyzenStatus/**/*.swift \
+        -o "build/$EXECUTABLE"
+fi
 
 echo "▸ Generating app icon…"
 swift Tools/MakeIcon.swift build/AppIcon.iconset

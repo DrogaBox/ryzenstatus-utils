@@ -91,19 +91,19 @@ struct AmdControlSection: View {
                 }
                 
                 if !cppcSupported && !legacyPstateAllowed && !cpbSupported {
-                    Text("AMD Power Control no es compatible con tu procesador o versión de kext.")
+                    Text(L10n.shared.amdPower.amdPowerControlUnsupported)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 } else {
                     if cppcSupported {
-                        Text("Modo Detectado: CPPC (Auto-EPP)")
+                        Text(L10n.shared.amdPower.modeDetectedCPPC)
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
                             .foregroundColor(.green)
                             .padding(.bottom, 2)
 
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(isCPPCActive ? "Auto EPP Activo" : "Energy Profile (Manual)")
+                                Text(isCPPCActive ? L10n.shared.amdPower.autoEPPActive : L10n.shared.amdPower.energyProfileManual)
                                     .font(.system(size: 11, weight: .semibold))
                                     .foregroundColor(.cyan)
                                 Text(eppLabel)
@@ -150,10 +150,10 @@ struct AmdControlSection: View {
                                     HStack {
                                         Image(systemName: showThresholds ? "chevron.down" : "chevron.right")
                                             .font(.system(size: 10))
-                                        Text("Umbrales Auto EPP")
+                                        Text(L10n.shared.amdPower.autoEPPThresholds)
                                             .font(.system(size: 10, weight: .medium))
                                         Spacer()
-                                        Text("Inactivo <\(idleThreshold)% | Carga >\(loadThreshold)%")
+                                        Text("Idle <\(idleThreshold)% | Load >\(loadThreshold)%")
                                             .font(.system(size: 9))
                                             .foregroundColor(.secondary)
                                     }
@@ -164,7 +164,7 @@ struct AmdControlSection: View {
                                     VStack(spacing: 8) {
                                         VStack(alignment: .leading, spacing: 4) {
                                             HStack {
-                                                Text("Umbral Inactividad").font(.system(size: 10))
+                                                Text(L10n.shared.amdPower.idleThresholdLabel).font(.system(size: 10))
                                                 Spacer()
                                                 Text("\(idleThreshold)%").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(.green)
                                             }
@@ -172,7 +172,7 @@ struct AmdControlSection: View {
                                         }
                                         VStack(alignment: .leading, spacing: 4) {
                                             HStack {
-                                                Text("Umbral Carga").font(.system(size: 10))
+                                                Text(L10n.shared.amdPower.loadThresholdLabel).font(.system(size: 10))
                                                 Spacer()
                                                 Text("\(loadThreshold)%").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(.red)
                                             }
@@ -190,7 +190,7 @@ struct AmdControlSection: View {
                         }
                     } else if legacyPstateAllowed {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Modo Detectado: Legacy P-States")
+                            Text(L10n.shared.amdPower.modeDetectedPStates)
                                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                                 .foregroundColor(.green)
                                 .padding(.bottom, -2)
@@ -222,7 +222,7 @@ struct AmdControlSection: View {
                     Divider().padding(.vertical, 4)
 
                     VStack(alignment: .leading, spacing: 14) {
-                        Text("Controles Avanzados")
+                        Text(L10n.shared.amdPower.advancedControls)
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundColor(.secondary)
 

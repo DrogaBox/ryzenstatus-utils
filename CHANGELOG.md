@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.5.1]
+
+- **Localization of AMD Power Control Views**: Fully localized all labels, headers, tooltips, mode badges, and footers in `AmdControlSection` and `AmdPowerSettingsView` via new `AMDPowerFeatureStrings`, ensuring seamless English and Spanish UI rendering.
+
 ## [1.5.0]
 
 - **OpenCore Boot-Arg Guidance Banner**: Added an inline informational banner in the Fans & Cooling settings section reminding users that manual fan speed control requires boot-arg `-amdpnopchk` in OpenCore `config.plist` and `SMCAMDProcessor.kext` v3.33.8+.
