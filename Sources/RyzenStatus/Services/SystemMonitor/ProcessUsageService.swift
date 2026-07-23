@@ -328,23 +328,24 @@ final class ProcessUsageService {
     func topCPU(limit: Int = 5) -> [ProcessUsage] {
         let now = ProcessInfo.processInfo.systemUptime
         cacheLock.lock()
-        if let cached = limitedRows(cpuCache, limit: limit, now: now, maxAge: cacheFreshSeconds) {
-            cacheLock.unlock()
-            return cached
-        }
-        if cpuLoading {
-            let cached = limitedRows(cpuCache, limit: limit, now: now, maxAge: staleCacheSeconds) ?? []
+        let cached = limitedRows(cpuCache, limit: limit, now: now, maxAge: staleCacheSeconds) ?? []
+        let isFresh = limitedRows(cpuCache, limit: limit, now: now, maxAge: cacheFreshSeconds) != nil
+        if isFresh || cpuLoading {
             cacheLock.unlock()
             return cached
         }
         cpuLoading = true
         cacheLock.unlock()
 
-        let result = Shell.run("/bin/ps", ["-Aceo", "pid,pcpu,comm", "-r"])
-        let rows = result.status == 0
-            ? groupedByApp(parsePS(result.output, maxRows: rawProcessRowLimit(for: limit)) { Double($0) ?? 0 })
-            : nil
-        return finishCPU(rows, limit: limit)
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            let result = Shell.run("/bin/ps", ["-Aceo", "pid,pcpu,comm", "-r"])
+            let rows = result.status == 0
+                ? self.groupedByApp(self.parsePS(result.output, maxRows: self.rawProcessRowLimit(for: limit)) { Double($0) ?? 0 })
+                : nil
+            _ = self.finishCPU(rows, limit: limit)
+        }
+        return cached
     }
 
     // MARK: - Memory
@@ -352,31 +353,28 @@ final class ProcessUsageService {
     func topMemory(limit: Int = 5) -> [ProcessUsage] {
         let now = ProcessInfo.processInfo.systemUptime
         cacheLock.lock()
-        if let cached = limitedRows(memoryCache, limit: limit, now: now, maxAge: memoryCacheFreshSeconds) {
-            cacheLock.unlock()
-            return cached
-        }
-        if memoryLoading {
-            let cached = limitedRows(memoryCache, limit: limit, now: now, maxAge: staleCacheSeconds) ?? []
+        let cached = limitedRows(memoryCache, limit: limit, now: now, maxAge: staleCacheSeconds) ?? []
+        let isFresh = limitedRows(memoryCache, limit: limit, now: now, maxAge: memoryCacheFreshSeconds) != nil
+        if isFresh || memoryLoading {
             cacheLock.unlock()
             return cached
         }
         memoryLoading = true
         cacheLock.unlock()
 
-        let result = Shell.run("/bin/ps", ["-Aceo", "pid,rss,comm", "-m"])
-        // ps enumerates and ranks the candidates; rss (KiB) is only the
-        // fallback value. The figure shown is the kernel's physical
-        // footprint, the same one Activity Monitor's Memory column uses —
-        // rss counts shared and purgeable pages and over-reports (issue #174).
-        let rows = result.status == 0
-            ? groupedByApp(parsePS(result.output, maxRows: rawProcessRowLimit(for: limit)) { (Double($0) ?? 0) * 1024 }
-                .map { row in
-                    guard let footprint = Self.physicalFootprint(of: row.pid) else { return row }
-                    return ProcessUsage(pid: row.pid, name: row.name, value: footprint)
-                })
-            : nil
-        return finishMemory(rows, limit: limit)
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            let result = Shell.run("/bin/ps", ["-Aceo", "pid,rss,comm", "-m"])
+            let rows = result.status == 0
+                ? self.groupedByApp(self.parsePS(result.output, maxRows: self.rawProcessRowLimit(for: limit)) { (Double($0) ?? 0) * 1024 }
+                    .map { row in
+                        guard let footprint = Self.physicalFootprint(of: row.pid) else { return row }
+                        return ProcessUsage(pid: row.pid, name: row.name, value: footprint)
+                    })
+                : nil
+            _ = self.finishMemory(rows, limit: limit)
+        }
+        return cached
     }
 
     /// The kernel's physical memory footprint of a process, readable for any
@@ -496,69 +494,55 @@ final class ProcessUsageService {
     func topGPU(limit: Int = 5) -> [ProcessUsage] {
         let now = ProcessInfo.processInfo.systemUptime
         cacheLock.lock()
-        if let cached = limitedRows(gpuCache, limit: limit, now: now, maxAge: cacheFreshSeconds) {
-            cacheLock.unlock()
-            return cached
-        }
-        if gpuLoading {
-            let cached = limitedRows(gpuCache, limit: limit, now: now, maxAge: staleCacheSeconds) ?? []
-            cacheLock.unlock()
-            return cached
-        }
-        cacheLock.unlock()
-
-        gpuSampleLock.lock()
-        let previousTime = previousGPUSample?.time
-        gpuSampleLock.unlock()
-        if let previousTime, now - previousTime < minimumGPUSampleInterval {
-            return cachedTop(.gpu, limit: limit, maxAge: staleCacheSeconds) ?? []
-        }
-
-        cacheLock.lock()
-        if gpuLoading {
-            let cached = limitedRows(gpuCache, limit: limit, now: now, maxAge: staleCacheSeconds) ?? []
+        let cached = limitedRows(gpuCache, limit: limit, now: now, maxAge: staleCacheSeconds) ?? []
+        let isFresh = limitedRows(gpuCache, limit: limit, now: now, maxAge: cacheFreshSeconds) != nil
+        if isFresh || gpuLoading {
             cacheLock.unlock()
             return cached
         }
         gpuLoading = true
         cacheLock.unlock()
 
-        let current = Self.gpuTimePerPid()
-        gpuSampleLock.lock()
-        let previous = previousGPUSample
-        previousGPUSample = (now, Dictionary(uniqueKeysWithValues: current.map { ($0.pid, $0.time) }))
-        gpuSampleLock.unlock()
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            let current = Self.gpuTimePerPid()
+            self.gpuSampleLock.lock()
+            let previous = self.previousGPUSample
+            self.previousGPUSample = (now, Dictionary(uniqueKeysWithValues: current.map { ($0.pid, $0.time) }))
+            self.gpuSampleLock.unlock()
 
-        guard let previous, now > previous.time,
-              now - previous.time < 30 // stale baseline => re-prime
-        else { return finishGPU(nil, limit: limit) }
+            guard let previous, now > previous.time,
+                  now - previous.time < 30
+            else {
+                _ = self.finishGPU(nil, limit: limit)
+                return
+            }
 
-        let elapsedNs = (now - previous.time) * 1_000_000_000
-        var rows: [ProcessUsage] = []
-        var computePercentSum: Double = 0
-        for (pid, name, total) in current {
-            guard let before = previous.perPid[pid], total > before else { continue }
-            let percent = (total - before) / elapsedNs * 100
-            guard percent >= 0.05 else { continue }
-            let displayName = ResponsibleProcess.displayName(pid: pid,
-                                                             fallback: name)
-            rows.append(ProcessUsage(pid: pid, name: displayName, value: min(percent, 100)))
-            computePercentSum += percent
+            let elapsedNs = (now - previous.time) * 1_000_000_000
+            var rows: [ProcessUsage] = []
+            var computePercentSum: Double = 0
+            for (pid, name, total) in current {
+                guard let before = previous.perPid[pid], total > before else { continue }
+                let percent = (total - before) / elapsedNs * 100
+                guard percent >= 0.05 else { continue }
+                let displayName = ResponsibleProcess.displayName(pid: pid, fallback: name)
+                rows.append(ProcessUsage(pid: pid, name: displayName, value: min(percent, 100)))
+                computePercentSum += percent
+            }
+            
+            let totalGPUUtil = Self.readTotalGPUUtilization()
+            self.totalGPUUtilPct = totalGPUUtil
+            if let wsPID = Self.windowServerPID,
+               totalGPUUtil > computePercentSum + 1,
+               totalGPUUtil > 2 {
+                let wsShare = max(0, totalGPUUtil - computePercentSum - 1)
+                let wsName = ResponsibleProcess.displayName(pid: wsPID, fallback: "WindowServer")
+                rows.append(ProcessUsage(pid: wsPID, name: wsName, value: min(wsShare, 100)))
+            }
+            
+            _ = self.finishGPU(self.groupedByApp(rows), limit: limit)
         }
-        
-        // Read total GPU utilization from PerformanceStatistics and attribute
-        // the unaccounted remainder to WindowServer (display compositing).
-        self.totalGPUUtilPct = Self.readTotalGPUUtilization()
-        if let wsPID = Self.windowServerPID,
-           self.totalGPUUtilPct > computePercentSum + 1,
-           self.totalGPUUtilPct > 2 {
-            let wsShare = max(0, self.totalGPUUtilPct - computePercentSum - 1)
-            let wsName = ResponsibleProcess.displayName(pid: wsPID,
-                                                        fallback: "WindowServer")
-            rows.append(ProcessUsage(pid: wsPID, name: wsName, value: min(wsShare, 100)))
-        }
-        
-        return finishGPU(groupedByApp(rows), limit: limit)
+        return cached
     }
     
     /// Reads the global GPU utilization (%) from IOAccelerator PerformanceStatistics.

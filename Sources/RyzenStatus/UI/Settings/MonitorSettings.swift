@@ -45,7 +45,8 @@ struct MonitorSettings: View {
                 ) ?? .values
                 MenuBarMetricsPreview()
                     .padding(.vertical, 4)
-                Picker(appearanceStrings.label, selection: $metricAppearance) {
+                
+                Picker(MenuBarMetric.cpu.title(l10n.s), selection: $appCPU) {
                     Text(appearanceStrings.values).tag("values")
                     Text(appearanceStrings.bars).tag("bars")
                     Text(appearanceStrings.pie).tag("pie")
@@ -53,38 +54,28 @@ struct MonitorSettings: View {
                     Text(appearanceStrings.histogram).tag("histogram")
                 }
                 
-                DisclosureGroup(appearanceStrings.individualPerMetric) {
-                    Picker(MenuBarMetric.cpu.title(l10n.s), selection: $appCPU) {
-                        Text(appearanceStrings.values).tag("values")
-                        Text(appearanceStrings.bars).tag("bars")
-                        Text(appearanceStrings.pie).tag("pie")
-                        Text(appearanceStrings.sparkline).tag("sparkline")
-                        Text(appearanceStrings.histogram).tag("histogram")
-                    }
-                    
-                    Picker(MenuBarMetric.gpu.title(l10n.s), selection: $appGPU) {
-                        Text(appearanceStrings.values).tag("values")
-                        Text(appearanceStrings.bars).tag("bars")
-                        Text(appearanceStrings.pie).tag("pie")
-                        Text(appearanceStrings.sparkline).tag("sparkline")
-                    }
-                    
-                    Picker(MenuBarMetric.memory.title(l10n.s), selection: $appRAM) {
-                        Text(appearanceStrings.values).tag("values")
-                        Text(appearanceStrings.bars).tag("bars")
-                        Text(appearanceStrings.pie).tag("pie")
-                        Text(appearanceStrings.sparkline).tag("sparkline")
-                    }
-                    
-                    Picker(MenuBarMetric.network.title(l10n.s), selection: $appNet) {
-                        Text(appearanceStrings.values).tag("values")
-                        Text(appearanceStrings.sparkline).tag("sparkline")
-                    }
-                    
-                    Picker(MenuBarMetric.diskUsage.title(l10n.s), selection: $appDisk) {
-                        Text(appearanceStrings.values).tag("values")
-                        Text(appearanceStrings.bars).tag("bars")
-                    }
+                Picker(MenuBarMetric.gpu.title(l10n.s), selection: $appGPU) {
+                    Text(appearanceStrings.values).tag("values")
+                    Text(appearanceStrings.bars).tag("bars")
+                    Text(appearanceStrings.pie).tag("pie")
+                    Text(appearanceStrings.sparkline).tag("sparkline")
+                }
+                
+                Picker(MenuBarMetric.memory.title(l10n.s), selection: $appRAM) {
+                    Text(appearanceStrings.values).tag("values")
+                    Text(appearanceStrings.bars).tag("bars")
+                    Text(appearanceStrings.pie).tag("pie")
+                    Text(appearanceStrings.sparkline).tag("sparkline")
+                }
+                
+                Picker(MenuBarMetric.network.title(l10n.s), selection: $appNet) {
+                    Text(appearanceStrings.values).tag("values")
+                    Text(appearanceStrings.sparkline).tag("sparkline")
+                }
+                
+                Picker(MenuBarMetric.diskUsage.title(l10n.s), selection: $appDisk) {
+                    Text(appearanceStrings.values).tag("values")
+                    Text(appearanceStrings.bars).tag("bars")
                 }
                 
                 Picker(appearanceStrings.popoverStyle, selection: $panelViewStyle) {

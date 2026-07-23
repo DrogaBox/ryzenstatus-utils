@@ -1368,13 +1368,33 @@ enum MenuBarRenderer {
 
         let height: CGFloat = style == .readable ? 22 : 20
         let graphWidth: CGFloat = style == .readable ? 38 : 34
-        let imageSize = NSSize(width: graphWidth, height: height)
+        let labelWidth: CGFloat = style == .readable ? 8.5 : 7.5
+        let labelGap: CGFloat = 2.5
+        let imageSize = NSSize(width: labelWidth + labelGap + graphWidth, height: height)
 
         let image = NSImage(size: imageSize, flipped: false) { rect in
             NSColor.clear.setFill()
             rect.fill()
 
-            let graphRect = NSRect(x: 0.5, y: 2, width: imageSize.width - 1, height: height - 4)
+            // 1. Draw Vertical "NET" Text on the Left
+            let text = "NET" as NSString
+            let textFont = NSFont.systemFont(ofSize: style == .readable ? 7.5 : 6.8, weight: .black)
+            let textAttrs = dynamicTextAttributes(font: textFont)
+            let textSize = text.size(withAttributes: textAttrs)
+
+            if let ctx = NSGraphicsContext.current?.cgContext {
+                ctx.saveGState()
+                let tx = (labelWidth - textSize.height) / 2 + 1.5
+                let ty = (height - textSize.width) / 2
+                ctx.translateBy(x: tx, y: ty)
+                ctx.rotate(by: .pi / 2)
+                text.draw(at: NSPoint(x: 0, y: 0), withAttributes: textAttrs)
+                ctx.restoreGState()
+            }
+
+            // 2. Draw Dual Graph Box on the Right
+            let startX = labelWidth + labelGap
+            let graphRect = NSRect(x: startX + 0.5, y: 2, width: graphWidth - 1, height: height - 4)
             let boxPath = NSBezierPath(roundedRect: graphRect, xRadius: 3, yRadius: 3)
             NSColor.labelColor.withAlphaComponent(0.35).setStroke()
             boxPath.lineWidth = 1.2
@@ -1436,21 +1456,42 @@ enum MenuBarRenderer {
         let barWidth: CGFloat = style == .readable ? (count > 24 ? 1.8 : 2.5) : (count > 24 ? 1.4 : 2.0)
         let barGap: CGFloat = 1.0
         let graphWidth = CGFloat(count) * barWidth + CGFloat(count - 1) * barGap + 6
-        let imageSize = NSSize(width: graphWidth, height: height)
+        
+        let labelWidth: CGFloat = style == .readable ? 8.5 : 7.5
+        let labelGap: CGFloat = 2.5
+        let imageSize = NSSize(width: labelWidth + labelGap + graphWidth, height: height)
 
         let image = NSImage(size: imageSize, flipped: false) { rect in
             NSColor.clear.setFill()
             rect.fill()
 
-            let graphRect = NSRect(x: 0.5, y: 2, width: imageSize.width - 1, height: height - 4)
+            // 1. Draw Vertical "CPU" Text on the Left
+            let text = "CPU" as NSString
+            let textFont = NSFont.systemFont(ofSize: style == .readable ? 7.5 : 6.8, weight: .black)
+            let textAttrs = dynamicTextAttributes(font: textFont)
+            let textSize = text.size(withAttributes: textAttrs)
+
+            if let ctx = NSGraphicsContext.current?.cgContext {
+                ctx.saveGState()
+                let tx = (labelWidth - textSize.height) / 2 + 1.5
+                let ty = (height - textSize.width) / 2
+                ctx.translateBy(x: tx, y: ty)
+                ctx.rotate(by: .pi / 2)
+                text.draw(at: NSPoint(x: 0, y: 0), withAttributes: textAttrs)
+                ctx.restoreGState()
+            }
+
+            // 2. Draw Core Histogram Box on the Right
+            let startX = labelWidth + labelGap
+            let graphRect = NSRect(x: startX + 0.5, y: 2, width: graphWidth - 1, height: height - 4)
             let boxPath = NSBezierPath(roundedRect: graphRect, xRadius: 3, yRadius: 3)
             NSColor.labelColor.withAlphaComponent(0.35).setStroke()
             boxPath.lineWidth = 1.2
             boxPath.stroke()
 
             let innerRect = graphRect.insetBy(dx: 2.0, dy: 2.0)
-            let coreList = Array(cores.prefix(32))
-            let singleBarWidth = max(1.5, (innerRect.width - CGFloat(coreList.count - 1) * barGap) / CGFloat(coreList.count))
+            let coreList = Array(cores.prefix(64))
+            let singleBarWidth = max(1.2, (innerRect.width - CGFloat(coreList.count - 1) * barGap) / CGFloat(coreList.count))
 
             for (i, core) in coreList.enumerated() {
                 let norm = max(0.06, min(1.0, core.loadPct / 100.0))

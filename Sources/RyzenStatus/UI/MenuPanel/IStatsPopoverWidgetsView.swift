@@ -55,9 +55,9 @@ struct IStatsPopoverWidgetsView: View {
     @ObservedObject var monitor: SystemMonitor
     let editing: Bool
     
-    @AppStorage(DefaultsKey.monitorSysCPU) private var sysCPU = true
-    @AppStorage(DefaultsKey.monitorSysGPU) private var sysGPU = true
-    @AppStorage(DefaultsKey.monitorSysMemory) private var sysMemory = true
+    @AppStorage("istats_show_cpu") private var showCPU = true
+    @AppStorage("istats_show_gpu") private var showGPU = true
+    @AppStorage("istats_show_memory") private var showMemory = true
     @AppStorage("istats_show_cores") private var showCores = true
     @AppStorage("istatsCardOrder") private var rawCardOrder = "cpu,cores,memory,gpu"
     
@@ -89,19 +89,19 @@ struct IStatsPopoverWidgetsView: View {
     
     private func isCardVisible(_ card: IStatsCardKind) -> Bool {
         switch card {
-        case .cpu: return sysCPU
-        case .cores: return showCores && sysCPU
-        case .memory: return sysMemory
-        case .gpu: return sysGPU
+        case .cpu: return showCPU
+        case .cores: return showCores && showCPU
+        case .memory: return showMemory
+        case .gpu: return showGPU
         }
     }
     
     private func bindingForCard(_ card: IStatsCardKind) -> Binding<Bool> {
         switch card {
-        case .cpu: return $sysCPU
+        case .cpu: return $showCPU
         case .cores: return $showCores
-        case .memory: return $sysMemory
-        case .gpu: return $sysGPU
+        case .memory: return $showMemory
+        case .gpu: return $showGPU
         }
     }
     
@@ -227,9 +227,9 @@ struct IStatsPopoverWidgetsView: View {
                 }
             }
             .padding(10)
-            .background(Color.primary.opacity(sysCPU ? 0.05 : 0.02))
+            .background(Color.primary.opacity(showCPU ? 0.05 : 0.02))
             .cornerRadius(10)
-            .opacity(sysCPU ? 1.0 : 0.4)
+            .opacity(showCPU ? 1.0 : 0.4)
             
         case .cores:
             // 2. Circular Donut Ring Core Grid
@@ -377,9 +377,9 @@ struct IStatsPopoverWidgetsView: View {
                 }
             }
             .padding(10)
-            .background(Color.primary.opacity(sysMemory ? 0.05 : 0.02))
+            .background(Color.primary.opacity(showMemory ? 0.05 : 0.02))
             .cornerRadius(10)
-            .opacity(sysMemory ? 1.0 : 0.4)
+            .opacity(showMemory ? 1.0 : 0.4)
             
         case .gpu:
             // 4. GPU Circular Donut Gauges & Top GPU Processes
@@ -452,9 +452,9 @@ struct IStatsPopoverWidgetsView: View {
                 }
             }
             .padding(10)
-            .background(Color.primary.opacity(sysGPU ? 0.05 : 0.02))
+            .background(Color.primary.opacity(showGPU ? 0.05 : 0.02))
             .cornerRadius(10)
-            .opacity(sysGPU ? 1.0 : 0.4)
+            .opacity(showGPU ? 1.0 : 0.4)
         }
     }
 }
