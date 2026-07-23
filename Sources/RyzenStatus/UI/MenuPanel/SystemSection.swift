@@ -396,10 +396,9 @@ struct SystemSection: View {
 
     private func usageRows(editing: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                subsectionLabel(l10n.s.usageSection)
-                Spacer()
-                if editing {
+            if editing {
+                HStack {
+                    Spacer()
                     let appearanceStrings = FeatureStrings.menuBarAppearance(l10n.language)
                     Picker("", selection: $panelViewStyle) {
                         Text(appearanceStrings.classicCards).tag("cards")

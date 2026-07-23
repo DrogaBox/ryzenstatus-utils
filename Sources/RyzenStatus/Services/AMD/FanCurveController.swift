@@ -85,6 +85,7 @@ class FanCurveController: ObservableObject {
         controlTask = Task.detached(priority: .background) { [weak self] in
             var lastTemp: [FanSensor: Double] = [:]
             var currentPWM: [Int: Double] = [:] // Fan ID -> PWM
+            var lastSentSMCValue: [Int: Int] = [:] // Fan ID -> last sent SMC PWM (0-255)
             
             // Track which fans are already in manual mode to avoid redundant IOKit calls
             var manualFans: Set<Int> = []
@@ -104,7 +105,14 @@ class FanCurveController: ObservableObject {
                 let curves = await self.customCurves
                 
                 for (fanId, curveIdx) in mappings {
-                    if curveIdx < 0 || curveIdx >= curves.count { continue }
+                    if curveIdx < 0 || curveIdx >= curves.count {
+                        if manualFans.contains(fanId) {
+                            _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fanId)
+                            manualFans.remove(fanId)
+                            lastSentSMCValue.removeValue(forKey: fanId)
+                        }
+                        continue
+                    }
                     
                     let curve = curves[curveIdx]
                     let rawTemp = curve.sourceSensor == .cpu ? cpuTemp : gpuTemp
@@ -143,7 +151,11 @@ class FanCurveController: ObservableObject {
                     let clampedPWM = min(max(newPWM, 0), 100)
                     let finalSMCValue = min(max(Int((clampedPWM / 100.0) * 255.0), 0), 255)
                     
-                    _ = ProcessorModel.shared.setFanSpeed(rpm: finalSMCValue, fanIndex: fanId)
+                    // Deduplicate hardware writes: only send IOKit call when target value changes
+                    if lastSentSMCValue[fanId] != finalSMCValue {
+                        _ = ProcessorModel.shared.setFanSpeed(rpm: finalSMCValue, fanIndex: fanId)
+                        lastSentSMCValue[fanId] = finalSMCValue
+                    }
                 }
             }
         }
