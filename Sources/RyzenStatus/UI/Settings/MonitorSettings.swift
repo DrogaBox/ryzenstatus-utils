@@ -86,9 +86,8 @@ struct MonitorSettings: View {
                 Text(appearanceStrings.caption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if appearance == .bars {
-                    MenuBarUsageBarSettings(strings: appearanceStrings)
-                } else {
+                MenuBarUsageBarSettings(strings: appearanceStrings)
+                if appearance != .bars {
                     Toggle(l10n.s.monitorCombineTemperatures, isOn: $combineTemperatures)
                     Text(l10n.s.monitorCombineTemperaturesCaption)
                         .font(.caption)

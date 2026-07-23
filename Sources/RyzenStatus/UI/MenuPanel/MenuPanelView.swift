@@ -162,8 +162,10 @@ struct MenuPanelView: View {
 
     private var navigablePanel: some View {
         VStack(alignment: .leading, spacing: 6) {
-            UpdateBanner()
-                .reportHeight($updateBannerHeight)
+            if updates.state.showsMenuPanelBanner {
+                UpdateBanner()
+                    .reportHeight($updateBannerHeight)
+            }
             header
             
             if !accordionMode {
@@ -187,14 +189,18 @@ struct MenuPanelView: View {
 
             footer
         }
-        .padding(12)
+        .padding(.top, 6)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 10)
         .frame(width: 332, height: navigablePanelHeight)
     }
 
     private var metricPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            UpdateBanner()
-                .reportHeight($updateBannerHeight)
+            if updates.state.showsMenuPanelBanner {
+                UpdateBanner()
+                    .reportHeight($updateBannerHeight)
+            }
             header
 
             if let selectedMetric {
@@ -208,7 +214,9 @@ struct MenuPanelView: View {
 
             footer
         }
-        .padding(12)
+        .padding(.top, 6)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 10)
         .frame(width: 332, height: metricPanelHeight)
     }
 
@@ -450,20 +458,27 @@ struct MenuPanelView: View {
         .padding(.top, 4)
     }
 
-    private func footerButton(_ title: String,
-                             systemImage: String,
-                             horizontalPadding: CGFloat = 8,
-                             action: @escaping () -> Void) -> some View {
+    private func footerButton(_ title: String, systemImage: String,
+                              horizontalPadding: CGFloat = 8,
+                              action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 11))
-                Text(title)
-                    .font(.system(size: 11, weight: .medium))
-            }
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .minimumScaleFactor(0.78)
+                .labelStyle(.titleAndIcon)
+                .padding(.horizontal, horizontalPadding)
+                .frame(maxWidth: .infinity, minHeight: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(PanelSurface.cardFill(for: colorScheme))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(PanelSurface.border(for: colorScheme), lineWidth: 0.8)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)

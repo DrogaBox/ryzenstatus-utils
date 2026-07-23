@@ -520,7 +520,9 @@ enum MenuBarRenderer {
                         let img = pieBlockImage(label: "CPU", fraction: usage, style: style, pressure: nil)
                         groups.append([.customImage(img)])
                     } else if appearance == .sparkline {
-                        let img = sparklineBlockImage(label: "CPU", history: snapshot.cpuHistory, colorHex: "#64D2FF", style: style)
+                        let cpuLevel = MenuBarUsageBarSupport.currentLevel(for: usage)
+                        let cpuColorHex = MenuBarUsageBarSupport.currentColorHex(for: cpuLevel)
+                        let img = sparklineBlockImage(label: "CPU", history: snapshot.cpuHistory, colorHex: cpuColorHex, style: style)
                         groups.append([.customImage(img)])
                     } else if usesBars {
                         groups.append([.usageBarBlock(label: "CPU",
@@ -575,7 +577,9 @@ enum MenuBarRenderer {
                         let img = pieBlockImage(label: "GPU", fraction: usage, style: style, pressure: nil)
                         groups.append([.customImage(img)])
                     } else if appearance == .sparkline || appearance == .histogram {
-                        let img = sparklineBlockImage(label: "GPU", history: snapshot.gpuHistory, colorHex: "#FF9500", style: style)
+                        let gpuLevel = MenuBarUsageBarSupport.currentLevel(for: usage)
+                        let gpuColorHex = MenuBarUsageBarSupport.currentColorHex(for: gpuLevel)
+                        let img = sparklineBlockImage(label: "GPU", history: snapshot.gpuHistory, colorHex: gpuColorHex, style: style)
                         groups.append([.customImage(img)])
                     } else if usesBars {
                         groups.append([.usageBarBlock(label: "GPU",
@@ -640,7 +644,9 @@ enum MenuBarRenderer {
                     let img = pieBlockImage(label: "RAM", fraction: memFraction, style: style, pressure: memoryStyle.showsDot ? snapshot.memoryPressure : nil)
                     groups.append([.customImage(img)])
                 } else if appearance == .sparkline || appearance == .histogram {
-                    let img = sparklineBlockImage(label: "RAM", history: snapshot.memoryHistory, colorHex: "#AF52DE", style: style)
+                    let ramLevel = MenuBarUsageBarSupport.currentLevel(for: memFraction ?? 0)
+                    let ramColorHex = MenuBarUsageBarSupport.currentColorHex(for: ramLevel)
+                    let img = sparklineBlockImage(label: "RAM", history: snapshot.memoryHistory, colorHex: ramColorHex, style: style)
                     groups.append([.customImage(img)])
                 } else if usesBars {
                     groups.append([.usageBarBlock(label: "RAM",

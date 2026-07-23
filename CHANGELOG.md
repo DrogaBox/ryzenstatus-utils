@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.4.5]
+
+- **Restored Glass Card Footer Buttons**: Restored the original rounded glass cards with stroke borders for `Ajustes` and `Salir` footer buttons in the main panel.
+- **Fixed Header Blank Space**: Removed empty update banner padding and optimized top padding under the popover arrow.
+- **Always-Visible Percentage Threshold Colors**: Made Normal, Medium, and High percentage color threshold pickers always accessible in Settings across all graph modes (Bars, Histograms, Sparklines, and Pies).
+
 ## [1.4.4]
 
 - **Full 13-Language Internationalization for iStats**: Added native compiler-checked translations for all 13 supported languages across CPU, Cores, Memory, GPU, and Process List headers.
