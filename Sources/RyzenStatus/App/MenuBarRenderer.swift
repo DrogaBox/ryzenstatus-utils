@@ -1479,32 +1479,60 @@ enum MenuBarRenderer {
         return image
     }
 
+    private static func drawGraphValueOverlay(valueText: String, in rect: NSRect, style: MenuBarBlockStyle, fontScale: CGFloat = 1.0) {
+        guard !valueText.isEmpty else { return }
+        let fontSize: CGFloat = (style == .readable ? 7.8 : 7.0) * fontScale
+        let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .bold)
+        let valAttrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.white
+        ]
+        let valSize = (valueText as NSString).size(withAttributes: valAttrs)
+        let vx = floor(rect.minX + (rect.width - valSize.width) / 2.0)
+        let vy = floor(rect.minY + (rect.height - valSize.height) / 2.0)
+        
+        // High contrast dark pill background (prevents graph bars from slicing through text)
+        let pillRect = NSRect(x: vx - 2.0, y: vy - 0.5, width: valSize.width + 4.0, height: valSize.height + 1.0)
+        let pillPath = NSBezierPath(roundedRect: pillRect, xRadius: 2.5, yRadius: 2.5)
+        NSColor.black.withAlphaComponent(0.68).setFill()
+        pillPath.fill()
+        
+        // 4-direction outline stroke for maximum sharpness on light or dark menubars
+        let strokeAttrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.black.withAlphaComponent(0.9)
+        ]
+        (valueText as NSString).draw(at: NSPoint(x: vx - 0.5, y: vy), withAttributes: strokeAttrs)
+        (valueText as NSString).draw(at: NSPoint(x: vx + 0.5, y: vy), withAttributes: strokeAttrs)
+        (valueText as NSString).draw(at: NSPoint(x: vx, y: vy - 0.5), withAttributes: strokeAttrs)
+        (valueText as NSString).draw(at: NSPoint(x: vx, y: vy + 0.5), withAttributes: strokeAttrs)
+
+        // Bold white text on top
+        (valueText as NSString).draw(at: NSPoint(x: vx, y: vy), withAttributes: valAttrs)
+    }
+
     private static func coreHistogramBlockImage(cores: [CoreSnapshot],
                                                 valueText: String? = nil,
                                                 style: MenuBarBlockStyle) -> NSImage {
         let sampleKey = cores.map { String(format: "%.0f", $0.loadPct) }.joined(separator: ",")
         let valKey = valueText ?? ""
-        let cacheKey = "coreHistogram|\(sampleKey)|\(valKey)|\(style)" as NSString
+        let cacheKey = "coreHisto|\(sampleKey)|\(valKey)|\(style)" as NSString
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
 
         let height: CGFloat = style == .readable ? 22 : 20
-        let count = max(1, min(64, cores.count))
-        let barWidth: CGFloat = style == .readable ? (count > 24 ? 1.8 : 2.5) : (count > 24 ? 1.4 : 2.0)
-        let barGap: CGFloat = 1.0
-        let graphWidth = CGFloat(count) * barWidth + CGFloat(count - 1) * barGap + 6
-        
-        let labelWidth: CGFloat = style == .readable ? 6.5 : 6.0
-        let labelGap: CGFloat = 3.0
-        let imageSize = NSSize(width: labelWidth + labelGap + graphWidth, height: height)
+        let graphWidth: CGFloat = style == .readable ? 50 : 44
+        let labelFont = NSFont.systemFont(ofSize: style == .readable ? 6.5 : 6.1, weight: .bold)
+        let labelAttrs = dynamicTextAttributes(font: labelFont)
+        let labelWidth: CGFloat = style == .readable ? 6.5 : 6
+        let gap: CGFloat = 3.0
+        let imageSize = NSSize(width: labelWidth + gap + graphWidth, height: height)
 
         let image = NSImage(size: imageSize, flipped: false) { rect in
             NSColor.clear.setFill()
             rect.fill()
 
-            // 1. Draw Vertical "CPU" Stacked Characters on the Left
-            let labelFont = NSFont.systemFont(ofSize: style == .readable ? 6.5 : 6.1, weight: .bold)
-            let labelAttrs = dynamicTextAttributes(font: labelFont)
-            let characters = Array("CPU".prefix(3)).map(String.init)
+            let label = "CPU"
+            let characters = Array(label.prefix(3)).map(String.init)
             let rowHeight = (height - 2) / 3
             for (index, character) in characters.enumerated() {
                 let characterSize = (character as NSString).size(withAttributes: labelAttrs)
@@ -1513,20 +1541,20 @@ enum MenuBarRenderer {
                 (character as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: labelAttrs)
             }
 
-            // 2. Draw Core Histogram Box on the Right
-            let startX = labelWidth + labelGap
-            let graphRect = NSRect(x: startX + 0.5, y: 2, width: graphWidth - 1, height: height - 4)
-            let boxPath = NSBezierPath(roundedRect: graphRect, xRadius: 3, yRadius: 3)
-            NSColor.labelColor.withAlphaComponent(0.35).setStroke()
-            boxPath.lineWidth = 1.2
+            let graphRect = NSRect(x: labelWidth + gap + 0.5, y: 2, width: graphWidth - 1, height: height - 4)
+            let boxPath = NSBezierPath(roundedRect: graphRect, xRadius: 2, yRadius: 2)
+            NSColor.labelColor.withAlphaComponent(0.25).setStroke()
+            boxPath.lineWidth = 1.0
             boxPath.stroke()
 
-            let innerRect = graphRect.insetBy(dx: 2.0, dy: 2.0)
-            let coreList = Array(cores.prefix(64))
-            let singleBarWidth = max(1.2, (innerRect.width - CGFloat(coreList.count - 1) * barGap) / CGFloat(coreList.count))
+            let innerRect = graphRect.insetBy(dx: 1.5, dy: 1.5)
+            let n = max(1, cores.count)
+            let totalGap = CGFloat(n - 1) * 0.5
+            let singleBarWidth = max(0.5, (innerRect.width - totalGap) / CGFloat(n))
+            let barGap = (innerRect.width - singleBarWidth * CGFloat(n)) / CGFloat(max(1, n - 1))
 
-            for (i, core) in coreList.enumerated() {
-                let norm = max(0.06, min(1.0, core.loadPct / 100.0))
+            for (i, core) in cores.enumerated() {
+                let norm = max(0.08, min(1.0, core.loadPct / 100.0))
                 let bx = innerRect.minX + CGFloat(i) * (singleBarWidth + barGap)
                 let bh = innerRect.height * CGFloat(norm)
                 let barRect = NSRect(x: bx, y: innerRect.minY, width: singleBarWidth, height: bh)
@@ -1535,14 +1563,7 @@ enum MenuBarRenderer {
             }
 
             if let valueText, !valueText.isEmpty {
-                let font = NSFont.monospacedDigitSystemFont(ofSize: style == .readable ? 7.8 : 7.0, weight: .bold)
-                let valAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.white]
-                let shadowAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.black.withAlphaComponent(0.85)]
-                let valSize = (valueText as NSString).size(withAttributes: valAttrs)
-                let vx = graphRect.minX + (graphRect.width - valSize.width) / 2
-                let vy = graphRect.minY + (graphRect.height - valSize.height) / 2
-                (valueText as NSString).draw(at: NSPoint(x: vx + 0.5, y: vy - 0.5), withAttributes: shadowAttrs)
-                (valueText as NSString).draw(at: NSPoint(x: vx, y: vy), withAttributes: valAttrs)
+                drawGraphValueOverlay(valueText: valueText, in: graphRect, style: style)
             }
             return true
         }
@@ -1605,12 +1626,7 @@ enum MenuBarRenderer {
             }
 
             if let valueText, !valueText.isEmpty {
-                let font = NSFont.monospacedDigitSystemFont(ofSize: style == .readable ? 5.8 : 5.2, weight: .bold)
-                let valAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor]
-                let valSize = (valueText as NSString).size(withAttributes: valAttrs)
-                let vx = circleRect.minX + (circleRect.width - valSize.width) / 2
-                let vy = circleRect.minY + (circleRect.height - valSize.height) / 2
-                (valueText as NSString).draw(at: NSPoint(x: vx, y: vy), withAttributes: valAttrs)
+                drawGraphValueOverlay(valueText: valueText, in: circleRect, style: style, fontScale: 0.72)
             }
             return true
         }
@@ -1689,14 +1705,7 @@ enum MenuBarRenderer {
             }
 
             if let valueText, !valueText.isEmpty {
-                let font = NSFont.monospacedDigitSystemFont(ofSize: style == .readable ? 7.8 : 7.0, weight: .bold)
-                let valAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.white]
-                let shadowAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.black.withAlphaComponent(0.85)]
-                let valSize = (valueText as NSString).size(withAttributes: valAttrs)
-                let vx = graphRect.minX + (graphRect.width - valSize.width) / 2
-                let vy = graphRect.minY + (graphRect.height - valSize.height) / 2
-                (valueText as NSString).draw(at: NSPoint(x: vx + 0.5, y: vy - 0.5), withAttributes: shadowAttrs)
-                (valueText as NSString).draw(at: NSPoint(x: vx, y: vy), withAttributes: valAttrs)
+                drawGraphValueOverlay(valueText: valueText, in: graphRect, style: style)
             }
 
             return true
