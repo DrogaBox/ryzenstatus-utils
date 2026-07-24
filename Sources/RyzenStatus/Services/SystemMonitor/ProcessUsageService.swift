@@ -412,7 +412,7 @@ final class ProcessUsageService {
     }
 
     private func rawProcessRowLimit(for limit: Int) -> Int {
-        max(limit * 10, 120)
+        max(limit * 40, 500)
     }
 
     // MARK: - Consolidation
