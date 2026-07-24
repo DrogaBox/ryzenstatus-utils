@@ -426,7 +426,8 @@ final class ProcessUsageService {
 
         for row in rows {
             if kill(row.pid, 0) != 0 && errno == ESRCH { continue }
-            let owner = ResponsibleProcess.owner(of: row.pid)
+            let respOwner = ResponsibleProcess.owner(of: row.pid)
+            let owner = (respOwner <= 1) ? row.pid : respOwner
             totals[owner, default: 0] += row.value
             if fallbackNames[owner] == nil {
                 fallbackNames[owner] = row.name
