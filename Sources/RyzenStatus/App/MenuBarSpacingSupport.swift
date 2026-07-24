@@ -249,4 +249,19 @@ enum MenuBarSpacingSupport {
             && renderedTitleLength == 0
             && !mustShowForSignal
     }
+
+    /// A metric item that briefly has nothing to show (reading dropped for a
+    /// tick, transient sample gap) stays installed for a short grace window
+    /// before taking its item away. Toggling the item away and putting it
+    /// back forces the system status bar to re-layout the whole bar and
+    /// writes its position defaults back to disk.
+    static let emptyMetricRendersBeforeRemoval = 3
+
+    static func keepsMetricStatusItem(hasRenderedTitle: Bool,
+                                      itemExists: Bool,
+                                      consecutiveEmptyRenders: Int = 0) -> Bool {
+        if hasRenderedTitle { return true }
+        if !itemExists { return false }
+        return consecutiveEmptyRenders < emptyMetricRendersBeforeRemoval
+    }
 }

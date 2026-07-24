@@ -176,9 +176,25 @@ final class StatusItemController {
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
                                                                   object: nil,
                                                                   queue: .main) { [weak self] _ in
-            self?.syncMonitorMode()
-            self?.updateIconAppearance()
-            self?.refresh()
+            self?.scheduleSettingsSync()
+        }
+    }
+
+    private var settingsSyncScheduled = false
+    private var isRefreshing = false
+    private var refreshRequestedWhileRunning = false
+    private var renderedMetricItemCount = 0
+    private var metricEmptyRenders: [String: Int] = [:]
+
+    private func scheduleSettingsSync() {
+        guard !settingsSyncScheduled else { return }
+        settingsSyncScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.settingsSyncScheduled = false
+            self.syncMonitorMode()
+            self.updateIconAppearance()
+            self.refresh()
         }
     }
 
@@ -279,6 +295,22 @@ final class StatusItemController {
 
     /// Updates the countdown title and tooltip from the current session state.
     func refresh() {
+        guard !isRefreshing else {
+            refreshRequestedWhileRunning = true
+            return
+        }
+        isRefreshing = true
+        defer {
+            isRefreshing = false
+            if refreshRequestedWhileRunning {
+                refreshRequestedWhileRunning = false
+                DispatchQueue.main.async { [weak self] in self?.refresh() }
+            }
+        }
+        performRefresh()
+    }
+
+    private func performRefresh() {
         guard let button = statusItem?.button else { return }
         let manager = KeepAwakeManager.shared
         let strings = L10n.shared.s
