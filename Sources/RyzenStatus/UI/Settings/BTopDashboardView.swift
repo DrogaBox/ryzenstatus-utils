@@ -273,6 +273,9 @@ struct BTopDashboardView: View {
             processTimer?.invalidate()
             processTimer = nil
         }
+        .onReceive(NotificationCenter.default.publisher(for: .processUsageDidUpdate)) { _ in
+            refreshProcesses()
+        }
     }
     
     private func refreshProcesses() {

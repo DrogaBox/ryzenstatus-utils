@@ -584,36 +584,52 @@ final class ProcessUsageService {
         return 0
     }
 
+extension Notification.Name {
+    static let processUsageDidUpdate = Notification.Name("ProcessUsageDidUpdate")
+}
+
     private func finishCPU(_ rows: [ProcessUsage]?, limit: Int) -> [ProcessUsage] {
         cacheLock.lock()
-        defer { cacheLock.unlock() }
         cpuLoading = false
         if let rows {
             cpuCache = cachedRows(from: rows)
+            cacheLock.unlock()
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .processUsageDidUpdate, object: nil)
+            }
             return Array(rows.prefix(limit))
         }
+        cacheLock.unlock()
         return limitedRows(cpuCache, limit: limit, now: ProcessInfo.processInfo.systemUptime, maxAge: staleCacheSeconds) ?? []
     }
 
     private func finishMemory(_ rows: [ProcessUsage]?, limit: Int) -> [ProcessUsage] {
         cacheLock.lock()
-        defer { cacheLock.unlock() }
         memoryLoading = false
         if let rows {
             memoryCache = cachedRows(from: rows)
+            cacheLock.unlock()
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .processUsageDidUpdate, object: nil)
+            }
             return Array(rows.prefix(limit))
         }
+        cacheLock.unlock()
         return limitedRows(memoryCache, limit: limit, now: ProcessInfo.processInfo.systemUptime, maxAge: staleCacheSeconds) ?? []
     }
 
     private func finishGPU(_ rows: [ProcessUsage]?, limit: Int) -> [ProcessUsage] {
         cacheLock.lock()
-        defer { cacheLock.unlock() }
         gpuLoading = false
         if let rows {
             gpuCache = cachedRows(from: rows)
+            cacheLock.unlock()
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .processUsageDidUpdate, object: nil)
+            }
             return Array(rows.prefix(limit))
         }
+        cacheLock.unlock()
         return limitedRows(gpuCache, limit: limit, now: ProcessInfo.processInfo.systemUptime, maxAge: staleCacheSeconds) ?? []
     }
 
