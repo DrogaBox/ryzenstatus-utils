@@ -325,7 +325,7 @@ final class ProcessUsageService {
 
     // MARK: - CPU
 
-    func topCPU(limit: Int = 5) -> [ProcessUsage] {
+    func topCPU(limit: Int = 15) -> [ProcessUsage] {
         let now = ProcessInfo.processInfo.systemUptime
         cacheLock.lock()
         let cached = limitedRows(cpuCache, limit: limit, now: now, maxAge: staleCacheSeconds) ?? []
@@ -350,7 +350,7 @@ final class ProcessUsageService {
 
     // MARK: - Memory
 
-    func topMemory(limit: Int = 5) -> [ProcessUsage] {
+    func topMemory(limit: Int = 15) -> [ProcessUsage] {
         let now = ProcessInfo.processInfo.systemUptime
         cacheLock.lock()
         let cached = limitedRows(memoryCache, limit: limit, now: now, maxAge: staleCacheSeconds) ?? []
@@ -620,6 +620,10 @@ final class ProcessUsageService {
 
     private func limitedRows(_ cache: CachedRows?, limit: Int, now: TimeInterval, maxAge: TimeInterval) -> [ProcessUsage]? {
         guard let cache, now - cache.updatedAt <= maxAge else { return nil }
+        if cache.rows.count < limit {
+            // Cache has fewer rows than requested limit — force refresh for larger limit
+            return nil
+        }
         return Array(cache.rows.prefix(limit))
     }
 
