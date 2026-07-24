@@ -84,7 +84,8 @@ struct SensorsView: View {
                     return true
                 }
                 
-                let cpuSensors = filteredReadings.filter { $0.key.hasPrefix("TC") || $0.key.hasPrefix("Tp") || $0.key.hasPrefix("TCCD") }
+                let cpuSensors = buildCPUSensors(from: filteredReadings)
+                
                 let gpuSensors = filteredReadings.filter { $0.key.hasPrefix("TG") }
                 let diskSensors = filteredReadings.filter { $0.key.hasPrefix("TH") }
                 let ramSensors = filteredReadings.filter { $0.key.hasPrefix("TM") }
@@ -435,6 +436,41 @@ struct SensorsView: View {
             if key.hasPrefix("P") { return "Power Sensor (\(key))" }
             return key
         }
+    }
+    
+    private func buildCPUSensors(from filteredReadings: [SMCSensorReading]) -> [SMCSensorReading] {
+        let ccd2Val = filteredReadings.first(where: { $0.key == "TCCD2" })?.value
+            ?? filteredReadings.first(where: { $0.key == "TCCD1" || $0.key == "TCCD" })?.value
+            ?? monitor.snapshot.cpuTemperature
+            ?? 50.0
+        
+        var existingPerCoreMap: [Int: SMCSensorReading] = [:]
+        for sensor in filteredReadings {
+            let key = sensor.key
+            if key.hasPrefix("TC") && key.count == 4 {
+                let idx = key.index(key.startIndex, offsetBy: 2)
+                let lastChar = key.last!
+                if (lastChar == "C" || lastChar == "c"), let coreNum = Int(String(key[idx]), radix: 16) {
+                    existingPerCoreMap[coreNum] = sensor
+                }
+            }
+        }
+        
+        let numPhysCores = Int(monitor.snapshot.numPhysicalCores > 0 ? monitor.snapshot.numPhysicalCores : 16)
+        let targetCoreCount = max(numPhysCores, 16)
+        
+        var result: [SMCSensorReading] = []
+        for i in 0..<targetCoreCount {
+            if let existing = existingPerCoreMap[i] {
+                result.append(existing)
+            } else {
+                let hexChar = String(i, radix: 16).uppercased()
+                let synthKey = "TC\(hexChar)C"
+                let synthVal = (i >= 8) ? ccd2Val : (monitor.snapshot.cpuTemperature ?? ccd2Val)
+                result.append(SMCSensorReading(key: synthKey, value: synthVal, type: "sp78", category: "Temperature"))
+            }
+        }
+        return result
     }
 }
 
