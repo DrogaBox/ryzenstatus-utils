@@ -188,7 +188,7 @@ struct BTopDashboardView: View {
                         
                         Spacer()
                         
-                        Text("\(topProcesses.count) ACTIVE PROCESSES")
+                        Text("\(min(topProcesses.count, 10)) ACTIVE PROCESSES")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .foregroundColor(.secondary)
                     }
@@ -278,11 +278,11 @@ struct BTopDashboardView: View {
     private func refreshProcesses() {
         switch procSortMode {
         case .cpu:
-            self.topProcesses = ProcessUsageService.shared.topCPU()
+            self.topProcesses = ProcessUsageService.shared.topCPU(limit: 10)
         case .memory:
-            self.topProcesses = ProcessUsageService.shared.topMemory()
+            self.topProcesses = ProcessUsageService.shared.topMemory(limit: 10)
         case .gpu:
-            self.topProcesses = ProcessUsageService.shared.topGPU()
+            self.topProcesses = ProcessUsageService.shared.topGPU(limit: 10)
         }
     }
     
