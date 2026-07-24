@@ -341,7 +341,7 @@ final class ProcessUsageService {
             guard let self = self else { return }
             let result = Shell.run("/bin/ps", ["-Aceo", "pid,pcpu,comm", "-r"])
             let rows = result.status == 0
-                ? self.groupedByApp(self.parsePS(result.output, maxRows: self.rawProcessRowLimit(for: limit)) { Double($0) ?? 0 })
+                ? self.groupedByApp(self.parsePS(result.output, maxRows: self.rawProcessRowLimit(for: limit), allowZero: true) { Double($0) ?? 0 })
                 : nil
             _ = self.finishCPU(rows, limit: limit)
         }
@@ -392,13 +392,17 @@ final class ProcessUsageService {
     }
 
     /// Lines look like "  437  12.5 WindowServer" (value column varies).
-    private func parsePS(_ output: String, maxRows: Int, transform: (String) -> Double) -> [ProcessUsage] {
+    private func parsePS(_ output: String, maxRows: Int, allowZero: Bool = false, transform: (String) -> Double) -> [ProcessUsage] {
         var rows: [ProcessUsage] = []
         for line in output.split(separator: "\n").dropFirst() {
             let columns = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
             guard columns.count == 3, let pid = pid_t(columns[0]) else { continue }
             let value = transform(String(columns[1]))
-            guard value > 0 else { continue }
+            if !allowZero {
+                guard value > 0 else { continue }
+            } else {
+                guard value >= 0 else { continue }
+            }
             rows.append(ProcessUsage(pid: pid,
                                      name: String(columns[2]).trimmingCharacters(in: .whitespaces),
                                      value: value))
