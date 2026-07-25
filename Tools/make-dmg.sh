@@ -45,7 +45,17 @@ ditto "$APP" "$STAGING/$APP_NAME.app"
 xattr -cr "$STAGING/$APP_NAME.app"
 codesign --verify --deep --strict "$STAGING/$APP_NAME.app"
 ln -s /Applications "$STAGING/Applications"
-cp -R ~/Desktop/AMDRyzenCPUPowerManagement-Kexts "$STAGING/Kexts Recomendados" || true
+# Include kexts inside the DMG: prefer the versioned zip in ReleaseAssets (used
+# on CI and for reproducible builds), fall back to the Desktop folder for local
+# developer convenience.
+KEXT_ZIP="ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip"
+KEXT_DEST="$STAGING/Kexts Recomendados"
+if [[ -f "$KEXT_ZIP" ]]; then
+    mkdir -p "$KEXT_DEST"
+    unzip -q "$KEXT_ZIP" -d "$KEXT_DEST"
+elif [[ -d ~/Desktop/AMDRyzenCPUPowerManagement-Kexts ]]; then
+    cp -R ~/Desktop/AMDRyzenCPUPowerManagement-Kexts "$KEXT_DEST"
+fi
 mkdir "$STAGING/.background"
 cp build/dmg-background.png "$STAGING/.background/background.png"
 
