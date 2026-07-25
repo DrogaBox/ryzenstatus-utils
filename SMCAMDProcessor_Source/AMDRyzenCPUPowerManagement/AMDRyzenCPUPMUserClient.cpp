@@ -731,6 +731,82 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             break;
         }
+            
+        // Get GPU count
+        case 27: {
+            arguments->scalarOutputCount = 1;
+            arguments->scalarOutput[0] = provider->getGPUCount();
+            break;
+        }
+        
+        // Get GPU temperatures (SP78 format)
+        // Structure output: array of UInt16 in SP78 format, one per GPU
+        case 28: {
+            arguments->scalarOutputCount = 0;
+            uint32_t gpuCountLocal = provider->getGPUCount();
+            uint32_t requiredSize = gpuCountLocal * sizeof(UInt16);
+            uint32_t maxLen = arguments->structureOutputSize;
+            arguments->structureOutputSize = requiredSize;
+            
+            if (!arguments->structureOutput) {
+                return kIOReturnBadArgument;
+            }
+            
+            UInt16 *dataOut = (UInt16*) arguments->structureOutput;
+            uint32_t copyCount = (maxLen / sizeof(UInt16) < gpuCountLocal) ? (maxLen / sizeof(UInt16)) : gpuCountLocal;
+            
+            for (uint32_t i = 0; i < copyCount; i++) {
+                provider->getGPUTemperature(i, &dataOut[i]);
+            }
+            break;
+        }
+        
+        // Get GPU powers (watts as float)
+        // Structure output: array of float, one per GPU
+        case 29: {
+            arguments->scalarOutputCount = 0;
+            uint32_t gpuCountLocal = provider->getGPUCount();
+            uint32_t requiredSize = gpuCountLocal * sizeof(float);
+            uint32_t maxLen = arguments->structureOutputSize;
+            arguments->structureOutputSize = requiredSize;
+            
+            if (!arguments->structureOutput) {
+                return kIOReturnBadArgument;
+            }
+            
+            float *dataOut = (float*) arguments->structureOutput;
+            uint32_t copyCount = (maxLen / sizeof(float) < gpuCountLocal) ? (maxLen / sizeof(float)) : gpuCountLocal;
+            
+            for (uint32_t i = 0; i < copyCount; i++) {
+                provider->getGPUPower(i, &dataOut[i]);
+            }
+            break;
+        }
+        
+        // Get GPU capabilities bitmask per GPU
+        // Structure output: array of uint64, one per GPU
+        // Bit 0: supports power reading
+        case 30: {
+            arguments->scalarOutputCount = 0;
+            uint32_t gpuCountLocal = provider->getGPUCount();
+            uint32_t requiredSize = gpuCountLocal * sizeof(uint64_t);
+            uint32_t maxLen = arguments->structureOutputSize;
+            arguments->structureOutputSize = requiredSize;
+            
+            if (!arguments->structureOutput) {
+                return kIOReturnBadArgument;
+            }
+            
+            uint64_t *dataOut = (uint64_t*) arguments->structureOutput;
+            uint32_t copyCount = (maxLen / sizeof(uint64_t) < gpuCountLocal) ? (maxLen / sizeof(uint64_t)) : gpuCountLocal;
+            
+            for (uint32_t i = 0; i < copyCount; i++) {
+                uint64_t caps = 0;
+                if (provider->gpuSupportsPower(i)) caps |= (1ULL << 0);
+                dataOut[i] = caps;
+            }
+            break;
+        }
         
         //Try load SMC driver
         case 90: {

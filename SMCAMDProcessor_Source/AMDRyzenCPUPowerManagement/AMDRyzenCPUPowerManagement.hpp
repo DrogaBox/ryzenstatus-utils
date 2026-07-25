@@ -29,6 +29,7 @@
 #include "SuperIO/ISSuperIONCT668X.hpp"
 #include "SuperIO/ISSuperIONCT67XXFamily.hpp"
 #include "SuperIO/ISSuperIOIT86XXEFamily.hpp"
+#include "AMDGPU.hpp"
 
 #include "Headers/pmRyzenSymbolTable.h"
 
@@ -421,6 +422,17 @@ public:
     static_assert(sizeof(lastPWMUpdateTime) / sizeof(lastPWMUpdateTime[0]) == kMAX_FANS, "fan array size mismatch");
     float gpuTempC;
     float curveSmoothedTemp[MAX_FAN_CURVES];
+
+    // GPU monitoring (added)
+    AMDGPUDevice *gpuDevices[16] {};
+    uint32_t gpuCount {0};
+    UInt16 gpuTemperatures[16] {};
+    float gpuPowers[16] {};
+
+    uint32_t getGPUCount() { return gpuCount; }
+    IOReturn getGPUTemperature(uint32_t index, UInt16 *data);
+    IOReturn getGPUPower(uint32_t index, float *data);
+    bool gpuSupportsPower(uint32_t index);
     
 private:
     IOWorkLoop *workLoop;
@@ -453,6 +465,7 @@ private:
     KernelPatcher *liluKernelPatcher;
     
     bool getPCIService();
+    void enumerateGPUs();
     bool wentToSleep{false};
     /// Set by resumeWorkLoop() on S3 wake. The main timer processes it on its
     /// first tick (workLoop thread) so reinitHwState() never runs on the PM thread.
