@@ -18,6 +18,9 @@ AGENTS.md
 CLAUDE.md
 E2E/
 
+# Freebuff desktop cache (tool internal state, never committed)
+.freebuff/
+
 # macOS noise
 .DS_Store
 
