@@ -4717,15 +4717,15 @@ struct MetricsTests {
 
         expect(MonitorSamplingPolicy.sampleStride(for: .cpu, intervalSeconds: 2, foreground: false) == 1,
                "monitor CPU stays responsive in menu-bar-only mode")
-        expect(MonitorSamplingPolicy.sampleStride(for: .disk, intervalSeconds: 2, foreground: false) == 5,
+        expect(MonitorSamplingPolicy.sampleStride(for: .disk, intervalSeconds: 2, foreground: false) == 4,
                "monitor disk sampling slows down in menu-bar-only mode without exceeding DiskSampler.maxGap")
         expect(MonitorSamplingPolicy.sampleStride(for: .peripheralBattery, intervalSeconds: 2, foreground: false) == 30,
                "monitor peripheral battery sampling is heavily throttled in menu-bar-only mode")
         expect(MonitorSamplingPolicy.sampleStride(for: .disk, intervalSeconds: 2, foreground: true) == 1,
                "monitor disk sampling stays live while the panel is open")
-        expect(MonitorSamplingPolicy.shouldSample(.disk, tick: 4, intervalSeconds: 2, foreground: false) == false,
+        expect(MonitorSamplingPolicy.shouldSample(.disk, tick: 3, intervalSeconds: 2, foreground: false) == false,
                "monitor skips heavy menu-bar-only ticks before the stride")
-        expect(MonitorSamplingPolicy.shouldSample(.disk, tick: 5, intervalSeconds: 2, foreground: false),
+        expect(MonitorSamplingPolicy.shouldSample(.disk, tick: 4, intervalSeconds: 2, foreground: false),
                "monitor samples heavy menu-bar-only ticks at the stride")
 
         expect(MonitorSamplingPolicy.wakeTicks(for: [.cpu, .disk], intervalSeconds: 2, foreground: false) == 1,
@@ -4734,7 +4734,7 @@ struct MetricsTests {
                "monitor with only temperature wakes every tick")
         expect(MonitorSamplingPolicy.wakeTicks(for: [.peripheralBattery], intervalSeconds: 2, foreground: false) == 30,
                "monitor with only peripheral battery wakes once per minute")
-        expect(MonitorSamplingPolicy.wakeTicks(for: [.disk, .peripheralBattery], intervalSeconds: 2, foreground: false) == 5,
+        expect(MonitorSamplingPolicy.wakeTicks(for: [.disk, .peripheralBattery], intervalSeconds: 2, foreground: false) == 2,
                "monitor wake cadence is the GCD of the needed strides")
         expect(MonitorSamplingPolicy.wakeTicks(for: [.temperature], intervalSeconds: 2, foreground: true) == 1,
                "monitor wakes every tick in the foreground")
