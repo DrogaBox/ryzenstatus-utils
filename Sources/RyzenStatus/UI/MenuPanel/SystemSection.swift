@@ -86,17 +86,13 @@ struct SystemSection: View {
             .panelCard()
         }
         .onReceive(monitor.$snapshot) { _ in
-            guard !expandedKinds.isEmpty, Date().timeIntervalSince(lastBreakdownRefresh) > 2 else { return }
+            guard !expandedKinds.isEmpty else { return }
             refreshBreakdown()
         }
         .onReceive(NotificationCenter.default.publisher(for: .processUsageDidUpdate)) { _ in
             guard !expandedKinds.isEmpty else { return }
             for kind in expandedKinds {
-                let updated = ProcessUsageService.shared.top(kind, limit: breakdownLimit)
-                if !updated.isEmpty {
-                    breakdownRows[kind] = updated
-                    breakdownLoading[kind] = false
-                }
+                updateBreakdown(for: kind)
             }
         }
     }
@@ -225,18 +221,29 @@ struct SystemSection: View {
 
     // MARK: Per-app breakdown
 
+    private func updateBreakdown(for kind: BreakdownKind) {
+        let rows = ProcessUsageService.shared.top(kind, limit: breakdownLimit)
+        if !rows.isEmpty {
+            breakdownRows[kind] = rows
+            breakdownLoading[kind] = false
+        } else if (breakdownRows[kind] ?? []).isEmpty {
+            breakdownLoading[kind] = true
+        }
+    }
+
     private func toggleBreakdown(_ kind: BreakdownKind) {
         if expandedKinds.contains(kind) {
             expandedKinds.remove(kind)
             breakdownRows.removeValue(forKey: kind)
             breakdownLoading.removeValue(forKey: kind)
         } else {
+            if accordionMode {
+                expandedKinds.removeAll()
+                breakdownRows.removeAll()
+                breakdownLoading.removeAll()
+            }
             expandedKinds.insert(kind)
-            // Synchronously populate initial rows if cached, and force a fresh background fetch
-            let cached = ProcessUsageService.shared.top(kind, limit: breakdownLimit)
-            breakdownRows[kind] = cached
-            breakdownLoading[kind] = cached.isEmpty
-            refreshBreakdown(force: true)
+            updateBreakdown(for: kind)
         }
     }
 
@@ -250,19 +257,7 @@ struct SystemSection: View {
         
         lastBreakdownRefresh = now
         for kind in expandedKinds {
-            let capturedKind = kind
-            DispatchQueue.global(qos: .userInitiated).async {
-                let rows = ProcessUsageService.shared.top(capturedKind, limit: breakdownLimit)
-                DispatchQueue.main.async {
-                    guard expandedKinds.contains(capturedKind) else { return }
-                    if !rows.isEmpty {
-                        breakdownLoading[capturedKind] = false
-                        breakdownRows[capturedKind] = rows
-                    } else if (breakdownRows[capturedKind] ?? []).isEmpty {
-                        breakdownLoading[capturedKind] = true
-                    }
-                }
-            }
+            updateBreakdown(for: kind)
         }
     }
 
@@ -316,29 +311,43 @@ struct SystemSection: View {
                 }
                 HStack(spacing: 8) {
                     if cpuAvailable {
-                        PanelSquareCard(
-                            title: "CPU",
-                            icon: "cpu",
-                            usage: monitor.snapshot.cpuUsage ?? 0,
-                            temp: monitor.snapshot.cpuTemperature ?? 0,
-                            freq: String(format: "%.1f GHz", averageCPUFreq),
-                            power: monitor.snapshot.cpuPower ?? 0,
-                            accentColor: .cyan,
-                            backgroundColor: Color(red: 0.1, green: 0.2, blue: 0.2, opacity: 0.3)
-                        )
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                toggleBreakdown(.cpu)
+                            }
+                        } label: {
+                            PanelSquareCard(
+                                title: "CPU",
+                                icon: "cpu",
+                                usage: monitor.snapshot.cpuUsage ?? 0,
+                                temp: monitor.snapshot.cpuTemperature ?? 0,
+                                freq: String(format: "%.1f GHz", averageCPUFreq),
+                                power: monitor.snapshot.cpuPower ?? 0,
+                                accentColor: .cyan,
+                                backgroundColor: Color(red: 0.1, green: 0.2, blue: 0.2, opacity: 0.3)
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
                     if gpuAvailable {
                         let gpuFreqVal = monitor.snapshot.gpuFreq ?? 0
-                        PanelSquareCard(
-                            title: "GPU",
-                            icon: "display",
-                            usage: monitor.snapshot.gpuUsage ?? 0,
-                            temp: monitor.snapshot.gpuTemperature ?? 0,
-                            freq: String(format: "%.0f MHz", gpuFreqVal),
-                            power: monitor.snapshot.gpuPower ?? 0,
-                            accentColor: .orange,
-                            backgroundColor: Color(red: 0.2, green: 0.15, blue: 0.05, opacity: 0.3)
-                        )
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                toggleBreakdown(.gpu)
+                            }
+                        } label: {
+                            PanelSquareCard(
+                                title: "GPU",
+                                icon: "display",
+                                usage: monitor.snapshot.gpuUsage ?? 0,
+                                temp: monitor.snapshot.gpuTemperature ?? 0,
+                                freq: String(format: "%.0f MHz", gpuFreqVal),
+                                power: monitor.snapshot.gpuPower ?? 0,
+                                accentColor: .orange,
+                                backgroundColor: Color(red: 0.2, green: 0.15, blue: 0.05, opacity: 0.3)
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 if monitor.snapshot.cpuTemperature == nil,
