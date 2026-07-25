@@ -63,6 +63,9 @@ struct IStatsPopoverWidgetsView: View {
     @AppStorage("istatsCardOrder") private var rawCardOrder = "cpu,cores,memory,gpu"
     
     @State private var draggingCard: IStatsCardKind?
+    @State private var cpuProcesses: [ProcessUsage] = []
+    @State private var memProcesses: [ProcessUsage] = []
+    @State private var gpuProcesses: [ProcessUsage] = []
     
     init(monitor: SystemMonitor, editing: Bool = false, isDashboard: Bool = false) {
         self.monitor = monitor
@@ -126,6 +129,30 @@ struct IStatsPopoverWidgetsView: View {
                     }
                 }
             }
+        }
+        .onAppear {
+            updateProcesses()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .processUsageDidUpdate)) { _ in
+            updateProcesses()
+        }
+        .onReceive(monitor.$snapshot) { _ in
+            updateProcesses()
+        }
+    }
+    
+    private func updateProcesses() {
+        let newCPU = ProcessUsageService.shared.top(.cpu, limit: 4)
+        if !newCPU.isEmpty || cpuProcesses.isEmpty {
+            cpuProcesses = newCPU
+        }
+        let newMem = ProcessUsageService.shared.top(.memory, limit: 4)
+        if !newMem.isEmpty || memProcesses.isEmpty {
+            memProcesses = newMem
+        }
+        let newGPU = ProcessUsageService.shared.top(.gpu, limit: 4)
+        if !newGPU.isEmpty || gpuProcesses.isEmpty {
+            gpuProcesses = newGPU
         }
     }
     
@@ -213,7 +240,6 @@ struct IStatsPopoverWidgetsView: View {
                 }
                 
                 // Top CPU Processes (iStats-style)
-                let cpuProcesses = ProcessUsageService.shared.top(.cpu, limit: 4)
                 if !cpuProcesses.isEmpty {
                     Divider().opacity(0.15)
                     VStack(alignment: .leading, spacing: 5) {
@@ -360,7 +386,6 @@ struct IStatsPopoverWidgetsView: View {
                 .padding(.vertical, 4)
                 
                 // Top Memory Processes (iStats-style)
-                let memProcesses = ProcessUsageService.shared.top(.memory, limit: 4)
                 if !memProcesses.isEmpty {
                     Divider().opacity(0.15)
                     VStack(alignment: .leading, spacing: 5) {
@@ -442,7 +467,6 @@ struct IStatsPopoverWidgetsView: View {
                 }
                 
                 // Top GPU Processes (iStats-style)
-                let gpuProcesses = ProcessUsageService.shared.top(.gpu, limit: 4)
                 if !gpuProcesses.isEmpty {
                     Divider().opacity(0.15)
                     VStack(alignment: .leading, spacing: 5) {

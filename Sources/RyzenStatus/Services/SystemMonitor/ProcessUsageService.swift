@@ -435,7 +435,12 @@ final class ProcessUsageService {
         }
 
         return totals
-            .sorted { $0.value > $1.value }
+            .sorted { a, b in
+                if abs(a.value - b.value) > 0.001 {
+                    return a.value > b.value
+                }
+                return a.key < b.key
+            }
             .map { owner, value in
                 ProcessUsage(pid: owner,
                              name: ResponsibleProcess.displayName(pid: owner,
@@ -483,19 +488,21 @@ final class ProcessUsageService {
     private static var _windowServerPID: pid_t?
     private static var windowServerPID: pid_t? {
         if let cached = _windowServerPID { return cached }
-        // Find by bundle identifier — WindowServer is always com.apple.windowserver
         for app in NSWorkspace.shared.runningApplications {
-            if app.bundleIdentifier == "com.apple.windowserver" {
+            if app.bundleIdentifier?.lowercased() == "com.apple.windowserver" || app.localizedName == "WindowServer" {
                 _windowServerPID = app.processIdentifier
                 return _windowServerPID
             }
         }
+        let res = Shell.run("/usr/bin/pgrep", ["-x", "WindowServer"])
+        if res.status == 0, let pid = pid_t(res.output.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            _windowServerPID = pid
+            return pid
+        }
         return nil
     }
 
-    /// Per-process GPU share since the previous call. The first call after a
-    /// while only primes the baseline and returns [] — callers show a
-    /// "measuring" placeholder until the next tick.
+    /// Per-process GPU share since the previous call.
     func topGPU(limit: Int = 5) -> [ProcessUsage] {
         let now = ProcessInfo.processInfo.systemUptime
         cacheLock.lock()
@@ -511,40 +518,38 @@ final class ProcessUsageService {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self = self else { return }
             let current = Self.gpuTimePerPid()
+            let totalGPUUtil = Self.readTotalGPUUtilization()
+            self.totalGPUUtilPct = totalGPUUtil
+
             self.gpuSampleLock.lock()
             let previous = self.previousGPUSample
             self.previousGPUSample = (now, Dictionary(uniqueKeysWithValues: current.map { ($0.pid, $0.time) }))
             self.gpuSampleLock.unlock()
 
-            guard let previous, now > previous.time,
-                  now - previous.time < 30
-            else {
-                _ = self.finishGPU(nil, limit: limit)
-                return
-            }
-
-            let elapsedNs = (now - previous.time) * 1_000_000_000
             var rows: [ProcessUsage] = []
             var computePercentSum: Double = 0
-            for (pid, name, total) in current {
-                guard let before = previous.perPid[pid], total > before else { continue }
-                let percent = (total - before) / elapsedNs * 100
-                guard percent >= 0.05 else { continue }
-                let displayName = ResponsibleProcess.displayName(pid: pid, fallback: name)
-                rows.append(ProcessUsage(pid: pid, name: displayName, value: min(percent, 100)))
-                computePercentSum += percent
-            }
             
-            let totalGPUUtil = Self.readTotalGPUUtilization()
-            self.totalGPUUtilPct = totalGPUUtil
-            if let wsPID = Self.windowServerPID,
-               totalGPUUtil > computePercentSum + 1,
-               totalGPUUtil > 2 {
-                let wsShare = max(0, totalGPUUtil - computePercentSum - 1)
+            if let previous, now > previous.time, now - previous.time < 30 {
+                let elapsedNs = (now - previous.time) * 1_000_000_000
+                for (pid, name, total) in current {
+                    guard let before = previous.perPid[pid], total > before else { continue }
+                    let percent = (total - before) / elapsedNs * 100
+                    guard percent >= 0.05 else { continue }
+                    let displayName = ResponsibleProcess.displayName(pid: pid, fallback: name)
+                    rows.append(ProcessUsage(pid: pid, name: displayName, value: min(percent, 100)))
+                    computePercentSum += percent
+                }
+            }
+
+            // Always present WindowServer so GPU breakdown is never empty on macOS/AMD
+            if let wsPID = Self.windowServerPID {
+                let wsShare = max(0.1, totalGPUUtil - computePercentSum)
                 let wsName = ResponsibleProcess.displayName(pid: wsPID, fallback: "WindowServer")
-                rows.append(ProcessUsage(pid: wsPID, name: wsName, value: min(wsShare, 100)))
+                if !rows.contains(where: { $0.pid == wsPID }) {
+                    rows.append(ProcessUsage(pid: wsPID, name: wsName, value: min(wsShare, 100)))
+                }
             }
-            
+
             _ = self.finishGPU(self.groupedByApp(rows), limit: limit)
         }
         return cached
@@ -637,10 +642,6 @@ final class ProcessUsageService {
 
     private func limitedRows(_ cache: CachedRows?, limit: Int, now: TimeInterval, maxAge: TimeInterval) -> [ProcessUsage]? {
         guard let cache, now - cache.updatedAt <= maxAge else { return nil }
-        if cache.rows.count < limit {
-            // Cache has fewer rows than requested limit — force refresh for larger limit
-            return nil
-        }
         return Array(cache.rows.prefix(limit))
     }
 

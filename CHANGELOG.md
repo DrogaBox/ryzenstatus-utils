@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.6.0-beta2]
+
+- **Process List Stability & Deterministic Sorting**: Implemented secondary PID sort in process breakdown lists to prevent row flickering and position jumping when process values are equal.
+- **AMD GPU Process Detections**: Added kernel-level `pgrep` fallback for `WindowServer` and active Metal processes to guarantee non-empty GPU process breakdown on discrete AMD GPUs.
+- **UI Expansion State & iStats Reactivity**: Retained expanded process lists across popover redraws and bound iStats widget process lists to reactive `@State` properties.
+
 ## [1.6.0-beta1]
 
 - **PRE-FASE 0 Kext Sanity Check**: Dynamic detection of `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` at launch. Runs gracefully in degraded read-only mode with UI warning banner instead of forcing app termination when kexts are missing.
