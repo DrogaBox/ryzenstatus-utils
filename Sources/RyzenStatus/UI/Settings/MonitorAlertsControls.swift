@@ -10,11 +10,15 @@ struct MonitorAlertsControls: View {
     @State private var notificationsDenied = false
     @AppStorage(DefaultsKey.monitorAlertCPU) private var alertCPU = false
     @AppStorage(DefaultsKey.monitorAlertCPUTemperature) private var alertCPUTemperature = false
+    @AppStorage(DefaultsKey.monitorAlertGPUTemperature) private var alertGPUTemperature = false
+    @AppStorage(DefaultsKey.monitorAlertGPUPower) private var alertGPUPower = false
     @AppStorage(DefaultsKey.monitorAlertMemory) private var alertMemory = false
     @AppStorage(DefaultsKey.monitorAlertDisk) private var alertDisk = false
     @AppStorage(DefaultsKey.monitorAlertBattery) private var alertBattery = false
     @AppStorage(DefaultsKey.monitorAlertCPUThreshold) private var alertCPUThreshold = 90
     @AppStorage(DefaultsKey.monitorAlertCPUTemperatureThreshold) private var alertCPUTemperatureThreshold = 90
+    @AppStorage(DefaultsKey.monitorAlertGPUTemperatureThreshold) private var alertGPUTemperatureThreshold = 85
+    @AppStorage(DefaultsKey.monitorAlertGPUPowerThreshold) private var alertGPUPowerThreshold = 250
     @AppStorage(DefaultsKey.monitorAlertDiskFreePercent) private var alertDiskFreePercent = 10
     @AppStorage(DefaultsKey.monitorAlertBatteryPercent) private var alertBatteryPercent = 15
     @AppStorage(DefaultsKey.monitorAlertCooldownMinutes) private var alertCooldown = 15
@@ -43,6 +47,22 @@ struct MonitorAlertsControls: View {
                             value: $alertCPUTemperatureThreshold,
                             in: 70...105,
                             step: 5)
+                }
+            }
+            if AppFeature.monitorGPU.isAvailable {
+                Toggle("GPU Temperature", isOn: $alertGPUTemperature)
+                if alertGPUTemperature {
+                    Stepper("GPU Threshold: \(alertGPUTemperatureThreshold) °C",
+                            value: $alertGPUTemperatureThreshold,
+                            in: 50...120,
+                            step: 5)
+                }
+                Toggle("GPU Power", isOn: $alertGPUPower)
+                if alertGPUPower {
+                    Stepper("GPU Power Threshold: \(alertGPUPowerThreshold) W",
+                            value: $alertGPUPowerThreshold,
+                            in: 50...500,
+                            step: 25)
                 }
             }
             if AppFeature.monitorMemory.isAvailable {
@@ -95,6 +115,8 @@ struct MonitorAlertsControls: View {
         }
         .onChange(of: alertCPU) { _, _ in MonitorAlertService.shared.syncWithPreferences(); refreshNotificationStatus() }
         .onChange(of: alertCPUTemperature) { _, _ in MonitorAlertService.shared.syncWithPreferences(); refreshNotificationStatus() }
+        .onChange(of: alertGPUTemperature) { _, _ in MonitorAlertService.shared.syncWithPreferences(); refreshNotificationStatus() }
+        .onChange(of: alertGPUPower) { _, _ in MonitorAlertService.shared.syncWithPreferences(); refreshNotificationStatus() }
         .onChange(of: alertMemory) { _, _ in MonitorAlertService.shared.syncWithPreferences(); refreshNotificationStatus() }
         .onChange(of: alertDisk) { _, _ in MonitorAlertService.shared.syncWithPreferences(); refreshNotificationStatus() }
         .onChange(of: alertBattery) { _, _ in MonitorAlertService.shared.syncWithPreferences(); refreshNotificationStatus() }
@@ -106,7 +128,7 @@ struct MonitorAlertsControls: View {
     }
 
     private var anyAlertEnabled: Bool {
-        alertCPU || alertCPUTemperature || alertMemory || alertDisk || alertBattery
+        alertCPU || alertCPUTemperature || alertGPUTemperature || alertGPUPower || alertMemory || alertDisk || alertBattery
     }
 
     /// Checked slightly delayed so a just-fired authorization prompt has a

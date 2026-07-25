@@ -97,9 +97,14 @@ class FanCurveController: ObservableObject {
                 
                 let telemetry = await ProcessorModel.shared.snapshotTelemetry(forceMetric: false)
                 let cpuTemp = telemetry.metric.count > 1 ? Double(telemetry.metric[1]) : 0.0 // Package Temp with bounds check
-                let gpuTemp = await MainActor.run {
+
+                // Kext GPU temp (thread-safe, no actor hop)
+                let kextGPUTemp = ProcessorModel.shared.lastKextGPUTemperature
+                // Fallback: SystemMonitor snapshot GPU temp
+                let fallbackGPUTemp = await MainActor.run {
                     SystemMonitor.shared.snapshot.gpuTemperature ?? cpuTemp
                 }
+                let gpuTemp = kextGPUTemp > 0 ? kextGPUTemp : fallbackGPUTemp
                 
                 let (mappings, curves) = await MainActor.run {
                     (self.fanMappings, self.customCurves)

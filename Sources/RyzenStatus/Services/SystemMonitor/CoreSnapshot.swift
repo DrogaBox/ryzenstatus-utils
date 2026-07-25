@@ -3,6 +3,24 @@
 
 import Foundation
 
+/// Snapshot of a single AMD GPU device from kext telemetry (selectors 27-30).
+public struct GPUDeviceSnapshot: Identifiable, Equatable {
+    public let id: Int
+    /// GPU temperature in °C. 0 if unavailable.
+    public let temperature: Double
+    /// GPU power in watts. 0 if unavailable.
+    public let power: Double
+    /// Whether this GPU supports power reading.
+    public let supportsPower: Bool
+
+    public init(id: Int, temperature: Double, power: Double, supportsPower: Bool) {
+        self.id = id
+        self.temperature = temperature
+        self.power = power
+        self.supportsPower = supportsPower
+    }
+}
+
 /// Snapshot of a single logical core's state during one telemetry interval.
 public struct CoreSnapshot: Identifiable, Equatable {
     public let id: Int

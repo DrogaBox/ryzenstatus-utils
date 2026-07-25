@@ -162,9 +162,48 @@ struct SensorsView: View {
                 // 2. GPU Section
                 Section {
                     DisclosureGroup(isExpanded: $gpuExpanded) {
+                        if !monitor.snapshot.gpuDevices.isEmpty {
+                            // Kext GPU devices (selectors 27-30)
+                            ForEach(monitor.snapshot.gpuDevices) { gpu in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack {
+                                        Image(systemName: "display")
+                                            .foregroundColor(.orange)
+                                            .frame(width: 24)
+                                        Text("GPU \(gpu.id) (Kext)")
+                                            .font(.subheadline)
+                                        Spacer()
+                                    }
+                                    HStack {
+                                        Image(systemName: "thermometer.snowflake")
+                                            .frame(width: 24)
+                                            .foregroundColor(.secondary)
+                                        Text("Temperature")
+                                        Spacer()
+                                        Text(formatTemp(gpu.temperature))
+                                            .font(.system(.body, design: .monospaced))
+                                    }
+                                    if gpu.supportsPower {
+                                        HStack {
+                                            Image(systemName: "bolt")
+                                                .frame(width: 24)
+                                                .foregroundColor(.secondary)
+                                            Text("Power")
+                                            Spacer()
+                                            Text(String(format: "%.1f W", gpu.power))
+                                                .font(.system(.body, design: .monospaced))
+                                        }
+                                    }
+                                }
+                                .padding(.vertical, 2)
+                            }
+                        }
+                        
+                        // Fallback: show monitor snapshot GPU data
                         SensorRow(name: "GPU Global Temp", value: formatTemp(monitor.snapshot.gpuTemperature ?? 0), icon: "thermometer.snowflake")
                         SensorRow(name: "GPU Global Power", value: String(format: "%.1f W", monitor.snapshot.gpuPower ?? 0), icon: "bolt")
                         
+                        // SMC TGxx sensors
                         ForEach(gpuSensors) { sensor in
                             SensorRow(name: sensorDisplayName(for: sensor.key), value: formatValue(sensor), icon: "thermometer.snowflake")
                         }
@@ -175,7 +214,8 @@ struct SensorsView: View {
                             Text("Graphics (GPU)")
                                 .font(.headline)
                             Spacer()
-                            Text("\(gpuSensors.count + 2) items")
+                            let kextDeviceRows = monitor.snapshot.gpuDevices.reduce(0) { $0 + 1 + ($1.supportsPower ? 1 : 0) }
+                            Text("\(gpuSensors.count + 2 + kextDeviceRows) items")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }

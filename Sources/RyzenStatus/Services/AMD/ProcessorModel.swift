@@ -84,6 +84,46 @@ actor ProcessorModel {
     /// Latest GPU total power in Watts. Thread-safe, no await needed.
     nonisolated var lastGPUPowerWatts: Double { powerCache.gpuWatts }
 
+    // Thread-safe GPU cache for kext readings (selectors 27-30)
+    // Provides nonisolated access to GPU temperature and power from the kext.
+    final class GPUCache {
+        private let lock = NSLock()
+        private var _count: Int = 0
+        private var _temperatures: [Double] = []
+        private var _powers: [Double] = []
+
+        var count: Int {
+            lock.lock(); defer { lock.unlock() }; return _count
+        }
+        var temperatures: [Double] {
+            lock.lock(); defer { lock.unlock() }; return _temperatures
+        }
+        var powers: [Double] {
+            lock.lock(); defer { lock.unlock() }; return _powers
+        }
+        func update(count: Int, temperatures: [Double], powers: [Double]) {
+            lock.lock()
+            _count = count
+            _temperatures = temperatures
+            _powers = powers
+            lock.unlock()
+        }
+    }
+    nonisolated let gpuCache = GPUCache()
+
+    /// Latest GPU temperature from kext (selectors 27-28). 0 if unavailable.
+    nonisolated var lastKextGPUTemperature: Double {
+        let temps = gpuCache.temperatures
+        return temps.first ?? 0
+    }
+    /// Latest GPU power from kext (selectors 27-29). 0 if unavailable.
+    nonisolated var lastKextGPUPower: Double {
+        let powers = gpuCache.powers
+        return powers.first ?? 0
+    }
+    /// Number of GPUs detected by kext (selector 27).
+    nonisolated var lastKextGPUCount: Int { gpuCache.count }
+
     private var cpuListedAsSupported : Bool = false
 
     var systemConfig : [String : String] = [:]
@@ -357,6 +397,42 @@ actor ProcessorModel {
         }
 
         let valid = min(count, outputSize / MemoryLayout<UInt64>.size)
+        return Array(output.prefix(valid))
+    }
+
+    nonisolated func kernelGetUInt16s(count: Int, selector: UInt32) -> [UInt16] {
+        if isTerminating || Task.isCancelled { return [] }
+        var scalarOut: UInt64 = 0
+        var scalarOutCount: UInt32 = 1
+        var output = [UInt16](repeating: 0, count: count)
+        var outputSize = MemoryLayout<UInt16>.size * count
+
+        let status = IOConnectCallMethod(connect, selector, nil, 0, nil, 0,
+                                         &scalarOut, &scalarOutCount,
+                                         &output, &outputSize)
+        guard status == KERN_SUCCESS else {
+            logKernelError(status)
+            return []
+        }
+
+        let valid = min(count, outputSize / MemoryLayout<UInt16>.size)
+        return Array(output.prefix(valid))
+    }
+
+    nonisolated func kernelGetUInt8s(count: Int, selector: UInt32) -> [UInt8] {
+        if isTerminating || Task.isCancelled { return [] }
+        var output = [UInt8](repeating: 0, count: count)
+        var outputSize = count
+
+        let status = IOConnectCallMethod(connect, selector, nil, 0, nil, 0,
+                                         nil, nil,
+                                         &output, &outputSize)
+        guard status == KERN_SUCCESS else {
+            logKernelError(status)
+            return []
+        }
+
+        let valid = min(count, outputSize)
         return Array(output.prefix(valid))
     }
 
@@ -865,6 +941,47 @@ actor ProcessorModel {
         }
     }
 
+    // MARK: - Kext GPU Data (Selectors 27-30)
+
+    /// Number of AMD GPUs detected by the kext (selector 27).
+    /// Returns 0 if selectors are not implemented in the loaded kext.
+    nonisolated func getKextGPUCount() -> Int {
+        let result = kernelGetUInt64(count: 1, selector: 27)
+        return result.isEmpty ? 0 : Int(result[0])
+    }
+
+    /// GPU temperatures from kext in SP78 format (selector 28).
+    /// Convert to °C: `Double(Int16(bitPattern: raw)) / 256.0`
+    nonisolated func getKextGPUTemperatures() -> [UInt16] {
+        return kernelGetUInt16s(count: 16, selector: 28)
+    }
+
+    /// GPU powers from kext in watts (selector 29).
+    nonisolated func getKextGPUPowers() -> [Float] {
+        return kernelGetFloats(count: 16, selector: 29)
+    }
+
+    /// GPU capabilities from kext (selector 30).
+    /// Bit 0: supportsPower
+    nonisolated func getKextGPUCapabilities() -> [UInt8] {
+        return kernelGetUInt8s(count: 16, selector: 30)
+    }
+
+    /// Refresh cached kext GPU data. Call from actor context.
+    func refreshKextGPUStats() {
+        let count = getKextGPUCount()
+        guard count > 0 else {
+            gpuCache.update(count: 0, temperatures: [], powers: [])
+            return
+        }
+
+        let rawTemps = getKextGPUTemperatures()
+        let temps = rawTemps.map { Double(Int16(bitPattern: $0)) / 256.0 }
+        let powers = getKextGPUPowers().map(Double.init)
+
+        gpuCache.update(count: count, temperatures: temps, powers: powers)
+    }
+
     // MARK: - GPU Statistics (from IOAccelerator PerformanceStatistics)
 
     /// Reads all GPU PerformanceStatistics in a single IOKit iterator pass.
@@ -1043,9 +1160,11 @@ actor ProcessorModel {
     /// Lightweight refresh called by SystemMonitor when CPU/GPU power metrics
     /// are pinned to the menu bar. Updates the nonisolated PowerCache so the
     /// monitor queue can read fresh values without any actor crossing.
+    /// Also refreshes kext GPU data (selectors 27-30).
     func refreshPowerCache() {
-        loadMetric()        // updates powerCache.cpu via setCPU
-        updateGPUStatsCache() // updates powerCache.gpu via setGPU
+        loadMetric()           // updates powerCache.cpu via setCPU
+        updateGPUStatsCache()  // updates powerCache.gpu via setGPU
+        refreshKextGPUStats()  // updates gpuCache via kext selectors 27-30
     }
     
     // MARK: - CPU Details (sysctl)

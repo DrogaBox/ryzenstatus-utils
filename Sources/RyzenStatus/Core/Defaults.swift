@@ -220,11 +220,15 @@ enum DefaultsKey {
     // System monitor — optional notifications for sustained or actionable conditions.
     static let monitorAlertCPU = "monitorAlertCPU"
     static let monitorAlertCPUTemperature = "monitorAlertCPUTemperature"
+    static let monitorAlertGPUTemperature = "monitorAlertGPUTemperature"
+    static let monitorAlertGPUPower = "monitorAlertGPUPower"
     static let monitorAlertMemory = "monitorAlertMemory"
     static let monitorAlertDisk = "monitorAlertDisk"
     static let monitorAlertBattery = "monitorAlertBattery"
     static let monitorAlertCPUThreshold = "monitorAlertCPUThreshold"
     static let monitorAlertCPUTemperatureThreshold = "monitorAlertCPUTemperatureThreshold"
+    static let monitorAlertGPUTemperatureThreshold = "monitorAlertGPUTemperatureThreshold"
+    static let monitorAlertGPUPowerThreshold = "monitorAlertGPUPowerThreshold"
     static let monitorAlertDiskFreePercent = "monitorAlertDiskFreePercent"
     static let monitorAlertBatteryPercent = "monitorAlertBatteryPercent"
     static let monitorAlertCooldownMinutes = "monitorAlertCooldownMinutes"
@@ -734,11 +738,15 @@ enum Defaults {
         DefaultsKey.monitorPwrHealth: true,
         DefaultsKey.monitorAlertCPU: false,
         DefaultsKey.monitorAlertCPUTemperature: false,
+        DefaultsKey.monitorAlertGPUTemperature: false,
+        DefaultsKey.monitorAlertGPUPower: false,
         DefaultsKey.monitorAlertMemory: false,
         DefaultsKey.monitorAlertDisk: false,
         DefaultsKey.monitorAlertBattery: false,
         DefaultsKey.monitorAlertCPUThreshold: 90,
         DefaultsKey.monitorAlertCPUTemperatureThreshold: 90,
+        DefaultsKey.monitorAlertGPUTemperatureThreshold: 85,
+        DefaultsKey.monitorAlertGPUPowerThreshold: 250,
         DefaultsKey.monitorAlertDiskFreePercent: 10,
         DefaultsKey.monitorAlertBatteryPercent: 15,
         DefaultsKey.monitorAlertCooldownMinutes: 15,

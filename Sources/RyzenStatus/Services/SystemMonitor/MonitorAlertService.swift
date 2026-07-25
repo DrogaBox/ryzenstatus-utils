@@ -12,6 +12,8 @@ final class MonitorAlertService {
     private var cancellables = Set<AnyCancellable>()
     private var highCPUSince: Date?
     private var thermalThrottleSince: Date?
+    private var highGPUTempSince: Date?
+    private var highGPUPowerSince: Date?
     private var lastSent: [MonitorAlertKind: Date] = [:]
 
     private init() {}
@@ -53,6 +55,8 @@ final class MonitorAlertService {
         cancellables.removeAll()
         highCPUSince = nil
         thermalThrottleSince = nil
+        highGPUTempSince = nil
+        highGPUPowerSince = nil
     }
 
     private func evaluate(_ snapshot: SystemSnapshot) {
@@ -78,6 +82,24 @@ final class MonitorAlertService {
             send(.cpuTemperature,
                  title: strings.cpuTemperatureTitle,
                  body: String(format: strings.cpuTemperatureBodyFormat, temperature))
+        }
+
+        if alertOn(DefaultsKey.monitorAlertGPUTemperature, .monitorGPU),
+           let gpuTemp = highGPUTemperature(from: snapshot, defaults: defaults) {
+            send(.gpuTemperature,
+                 title: "GPU Temperature Warning",
+                 body: String(format: "GPU temperature reached %d°C", gpuTemp))
+        } else {
+            highGPUTempSince = nil
+        }
+
+        if alertOn(DefaultsKey.monitorAlertGPUPower, .monitorGPU),
+           let gpuPower = highGPUPower(from: snapshot, defaults: defaults) {
+            send(.gpuPower,
+                 title: "GPU Power Warning",
+                 body: String(format: "GPU power reached %.0fW", gpuPower))
+        } else {
+            highGPUPowerSince = nil
         }
 
         if alertOn(DefaultsKey.monitorAlertMemory, .monitorMemory),
@@ -158,6 +180,40 @@ final class MonitorAlertService {
         return Int(temperature.rounded())
     }
 
+    private func highGPUTemperature(from snapshot: SystemSnapshot,
+                                     defaults: UserDefaults) -> Int? {
+        let threshold = Defaults.sanitizedPercent(defaults.integer(forKey: DefaultsKey.monitorAlertGPUTemperatureThreshold),
+                                                  fallback: 85,
+                                                  range: 50...120)
+        guard let temp = snapshot.gpuTemperature, temp >= Double(threshold) else {
+            highGPUTempSince = nil
+            return nil
+        }
+        let now = Date()
+        if highGPUTempSince == nil {
+            highGPUTempSince = now
+            return nil
+        }
+        guard let since = highGPUTempSince, now.timeIntervalSince(since) >= 12 else { return nil }
+        return Int(temp.rounded())
+    }
+
+    private func highGPUPower(from snapshot: SystemSnapshot,
+                               defaults: UserDefaults) -> Double? {
+        let threshold = max(1, Double(defaults.integer(forKey: DefaultsKey.monitorAlertGPUPowerThreshold)))
+        guard let power = snapshot.gpuPower, power >= threshold else {
+            highGPUPowerSince = nil
+            return nil
+        }
+        let now = Date()
+        if highGPUPowerSince == nil {
+            highGPUPowerSince = now
+            return nil
+        }
+        guard let since = highGPUPowerSince, now.timeIntervalSince(since) >= 12 else { return nil }
+        return power
+    }
+
     private func lowBattery(from snapshot: SystemSnapshot,
                             defaults: UserDefaults) -> Int? {
         let threshold = Defaults.sanitizedPercent(defaults.integer(forKey: DefaultsKey.monitorAlertBatteryPercent),
@@ -185,5 +241,5 @@ final class MonitorAlertService {
 }
 
 private enum MonitorAlertKind: Hashable {
-    case cpu, cpuTemperature, memory, disk, battery, thermalThrottle
+    case cpu, cpuTemperature, gpuTemperature, gpuPower, memory, disk, battery, thermalThrottle
 }

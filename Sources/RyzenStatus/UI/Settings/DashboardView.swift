@@ -141,24 +141,60 @@ struct DashboardView: View {
 struct TopCardsView: View {
     @ObservedObject var monitor: SystemMonitor
     
+    /// Preferred GPU temperature: kext > IOAccelerator > SMC
+    private var preferredGPUTemp: Double? {
+        if let kextGpu = monitor.snapshot.gpuDevices.first, kextGpu.temperature > 0 {
+            return kextGpu.temperature
+        }
+        return monitor.snapshot.gpuTemperature
+    }
+    
+    /// Preferred GPU power: kext > IOAccelerator
+    private var preferredGPUPower: Double? {
+        if let kextGpu = monitor.snapshot.gpuDevices.first, kextGpu.power > 0 {
+            return kextGpu.power
+        }
+        return monitor.snapshot.gpuPower
+    }
+    
     var body: some View {
-        HStack(spacing: 12) {
-            let cpuLoadPct = (monitor.snapshot.cpuUsage ?? 0.0) * 100.0
-            let cpuLoadStr = String(format: "%.0f%%", cpuLoadPct)
+        VStack(spacing: 8) {
+            // Main row of cards
+            HStack(spacing: 12) {
+                let cpuLoadPct = (monitor.snapshot.cpuUsage ?? 0.0) * 100.0
+                let cpuLoadStr = String(format: "%.0f%%", cpuLoadPct)
+                
+                let usedMem = Double(monitor.snapshot.memoryUsed ?? 0)
+                let totalMem = Double(max(1, monitor.snapshot.memoryTotal ?? 1))
+                let ramPct = (usedMem / totalMem) * 100.0
+                let ramStr = String(format: "%.0f%%", ramPct)
+                
+                let gpuTempVal = preferredGPUTemp ?? 0
+                let gpuUsagePct = (monitor.snapshot.gpuUsage ?? 0.0) * 100.0
+                let gpuStr = gpuUsagePct > 0 ? String(format: "%.0f%%", gpuUsagePct) : (gpuTempVal > 0 ? String(format: "%.1f°C", gpuTempVal) : "---")
+                let gpuPwrVal = preferredGPUPower ?? 0
+                let gpuPwrStr = gpuPwrVal > 0 ? String(format: "%.1f W", gpuPwrVal) : "--- W"
+                
+                GadgetCard(title: "CPU Load", value: cpuLoadStr, icon: "cpu", history: monitor.snapshot.cpuHistory, color: .cyan)
+                GadgetCard(title: "RAM Usage", value: ramStr, icon: "memorychip", history: monitor.snapshot.memoryHistory, color: .purple)
+                GadgetCard(title: "GPU Usage", value: gpuStr, icon: "display", history: monitor.snapshot.gpuHistory.isEmpty ? monitor.snapshot.gpuTempHistory : monitor.snapshot.gpuHistory, color: .orange)
+                GadgetCard(title: "GPU Power", value: gpuPwrStr, icon: "bolt.fill", history: monitor.snapshot.gpuPowerHistory, color: .green)
+            }
             
-            let usedMem = Double(monitor.snapshot.memoryUsed ?? 0)
-            let totalMem = Double(max(1, monitor.snapshot.memoryTotal ?? 1))
-            let ramPct = (usedMem / totalMem) * 100.0
-            let ramStr = String(format: "%.0f%%", ramPct)
-            
-            let gpuUsagePct = (monitor.snapshot.gpuUsage ?? 0.0) * 100.0
-            let gpuStr = gpuUsagePct > 0 ? String(format: "%.0f%%", gpuUsagePct) : (monitor.snapshot.gpuTemperature != nil ? String(format: "%.1f°C", monitor.snapshot.gpuTemperature!) : "---")
-            let gpuPwrStr = monitor.snapshot.gpuPower != nil ? String(format: "%.1f W", monitor.snapshot.gpuPower!) : "--- W"
-            
-            GadgetCard(title: "CPU Load", value: cpuLoadStr, icon: "cpu", history: monitor.snapshot.cpuHistory, color: .cyan)
-            GadgetCard(title: "RAM Usage", value: ramStr, icon: "memorychip", history: monitor.snapshot.memoryHistory, color: .purple)
-            GadgetCard(title: "GPU Usage", value: gpuStr, icon: "display", history: monitor.snapshot.gpuHistory.isEmpty ? monitor.snapshot.gpuTempHistory : monitor.snapshot.gpuHistory, color: .orange)
-            GadgetCard(title: "GPU Power", value: gpuPwrStr, icon: "bolt.fill", history: monitor.snapshot.gpuPowerHistory, color: .green)
+            // Multi-GPU row (if more than 1 GPU detected by kext)
+            if monitor.snapshot.gpuDevices.count > 1 {
+                HStack(spacing: 12) {
+                    ForEach(monitor.snapshot.gpuDevices) { gpu in
+                        if gpu.id > 0 {
+                            let gpuTempStr = gpu.temperature > 0 ? String(format: "%.1f°C", gpu.temperature) : "---"
+                            let gpuPwrStr2 = gpu.power > 0 ? String(format: "%.1f W", gpu.power) : "--- W"
+                            
+                            GadgetCard(title: "GPU \(gpu.id) Temp", value: gpuTempStr, icon: "display", history: monitor.snapshot.gpuTempHistory, color: .orange.opacity(0.7))
+                            GadgetCard(title: "GPU \(gpu.id) Power", value: gpuPwrStr2, icon: "bolt.fill", history: monitor.snapshot.gpuPowerHistory, color: .green.opacity(0.7))
+                        }
+                    }
+                }
+            }
         }
         .padding(.horizontal)
     }
@@ -171,10 +207,18 @@ struct MainChartsView: View {
         VStack(spacing: 16) {
             // Real Frequency Chart
             ChartBox(title: "FREQUENCY", unit: "GHz", data: monitor.snapshot.cpuFreqHistory, color: .purple)
-            // Real Temperature Chart
-            ChartBox(title: "TEMPERATURE", unit: "°C", data: monitor.snapshot.cpuTempHistory, color: .red)
-            // Real Power Chart
-            ChartBox(title: "POWER", unit: "W", data: monitor.snapshot.cpuPowerHistory, color: .blue)
+            // CPU Temperature Chart
+            ChartBox(title: "CPU TEMP", unit: "°C", data: monitor.snapshot.cpuTempHistory, color: .red)
+            // CPU Power Chart
+            ChartBox(title: "CPU POWER", unit: "W", data: monitor.snapshot.cpuPowerHistory, color: .blue)
+            // GPU Temperature Chart
+            if !monitor.snapshot.gpuTempHistory.isEmpty {
+                ChartBox(title: "GPU TEMP", unit: "°C", data: monitor.snapshot.gpuTempHistory, color: .orange)
+            }
+            // GPU Power Chart
+            if !monitor.snapshot.gpuPowerHistory.isEmpty {
+                ChartBox(title: "GPU POWER", unit: "W", data: monitor.snapshot.gpuPowerHistory, color: .green)
+            }
         }
         .padding(.horizontal)
     }

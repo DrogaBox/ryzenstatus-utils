@@ -22,6 +22,8 @@ final class AutoEppService: ObservableObject {
     @Published private(set) var isActive: Bool = false
     /// Current average CPU load (0–100%).
     @Published private(set) var currentCPULoad: Float = 0
+    /// Current GPU load (0–100%) from SystemMonitor snapshot.
+    @Published private(set) var currentGPULoad: Float = 0
     /// Human-readable label for the EPP target the service last applied.
     @Published private(set) var currentTarget: String = ""
     /// The raw EPP value last written to the kext.
@@ -62,6 +64,7 @@ final class AutoEppService: ObservableObject {
             guard ProcessorModel.shared.connect != 0 else {
                 isActive = false
                 currentCPULoad = 0
+                currentGPULoad = 0
                 currentTarget = ""
                 return
             }
@@ -72,6 +75,7 @@ final class AutoEppService: ObservableObject {
 
             guard state.active else {
                 currentCPULoad = 0
+                currentGPULoad = 0
                 currentTarget = ""
                 return
             }
@@ -84,18 +88,40 @@ final class AutoEppService: ObservableObject {
             let avg = loads.isEmpty ? 0 : loads.reduce(0, +) * 100 / Float(loads.count)
             currentCPULoad = avg
 
-            if avg < Float(idleThreshold) {
-                // Idle: set to Power Save (max efficiency)
+            // Read GPU load from SystemMonitor snapshot
+            let gpuUtil = SystemMonitor.shared.snapshot.gpuUsage ?? 0
+            let gpuLoad = Float(gpuUtil * 100)
+            currentGPULoad = gpuLoad
+
+            // GPU-aware EPP logic:
+            // - If GPU is heavily loaded (>60%), force Performance mode for gaming/rendering
+            // - If GPU is loaded (>30%) but CPU is idle, use Balanced (media playback)
+            // - Otherwise, use standard CPU-based logic
+            let gpuHeavyThreshold: Float = 60
+            let gpuActiveThreshold: Float = 30
+
+            if gpuLoad > gpuHeavyThreshold {
+                // GPU gaming/rendering: maximum performance
+                _ = ProcessorModel.shared.setCPPCEPPValue(epp: 0)
+                currentTarget = "GPU Performance"
+                currentEPP = 0
+            } else if avg < Float(idleThreshold) && gpuLoad < gpuActiveThreshold {
+                // CPU + GPU idle: Power Save
                 _ = ProcessorModel.shared.setCPPCEPPValue(epp: 255)
                 currentTarget = "Power Save"
                 currentEPP = 255
             } else if avg > Float(loadThreshold) {
-                // High load: set to Performance (max speed)
+                // High CPU load: Performance
                 _ = ProcessorModel.shared.setCPPCEPPValue(epp: 0)
                 currentTarget = NSLocalizedString("Performance", comment: "EPP Performance mode label")
                 currentEPP = 0
+            } else if gpuLoad > gpuActiveThreshold {
+                // GPU active (media/video): Balanced
+                _ = ProcessorModel.shared.setCPPCEPPValue(epp: 128)
+                currentTarget = "GPU Active"
+                currentEPP = 128
             } else {
-                // Moderate load: balanced EPP
+                // Moderate CPU load: Balanced
                 _ = ProcessorModel.shared.setCPPCEPPValue(epp: 128)
                 currentTarget = "Balanced"
                 currentEPP = 128

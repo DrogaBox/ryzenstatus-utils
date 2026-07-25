@@ -79,6 +79,8 @@ struct SystemSnapshot {
     var numPhysicalCores: Int = 0
     var peakCPUFreq: Double?
     var avgCPUFreq: Double?
+    /// GPU devices reported by the kext (selectors 27-30).
+    var gpuDevices: [GPUDeviceSnapshot] = []
 
     /// Temperature for CCD0 (°C) if reported by kext, nil otherwise
     var ccd0Temperature: Float? {
@@ -827,6 +829,29 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 let gpuW = ProcessorModel.shared.lastGPUPowerWatts
                 if cpuW > 0 { next.cpuPower = cpuW; sampledAnything = true }
                 if gpuW > 0 { next.gpuPower = gpuW; sampledAnything = true }
+
+                // Build GPU device snapshots from kext (selectors 27-30)
+                let gpuCount = ProcessorModel.shared.lastKextGPUCount
+                if gpuCount > 0 {
+                    let temps = ProcessorModel.shared.gpuCache.temperatures
+                    let powers = ProcessorModel.shared.gpuCache.powers
+                    var devices: [GPUDeviceSnapshot] = []
+                    for i in 0..<gpuCount {
+                        let temp = i < temps.count ? temps[i] : 0
+                        let power = i < powers.count ? powers[i] : 0
+                        let supportsPower = power > 0
+                        devices.append(GPUDeviceSnapshot(id: i, temperature: temp, power: power, supportsPower: supportsPower))
+                    }
+                    next.gpuDevices = devices
+
+                    // Use kext GPU temp/power as primary source (overrides IOAccelerator)
+                    if devices.count > 0 {
+                        let d0 = devices[0]
+                        if d0.temperature > 0 { next.gpuTemperature = d0.temperature }
+                        if d0.power > 0 { next.gpuPower = d0.power }
+                        sampledAnything = true
+                    }
+                }
             }
             if let amd = self.lastAmdSnapshot {
                 if amd.metric.count > 1 { next.cpuTemperature = Double(amd.metric[1]) }
