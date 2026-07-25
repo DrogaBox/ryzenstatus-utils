@@ -203,15 +203,15 @@ actor ProcessorModel {
         Task { await self._finishInit() }
     }
 
-    deinit {
-        retryTimer?.invalidate()
-    }
+    private(set) var isKextAvailable: Bool = false
 
     private func _finishInit() async {
         if connect == 0 {
-            alertAndQuit(message: NSLocalizedString("Please download AMDRyzenCPUPowerManagement from the release page.", comment: ""))
+            NSLog("ProcessorModel: AMDRyzenCPUPowerManagement.kext is not loaded. Running in degraded mode.")
+            isKextAvailable = false
             return
         }
+        isKextAvailable = true
 
         var scalerOut: UInt64 = 0
         var outputCount: UInt32 = 0
@@ -219,10 +219,15 @@ actor ProcessorModel {
         let maxStrLength = 16
         var outputStr: [CChar] = [CChar](repeating: 0, count: maxStrLength)
         var outputStrCount: Int = maxStrLength
-        let _ = IOConnectCallMethod(connect, 8, nil, 0, nil, 0,
-                                      &scalerOut, &outputCount,
-                                      &outputStr, &outputStrCount)
-        AMDRyzenCPUPowerManagementVersion = outputStrCount > 0 ? String(cString: Array(outputStr[0...min(outputStrCount - 1, outputStr.count - 1)])) : ""
+        let versionResult = IOConnectCallMethod(connect, 8, nil, 0, nil, 0,
+                                                 &scalerOut, &outputCount,
+                                                 &outputStr, &outputStrCount)
+        guard versionResult == KERN_SUCCESS, outputStrCount > 0 else {
+            NSLog("ProcessorModel: failed to read kext version, kr=0x%08x", versionResult)
+            AMDRyzenCPUPowerManagementVersion = ""
+            return
+        }
+        AMDRyzenCPUPowerManagementVersion = String(cString: Array(outputStr[0...min(outputStrCount - 1, outputStr.count - 1)]))
 
         let compatVers = ["3.0.0", "3.1.0", "3.2.0", "3.3.0", "3.3.1", "3.4.0", "3.5.0", "3.6.0", "3.7.0", "3.8.0", "3.9.0", "3.10.0", "3.11.0", "3.12.0", "3.13.3"]
 
@@ -494,10 +499,7 @@ actor ProcessorModel {
             }
         }
         
-        previousCpuLoadInfo.removeAll(keepingCapacity: true)
-        for i in 0..<count {
-            previousCpuLoadInfo.append(cpuLoadData[i])
-        }
+        previousCpuLoadInfo = (0..<count).map { cpuLoadData[$0] }
         
         loadIndex = newLoads
     }
@@ -833,45 +835,47 @@ actor ProcessorModel {
         }
 
         // GPU info detection optimized
-        var iter : io_iterator_t = 0
+        var iter: io_iterator_t = 0
         let err = IOServiceGetMatchingServices(kIOMainPortDefault,
                                                IOServiceMatching("IOPCIDevice"), &iter)
-        if err != kIOReturnSuccess { return }
-        defer { IOObjectRelease(iter) }
-        
-        while true {
-            let reg = IOIteratorNext(iter)
-            if reg == 0 { break }
-            defer { IOObjectRelease(reg) }
-            
-            var serviceDictionary : Unmanaged<CFMutableDictionary>?
-            let e = IORegistryEntryCreateCFProperties(reg, &serviceDictionary, kCFAllocatorDefault, .zero)
-            guard e == kIOReturnSuccess, let dic = serviceDictionary?.takeRetainedValue() as? NSDictionary else { continue }
-            
-            if let type = dic.object(forKey: "IOName") as? String, type == "display" {
-                if let model = dic.object(forKey: "model") as? Data {
-                    let rawStr = String(data: model, encoding: .ascii) ?? String(data: model, encoding: .utf8) ?? "Unknown GPU"
-                    systemConfig["gpu"] = rawStr
-                        .trimmingCharacters(in: .controlCharacters)
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                } else {
-                    systemConfig["gpu"] = "Unknown"
+        if err == kIOReturnSuccess {
+            defer { IOObjectRelease(iter) }
+            var foundGPU = false
+            while !foundGPU {
+                let reg = IOIteratorNext(iter)
+                guard reg != 0 else { break }
+                defer { IOObjectRelease(reg) }
+                
+                var serviceDictionary: Unmanaged<CFMutableDictionary>?
+                let e = IORegistryEntryCreateCFProperties(reg, &serviceDictionary, kCFAllocatorDefault, .zero)
+                guard e == kIOReturnSuccess, let dic = serviceDictionary?.takeRetainedValue() as? NSDictionary else { continue }
+                
+                if let type = dic.object(forKey: "IOName") as? String, type == "display" {
+                    if let model = dic.object(forKey: "model") as? Data {
+                        let rawStr = String(data: model, encoding: .ascii) ?? String(data: model, encoding: .utf8) ?? "Unknown GPU"
+                        systemConfig["gpu"] = rawStr
+                            .trimmingCharacters(in: .controlCharacters)
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                    } else {
+                        systemConfig["gpu"] = "Unknown"
+                    }
+                    foundGPU = true
                 }
-                break // Found GPU, exit early
             }
         }
     }
 
     // MARK: - GPU Statistics (from IOAccelerator PerformanceStatistics)
 
-    /// Reads a numeric value from the IOAccelerator PerformanceStatistics dictionary.
-    private func getIOAcceleratorStat(key: String) -> Float {
+    /// Reads all GPU PerformanceStatistics in a single IOKit iterator pass.
+    private func readAllIOAcceleratorStats() -> [String: Float] {
         var iter: io_iterator_t = 0
         let err = IOServiceGetMatchingServices(kIOMainPortDefault,
-                                              IOServiceMatching("IOAccelerator"), &iter)
-        if err != kIOReturnSuccess { return 0 }
+                                               IOServiceMatching("IOAccelerator"), &iter)
+        if err != kIOReturnSuccess { return [:] }
         defer { IOObjectRelease(iter) }
 
+        var results: [String: Float] = [:]
         while true {
             let reg = IOIteratorNext(iter)
             if reg == 0 { break }
@@ -879,26 +883,31 @@ actor ProcessorModel {
 
             if let dict = IORegistryEntryCreateCFProperty(reg, "PerformanceStatistics" as CFString,
                                                          kCFAllocatorDefault, 0)?.takeRetainedValue() as? [String: Any] {
-                if let v = dict[key] as? NSNumber { return v.floatValue }
-                if let v = dict[key] as? Int      { return Float(v) }
+                for key in ["Temperature(C)", "Total Power(W)", "Device Utilization %", "inUseVidMemoryBytes", "Core Clock(MHz)", "Fan Speed(RPM)"] {
+                    if let v = dict[key] as? NSNumber { results[key] = v.floatValue }
+                    else if let v = dict[key] as? Int  { results[key] = Float(v) }
+                }
+                break // First accelerator found
             }
         }
-        return 0
+        return results
     }
 
-    /// Optimized GPU stats with caching to reduce IOAccelerator queries
+    /// Optimized GPU stats with caching to reduce IOAccelerator queries (single pass)
     private func updateGPUStatsCache() {
         let now = Date()
         if now.timeIntervalSince(cachedGPUStats.lastUpdate) < gpuStatsCacheInterval {
             return
         }
         
-        let temp = getIOAcceleratorStat(key: "Temperature(C)")
-        let power = getIOAcceleratorStat(key: "Total Power(W)")
-        let util = getIOAcceleratorStat(key: "Device Utilization %")
-        let vram = getIOAcceleratorStat(key: "inUseVidMemoryBytes")
-        let freq = getIOAcceleratorStat(key: "Core Clock(MHz)")
-        let fan = (temp > 0 && temp < 50.0) ? 0 : getIOAcceleratorStat(key: "Fan Speed(RPM)")
+        let stats = readAllIOAcceleratorStats()
+        let temp = stats["Temperature(C)"] ?? 0
+        let power = stats["Total Power(W)"] ?? 0
+        let util = stats["Device Utilization %"] ?? 0
+        let vram = stats["inUseVidMemoryBytes"] ?? 0
+        let freq = stats["Core Clock(MHz)"] ?? 0
+        let rawFan = stats["Fan Speed(RPM)"] ?? 0
+        let fan = (temp > 0 && temp < 50.0) ? 0 : rawFan
         
         cachedGPUStats = (temp, power, util, vram, fan, freq, now)
 
@@ -1117,7 +1126,7 @@ actor ProcessorModel {
             let throttle = UInt8((raw >> 8) & 0xFF)  // Extract actual throttle from bits 15:8
             let isAuto = (raw & 1) == 1               // Extract auto flag from bit 0
             
-            fans.append(FanSnapshot(id: i, name: customName, rpm: rpm, throttle: throttle, isOverrided: !isAuto))
+            fans.append(FanSnapshot(id: i, name: customName, rpm: rpm, throttle: throttle, isOverridden: !isAuto))
         }
         return fans
     }

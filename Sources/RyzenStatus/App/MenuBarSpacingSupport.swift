@@ -21,9 +21,10 @@ enum MenuBarMetricSpacing: String, CaseIterable {
 /// with a compact vertical gauge. Readings without a fixed 0...100 scale stay
 /// numeric in either mode.
 enum MenuBarMetricAppearance: String, CaseIterable {
-    case values, bars, pie, sparkline, histogram
+    case values, bars, pie, sparkline, histogram, classic
 
-    var allowsCombinedTemperatures: Bool { self == .values }
+    var allowsCombinedTemperatures: Bool { self == .values || self == .classic }
+    var isClassic: Bool { self == .classic }
 
     static var current: MenuBarMetricAppearance {
         let raw = UserDefaults.standard.string(forKey: DefaultsKey.menuBarMetricAppearance) ?? ""

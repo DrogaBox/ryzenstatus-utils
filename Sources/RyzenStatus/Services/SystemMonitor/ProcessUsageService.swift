@@ -585,10 +585,6 @@ final class ProcessUsageService {
         return 0
     }
 
-extension Notification.Name {
-    static let processUsageDidUpdate = Notification.Name("ProcessUsageDidUpdate")
-}
-
     private func finishCPU(_ rows: [ProcessUsage]?, limit: Int) -> [ProcessUsage] {
         cacheLock.lock()
         cpuLoading = false
@@ -754,4 +750,8 @@ extension Notification.Name {
         return (pid, name.isEmpty ? "pid \(pid)" : name)
     }
 
+}
+
+extension Notification.Name {
+    static let processUsageDidUpdate = Notification.Name("ProcessUsageDidUpdate")
 }

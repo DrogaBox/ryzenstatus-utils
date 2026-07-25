@@ -53,6 +53,7 @@ struct MonitorSettings: View {
                     Text(appearanceStrings.pie).tag("pie")
                     Text(appearanceStrings.sparkline).tag("sparkline")
                     Text(appearanceStrings.histogram).tag("histogram")
+                    Text("Classic").tag("classic")
                 }
                 
                 Picker(MenuBarMetric.gpu.title(l10n.s), selection: $appGPU) {
@@ -60,6 +61,7 @@ struct MonitorSettings: View {
                     Text(appearanceStrings.bars).tag("bars")
                     Text(appearanceStrings.pie).tag("pie")
                     Text(appearanceStrings.sparkline).tag("sparkline")
+                    Text("Classic").tag("classic")
                 }
                 
                 Picker(MenuBarMetric.memory.title(l10n.s), selection: $appRAM) {

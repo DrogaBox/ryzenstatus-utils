@@ -176,7 +176,18 @@ struct MetricDetailView: View {
     private var graph: some View {
         switch kind {
         case .cpu:
-            historyGraph(monitor.snapshot.cpuHistory, color: summaryColor, maxValue: 1)
+            let freqHist = monitor.snapshot.cpuFreqHistory
+            let cpuHist = monitor.snapshot.cpuHistory
+            if freqHist.count >= 2 && cpuHist.count >= 2 {
+                let maxFreq = max(freqHist.max() ?? 1, 5.0)
+                ZStack {
+                    Sparkline(values: cpuHist, color: summaryColor, maxValue: 1.0, showsZeroBaseline: true)
+                    Sparkline(values: freqHist, color: Color.orange.opacity(0.8), maxValue: maxFreq, fillOpacity: 0.05)
+                }
+                .frame(height: 38)
+            } else {
+                historyGraph(cpuHist, color: summaryColor, maxValue: 1)
+            }
         case .gpu:
             historyGraph(monitor.snapshot.gpuHistory, color: summaryColor, maxValue: 1)
         case .memory:

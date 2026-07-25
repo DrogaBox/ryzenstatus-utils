@@ -87,7 +87,7 @@ enum MonitorSamplingPolicy {
             // after timer tolerance and scheduling slop, or the delta guard
             // discards background samples, blanking the menu bar IO metric
             // and freezing session totals while the panel is closed.
-            return 10
+            return 8
         case .peripheralBattery:
             return 60
         }

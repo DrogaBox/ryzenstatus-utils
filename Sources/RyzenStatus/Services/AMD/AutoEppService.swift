@@ -40,9 +40,11 @@ final class AutoEppService: ObservableObject {
     /// Idempotent — safe to call multiple times.
     func start() {
         guard timer == nil else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
+        let t = Timer(timeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
             self?.poll()
         }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
         // Fire immediately so the UI has data on first observation.
         poll()
     }
@@ -90,7 +92,7 @@ final class AutoEppService: ObservableObject {
             } else if avg > Float(loadThreshold) {
                 // High load: set to Performance (max speed)
                 _ = ProcessorModel.shared.setCPPCEPPValue(epp: 0)
-                currentTarget = "Rendimiento"
+                currentTarget = NSLocalizedString("Performance", comment: "EPP Performance mode label")
                 currentEPP = 0
             } else {
                 // Moderate load: balanced EPP

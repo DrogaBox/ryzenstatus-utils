@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.6.0-beta1]
+
+- **PRE-FASE 0 Kext Sanity Check**: Dynamic detection of `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` at launch. Runs gracefully in degraded read-only mode with UI warning banner instead of forcing app termination when kexts are missing.
+- **Classic Menu Bar Appearance**: Added 0% CPU/GPU overhead `.classic` menu bar appearance option.
+- **32-Thread SMT Dashboard & CCD Breakdown**: Full 32-logical-thread core grid support with distinct CCD0 and CCD1 temperature telemetry (`ccd0Temperature`, `ccd1Temperature`).
+- **Combined Metric Graph**: Dual-axis overlay of Peak CPU Frequency (GHz) over CPU Load (%) in metric detail views.
+- **Critical Concurrency & Fan Control Fixes**: Bounds check on `telemetry.metric[1]`, `@MainActor` safety in `Task.detached`, and nonisolated synchronous fan reset on app termination.
+- **Batched IOKit GPU Queries**: Replaced 6 individual `IOAccelerator` property queries with single-pass `readAllIOAcceleratorStats()`.
+- **Telemetry Logger & Thermal Alerts**: Buffered async telemetry CSV/JSON logger with 10s rate-limiting, plus sustained (>30s) thermal throttling alert notifications.
+
 ## [1.5.6]
 
 - **BTop Cyberpunk Network Sparkline Fix**: Replaced Swift Charts ordinal rendering with native `Sparkline` path engine, resolving sparkline loops and diagonal line artifacts.

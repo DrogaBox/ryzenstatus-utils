@@ -14,7 +14,13 @@ struct FanSnapshot: Identifiable {
     var name: String
     var rpm: UInt64
     var throttle: UInt8
-    var isOverrided: Bool
+    var isOverridden: Bool
+
+    @available(*, deprecated, renamed: "isOverridden")
+    var isOverrided: Bool {
+        get { isOverridden }
+        set { isOverridden = newValue }
+    }
 }
 
 // MARK: - Fan Curve Point
@@ -36,11 +42,44 @@ struct FanCurvePoint: Codable, Identifiable, Hashable {
 struct FanCurve: Codable, Identifiable, Hashable {
     var id = UUID()
     var name: String
-    var points: [FanCurvePoint]
+    var points: [FanCurvePoint] {
+        didSet { _cachedLUT = nil }
+    }
     var sourceSensor: FanSensor
     var hysteresis: Double // In °C
     var rampRate: Double   // In % PWM / sec
     
+    private var _cachedLUT: [Double]?
+    
+    enum CodingKeys: String, CodingKey {
+        case id, name, points, sourceSensor, hysteresis, rampRate
+    }
+    
+    init(id: UUID = UUID(),
+         name: String,
+         points: [FanCurvePoint],
+         sourceSensor: FanSensor,
+         hysteresis: Double,
+         rampRate: Double) {
+        self.id = id
+        self.name = name
+        self.points = points
+        self.sourceSensor = sourceSensor
+        self.hysteresis = hysteresis
+        self.rampRate = rampRate
+    }
+    
+    mutating func invalidateLUT() {
+        _cachedLUT = nil
+    }
+    
+    mutating func getLUT() -> [Double] {
+        if let cached = _cachedLUT { return cached }
+        let lut = generateRPMLUT()
+        _cachedLUT = lut
+        return lut
+    }
+
     func generateRPMLUT() -> [Double] {
         var lut = [Double](repeating: 0.0, count: 256)
         let sortedPoints = points.sorted { $0.temp < $1.temp }

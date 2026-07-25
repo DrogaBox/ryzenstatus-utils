@@ -525,7 +525,7 @@ enum Defaults {
     static let allowedKeyboardDebounceWindowRange = 0...500
     static let allowedMenuBarPresets = ["dense"]
     static let allowedMenuBarMetricSpacings = ["standard", "compact"]
-    static let allowedMenuBarMetricAppearances = ["values", "bars", "pie", "sparkline", "histogram"]
+    static let allowedMenuBarMetricAppearances = ["values", "bars", "pie", "sparkline", "histogram", "classic"]
     static let defaultMenuBarMetricOrder = [
         "cpu", "cpuTemperature", "cpuPower", "cpuFrequency", "cpuTempPower",
         "gpu", "gpuTemperature", "gpuPower", "gpuTempPower",
@@ -846,14 +846,22 @@ enum Defaults {
         DefaultsKey.windowLayoutShortcutBottomRightSixth: WindowLayoutAction.clearedShortcutStorageValue,
     ]
 
+    private static let currentMigrationVersion = 4
+
     static func register() {
         let defaults = UserDefaults.standard
         defaults.register(defaults: registeredDefaults)
         defaults.register(defaults: AppFeature.availabilityDefaults)
-        migrateLegacyMenuBarTemperatureMetric(in: defaults)
-        migrateLegacySwitcherWindowShortcut(in: defaults)
-        migrateLegacyKeyboardDebounceWindow(in: defaults)
-        migrateUtilityOrderForScreenshot(in: defaults)
+
+        let lastVersion = defaults.integer(forKey: "_migrationVersion")
+        guard lastVersion < currentMigrationVersion else { return }
+
+        if lastVersion < 1 { migrateLegacyMenuBarTemperatureMetric(in: defaults) }
+        if lastVersion < 2 { migrateLegacySwitcherWindowShortcut(in: defaults) }
+        if lastVersion < 3 { migrateLegacyKeyboardDebounceWindow(in: defaults) }
+        if lastVersion < 4 { migrateUtilityOrderForScreenshot(in: defaults) }
+
+        defaults.set(currentMigrationVersion, forKey: "_migrationVersion")
     }
 
     static func migrateLegacySwitcherWindowShortcut(in defaults: UserDefaults) {

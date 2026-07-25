@@ -39,6 +39,12 @@ enum NetworkProcessSupport {
         }
         if process.isRunning {
             process.terminate()
+            let p = process
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1.0) {
+                if p.isRunning {
+                    kill(p.processIdentifier, SIGKILL)
+                }
+            }
         }
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()

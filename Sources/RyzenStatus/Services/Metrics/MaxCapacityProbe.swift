@@ -46,8 +46,8 @@ final class MaxCapacityProbe {
         lock.unlock()
 
         queue.async { [weak self] in
-            guard let self else { return }
             let value = Self.read()
+            guard let self else { return }
             self.lock.lock()
             self.cached = value
             self.running = false

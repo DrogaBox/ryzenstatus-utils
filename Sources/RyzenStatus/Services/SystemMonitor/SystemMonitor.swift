@@ -73,11 +73,22 @@ struct SystemSnapshot {
     var cpuFreqHistory: [Double] = []      // GHz
 
     // Detailed AMD Telemetry
+    var isKextAvailable: Bool = true
     var cores: [CoreSnapshot] = []
     var ccdTemperatures: [Float] = []
     var numPhysicalCores: Int = 0
     var peakCPUFreq: Double?
     var avgCPUFreq: Double?
+
+    /// Temperature for CCD0 (°C) if reported by kext, nil otherwise
+    var ccd0Temperature: Float? {
+        ccdTemperatures.indices.contains(0) ? ccdTemperatures[0] : nil
+    }
+
+    /// Temperature for CCD1 (°C) if reported by kext, nil otherwise
+    var ccd1Temperature: Float? {
+        ccdTemperatures.indices.contains(1) ? ccdTemperatures[1] : nil
+    }
 }
 
 /// What parts of the menu panel are actually visible right now. The popover can
@@ -162,6 +173,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     private var cores: [CoreSnapshot] = []
     private var ccdTemperatures: [Double] = []
     private var lastAmdSnapshot: ProcessorModel.TelemetrySnapshot?
+    private var isKextAvailable: Bool = true
     private var missedCPUUsageSamples = 0
     private var lastGPUUsage: Double?
     private var missedGPUUsageSamples = 0
@@ -615,8 +627,10 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             Task { [weak self] in
                 await ProcessorModel.shared.refreshPowerCache()
                 let snap = await ProcessorModel.shared.snapshotTelemetry(forceMetric: false)
+                let avail = await ProcessorModel.shared.isKextAvailable
                 self?.queue.async {
                     self?.lastAmdSnapshot = snap
+                    self?.isKextAvailable = avail
                 }
             }
         }
@@ -626,6 +640,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             let now = ProcessInfo.processInfo.systemUptime
 
             var next = SystemSnapshot()
+            next.isKextAvailable = self.isKextAvailable
 
             // Publishing a snapshot redraws the menu bar (attributed-string
             // rebuild + width measurement); on ticks where every needed metric
@@ -678,7 +693,9 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                         self.memoryHistory.push(Double(memory.used) / Double(memory.total))
                     }
                 }
-                
+            }
+
+            if plan.needGPUUsage || plan.needMemory {
                 // Track GPU VRAM with state persistence across sampling ticks
                 if take(.gpuUsage) {
                     if let vramUsed = self.readGPUVRAM() {

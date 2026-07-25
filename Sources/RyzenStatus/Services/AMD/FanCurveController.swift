@@ -93,16 +93,17 @@ class FanCurveController: ObservableObject {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 
-                guard let self = self else { break }
+                guard let self else { break }
                 
                 let telemetry = await ProcessorModel.shared.snapshotTelemetry(forceMetric: false)
-                let cpuTemp = Double(telemetry.metric[1]) // Package Temp
+                let cpuTemp = telemetry.metric.count > 1 ? Double(telemetry.metric[1]) : 0.0 // Package Temp with bounds check
                 let gpuTemp = await MainActor.run {
                     SystemMonitor.shared.snapshot.gpuTemperature ?? cpuTemp
                 }
                 
-                let mappings = await self.fanMappings
-                let curves = await self.customCurves
+                let (mappings, curves) = await MainActor.run {
+                    (self.fanMappings, self.customCurves)
+                }
                 
                 for (fanId, curveIdx) in mappings {
                     if curveIdx < 0 || curveIdx >= curves.count {
@@ -112,7 +113,7 @@ class FanCurveController: ObservableObject {
                         continue
                     }
                     
-                    let curve = curves[curveIdx]
+                    var curve = curves[curveIdx]
                     let rawTemp = curve.sourceSensor == .cpu ? cpuTemp : gpuTemp
                     let lastT = lastTemp[curve.sourceSensor] ?? rawTemp
                     let effectiveTemp: Double
@@ -123,8 +124,8 @@ class FanCurveController: ObservableObject {
                         effectiveTemp = lastT
                     }
                     
-                    // LUT Evaluation
-                    let lut = curve.generateRPMLUT() // Returns PWM table
+                    // LUT Evaluation (cached LUT)
+                    let lut = curve.getLUT() // Returns cached PWM table
                     let safeTemp = min(max(Int(effectiveTemp), 0), 255)
                     let targetPWM = lut[safeTemp]
                     
@@ -163,12 +164,16 @@ class FanCurveController: ObservableObject {
         controlTask?.cancel()
         controlTask = nil
         
-        // Revert all fans mapped to a custom curve back to auto
+        resetFansToAutoSync()
+    }
+
+    /// Resets all custom-mapped fans back to automatic mode asynchronously.
+    /// Safe to call on app termination or teardown.
+    nonisolated func resetFansToAutoSync() {
         Task {
-            for (fanId, curveIdx) in fanMappings {
-                if curveIdx >= 0 {
-                    _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fanId)
-                }
+            let mappings = await MainActor.run { FanCurveController.shared.fanMappings }
+            for (fanId, curveIdx) in mappings where curveIdx >= 0 {
+                _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fanId)
             }
         }
     }

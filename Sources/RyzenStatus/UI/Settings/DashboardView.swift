@@ -37,6 +37,23 @@ struct DashboardView: View {
     
     var body: some View {
         VStack(spacing: 0) {
+            if !monitor.snapshot.isKextAvailable {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text("AMDRyzenCPUPowerManagement.kext no detectado. Telemetría AMD en modo lectura reducida.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.orange.opacity(0.12))
+                .cornerRadius(8)
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+            }
+
             // Header with Title, Style Selector & Edit button
             HStack(alignment: .center, spacing: 12) {
                 Text("Dashboard")

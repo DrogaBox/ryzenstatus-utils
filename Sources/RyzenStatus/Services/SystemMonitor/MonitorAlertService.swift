@@ -11,6 +11,7 @@ final class MonitorAlertService {
 
     private var cancellables = Set<AnyCancellable>()
     private var highCPUSince: Date?
+    private var thermalThrottleSince: Date?
     private var lastSent: [MonitorAlertKind: Date] = [:]
 
     private init() {}
@@ -51,6 +52,7 @@ final class MonitorAlertService {
     private func stopSink() {
         cancellables.removeAll()
         highCPUSince = nil
+        thermalThrottleSince = nil
     }
 
     private func evaluate(_ snapshot: SystemSnapshot) {
@@ -93,6 +95,21 @@ final class MonitorAlertService {
            let battery = lowBattery(from: snapshot, defaults: defaults) {
             let body = String(format: strings.batteryBodyFormat, battery)
             send(.battery, title: strings.batteryTitle, body: body)
+        }
+
+        if let temp = snapshot.cpuTemperature, temp >= 92.0,
+           let usage = snapshot.cpuUsage, usage >= 0.85 {
+            let now = Date()
+            if thermalThrottleSince == nil {
+                thermalThrottleSince = now
+            } else if let since = thermalThrottleSince, now.timeIntervalSince(since) >= 30 {
+                let ccdInfo = snapshot.ccd0Temperature.map { String(format: " (CCD0: %.0f°C)", $0) } ?? ""
+                send(.thermalThrottle,
+                     title: "Thermal Throttling Warning",
+                     body: String(format: "Sustained CPU temperature at %.0f°C under heavy load for >30s%@", temp, ccdInfo))
+            }
+        } else {
+            thermalThrottleSince = nil
         }
     }
 
@@ -168,5 +185,5 @@ final class MonitorAlertService {
 }
 
 private enum MonitorAlertKind: Hashable {
-    case cpu, cpuTemperature, memory, disk, battery
+    case cpu, cpuTemperature, memory, disk, battery, thermalThrottle
 }
