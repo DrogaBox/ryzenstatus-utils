@@ -1,6 +1,20 @@
 # Changelog
 
+## [1.6.0-beta4]
+
+- **Full GPU Kext Pipeline**: Complete AMD GPU monitoring pipeline from kernel PCI BAR MMIO registers to the RyzenStatus UI via `AMDGPUDevice` class with multi-GPU detection (Sea Islands through Navi 3x).
+- **GPU UserClient Selectors**: Implemented UserClient selectors 27-30 for GPU count, temperature, power, and capabilities via `ProcessorModel.swift`.
+- **GPU Temperature & Power Charts**: GPU temperature and power telemetry now displayed in Dashboard detail views.
+- **GPU-Aware Auto EPP**: `AutoEppService` detects active GPU gaming/rendering workloads to automatically apply performance EPP profiles.
+- **GPU Temperature Alerts**: Debounced GPU temperature and power alerts integrated in `MonitorAlertService`.
+- **Multi-GPU Support**: `SensorsView` and `SystemMonitor` updated to handle multiple discrete GPU devices via `GPUDeviceSnapshot` model.
+- **Fan Curve GPU Input**: `FanCurveController` uses kext-reported GPU temperature directly without actor hop overhead.
+- **Process List Flickering Fix**: Extended stale process cache lifetime from 2s to 60s, preventing process rows from disappearing during background `ps`/GPU sampling cycles.
+- **Classic Card Breakdown Fix**: Eliminated background queue race condition in `SystemSection` breakdown refresh; CPU and GPU square cards are now tappable to expand the process list.
+- **MonitorSamplingPolicy Test Alignment**: Corrected disk stride test expectations to match the current 8s background target interval (stride=4).
+
 ## [1.6.0-beta3]
+
 
 - **Classic Cards Process List Fix**: Connected reactive notification listeners and prevented initial empty-state override when expanding CPU/GPU breakdown rows in Classic Cards view.
 - **Process List Stability & Deterministic Sorting**: Implemented secondary PID sort in process breakdown lists to prevent row flickering and position jumping when process values are equal.
