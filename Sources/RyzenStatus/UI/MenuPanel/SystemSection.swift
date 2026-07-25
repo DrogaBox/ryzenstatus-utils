@@ -86,15 +86,18 @@ struct SystemSection: View {
             .panelCard()
         }
         .onReceive(monitor.$snapshot) { _ in
-            // The breakdown forks `ps` (and walks IORegistry for GPU), so refresh it
-            // at most every ~4 s while expanded instead of on every ~2 s snapshot.
-            guard !expandedKinds.isEmpty, Date().timeIntervalSince(lastBreakdownRefresh) > 4 else { return }
+            guard !expandedKinds.isEmpty, Date().timeIntervalSince(lastBreakdownRefresh) > 2 else { return }
             refreshBreakdown()
         }
-        .onDisappear {
-            expandedKinds.removeAll()
-            breakdownRows = [:]
-            breakdownLoading = [:]
+        .onReceive(NotificationCenter.default.publisher(for: .processUsageDidUpdate)) { _ in
+            guard !expandedKinds.isEmpty else { return }
+            for kind in expandedKinds {
+                let updated = ProcessUsageService.shared.top(kind, limit: breakdownLimit)
+                if !updated.isEmpty {
+                    breakdownRows[kind] = updated
+                    breakdownLoading[kind] = false
+                }
+            }
         }
     }
 
@@ -252,8 +255,12 @@ struct SystemSection: View {
                 let rows = ProcessUsageService.shared.top(capturedKind, limit: breakdownLimit)
                 DispatchQueue.main.async {
                     guard expandedKinds.contains(capturedKind) else { return }
-                    breakdownLoading[capturedKind] = false
-                    breakdownRows[capturedKind] = rows
+                    if !rows.isEmpty {
+                        breakdownLoading[capturedKind] = false
+                        breakdownRows[capturedKind] = rows
+                    } else if (breakdownRows[capturedKind] ?? []).isEmpty {
+                        breakdownLoading[capturedKind] = true
+                    }
                 }
             }
         }

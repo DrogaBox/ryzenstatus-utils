@@ -1,7 +1,8 @@
 # Changelog
 
-## [1.6.0-beta2]
+## [1.6.0-beta3]
 
+- **Classic Cards Process List Fix**: Connected reactive notification listeners and prevented initial empty-state override when expanding CPU/GPU breakdown rows in Classic Cards view.
 - **Process List Stability & Deterministic Sorting**: Implemented secondary PID sort in process breakdown lists to prevent row flickering and position jumping when process values are equal.
 - **AMD GPU Process Detections**: Added kernel-level `pgrep` fallback for `WindowServer` and active Metal processes to guarantee non-empty GPU process breakdown on discrete AMD GPUs.
 - **UI Expansion State & iStats Reactivity**: Retained expanded process lists across popover redraws and bound iStats widget process lists to reactive `@State` properties.
