@@ -67,18 +67,10 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist/showcase
-          
-          # Always include the Kexts
-          if [[ -f "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" ]]; then
-            cp "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" dist/
-          fi
 
           {
             echo "FILES<<__VRSS_FILES__"
             printf '%s\n' dist/*.dmg
-            if compgen -G "dist/*.zip" > /dev/null; then
-              printf '%s\n' dist/*.zip
-            fi
             echo "__VRSS_FILES__"
           } >> "$GITHUB_OUTPUT"
 
