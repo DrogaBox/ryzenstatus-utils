@@ -49,7 +49,7 @@ final class ProcessUsageService {
     }
     private var cacheFreshSeconds: TimeInterval { configuredCacheFreshSeconds }
     private var memoryCacheFreshSeconds: TimeInterval { configuredCacheFreshSeconds * 1.2 }
-    private var staleCacheSeconds: TimeInterval { configuredCacheFreshSeconds * 2.0 }
+    private var staleCacheSeconds: TimeInterval { max(60.0, configuredCacheFreshSeconds * 10.0) }
     private let minimumGPUSampleInterval: TimeInterval = 0.8
     private let maximumCachedRows = 60
     private var cpuCache: CachedRows?

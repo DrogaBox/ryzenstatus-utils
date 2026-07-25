@@ -143,15 +143,15 @@ struct IStatsPopoverWidgetsView: View {
     
     private func updateProcesses() {
         let newCPU = ProcessUsageService.shared.top(.cpu, limit: 4)
-        if !newCPU.isEmpty || cpuProcesses.isEmpty {
+        if !newCPU.isEmpty {
             cpuProcesses = newCPU
         }
         let newMem = ProcessUsageService.shared.top(.memory, limit: 4)
-        if !newMem.isEmpty || memProcesses.isEmpty {
+        if !newMem.isEmpty {
             memProcesses = newMem
         }
         let newGPU = ProcessUsageService.shared.top(.gpu, limit: 4)
-        if !newGPU.isEmpty || gpuProcesses.isEmpty {
+        if !newGPU.isEmpty {
             gpuProcesses = newGPU
         }
     }
