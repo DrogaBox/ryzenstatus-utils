@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.6.0-beta5]
+
+- **Sampling Policy Correction**: Corrected `MonitorSamplingPolicy` foreground target interval values for deterministic per-tick sampling (functionally identical with 1s interval).
+- **Menu Bar Block Alignment Fix**: Adjusted `legacyBlockAttachmentNudge` from -1.2 to -0.25 on macOS < 27 for centered menu bar metric blocks.
+- **Disk Sampler Deadlock Fix**: Fixed a potential deadlock in `DiskSampler.runDiskutilInfo` by redirecting stderr to `/dev/null` and reading pipe output before `waitUntilExit()`.
+
 ## [1.6.0-beta4]
 
 - **Full GPU Kext Pipeline**: Complete AMD GPU monitoring pipeline from kernel PCI BAR MMIO registers to the RyzenStatus UI via `AMDGPUDevice` class with multi-GPU detection (Sea Islands through Navi 3x).
