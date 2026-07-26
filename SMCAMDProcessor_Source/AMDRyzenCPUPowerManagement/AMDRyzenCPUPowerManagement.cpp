@@ -55,14 +55,14 @@ bool AMDRyzenCPUPowerManagement::init(OSDictionary *dictionary){
     
     pmRyzen_symtable_ready = 0;
     bool resolved = false;
+    find_mach_header_addr(getKernelVersion() >= KernelVersion::BigSur);
     for (int symbolRetries = 0; symbolRetries < 50; symbolRetries++) {
-        find_mach_header_addr(getKernelVersion() >= KernelVersion::BigSur);
         pmRyzen_symtable._wrmsr_carefully = lookup_symbol("_wrmsr_carefully");
         if (pmRyzen_symtable._wrmsr_carefully) {
             resolved = true;
             break;
         }
-        IOSleep(10);
+        if (symbolRetries < 49) IOSleep(10);
     }
     if (!resolved) {
         OSIncrementAtomic((SInt32*)&kextloadAlerts);
@@ -117,7 +117,7 @@ void AMDRyzenCPUPowerManagement::free(){
 bool AMDRyzenCPUPowerManagement::getPCIService(){
     OSDictionary *matching_dict = serviceMatching("IOPCIDevice");
     if(!matching_dict){
-        IOLog("AMDRyzenCPUPowerManagement::getPCIService: serviceMatching unable to generate matching dictonary.\n");
+        IOLog("AMDRyzenCPUPowerManagement::getPCIService: serviceMatching unable to generate matching dictionary.\n");
         return false;
     }
     
@@ -197,6 +197,7 @@ void AMDRyzenCPUPowerManagement::enumerateGPUs() {
         uint16_t devID = device->configRead16(kIOPCIConfigDeviceID);
 
         auto *gpu = new AMDGPUDevice{};
+        // Max 16 GPUs (sufficient for workstation configs; expand if needed)
         if (gpu && gpu->initFromDevice(device) && gpuCount < 16) {
             gpuDevices[gpuCount] = gpu;
             gpu->retain();
@@ -330,6 +331,9 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
         //Read stats from package.
         provider->updatePackageTemp();
         provider->updatePackageEnergy();
+        
+        // Read Package C6 Residency MSR (cumulative microseconds)
+        provider->read_msr(kMSR_PKG_C6_RES, &provider->packageC6Residency);
 
         IOLockUnlock(provider->rendezvousLock);
 

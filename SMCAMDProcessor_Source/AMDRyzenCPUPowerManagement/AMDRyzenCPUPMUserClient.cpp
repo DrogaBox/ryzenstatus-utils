@@ -38,7 +38,12 @@ bool AMDRyzenCPUPMUserClient::initWithTask(task_t owningTask,
     //   the GUI shows a false "kext not found" error.
     bool isRoot = (proc_suser(proc) == 0 || kauth_cred_getuid(proc_ucred(proc)) == 0);
     bool isDebugBypass = checkKernelArgument("-amdpnopchk");
-    
+
+    if (isDebugBypass) {
+        IOLog("⚠️ WARNING: -amdpnopchk boot-arg is active. Privilege checks are DISABLED.\n");
+        IOLog("⚠️ WARNING: This boot-arg is FOR DEVELOPMENT ONLY. DO NOT USE IN PRODUCTION.\n");
+    }
+
     if (isRoot || isDebugBypass) {
         IOLog("AMDRyzenCPUPMUserClient: ACCEPTED privileged pid=%d binary='%s' (root=%d debug=%d)\n",
               proc_pid(proc), taskProcessBinaryName, isRoot, isDebugBypass);
@@ -779,6 +784,25 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             for (uint32_t i = 0; i < copyCount; i++) {
                 provider->getGPUPower(i, &dataOut[i]);
+            }
+            break;
+        }
+        
+        // Get Package C6 Residency (cumulative microseconds)
+        case 31: {
+            arguments->scalarOutputCount = 0;
+            
+            uint32_t requiredSize = sizeof(uint64_t);
+            uint32_t maxLen = arguments->structureOutputSize;
+            arguments->structureOutputSize = requiredSize;
+            
+            if (!arguments->structureOutput) {
+                return kIOReturnBadArgument;
+            }
+            
+            uint64_t *dataOut = (uint64_t*) arguments->structureOutput;
+            if (maxLen >= sizeof(uint64_t)) {
+                dataOut[0] = provider->packageC6Residency;
             }
             break;
         }

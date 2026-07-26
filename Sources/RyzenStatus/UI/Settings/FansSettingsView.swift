@@ -50,7 +50,7 @@ struct FansSettingsView: View {
                         Image(systemName: "info.circle.fill")
                             .font(.system(size: 11))
                             .foregroundColor(.cyan)
-                        Text("Note: Manual fan speed control requires boot-arg -amdpnopchk in OpenCore config.plist and SMCAMDProcessor.kext v3.33.8+.")
+                        Text("Note: Manual fan speed control requires boot-arg -amdpnopchk in OpenCore config.plist and AMDRyzenCPUPowerManagement.kext v1.0.0+.")
                             .font(.system(size: 11, weight: .regular))
                             .foregroundColor(.secondary)
                     }

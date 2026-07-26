@@ -67,7 +67,17 @@ static constexpr UInt32 PPSMC_MSG_PmStatusLogSample_SMU7 = 0x171;
 static constexpr UInt32 PPSMC_MSG_GetCurrPkgPwr_SMU7 = 0x282;
 static constexpr UInt32 PPSMC_MSG_GetCurrPkgPwr_SMU9 = 0x61;
 
-/** Helper: insert memory barrier so write-combining buffers flush before polling. */
+/**
+ * Full memory fence (mfence) for MMIO register access.
+ *
+ * mfence is required (not just sfence) because:
+ * 1. MMIO writes use write-combining buffers that can delay stores
+ * 2. We need STORE → LOAD ordering across PCI register pairs (INDEX/DATA)
+ * 3. sfence only orders stores; mfence flushes write-combining and orders all ops
+ *
+ * Pattern: rmmioPtr[INDEX] = reg; memoryBarrier(); val = rmmioPtr[DATA];
+ * Without mfence, DATA read could execute before INDEX write completes.
+ */
 static inline void memoryBarrier() {
     __asm__ volatile("mfence" ::: "memory");
 }

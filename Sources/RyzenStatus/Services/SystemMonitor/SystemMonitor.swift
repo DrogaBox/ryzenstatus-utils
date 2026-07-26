@@ -436,7 +436,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         var needCPUTemperature = false
         var needGPUTemperature = false
         var needBatteryTemperature = false
-        var needAMDPower = false  // CPU/GPU power from AMDRyzenCPUPowerManagement kext
+        var needAMDPower = false  // CPU/GPU power from AMD PM kext
 
         var needSMC: Bool { needPower || needTemperature }
 

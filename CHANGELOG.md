@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.6.0-beta7]
+
+### Features
+- **Package C6 Residency Monitoring**: Added C6 power state monitoring — reads MSR 0xC0010296 via kext selector 31 and displays residency % live in the app.
+- **C6 in Dashboard**: C6 residency card on main Dashboard for at-a-glance monitoring.
+- **C6 Settings UI**: Deep C-States section in AMD Power Settings with percentage, visual bar, and boot-arg instructions.
+
+### Fixes
+- **App Kext References**: Corrected stale "SMCAMD.kext" references in Dashboard, Fans settings, and error alerts to use proper kext names.
+- **Source Cleanup**: Removed all build artifacts, experiment scripts, and leftover documentation from development session.
+
 ## [1.6.0-beta6]
 
 ### Feature Parity

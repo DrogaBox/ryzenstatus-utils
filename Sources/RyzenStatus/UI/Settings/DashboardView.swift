@@ -41,7 +41,7 @@ struct DashboardView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(.orange)
-                    Text("AMDRyzenCPUPowerManagement.kext no detectado. Telemetría AMD en modo lectura reducida.")
+                    Text("Kext AMD no detectado. Telemetría AMD en modo lectura reducida.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Spacer()
@@ -140,6 +140,10 @@ struct DashboardView: View {
 
 struct TopCardsView: View {
     @ObservedObject var monitor: SystemMonitor
+    @State private var c6Pct: Double = 0
+    @State private var lastC6Raw: UInt64 = 0
+    @State private var lastC6Time: Date = .distantPast
+    private let c6Timer = Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()
     
     /// Preferred GPU temperature: kext > IOAccelerator > SMC
     private var preferredGPUTemp: Double? {
@@ -179,6 +183,10 @@ struct TopCardsView: View {
                 GadgetCard(title: "RAM Usage", value: ramStr, icon: "memorychip", history: monitor.snapshot.memoryHistory, color: .purple)
                 GadgetCard(title: "GPU Usage", value: gpuStr, icon: "display", history: monitor.snapshot.gpuHistory.isEmpty ? monitor.snapshot.gpuTempHistory : monitor.snapshot.gpuHistory, color: .orange)
                 GadgetCard(title: "GPU Power", value: gpuPwrStr, icon: "bolt.fill", history: monitor.snapshot.gpuPowerHistory, color: .green)
+                
+                if c6Pct > 0 {
+                    GadgetCard(title: "C6", value: String(format: "%.1f%%", c6Pct), icon: "moon.zzz.fill", history: [], color: .purple)
+                }
             }
             
             // Multi-GPU row (if more than 1 GPU detected by kext)
@@ -197,6 +205,21 @@ struct TopCardsView: View {
             }
         }
         .padding(.horizontal)
+        .onReceive(c6Timer) { _ in
+            let raw = ProcessorModel.shared.getPackageC6Residency()
+            if raw > 0 && lastC6Raw > 0 {
+                let now = Date()
+                let delta = Double(raw &- lastC6Raw)
+                let elapsed = now.timeIntervalSince(lastC6Time) * 1_000_000
+                if elapsed > 0 {
+                    c6Pct = min((delta / elapsed) * 100.0, 100.0)
+                }
+            }
+            if raw > 0 {
+                lastC6Raw = raw
+                lastC6Time = Date()
+            }
+        }
     }
 }
 

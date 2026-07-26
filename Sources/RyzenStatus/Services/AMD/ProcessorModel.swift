@@ -132,7 +132,7 @@ actor ProcessorModel {
     private var cpuListedAsSupported : Bool = false
 
     var systemConfig : [String : String] = [:]
-    var AMDRyzenCPUPowerManagementVersion : String = ""
+    var kextVersion : String = ""
     var cpuidBasic : [UInt64] = []
     var boardValid = false
     var boardName : String = "Unknown"
@@ -269,23 +269,23 @@ actor ProcessorModel {
                                                  &outputStr, &outputStrCount)
         guard versionResult == KERN_SUCCESS, outputStrCount > 0 else {
             NSLog("ProcessorModel: failed to read kext version, kr=0x%08x", versionResult)
-            AMDRyzenCPUPowerManagementVersion = ""
+            kextVersion = ""
             return
         }
-        AMDRyzenCPUPowerManagementVersion = String(cString: Array(outputStr[0...min(outputStrCount - 1, outputStr.count - 1)]))
+        kextVersion = String(cString: Array(outputStr[0...min(outputStrCount - 1, outputStr.count - 1)]))
 
-        let compatVers = ["3.0.0", "3.1.0", "3.2.0", "3.3.0", "3.3.1", "3.4.0", "3.5.0", "3.6.0", "3.7.0", "3.8.0", "3.9.0", "3.10.0", "3.11.0", "3.12.0", "3.13.3"]
+        let compatVers = ["1.0.0"]
 
-        var isCompatible = compatVers.contains(AMDRyzenCPUPowerManagementVersion)
+        var isCompatible = compatVers.contains(kextVersion)
         if !isCompatible {
-            if AMDRyzenCPUPowerManagementVersion.compare("3.0.0", options: .numeric) != .orderedAscending {
+            if kextVersion.compare("1.0.0", options: .numeric) != .orderedAscending {
                 isCompatible = true
             }
         }
 
         if !isCompatible {
-            let fmt = NSLocalizedString("Your AMDRyzenCPUPowerManagement version (%@) is outdated and no longer API compatible. Please use version 3.0.0 or newer and start this application again.", comment: "")
-            alertAndQuit(message: String(format: fmt, AMDRyzenCPUPowerManagementVersion))
+            let fmt = NSLocalizedString("Your AMD Power Management kext version (%@) is outdated and no longer API compatible. Please use version 1.0.0 or newer and start this application again.", comment: "")
+            alertAndQuit(message: String(format: fmt, kextVersion))
             return
         }
 
@@ -304,7 +304,7 @@ actor ProcessorModel {
             await MainActor.run {
                 let alert = NSAlert()
                 alert.messageText = NSLocalizedString("Error reading CPU data.", comment: "")
-                alert.informativeText = NSLocalizedString("This application can not be launched due to AMDRyzenCPUPowerManagement is reporting incorrect data.", comment: "")
+                alert.informativeText = NSLocalizedString("This application can not be launched due to AMD Power Management kext reporting incorrect data.", comment: "")
                 alert.alertStyle = .critical
                 alert.addButton(withTitle: NSLocalizedString("Quit", comment: ""))
                 NSApp.activate(ignoringOtherApps: true)
@@ -322,7 +322,7 @@ actor ProcessorModel {
     func alertAndQuit(message : String){
         Task { @MainActor in
             let alert = NSAlert()
-            alert.messageText = NSLocalizedString("No AMDRyzenCPUPowerManagement Found!", comment: "")
+            alert.messageText = NSLocalizedString("No AMD Power Management Kext Found!", comment: "")
             alert.informativeText = message
             alert.alertStyle = .critical
             alert.addButton(withTitle: NSLocalizedString("Quit", comment: ""))
@@ -898,7 +898,7 @@ actor ProcessorModel {
     }
 
     func loadSystemConfig() {
-        systemConfig["ver"] = AMDRyzenCPUPowerManagementVersion
+        systemConfig["ver"] = kextVersion
         systemConfig["cpu"] = ProcessorModel.sysctlString(key: "machdep.cpu.brand_string")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         systemConfig["os"] = ProcessorModel.sysctlString(key: "kern.osproductversion")
@@ -1114,6 +1114,11 @@ actor ProcessorModel {
         return (supported, Array(outputStr[0..<maxLogicalCores]))
     }
 
+    nonisolated func getPackageC6Residency() -> UInt64 {
+        let o = kernelGetUInt64(count: 1, selector: 31)
+        return o.first ?? 0
+    }
+
     nonisolated func getCStateAddress() -> UInt64 {
         var scalerOut: UInt64 = 0
         var outputCount: UInt32 = 1
@@ -1260,11 +1265,11 @@ actor ProcessorModel {
         return fans
     }
     
-    // MARK: - SMC Fan Control (SMCAMDProcessor)
+    // MARK: - SMC Fan Control
     
     nonisolated func setFanMode(auto: Bool, fanIndex: Int = 0) -> Bool {
         if auto {
-            // Selector 96 in SMCAMDProcessor = setDefaultFanControl(fanSel)
+            // Selector 96 = setDefaultFanControl(fanSel)
             let res = kernelSetUInt64Status(selector: 96, args: [UInt64(fanIndex)])
             return res == KERN_SUCCESS
         }
@@ -1272,7 +1277,7 @@ actor ProcessorModel {
     }
     
     nonisolated func setFanSpeed(pwm: Int, fanIndex: Int = 0) -> Bool {
-        // Selector 95 in SMCAMDProcessor = overrideFanControl(fanSel, pwm)
+        // Selector 95 = overrideFanControl(fanSel, pwm)
         let res = kernelSetUInt64Status(selector: 95, args: [UInt64(fanIndex), UInt64(pwm)])
         return res == KERN_SUCCESS
     }

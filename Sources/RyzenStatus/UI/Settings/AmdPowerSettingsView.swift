@@ -14,6 +14,10 @@ struct AmdPowerSettingsView: View {
     @State private var legacyPstateAllowed: Bool = false
     @State private var selectedPState: Int = 0
     @State private var validPStateLabels: [String] = []
+    @State private var c6Residency: Double = 0
+    @State private var lastC6Raw: UInt64 = 0
+    @State private var lastC6Timestamp: Date = .distantPast
+    private let c6Timer = Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()
     
     @ObservedObject private var autoEpp = AutoEppService.shared
     @ObservedObject private var monitor = SystemMonitor.shared
@@ -275,6 +279,46 @@ struct AmdPowerSettingsView: View {
                         .onChange(of: lpmEnabled) { _, newValue in
                             _ = ProcessorModel.shared.setLPM(enabled: newValue)
                         }
+
+                    // Deep C-state (C6) monitoring
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Image(systemName: "moon.zzz.fill")
+                                .foregroundColor(.purple)
+                                .font(.caption)
+                            Text("Deep C-States (C6+)")
+                                .font(.subheadline)
+                            Spacer()
+                            if c6Residency > 0 {
+                                Text(String(format: "%.1f%%", c6Residency))
+                                    .font(.system(.body, design: .monospaced))
+                                    .foregroundColor(c6Residency > 10 ? .green : .orange)
+                            } else {
+                                Text("—")
+                                    .font(.system(.body, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        
+                        // Visual bar for C6 residency
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Color.secondary.opacity(0.15))
+                                    .frame(height: 6)
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(c6Residency > 10 ? Color.green : Color.orange)
+                                    .frame(width: max(2, geo.size.width * CGFloat(min(c6Residency / 100.0, 1.0))), height: 6)
+                            }
+                        }
+                        .frame(height: 6)
+                        
+                        Text("Default: OFF (telemetría rápida). Usá amdcstate=0 en boot-args para activarlos = CPU más frío, fans más silenciosos.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.vertical, 4)
                 } header: {
                     Text(L10n.shared.amdPower.advancedEnergyHeader)
                 } footer: {
@@ -289,6 +333,21 @@ struct AmdPowerSettingsView: View {
         }
         .onDisappear {
             SystemMonitor.shared.setMenuPanelNeeds(.none)
+        }
+        .onReceive(c6Timer) { _ in
+            let raw = ProcessorModel.shared.getPackageC6Residency()
+            if raw > 0 && lastC6Raw > 0 {
+                let now = Date()
+                let deltaNs = Double(raw &- lastC6Raw) // microseconds
+                let elapsed = now.timeIntervalSince(lastC6Timestamp) * 1_000_000 // microseconds
+                if elapsed > 0 {
+                    c6Residency = min((deltaNs / elapsed) * 100.0, 100.0)
+                }
+            }
+            if raw > 0 {
+                lastC6Raw = raw
+                lastC6Timestamp = Date()
+            }
         }
     }
 

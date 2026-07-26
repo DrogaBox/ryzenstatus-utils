@@ -45,7 +45,18 @@ ditto "$APP" "$STAGING/$APP_NAME.app"
 xattr -cr "$STAGING/$APP_NAME.app"
 codesign --verify --deep --strict "$STAGING/$APP_NAME.app"
 ln -s /Applications "$STAGING/Applications"
-cp -R ~/Desktop/AMDRyzenCPUPowerManagement-Kexts "$STAGING/Kexts Recomendados" || true
+# Include our kexts for EFI/OC/Kexts/
+KEXT_DRIVER="SMCAMDProcessor_Source/build/dmg-kexts/AMDRyzenCPUPowerManagement.kext"
+KEXT_PLUGIN="SMCAMDProcessor_Source/build/dmg-kexts/SMCAMDProcessor.kext"
+if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
+    mkdir -p "$STAGING/Kexts"
+    ditto "$KEXT_DRIVER" "$STAGING/Kexts/AMDRyzenCPUPowerManagement.kext"
+    ditto "$KEXT_PLUGIN" "$STAGING/Kexts/SMCAMDProcessor.kext"
+    echo "  ✓ AMDRyzenCPUPowerManagement.kext added to DMG"
+    echo "  ✓ SMCAMDProcessor.kext added to DMG"
+else
+    echo "  (Kexts not built — skipping)" >&2
+fi
 mkdir "$STAGING/.background"
 cp build/dmg-background.png "$STAGING/.background/background.png"
 
@@ -96,9 +107,7 @@ tell application "Finder"
         set background picture of theOptions to file ".background:background.png"
         set position of item "$APP_NAME.app" of container window to {150, 240}
         set position of item "Applications" of container window to {450, 240}
-        if exists item "Kexts Recomendados" of container window then
-            set position of item "Kexts Recomendados" of container window to {300, 360}
-        end if
+
         update without registering applications
         delay 1
         close
