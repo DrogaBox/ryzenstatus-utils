@@ -52,6 +52,7 @@ enum DefaultsKey {
     static let middleClickTapFingers = "middleClickTapFingers"  // 0 = off (default); 3 or 4 = a light tap with that many fingers also middle-clicks (issue #161)
     static let previewSize = "previewSize"                // app switcher + dock preview thumbnail size
     static let autoCheckUpdates = "autoCheckUpdates"
+    static let checkPrereleases = "checkPrereleases"       // include pre-releases when checking
     static let releaseNotesOnUpdate = "releaseNotesOnUpdate" // show What's New after an update
     static let appVolumes = "appVolumes"                  // [bundle id: 0...2]
     static let appOutputDevices = "appOutputDevices"      // [bundle id: audio device UID]
@@ -294,6 +295,7 @@ enum DefaultsKey {
     static let scratchpadShortcutEnabled = "scratchpadShortcutEnabled"
     static let scratchpadShortcut = "scratchpadShortcut"
     static let scratchpadRetention = "scratchpadRetention"   // never | day | week | month
+    static let scratchpadCloseOnClickOutside = "scratchpadCloseOnClickOutside" // dismiss pad on click outside
     static let micMuteActive = "micMuteActive"               // mic muted by the app (survives relaunch)
     static let micMuteSavedVolume = "micMuteSavedVolume"     // input volume to restore on unmute
     static let micMuteMenuBarIndicator = "micMuteMenuBarIndicator" // badge the status icon while muted
@@ -357,6 +359,26 @@ enum DefaultsKey {
     static let windowLayoutShortcutBottomLeftSixth = "windowLayoutShortcutBottomLeftSixth"
     static let windowLayoutShortcutBottomCenterSixth = "windowLayoutShortcutBottomCenterSixth"
     static let windowLayoutShortcutBottomRightSixth = "windowLayoutShortcutBottomRightSixth"
+
+    // Per-app exceptions for mouse features.
+    static let smoothScrollExceptions = "smoothScrollExceptions"  // [String]
+    static let scrollInverterExceptions = "scrollInverterExceptions"
+    static let mouseNavigationExceptions = "mouseNavigationExceptions"
+    static let mouseButtonExceptions = "mouseButtonExceptions"
+    static let middleClickExceptions = "middleClickExceptions"
+
+    // Mouse button shortcuts: programmable mouse buttons.
+    static let mouseButtonShortcutsEnabled = "mouseButtonShortcutsEnabled"
+    static let mouseButtonShortcuts = "mouseButtonShortcuts"  // Data: [String: String] JSON
+
+    // Super Key: Caps Lock remapping.
+    static let superKeyEnabled = "superKeyEnabled"
+    static let superKeySoloAction = "superKeySoloAction"      // SuperKeySoloAction.rawValue
+    static let superKeyMappingApplied = "superKeyMappingApplied"  // internal guard
+
+    // Snippet library: text expansion library.
+    static let snippetLibraryEnabled = "snippetLibraryEnabled"
+    static let snippetLibraryShortcut = "snippetLibraryShortcut"  // GlobalShortcut storage value
 
     // Text snippets: type a trigger, get the expansion.
     static let textSnippetsEnabled = "textSnippetsEnabled"
@@ -576,6 +598,7 @@ enum Defaults {
         DefaultsKey.middleClickTapFingers: 0,
         DefaultsKey.previewSize: "normal",
         DefaultsKey.autoCheckUpdates: true,
+        DefaultsKey.checkPrereleases: false,
         DefaultsKey.releaseNotesOnUpdate: true,
         DefaultsKey.updateShowcaseIntroVersion: "",
         DefaultsKey.updateShowcaseMediaOverride: "",
@@ -616,6 +639,12 @@ enum Defaults {
         DefaultsKey.cleanerLastAutoFreed: 0,
         DefaultsKey.cleanerBadgeSeen: false,
         DefaultsKey.urlCleanerEnabled: false,
+        DefaultsKey.mouseButtonShortcutsEnabled: false,
+        DefaultsKey.superKeyEnabled: false,
+        DefaultsKey.superKeySoloAction: SuperKeySoloAction.none.rawValue,
+        DefaultsKey.superKeyMappingApplied: false,
+        DefaultsKey.snippetLibraryEnabled: false,
+        DefaultsKey.snippetLibraryShortcut: GlobalShortcut.snippetLibraryDefault.storageValue,
         DefaultsKey.textSnippetsEnabled: false,
         DefaultsKey.radialMenuEnabled: false,
         DefaultsKey.radialMenuShortcut: GlobalShortcut.radialMenuDefault.storageValue,
@@ -790,6 +819,7 @@ enum Defaults {
         DefaultsKey.scratchpadShortcutEnabled: false,
         DefaultsKey.scratchpadShortcut: GlobalShortcut.scratchpadDefault.storageValue,
         DefaultsKey.scratchpadRetention: ScratchpadRetention.never.rawValue,
+        DefaultsKey.scratchpadCloseOnClickOutside: false,
         DefaultsKey.micMuteActive: false,
         DefaultsKey.micMuteSavedVolume: 0.75,
         DefaultsKey.micMuteMenuBarIndicator: true,  // owner's call: on by default in 3.1.8 (badge only shows while muted)

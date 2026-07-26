@@ -133,7 +133,12 @@ final class FeatureRuntime: ObservableObject {
         .mouseNavigation: { MouseNavigationService.shared.syncWithPreferences() },
         .middleClick: { MiddleClickService.shared.syncWithPreferences() },
         .keyboardDebounce: { KeyboardDebounceService.shared.syncWithPreferences() },
-        .textSnippets: { TextSnippetService.shared.syncWithPreferences() },
+        .textSnippets: {
+            TextSnippetService.shared.syncWithPreferences()
+            SnippetLibraryService.shared.syncWithPreferences()
+        },
+        .mouseButtonShortcuts: { MouseButtonShortcutService.shared.syncWithPreferences() },
+        .superKey: { SuperKeyService.shared.syncWithPreferences() },
         .clipboardHistory: { ClipboardHistoryService.shared.syncWithPreferences() },
         .pastePlain: { PastePlainService.shared.syncWithPreferences() },
         .finderCutPaste: { FinderCutPaste.shared.syncWithPreferences() },
@@ -170,6 +175,8 @@ final class FeatureRuntime: ObservableObject {
 
     private static func syncMonitor() {
         SystemMonitor.shared.planDidChange()
-        MonitorAlertService.shared.syncWithPreferences()
+        Task { @MainActor in
+            MonitorAlertService.shared.syncWithPreferences()
+        }
     }
 }

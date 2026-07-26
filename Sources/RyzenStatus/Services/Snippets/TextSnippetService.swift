@@ -195,7 +195,7 @@ final class TextSnippetService {
         }
     }
 
-    private static func postExpansion(deleteCount: Int,
+    static func postExpansion(deleteCount: Int,
                                       text: String,
                                       trailingKeyCode: CGKeyCode?,
                                       trailingFlags: CGEventFlags) {

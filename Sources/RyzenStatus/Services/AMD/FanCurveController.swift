@@ -157,7 +157,7 @@ class FanCurveController: ObservableObject {
                     
                     // Deduplicate hardware writes: only send IOKit call when target value changes
                     if lastSentSMCValue[fanId] != finalSMCValue {
-                        _ = ProcessorModel.shared.setFanSpeed(rpm: finalSMCValue, fanIndex: fanId)
+                        _ = ProcessorModel.shared.setFanSpeed(pwm: finalSMCValue, fanIndex: fanId)
                         lastSentSMCValue[fanId] = finalSMCValue
                     }
                 }

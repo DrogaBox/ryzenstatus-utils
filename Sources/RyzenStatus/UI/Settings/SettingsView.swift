@@ -72,7 +72,12 @@ struct SettingsView: View {
             (categories.windowsControls, [
                 SidebarItem(page: .mouse, title: l10n.s.tabMouse, icon: "computermouse",
                             keywords: [l10n.s.invertMouseScroll, l10n.s.middleClickTapPicker,
-                                       l10n.s.smoothScrollName, l10n.s.mouseNavigationEnable]),
+                                       l10n.s.smoothScrollName, l10n.s.mouseNavigationEnable,
+                                       "Mouse Buttons", "Super Key"]),
+                SidebarItem(page: .mouseButtonShortcuts, title: "Mouse Buttons", icon: "button.programmable",
+                            keywords: ["mouse", "button", "shortcut"]),
+                SidebarItem(page: .superKey, title: "Super Key", icon: "capslock",
+                            keywords: ["caps lock", "remap", "keyboard"]),
                 SidebarItem(page: .switcher, title: l10n.s.tabSwitcher, icon: "rectangle.on.rectangle",
                             keywords: [l10n.s.switcherEnable, l10n.s.dockClickMinimize,
                                        l10n.s.dockClickCycleWindows]),
@@ -219,6 +224,8 @@ struct SettingsView: View {
         case .energy: EnergySettings()
         case .monitor: MonitorSettings()
         case .mouse: MouseSettings()
+        case .mouseButtonShortcuts: MouseButtonSettings()
+        case .superKey: SuperKeySettings()
         case .switcher: SwitcherSettings()
         case .keyDebounce: KeyboardDebounceSettings()
         case .cutPaste: CutPasteSettings()
@@ -382,12 +389,19 @@ struct UpdatesView: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var updates = UpdateService.shared
     @AppStorage(DefaultsKey.autoCheckUpdates) private var autoCheck = true
+    @AppStorage(DefaultsKey.checkPrereleases) private var checkPrereleases = false
 
     var body: some View {
         Section(l10n.s.updatesSection) {
             Toggle(l10n.s.autoCheckToggle, isOn: $autoCheck)
                 .onChange(of: autoCheck) { _, value in
                     UpdateService.shared.autoCheckEnabled = value
+                }
+
+            Toggle("Include pre-releases (betas)", isOn: $checkPrereleases)
+                .font(.caption)
+                .onChange(of: checkPrereleases) { _, _ in
+                    // Re-check with the new setting on next automatic check
                 }
 
             statusRow

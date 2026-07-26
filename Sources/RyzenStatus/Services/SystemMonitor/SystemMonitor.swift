@@ -855,11 +855,15 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             }
             if let amd = self.lastAmdSnapshot {
                 if amd.metric.count > 1 { next.cpuTemperature = Double(amd.metric[1]) }
-                if amd.gpuTemp > 0 { 
-                    next.gpuTemperature = Double(amd.gpuTemp) 
-                } else if next.gpuTemperature == nil, let cpuTemp = next.cpuTemperature {
-                    // Fallback for APUs (Mattyy's SuperIO / Vega) where GPU temp is the same as CPU package temp
-                    next.gpuTemperature = cpuTemp
+                // Only overwrite GPU temp from lastAmdSnapshot if kext MMIO (Block A above)
+                // did not already set it. This keeps the kext selector 28 reading as primary.
+                if next.gpuTemperature == nil || next.gpuTemperature == 0 {
+                    if amd.gpuTemp > 0 {
+                        next.gpuTemperature = Double(amd.gpuTemp)
+                    } else if let cpuTemp = next.cpuTemperature {
+                        // Fallback for APUs (Mattyy's SuperIO / Vega) where GPU temp is the same as CPU package temp
+                        next.gpuTemperature = cpuTemp
+                    }
                 }
                 if amd.gpuFreq > 0 { next.gpuFreq = Double(amd.gpuFreq) }
                 if amd.gpuFan > 0 { next.gpuFan = Double(amd.gpuFan) }
@@ -882,7 +886,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 next.avgCPUFreq = rawAvg
                 self.cpuFreqHistory.push(rawAvg / 1000.0)
             }
-            next.numPhysicalCores = self.lastAmdSnapshot?.numPhysicalCores ?? 16
+            next.numPhysicalCores = self.lastAmdSnapshot?.numPhysicalCores ?? max(1, ProcessInfo.processInfo.processorCount / 2)
             next.cpuHistory = plan.needCPU ? self.cpuHistory.values : []
             next.gpuHistory = plan.needGPUUsage ? self.gpuHistory.values : []
             next.memoryHistory = plan.needMemory ? self.memoryHistory.values : []

@@ -340,7 +340,7 @@ private struct PermissionsPortalSections: View {
         switch permission {
         case .accessibility: return permissions.accessibility ? .granted : .missing
         case .screenRecording: return permissions.screenRecording ? .granted : .missing
-        case .fullDiskAccess: return permissions.fullDiskAccess ? .granted : .missing
+        case .fullDiskAccess, .filesAndFolders: return permissions.fullDiskAccess ? .granted : .missing
         case .notifications:
             switch permissions.notifications {
             case .granted: return .granted
@@ -471,7 +471,7 @@ private struct PermissionPortalRow: View {
         case .accessibility, .screenRecording, .fullDiskAccess: return true
         case .notifications: return Permissions.shared.notifications == .undetermined
         case .camera: return Permissions.shared.camera == .undetermined
-        case .automationFinder, .automationTerminal, .audioCapture: return false
+        case .automationFinder, .automationTerminal, .audioCapture, .filesAndFolders: return false
         }
     }
 
@@ -486,7 +486,7 @@ private struct PermissionPortalRow: View {
                 Permissions.shared.refresh()
             }
         case .camera: Permissions.shared.requestCamera()
-        case .automationFinder, .automationTerminal, .audioCapture:
+        case .automationFinder, .automationTerminal, .audioCapture, .filesAndFolders:
             break
         }
     }
@@ -499,6 +499,7 @@ private struct PermissionPortalRow: View {
         case .notifications: Permissions.shared.openNotificationSettings()
         case .automationFinder, .automationTerminal: Permissions.shared.openAutomationSettings()
         case .audioCapture: Permissions.shared.openAudioCaptureSettings()
+        case .filesAndFolders: Permissions.shared.openFullDiskAccessSettings()
         case .camera: Permissions.shared.openCameraSettings()
         }
     }
@@ -522,6 +523,8 @@ extension AppFeature {
         case .mouseNavigation: return hub.titleMouseNavigation
         case .middleClick: return s.middleClickSection
         case .keyboardDebounce: return s.keyDebounceName
+        case .mouseButtonShortcuts: return hub.titleMouseButtons
+        case .superKey: return hub.titleSuperKey
         case .textSnippets: return FeatureStrings.snippets(L10n.shared.language).pageTitle
         case .clipboardHistory: return FeatureStrings.clipboard(L10n.shared.language).title
         case .pastePlain: return s.pastePlainName
@@ -601,6 +604,8 @@ extension AppFeature {
         case .monitorMemory: return hub.descMonitorMemory
         case .monitorNetwork: return hub.descMonitorNetwork
         case .monitorDisk: return hub.descMonitorDisk
+        case .mouseButtonShortcuts: return hub.descMouseButtons
+        case .superKey: return hub.descSuperKey
         case .monitorPower: return hub.descMonitorPower
         }
     }
@@ -611,6 +616,7 @@ extension AppPermission {
         switch self {
         case .accessibility: return hub.permAccessibility
         case .screenRecording: return hub.permScreenRecording
+        case .filesAndFolders: return hub.permFilesAndFolders
         case .fullDiskAccess: return hub.permFullDisk
         case .notifications: return hub.permNotifications
         case .automationFinder: return hub.permAutomationFinder
@@ -624,6 +630,7 @@ extension AppPermission {
         switch self {
         case .accessibility: return hub.explainAccessibility
         case .screenRecording: return hub.explainScreenRecording
+        case .filesAndFolders: return hub.explainFilesAndFolders
         case .fullDiskAccess: return hub.explainFullDisk
         case .notifications: return hub.explainNotifications
         case .automationFinder: return hub.explainAutomationFinder

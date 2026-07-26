@@ -43,6 +43,11 @@ final class UpdateService: ObservableObject {
         }
     }
 
+    var checkPrereleases: Bool {
+        get { UserDefaults.standard.bool(forKey: DefaultsKey.checkPrereleases) }
+        set { UserDefaults.standard.set(newValue, forKey: DefaultsKey.checkPrereleases) }
+    }
+
     // MARK: - Scheduling
 
     /// Called at launch: checks shortly after start and then daily, if enabled.
@@ -100,7 +105,13 @@ final class UpdateService: ObservableObject {
         if case .installing = state { return }
         state = .checking
 
-        var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!)
+        let url: URL
+        if checkPrereleases {
+            url = URL(string: "https://api.github.com/repos/\(repository)/releases?per_page=10")!
+        } else {
+            url = URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!
+        }
+        var request = URLRequest(url: url)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("RyzenStatus/\(AppInfo.version)", forHTTPHeaderField: "User-Agent")
         request.cachePolicy = .reloadIgnoringLocalCacheData
@@ -111,35 +122,71 @@ final class UpdateService: ObservableObject {
                 self.lastChecked = Date()
                 if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 404 {
                     self.availableNotes = nil
-                    self.state = .failed("No hay releases publicados en GitHub todavía.")
+                    self.state = .failed("No releases published on GitHub yet.")
                     return
                 }
-                guard let data, error == nil,
-                      let release = try? JSONDecoder().decode(GitHubRelease.self, from: data) else {
+                guard let data, error == nil else {
                     self.availableNotes = nil
-                    self.state = .failed(error?.localizedDescription ?? "Error de red o JSON inválido")
+                    self.state = .failed(error?.localizedDescription ?? "Network or JSON error")
                     return
                 }
-                let latest = release.tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV "))
-                let asset = release.assets.first { $0.name.hasSuffix(".dmg") }
-                self.downloadURL = asset?.browserDownloadURL
-
-                if Self.isNewer(latest, than: AppInfo.version), self.downloadURL != nil {
-                    self.availableNotes = ReleaseNotes.inAppUpdateNotes(from: release.body)
-                    self.state = .available(version: latest)
-                    // Notify once per distinct release, not on every hourly re-check.
-                    if !manual, latest != self.notifiedVersion {
-                        self.notifiedVersion = latest
-                        let s = L10n.shared.s
-                        Notifier.post(title: s.updateNotifyTitle,
-                                      body: "\(s.updateAvailablePrefix) \(latest)")
-                    }
+                if self.checkPrereleases {
+                    self.evaluateReleases(data: data)
                 } else {
-                    self.availableNotes = nil
-                    self.state = .upToDate
+                    self.evaluateLatestRelease(data: data)
                 }
             }
         }.resume()
+    }
+
+    private func evaluateLatestRelease(data: Data) {
+        guard let release = try? JSONDecoder().decode(GitHubRelease.self, from: data) else {
+            availableNotes = nil
+            state = .failed("Invalid release data")
+            return
+        }
+        let latest = release.tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV "))
+        let asset = release.assets.first { $0.name.hasSuffix(".dmg") }
+        downloadURL = asset?.browserDownloadURL
+        applyRelease(version: latest, notes: release.body, manual: false)
+    }
+
+    private func evaluateReleases(data: Data) {
+        guard let releases = try? JSONDecoder().decode([GitHubRelease].self, from: data) else {
+            availableNotes = nil
+            state = .failed("Invalid releases data")
+            return
+        }
+        // Find the newest release (including pre-releases) with a DMG asset
+        // newer than the current installed version.
+        for release in releases {
+            let tag = release.tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV "))
+            guard let asset = release.assets.first(where: { $0.name.hasSuffix(".dmg") }) else { continue }
+            guard Self.isNewer(tag, than: AppInfo.version) else { continue }
+            let latest = release.tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV "))
+            downloadURL = asset.browserDownloadURL
+            applyRelease(version: latest, notes: release.body, manual: false)
+            return
+        }
+        availableNotes = nil
+        state = .upToDate
+    }
+
+    private func applyRelease(version: String, notes: String?, manual: Bool) {
+        if downloadURL != nil,
+           Self.isNewer(version, than: AppInfo.version) {
+            availableNotes = ReleaseNotes.inAppUpdateNotes(from: notes)
+            state = .available(version: version)
+            if !manual, version != notifiedVersion {
+                notifiedVersion = version
+                let s = L10n.shared.s
+                Notifier.post(title: s.updateNotifyTitle,
+                              body: "\(s.updateAvailablePrefix) \(version)")
+            }
+        } else {
+            availableNotes = nil
+            state = .upToDate
+        }
     }
 
     /// Re-checks only if the last check is stale — called when the app reactivates
@@ -385,14 +432,27 @@ final class UpdateService: ObservableObject {
     // MARK: - Version compare
 
     /// True when `latest` is a higher semantic version than `current`.
+    /// Handles pre-release suffixes (e.g. `1.6.0-beta5` > `1.6.0-beta4`)
+    /// and stable releases winning over pre-releases with the same core version.
     static func isNewer(_ latest: String, than current: String) -> Bool {
-        func parts(_ s: String) -> [Int] { s.split(separator: ".").map { Int($0) ?? 0 } }
+        func parts(_ s: String) -> [Int] {
+            s.split(separator: ".").flatMap { component -> [Int] in
+                guard let hyphenIndex = component.firstIndex(of: "-") else {
+                    return [Int(component) ?? 0]
+                }
+                let main = Int(component[..<hyphenIndex]) ?? 0
+                let suffix = component[hyphenIndex...].dropFirst()
+                return [main, Int(suffix.trimmingCharacters(in: .letters)) ?? 0]
+            }
+        }
         let l = parts(latest), c = parts(current)
         for i in 0..<max(l.count, c.count) {
             let lv = i < l.count ? l[i] : 0
             let cv = i < c.count ? c[i] : 0
             if lv != cv { return lv > cv }
         }
+        // Same numeric core but latest has fewer parts (stable > beta)
+        if l.count < c.count { return true }
         return false
     }
 }

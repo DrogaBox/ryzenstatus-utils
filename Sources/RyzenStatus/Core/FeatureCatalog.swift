@@ -16,7 +16,8 @@ enum AppFeature: String, CaseIterable {
     // Windows and Dock
     case switcher, dockPreview, dockClick, windowMaximizer, windowLayout, autoQuit
     // Mouse and keyboard
-    case scrollInverter, smoothScroll, mouseNavigation, middleClick, keyboardDebounce, textSnippets
+    case scrollInverter, smoothScroll, mouseNavigation, middleClick, keyboardDebounce, textSnippets,
+         mouseButtonShortcuts, superKey
     // Clipboard and files
     case clipboardHistory, pastePlain, finderCutPaste, shelf, urlCleaner
     // Sound
@@ -38,7 +39,7 @@ enum FeatureGroup: String, CaseIterable {
 
 /// System permissions surfaced by the hub's transparency portal.
 enum AppPermission: String, CaseIterable {
-    case accessibility, screenRecording, fullDiskAccess, notifications,
+    case accessibility, screenRecording, fullDiskAccess, filesAndFolders, notifications,
          automationFinder, automationTerminal, audioCapture, camera
 }
 
@@ -48,7 +49,7 @@ extension AppFeature {
         case .switcher, .dockPreview, .dockClick, .windowMaximizer, .windowLayout, .autoQuit:
             return .windowsDock
         case .scrollInverter, .smoothScroll, .mouseNavigation, .middleClick, .keyboardDebounce,
-             .textSnippets:
+             .textSnippets, .mouseButtonShortcuts, .superKey:
             return .mouseKeyboard
         case .clipboardHistory, .pastePlain, .finderCutPaste, .shelf, .urlCleaner:
             return .clipboardFiles
@@ -78,6 +79,8 @@ extension AppFeature {
         case .middleClick: return "computermouse"
         case .keyboardDebounce: return "keyboard"
         case .textSnippets: return "text.append"
+        case .mouseButtonShortcuts: return "button.programmable"
+        case .superKey: return "capslock"
         case .clipboardHistory: return "doc.on.clipboard"
         case .pastePlain: return "doc.plaintext"
         case .finderCutPaste: return "scissors"
@@ -137,6 +140,8 @@ extension AppFeature {
         case .middleClick: return [DefaultsKey.middleClickEnabled]
         case .keyboardDebounce: return [DefaultsKey.keyboardDebounceEnabled]
         case .textSnippets: return [DefaultsKey.textSnippetsEnabled]
+        case .mouseButtonShortcuts: return [DefaultsKey.mouseButtonShortcutsEnabled]
+        case .superKey: return [DefaultsKey.superKeyEnabled]
         case .radialMenu: return [DefaultsKey.radialMenuEnabled]
         case .clipboardHistory: return [DefaultsKey.clipboardHistoryEnabled]
         case .pastePlain: return [DefaultsKey.pastePlainEnabled]
@@ -162,8 +167,8 @@ extension AppFeature {
     var permissions: [AppPermission] {
         switch self {
         case .scrollInverter, .smoothScroll, .mouseNavigation, .middleClick, .keyboardDebounce,
-             .textSnippets, .dockClick, .windowMaximizer, .windowLayout, .autoQuit,
-             .cleaningMode, .pastePlain, .radialMenu:
+             .textSnippets, .mouseButtonShortcuts, .superKey, .dockClick, .windowMaximizer,
+             .windowLayout, .autoQuit, .cleaningMode, .pastePlain, .radialMenu:
             return [.accessibility]
         case .finderCutPaste: return [.accessibility, .automationFinder]
         // Only emptying the Trash asks the Finder; every other quick toggle
@@ -176,7 +181,7 @@ extension AppFeature {
         case .cameraPreview: return [.camera]
         case .keepAwake: return [.accessibility]
         case .brightness: return [.accessibility]
-        case .cleaner: return [.fullDiskAccess, .notifications]
+        case .cleaner: return [.fullDiskAccess, .filesAndFolders, .notifications]
         case .uninstaller: return [.fullDiskAccess, .automationFinder]
         case .homebrew: return [.automationTerminal]
         case .mixer: return [.audioCapture]
@@ -272,6 +277,7 @@ extension AppPermission {
         switch self {
         case .accessibility: return "accessibility"
         case .screenRecording: return "rectangle.dashed.badge.record"
+        case .filesAndFolders: return "folder.badge.person.crop"
         case .fullDiskAccess: return "externaldrive.badge.person.crop"
         case .notifications: return "bell.badge"
         case .automationFinder, .automationTerminal: return "gearshape.2"

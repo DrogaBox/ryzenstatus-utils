@@ -91,7 +91,7 @@ struct FansSettingsView: View {
                         Button(action: {
                             Task {
                                 for f in fans {
-                                    _ = ProcessorModel.shared.setFanSpeed(rpm: 255, fanIndex: f.id)
+                                    _ = ProcessorModel.shared.setFanSpeed(pwm: 255, fanIndex: f.id)
                                     controller.fanMappings[f.id] = -1
                                 }
                             }
@@ -374,7 +374,7 @@ struct FanControlCard: View {
                             didDrag = true
                             Task {
                                 _ = ProcessorModel.shared.setFanMode(auto: false, fanIndex: fan.id)
-                                _ = ProcessorModel.shared.setFanSpeed(rpm: Int(newVal), fanIndex: fan.id)
+                                _ = ProcessorModel.shared.setFanSpeed(pwm: Int(newVal), fanIndex: fan.id)
                             }
                         }
                     ),

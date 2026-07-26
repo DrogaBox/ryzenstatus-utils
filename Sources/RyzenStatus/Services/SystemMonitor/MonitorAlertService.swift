@@ -6,6 +6,7 @@ import Foundation
 
 /// Optional Monitor notifications. Everything is off by default, throttled, and
 /// driven by the existing SystemMonitor sampler.
+@MainActor
 final class MonitorAlertService {
     static let shared = MonitorAlertService()
 

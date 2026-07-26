@@ -8,6 +8,7 @@ import Foundation
 enum SettingsPage: Hashable {
     case general, features, energy, monitor
     case mouse, switcher, keyDebounce, cutPaste, autoQuit, uninstaller, urlCleaner, homebrew, media, clipboard, windowLayout, shelf, quickTools, textSnippets, screenshot, radialMenu
+    case mouseButtonShortcuts, superKey
     case shortcuts, advanced, about, releaseNotes, support, fans, amdPower, sensors, dashboard
 }
 
@@ -38,6 +39,8 @@ enum FeatureVisibilitySupport {
         case .homebrew: return [.homebrew]
         case .uninstaller: return [.uninstaller]
         case .keyDebounce: return [.keyboardDebounce]
+        case .mouseButtonShortcuts: return [.mouseButtonShortcuts]
+        case .superKey: return [.superKey]
         case .textSnippets: return [.textSnippets]
         case .screenshot: return [.screenshot]
         case .radialMenu: return [.radialMenu]

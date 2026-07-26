@@ -91,6 +91,7 @@ actor ProcessorModel {
         private var _count: Int = 0
         private var _temperatures: [Double] = []
         private var _powers: [Double] = []
+        private var _capabilities: [UInt8] = []
 
         var count: Int {
             lock.lock(); defer { lock.unlock() }; return _count
@@ -101,11 +102,15 @@ actor ProcessorModel {
         var powers: [Double] {
             lock.lock(); defer { lock.unlock() }; return _powers
         }
-        func update(count: Int, temperatures: [Double], powers: [Double]) {
+        var capabilities: [UInt8] {
+            lock.lock(); defer { lock.unlock() }; return _capabilities
+        }
+        func update(count: Int, temperatures: [Double], powers: [Double], capabilities: [UInt8] = []) {
             lock.lock()
             _count = count
             _temperatures = temperatures
             _powers = powers
+            _capabilities = capabilities
             lock.unlock()
         }
     }
@@ -533,7 +538,7 @@ actor ProcessorModel {
             powerCache.setCPU(Double(outputStr[0]))
         }
 
-        lastMLoad = NSDate().timeIntervalSince1970
+        lastMLoad = ProcessInfo.processInfo.systemUptime
     }
 
     private func loadLoadIndex(){
@@ -803,7 +808,7 @@ actor ProcessorModel {
     }
 
     func getMetric(forced : Bool) -> [Float] {
-        if forced || (NSDate().timeIntervalSince1970 - lastMLoad >= 1.0) {
+        if forced || (ProcessInfo.processInfo.systemUptime - lastMLoad >= 1.0) {
             loadMetric()
         }
         return cachedMetric
@@ -978,8 +983,9 @@ actor ProcessorModel {
         let rawTemps = getKextGPUTemperatures()
         let temps = rawTemps.map { Double(Int16(bitPattern: $0)) / 256.0 }
         let powers = getKextGPUPowers().map(Double.init)
+        let capabilities = getKextGPUCapabilities()
 
-        gpuCache.update(count: count, temperatures: temps, powers: powers)
+        gpuCache.update(count: count, temperatures: temps, powers: powers, capabilities: capabilities)
     }
 
     // MARK: - GPU Statistics (from IOAccelerator PerformanceStatistics)
@@ -1024,6 +1030,10 @@ actor ProcessorModel {
         let vram = stats["inUseVidMemoryBytes"] ?? 0
         let freq = stats["Core Clock(MHz)"] ?? 0
         let rawFan = stats["Fan Speed(RPM)"] ?? 0
+        // Zero-RPM mode: clamp fan reading to 0 when the card is cool enough
+        // that the fan is stopped. The 50°C threshold is conservative for most
+        // GPUs; Navi 21 can hold zero-RPM up to ~60°C, but we use 50°C as a
+        // safe noise-floor threshold that works across vendors.
         let fan = (temp > 0 && temp < 50.0) ? 0 : rawFan
         
         cachedGPUStats = (temp, power, util, vram, fan, freq, now)
@@ -1261,9 +1271,9 @@ actor ProcessorModel {
         return true
     }
     
-    nonisolated func setFanSpeed(rpm: Int, fanIndex: Int = 0) -> Bool {
+    nonisolated func setFanSpeed(pwm: Int, fanIndex: Int = 0) -> Bool {
         // Selector 95 in SMCAMDProcessor = overrideFanControl(fanSel, pwm)
-        let res = kernelSetUInt64Status(selector: 95, args: [UInt64(fanIndex), UInt64(rpm)])
+        let res = kernelSetUInt64Status(selector: 95, args: [UInt64(fanIndex), UInt64(pwm)])
         return res == KERN_SUCCESS
     }
     

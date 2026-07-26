@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.6.0-beta6]
+
+### Feature Parity
+- **Mouse Button Shortcuts**: Added programmable mouse button configuration — remap extra mouse buttons to custom actions.
+- **Super Key**: Added Caps Lock remapping — turn an unused key into a powerful modifier.
+- **Snippet Library**: Added text snippet library with searchable catalog alongside the existing text snippets.
+- **New Settings Pages**: Dedicated Mouse Buttons and Super Key pages with full configuration UI.
+
+### Bug Fixes
+- **GPU Temperature Priority (Critical)**: Fixed a bug where the IOAccelerator GPU temperature snapshot could overwrite the more accurate kext MMIO reading (selector 28). Kext data is now treated as primary source.
+- **Fan Control API**: Renamed `setFanSpeed(rpm:)` to `setFanSpeed(pwm:)` to accurately reflect that selector 95 expects PWM values (0-255), not RPM.
+- **Timing Monotonicity**: Replaced wall-clock `NSDate` with `ProcessInfo.systemUptime` in `getMetric()` and `loadMetric()` for accurate interval calculation immune to system clock changes.
+- **Physical Core Fallback**: Changed fallback core count from hardcoded `16` to `ProcessInfo.processorCount / 2` for better accuracy on non-16-core machines.
+- **Thread Safety**: Added `@MainActor` annotation to `MonitorAlertService` to match its actual usage pattern.
+- **GPU Monitoring**: Kext selector 30 (capabilities) is now fetched alongside temperatures and powers in `refreshKextGPUStats()`, making the data available for future capability-aware logic.
+- **Documentation**: Added explanatory comment to the fan zero-RPM clamp threshold (50°C conservative floor).
+
 ## [1.6.0-beta5]
 
 - **Sampling Policy Correction**: Corrected `MonitorSamplingPolicy` foreground target interval values for deterministic per-tick sampling (functionally identical with 1s interval).

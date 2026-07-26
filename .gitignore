@@ -21,6 +21,9 @@ E2E/
 # Freebuff desktop cache (tool internal state, never committed)
 .freebuff/
 
+# Audit prompt for Claude — internal only, never push to GitHub
+.claude-audit-prompt.md
+
 # macOS noise
 .DS_Store
 
