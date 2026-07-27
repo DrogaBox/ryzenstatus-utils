@@ -82,7 +82,7 @@ enum SelfUninstall {
         ScratchpadService.shared.suspend()
         // Leaving the mic cut after the app is gone would strand the user
         // with a silent input and no indicator anywhere.
-        MicMuteService.shared.setMuted(false)
+        MicMuteService.shared.unmuteForTeardown()
         MicMuteService.shared.suspend()
         CleaningModeManager.shared.deactivate()
     }

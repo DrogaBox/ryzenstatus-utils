@@ -72,6 +72,9 @@ enum SettingsBackupSupport {
     static let machineStateKeys: Set<String> = [
         DefaultsKey.micMuteActive,
         DefaultsKey.micMuteSavedVolume,
+        // Levels and device ids belong to the microphones of one Mac.
+        DefaultsKey.micMuteSavedVolumes,
+        DefaultsKey.micMuteMutedDevices,
         DefaultsKey.cleanerLastAutoRun,
         DefaultsKey.cleanerLastAutoFreed,
         DefaultsKey.cleanerBadgeSeen,
