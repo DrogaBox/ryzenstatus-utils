@@ -242,6 +242,9 @@ extension AppFeature {
             case (.cleaner, .notifications):
                 return (stringFor(DefaultsKey.cleanerScheduleFrequency) ?? "off") != "off"
                     && boolFor(DefaultsKey.cleanerScheduleNotify)
+            case (.appUpdates, .notifications):
+                return (stringFor(DefaultsKey.appUpdatesCheckFrequency) ?? "off") != "off"
+                    && boolFor(DefaultsKey.appUpdatesNotify)
             default:
                 return true
             }
