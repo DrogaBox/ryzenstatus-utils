@@ -628,7 +628,7 @@ enum MenuBarRenderer {
                 let temp = snapshot.cpuTemperature.map { String(format: "%.0f°", $0) } ?? "--°"
                 let pwr = snapshot.cpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
                 let image = stackedRatesImage(lines: [temp, pwr],
-                                             reservedLines: ["00°", "00W"],
+                                             reservedLines: ["000°", "000W"],
                                              cacheKey: "cpuTempPwr|\(temp)|\(pwr)|\(style)" as NSString,
                                              style: style)
                 groups.append([.customImage(image)])
@@ -636,7 +636,7 @@ enum MenuBarRenderer {
                 let temp = snapshot.gpuTemperature.map { String(format: "%.0f°", $0) } ?? "--°"
                 let pwr = snapshot.gpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
                 let image = stackedRatesImage(lines: [temp, pwr],
-                                             reservedLines: ["00°", "00W"],
+                                             reservedLines: ["000°", "000W"],
                                              cacheKey: "gpuTempPwr|\(temp)|\(pwr)|\(style)" as NSString,
                                              style: style)
                 groups.append([.customImage(image)])
