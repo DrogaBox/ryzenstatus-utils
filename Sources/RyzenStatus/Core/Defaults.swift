@@ -87,6 +87,7 @@ enum DefaultsKey {
     static let cleanerScheduleWeekday = "cleanerScheduleWeekday"        // 1 Sunday ... 7 Saturday
     static let cleanerScheduleNotify = "cleanerScheduleNotify"
     static let cleanerLastAutoRun = "cleanerLastAutoRun"                // Double, epoch seconds
+    static let cleanerBadgeSeen = "cleanerBadgeSeen"
     static let cleanerLastAutoFreed = "cleanerLastAutoFreed"            // Int bytes
     static let processListRefreshInterval = "processListRefreshInterval" // process list breakdown refresh rate (seconds)
     static let settingsWindowWidth = "settingsWindowWidth"     // last user-chosen content size (0 = unset)
@@ -643,6 +644,7 @@ enum Defaults {
         DefaultsKey.cleanerScheduleMinute: 0,
         DefaultsKey.cleanerScheduleWeekday: 2,
         DefaultsKey.cleanerScheduleNotify: true,
+        DefaultsKey.cleanerBadgeSeen: false,
         DefaultsKey.cleanerLastAutoRun: 0.0,
         DefaultsKey.cleanerLastAutoFreed: 0,
         DefaultsKey.urlCleanerEnabled: false,

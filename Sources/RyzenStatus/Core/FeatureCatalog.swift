@@ -103,7 +103,6 @@ extension AppFeature {
         case .uninstaller: return "trash"
         case .homebrew: return "shippingbox"
         case .appUpdates: return "arrow.down.app"
-        case .appUpdates: return "arrow.down.app"
         case .screenshot: return "camera.viewfinder"
         case .cameraPreview: return "web.camera"
         case .radialMenu: return "circle.grid.cross"
@@ -186,7 +185,6 @@ extension AppFeature {
         case .cleaner: return [.fullDiskAccess, .filesAndFolders, .notifications]
         case .uninstaller: return [.fullDiskAccess, .automationFinder]
         case .homebrew: return [.automationTerminal]
-        case .appUpdates: return [.notifications]
         case .appUpdates: return [.notifications]
         case .mixer: return [.audioCapture]
         case .monitorCPU, .monitorMemory, .monitorDisk, .monitorPower: return [.notifications]

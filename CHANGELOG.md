@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.6.0] — 2026-07-27
+
+### Stable Release
+
+First stable release. Consolidates all beta features, fixes, and improvements from the beta3→beta9 cycle.
+
+### Features
+- **App Updates**: Check which installed apps have newer versions via Homebrew and Mac App Store, with background scanning and notifications.
+- **Package C6 Residency Monitoring**: C6 power state monitoring via MSR 0xC0010296 — live residency percentage in Dashboard and AMD Power Settings.
+- **Menu Bar W Suffix Fix**: Power metrics with 3-digit values no longer clip the "W" suffix.
+- **Mouse Button Shortcuts**: Programmable extra mouse button mapping.
+- **Super Key (Caps Lock Remap)**: Turn Caps Lock into a powerful modifier key.
+- **Snippet Library**: Text snippet library with searchable catalog.
+
+### Bug Fixes
+- **GPU Temperature Priority (Critical)**: Kext MMIO GPU temperature (selector 28) now takes priority over IOAccelerator readings.
+- **Fan Control API Rename**: `setFanSpeed(rpm:)` → `setFanSpeed(pwm:)` to reflect actual PWM (0-255) parameter.
+- **Timing Monotonicity**: Replaced wall-clock `NSDate` with `ProcessInfo.systemUptime` for interval calculations.
+- **Physical Core Fallback**: From hardcoded 16 to `ProcessInfo.processorCount / 2`.
+- **Thread Safety**: `@MainActor` annotation added to `MonitorAlertService`.
+- **Kext Version Bump**: 3.34.0 — AMDGPU MMIO monitoring, C6 residency, SuperIO 6-fan support.
+- **Process List Flickering Fix**: Extended stale cache lifetime from 2s to 60s.
+
 ## [1.6.0-beta9]
 
 ### Features

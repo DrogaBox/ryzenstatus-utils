@@ -53,18 +53,18 @@ let subAttrs: [NSAttributedString.Key: Any] = [
 let subSize = subtitle.size(withAttributes: subAttrs)
 subtitle.draw(at: NSPoint(x: (widthPt - subSize.width) / 2, y: 54), withAttributes: subAttrs)
 
-// Arrow between the icon columns (icons sit at x≈150 and x≈450, centered at y≈240
-// from the top → y≈240 from the bottom in this 480-tall canvas).
-let arrowY: CGFloat = heightPt - 240
+// Arrow from the app icon (left column, x≈150) toward Applications (right, x≈450).
+// Kexts sit above the app at y≈145, no arrow for Kexts.
+let arrowY: CGFloat = heightPt - 315
 let arrow = NSBezierPath()
 arrow.lineWidth = 9
 arrow.lineCapStyle = .round
 arrow.lineJoinStyle = .round
-arrow.move(to: NSPoint(x: 250, y: arrowY))
-arrow.line(to: NSPoint(x: 348, y: arrowY))
-arrow.move(to: NSPoint(x: 330, y: arrowY + 16))
-arrow.line(to: NSPoint(x: 350, y: arrowY))
-arrow.line(to: NSPoint(x: 330, y: arrowY - 16))
+arrow.move(to: NSPoint(x: 225, y: arrowY))
+arrow.line(to: NSPoint(x: 385, y: arrowY))
+arrow.move(to: NSPoint(x: 365, y: arrowY + 16))
+arrow.line(to: NSPoint(x: 385, y: arrowY))
+arrow.line(to: NSPoint(x: 365, y: arrowY - 16))
 NSColor(calibratedRed: 0.40, green: 0.34, blue: 0.78, alpha: 0.9).setStroke()
 arrow.stroke()
 

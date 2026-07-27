@@ -1,5 +1,7 @@
+Lilu/
 Lilu.kext/
 VirtualSMC.kext/
+MacKernelSDK/
 VirtualSMC/
 SMCAMDProcessor.xcodeproj/xcuserdata/
 SMCAMDProcessor.xcodeproj/project.xcworkspace/
