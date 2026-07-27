@@ -39,10 +39,11 @@ struct BrightnessDisplay: Identifiable, Equatable {
 /// buttons use, addressed per display through its I2C service.
 ///
 /// While the feature is off nothing exists here: no observers, no services,
-/// no I2C traffic. While it is on, the only standing resource is one screen
-/// change observer; everything else happens when a slider moves or a panel
-/// opens. All I2C work runs on a serial queue with the pacing displays need,
-/// and slider drags coalesce to the newest value per display.
+/// no I2C traffic. While it is on, the only standing resources are one
+/// screen change observer and a pair of wake observers; everything else
+/// happens when a slider moves or a panel opens. All I2C work runs on a
+/// serial queue with the pacing displays need, and slider drags coalesce
+/// to the newest value per display.
 final class BrightnessService: ObservableObject {
     static let shared = BrightnessService()
 
@@ -64,6 +65,8 @@ final class BrightnessService: ObservableObject {
     }
 
     private var screenObserver: NSObjectProtocol?
+    private var wakeObservers: [NSObjectProtocol] = []
+    private var wakeRebuild: DispatchWorkItem?
     private var rebuildDebounce: DispatchWorkItem?
     /// Media-key tap, alive while pointer routing or the optional overlay is
     /// on and Accessibility is granted. Its mask covers system-defined events
@@ -89,6 +92,14 @@ final class BrightnessService: ObservableObject {
     /// Session memory for write-only monitors, so their slider does not jump
     /// back to a placeholder between panel openings.
     private var lastApplied: [CGDirectDisplayID: Double] = [:]
+    /// When each display's remembered level was last known to match the
+    /// monitor, so a step can tell a value it just wrote from one that has
+    /// been sitting around while the monitor moved on without it.
+    private var levelKnownAt: [CGDirectDisplayID: Date] = [:]
+    /// How long a remembered level is taken at face value. Long enough that
+    /// holding a key steps smoothly off the running value, short enough that
+    /// the first press after a pause asks the monitor where it actually is.
+    private static let levelTrustWindow: TimeInterval = 3
     /// The unmodified gamma curve of each software-dimmed display, captured
     /// before the first change so restoring is exact. Touched only on the
     /// work queue.
@@ -130,13 +141,51 @@ final class BrightnessService: ObservableObject {
             object: nil, queue: .main) { [weak self] _ in
             self?.screensChanged()
         }
+        installWakeObservers()
         refresh()
+    }
+
+    private func installWakeObservers() {
+        let center = NSWorkspace.shared.notificationCenter
+        let didWake = center.addObserver(forName: NSWorkspace.didWakeNotification,
+                                         object: nil, queue: .main) { [weak self] _ in
+            self?.displaysWokeUp()
+        }
+        let screensDidWake = center.addObserver(forName: NSWorkspace.screensDidWakeNotification,
+                                                object: nil, queue: .main) { [weak self] _ in
+            self?.displaysWokeUp()
+        }
+        wakeObservers = [didWake, screensDidWake]
+    }
+
+    private func removeWakeObservers() {
+        let center = NSWorkspace.shared.notificationCenter
+        for observer in wakeObservers {
+            center.removeObserver(observer)
+        }
+        wakeObservers = []
+        wakeRebuild?.cancel()
+        wakeRebuild = nil
+    }
+
+    /// Displays take time to come back online after a wake and may answer
+    /// readings that look real but are not. A settle delay lets the panel
+    /// settle before we rebuild the routes and try to re-establish I2C.
+    private func displaysWokeUp() {
+        wakeRebuild?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.running else { return }
+            self.refresh()
+        }
+        wakeRebuild = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
     }
 
     func stop() {
         guard running else { return }
         running = false
         removeKeyTap()
+        removeWakeObservers()
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
         screenObserver = nil
         rebuildDebounce?.cancel()
@@ -207,6 +256,7 @@ final class BrightnessService: ObservableObject {
                                          showOSD: showOSD,
                                          sequence: writeSequence)
         lastApplied[id] = clamped
+        levelKnownAt[id] = Date()
         let schedule = !drainScheduled
         if schedule { drainScheduled = true }
         stateLock.unlock()
@@ -461,12 +511,8 @@ final class BrightnessService: ObservableObject {
                 // handling and animation unless the overlay replaces it.
                 return Unmanaged.passUnretained(event)
             }
-            if press.isKeyDown, let current = currentSystemBrightness(
-                for: displayID,
-                fallback: displays.first(where: { $0.id == displayID })?.brightness
-            ) {
-                setBrightness(BrightnessSupport.steppedBrightness(current, delta: press.delta),
-                              for: displayID, showOSD: wantsBrightnessOSD)
+            if press.isKeyDown {
+                step(displayID, method: route.method, delta: press.delta, showOSD: wantsBrightnessOSD)
             }
             // Both halves are replaced so the system never draws a second OSD.
             return nil
@@ -474,12 +520,70 @@ final class BrightnessService: ObservableObject {
         guard followsPointer else {
             return Unmanaged.passUnretained(event)
         }
-        if press.isKeyDown, let current = displays.first(where: { $0.id == displayID })?.brightness {
-            setBrightness(BrightnessSupport.steppedBrightness(current, delta: press.delta),
-                          for: displayID,
-                          showOSD: wantsBrightnessOSD)
+        if press.isKeyDown {
+            step(displayID, method: route.method, delta: press.delta, showOSD: wantsBrightnessOSD)
         }
         return nil
+    }
+
+    /// Moves a display one step from where it actually is.
+    ///
+    /// A step is only as good as the value it starts from, and a remembered
+    /// one goes out of date on its own: the monitor has buttons of its own,
+    /// and its level is read once when the routes are built, which can be a
+    /// moment when the panel answers badly. Starting from a stale value and
+    /// writing the result is what threw a monitor sitting at 80% down to one
+    /// step above nothing. So a step that follows a pause asks the monitor
+    /// where it is first, exactly as the system-routed path already did;
+    /// steps in a burst keep using the running value, so holding a key stays
+    /// smooth and does not put a read between every press.
+    private func step(_ displayID: CGDirectDisplayID,
+                      method: BrightnessDisplay.Method,
+                      delta: Double,
+                      showOSD: Bool) {
+        let cached = displays.first(where: { $0.id == displayID })?.brightness
+        if method == .system {
+            guard let current = currentSystemBrightness(for: displayID, fallback: cached) else { return }
+            commitStep(from: current, delta: delta, to: displayID, showOSD: showOSD)
+            return
+        }
+        stateLock.lock()
+        let known = levelKnownAt[displayID]
+        let route = routes[displayID]
+        stateLock.unlock()
+        let fresh = BrightnessSupport.trustsRememberedLevel(lastKnownAt: known, now: Date(),
+                                                            window: Self.levelTrustWindow)
+        guard method == .ddc, !fresh, let service = route?.service else {
+            guard let current = cached else { return }
+            commitStep(from: current, delta: delta, to: displayID, showOSD: showOSD)
+            return
+        }
+        workQueue.async { [weak self] in
+            guard let self else { return }
+            let probe = self.ddcProbeLuminance(service: service)
+            DispatchQueue.main.async {
+                var current = cached
+                if case let .replied(value, maximum) = probe {
+                    let level = BrightnessSupport.normalized(
+                        current: value, maximum: BrightnessSupport.sanitizedMaximum(maximum))
+                    current = level
+                    if let index = self.displays.firstIndex(where: { $0.id == displayID }) {
+                        self.displays[index].brightness = level
+                    }
+                }
+                guard let current else { return }
+                self.commitStep(from: current, delta: delta, to: displayID,
+                                showOSD: showOSD)
+            }
+        }
+    }
+
+    private func commitStep(from current: Double,
+                            delta: Double,
+                            to displayID: CGDirectDisplayID,
+                            showOSD: Bool) {
+        let stepped = BrightnessSupport.steppedBrightness(current, delta: delta)
+        setBrightness(stepped, for: displayID, showOSD: showOSD)
     }
 
     private func currentSystemBrightness(for id: CGDirectDisplayID,
@@ -490,8 +594,10 @@ final class BrightnessService: ObservableObject {
         stateLock.unlock()
         if let queued { return queued }
         if let requested { return requested }
+        // Same reason as the rebuild: a sleeping panel answers a number it
+        // cannot honour, so the last value known good is the better base.
         var live: Float = -1
-        if let read = BrightnessBridge.getBrightness,
+        if CGDisplayIsAsleep(id) == 0, let read = BrightnessBridge.getBrightness,
            read(id, &live) == 0, live >= 0, live <= 1 {
             return Double(live)
         }
@@ -562,13 +668,23 @@ final class BrightnessService: ObservableObject {
                 continue
             }
 
+            // A panel that is asleep answers a reading it cannot honour,
+            // and it has been measured answering zero for a display sitting
+            // at a third of its range. Taking that as the truth is what
+            // leaves a later key press stepping up from nothing.
+            let asleep = CGDisplayIsAsleep(id) != 0
             var level: Float = -1
-            if let read = BrightnessBridge.getBrightness, read(id, &level) == 0, level >= 0, level <= 1 {
+            if let read = BrightnessBridge.getBrightness,
+               read(id, &level) == 0, level >= 0, level <= 1 {
                 // The system pipeline answers for this display (built-in
-                // panel or an Apple external display).
+                // panel or an Apple external display). A reading taken while
+                // the panel sleeps is kept out of the remembered level: it
+                // is merely forwarded to the slider so the UI has something
+                // to show, but the real value is whatever it was before.
+                let displayBrightness = asleep ? (lastApplied[id] ?? Double(level)) : Double(level)
                 built.append(BrightnessDisplay(id: id, name: name, isBuiltIn: isBuiltIn,
                                                method: .system, isActive: true,
-                                               brightness: Double(level), readable: true))
+                                               brightness: displayBrightness, readable: true))
                 newRoutes[id] = Route(method: .system, service: nil, maximum: 100)
                 continue
             }

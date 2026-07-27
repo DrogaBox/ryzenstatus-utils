@@ -159,6 +159,21 @@ enum BrightnessSupport {
         return overlayReplacesNative
     }
 
+    /// Whether a remembered brightness level for a display can be trusted
+    /// as the monitor's actual luminance, or a probe should read it fresh.
+    /// A remembered level is trusted for a short window after it was last
+    /// known to match the display (written by this process), so held keys
+    /// stay smooth; after the window expires, the monitor may have moved
+    /// on its own (brightness keys, System Settings, the monitor's buttons)
+    /// and a read is needed before stepping.
+    static func trustsRememberedLevel(lastKnownAt: Date?,
+                                      now: Date,
+                                      window: TimeInterval) -> Bool {
+        guard let lastKnownAt else { return false }
+        let age = now.timeIntervalSince(lastKnownAt)
+        return age >= 0 && age < window
+    }
+
     /// Sixteen segments match the system brightness steps. A non-zero value
     /// keeps at least one segment visible while exact zero stays empty.
     static func filledBrightnessSegments(_ brightness: Double) -> Int {
