@@ -10,6 +10,9 @@ import Carbon.HIToolbox
 /// With freeze on (the default) every display is photographed first and the
 /// panels show that still image while the area is chosen. With freeze off the
 /// panels are transparent and pixels are captured at confirmation time.
+///
+/// More than one feature picks an area this way, so the surface says what the
+/// area is for and only one session is ever on screen.
 final class ScreenshotSelectionController {
 
     struct Capture {
@@ -43,14 +46,27 @@ final class ScreenshotSelectionController {
     /// The last confirmed region, per display, so R repeats it instantly.
     private static var lastRegion: (displayID: CGDirectDisplayID, viewRect: CGRect)?
 
-    private let strings = FeatureStrings.screenshot(L10n.shared.language)
+    /// True while a session owns the screen. Two surfaces at once would stack
+    /// dim over dim and split the keyboard between them, so whichever feature
+    /// asks second is turned away.
+    private(set) static var isSessionOnScreen = false
 
-    init(freeze: Bool, includePointer: Bool) {
+    private let strings = FeatureStrings.screenshot(L10n.shared.language)
+    /// Named at the head of the hint bar so the surface never leaves the
+    /// person guessing what the area they are about to pick is for.
+    private let purpose: String?
+    /// Toggle to show or hide the last selected region ghost.
+    private let showLastRegion: Bool
+
+    init(freeze: Bool, includePointer: Bool, showLastRegion: Bool = true, purpose: String? = nil) {
         self.freeze = freeze
         self.includePointer = includePointer
+        self.showLastRegion = showLastRegion
+        self.purpose = purpose
     }
 
     func begin(completion: @escaping (Outcome) -> Void) {
+        Self.isSessionOnScreen = true
         self.completion = completion
         if freeze {
             Task { @MainActor [weak self] in
@@ -88,8 +104,9 @@ final class ScreenshotSelectionController {
                                                frozenImage: frozenImages[displayID],
                                                windows: windows,
                                                controller: self,
-                                               strings: strings)
-            if let last = Self.lastRegion, last.displayID == displayID {
+                                               strings: strings,
+                                               purpose: purpose)
+            if showLastRegion, let last = Self.lastRegion, last.displayID == displayID {
                 panel.overlayView.ghostRect = last.viewRect
             }
             panels.append(panel)
@@ -291,9 +308,18 @@ final class ScreenshotSelectionController {
         finish(.cancelled)
     }
 
+    deinit {
+        // A session that goes away without ending would otherwise leave the
+        // screen marked as taken and every capture feature dead until the app
+        // is restarted. The wrong flag is always the one that lets a capture
+        // start, never the one that blocks it.
+        if !finished { Self.isSessionOnScreen = false }
+    }
+
     private func finish(_ outcome: Outcome) {
         guard !finished else { return }
         finished = true
+        Self.isSessionOnScreen = false
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
             self.keyMonitor = nil
@@ -333,7 +359,8 @@ private final class ScreenshotOverlayPanel: NSPanel {
          frozenImage: CGImage?,
          windows: [ScreenshotSupport.PickableWindow],
          controller: ScreenshotSelectionController,
-         strings: ScreenshotFeatureStrings) {
+         strings: ScreenshotFeatureStrings,
+         purpose: String?) {
         screenFrame = screen.frame
         displayID = screen.displayID
         self.frozenImage = frozenImage
@@ -368,7 +395,8 @@ private final class ScreenshotOverlayPanel: NSPanel {
                                          windows: windows,
                                          controller: controller,
                                          panel: self,
-                                         strings: strings)
+                                         strings: strings,
+                                         purpose: purpose)
         view.autoresizingMask = [.width, .height]
         container.addSubview(view)
         overlayViewStorage = view
@@ -390,6 +418,7 @@ private final class ScreenshotOverlayView: NSView {
     private unowned let controller: ScreenshotSelectionController
     private unowned let panel: ScreenshotOverlayPanel
     private let strings: ScreenshotFeatureStrings
+    private let purpose: String?
 
     private var dragOrigin: CGPoint?
     private var lastDragPoint: CGPoint = .zero
@@ -412,13 +441,15 @@ private final class ScreenshotOverlayView: NSView {
          windows: [ScreenshotSupport.PickableWindow],
          controller: ScreenshotSelectionController,
          panel: ScreenshotOverlayPanel,
-         strings: ScreenshotFeatureStrings) {
+         strings: ScreenshotFeatureStrings,
+         purpose: String?) {
         self.frozenImage = frozenImage
         self.loupeImage = loupeImage
         self.windows = windows
         self.controller = controller
         self.panel = panel
         self.strings = strings
+        self.purpose = purpose
         super.init(frame: frame)
         let tracking = NSTrackingArea(rect: .zero,
                                       options: [.activeAlways, .mouseMoved, .inVisibleRect],
@@ -698,30 +729,57 @@ private final class ScreenshotOverlayView: NSView {
         text.draw(at: CGPoint(x: rect.minX + 7, y: rect.minY + 3), withAttributes: attributes)
     }
 
+    /// Holds a hint together as one word, so a bar that has to wrap breaks
+    /// between hints and never in the middle of one.
+    private static func unbreakable(_ text: String) -> String {
+        text.replacingOccurrences(of: " ", with: "\u{00A0}")
+    }
+
     private func drawHintBar() {
-        let parts: [String]
-        if isCapturePending {
-            parts = []
-        } else {
-            var list = [strings.hintDrag, strings.hintClick,
-                        strings.hintFullScreen, strings.hintLoupe, strings.hintCancel]
-            if ghostRect != nil { list.append(strings.hintRepeat) }
-            parts = list
-        }
-        guard !parts.isEmpty else { return }
-        let text = parts.joined(separator: "   ·   ")
-        let attributes: [NSAttributedString.Key: Any] = [
+        guard !isCapturePending else { return }
+        var parts = [strings.hintDrag, strings.hintClick,
+                     strings.hintFullScreen, strings.hintLoupe, strings.hintCancel]
+        if ghostRect != nil { parts.append(strings.hintRepeat) }
+        let separator = "   ·   "
+        let hintAttributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 12, weight: .medium),
             .foregroundColor: NSColor.white.withAlphaComponent(0.92),
         ]
-        let size = text.size(withAttributes: attributes)
+        let text = NSMutableAttributedString()
+        if let purpose, !purpose.isEmpty {
+            // What the area is being picked for leads, in the weight the eye
+            // lands on first; how to pick it follows in the same line.
+            text.append(NSAttributedString(string: Self.unbreakable(purpose), attributes: [
+                .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+                .foregroundColor: NSColor.white,
+            ]))
+            text.append(NSAttributedString(string: separator, attributes: hintAttributes))
+        }
+        text.append(NSAttributedString(string: parts.map(Self.unbreakable).joined(separator: separator),
+                                       attributes: hintAttributes))
+        // The line is only as wide as the display allows: translated hints run
+        // long, and a bar that grows past the edges would lose its ends. When
+        // it no longer fits it wraps and the bar grows upward, keeping its
+        // distance from the bottom of the screen.
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byWordWrapping
+        text.addAttribute(.paragraphStyle, value: paragraph,
+                          range: NSRange(location: 0, length: text.length))
+        let available = max(240, bounds.width - 80)
+        let bounding = text.boundingRect(with: CGSize(width: available,
+                                                      height: .greatestFiniteMagnitude),
+                                         options: [.usesLineFragmentOrigin])
+        let size = CGSize(width: ceil(bounding.width), height: ceil(bounding.height))
         let rect = CGRect(x: bounds.midX - size.width / 2 - 16,
-                          y: bounds.maxY - 54,
+                          y: bounds.maxY - 27 - (size.height + 12),
                           width: size.width + 32,
                           height: size.height + 12)
         let path = NSBezierPath(roundedRect: rect, xRadius: 9, yRadius: 9)
         NSColor(white: 0, alpha: 0.66).setFill()
         path.fill()
-        text.draw(at: CGPoint(x: rect.minX + 16, y: rect.minY + 6), withAttributes: attributes)
+        text.draw(with: CGRect(x: rect.minX + 16, y: rect.minY + 6,
+                               width: size.width, height: size.height),
+                  options: [.usesLineFragmentOrigin])
     }
 }

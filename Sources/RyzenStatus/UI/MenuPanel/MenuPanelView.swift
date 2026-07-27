@@ -80,8 +80,6 @@ struct MenuPanelView: View {
     @AppStorage(DefaultsKey.panelShowToggles) private var showToggles = true
     @AppStorage(DefaultsKey.panelSectionOrder) private var sectionOrderRaw = ""
     @AppStorage(DefaultsKey.panelAccordionMode) private var accordionMode = false
-    @AppStorage(DefaultsKey.cleanerBadgeSeen) private var cleanerBadgeSeen = false
-    @AppStorage(DefaultsKey.panelUtilityCleaner) private var cleanerRowVisible = true
     @State private var navigableContentHeight: CGFloat = 0
     @State private var metricContentHeight: CGFloat = 0
     @State private var updateBannerHeight: CGFloat = 0
@@ -439,20 +437,7 @@ struct MenuPanelView: View {
                 Button {
                     selectedSection = id
                 } label: {
-                    Image(systemName: id.symbolName)
-                        .font(.system(size: 13.5, weight: .semibold))
-                        .overlay(alignment: .topTrailing) {
-                            // Trail of the cleaner's red dot: it marks the
-                            // Utilities tab too, so the guidance starts on the
-                            // panel's first screen and not one click deep.
-                            if id == .utilities, !cleanerBadgeSeen, cleanerRowVisible {
-                                Circle()
-                                    .fill(Color.red)
-                                    .frame(width: 6, height: 6)
-                                    .offset(x: 5, y: -3)
-                                    .accessibilityHidden(true)
-                            }
-                        }
+                    Image(systemName: id.symbolName)                            .font(.system(size: 13.5, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .frame(height: 30)
                         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -654,7 +639,6 @@ struct UtilitiesSection: View {
     @AppStorage(DefaultsKey.panelUtilityURLCleaner) private var showCleanURL = true
     @AppStorage(DefaultsKey.panelUtilityUninstaller) private var showUninstallerAction = true
     @AppStorage(DefaultsKey.panelUtilityCleaner) private var showCleanerAction = true
-    @AppStorage(DefaultsKey.cleanerBadgeSeen) private var cleanerBadgeSeen = false
     @AppStorage(DefaultsKey.panelUtilityHomebrew) private var showHomebrew = true
     @AppStorage(DefaultsKey.panelUtilityMedia) private var showMedia = true
     @AppStorage(DefaultsKey.panelUtilityClipboard) private var showClipboard = true
@@ -882,7 +866,6 @@ struct UtilitiesSection: View {
             UtilityActionButton(title: l10n.s.cleanerName,
                                 caption: l10n.s.cleanerPanelCaption,
                                 systemImage: "sparkle",
-                                showsNewDot: !cleanerBadgeSeen,
                                 isEditing: editing,
                                 showsDragHandle: true,
                                 visibility: $showCleanerAction,
@@ -1773,7 +1756,6 @@ struct UtilityActionButton: View {
     /// Small red dot on the icon pointing people at a brand new feature.
     /// Purely visual and one-shot: the caller stops passing true once the
     /// feature was opened somewhere.
-    var showsNewDot = false
     var isEditing = false
     var showsDragHandle = false
     var visibility: Binding<Bool>? = nil
@@ -1815,15 +1797,6 @@ struct UtilityActionButton: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(iconColor)
                 .frame(width: 22)
-                .overlay(alignment: .topTrailing) {
-                    if showsNewDot && !isEditing {
-                        Circle()
-                            .fill(Color.red)
-                            .frame(width: 7, height: 7)
-                            .offset(x: 2, y: -3)
-                            .accessibilityHidden(true)
-                    }
-                }
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
                     Text(title)

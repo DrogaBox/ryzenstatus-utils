@@ -69,7 +69,9 @@ final class ScreenshotService: ObservableObject {
     /// Starts a capture; pressing the shortcut again while a countdown runs
     /// cancels it, and a session in progress is left alone.
     func capture() {
-        guard session == nil else { return }
+        // Another feature may already own the capture surface (copying text
+        // off the screen picks an area the same way).
+        guard session == nil, !ScreenshotSelectionController.isSessionOnScreen else { return }
         if countdown != nil {
             countdown?.cancel()
             countdown = nil
@@ -106,13 +108,14 @@ final class ScreenshotService: ObservableObject {
     }
 
     private func beginSelection() {
-        guard session == nil else { return }
+        guard session == nil, !ScreenshotSelectionController.isSessionOnScreen else { return }
         preview?.close()
         preview = nil
         let defaults = UserDefaults.standard
         let controller = ScreenshotSelectionController(
             freeze: defaults.bool(forKey: DefaultsKey.screenshotFreeze),
-            includePointer: defaults.bool(forKey: DefaultsKey.screenshotIncludePointer))
+            includePointer: defaults.bool(forKey: DefaultsKey.screenshotIncludePointer),
+            showLastRegion: true)
         session = controller
         controller.begin { [weak self] outcome in
             guard let self else { return }

@@ -77,7 +77,6 @@ enum SettingsBackupSupport {
         DefaultsKey.micMuteMutedDevices,
         DefaultsKey.cleanerLastAutoRun,
         DefaultsKey.cleanerLastAutoFreed,
-        DefaultsKey.cleanerBadgeSeen,
         DefaultsKey.simulateUpdate,
         DefaultsKey.updateShowcaseIntroVersion,
         DefaultsKey.updateShowcaseMediaOverride,

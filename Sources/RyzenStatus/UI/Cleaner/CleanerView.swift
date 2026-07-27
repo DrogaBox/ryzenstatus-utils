@@ -747,12 +747,7 @@ struct PanelCleanerView: View {
             CleanerView(compact: true)
         }
         .padding(2)
-        .onAppear {
-            PanelInteractionState.shared.keepsPopoverOpen = true
-            // Seeing the cleaner once, from either panel, retires the red
-            // dot that guides people to the new feature on both surfaces.
-            UserDefaults.standard.set(true, forKey: DefaultsKey.cleanerBadgeSeen)
-        }
+        .onAppear { PanelInteractionState.shared.keepsPopoverOpen = true }
         .onDisappear { PanelInteractionState.shared.keepsPopoverOpen = false }
     }
 }

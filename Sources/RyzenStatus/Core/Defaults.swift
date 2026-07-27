@@ -88,7 +88,6 @@ enum DefaultsKey {
     static let cleanerScheduleNotify = "cleanerScheduleNotify"
     static let cleanerLastAutoRun = "cleanerLastAutoRun"                // Double, epoch seconds
     static let cleanerLastAutoFreed = "cleanerLastAutoFreed"            // Int bytes
-    static let cleanerBadgeSeen = "cleanerBadgeSeen"                    // red dot guiding to the new cleaner
     static let processListRefreshInterval = "processListRefreshInterval" // process list breakdown refresh rate (seconds)
     static let settingsWindowWidth = "settingsWindowWidth"     // last user-chosen content size (0 = unset)
     static let settingsWindowHeight = "settingsWindowHeight"
@@ -639,7 +638,6 @@ enum Defaults {
         DefaultsKey.cleanerScheduleNotify: true,
         DefaultsKey.cleanerLastAutoRun: 0.0,
         DefaultsKey.cleanerLastAutoFreed: 0,
-        DefaultsKey.cleanerBadgeSeen: false,
         DefaultsKey.urlCleanerEnabled: false,
         DefaultsKey.mouseButtonShortcutsEnabled: false,
         DefaultsKey.superKeyEnabled: false,
