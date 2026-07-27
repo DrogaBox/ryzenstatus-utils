@@ -132,6 +132,7 @@ if (( TEST )); then
         Sources/RyzenStatus/Services/Finder/CutPasteProgressSupport.swift \
         Sources/RyzenStatus/Services/MiddleClick/MiddleClickSupport.swift \
         Sources/RyzenStatus/Services/MouseNavigation/MouseNavigationSupport.swift \
+        Sources/RyzenStatus/Services/SuperKey/SuperKeySupport.swift \
         Sources/RyzenStatus/Services/QuickTools/QuickToolsSupport.swift \
         Sources/RyzenStatus/Services/QuickTools/QuickTogglesSupport.swift \
         Sources/RyzenStatus/Services/QuickTools/ScreenshotSupport.swift \
