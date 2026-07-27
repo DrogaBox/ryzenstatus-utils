@@ -110,10 +110,7 @@ struct SettingsView: View {
                                        FeatureStrings.appUpdates(l10n.language).appStoreBadge,
                                        l10n.s.homebrewName]),
                 SidebarItem(page: .cleaner, title: l10n.s.cleanerName, icon: "sparkles",
-                            keywords: [l10n.s.cleanerScheduleTitle,
-                                       FeatureStrings.whatsAppDownloads(l10n.language).title,
-                                       FeatureStrings.whatsAppDownloads(l10n.language).automatic,
-                                       FeatureStrings.whatsAppDownloads(l10n.language).fileTypes]),
+                            keywords: [l10n.s.cleanerScheduleTitle]),
                 SidebarItem(page: .homebrew, title: l10n.s.homebrewName, icon: "shippingbox"),
                 SidebarItem(page: .uninstaller, title: l10n.s.uninstallerName, icon: "trash"),
             ]),
@@ -246,6 +243,7 @@ struct SettingsView: View {
         case .keyDebounce: KeyboardDebounceSettings()
         case .cutPaste: CutPasteSettings()
         case .autoQuit: AutoQuitSettings()
+        case .cleaner: CleanerSettings()
         case .uninstaller: UninstallerView()
         case .urlCleaner: URLCleanerSettings()
         case .homebrew: HomebrewSettings()

@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.6.0-beta9]
+
+### Features
+- **App Updates**: New feature that checks which installed apps have a newer version available. Supports two sources:
+  - Homebrew casks (including apps with their own updater, verified against the actual app bundle version)
+  - Mac App Store (looks up versions via iTunes API)
+- **Background Check**: Optional daily/weekly automatic scanning with notification support.
+- **Panel Integration**: App Updates tile in the Utilities section showing pending updates with update-all button.
+- **Settings Page**: Configure check frequency, notifications, and App Store scanning in Settings → App management.
+
 ## [1.6.0-beta8]
 
 ### Features
