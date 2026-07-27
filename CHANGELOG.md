@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.6.0-beta8]
+
+### Features
+- **Menu Bar W Suffix Fix**: Power metrics with 3-digit values (e.g. 105W) no longer clip the "W" in menu bar blocks.
+- **Initial Status Item Sizing**: Status bar now reserves enough width for power metric blocks from the first sample.
+
+### Kexts
+- **Version Bump 3.33.6 → 3.34.0**: Kext source already contained all SuperIO fixes from v3.33.8 plus C6 and AMDGPU monitoring. Bumped to 3.34.0 to reflect actual feature level and avoid confusion with the old v3.33.6 tag.
+- **AMDRyzenCPUPowerManagement**: v3.34.0 — AMDGPU MMIO monitoring (selectors 27-30), C6 residency (selector 31), SuperIO 6-fan support, pmAMDRyzen cleanup.
+- **SMCAMDProcessor**: v3.34.0 — GPU SMC key additions.
+
 ## [1.6.0-beta7]
 
 ### Features

@@ -777,7 +777,7 @@ enum MenuBarRenderer {
                 if let watts = snapshot.power?.systemWatts {
                     groups.append([.metricBlock(label: "PWR",
                                                 value: MetricFormat.wattsCompact(watts),
-                                                minimumValue: "99W",
+                                                minimumValue: "999W",
                                                 style: style,
                                                 pressure: nil)])
                 }
@@ -1356,6 +1356,8 @@ enum MenuBarRenderer {
         var snapshot = SystemSnapshot()
         snapshot.cpuUsage = 1
         snapshot.gpuUsage = 1
+        snapshot.cpuPower = 150
+        snapshot.gpuPower = 300
         snapshot.memoryUsed = 100
         snapshot.memoryTotal = 100
         snapshot.memoryPressure = .normal
