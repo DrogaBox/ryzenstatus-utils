@@ -69,6 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
 
         setUpPopover()
+        AppAppearanceController.shared.apply()
         bindManagers()
 
         HotkeyManager.shared.onActivate = { KeepAwakeManager.shared.toggle() }
@@ -241,6 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         let host = NSHostingController(rootView: MenuPanelView())
         host.sizingOptions = .preferredContentSize
         popover.contentViewController = host
+        AppAppearanceController.shared.follow(panel: popover)
         NotificationCenter.default.addObserver(self, selector: #selector(appResignedActive),
                                                name: NSApplication.didResignActiveNotification, object: nil)
     }

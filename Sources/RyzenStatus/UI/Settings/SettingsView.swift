@@ -273,6 +273,7 @@ struct GeneralSettings: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var features = FeatureRuntime.shared
     @ObservedObject private var hotkeys = HotkeyManager.shared
+    @ObservedObject private var appearance = AppAppearanceController.shared
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
     @State private var loginError: String?
     @AppStorage(DefaultsKey.hotkeyEnabled) private var hotkeyEnabled = true
@@ -303,6 +304,11 @@ struct GeneralSettings: View {
                 Picker(l10n.s.languageLabel, selection: $l10n.language) {
                     ForEach(AppLanguage.allCases) { language in
                         Text(language.displayName).tag(language)
+                    }
+                }
+                Picker(FeatureStrings.appearance(l10n.language).label, selection: $appearance.appearance) {
+                    ForEach(AppAppearance.allCases) { option in
+                        Text(option.title(FeatureStrings.appearance(l10n.language))).tag(option)
                     }
                 }
             }

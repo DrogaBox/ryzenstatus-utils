@@ -102,7 +102,9 @@ if (( TEST )); then
         Sources/RyzenStatus/Core/ScratchpadStrings.swift \
         Sources/RyzenStatus/Core/RadialMenuStrings.swift \
         Sources/RyzenStatus/Core/MenuBarAppearanceStrings.swift \
+        Sources/RyzenStatus/Core/AppearanceStrings.swift \
         Sources/RyzenStatus/Core/BatteryTimeStrings.swift \
+        Sources/RyzenStatus/Core/AppAppearance.swift \
         Sources/RyzenStatus/Core/KeepAwakeStrings.swift \
         Sources/RyzenStatus/Core/PermissionGuideStrings.swift \
         Sources/RyzenStatus/Services/Snippets/TextSnippetSupport.swift \
