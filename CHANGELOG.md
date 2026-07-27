@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.7.0-beta1] — 2026-07-27
+
+### Features
+- **Boost Limiter**: Automatically reduces system volume when an app starts making loud noises—perfect for unexpected full-screen videos or audio glitches.
+- **Space Hop**: Automatically follows your active window when you switch to an app whose window is on a different full-screen Space, eliminating manual Space navigation.
+- **Mouse Exceptions List**: Per-app exception list for Smooth Scroll and Scroll Inverter — exclude specific apps from scroll customization.
+- **App Appearance**: Choose between System, Light, or Dark appearance mode per app.
+- **Snippet Library**: Dedicated searchable panel for text snippets, organized by folder.
+- **WhatsApp Downloads**: Full download organizer — scans Downloads for WhatsApp files, auto-cleanup with retention rules, daily/weekly scheduling, and notifications.
+
 ## [1.6.0] — 2026-07-27
 
 ### Stable Release
