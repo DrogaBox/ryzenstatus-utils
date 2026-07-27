@@ -739,6 +739,9 @@ struct MouseSettings: View {
                                 .foregroundStyle(.green)
                         }
                     }
+                    if inverterEnabled {
+                        MouseExceptionsList(scope: .scrollDirection)
+                    }
                     Text(l10n.s.invertMouseScrollCaption)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -768,6 +771,7 @@ struct MouseSettings: View {
                                 .foregroundStyle(.secondary)
                                 .frame(width: 34, alignment: .trailing)
                         }
+                        MouseExceptionsList(scope: .smoothScroll)
                     }
                 }
             }
