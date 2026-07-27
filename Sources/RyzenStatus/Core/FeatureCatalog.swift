@@ -26,7 +26,7 @@ enum AppFeature: String, CaseIterable {
     case keepAwake, brightness, extraBrightness
     // Tools
     case quickLauncher, quickToggles, colorPicker, screenOCR, cleaningMode, mediaTools,
-         cleaner, uninstaller, homebrew, appUpdates, screenshot, cameraPreview, radialMenu, scratchpad
+         cleaner, uninstaller, homebrew, appUpdates, whatsAppDownloads, screenshot, cameraPreview, radialMenu, scratchpad
     // System monitor, one entry per metric family (temperatures live with
     // their parent metric: CPU temp with CPU, battery temp with power).
     case monitorCPU, monitorGPU, monitorMemory, monitorNetwork, monitorDisk, monitorPower
@@ -58,7 +58,7 @@ extension AppFeature {
         case .keepAwake, .brightness, .extraBrightness:
             return .energyDisplay
         case .quickLauncher, .quickToggles, .colorPicker, .screenOCR, .cleaningMode, .mediaTools,
-             .cleaner, .uninstaller, .homebrew, .appUpdates, .screenshot, .cameraPreview, .radialMenu, .scratchpad:
+             .cleaner, .uninstaller, .homebrew, .appUpdates, .whatsAppDownloads, .screenshot, .cameraPreview, .radialMenu, .scratchpad:
             return .tools
         case .monitorCPU, .monitorGPU, .monitorMemory, .monitorNetwork, .monitorDisk, .monitorPower:
             return .monitor
@@ -103,6 +103,7 @@ extension AppFeature {
         case .uninstaller: return "trash"
         case .homebrew: return "shippingbox"
         case .appUpdates: return "arrow.down.app"
+        case .whatsAppDownloads: return "square.and.arrow.down"
         case .screenshot: return "camera.viewfinder"
         case .cameraPreview: return "web.camera"
         case .radialMenu: return "circle.grid.cross"
@@ -155,7 +156,7 @@ extension AppFeature {
         case .extraBrightness: return [DefaultsKey.extraBrightnessEnabled]
         case .windowLayout, .mixer, .micMute, .keepAwake,
              .quickLauncher, .quickToggles, .colorPicker, .screenOCR, .cleaningMode, .mediaTools,
-             .cleaner, .uninstaller, .homebrew, .appUpdates, .screenshot, .cameraPreview, .scratchpad,
+             .cleaner, .uninstaller, .homebrew, .appUpdates, .whatsAppDownloads, .screenshot, .cameraPreview, .scratchpad,
              .monitorCPU, .monitorGPU, .monitorMemory, .monitorNetwork, .monitorDisk, .monitorPower:
             return []
         }
@@ -186,6 +187,7 @@ extension AppFeature {
         case .uninstaller: return [.fullDiskAccess, .automationFinder]
         case .homebrew: return [.automationTerminal]
         case .appUpdates: return [.notifications]
+        case .whatsAppDownloads: return [.filesAndFolders, .notifications]
         case .mixer: return [.audioCapture]
         case .monitorCPU, .monitorMemory, .monitorDisk, .monitorPower: return [.notifications]
         case .clipboardHistory, .shelf, .urlCleaner, .soundOutputSwitcher, .musicBlock,

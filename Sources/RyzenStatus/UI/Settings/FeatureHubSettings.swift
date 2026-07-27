@@ -558,6 +558,7 @@ extension AppFeature {
         case .monitorNetwork: return s.monitorShowNetwork
         case .monitorDisk: return s.diskSection
         case .monitorPower: return s.powerSection
+        case .whatsAppDownloads: return FeatureStrings.whatsAppDownloads(L10n.shared.language).title
         }
     }
 
@@ -609,6 +610,7 @@ extension AppFeature {
         case .mouseButtonShortcuts: return hub.descMouseButtons
         case .superKey: return hub.descSuperKey
         case .monitorPower: return hub.descMonitorPower
+        case .whatsAppDownloads: return FeatureStrings.whatsAppDownloads(L10n.shared.language).hubDescription
         }
     }
 }

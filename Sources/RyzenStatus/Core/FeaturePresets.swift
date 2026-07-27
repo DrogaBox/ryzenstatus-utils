@@ -97,7 +97,8 @@ extension AppFeature {
             return .periodic
         case .pastePlain, .mixer, .soundOutputSwitcher, .micMute,
              .musicBlock, .keepAwake, .brightness, .quickLauncher, .quickToggles, .colorPicker,
-             .screenOCR, .cleaningMode, .mediaTools, .cleaner, .uninstaller, .homebrew, .screenshot,
+             .screenOCR, .cleaningMode, .mediaTools, .cleaner, .uninstaller, .homebrew,
+             .whatsAppDownloads, .screenshot,
              .cameraPreview, .scratchpad:
             return .idle
         case .appUpdates:

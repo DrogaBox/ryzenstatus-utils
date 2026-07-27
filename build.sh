@@ -123,6 +123,8 @@ if (( TEST )); then
         Sources/RyzenStatus/Services/Homebrew/HomebrewSupport.swift \
         Sources/RyzenStatus/Services/AppUpdates/AppUpdatesSupport.swift \
         Sources/RyzenStatus/Core/AppUpdateStrings.swift \
+        Sources/RyzenStatus/Core/WhatsAppDownloadStrings.swift \
+        Sources/RyzenStatus/Core/WhatsAppOrganizerStrings.swift \
         Sources/RyzenStatus/Services/Clipboard/ClipboardHistorySupport.swift \
         Sources/RyzenStatus/Services/AutoQuit/AutoQuitSupport.swift \
         Sources/RyzenStatus/Services/Shelf/ShelfSupport.swift \

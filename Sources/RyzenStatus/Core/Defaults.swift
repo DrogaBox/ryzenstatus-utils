@@ -45,6 +45,32 @@ enum DefaultsKey {
     static let switcherIconRowMode = "switcherIconRowMode"
     static let switcherSimpleMode = "switcherSimpleMode"  // app-only row without window captures
     static let switcherMergeTabs = "switcherMergeTabs"     // show one switcher entry per app (collapse all of an app's windows)
+    static let whatsAppDownloadsAutomaticEnabled = "whatsAppDownloadsAutomaticEnabled"
+    static let whatsAppDownloadsCategories = "whatsAppDownloadsCategories"
+    static let whatsAppDownloadsRetentionDays = "whatsAppDownloadsRetentionDays"
+    static let whatsAppDownloadsNotify = "whatsAppDownloadsNotify"
+    static let whatsAppDownloadsIncludeExisting = "whatsAppDownloadsIncludeExisting"
+    static let whatsAppDownloadsAutomaticStartDate = "whatsAppDownloadsAutomaticStartDate"
+    static let whatsAppDownloadsLastAutoRun = "whatsAppDownloadsLastAutoRun"
+    static let whatsAppDownloadsLastCleanup = "whatsAppDownloadsLastCleanup"
+    static let whatsAppDownloadsLastCleanupCount = "whatsAppDownloadsLastCleanupCount"
+    static let whatsAppDownloadsLastCleanupBytes = "whatsAppDownloadsLastCleanupBytes"
+    static let whatsAppDownloadsLastCleanupFailed = "whatsAppDownloadsLastCleanupFailed"
+    static let whatsAppDownloadsLastCleanupAutomatic = "whatsAppDownloadsLastCleanupAutomatic"
+    static let whatsAppDownloadsExclusions = "whatsAppDownloadsExclusions"
+    static let whatsAppDownloadsAccessConfirmed = "whatsAppDownloadsAccessConfirmed"
+    static let whatsAppOrganizerEnabled = "whatsAppOrganizerEnabled"
+    static let whatsAppOrganizerDestinationPath = "whatsAppOrganizerDestinationPath"
+    static let whatsAppOrganizerDelayMinutes = "whatsAppOrganizerDelayMinutes"
+    static let whatsAppOrganizerCategories = "whatsAppOrganizerCategories"
+    static let whatsAppOrganizerLayout = "whatsAppOrganizerLayout"
+    static let whatsAppOrganizerDuplicateAction = "whatsAppOrganizerDuplicateAction"
+    static let whatsAppOrganizerRecords = "whatsAppOrganizerRecords"
+    static let whatsAppOrganizerUndoTransaction = "whatsAppOrganizerUndoTransaction"
+    static let whatsAppOrganizerLastRun = "whatsAppOrganizerLastRun"
+    static let whatsAppOrganizerLastMoved = "whatsAppOrganizerLastMoved"
+    static let whatsAppOrganizerLastDuplicates = "whatsAppOrganizerLastDuplicates"
+    static let whatsAppOrganizerLastFailed = "whatsAppOrganizerLastFailed"
     static let switcherShowWindowlessFinder = "switcherShowWindowlessFinder"
     static let dockPreviewEnabled = "dockPreviewEnabled"
     static let dockClickMinimize = "dockClickMinimize"    // click the active app's Dock icon to minimize its windows
@@ -578,6 +604,32 @@ enum Defaults {
     static let registeredDefaults: [String: Any] = [
         DefaultsKey.clamshellPreferred: false,
         DefaultsKey.appearance: AppAppearance.fallback.rawValue,
+        DefaultsKey.whatsAppDownloadsAutomaticEnabled: false,
+        DefaultsKey.whatsAppDownloadsCategories: "image,video,audio",
+        DefaultsKey.whatsAppDownloadsRetentionDays: 7,
+        DefaultsKey.whatsAppDownloadsNotify: true,
+        DefaultsKey.whatsAppDownloadsIncludeExisting: false,
+        DefaultsKey.whatsAppDownloadsAutomaticStartDate: 0.0,
+        DefaultsKey.whatsAppDownloadsLastAutoRun: 0.0,
+        DefaultsKey.whatsAppDownloadsLastCleanup: 0.0,
+        DefaultsKey.whatsAppDownloadsLastCleanupCount: 0,
+        DefaultsKey.whatsAppDownloadsLastCleanupBytes: 0,
+        DefaultsKey.whatsAppDownloadsLastCleanupFailed: 0,
+        DefaultsKey.whatsAppDownloadsLastCleanupAutomatic: false,
+        DefaultsKey.whatsAppDownloadsExclusions: [],
+        DefaultsKey.whatsAppDownloadsAccessConfirmed: false,
+        DefaultsKey.whatsAppOrganizerEnabled: false,
+        DefaultsKey.whatsAppOrganizerDestinationPath: "",
+        DefaultsKey.whatsAppOrganizerDelayMinutes: 5,
+        DefaultsKey.whatsAppOrganizerCategories: "image,video,audio,document,archive,other",
+        DefaultsKey.whatsAppOrganizerLayout: "flat",
+        DefaultsKey.whatsAppOrganizerDuplicateAction: "trashNew",
+        DefaultsKey.whatsAppOrganizerRecords: Data(),
+        DefaultsKey.whatsAppOrganizerUndoTransaction: Data(),
+        DefaultsKey.whatsAppOrganizerLastRun: 0.0,
+        DefaultsKey.whatsAppOrganizerLastMoved: 0,
+        DefaultsKey.whatsAppOrganizerLastDuplicates: 0,
+        DefaultsKey.whatsAppOrganizerLastFailed: 0,
         DefaultsKey.defaultDuration: 0,
         DefaultsKey.batteryLimit: 10,
         DefaultsKey.keepAwakeAutoStart: false,
