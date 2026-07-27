@@ -78,6 +78,9 @@ enum SettingsBackupSupport {
         DefaultsKey.cleanerLastAutoRun,
         DefaultsKey.cleanerLastAutoFreed,
         DefaultsKey.simulateUpdate,
+        // When the last check ran and what it found belong to one Mac.
+        DefaultsKey.appUpdatesLastCheck,
+        DefaultsKey.appUpdatesLastCount,
         DefaultsKey.updateShowcaseIntroVersion,
         DefaultsKey.updateShowcaseMediaOverride,
         DefaultsKey.settingsWindowWidth,

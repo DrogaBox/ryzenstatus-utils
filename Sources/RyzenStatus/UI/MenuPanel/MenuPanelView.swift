@@ -596,8 +596,8 @@ private enum UtilityPanelItem: String, PanelOrderItem, Identifiable {
     // Case order IS the default panel order (PanelLayout.itemOrder falls back
     // to allCases). Screenshot leads in 3.1.13; existing orders that predate it
     // are migrated once without disturbing the rest of the user's layout.
-    case screenshot, quickLauncher, cleaner, homebrew, media, clipboard, windowLayout, uninstaller,
-         cleanURL, cleaning, screenOCR, colorPicker, micMute, cameraPreview, scratchpad
+    case screenshot, quickLauncher, appUpdates, cleaner, homebrew, media, clipboard, windowLayout,
+         uninstaller, cleanURL, cleaning, screenOCR, colorPicker, micMute, cameraPreview, scratchpad
 
     var id: String { rawValue }
 
@@ -608,6 +608,7 @@ private enum UtilityPanelItem: String, PanelOrderItem, Identifiable {
         case .quickLauncher: return .quickLauncher
         case .cleaner: return .cleaner
         case .homebrew: return .homebrew
+        case .appUpdates: return .appUpdates
         case .media: return .mediaTools
         case .clipboard: return .clipboardHistory
         case .windowLayout: return .windowLayout
@@ -632,6 +633,7 @@ struct UtilitiesSection: View {
     @State private var showCleanerPanel = false
     @State private var showURLCleaner = false
     @State private var showHomebrewPanel = false
+    @State private var showAppUpdatesPanel = false
     @State private var showMediaPanel = false
     @State private var showClipboardPanel = false
     @State private var showWindowLayoutPanel = false
@@ -640,6 +642,7 @@ struct UtilitiesSection: View {
     @AppStorage(DefaultsKey.panelUtilityUninstaller) private var showUninstallerAction = true
     @AppStorage(DefaultsKey.panelUtilityCleaner) private var showCleanerAction = true
     @AppStorage(DefaultsKey.panelUtilityHomebrew) private var showHomebrew = true
+    @AppStorage(DefaultsKey.panelUtilityAppUpdates) private var showAppUpdates = true
     @AppStorage(DefaultsKey.panelUtilityMedia) private var showMedia = true
     @AppStorage(DefaultsKey.panelUtilityClipboard) private var showClipboard = true
     @AppStorage(DefaultsKey.panelUtilityWindowLayout) private var showWindowLayout = true
@@ -700,6 +703,11 @@ struct UtilitiesSection: View {
                     PanelInteractionState.shared.keepsPopoverOpen = false
                     showWindowLayoutPanel = false
                 }
+            } else if showAppUpdatesPanel {
+                PanelAppUpdatesView {
+                    PanelInteractionState.shared.keepsPopoverOpen = false
+                    showAppUpdatesPanel = false
+                }
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(items(editing: editing)) { item in
@@ -713,45 +721,22 @@ struct UtilitiesSection: View {
                 }
             }
         }
-        .onChange(of: showHomebrewPanel) { _, shown in
-            if shown {
-                PanelInteractionState.shared.keepsPopoverOpen = true
-            } else if !showUninstaller && !showCleanerPanel && !showURLCleaner && !showMediaPanel && !showClipboardPanel && !showWindowLayoutPanel {
-                PanelInteractionState.shared.keepsPopoverOpen = false
-            }
-        }
-        .onChange(of: showMediaPanel) { _, shown in
-            if shown {
-                PanelInteractionState.shared.keepsPopoverOpen = true
-            } else if !showUninstaller && !showCleanerPanel && !showURLCleaner && !showHomebrewPanel && !showClipboardPanel && !showWindowLayoutPanel {
-                PanelInteractionState.shared.keepsPopoverOpen = false
-            }
-        }
-        .onChange(of: showClipboardPanel) { _, shown in
-            if shown {
-                PanelInteractionState.shared.keepsPopoverOpen = true
-            } else if !showUninstaller && !showCleanerPanel && !showURLCleaner && !showHomebrewPanel && !showMediaPanel && !showWindowLayoutPanel {
-                PanelInteractionState.shared.keepsPopoverOpen = false
-            }
-        }
-        .onChange(of: showWindowLayoutPanel) { _, shown in
-            if shown {
-                PanelInteractionState.shared.keepsPopoverOpen = true
-            } else if !showUninstaller && !showCleanerPanel && !showURLCleaner && !showHomebrewPanel && !showMediaPanel && !showClipboardPanel {
-                PanelInteractionState.shared.keepsPopoverOpen = false
-            }
+        .onChange(of: isHostingUtility) { _, hosting in
+            PanelInteractionState.shared.keepsPopoverOpen = hosting
         }
         .onDisappear {
-            if !showUninstaller
-                && !showCleanerPanel
-                && !showURLCleaner
-                && !showHomebrewPanel
-                && !showMediaPanel
-                && !showClipboardPanel
-                && !showWindowLayoutPanel {
+            if !isHostingUtility {
                 PanelInteractionState.shared.keepsPopoverOpen = false
             }
         }
+    }
+
+    /// True while the section is showing one of the tools instead of its own
+    /// list. A hosted tool turns the panel into a work surface, so clicks
+    /// elsewhere in the app must not dismiss it.
+    private var isHostingUtility: Bool {
+        showUninstaller || showCleanerPanel || showURLCleaner || showHomebrewPanel
+            || showAppUpdatesPanel || showMediaPanel || showClipboardPanel || showWindowLayoutPanel
     }
 
     private var cleaningNeedsAccessibility: Bool {
@@ -784,6 +769,7 @@ struct UtilitiesSection: View {
     private func isVisible(_ item: UtilityPanelItem) -> Bool {
         switch item {
         case .homebrew: return showHomebrew
+        case .appUpdates: return showAppUpdates
         case .media: return showMedia
         case .clipboard: return showClipboard
         case .windowLayout: return showWindowLayout
@@ -814,6 +800,17 @@ struct UtilitiesSection: View {
                                 action: {
                                     PanelInteractionState.shared.keepsPopoverOpen = true
                                     showHomebrewPanel = true
+                                })
+        case .appUpdates:
+            UtilityActionButton(title: FeatureStrings.appUpdates(l10n.language).pageTitle,
+                                caption: FeatureStrings.appUpdates(l10n.language).panelCaption,
+                                systemImage: "arrow.down.app",
+                                isEditing: editing,
+                                showsDragHandle: true,
+                                visibility: $showAppUpdates,
+                                action: {
+                                    PanelInteractionState.shared.keepsPopoverOpen = true
+                                    showAppUpdatesPanel = true
                                 })
         case .media:
             UtilityActionButton(title: l10n.s.mediaName,
@@ -1040,6 +1037,7 @@ struct UtilitiesSection: View {
         PanelLayout.resetItemOrder(key: DefaultsKey.panelUtilityOrder)
         utilityOrderRaw = ""
         showHomebrew = true
+        showAppUpdates = true
         showMedia = true
         showClipboard = true
         showWindowLayout = true

@@ -225,6 +225,7 @@ struct SettingsCategoryStrings {
     let files: String
     let utilities: String
     let app: String
+    let appManagement: String
 
     static let enUS = SettingsCategoryStrings(
         essentials: "Essentials",

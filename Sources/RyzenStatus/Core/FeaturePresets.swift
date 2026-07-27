@@ -100,6 +100,11 @@ extension AppFeature {
              .screenOCR, .cleaningMode, .mediaTools, .cleaner, .uninstaller, .homebrew, .screenshot,
              .cameraPreview, .scratchpad:
             return .idle
+        case .appUpdates:
+            // The list is on demand; only a background schedule keeps a timer.
+            return AppUpdatesSupport.CheckFrequency.sanitized(
+                UserDefaults.standard.string(forKey: DefaultsKey.appUpdatesCheckFrequency)) == .off
+                ? .idle : .periodic
         }
     }
 }

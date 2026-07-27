@@ -83,7 +83,8 @@ enum PanelSectionID: String, CaseIterable, Identifiable {
         case .disk: return [.monitorDisk]
         case .power: return [.monitorPower]
         case .amdPower: return [.monitorCPU]
-        case .utilities: return [.quickLauncher, .cleaner, .homebrew, .mediaTools, .clipboardHistory,
+        case .utilities: return [.quickLauncher, .cleaner, .homebrew, .appUpdates, .mediaTools,
+                                 .clipboardHistory,
                                  .windowLayout, .uninstaller, .urlCleaner, .cleaningMode, .screenOCR,
                                  .colorPicker, .micMute, .screenshot, .cameraPreview, .scratchpad]
         case .controls: return [.scrollInverter, .mouseNavigation, .mouseButtonShortcuts, .switcher,

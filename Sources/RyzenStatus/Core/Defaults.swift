@@ -102,6 +102,12 @@ enum DefaultsKey {
     static let panelUtilityUninstaller = "panelUtilityUninstaller"
     static let panelUtilityCleaner = "panelUtilityCleaner"
     static let panelUtilityHomebrew = "panelUtilityHomebrew"
+    static let panelUtilityAppUpdates = "panelUtilityAppUpdates"
+    static let appUpdatesCheckFrequency = "appUpdatesCheckFrequency"  // off | daily | weekly
+    static let appUpdatesIncludeAppStore = "appUpdatesIncludeAppStore"
+    static let appUpdatesNotify = "appUpdatesNotify"
+    static let appUpdatesLastCheck = "appUpdatesLastCheck"            // Double, epoch seconds
+    static let appUpdatesLastCount = "appUpdatesLastCount"
     static let panelUtilityMedia = "panelUtilityMedia"
     static let panelUtilityClipboard = "panelUtilityClipboard"
     static let panelUtilityWindowLayout = "panelUtilityWindowLayout"
@@ -660,6 +666,14 @@ enum Defaults {
         DefaultsKey.panelUtilityUninstaller: true,
         DefaultsKey.panelUtilityCleaner: true,
         DefaultsKey.panelUtilityHomebrew: true,
+        DefaultsKey.panelUtilityAppUpdates: true,
+        // The list itself costs nothing until it is opened; only the
+        // background check keeps a timer, so it starts off.
+        DefaultsKey.appUpdatesCheckFrequency: AppUpdatesSupport.CheckFrequency.off.rawValue,
+        DefaultsKey.appUpdatesIncludeAppStore: true,
+        DefaultsKey.appUpdatesNotify: true,
+        DefaultsKey.appUpdatesLastCheck: 0.0,
+        DefaultsKey.appUpdatesLastCount: 0,
         DefaultsKey.panelUtilityMedia: true,
         DefaultsKey.panelUtilityClipboard: true,
         DefaultsKey.panelUtilityWindowLayout: true,
@@ -886,7 +900,7 @@ enum Defaults {
         DefaultsKey.windowLayoutShortcutBottomRightSixth: WindowLayoutAction.clearedShortcutStorageValue,
     ]
 
-    private static let currentMigrationVersion = 4
+    private static let currentMigrationVersion = 5
 
     static func register() {
         let defaults = UserDefaults.standard
@@ -900,6 +914,7 @@ enum Defaults {
         if lastVersion < 2 { migrateLegacySwitcherWindowShortcut(in: defaults) }
         if lastVersion < 3 { migrateLegacyKeyboardDebounceWindow(in: defaults) }
         if lastVersion < 4 { migrateUtilityOrderForScreenshot(in: defaults) }
+        if lastVersion < 5 { migrateUtilityOrderForAppUpdates(in: defaults) }
 
         defaults.set(currentMigrationVersion, forKey: "_migrationVersion")
     }
@@ -931,6 +946,25 @@ enum Defaults {
         guard !ids.contains("screenshot") else { return }
         defaults.set((["screenshot"] + ids).joined(separator: ","),
                      forKey: DefaultsKey.panelUtilityOrder)
+    }
+
+    /// App updates joins the panel next to the other app-management tools
+    /// instead of at the end of a long list, without disturbing the rest of
+    /// a layout the user arranged.
+    static func migrateUtilityOrderForAppUpdates(in defaults: UserDefaults) {
+        guard let storedOrder = defaults.object(forKey: DefaultsKey.panelUtilityOrder) as? String else {
+            return
+        }
+        defaults.set(utilityOrderWithAppUpdates(storedOrder).joined(separator: ","),
+                     forKey: DefaultsKey.panelUtilityOrder)
+    }
+
+    static func utilityOrderWithAppUpdates(_ storedOrder: String) -> [String] {
+        var ids = storedOrder.split(separator: ",").map(String.init)
+        guard !ids.contains("appUpdates") else { return ids }
+        let anchor = ids.firstIndex(of: "cleaner") ?? min(1, ids.count)
+        ids.insert("appUpdates", at: anchor)
+        return ids
     }
 
     static func sanitizedDefaultDuration(_ minutes: Int) -> Int {

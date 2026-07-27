@@ -171,6 +171,7 @@ final class FeatureRuntime: ObservableObject {
         .monitorNetwork: { FeatureRuntime.syncMonitor() },
         .monitorDisk: { FeatureRuntime.syncMonitor() },
         .monitorPower: { FeatureRuntime.syncMonitor() },
+        .appUpdates: { AppUpdatesService.shared.syncWithPreferences() },
     ]
 
     private static func syncMonitor() {

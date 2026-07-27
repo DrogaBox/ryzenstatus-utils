@@ -38,6 +38,15 @@ struct UpdateHighlightsView: View {
                 actionLabel: s.highlightsConfigure,
                 action: { openSettings(.radialMenu) }))
         }
+        if AppFeature.appUpdates.isAvailable {
+            pages.append(Highlight(
+                id: "appupdates", symbol: AppFeature.appUpdates.symbolName,
+                imageName: "highlights-appupdates",
+                title: FeatureStrings.appUpdates(l10n.language).pageTitle,
+                caption: FeatureStrings.appUpdates(l10n.language).hubDescription,
+                actionLabel: s.highlightsConfigure,
+                action: { openSettings(.appUpdates) }))
+        }
         if AppFeature.cameraPreview.isAvailable {
             pages.append(Highlight(
                 id: "camera", symbol: AppFeature.cameraPreview.symbolName,

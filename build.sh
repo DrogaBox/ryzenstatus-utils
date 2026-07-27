@@ -119,6 +119,8 @@ if (( TEST )); then
         Sources/RyzenStatus/Services/Audio/MixerRoutingSupport.swift \
         Sources/RyzenStatus/Services/DockPreview/DockPreviewSupport.swift \
         Sources/RyzenStatus/Services/Homebrew/HomebrewSupport.swift \
+        Sources/RyzenStatus/Services/AppUpdates/AppUpdatesSupport.swift \
+        Sources/RyzenStatus/Core/AppUpdateStrings.swift \
         Sources/RyzenStatus/Services/Clipboard/ClipboardHistorySupport.swift \
         Sources/RyzenStatus/Services/AutoQuit/AutoQuitSupport.swift \
         Sources/RyzenStatus/Services/Shelf/ShelfSupport.swift \
