@@ -119,6 +119,7 @@ enum DefaultsKey {
     static let panelControlMiddleClick = "panelControlMiddleClick"
     static let panelControlTextSnippets = "panelControlTextSnippets"
     static let panelControlRadialMenu = "panelControlRadialMenu"
+    static let panelControlSuperKey = "panelControlSuperKey"
     // Quick-control categories start collapsed and remember being opened.
     static let panelControlWindowsExpanded = "panelControlWindowsExpanded"
     static let panelControlInputExpanded = "panelControlInputExpanded"
@@ -675,6 +676,7 @@ enum Defaults {
         DefaultsKey.panelControlDockClickCycle: true,
         DefaultsKey.panelControlMiddleClick: true,
         DefaultsKey.panelControlTextSnippets: true,
+        DefaultsKey.panelControlSuperKey: true,
         DefaultsKey.panelControlRadialMenu: true,
         DefaultsKey.panelControlWindowsExpanded: false,
         DefaultsKey.panelControlInputExpanded: false,

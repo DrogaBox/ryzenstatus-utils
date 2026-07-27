@@ -99,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                     .scrollInverter, .smoothScroll, .mouseNavigation, .switcher,
                     .dockPreview, .finderCutPaste, .autoQuit, .dockClick,
                     .middleClick, .windowMaximizer, .keyboardDebounce, .windowLayout,
-                    .textSnippets, .brightness, .radialMenu,
+                    .textSnippets, .superKey, .brightness, .radialMenu,
                 ])
             }
             .store(in: &cancellables)
@@ -144,6 +144,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         WindowMaximizer.shared.stop()
         WindowLayoutService.shared.suspend()
         KeyboardDebounceService.shared.suspend()
+        // Takes the Caps Lock mapping back out before the process goes away.
+        SuperKeyService.shared.suspend()
         TextSnippetService.shared.suspend()
         MiddleClickService.shared.suspend()
         SmoothScrollService.shared.suspend()
