@@ -3,6 +3,7 @@
 
 import AppKit
 import Combine
+import os.log
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSWindowDelegate {
@@ -1082,8 +1083,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // asked to see (and then trip the "still hidden" alert).
         UserDefaults.standard.set(false, forKey: DefaultsKey.menuBarHideIconWithMetrics)
         statusController?.recreateStatusItem(resetPlacement: true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-            guard let self, !self.iconIsOnScreen() else { return }
+        logStatusItemPlacement("rebuilt")
+        verifyIconReappeared(attemptsLeft: Self.reshowVerifyAttempts)
+    }
+
+    /// macOS places a rebuilt status item on its own schedule, and a busy bar
+    /// can take longer than one look to settle. Judging it once meant a slow
+    /// placement read as a failure and the person was told the bar was full
+    /// when it was not (issue #369).
+    private static let reshowVerifyAttempts = 4
+    private static let reshowVerifyInterval: TimeInterval = 0.8
+
+    private func verifyIconReappeared(attemptsLeft: Int) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.reshowVerifyInterval) { [weak self] in
+            guard let self else { return }
+            if self.iconIsOnScreen() {
+                self.logStatusItemPlacement("appeared")
+                return
+            }
+            guard attemptsLeft <= 1 else {
+                self.verifyIconReappeared(attemptsLeft: attemptsLeft - 1)
+                return
+            }
+            self.logStatusItemPlacement("still hidden")
             let s = L10n.shared.s
             var body = s.menuBarIconStillHiddenBody
             if let manager = Self.runningMenuBarManagerName() {
@@ -1095,6 +1117,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             alert.informativeText = body
             alert.runModal()
         }
+    }
+
+    private func logStatusItemPlacement(_ stage: String) {
+        let window = statusController?.statusItem.button?.window
+        let frame = window?.frame ?? .zero
+        let placement = "\(Int(frame.origin.x)),\(Int(frame.origin.y)) \(Int(frame.width))x\(Int(frame.height))"
+        let screens = NSScreen.screens.map { "\(Int($0.frame.width))x\(Int($0.frame.height))" }
+            .joined(separator: ",")
+        let visible = statusController?.statusItem.isVisible ?? false
+        let manager = Self.runningMenuBarManagerName() ?? "none"
+        os_log("reshow %{public}s window=%{public}s frame=%{public}s visible=%{public}s screens=%{public}s organizer=%{public}s",
+               type: .default, stage, window != nil ? "yes" : "no", placement, visible ? "yes" : "no", screens, manager)
     }
 
     /// Known menu bar organizers, by bundle id; any of them can be holding

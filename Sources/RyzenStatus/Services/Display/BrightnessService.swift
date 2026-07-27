@@ -88,6 +88,11 @@ final class BrightnessService: ObservableObject {
     /// Keeps fast system-key repeats based on the newest requested value while
     /// DisplayServices is still applying the previous asynchronous write.
     private var systemWritesInFlight = Set<CGDirectDisplayID>()
+    /// Steps that arrived while the monitor behind a display was being read,
+    /// waiting to be added to the step that read commits. An entry existing at
+    /// all means a read is in flight for that display. Main thread only, like
+    /// the key presses that fill it.
+    private var ddcPendingSteps: [CGDirectDisplayID: Double] = [:]
     private var drainScheduled = false
     /// Session memory for write-only monitors, so their slider does not jump
     /// back to a placeholder between panel openings.
@@ -196,6 +201,7 @@ final class BrightnessService: ObservableObject {
         pendingLevels = [:]
         writeSequence = 0
         systemWritesInFlight = []
+        ddcPendingSteps = [:]
         lastApplied = [:]
         knownTopology = []
         knownActiveTopology = []
@@ -553,15 +559,25 @@ final class BrightnessService: ObservableObject {
         stateLock.unlock()
         let fresh = BrightnessSupport.trustsRememberedLevel(lastKnownAt: known, now: Date(),
                                                             window: Self.levelTrustWindow)
+        // A press that lands while the monitor is being read joins the step
+        // that read is about to commit. Starting a second read instead would
+        // begin from the same value the first press has not written yet, and
+        // two taps would move the monitor a single step.
+        if ddcPendingSteps[displayID] != nil {
+            ddcPendingSteps[displayID, default: 0] += delta
+            return
+        }
         guard method == .ddc, !fresh, let service = route?.service else {
             guard let current = cached else { return }
             commitStep(from: current, delta: delta, to: displayID, showOSD: showOSD)
             return
         }
+        ddcPendingSteps[displayID] = 0
         workQueue.async { [weak self] in
             guard let self else { return }
             let probe = self.ddcProbeLuminance(service: service)
             DispatchQueue.main.async {
+                let queued = self.ddcPendingSteps.removeValue(forKey: displayID) ?? 0
                 var current = cached
                 if case let .replied(value, maximum) = probe {
                     let level = BrightnessSupport.normalized(
@@ -572,7 +588,7 @@ final class BrightnessService: ObservableObject {
                     }
                 }
                 guard let current else { return }
-                self.commitStep(from: current, delta: delta, to: displayID,
+                self.commitStep(from: current, delta: delta + queued, to: displayID,
                                 showOSD: showOSD)
             }
         }
