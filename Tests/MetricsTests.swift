@@ -4874,7 +4874,7 @@ struct MetricsTests {
 
         // MARK: Features hub catalog
 
-        expect(AppFeature.allCases.count == 45, "feature catalog has 45 features")
+        expect(AppFeature.allCases.count == 46, "feature catalog has 46 features")
         expect(Set(AppFeature.allCases.map(\.rawValue)).count == AppFeature.allCases.count,
                "feature ids are unique")
         expect(AppFeature.allCases.map(\.rawValue) == [
@@ -4885,7 +4885,7 @@ struct MetricsTests {
             "mixer", "soundOutputSwitcher", "micMute", "musicBlock",
             "keepAwake", "brightness", "extraBrightness",
             "quickLauncher", "quickToggles", "colorPicker", "screenOCR", "cleaningMode", "mediaTools",
-            "cleaner", "uninstaller", "homebrew", "screenshot", "cameraPreview", "radialMenu",
+            "cleaner", "uninstaller", "homebrew", "appUpdates", "screenshot", "cameraPreview", "radialMenu",
             "scratchpad",
             "monitorCPU", "monitorGPU", "monitorMemory", "monitorNetwork", "monitorDisk", "monitorPower",
         ], "feature ids are stable (they persist inside availability keys)")
