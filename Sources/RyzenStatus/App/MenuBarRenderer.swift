@@ -857,7 +857,7 @@ enum MenuBarRenderer {
         case (_, .diskActivity):
             return 15      // R1.0G + W1.0G
         case (_, .battery), (_, .power):
-            return 11      // symbol + " BAT 100%" / " PWR 99W"
+            return 13      // symbol + " BAT 100%" / " PWR 105W"
         case (_, .batteryTime):
             return 12      // clock symbol + "99h 59m"
         }
@@ -1387,7 +1387,7 @@ enum MenuBarRenderer {
                               totalWrittenBytes: nil),
         ])
         var power = PowerReading()
-        power.systemWatts = 99
+        power.systemWatts = 250
         power.chargePercent = 100
         power.timeRemainingSeconds = 359_940
         power.isCharging = true
