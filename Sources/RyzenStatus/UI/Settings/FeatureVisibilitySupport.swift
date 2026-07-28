@@ -9,6 +9,7 @@ enum SettingsPage: Hashable {
     case general, features, energy, monitor
     case mouse, switcher, keyDebounce, cutPaste, autoQuit, cleaner, uninstaller, urlCleaner, homebrew, appUpdates, media, clipboard, windowLayout, shelf, quickTools, textSnippets, screenshot, radialMenu
     case mouseButtonShortcuts, superKey
+    case whatsAppDownloads
     case shortcuts, advanced, about, releaseNotes, support, fans, amdPower, sensors, dashboard
 }
 
@@ -39,6 +40,7 @@ enum FeatureVisibilitySupport {
         case .homebrew: return [.homebrew]
         case .appUpdates: return [.appUpdates]
         case .cleaner: return [.cleaner]
+        case .whatsAppDownloads: return [.whatsAppDownloads]
         case .uninstaller: return [.uninstaller]
         case .keyDebounce: return [.keyboardDebounce]
         case .mouseButtonShortcuts: return [.mouseButtonShortcuts]

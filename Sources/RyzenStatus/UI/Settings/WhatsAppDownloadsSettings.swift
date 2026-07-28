@@ -17,7 +17,7 @@ struct WhatsAppDownloadsSettings: View {
     @AppStorage(DefaultsKey.whatsAppDownloadsNotify) private var notify = true
     @AppStorage(DefaultsKey.whatsAppDownloadsLastCleanup) private var lastCleanup = 0.0
     @AppStorage(DefaultsKey.whatsAppDownloadsLastCleanupCount) private var lastCount = 0
-    @AppStorage(DefaultsKey.whatsAppDownloadsLastCleanupBytes) private var lastBytes: Int64 = 0
+    @AppStorage(DefaultsKey.whatsAppDownloadsLastCleanupBytes) private var lastBytes: Int = 0
     @AppStorage(DefaultsKey.whatsAppDownloadsLastCleanupFailed) private var lastFailed = 0
     @AppStorage(DefaultsKey.whatsAppDownloadsLastCleanupAutomatic) private var lastAutomatic = false
     @AppStorage(DefaultsKey.whatsAppDownloadsAutomaticStartDate) private var autoStartDate = 0.0
@@ -35,6 +35,13 @@ struct WhatsAppDownloadsSettings: View {
     @State private var showOrganizerDestination = false
     @State private var showManualScanResults = false
     @State private var previousAutomatic = false
+
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .short
+        f.timeStyle = .short
+        return f
+    }()
 
     private var strings: WhatsAppDownloadStrings { FeatureStrings.whatsAppDownloads(l10n.language) }
     private var organizerStrings: WhatsAppOrganizerStrings { .localized(l10n.language) }
@@ -88,7 +95,7 @@ struct WhatsAppDownloadsSettings: View {
                     Text(strings.automaticCaption)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Toggle(strings.notify, isOn: $notify)
+                    Toggle(l10n.s.cleanerScheduleNotifyToggle, isOn: $notify)
                     activitySection
                 }
             }
@@ -179,8 +186,9 @@ struct WhatsAppDownloadsSettings: View {
         Group {
             if lastCleanup > 0 {
                 Text(String(format: strings.lastRunFormat,
-                           Date(timeIntervalSince1970: lastCleanup), lastCount,
-                           ByteCountFormatter.string(fromByteCount: lastBytes, countStyle: .file),
+                           Self.dateFormatter.string(from: Date(timeIntervalSince1970: lastCleanup)),
+                           lastCount,
+                           ByteCountFormatter.string(fromByteCount: Int64(lastBytes), countStyle: .file),
                            lastFailed))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -190,7 +198,7 @@ struct WhatsAppDownloadsSettings: View {
                     .foregroundStyle(.secondary)
             }
             if let next = scheduler.nextFire {
-                Text(String(format: strings.nextRunFormat, next))
+                Text(String(format: strings.nextRunFormat, Self.dateFormatter.string(from: next)))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -253,7 +261,7 @@ struct WhatsAppDownloadsSettings: View {
             }
             if organizerLastRun > 0 {
                 Text(String(format: organizerStrings.lastRunFormat,
-                           Date(timeIntervalSince1970: organizerLastRun),
+                           Self.dateFormatter.string(from: Date(timeIntervalSince1970: organizerLastRun)),
                            organizerLastMoved, organizerLastDuplicates, organizerLastFailed))
                     .font(.caption)
                     .foregroundStyle(.secondary)

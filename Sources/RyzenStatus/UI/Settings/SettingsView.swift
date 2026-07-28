@@ -109,6 +109,10 @@ struct SettingsView: View {
                                        FeatureStrings.appUpdates(l10n.language).frequencyLabel,
                                        FeatureStrings.appUpdates(l10n.language).appStoreBadge,
                                        l10n.s.homebrewName]),
+                SidebarItem(page: .whatsAppDownloads,
+                            title: FeatureStrings.whatsAppDownloads(l10n.language).title,
+                            icon: "square.and.arrow.down",
+                            keywords: ["WhatsApp", "downloads", "cleanup", "organizer"]),
                 SidebarItem(page: .cleaner, title: l10n.s.cleanerName, icon: "sparkles",
                             keywords: [l10n.s.cleanerScheduleTitle]),
                 SidebarItem(page: .homebrew, title: l10n.s.homebrewName, icon: "shippingbox"),
@@ -248,6 +252,7 @@ struct SettingsView: View {
         case .urlCleaner: URLCleanerSettings()
         case .homebrew: HomebrewSettings()
         case .appUpdates: AppUpdatesSettings()
+        case .whatsAppDownloads: WhatsAppDownloadsSettings()
         case .media: MediaSettings()
         case .clipboard: ClipboardSettings()
         case .quickTools: QuickToolsSettings()

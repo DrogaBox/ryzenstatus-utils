@@ -141,7 +141,7 @@ extension AppFeature {
         case .mouseNavigation: return [DefaultsKey.mouseNavigationEnabled]
         case .middleClick: return [DefaultsKey.middleClickEnabled]
         case .keyboardDebounce: return [DefaultsKey.keyboardDebounceEnabled]
-        case .textSnippets: return [DefaultsKey.textSnippetsEnabled]
+        case .textSnippets: return [DefaultsKey.textSnippetsEnabled, DefaultsKey.snippetLibraryEnabled]
         case .mouseButtonShortcuts: return [DefaultsKey.mouseButtonShortcutsEnabled]
         case .superKey: return [DefaultsKey.superKeyEnabled]
         case .radialMenu: return [DefaultsKey.radialMenuEnabled]
