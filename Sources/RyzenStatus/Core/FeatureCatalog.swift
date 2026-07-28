@@ -247,6 +247,8 @@ extension AppFeature {
             case (.appUpdates, .notifications):
                 return (stringFor(DefaultsKey.appUpdatesCheckFrequency) ?? "off") != "off"
                     && boolFor(DefaultsKey.appUpdatesNotify)
+            case (.whatsAppDownloads, .notifications):
+                return false
             default:
                 return true
             }

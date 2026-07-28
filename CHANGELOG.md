@@ -12,7 +12,7 @@ Third stable release. Ports remaining upstream utility services and dependency m
 - **UI Suspension**: Enhanced user interface suspension helper for apps during assisted workflows.
 
 ### Internal
-- Ported `EnhancedUserInterfaceSuspension`, `ShortcutCapture`, `ShortcutRecordingTap` from upstream.
+- Added `EnhancedUserInterfaceSuspension`, `ShortcutCapture`, `ShortcutRecordingTap` utilities for shortcut recording and UI suspension.
 - Added `suspendShortcut()` to ClipboardHistoryService, SoundOutputSwitcher, ShelfService.
 - Added `suspendShortcuts()` to WindowLayoutService, `unregisterAll()` to QuickToolHotkey.
 - Added `routeCapturing` state and `setCapturingShortcut(_:)` to AppSwitcher.
