@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.7.1] — 2026-07-27
+
+### Stable Release
+
+Third stable release. Ports remaining upstream utility services and dependency methods.
+
+### Features
+- **Shortcut Capture**: Silences global shortcuts during recording sessions—captured keystrokes won't trigger features.
+- **Shortcut Recording Tap**: Dedicated event tap for capturing keystrokes during shortcut recording.
+- **UI Suspension**: Enhanced user interface suspension helper for apps during assisted workflows.
+
+### Internal
+- Ported `EnhancedUserInterfaceSuspension`, `ShortcutCapture`, `ShortcutRecordingTap` from upstream.
+- Added `suspendShortcut()` to ClipboardHistoryService, SoundOutputSwitcher, ShelfService.
+- Added `suspendShortcuts()` to WindowLayoutService, `unregisterAll()` to QuickToolHotkey.
+- Added `routeCapturing` state and `setCapturingShortcut(_:)` to AppSwitcher.
+- Added `featuresToSilenceWhileRecording` to GlobalShortcutRole.
+
 ## [1.7.0] — 2026-07-27
 
 ### Stable Release
