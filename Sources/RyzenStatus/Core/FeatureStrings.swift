@@ -216,7 +216,13 @@ extension MonitorAlertFeatureStrings {
         diskTitle: "부족한 디스크 공간",
         diskBodyFormat: "%@의 여유 공간이 %d%% 미만입니다.",
         batteryTitle: "낮은 배터리",
-        batteryBodyFormat: "배터리 잔량이 %d%%입니다."
+        batteryBodyFormat: "배터리 잔량이 %d%%입니다.",
+        gpuTemperatureTitle: "GPU 과열",
+        gpuTemperatureBodyFormat: "GPU 온도가 %d °C에 도달했습니다.",
+        gpuPowerTitle: "GPU 전력 높음",
+        gpuPowerBodyFormat: "GPU 전력이 %.0f W에 도달했습니다.",
+        thermalThrottleTitle: "열 조절",
+        thermalThrottleBodyFormat: "CPU 온도가 높은 부하 상태에서 %.0f °C로 >30초 지속"
     )
 }
 
@@ -1601,6 +1607,12 @@ struct MonitorAlertFeatureStrings {
     let diskBodyFormat: String
     let batteryTitle: String
     let batteryBodyFormat: String
+    let gpuTemperatureTitle: String
+    let gpuTemperatureBodyFormat: String
+    let gpuPowerTitle: String
+    let gpuPowerBodyFormat: String
+    let thermalThrottleTitle: String
+    let thermalThrottleBodyFormat: String
 
     static let enUS = MonitorAlertFeatureStrings(
         section: "Alerts",
@@ -1630,7 +1642,13 @@ struct MonitorAlertFeatureStrings {
         diskTitle: "Low disk space",
         diskBodyFormat: "%@ has less than %d%% free.",
         batteryTitle: "Low battery",
-        batteryBodyFormat: "Battery is at %d%%."
+        batteryBodyFormat: "Battery is at %d%%.",
+        gpuTemperatureTitle: "Hot GPU",
+        gpuTemperatureBodyFormat: "GPU reached %d °C.",
+        gpuPowerTitle: "High GPU power",
+        gpuPowerBodyFormat: "GPU power reached %.0f W.",
+        thermalThrottleTitle: "Thermal throttling",
+        thermalThrottleBodyFormat: "Sustained CPU temperature at %.0f °C under heavy load for >30 s"
     )
 
     static let ptBR = MonitorAlertFeatureStrings(
@@ -1661,7 +1679,13 @@ struct MonitorAlertFeatureStrings {
         diskTitle: "Pouco espaço em disco",
         diskBodyFormat: "%@ está com menos de %d%% livre.",
         batteryTitle: "Bateria baixa",
-        batteryBodyFormat: "A bateria está em %d%%."
+        batteryBodyFormat: "A bateria está em %d%%.",
+        gpuTemperatureTitle: "GPU quente",
+        gpuTemperatureBodyFormat: "GPU atingiu %d °C.",
+        gpuPowerTitle: "Potência alta da GPU",
+        gpuPowerBodyFormat: "Potência da GPU atingiu %.0f W.",
+        thermalThrottleTitle: "Redução térmica",
+        thermalThrottleBodyFormat: "Temperatura sustentada da CPU em %.0f °C sob carga pesada por >30 s"
     )
 
     static let tr = MonitorAlertFeatureStrings(
@@ -1692,7 +1716,13 @@ struct MonitorAlertFeatureStrings {
         diskTitle: "Düşük disk alanı",
         diskBodyFormat: "%@ diskinde %d%% altında boş alan var.",
         batteryTitle: "Düşük pil",
-        batteryBodyFormat: "Pil %d%% seviyesinde."
+        batteryBodyFormat: "Pil %d%% seviyesinde.",
+        gpuTemperatureTitle: "Sıcak GPU",
+        gpuTemperatureBodyFormat: "GPU %d °C değerine ulaştı.",
+        gpuPowerTitle: "Yüksek GPU gücü",
+        gpuPowerBodyFormat: "GPU gücü %.0f W değerine ulaştı.",
+        thermalThrottleTitle: "Termal kısıtlama",
+        thermalThrottleBodyFormat: "CPU sıcaklığı ağır yük altında >30 sn boyunca %.0f °C kaldı"
     )
 
     static let ru = MonitorAlertFeatureStrings(
@@ -1723,7 +1753,13 @@ struct MonitorAlertFeatureStrings {
         diskTitle: "Мало места на диске",
         diskBodyFormat: "На %@ осталось меньше %d%% свободного места.",
         batteryTitle: "Низкий заряд батареи",
-        batteryBodyFormat: "Заряд батареи: %d%%."
+        batteryBodyFormat: "Заряд батареи: %d%%.",
+        gpuTemperatureTitle: "Горячий GPU",
+        gpuTemperatureBodyFormat: "GPU достиг %d °C.",
+        gpuPowerTitle: "Высокая мощность GPU",
+        gpuPowerBodyFormat: "Мощность GPU достигла %.0f Вт.",
+        thermalThrottleTitle: "Троттлинг",
+        thermalThrottleBodyFormat: "Температура CPU %.0f °C под нагрузкой >30 с"
     )
 
     static let es = MonitorAlertFeatureStrings(
@@ -1754,7 +1790,13 @@ struct MonitorAlertFeatureStrings {
         diskTitle: "Poco espacio en disco",
         diskBodyFormat: "%@ tiene menos de %d%% libre.",
         batteryTitle: "Batería baja",
-        batteryBodyFormat: "La batería está al %d%%."
+        batteryBodyFormat: "La batería está al %d%%.",
+        gpuTemperatureTitle: "GPU caliente",
+        gpuTemperatureBodyFormat: "La GPU llegó a %d °C.",
+        gpuPowerTitle: "Potencia alta de GPU",
+        gpuPowerBodyFormat: "Potencia de GPU llegó a %.0f W.",
+        thermalThrottleTitle: "Reducción térmica",
+        thermalThrottleBodyFormat: "Temperatura sostenida de CPU en %.0f °C bajo carga pesada >30 s"
     )
 
     static let de = MonitorAlertFeatureStrings(
@@ -1785,7 +1827,13 @@ struct MonitorAlertFeatureStrings {
         diskTitle: "Wenig Speicherplatz",
         diskBodyFormat: "%@ hat weniger als %d%% frei.",
         batteryTitle: "Niedriger Akkustand",
-        batteryBodyFormat: "Der Akku ist bei %d%%."
+        batteryBodyFormat: "Der Akku ist bei %d%%.",
+        gpuTemperatureTitle: "Heißer GPU",
+        gpuTemperatureBodyFormat: "GPU hat %d °C erreicht.",
+        gpuPowerTitle: "Hohe GPU-Leistung",
+        gpuPowerBodyFormat: "GPU-Leistung hat %.0f W erreicht.",
+        thermalThrottleTitle: "Drosselung",
+        thermalThrottleBodyFormat: "Dauerhafte CPU-Temperatur von %.0f °C unter hoher Last >30 s"
     )
 
     static let fr = MonitorAlertFeatureStrings(
@@ -1816,7 +1864,13 @@ struct MonitorAlertFeatureStrings {
         diskTitle: "Espace disque faible",
         diskBodyFormat: "%@ a moins de %d%% libre.",
         batteryTitle: "Batterie faible",
-        batteryBodyFormat: "La batterie est à %d%%."
+        batteryBodyFormat: "La batterie est à %d%%.",
+        gpuTemperatureTitle: "GPU chaud",
+        gpuTemperatureBodyFormat: "Le GPU a atteint %d °C.",
+        gpuPowerTitle: "Puissance GPU élevée",
+        gpuPowerBodyFormat: "La puissance GPU a atteint %.0f W.",
+        thermalThrottleTitle: "Limitation thermique",
+        thermalThrottleBodyFormat: "Température CPU soutenue à %.0f °C sous forte charge >30 s"
     )
 
     static let it = MonitorAlertFeatureStrings(
@@ -1847,7 +1901,13 @@ struct MonitorAlertFeatureStrings {
         diskTitle: "Poco spazio su disco",
         diskBodyFormat: "%@ ha meno del %d%% libero.",
         batteryTitle: "Batteria scarica",
-        batteryBodyFormat: "La batteria è al %d%%."
+        batteryBodyFormat: "La batteria è al %d%%.",
+        gpuTemperatureTitle: "GPU calda",
+        gpuTemperatureBodyFormat: "GPU ha raggiunto %d °C.",
+        gpuPowerTitle: "Potenza GPU elevata",
+        gpuPowerBodyFormat: "Potenza GPU ha raggiunto %.0f W.",
+        thermalThrottleTitle: "Limitazione termica",
+        thermalThrottleBodyFormat: "Temperatura CPU sostenuta a %.0f °C sotto carico pesante >30 s"
     )
 
     static let ja = MonitorAlertFeatureStrings(
@@ -1878,7 +1938,13 @@ struct MonitorAlertFeatureStrings {
         diskTitle: "ディスク空き容量不足",
         diskBodyFormat: "%@ の空き容量が %d%% 未満です。",
         batteryTitle: "バッテリー残量低下",
-        batteryBodyFormat: "バッテリー残量は %d%% です。"
+        batteryBodyFormat: "バッテリー残量は %d%% です。",
+        gpuTemperatureTitle: "GPU 高温",
+        gpuTemperatureBodyFormat: "GPU が %d °C に達しました。",
+        gpuPowerTitle: "GPU 消費電力大",
+        gpuPowerBodyFormat: "GPU 消費電力が %.0f W に達しました。",
+        thermalThrottleTitle: "サーマルスロットリング",
+        thermalThrottleBodyFormat: "CPU 温度 %.0f °C が高負荷で >30秒 継続"
     )
 
     static let zhHans = MonitorAlertFeatureStrings(
@@ -1909,7 +1975,13 @@ struct MonitorAlertFeatureStrings {
         diskTitle: "磁盘空间不足",
         diskBodyFormat: "%@ 的可用空间低于 %d%%。",
         batteryTitle: "电池电量低",
-        batteryBodyFormat: "电池电量为 %d%%。"
+        batteryBodyFormat: "电池电量为 %d%%。",
+        gpuTemperatureTitle: "GPU 温度高",
+        gpuTemperatureBodyFormat: "GPU 温度达到 %d °C。",
+        gpuPowerTitle: "GPU 功耗高",
+        gpuPowerBodyFormat: "GPU 功耗达到 %.0f W。",
+        thermalThrottleTitle: "热节流",
+        thermalThrottleBodyFormat: "CPU 在重负载下持续 %.0f °C 超过 30 秒"
     )
 
     static let zhTW = MonitorAlertFeatureStrings(
@@ -1940,7 +2012,13 @@ struct MonitorAlertFeatureStrings {
         diskTitle: "磁碟空間不足",
         diskBodyFormat: "%@ 的可用空間低於 %d%%。",
         batteryTitle: "電池電量偏低",
-        batteryBodyFormat: "電池電量為 %d%%。"
+        batteryBodyFormat: "電池電量為 %d%%。",
+        gpuTemperatureTitle: "GPU 溫度高",
+        gpuTemperatureBodyFormat: "GPU 溫度達到 %d °C。",
+        gpuPowerTitle: "GPU 功耗高",
+        gpuPowerBodyFormat: "GPU 功耗達到 %.0f W。",
+        thermalThrottleTitle: "熱節流",
+        thermalThrottleBodyFormat: "CPU 在重負載下持續 %.0f °C 超過 30 秒"
     )
 
     static let zhHK = MonitorAlertFeatureStrings(
@@ -1971,6 +2049,12 @@ struct MonitorAlertFeatureStrings {
         diskTitle: "磁碟空間不足",
         diskBodyFormat: "%@ 的可用空間低於 %d%%。",
         batteryTitle: "電池電量偏低",
-        batteryBodyFormat: "電池電量為 %d%%。"
+        batteryBodyFormat: "電池電量為 %d%%。",
+        gpuTemperatureTitle: "GPU 溫度高",
+        gpuTemperatureBodyFormat: "GPU 溫度達到 %d °C。",
+        gpuPowerTitle: "GPU 功耗高",
+        gpuPowerBodyFormat: "GPU 功耗達到 %.0f W。",
+        thermalThrottleTitle: "熱節流",
+        thermalThrottleBodyFormat: "CPU 在重負載下持續 %.0f °C 超過 30 秒"
     )
 }

@@ -627,8 +627,8 @@ actor ProcessorModel {
     }
 
     private func loadPStateDefClock(){
-        // Si ya estamos en modo de emulación, no volver a leer del kernel.
-        // Los valores emulados son estáticos y correctos para toda la sesión.
+        // If already in emulation mode, do not read from the kernel again.
+        // Emulated values are static and correct for the whole session.
         if isEmulatingPStates {
             PStateDefClock = emulatedPStateDefClock
             return

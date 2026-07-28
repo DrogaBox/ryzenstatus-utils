@@ -104,7 +104,10 @@ class FanCurveController: ObservableObject {
                 let fallbackGPUTemp = await MainActor.run {
                     SystemMonitor.shared.snapshot.gpuTemperature ?? cpuTemp
                 }
-                let gpuTemp = kextGPUTemp > 0 ? kextGPUTemp : fallbackGPUTemp
+                // If both kext and fallback are 0 (e.g. kext not loaded yet,
+                // snapshot not updated), fall back to CPU temp as a safe minimum
+                // so the fan curve never uses 0 °C as its temperature input.
+                let gpuTemp = kextGPUTemp > 0 ? kextGPUTemp : fallbackGPUTemp > 0 ? fallbackGPUTemp : cpuTemp
                 
                 let (mappings, curves) = await MainActor.run {
                     (self.fanMappings, self.customCurves)

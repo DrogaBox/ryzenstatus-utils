@@ -88,8 +88,8 @@ final class MonitorAlertService {
         if alertOn(DefaultsKey.monitorAlertGPUTemperature, .monitorGPU),
            let gpuTemp = highGPUTemperature(from: snapshot, defaults: defaults) {
             send(.gpuTemperature,
-                 title: "GPU Temperature Warning",
-                 body: String(format: "GPU temperature reached %d°C", gpuTemp))
+                 title: strings.gpuTemperatureTitle,
+                 body: String(format: strings.gpuTemperatureBodyFormat, gpuTemp))
         } else {
             highGPUTempSince = nil
         }
@@ -97,8 +97,8 @@ final class MonitorAlertService {
         if alertOn(DefaultsKey.monitorAlertGPUPower, .monitorGPU),
            let gpuPower = highGPUPower(from: snapshot, defaults: defaults) {
             send(.gpuPower,
-                 title: "GPU Power Warning",
-                 body: String(format: "GPU power reached %.0fW", gpuPower))
+                 title: strings.gpuPowerTitle,
+                 body: String(format: strings.gpuPowerBodyFormat, gpuPower))
         } else {
             highGPUPowerSince = nil
         }
@@ -128,8 +128,8 @@ final class MonitorAlertService {
             } else if let since = thermalThrottleSince, now.timeIntervalSince(since) >= 30 {
                 let ccdInfo = snapshot.ccd0Temperature.map { String(format: " (CCD0: %.0f°C)", $0) } ?? ""
                 send(.thermalThrottle,
-                     title: "Thermal Throttling Warning",
-                     body: String(format: "Sustained CPU temperature at %.0f°C under heavy load for >30s%@", temp, ccdInfo))
+                     title: strings.thermalThrottleTitle,
+                     body: String(format: strings.thermalThrottleBodyFormat, temp) + ccdInfo)
             }
         } else {
             thermalThrottleSince = nil

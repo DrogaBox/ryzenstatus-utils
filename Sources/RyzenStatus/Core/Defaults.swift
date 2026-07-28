@@ -950,10 +950,11 @@ enum Defaults {
         DefaultsKey.windowLayoutShortcutTopRightSixth: WindowLayoutAction.clearedShortcutStorageValue,
         DefaultsKey.windowLayoutShortcutBottomLeftSixth: WindowLayoutAction.clearedShortcutStorageValue,
         DefaultsKey.windowLayoutShortcutBottomCenterSixth: WindowLayoutAction.clearedShortcutStorageValue,
+        DefaultsKey.windowLayoutShortcutBottomRightSixth: WindowLayoutAction.clearedShortcutStorageValue,
+        // AMD EPP thresholds
         DefaultsKey.autoEppIdleThreshold: 10,
         DefaultsKey.autoEppLoadThreshold: 50,
         DefaultsKey.amdManualEppValue: 85.0,
-        DefaultsKey.windowLayoutShortcutBottomRightSixth: WindowLayoutAction.clearedShortcutStorageValue,
     ]
 
     private static let currentMigrationVersion = 5
