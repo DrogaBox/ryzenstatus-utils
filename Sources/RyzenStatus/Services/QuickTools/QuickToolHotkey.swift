@@ -11,6 +11,15 @@ final class QuickToolHotkey {
     private static var instances: [UInt32: QuickToolHotkey] = [:]
     private static var sharedHandler: EventHandlerRef?
 
+    /// Unregisters every active QuickToolHotkey across the app. Called during
+    /// shortcut capture so the field records the user's intended combination
+    /// instead of firing a tool.
+    static func unregisterAll() {
+        for instance in instances.values {
+            instance.unregister()
+        }
+    }
+
     private let hotKeyID: UInt32
     private var hotKeyRef: EventHotKeyRef?
     private var registeredShortcut: GlobalShortcut?

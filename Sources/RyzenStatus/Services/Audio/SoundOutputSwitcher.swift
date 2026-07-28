@@ -94,6 +94,8 @@ final class SoundOutputSwitcher: ObservableObject {
         }
     }
 
+    func suspendShortcut() { unregisterHotkey() }
+
     private func unregisterHotkey() {
         if let hotKeyRef {
             UnregisterEventHotKey(hotKeyRef)

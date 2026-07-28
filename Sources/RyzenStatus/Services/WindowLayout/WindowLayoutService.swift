@@ -365,6 +365,8 @@ final class WindowLayoutService: ObservableObject {
         failedShortcutActions = failures
     }
 
+    func suspendShortcuts() { unregisterHotkeys() }
+
     private func unregisterHotkeys() {
         for ref in hotKeyRefs.values {
             UnregisterEventHotKey(ref)

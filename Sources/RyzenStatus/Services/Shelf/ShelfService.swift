@@ -303,6 +303,8 @@ final class ShelfService: ObservableObject {
         }
     }
 
+    func suspendShortcut() { unregisterHotkey() }
+
     private func unregisterHotkey() {
         if let hotKeyRef { UnregisterEventHotKey(hotKeyRef) }
         hotKeyRef = nil

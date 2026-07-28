@@ -548,6 +548,15 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         }
     }
 
+    /// Features whose global shortcuts are silenced while the user records a
+    /// new one. These are the features that hold a global key and would
+    /// intercept the recording field's press.
+    static var featuresToSilenceWhileRecording: [AppFeature] {
+        [.switcher, .windowLayout, .shelf, .clipboardHistory, .soundOutputSwitcher,
+         .quickLauncher, .colorPicker, .screenOCR, .screenshot, .cameraPreview,
+         .radialMenu, .scratchpad]
+    }
+
     /// Roles whose shortcut is live given a defaults reader, for the keyboard
     /// shortcuts overview page. Injected readers so the harness can test the
     /// gating without touching real defaults.

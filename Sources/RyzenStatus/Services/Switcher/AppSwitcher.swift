@@ -68,6 +68,7 @@ final class AppSwitcher: ObservableObject {
     private let routeLock = NSLock()
     private var routeSessionActive = false
     private var routeShortcut = GlobalShortcut.switcherDefault
+    private var routeCapturing = false
 
     /// The panel appears only after this delay, like the system switcher: a
     /// quick ⌘Tab flick switches with no UI at all, which is what makes rapid
@@ -137,6 +138,10 @@ final class AppSwitcher: ObservableObject {
     /// resets its own permissions, so a revoked Accessibility grant can never
     /// leave a live tap behind.
     func suspend() { removeTap() }
+    func setCapturingShortcut(_ capturing: Bool) {
+        if capturing, sessionActive { cancelSession() }
+        routeLock.withLock { self.routeCapturing = capturing }
+    }
 
     // MARK: - Event tap
 
