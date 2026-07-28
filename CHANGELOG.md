@@ -1,6 +1,10 @@
 # Changelog
 
-## [1.7.0-beta1] — 2026-07-27
+## [1.7.0] — 2026-07-27
+
+### Stable Release
+
+Second stable release. Adds 6 new productivity features from upstream plus GPU alert localizations and audit fixes.
 
 ### Features
 - **Boost Limiter**: Automatically reduces system volume when an app starts making loud noises—perfect for unexpected full-screen videos or audio glitches.
