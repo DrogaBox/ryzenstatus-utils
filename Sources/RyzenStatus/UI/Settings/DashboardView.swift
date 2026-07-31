@@ -290,35 +290,16 @@ struct GadgetCard: View {
                 .font(.system(size: 16, weight: .bold, design: .monospaced))
                 .foregroundColor(.white)
             
-            // Sparkline
+            // Sparkline using TrendChart Canvas engine
             if history.isEmpty {
                 Rectangle().fill(Color.clear).frame(height: 20)
             } else {
-                Chart {
-                    ForEach(Array(history.enumerated()), id: \.offset) { index, val in
-                        LineMark(
-                            x: .value("Time", index),
-                            y: .value("Value", val)
-                        )
-                        .foregroundStyle(color)
-                        .lineStyle(StrokeStyle(lineWidth: 1.5))
-                        
-                        AreaMark(
-                            x: .value("Time", index),
-                            y: .value("Value", val)
-                        )
-                        .foregroundStyle(
-                            LinearGradient(
-                                gradient: Gradient(colors: [color.opacity(0.3), .clear]),
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                    }
-                }
-                .chartXAxis(.hidden)
-                .chartYAxis(.hidden)
-                .frame(height: 20)
+                let now = Date()
+                let count = history.count
+                let points = history.enumerated().map { TrendPoint(date: now.addingTimeInterval(Double($0.offset - count)), value: $0.element) }
+                let series = TrendSeries(points: points, color: color, filled: true, lineWidth: 1.5)
+                TrendChart(series: [series])
+                    .frame(height: 20)
             }
         }
         .padding(10)
@@ -359,30 +340,12 @@ struct ChartBox: View {
                     Text("No data")
                         .foregroundColor(.secondary)
                 } else {
-                    Chart {
-                        ForEach(Array(data.enumerated()), id: \.offset) { index, val in
-                            LineMark(
-                                x: .value("Time", index),
-                                y: .value("Value", val)
-                            )
-                            .foregroundStyle(color)
-                            .lineStyle(StrokeStyle(lineWidth: 2))
-                            
-                            AreaMark(
-                                x: .value("Time", index),
-                                y: .value("Value", val)
-                            )
-                            .foregroundStyle(
-                                LinearGradient(
-                                    gradient: Gradient(colors: [color.opacity(0.4), .clear]),
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                        }
-                    }
-                    .chartXAxis(.hidden)
-                    .padding(10)
+                    let now = Date()
+                    let count = data.count
+                    let points = data.enumerated().map { TrendPoint(date: now.addingTimeInterval(Double($0.offset - count)), value: $0.element) }
+                    let series = TrendSeries(points: points, color: color, filled: true, lineWidth: 2)
+                    TrendChart(series: [series], yFormat: { String(format: "%.0f", $0) }, showsTimeAxis: false)
+                        .padding(8)
                 }
             }
             .frame(height: 120)

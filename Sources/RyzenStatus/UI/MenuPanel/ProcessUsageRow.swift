@@ -9,20 +9,19 @@ struct ProcessUsageRow: View {
     var iconSize: CGFloat = 15
     var leadingPadding: CGFloat = 0
 
+    @State private var showingDetail = false
+
     var body: some View {
-        Group {
-            if ProcessUsageService.shared.canActivate(row) {
-                Button {
-                    ProcessUsageService.shared.activate(row)
-                } label: {
-                    content
-                }
-                .buttonStyle(.plain)
-            } else {
-                content
-            }
+        Button {
+            showingDetail = true
+        } label: {
+            content
         }
+        .buttonStyle(.plain)
         .help(row.name)
+        .sheet(isPresented: $showingDetail) {
+            ProcessDetailSheet(row: row)
+        }
     }
 
     private var content: some View {

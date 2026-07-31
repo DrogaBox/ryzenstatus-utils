@@ -45,24 +45,17 @@ struct BTopDashboardView: View {
                                     .foregroundColor(neonCyan)
                             }
                             
-                            // Load sparkline
+                            // Load sparkline using TrendChart Canvas engine
                             if monitor.snapshot.cpuHistory.isEmpty {
                                 Rectangle().fill(Color.clear).frame(height: 32)
                             } else {
-                                Chart {
-                                    ForEach(Array(monitor.snapshot.cpuHistory.enumerated()), id: \.offset) { idx, val in
-                                        LineMark(x: .value("Time", idx), y: .value("Load", val))
-                                            .foregroundStyle(neonCyan)
-                                            .interpolationMethod(.catmullRom)
-                                            .lineStyle(StrokeStyle(lineWidth: 2))
-                                        AreaMark(x: .value("Time", idx), y: .value("Load", val))
-                                            .foregroundStyle(LinearGradient(colors: [neonCyan.opacity(0.35), .clear], startPoint: .top, endPoint: .bottom))
-                                            .interpolationMethod(.catmullRom)
-                                    }
-                                }
-                                .chartXAxis(.hidden)
-                                .chartYAxis(.hidden)
-                                .frame(height: 32)
+                                let history = monitor.snapshot.cpuHistory
+                                let now = Date()
+                                let count = history.count
+                                let points = history.enumerated().map { TrendPoint(date: now.addingTimeInterval(Double($0.offset - count)), value: $0.element) }
+                                let series = TrendSeries(points: points, color: neonCyan, filled: true, lineWidth: 2)
+                                TrendChart(series: [series])
+                                    .frame(height: 32)
                             }
                             
                             // Stats Badges
