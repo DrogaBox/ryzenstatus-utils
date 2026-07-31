@@ -8,8 +8,8 @@ struct ProcessDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingTerminateAlert = false
 
-    private var glossaryEntry: ProcessGlossaryEntry? {
-        ProcessGlossary.lookup(name: row.name)
+    private var glossaryEntry: ProcessGlossaryEntry {
+        ProcessGlossary.resolve(name: row.name, pid: row.pid)
     }
 
     private var isLeaking: Bool {
@@ -17,7 +17,9 @@ struct ProcessDetailSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
+        let entry = glossaryEntry
+
+        return VStack(spacing: 16) {
             // Header
             HStack(spacing: 12) {
                 Image(nsImage: ResponsibleProcess.icon(for: row.pid))
@@ -36,15 +38,13 @@ struct ProcessDetailSheet: View {
 
                 Spacer()
 
-                if let entry = glossaryEntry {
-                    Text(entry.category.rawValue.capitalized)
-                        .font(.system(size: 10, weight: .bold))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.accentColor.opacity(0.15))
-                        .foregroundColor(.accentColor)
-                        .clipShape(Capsule())
-                }
+                Text(entry.category.rawValue.capitalized)
+                    .font(.system(size: 10, weight: .bold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.accentColor.opacity(0.15))
+                    .foregroundColor(.accentColor)
+                    .clipShape(Capsule())
             }
 
             Divider()
@@ -72,22 +72,20 @@ struct ProcessDetailSheet: View {
             }
 
             // Glossary Description
-            if let entry = glossaryEntry {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Process Description")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Process Description")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.secondary)
 
-                    Text(entry.name)
-                        .font(.system(size: 11))
-                        .foregroundColor(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(Color(NSColor.controlBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                Text(entry.localizedDescriptionKey)
+                    .font(.system(size: 11))
+                    .foregroundColor(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .background(Color(NSColor.controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             Spacer(minLength: 0)
 

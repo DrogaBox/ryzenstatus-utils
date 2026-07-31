@@ -202,51 +202,9 @@ struct BTopDashboardView: View {
                     // Process Rows (Fill vertical space gracefully, limited to top 10)
                     VStack(spacing: 4) {
                         ForEach(topProcesses.prefix(10)) { proc in
-                            HStack {
-                                Text("\(proc.pid)")
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 50, alignment: .leading)
-                                
-                                Text(proc.name)
-                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                    .foregroundColor(.white)
-                                    .lineLimit(1)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                
-                                let valStr: String = {
-                                    switch procSortMode {
-                                    case .cpu: return String(format: "%.1f%% CPU", proc.value)
-                                    case .memory: return formatBytes(proc.value)
-                                    case .gpu: return String(format: "%.1f%% GPU", proc.value)
-                                    }
-                                }()
-                                let valColor = procSortMode == .cpu ? neonCyan : (procSortMode == .gpu ? neonOrange : neonPurple)
-                                
-                                Text(valStr)
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                    .foregroundColor(valColor)
-                                    .frame(width: 120, alignment: .trailing)
-                                
-                                Button(action: {
-                                    kill(proc.pid, SIGTERM)
-                                    refreshProcesses()
-                                }) {
-                                    Text("KILL")
-                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                        .foregroundColor(neonPink)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(neonPink.opacity(0.15))
-                                        .cornerRadius(4)
-                                }
-                                .buttonStyle(.plain)
-                                .frame(width: 60, alignment: .center)
+                            BTopProcessRow(proc: proc, procSortMode: procSortMode, neonCyan: neonCyan, neonOrange: neonOrange, neonPurple: neonPurple, neonPink: neonPink) {
+                                refreshProcesses()
                             }
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.white.opacity(0.03))
-                            .cornerRadius(4)
                         }
                     }
                 }
@@ -377,6 +335,79 @@ struct BTopDashboardView: View {
                 }
             }
             .frame(height: 6)
+        }
+    }
+}
+
+struct BTopProcessRow: View {
+    let proc: ProcessUsage
+    let procSortMode: BTopDashboardView.ProcSortMode
+    let neonCyan: Color
+    let neonOrange: Color
+    let neonPurple: Color
+    let neonPink: Color
+    let onKill: () -> Void
+
+    @State private var showingDetail = false
+
+    var body: some View {
+        HStack {
+            Button {
+                showingDetail = true
+            } label: {
+                HStack {
+                    Text("\(proc.pid)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .frame(width: 50, alignment: .leading)
+
+                    Text(proc.name)
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    let valStr: String = {
+                        switch procSortMode {
+                        case .cpu: return String(format: "%.1f%% CPU", proc.value)
+                        case .memory:
+                            let valGB = proc.value / (1024 * 1024 * 1024)
+                            return valGB >= 1.0 ? String(format: "%.1f GB", valGB) : String(format: "%.0f MB", proc.value / (1024 * 1024))
+                        case .gpu: return String(format: "%.1f%% GPU", proc.value)
+                        }
+                    }()
+                    let valColor = procSortMode == .cpu ? neonCyan : (procSortMode == .gpu ? neonOrange : neonPurple)
+
+                    Text(valStr)
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundColor(valColor)
+                        .frame(width: 120, alignment: .trailing)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button(action: {
+                kill(proc.pid, SIGTERM)
+                onKill()
+            }) {
+                Text("KILL")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(neonPink)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(neonPink.opacity(0.15))
+                    .cornerRadius(4)
+            }
+            .buttonStyle(.plain)
+            .frame(width: 60, alignment: .center)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Color.white.opacity(0.03))
+        .cornerRadius(4)
+        .sheet(isPresented: $showingDetail) {
+            ProcessDetailSheet(row: proc)
         }
     }
 }

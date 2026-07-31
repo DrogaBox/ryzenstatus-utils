@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
+import AppKit
 import Foundation
 
 /// Category classification for processes.
@@ -109,6 +110,25 @@ enum ProcessGlossary {
             localizedDescriptionKey: "glossary_finder_desc"
         )
     ]
+
+    /// Matches a process name against the glossary catalog, or returns a generic fallback entry.
+    static func resolve(name: String, pid: pid_t? = nil) -> ProcessGlossaryEntry {
+        if let matched = lookup(name: name) {
+            return matched
+        }
+        let category: ProcessCategory
+        if let pid, let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .regular {
+            category = .app
+        } else {
+            category = .background
+        }
+        return ProcessGlossaryEntry(
+            name: name,
+            category: category,
+            localizedTitleKey: name,
+            localizedDescriptionKey: category == .app ? "Application process running on macOS." : "Background service or helper process."
+        )
+    }
 
     /// Matches a process name against the glossary catalog.
     static func lookup(name: String) -> ProcessGlossaryEntry? {

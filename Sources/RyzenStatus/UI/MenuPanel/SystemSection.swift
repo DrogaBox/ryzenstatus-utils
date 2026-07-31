@@ -425,7 +425,7 @@ struct SystemSection: View {
                         Text(appearanceStrings.iStatsWidgets).tag("istats")
                     }
                     .pickerStyle(.segmented)
-                    .frame(width: 140)
+                    .frame(width: 220)
                 }
             }
             

@@ -247,24 +247,7 @@ struct IStatsPopoverWidgetsView: View {
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                             .foregroundColor(.blue)
                         ForEach(cpuProcesses) { proc in
-                            HStack(spacing: 6) {
-                                if let icon = NSRunningApplication(processIdentifier: proc.pid)?.icon {
-                                    Image(nsImage: icon)
-                                        .resizable()
-                                        .frame(width: 14, height: 14)
-                                } else {
-                                    Image(systemName: "cpu")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(.secondary)
-                                }
-                                Text(proc.name)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .lineLimit(1)
-                                Spacer()
-                                Text(String(format: "%.1f%%", proc.value))
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                    .foregroundColor(.secondary)
-                            }
+                            IStatsProcessRow(proc: proc, formattedValue: String(format: "%.1f%%", proc.value), fallbackIconName: "cpu")
                         }
                     }
                 }
@@ -275,12 +258,12 @@ struct IStatsPopoverWidgetsView: View {
             .opacity(showCPU ? 1.0 : 0.4)
             
         case .cores:
-            // 2. Circular Donut Ring Core Grid (8 columns for 32 cores = 8x4 grid, fits popover cleanly)
-            VStack(alignment: .leading, spacing: 6) {
+            // 2. Core Grid/Histograms
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("\(l10n.s.istatsCores) (\(monitor.snapshot.cores.count))")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(.secondary)
+                    Text("CORES (\(monitor.snapshot.cores.count))")
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .foregroundColor(.purple)
                     Spacer()
                     if editing {
                         cardControls(for: .cores)
@@ -288,27 +271,16 @@ struct IStatsPopoverWidgetsView: View {
                 }
                 
                 let cores = monitor.snapshot.cores
-                let columnsCount = cores.count <= 8 ? max(2, cores.count / 2) : (cores.count <= 16 ? 8 : 8)
-                let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: columnsCount)
-                
-                LazyVGrid(columns: columns, spacing: 6) {
+                let cols = Array(repeating: GridItem(.flexible(), spacing: 6), count: 4)
+                LazyVGrid(columns: cols, spacing: 6) {
                     ForEach(cores) { core in
-                        ZStack {
-                            Circle()
-                                .stroke(Color.primary.opacity(0.12), lineWidth: 3)
-                            Circle()
-                                .trim(from: 0, to: CGFloat(core.loadPct / 100.0))
-                                .stroke(
-                                    LinearGradient(gradient: Gradient(colors: [.pink, .purple, .blue]), startPoint: .topLeading, endPoint: .bottomTrailing),
-                                    style: StrokeStyle(lineWidth: 3, lineCap: .round)
-                                )
-                                .rotationEffect(.degrees(-90))
-                            
-                            Text(String(format: "%.0f", core.loadPct))
-                                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                .foregroundColor(.primary)
-                        }
-                        .frame(width: 24, height: 24)
+                        let pct = Double(core.loadPct)
+                        IStatsDonutMeter(
+                            title: "C\(core.id)",
+                            value: String(format: "%.0f%%", pct),
+                            fraction: pct / 100.0,
+                            color: pct > 80 ? .orange : (pct > 50 ? .yellow : .purple)
+                        )
                     }
                 }
             }
@@ -318,74 +290,59 @@ struct IStatsPopoverWidgetsView: View {
             .opacity(showCores ? 1.0 : 0.4)
             
         case .memory:
-            // 3. Memory Card (Twin Donut Rings + Breakdown + Process List)
-            VStack(alignment: .leading, spacing: 10) {
+            // 3. Memory Pressure Donut & Storage Breakdown + Top RAM Processes
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text(l10n.s.memorySection.uppercased())
+                    Text("MEMORY")
                         .font(.system(size: 13, weight: .bold, design: .monospaced))
                         .foregroundColor(.cyan)
                     Spacer()
                     if editing {
                         cardControls(for: .memory)
                     } else {
-                        let memoryUsed = monitor.snapshot.memoryUsed ?? 0
-                        let memoryTotal = monitor.snapshot.memoryTotal ?? (32 * 1024 * 1024 * 1024)
-                        let usedGB = Double(memoryUsed) / (1024 * 1024 * 1024)
-                        let totalGB = Double(memoryTotal) / (1024 * 1024 * 1024)
+                        let usedGB = Double(monitor.snapshot.memoryUsed ?? 0) / (1024 * 1024 * 1024)
+                        let totalGB = Double(monitor.snapshot.memoryTotal ?? 1) / (1024 * 1024 * 1024)
                         Text(String(format: "%.1f / %.0f GB", usedGB, totalGB))
                             .font(.system(size: 12, weight: .semibold, design: .monospaced))
                             .foregroundColor(.secondary)
                     }
                 }
                 
-                let memoryUsed = monitor.snapshot.memoryUsed ?? 0
-                let memoryTotal = monitor.snapshot.memoryTotal ?? (32 * 1024 * 1024 * 1024)
-                let memFrac = Double(memoryUsed) / Double(max(1, memoryTotal))
-                let pressFrac = monitor.snapshot.memoryPressure == .critical ? 0.85 : (monitor.snapshot.memoryPressure == .warning ? 0.60 : 0.22)
+                let used = Double(monitor.snapshot.memoryUsed ?? 0)
+                let total = Double(max(1, monitor.snapshot.memoryTotal ?? 1))
+                let ramFrac = min(1.0, max(0.0, used / total))
                 
-                HStack(spacing: 20) {
-                    IStatsDonutMeter(title: l10n.s.memoryPressure.uppercased(), value: String(format: "%.0f%%", pressFrac * 100), fraction: pressFrac, color: .cyan)
-                    IStatsDonutMeter(title: l10n.s.memorySection.uppercased(), value: String(format: "%.0f%%", memFrac * 100), fraction: memFrac, color: .purple)
-                }
-                .padding(.vertical, 4)
-                
-                // Memory Breakdown (Vertical stack fits popover menu cleanly)
-                VStack(spacing: 4) {
-                    let totalGB = Double(memoryTotal) / (1024 * 1024 * 1024)
-                    let usedGB = Double(memoryUsed) / (1024 * 1024 * 1024)
-                    let appGB = usedGB * 0.55
-                    let wiredGB = usedGB * 0.25
-                    let compGB = usedGB * 0.20
-                    let freeGB = max(0, totalGB - usedGB)
+                HStack(spacing: 16) {
+                    IStatsDonutMeter(
+                        title: "RAM",
+                        value: String(format: "%.0f%%", ramFrac * 100),
+                        fraction: ramFrac,
+                        color: .cyan
+                    )
                     
-                    HStack {
-                        Circle().fill(Color.pink).frame(width: 6, height: 6)
-                        Text(l10n.s.istatsAppMemory).font(.caption).foregroundColor(.secondary)
-                        Spacer()
-                        Text(String(format: "%.1f GB", appGB)).font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    }
-                    HStack {
-                        Circle().fill(Color.blue).frame(width: 6, height: 6)
-                        Text(l10n.s.istatsWiredMemory).font(.caption).foregroundColor(.secondary)
-                        Spacer()
-                        Text(String(format: "%.1f GB", wiredGB)).font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    }
-                    HStack {
-                        Circle().fill(Color.orange).frame(width: 6, height: 6)
-                        Text(l10n.s.istatsCompressedMemory).font(.caption).foregroundColor(.secondary)
-                        Spacer()
-                        Text(String(format: "%.1f GB", compGB)).font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    }
-                    HStack {
-                        Circle().fill(Color.secondary.opacity(0.5)).frame(width: 6, height: 6)
-                        Text(l10n.s.istatsFreeMemory).font(.caption).foregroundColor(.secondary)
-                        Spacer()
-                        Text(String(format: "%.1f GB", freeGB)).font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("USED")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text(String(format: "%.1f GB", used / (1024 * 1024 * 1024)))
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(.cyan)
+                        }
+                        HStack {
+                            Text("FREE")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text(String(format: "%.1f GB", max(0, total - used) / (1024 * 1024 * 1024)))
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(.green)
+                        }
                     }
                 }
-                .padding(.vertical, 4)
                 
-                // Top Memory Processes (iStats-style)
+                // Top Memory Processes
                 if !memProcesses.isEmpty {
                     Divider().opacity(0.15)
                     VStack(alignment: .leading, spacing: 5) {
@@ -393,28 +350,11 @@ struct IStatsPopoverWidgetsView: View {
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                             .foregroundColor(.cyan)
                         ForEach(memProcesses) { proc in
-                            HStack(spacing: 6) {
-                                if let icon = NSRunningApplication(processIdentifier: proc.pid)?.icon {
-                                    Image(nsImage: icon)
-                                        .resizable()
-                                        .frame(width: 14, height: 14)
-                                } else {
-                                    Image(systemName: "memorychip")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(.secondary)
-                                }
-                                Text(proc.name)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .lineLimit(1)
-                                Spacer()
-                                let valGB = proc.value / (1024 * 1024 * 1024)
-                                let formattedMem = valGB >= 1.0
-                                    ? String(format: "%.1f GB", valGB)
-                                    : String(format: "%.0f MB", proc.value / (1024 * 1024))
-                                Text(formattedMem)
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                    .foregroundColor(.secondary)
-                            }
+                            let valGB = proc.value / (1024 * 1024 * 1024)
+                            let formattedMem = valGB >= 1.0
+                                ? String(format: "%.1f GB", valGB)
+                                : String(format: "%.0f MB", proc.value / (1024 * 1024))
+                            IStatsProcessRow(proc: proc, formattedValue: formattedMem, fallbackIconName: "memorychip")
                         }
                     }
                 }
@@ -474,24 +414,7 @@ struct IStatsPopoverWidgetsView: View {
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                             .foregroundColor(.orange)
                         ForEach(gpuProcesses) { proc in
-                            HStack(spacing: 6) {
-                                if let icon = NSRunningApplication(processIdentifier: proc.pid)?.icon {
-                                    Image(nsImage: icon)
-                                        .resizable()
-                                        .frame(width: 14, height: 14)
-                                } else {
-                                    Image(systemName: "display")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(.secondary)
-                                }
-                                Text(proc.name)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .lineLimit(1)
-                                Spacer()
-                                Text(String(format: "%.1f%%", proc.value))
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                    .foregroundColor(.secondary)
-                            }
+                            IStatsProcessRow(proc: proc, formattedValue: String(format: "%.1f%%", proc.value), fallbackIconName: "display")
                         }
                     }
                 }
@@ -500,6 +423,44 @@ struct IStatsPopoverWidgetsView: View {
             .background(Color.primary.opacity(showGPU ? 0.05 : 0.02))
             .cornerRadius(10)
             .opacity(showGPU ? 1.0 : 0.4)
+        }
+    }
+}
+
+struct IStatsProcessRow: View {
+    let proc: ProcessUsage
+    let formattedValue: String
+    let fallbackIconName: String
+    @State private var showingDetail = false
+
+    var body: some View {
+        Button {
+            showingDetail = true
+        } label: {
+            HStack(spacing: 6) {
+                if let icon = NSRunningApplication(processIdentifier: proc.pid)?.icon {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .frame(width: 14, height: 14)
+                } else {
+                    Image(systemName: fallbackIconName)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+                Text(proc.name)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                Spacer()
+                Text(formattedValue)
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showingDetail) {
+            ProcessDetailSheet(row: proc)
         }
     }
 }

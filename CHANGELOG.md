@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.7.3-beta1] — 2026-07-31
+
+### Pre-Release (Beta Build 18)
+
+- **Process Inspector Modal**: Universal process details sheet (`ProcessDetailSheet`) accessible across all views (Classic Cards, iStats Widgets, BTop Cyberpunk Dashboard).
+- **Process Glossary Fallback**: Automatic generic process role resolution for 100% of running applications and processes.
+- **Canvas Charts Engine**: `TrendChart` immediate-mode SwiftUI `Canvas` timeline charts integrated across all 3 Dashboard presets with 0.0% background CPU overhead.
+- **Segmented Control Layout**: Fixed segmented picker frame width alignment in menu panel header.
+
 ## [1.7.2] — 2026-07-31
 
 ### Maintenance Release
