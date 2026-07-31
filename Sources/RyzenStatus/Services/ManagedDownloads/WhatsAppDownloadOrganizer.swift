@@ -329,7 +329,7 @@ final class WhatsAppDownloadOrganizer: ObservableObject {
         var records = recordsBefore.filter {
             fm.fileExists(atPath: $0.destinationPath)
         }
-        var undoActions: [UndoTransaction.Action] = []
+        let undoActions: [UndoTransaction.Action] = []
         var moved = 0
         var duplicates = 0
         var failed = 0

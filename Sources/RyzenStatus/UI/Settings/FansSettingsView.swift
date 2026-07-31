@@ -202,7 +202,7 @@ struct FansSettingsView: View {
                     for i in 0..<currentFans.count {
                         self.fans[i].rpm = currentFans[i].rpm
                         self.fans[i].throttle = currentFans[i].throttle
-                        self.fans[i].isOverrided = currentFans[i].isOverrided
+                        self.fans[i].isOverridden = currentFans[i].isOverridden
                     }
                 }
             }
@@ -267,7 +267,7 @@ struct FanControlCard: View {
                         .foregroundColor(.secondary)
                     Text(String(format: "%.0f%%", sliderValue / 255.0 * 100.0))
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(fan.isOverrided ? .orange : .secondary)
+                        .foregroundColor(fan.isOverridden ? .orange : .secondary)
                     Text("·")
                         .foregroundColor(.secondary)
                     Button(action: onHide) {
@@ -294,7 +294,7 @@ struct FanControlCard: View {
                     .padding(.vertical, 3)
                     .background(Color.orange.opacity(0.15))
                     .clipShape(Capsule())
-                } else if fan.isOverrided {
+                } else if fan.isOverridden {
                     HStack(spacing: 5) {
                         Image(systemName: "slider.horizontal.3")
                             .font(.system(size: 10, weight: .bold))
@@ -326,7 +326,7 @@ struct FanControlCard: View {
                     get: {
                         if isMappedToCurve {
                             return mappedCurveIdx
-                        } else if fan.isOverrided {
+                        } else if fan.isOverridden {
                             return -2 // Manual Override
                         } else {
                             return -1 // BIOS / Auto
@@ -350,7 +350,7 @@ struct FanControlCard: View {
                     }
                 )) {
                     Text("BIOS / Auto").tag(-1)
-                    if fan.isOverrided && !isMappedToCurve {
+                    if fan.isOverridden && !isMappedToCurve {
                         Text("Manual Override").tag(-2)
                     }
                     ForEach(0..<controller.customCurves.count, id: \.self) { idx in
@@ -389,7 +389,7 @@ struct FanControlCard: View {
             }
             
             // --- Reset to Auto ---
-            if fan.isOverrided || didDrag {
+            if fan.isOverridden || didDrag {
                 Button("↩ Reset to Auto") {
                     didDrag = false
                     Task {
@@ -409,20 +409,20 @@ struct FanControlCard: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14)
-                .stroke(fan.isOverrided ? Color.orange.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: 1)
+                .stroke(fan.isOverridden ? Color.orange.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: 1)
         )
         .onAppear {
-            if !fan.isOverrided && !didDrag {
+            if !fan.isOverridden && !didDrag {
                 sliderValue = Double(fan.throttle)
             }
         }
         .onChange(of: fan.throttle) { _, newVal in
             // Sincronizar slider con telemetria SOLO en modo Auto para no pisar el valor manual fijado por el usuario
-            if !fan.isOverrided && !didDrag {
+            if !fan.isOverridden && !didDrag {
                 sliderValue = Double(newVal)
             }
         }
-        .onChange(of: fan.isOverrided) { _, newVal in
+        .onChange(of: fan.isOverridden) { _, newVal in
             if !newVal {
                 didDrag = false
             }

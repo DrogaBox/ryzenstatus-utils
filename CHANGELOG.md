@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.7.2] — 2026-07-31
+
+### Maintenance Release
+
+Fourth stable release. Zero-warning compiler optimization, fan control overrides refactoring, thread safety improvements, and full test suite verification.
+
+### Improvements & Fixes
+- **Fan Control Overrides**: Updated fan curve controls to use `isOverridden` property, eliminating all compiler deprecation warnings.
+- **WhatsApp Organizer**: Refactored `undoActions` declaration in download organizer.
+- **Thread Safety**: App Switcher event tap and Shelf item icon rendering optimizations on main thread.
+- **Drive Format Identifiers**: Added file system labels (APFS, exFAT, NTFS, FAT32, HFS+) to Disks monitoring panel.
+- **Smooth Scroll**: Improved high-resolution mouse wheel support for smooth scrolling.
+- **Verification**: Clean build with 0 compiler warnings and all 2,941 unit test checks passing.
+
 ## [1.7.1] — 2026-07-27
 
 ### Stable Release
