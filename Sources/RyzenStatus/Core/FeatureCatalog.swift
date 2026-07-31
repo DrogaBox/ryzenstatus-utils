@@ -29,7 +29,8 @@ enum AppFeature: String, CaseIterable {
          cleaner, uninstaller, homebrew, appUpdates, whatsAppDownloads, screenshot, cameraPreview, radialMenu, scratchpad
     // System monitor, one entry per metric family (temperatures live with
     // their parent metric: CPU temp with CPU, battery temp with power).
-    case monitorCPU, monitorGPU, monitorMemory, monitorNetwork, monitorDisk, monitorPower
+    case monitorCPU, monitorGPU, monitorMemory, monitorNetwork, monitorDisk, monitorPower,
+         monitorInsights, monitorAnalytics, monitorEnergy, monitorNetworkDetails
 }
 
 /// Hub sections, in display order.
@@ -60,7 +61,8 @@ extension AppFeature {
         case .quickLauncher, .quickToggles, .colorPicker, .screenOCR, .cleaningMode, .mediaTools,
              .cleaner, .uninstaller, .homebrew, .appUpdates, .whatsAppDownloads, .screenshot, .cameraPreview, .radialMenu, .scratchpad:
             return .tools
-        case .monitorCPU, .monitorGPU, .monitorMemory, .monitorNetwork, .monitorDisk, .monitorPower:
+        case .monitorCPU, .monitorGPU, .monitorMemory, .monitorNetwork, .monitorDisk, .monitorPower,
+             .monitorInsights, .monitorAnalytics, .monitorEnergy, .monitorNetworkDetails:
             return .monitor
         }
     }
@@ -114,6 +116,10 @@ extension AppFeature {
         case .monitorNetwork: return "network"
         case .monitorDisk: return "internaldrive"
         case .monitorPower: return "bolt.fill"
+        case .monitorInsights: return "lightbulb"
+        case .monitorAnalytics: return "chart.xyaxis.line"
+        case .monitorEnergy: return "bolt.batteryblock"
+        case .monitorNetworkDetails: return "network"
         }
     }
 
@@ -157,7 +163,8 @@ extension AppFeature {
         case .windowLayout, .mixer, .micMute, .keepAwake,
              .quickLauncher, .quickToggles, .colorPicker, .screenOCR, .cleaningMode, .mediaTools,
              .cleaner, .uninstaller, .homebrew, .appUpdates, .whatsAppDownloads, .screenshot, .cameraPreview, .scratchpad,
-             .monitorCPU, .monitorGPU, .monitorMemory, .monitorNetwork, .monitorDisk, .monitorPower:
+             .monitorCPU, .monitorGPU, .monitorMemory, .monitorNetwork, .monitorDisk, .monitorPower,
+             .monitorInsights, .monitorAnalytics, .monitorEnergy, .monitorNetworkDetails:
             return []
         }
     }
@@ -192,7 +199,8 @@ extension AppFeature {
         case .monitorCPU, .monitorMemory, .monitorDisk, .monitorPower: return [.notifications]
         case .clipboardHistory, .shelf, .urlCleaner, .soundOutputSwitcher, .musicBlock,
              .extraBrightness, .quickLauncher, .colorPicker, .micMute, .mediaTools,
-             .scratchpad, .monitorGPU, .monitorNetwork:
+             .scratchpad, .monitorGPU, .monitorNetwork,
+             .monitorInsights, .monitorAnalytics, .monitorEnergy, .monitorNetworkDetails:
             return []
         }
     }

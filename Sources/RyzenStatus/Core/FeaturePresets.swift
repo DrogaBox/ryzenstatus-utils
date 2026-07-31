@@ -18,7 +18,8 @@ enum FeaturePreset: String, CaseIterable, Identifiable {
         case .essential:
             return [.mixer, .keepAwake,
                     .monitorCPU, .monitorGPU, .monitorMemory,
-                    .monitorNetwork, .monitorDisk, .monitorPower]
+                    .monitorNetwork, .monitorDisk, .monitorPower,
+                    .monitorInsights, .monitorAnalytics, .monitorEnergy, .monitorNetworkDetails]
         case .windows:
             return [.switcher, .windowLayout, .dockPreview, .dockClick, .windowMaximizer]
         case .battery:
@@ -93,7 +94,8 @@ extension AppFeature {
                 ? .idle : .mouse
         case .clipboardHistory, .urlCleaner, .extraBrightness,
              .monitorCPU, .monitorGPU, .monitorMemory,
-             .monitorNetwork, .monitorDisk, .monitorPower:
+             .monitorNetwork, .monitorDisk, .monitorPower,
+             .monitorInsights, .monitorAnalytics, .monitorEnergy, .monitorNetworkDetails:
             return .periodic
         case .pastePlain, .mixer, .soundOutputSwitcher, .micMute,
              .musicBlock, .keepAwake, .brightness, .quickLauncher, .quickToggles, .colorPicker,

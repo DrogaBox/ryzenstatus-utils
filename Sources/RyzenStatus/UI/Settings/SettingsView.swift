@@ -169,7 +169,7 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .navigationSplitViewStyle(.balanced)
-        .frame(minWidth: 772, maxWidth: 772, minHeight: 528, maxHeight: .infinity)
+        .frame(minWidth: 840, maxWidth: .infinity, minHeight: 560, maxHeight: .infinity)
         .onAppear { ensureVisiblePage() }
         .onChange(of: features.revision) { _, _ in ensureVisiblePage() }
     }
@@ -266,7 +266,7 @@ struct SettingsView: View {
         case .support: SupportSettings()
         case .fans: FansSettingsView()
         case .amdPower: AmdPowerSettingsView()
-        case .dashboard: DashboardView()
+        case .dashboard: PerformanceSuiteView(monitor: SystemMonitor.shared)
         case .sensors: SensorsView()
         }
     }

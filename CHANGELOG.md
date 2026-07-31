@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.8.0-beta1] — 2026-07-31
+
+### Major Pre-Release (Beta Build 19)
+
+- **Performance Suite Dashboard**: Introduced `PerformanceSuiteView` with 5 navigation tabs (Dashboard, Insights, Analytics, Energy, Network).
+- **Smart Insights Engine**: Integrated `InsightEngine` diagnostic cards detecting memory leaks, Rosetta 2 translation overhead, high sustained CPU load, and memory pressure.
+- **Analytics & Trend History**: R² linear regression curve metrics and historical peak load tracking.
+- **Energy Impact & Battery Flow**: Process energy impact scores (CPU, GPU, disk wakeups) and battery health flow.
+- **Network Scanner & Adapter Details**: Per-adapter network bandwidth, socket inspector, and local network device scanner.
+- **Modular Feature Catalog**: Registered all suite tools as togglable modules in `FeatureCatalog.swift`.
+- **13-Language Localization**: Complete translations across all 13 supported languages with zero hardcoded strings.
+
 ## [1.7.3-beta1] — 2026-07-31
 
 ### Pre-Release (Beta Build 18)

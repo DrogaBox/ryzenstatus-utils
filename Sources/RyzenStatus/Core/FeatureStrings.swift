@@ -22,6 +22,24 @@ enum FeatureStrings {
         }
     }
 
+    static func performanceSuite(_ language: AppLanguage) -> PerformanceSuiteFeatureStrings {
+        switch language {
+        case .enUS: return .enUS
+        case .ptBR: return .ptBR
+        case .tr: return .tr
+        case .ru: return .ru
+        case .es: return .es
+        case .de: return .de
+        case .fr: return .fr
+        case .it: return .it
+        case .ja: return .ja
+        case .ko: return .ko
+        case .zhHans: return .zhHans
+        case .zhTW: return .zhTW
+        case .zhHK: return .zhHK
+        }
+    }
+
     static func clipboard(_ language: AppLanguage) -> ClipboardFeatureStrings {
         switch language {
         case .enUS: return .enUS
@@ -2056,5 +2074,121 @@ struct MonitorAlertFeatureStrings {
         gpuPowerBodyFormat: "GPU 功耗達到 %.0f W。",
         thermalThrottleTitle: "熱節流",
         thermalThrottleBodyFormat: "CPU 在重負載下持續 %.0f °C 超過 30 秒"
+    )
+}
+
+public struct PerformanceSuiteFeatureStrings {
+    public let title: String
+    public let dashboardTab: String
+    public let insightsTab: String
+    public let analyticsTab: String
+    public let energyTab: String
+    public let networkTab: String
+}
+
+extension PerformanceSuiteFeatureStrings {
+    static let enUS = PerformanceSuiteFeatureStrings(
+        title: "Mac Performance Suite",
+        dashboardTab: "Dashboard",
+        insightsTab: "Insights",
+        analyticsTab: "Analytics",
+        energyTab: "Energy",
+        networkTab: "Network"
+    )
+    static let ptBR = PerformanceSuiteFeatureStrings(
+        title: "Mac Performance Suite",
+        dashboardTab: "Painel",
+        insightsTab: "Insights",
+        analyticsTab: "Análises",
+        energyTab: "Energia",
+        networkTab: "Rede"
+    )
+    static let es = PerformanceSuiteFeatureStrings(
+        title: "Mac Performance Suite",
+        dashboardTab: "Dashboard",
+        insightsTab: "Diagnóstico",
+        analyticsTab: "Analítica",
+        energyTab: "Energía",
+        networkTab: "Red"
+    )
+    static let de = PerformanceSuiteFeatureStrings(
+        title: "Mac Performance Suite",
+        dashboardTab: "Übersicht",
+        insightsTab: "Einblicke",
+        analyticsTab: "Analysen",
+        energyTab: "Energie",
+        networkTab: "Netzwerk"
+    )
+    static let fr = PerformanceSuiteFeatureStrings(
+        title: "Mac Performance Suite",
+        dashboardTab: "Tableau de bord",
+        insightsTab: "Diagnostics",
+        analyticsTab: "Analytique",
+        energyTab: "Énergie",
+        networkTab: "Réseau"
+    )
+    static let it = PerformanceSuiteFeatureStrings(
+        title: "Mac Performance Suite",
+        dashboardTab: "Dashboard",
+        insightsTab: "Analisi",
+        analyticsTab: "Analitica",
+        energyTab: "Energia",
+        networkTab: "Rete"
+    )
+    static let ja = PerformanceSuiteFeatureStrings(
+        title: "Mac Performance Suite",
+        dashboardTab: "ダッシュボード",
+        insightsTab: "インサイト",
+        analyticsTab: "分析",
+        energyTab: "省電力",
+        networkTab: "ネットワーク"
+    )
+    static let ko = PerformanceSuiteFeatureStrings(
+        title: "Mac Performance Suite",
+        dashboardTab: "대시보드",
+        insightsTab: "진단",
+        analyticsTab: "분석",
+        energyTab: "에너지",
+        networkTab: "네트워크"
+    )
+    static let zhHans = PerformanceSuiteFeatureStrings(
+        title: "Mac Performance Suite",
+        dashboardTab: "仪表盘",
+        insightsTab: "诊断分析",
+        analyticsTab: "数据分析",
+        energyTab: "能耗",
+        networkTab: "网络"
+    )
+    static let zhTW = PerformanceSuiteFeatureStrings(
+        title: "Mac Performance Suite",
+        dashboardTab: "儀表板",
+        insightsTab: "診斷分析",
+        analyticsTab: "數據分析",
+        energyTab: "能耗",
+        networkTab: "網路"
+    )
+    static let zhHK = PerformanceSuiteFeatureStrings(
+        title: "Mac Performance Suite",
+        dashboardTab: "儀表板",
+        insightsTab: "診斷分析",
+        analyticsTab: "數據分析",
+        energyTab: "能耗",
+        networkTab: "網路"
+    )
+    static let tr = PerformanceSuiteFeatureStrings(
+        title: "Mac Performance Suite",
+        dashboardTab: "Gösterge Paneli",
+        insightsTab: "Analizler",
+        analyticsTab: "İstatistikler",
+        energyTab: "Enerji",
+        networkTab: "Ağ"
+    )
+    static let ru = PerformanceSuiteFeatureStrings(
+        title: "Mac Performance Suite",
+        dashboardTab: "Панель управления",
+        insightsTab: "Диагностика",
+        analyticsTab: "Аналитика",
+        energyTab: "Энергия",
+        networkTab: "Сеть"
     )
 }

@@ -559,6 +559,10 @@ extension AppFeature {
         case .monitorDisk: return s.diskSection
         case .monitorPower: return s.powerSection
         case .whatsAppDownloads: return FeatureStrings.whatsAppDownloads(L10n.shared.language).title
+        case .monitorInsights: return "Smart Performance Insights"
+        case .monitorAnalytics: return "Analytics & Trend History"
+        case .monitorEnergy: return "Energy Impact & Battery Flow"
+        case .monitorNetworkDetails: return "Network Scanner & Details"
         }
     }
 
@@ -611,6 +615,10 @@ extension AppFeature {
         case .superKey: return hub.descSuperKey
         case .monitorPower: return hub.descMonitorPower
         case .whatsAppDownloads: return FeatureStrings.whatsAppDownloads(L10n.shared.language).hubDescription
+        case .monitorInsights: return "Automated diagnostic cards for memory leaks, Rosetta 2 cost, and CPU runaway processes."
+        case .monitorAnalytics: return "Linear regression metrics, performance trends, and long-term CPU/GPU/RAM statistics."
+        case .monitorEnergy: return "Per-process energy impact breakdown, battery health flow, and process wakeup stats."
+        case .monitorNetworkDetails: return "Local network device scanner, per-adapter bandwidth, and open socket inspector."
         }
     }
 }
