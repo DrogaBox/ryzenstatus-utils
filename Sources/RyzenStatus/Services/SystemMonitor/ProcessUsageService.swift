@@ -67,6 +67,9 @@ final class ProcessUsageService {
     private let networkSamplerLock = NSLock()
     private var networkSamplerRunning = false
     private var networkSamplerGeneration = 0
+    private(set) var leakingPIDs: Set<pid_t> = []
+    private var footprintHistory: [pid_t: [(Date, UInt64)]] = [:]
+    private var lastLeakAnalysisTime: TimeInterval = 0
 
     private init() {}
 
@@ -610,6 +613,7 @@ final class ProcessUsageService {
         memoryLoading = false
         if let rows {
             memoryCache = cachedRows(from: rows)
+            updateFootprintHistory(rows: rows)
             cacheLock.unlock()
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .processUsageDidUpdate, object: nil)
@@ -618,6 +622,35 @@ final class ProcessUsageService {
         }
         cacheLock.unlock()
         return limitedRows(memoryCache, limit: limit, now: ProcessInfo.processInfo.systemUptime, maxAge: staleCacheSeconds) ?? []
+    }
+
+    private func updateFootprintHistory(rows: [ProcessUsage]) {
+        let now = Date()
+        let activePIDs = Set(rows.map(\.pid))
+        let cutoff = now.addingTimeInterval(-1800) // Keep last 30 minutes
+
+        for row in rows {
+            var series = footprintHistory[row.pid] ?? []
+            series.append((now, UInt64(max(0, row.value))))
+            series = series.filter { $0.0 >= cutoff }
+            footprintHistory[row.pid] = series
+        }
+
+        // Clean up dead PIDs from history
+        footprintHistory = footprintHistory.filter { activePIDs.contains($0.key) }
+
+        // Analyze for leaks if at least 30s elapsed
+        let uptime = ProcessInfo.processInfo.systemUptime
+        if uptime - lastLeakAnalysisTime >= 30 {
+            lastLeakAnalysisTime = uptime
+            var newLeaking = Set<pid_t>()
+            for (pid, series) in footprintHistory {
+                if LeakDetector.analyze(series: series) != nil {
+                    newLeaking.insert(pid)
+                }
+            }
+            leakingPIDs = newLeaking
+        }
     }
 
     private func finishGPU(_ rows: [ProcessUsage]?, limit: Int) -> [ProcessUsage] {

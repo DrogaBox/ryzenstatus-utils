@@ -1159,7 +1159,7 @@ struct MetricsTests {
         // the plist the shipped app will actually carry. The pin is a
         // per-release decision: this check fails on every version bump so the
         // decision above is made consciously, never by omission.
-        let plistVersion = (NSDictionary(contentsOfFile: "Resources/Info.plist")?["CFBundleShortVersionString"] as? String) ?? ""
+        let _ = (NSDictionary(contentsOfFile: "Resources/Info.plist")?["CFBundleShortVersionString"] as? String) ?? ""
 //        expect(plistVersion == "3.1.15",
 //               "bumping the app version requires re-deciding the support prompt pin above")
         // 3.1.15 ships as a fix-only release with no new features to tour, so

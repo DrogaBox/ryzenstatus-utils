@@ -26,21 +26,38 @@ struct ProcessUsageRow: View {
     }
 
     private var content: some View {
-        HStack(spacing: 7) {
+        let isLeaking = ProcessUsageService.shared.leakingPIDs.contains(row.pid)
+        let glossaryEntry = ProcessGlossary.lookup(name: row.name)
+
+        return HStack(spacing: 7) {
             Image(nsImage: ResponsibleProcess.icon(for: row.pid))
                 .resizable()
                 .frame(width: iconSize, height: iconSize)
-            Text(row.name)
-                .font(.system(size: 10.5))
-                .lineLimit(1)
-                .truncationMode(.middle)
+
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    Text(row.name)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    if isLeaking {
+                        Text("⚠️")
+                            .font(.system(size: 9))
+                            .help("Continuous memory growth detected (potential memory leak)")
+                    }
+                }
+            }
+
             Spacer(minLength: 0)
+
             Text(value)
                 .font(.system(size: 10.5, weight: .medium))
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
+                .foregroundStyle(isLeaking ? Color.orange : Color.secondary)
         }
         .contentShape(Rectangle())
         .padding(.leading, leadingPadding)
+        .help(glossaryEntry?.name ?? row.name)
     }
 }
