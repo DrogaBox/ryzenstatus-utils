@@ -42,7 +42,7 @@ let titleAttrs: [NSAttributedString.Key: Any] = [
     .foregroundColor: NSColor(calibratedWhite: 0.12, alpha: 1),
 ]
 let titleSize = title.size(withAttributes: titleAttrs)
-title.draw(at: NSPoint(x: (widthPt - titleSize.width) / 2, y: heightPt - 70), withAttributes: titleAttrs)
+title.draw(at: NSPoint(x: (widthPt - titleSize.width) / 2, y: heightPt - 60), withAttributes: titleAttrs)
 
 // Subtitle / instruction.
 let subtitle = "Arraste o app para a pasta Aplicativos · Drag the app to Applications"
@@ -51,20 +51,20 @@ let subAttrs: [NSAttributedString.Key: Any] = [
     .foregroundColor: NSColor(calibratedWhite: 0.45, alpha: 1),
 ]
 let subSize = subtitle.size(withAttributes: subAttrs)
-subtitle.draw(at: NSPoint(x: (widthPt - subSize.width) / 2, y: 54), withAttributes: subAttrs)
+subtitle.draw(at: NSPoint(x: (widthPt - subSize.width) / 2, y: 30), withAttributes: subAttrs)
 
-// Arrow from the app icon (left column, x≈150) toward Applications (right, x≈450).
-// Kexts sit above the app at y≈145, no arrow for Kexts.
-let arrowY: CGFloat = heightPt - 315
+// Arrow from the app icon (left column, x=150, y=275) toward Applications (right column, x=450, y=275).
+// Centered at AppKit y=205 (480 - 275).
+let arrowY: CGFloat = 205
 let arrow = NSBezierPath()
 arrow.lineWidth = 9
 arrow.lineCapStyle = .round
 arrow.lineJoinStyle = .round
 arrow.move(to: NSPoint(x: 225, y: arrowY))
-arrow.line(to: NSPoint(x: 385, y: arrowY))
-arrow.move(to: NSPoint(x: 365, y: arrowY + 16))
-arrow.line(to: NSPoint(x: 385, y: arrowY))
-arrow.line(to: NSPoint(x: 365, y: arrowY - 16))
+arrow.line(to: NSPoint(x: 375, y: arrowY))
+arrow.move(to: NSPoint(x: 355, y: arrowY + 16))
+arrow.line(to: NSPoint(x: 375, y: arrowY))
+arrow.line(to: NSPoint(x: 355, y: arrowY - 16))
 NSColor(calibratedRed: 0.40, green: 0.34, blue: 0.78, alpha: 0.9).setStroke()
 arrow.stroke()
 

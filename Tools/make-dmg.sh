@@ -105,9 +105,9 @@ tell application "Finder"
         set icon size of theOptions to 128
         set text size of theOptions to 13
         set background picture of theOptions to file ".background:background.png"
-        set position of item "Kexts" of container window to {150, 145}
-        set position of item "$APP_NAME.app" of container window to {150, 315}
-        set position of item "Applications" of container window to {450, 230}
+        set position of item "Kexts" of container window to {150, 120}
+        set position of item "$APP_NAME.app" of container window to {150, 275}
+        set position of item "Applications" of container window to {450, 275}
 
         update without registering applications
         delay 1
