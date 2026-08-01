@@ -1100,35 +1100,21 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             vm_deallocate(mach_task_self_, vm_address_t(bitPattern: cpuInfo), deallocSize)
         }
         
-        // Build CoreSnapshots
+        // Build CoreSnapshots in natural hardware processor order (interleaved)
         var cores: [CoreSnapshot] = []
         let numLogical = Int(cpuCount)
         if numLogical > 0 {
             let hasSMT = (numLogical == 2 * numPhysical)
             for logicalIdx in 0..<numLogical {
-                let physicalIdx: Int
-                let isLogical: Bool
-                let snapshotId: Int
+                let physicalIdx = hasSMT ? (logicalIdx / 2) : (logicalIdx % max(1, numPhysical))
+                let isLogical = hasSMT ? (logicalIdx % 2 != 0) : (logicalIdx >= numPhysical)
 
-                if hasSMT {
-                    // XNU interleaves SMT threads: even indices (0, 2, 4...) are primary physical threads,
-                    // odd indices (1, 3, 5...) are secondary SMT threads.
-                    physicalIdx = logicalIdx / 2
-                    isLogical = (logicalIdx % 2 != 0)
-                    snapshotId = isLogical ? (physicalIdx + numPhysical) : physicalIdx
-                } else {
-                    physicalIdx = logicalIdx % max(1, numPhysical)
-                    isLogical = logicalIdx >= numPhysical
-                    snapshotId = logicalIdx
-                }
-
-                // Core clocks start at index 3 in the metric array (0=Power, 1=Temp, 2=PStateCur)
                 let freqIdx = physicalIdx + 3
                 let freq = amdSnap.metric.count > freqIdx ? amdSnap.metric[freqIdx] : 0.0
                 let load = coreLoads.count > logicalIdx ? coreLoads[logicalIdx] : 0.0
 
                 cores.append(CoreSnapshot(
-                    id: snapshotId,
+                    id: logicalIdx,
                     freqMHz: freq,
                     loadPct: load,
                     isLogical: isLogical,
@@ -1137,7 +1123,6 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     coreRank: nil
                 ))
             }
-            cores.sort { $0.id < $1.id }
         }
         
         let ccdTemps = amdSnap.ccdTemperatures
