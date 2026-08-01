@@ -25,7 +25,7 @@ struct TrendRule: Equatable, Sendable {
 }
 
 /// A lightweight, immediate-mode timeline chart drawn entirely with a single SwiftUI `Canvas`.
-/// Draws the whole series in one pass with zero layout overhead and 0% background CPU cost.
+/// Draws smooth cubic spline waveforms with zero layout overhead.
 struct TrendChart: View {
     var series: [TrendSeries]
     var yDomain: ClosedRange<Double>? = nil
@@ -92,17 +92,13 @@ struct TrendChart: View {
             // Series rendering
             for s in series {
                 for run in Self.runs(s.points) where !run.isEmpty {
-                    let linePath = Path { p in
-                        for (i, pt) in run.enumerated() {
-                            let q = CGPoint(x: xPos(pt.date), y: yPos(pt.value))
-                            if i == 0 { p.move(to: q) } else { p.addLine(to: q) }
-                        }
-                    }
+                    let cgPoints = run.map { CGPoint(x: xPos($0.date), y: yPos($0.value)) }
+                    let linePath = Self.smoothPath(for: cgPoints)
 
                     if s.filled, run.count >= 2 {
                         var fill = linePath
-                        fill.addLine(to: CGPoint(x: xPos(run.last!.date), y: plot.maxY))
-                        fill.addLine(to: CGPoint(x: xPos(run.first!.date), y: plot.maxY))
+                        fill.addLine(to: CGPoint(x: cgPoints.last!.x, y: plot.maxY))
+                        fill.addLine(to: CGPoint(x: cgPoints.first!.x, y: plot.maxY))
                         fill.closeSubpath()
                         ctx.fill(
                             fill,
@@ -120,9 +116,9 @@ struct TrendChart: View {
                             with: .color(s.color),
                             style: StrokeStyle(lineWidth: s.lineWidth, lineCap: .round, lineJoin: .round)
                         )
-                    } else if let only = run.first {
+                    } else if let only = cgPoints.first {
                         let r: CGFloat = 1.5
-                        let dot = Path(ellipseIn: CGRect(x: xPos(only.date) - r, y: yPos(only.value) - r, width: 2 * r, height: 2 * r))
+                        let dot = Path(ellipseIn: CGRect(x: only.x - r, y: only.y - r, width: 2 * r, height: 2 * r))
                         ctx.fill(dot, with: .color(s.color))
                     }
                 }
@@ -137,7 +133,10 @@ struct TrendChart: View {
     }
 
     private func defaultTicks(_ domain: ClosedRange<Double>) -> [Double] {
-        let n = 3
+        if domain.lowerBound == 0 && domain.upperBound == 100 {
+            return [0, 50, 100]
+        }
+        let n = 2
         return (0...n).map {
             domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double($0) / Double(n)
         }
@@ -146,6 +145,36 @@ struct TrendChart: View {
     private func timeBounds() -> (Double, Double) {
         let all = series.flatMap(\.points).map(\.date.timeIntervalSinceReferenceDate)
         return (all.min() ?? 0, all.max() ?? 0)
+    }
+
+    private static func smoothPath(for points: [CGPoint]) -> Path {
+        var path = Path()
+        guard !points.isEmpty else { return path }
+        if points.count < 3 {
+            path.move(to: points[0])
+            for pt in points.dropFirst() { path.addLine(to: pt) }
+            return path
+        }
+
+        path.move(to: points[0])
+        for i in 0..<(points.count - 1) {
+            let p0 = i > 0 ? points[i - 1] : points[i]
+            let p1 = points[i]
+            let p2 = points[i + 1]
+            let p3 = i < points.count - 2 ? points[i + 2] : p2
+
+            let cp1 = CGPoint(
+                x: p1.x + (p2.x - p0.x) / 6.0,
+                y: p1.y + (p2.y - p0.y) / 6.0
+            )
+            let cp2 = CGPoint(
+                x: p2.x - (p3.x - p1.x) / 6.0,
+                y: p2.y - (p3.y - p1.y) / 6.0
+            )
+
+            path.addCurve(to: p2, control1: cp1, control2: cp2)
+        }
+        return path
     }
 
     private static func runs(_ points: [TrendPoint]) -> [[TrendPoint]] {

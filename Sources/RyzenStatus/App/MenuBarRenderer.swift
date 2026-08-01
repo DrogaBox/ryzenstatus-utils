@@ -1171,16 +1171,16 @@ enum MenuBarRenderer {
             outline.stroke()
 
             let innerRect = outlineRect.insetBy(dx: 1.6, dy: 1.6)
-            if let fillLevel, fillLevel > 0 {
-                let fillHeight = max(1, min(innerRect.height,
-                                            innerRect.height * CGFloat(fillLevel) / CGFloat(innerSteps)))
+            let clampedFrac = min(1.0, max(0.0, fraction ?? 0.0))
+            if clampedFrac > 0 {
+                let fillHeight = max(1.0, innerRect.height * CGFloat(clampedFrac))
                 let fillRect = NSRect(x: innerRect.minX,
                                       y: innerRect.minY,
                                       width: innerRect.width,
                                       height: fillHeight)
                 usageBarColor(hex: fillColorHex).setFill()
                 NSBezierPath(roundedRect: fillRect, xRadius: 1.2, yRadius: 1.2).fill()
-            } else if fillLevel == nil {
+            } else if fraction == nil {
                 NSColor.secondaryLabelColor.setStroke()
                 let dash = NSBezierPath()
                 dash.move(to: NSPoint(x: innerRect.minX + 0.3, y: innerRect.midY))

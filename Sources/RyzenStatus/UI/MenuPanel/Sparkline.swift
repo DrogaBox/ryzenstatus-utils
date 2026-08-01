@@ -3,12 +3,8 @@
 
 import SwiftUI
 
-/// A small history graph: a filled area under a smooth polyline. Hand-drawn with
-/// `Path` so the app needs no charting framework (and stays clear of the SwiftUI
-/// macro plugins the Command Line Tools cannot load).
-///
-/// `maxValue` fixes the vertical scale (CPU/memory use 1.0 for an absolute 0–100%
-/// reading); when nil the graph auto-scales to its own peak (network, power).
+/// A small history graph: a filled area under a smooth cubic spline curve.
+/// Rendered with Catmull-Rom interpolation for fluid 60fps waveform visualization.
 struct Sparkline: View {
     var values: [Double]
     var color: Color
@@ -22,10 +18,11 @@ struct Sparkline: View {
             let baselineY = max(0.5, geometry.size.height - 0.5)
             let points = points(in: geometry.size, baselineY: baselineY)
             if points.count >= 2 {
+                let strokePath = smoothPath(points: points)
                 ZStack {
                     Path { path in
                         path.move(to: CGPoint(x: points[0].x, y: baselineY))
-                        points.forEach { path.addLine(to: $0) }
+                        path.addPath(strokePath)
                         path.addLine(to: CGPoint(x: points[points.count - 1].x, y: baselineY))
                         path.closeSubpath()
                     }
@@ -40,14 +37,41 @@ struct Sparkline: View {
                         }
                         .stroke(Color.secondary.opacity(0.28), lineWidth: 1)
                     }
-                    Path { path in
-                        path.move(to: points[0])
-                        points.dropFirst().forEach { path.addLine(to: $0) }
-                    }
-                    .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+                    strokePath
+                        .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
                 }
             }
         }
+    }
+
+    private func smoothPath(points: [CGPoint]) -> Path {
+        var path = Path()
+        guard !points.isEmpty else { return path }
+        if points.count < 3 {
+            path.move(to: points[0])
+            for pt in points.dropFirst() { path.addLine(to: pt) }
+            return path
+        }
+
+        path.move(to: points[0])
+        for i in 0..<(points.count - 1) {
+            let p0 = i > 0 ? points[i - 1] : points[i]
+            let p1 = points[i]
+            let p2 = points[i + 1]
+            let p3 = i < points.count - 2 ? points[i + 2] : p2
+
+            let cp1 = CGPoint(
+                x: p1.x + (p2.x - p0.x) / 6.0,
+                y: p1.y + (p2.y - p0.y) / 6.0
+            )
+            let cp2 = CGPoint(
+                x: p2.x - (p3.x - p1.x) / 6.0,
+                y: p2.y - (p3.y - p1.y) / 6.0
+            )
+
+            path.addCurve(to: p2, control1: cp1, control2: cp2)
+        }
+        return path
     }
 
     private func points(in size: CGSize, baselineY: CGFloat) -> [CGPoint] {

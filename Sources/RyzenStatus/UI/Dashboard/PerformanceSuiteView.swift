@@ -109,8 +109,10 @@ struct PerformanceSuiteView: View {
                                 }()
                                 Text(title)
                                     .font(.system(size: 11, weight: .semibold))
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
                             }
-                            .padding(.horizontal, 12)
+                            .padding(.horizontal, 10)
                             .padding(.vertical, 6)
                             .background(selectedTab == tab ? Color.accentColor.opacity(0.2) : Color.clear)
                             .foregroundColor(selectedTab == tab ? .accentColor : .secondary)
@@ -122,6 +124,7 @@ struct PerformanceSuiteView: View {
                 .padding(4)
                 .background(Color.primary.opacity(0.04))
                 .cornerRadius(8)
+                .fixedSize(horizontal: true, vertical: false)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
