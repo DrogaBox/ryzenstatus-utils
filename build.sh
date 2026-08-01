@@ -171,13 +171,12 @@ if (( TEST )); then
     exit $?
 fi
 
-if [[ ! -f "build/$EXECUTABLE" ]]; then
-    echo "▸ Compiling (release) against $(basename "$SDK")…"
-    mkdir -p build
-    swiftc -O -num-threads 16 -target "$TARGET" -sdk "$SDK" \
-        Sources/RyzenStatus/**/*.swift \
-        -o "build/$EXECUTABLE"
-fi
+echo "▸ Compiling (release) against $(basename "$SDK") using $(sysctl -n hw.ncpu) threads…"
+mkdir -p build
+rm -f "build/$EXECUTABLE"
+swiftc -O -num-threads "$(sysctl -n hw.ncpu)" -target "$TARGET" -sdk "$SDK" \
+    Sources/RyzenStatus/**/*.swift \
+    -o "build/$EXECUTABLE"
 
 echo "▸ Generating app icon…"
 swift Tools/MakeIcon.swift build/AppIcon.iconset
