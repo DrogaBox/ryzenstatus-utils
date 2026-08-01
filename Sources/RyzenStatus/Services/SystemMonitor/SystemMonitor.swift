@@ -1104,25 +1104,40 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         var cores: [CoreSnapshot] = []
         let numLogical = Int(cpuCount)
         if numLogical > 0 {
-            // For Ryzen, logical thread N maps to physical core N % numPhysical
+            let hasSMT = (numLogical == 2 * numPhysical)
             for logicalIdx in 0..<numLogical {
-                let physicalIdx = logicalIdx % numPhysical
+                let physicalIdx: Int
+                let isLogical: Bool
+                let snapshotId: Int
+
+                if hasSMT {
+                    // XNU interleaves SMT threads: even indices (0, 2, 4...) are primary physical threads,
+                    // odd indices (1, 3, 5...) are secondary SMT threads.
+                    physicalIdx = logicalIdx / 2
+                    isLogical = (logicalIdx % 2 != 0)
+                    snapshotId = isLogical ? (physicalIdx + numPhysical) : physicalIdx
+                } else {
+                    physicalIdx = logicalIdx % max(1, numPhysical)
+                    isLogical = logicalIdx >= numPhysical
+                    snapshotId = logicalIdx
+                }
+
                 // Core clocks start at index 3 in the metric array (0=Power, 1=Temp, 2=PStateCur)
                 let freqIdx = physicalIdx + 3
                 let freq = amdSnap.metric.count > freqIdx ? amdSnap.metric[freqIdx] : 0.0
                 let load = coreLoads.count > logicalIdx ? coreLoads[logicalIdx] : 0.0
-                let isLogical = logicalIdx >= numPhysical
-                
+
                 cores.append(CoreSnapshot(
-                    id: logicalIdx,
+                    id: snapshotId,
                     freqMHz: freq,
                     loadPct: load,
                     isLogical: isLogical,
-                    cppcScore: nil, // We'd need to fetch CPPC scores separately if required
+                    cppcScore: nil,
                     cppcScoreEstimated: false,
                     coreRank: nil
                 ))
             }
+            cores.sort { $0.id < $1.id }
         }
         
         let ccdTemps = amdSnap.ccdTemperatures

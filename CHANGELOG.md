@@ -5,6 +5,7 @@
 ### Unified Pre-Release (Beta Build 21)
 
 - **20-Bug Stability & Optimization Sprint**: Complete audit resolution across core telemetry, UI rendering, thread concurrency, memory management, and process analysis engines.
+- **AMD SMT Core Topology Mapping**: Corrected XNU kernel interleaved SMT thread indexing (even indices = primary physical cores C1..C16, odd indices = secondary SMT threads T17..T32), restoring accurate per-core load visualization across all 16 physical cores.
 - **Process Inspector Memory Leak & Lifecycle Fix**: Implemented `NSWindowDelegate` and `windowWillClose` in `ProcessInspectorWindowController` to tear down live-telemetry timers when closed, preventing background memory leaks.
 - **Telemetry Logger Disk Exception Protection**: Handled file write exceptions gracefully (`write(contentsOf:)`) during low-disk states and synchronized queue transitions in `TelemetryLogger`.
 - **Memory Alignment & CPU Architecture Safety**: Replaced unsafe pointer type-punning with `loadUnaligned` in `NetworkSampler` and `withUnsafeMutableBytes` in `physicalFootprint`.
