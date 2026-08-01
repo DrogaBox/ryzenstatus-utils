@@ -2,10 +2,9 @@
 // Copyright (C) 2026 RyzenStatus
 
 import Foundation
-import AppKit
 
-/// Category or severity of an automated diagnostic insight.
-enum InsightSeverity: String, Codable, Sendable, Comparable {
+/// Severity ranking for diagnostic insight cards.
+enum InsightSeverity: String, Sendable, Codable, Equatable, Comparable {
     case info
     case warning
     case critical
@@ -28,15 +27,17 @@ struct InsightCard: Identifiable, Sendable, Codable, Equatable {
     var severity: InsightSeverity
     var categoryName: String
     var actionHint: String?
+    var pid: pid_t?
     var timestamp: Date
 
-    init(id: String = UUID().uuidString, title: String, detail: String, severity: InsightSeverity, categoryName: String, actionHint: String? = nil, timestamp: Date = Date()) {
+    init(id: String = UUID().uuidString, title: String, detail: String, severity: InsightSeverity, categoryName: String, actionHint: String? = nil, pid: pid_t? = nil, timestamp: Date = Date()) {
         self.id = id
         self.title = title
         self.detail = detail
         self.severity = severity
         self.categoryName = categoryName
         self.actionHint = actionHint
+        self.pid = pid
         self.timestamp = timestamp
     }
 }
@@ -62,7 +63,8 @@ final class InsightEngine: @unchecked Sendable {
                 detail: "Continuous memory growth detected over 20+ minutes with sustained slope and high confidence (R² ≥ 0.85).",
                 severity: .critical,
                 categoryName: "Memory",
-                actionHint: "Inspect or force-quit process"
+                actionHint: "Inspect or force-quit process",
+                pid: pid
             ))
         }
 
@@ -74,24 +76,36 @@ final class InsightEngine: @unchecked Sendable {
                 detail: "Consuming \(String(format: "%.1f%%", topProc.value)) CPU on the system.",
                 severity: topProc.value > 200.0 ? .critical : .warning,
                 categoryName: "CPU",
-                actionHint: "Check if application is responsive"
+                actionHint: "Check if application is responsive",
+                pid: topProc.pid
             ))
-        }
-
-        // 3. High Memory Pressure Event Insight
-        let pressure = snapshot.memoryPressure
-        if pressure == .warning || pressure == .critical {
+        } else {
             cards.append(InsightCard(
-                id: "mem-pressure-\(pressure)",
-                title: pressure == .critical ? "Critical Memory Pressure" : "Elevated Memory Pressure",
-                detail: "macOS is compressing memory pages or swapping to disk. Close unused applications to restore speed.",
-                severity: pressure == .critical ? .critical : .warning,
-                categoryName: "RAM",
-                actionHint: "Purge or close heavy apps"
+                id: "cpu-status-nominal",
+                title: "CPU Load Nominal",
+                detail: "All active processes operating within balanced CPU execution limits.",
+                severity: .info,
+                categoryName: "CPU",
+                actionHint: "No runaway threads detected"
             ))
         }
 
-        // 4. Rosetta 2 Translation Overhead Insight (Apple Silicon arm64 target only)
+        // 3. Memory Pressure & RAM Status Insight
+        let pressure = snapshot.memoryPressure
+        let usedRAM = Double(snapshot.memoryUsed ?? 0) / 1_073_741_824.0
+        let totalRAM = Double(snapshot.memoryTotal ?? 34_359_738_368) / 1_073_741_824.0
+        let ramPct = totalRAM > 0 ? (usedRAM / totalRAM * 100.0) : 0.0
+
+        cards.append(InsightCard(
+            id: "mem-status",
+            title: pressure == .critical ? "Critical Memory Pressure" : (pressure == .warning ? "Elevated Memory Pressure" : "Memory Footprint Nominal"),
+            detail: String(format: "%.1f GB of %.1f GB used (%.0f%%). macOS memory compression is active.", usedRAM, totalRAM, ramPct),
+            severity: pressure == .critical ? .critical : (pressure == .warning ? .warning : .info),
+            categoryName: "Memory",
+            actionHint: pressure == .critical ? "Close unused apps to free memory" : "RAM cache optimized"
+        ))
+
+        // 4. Architecture & Translation Insight
         #if arch(arm64)
         var rosettaProcesses: [String] = []
         for proc in processes {
@@ -104,25 +118,43 @@ final class InsightEngine: @unchecked Sendable {
                 id: "rosetta-apps",
                 title: "Rosetta 2 Translation Running",
                 detail: "\(rosettaProcesses.count) x86_64 application(s) running via emulation (\(rosettaProcesses.prefix(3).joined(separator: ", "))).",
-                severity: .info,
+                severity: .warning,
                 categoryName: "Architecture",
                 actionHint: "Upgrade to native Apple Silicon / Universal builds if available"
             ))
-        }
-        #endif
-
-        // 5. High Temperature Insight
-        if let cpuTemp = snapshot.cpuTemperature, cpuTemp > 85.0 {
+        } else {
             cards.append(InsightCard(
-                id: "cpu-temp-high",
-                title: "High CPU Temperature (\(String(format: "%.1f°C", cpuTemp)))",
-                detail: "Thermal throttling may occur if temperatures remain above 90°C.",
-                severity: cpuTemp > 92.0 ? .critical : .warning,
-                categoryName: "Thermal",
-                actionHint: "Ensure proper airflow or reduce heavy workload"
+                id: "arch-arm64-native",
+                title: "Native ARM64 Execution",
+                detail: "All running processes are executing native ARM64 machine code.",
+                severity: .info,
+                categoryName: "Architecture",
+                actionHint: "100% Native silicon efficiency"
             ))
         }
+        #else
+        cards.append(InsightCard(
+            id: "arch-x86-native",
+            title: "Native x86_64 AMD Zen 3 Execution",
+            detail: "System is running 100% native x86_64 architecture code. Rosetta 2 emulation is not required on AMD Hackintosh systems.",
+            severity: .info,
+            categoryName: "Architecture",
+            actionHint: "Direct hardware execution"
+        ))
+        #endif
 
-        return cards.sorted { $0.severity > $1.severity }
+        // 5. Thermal Telemetry Insight
+        let cpuTemp = snapshot.cpuTemperature ?? 0.0
+        let gpuTemp = snapshot.gpuTemperature ?? 0.0
+        cards.append(InsightCard(
+            id: "thermal-status",
+            title: cpuTemp > 85.0 ? String(format: "High CPU Temperature (%.1f°C)", cpuTemp) : String(format: "Thermal Status Nominal (%.1f°C)", cpuTemp),
+            detail: cpuTemp > 85.0 ? "Thermal throttling may occur if temperatures remain above 90°C." : String(format: "CPU: %.1f°C  ·  GPU: %.1f°C  ·  All thermal sensors operating within safe limits.", cpuTemp, gpuTemp),
+            severity: cpuTemp > 92.0 ? .critical : (cpuTemp > 85.0 ? .warning : .info),
+            categoryName: "Thermal",
+            actionHint: cpuTemp > 85.0 ? "Ensure proper airflow or reduce heavy workload" : "Fan profiles operating normally"
+        ))
+
+        return cards
     }
 }

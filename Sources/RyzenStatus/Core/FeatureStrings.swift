@@ -2088,7 +2088,7 @@ public struct PerformanceSuiteFeatureStrings {
 
 extension PerformanceSuiteFeatureStrings {
     static let enUS = PerformanceSuiteFeatureStrings(
-        title: "Mac Performance Suite",
+        title: "RyzenStatus Performance Suite",
         dashboardTab: "Dashboard",
         insightsTab: "Insights",
         analyticsTab: "Analytics",
@@ -2096,7 +2096,7 @@ extension PerformanceSuiteFeatureStrings {
         networkTab: "Network"
     )
     static let ptBR = PerformanceSuiteFeatureStrings(
-        title: "Mac Performance Suite",
+        title: "RyzenStatus Performance Suite",
         dashboardTab: "Painel",
         insightsTab: "Insights",
         analyticsTab: "Análises",
@@ -2104,7 +2104,7 @@ extension PerformanceSuiteFeatureStrings {
         networkTab: "Rede"
     )
     static let es = PerformanceSuiteFeatureStrings(
-        title: "Mac Performance Suite",
+        title: "RyzenStatus Performance Suite",
         dashboardTab: "Dashboard",
         insightsTab: "Diagnóstico",
         analyticsTab: "Analítica",
@@ -2112,7 +2112,7 @@ extension PerformanceSuiteFeatureStrings {
         networkTab: "Red"
     )
     static let de = PerformanceSuiteFeatureStrings(
-        title: "Mac Performance Suite",
+        title: "RyzenStatus Performance Suite",
         dashboardTab: "Übersicht",
         insightsTab: "Einblicke",
         analyticsTab: "Analysen",
@@ -2120,7 +2120,7 @@ extension PerformanceSuiteFeatureStrings {
         networkTab: "Netzwerk"
     )
     static let fr = PerformanceSuiteFeatureStrings(
-        title: "Mac Performance Suite",
+        title: "RyzenStatus Performance Suite",
         dashboardTab: "Tableau de bord",
         insightsTab: "Diagnostics",
         analyticsTab: "Analytique",
@@ -2128,7 +2128,7 @@ extension PerformanceSuiteFeatureStrings {
         networkTab: "Réseau"
     )
     static let it = PerformanceSuiteFeatureStrings(
-        title: "Mac Performance Suite",
+        title: "RyzenStatus Performance Suite",
         dashboardTab: "Dashboard",
         insightsTab: "Analisi",
         analyticsTab: "Analitica",
@@ -2136,7 +2136,7 @@ extension PerformanceSuiteFeatureStrings {
         networkTab: "Rete"
     )
     static let ja = PerformanceSuiteFeatureStrings(
-        title: "Mac Performance Suite",
+        title: "RyzenStatus Performance Suite",
         dashboardTab: "ダッシュボード",
         insightsTab: "インサイト",
         analyticsTab: "分析",
@@ -2144,7 +2144,7 @@ extension PerformanceSuiteFeatureStrings {
         networkTab: "ネットワーク"
     )
     static let ko = PerformanceSuiteFeatureStrings(
-        title: "Mac Performance Suite",
+        title: "RyzenStatus Performance Suite",
         dashboardTab: "대시보드",
         insightsTab: "진단",
         analyticsTab: "분석",
@@ -2152,7 +2152,7 @@ extension PerformanceSuiteFeatureStrings {
         networkTab: "네트워크"
     )
     static let zhHans = PerformanceSuiteFeatureStrings(
-        title: "Mac Performance Suite",
+        title: "RyzenStatus Performance Suite",
         dashboardTab: "仪表盘",
         insightsTab: "诊断分析",
         analyticsTab: "数据分析",
@@ -2160,7 +2160,7 @@ extension PerformanceSuiteFeatureStrings {
         networkTab: "网络"
     )
     static let zhTW = PerformanceSuiteFeatureStrings(
-        title: "Mac Performance Suite",
+        title: "RyzenStatus Performance Suite",
         dashboardTab: "儀表板",
         insightsTab: "診斷分析",
         analyticsTab: "數據分析",
@@ -2168,7 +2168,7 @@ extension PerformanceSuiteFeatureStrings {
         networkTab: "網路"
     )
     static let zhHK = PerformanceSuiteFeatureStrings(
-        title: "Mac Performance Suite",
+        title: "RyzenStatus Performance Suite",
         dashboardTab: "儀表板",
         insightsTab: "診斷分析",
         analyticsTab: "數據分析",
@@ -2176,7 +2176,7 @@ extension PerformanceSuiteFeatureStrings {
         networkTab: "網路"
     )
     static let tr = PerformanceSuiteFeatureStrings(
-        title: "Mac Performance Suite",
+        title: "RyzenStatus Performance Suite",
         dashboardTab: "Gösterge Paneli",
         insightsTab: "Analizler",
         analyticsTab: "İstatistikler",
@@ -2184,7 +2184,7 @@ extension PerformanceSuiteFeatureStrings {
         networkTab: "Ağ"
     )
     static let ru = PerformanceSuiteFeatureStrings(
-        title: "Mac Performance Suite",
+        title: "RyzenStatus Performance Suite",
         dashboardTab: "Панель управления",
         insightsTab: "Диагностика",
         analyticsTab: "Аналитика",

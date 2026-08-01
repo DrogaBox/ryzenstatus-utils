@@ -172,6 +172,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     /// what triggers the immediate resample instead of a wait of up to 60 s.
     private var lastSyncedPlan: SamplingPlan?
     private var lastCPUUsage: Double?
+    private var lastMemoryReading: (used: UInt64, total: UInt64, pressure: MemoryPressure)?
     private var cores: [CoreSnapshot] = []
     private var ccdTemperatures: [Double] = []
     private var lastAmdSnapshot: ProcessorModel.TelemetrySnapshot?
@@ -466,51 +467,18 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
 
     private func currentPlan(defaults: UserDefaults) -> SamplingPlan {
         var plan = SamplingPlan()
-        let panelNeedsSystem = fullMonitorVisible || menuPanelNeeds.system
-        let panelNeedsNetwork = fullMonitorVisible || menuPanelNeeds.network
-        let panelNeedsDisk = fullMonitorVisible || menuPanelNeeds.disk
-        let panelNeedsPower = fullMonitorVisible || menuPanelNeeds.power
-
-        let panelCPU = (panelNeedsSystem && defaults.bool(forKey: DefaultsKey.monitorSysCPU)) || menuPanelNeeds.cpu
-        let panelGPU = (panelNeedsSystem && defaults.bool(forKey: DefaultsKey.monitorSysGPU)) || menuPanelNeeds.gpu
-        let panelMemory = (panelNeedsSystem && defaults.bool(forKey: DefaultsKey.monitorSysMemory)) || menuPanelNeeds.memory
-        let panelBattery = (panelNeedsSystem && defaults.bool(forKey: DefaultsKey.monitorSysBattery)) || menuPanelNeeds.battery
-        let panelTemps = panelNeedsSystem && defaults.bool(forKey: DefaultsKey.monitorSysTemps)
-        let alertCPU = defaults.bool(forKey: DefaultsKey.monitorAlertCPU)
-        let alertCPUTemperature = defaults.bool(forKey: DefaultsKey.monitorAlertCPUTemperature)
-        let alertMemory = defaults.bool(forKey: DefaultsKey.monitorAlertMemory)
-        let alertDisk = defaults.bool(forKey: DefaultsKey.monitorAlertDisk)
-        let alertBattery = defaults.bool(forKey: DefaultsKey.monitorAlertBattery)
-
-        plan.needCPU = panelCPU || defaults.bool(forKey: DefaultsKey.menuBarCPU) || defaults.bool(forKey: DefaultsKey.menuBarCPUFrequency) || alertCPU
-        plan.needMemory = panelMemory || defaults.bool(forKey: DefaultsKey.menuBarMemory) || alertMemory
-        plan.needNetwork = panelNeedsNetwork || defaults.bool(forKey: DefaultsKey.menuBarNetwork)
-        plan.needDisk = panelNeedsDisk
-            || defaults.bool(forKey: DefaultsKey.menuBarDiskUsage)
-            || defaults.bool(forKey: DefaultsKey.menuBarDiskActivity)
-            || alertDisk
-        plan.needPower = panelNeedsPower || panelBattery
-            || defaults.bool(forKey: DefaultsKey.menuBarPower)
-            || defaults.bool(forKey: DefaultsKey.menuBarBattery)
-            || defaults.bool(forKey: DefaultsKey.menuBarBatteryTime)
-            || alertBattery
+        plan.needCPU = true
+        plan.needMemory = true
+        plan.needNetwork = true
+        plan.needDisk = true
+        plan.needPower = true
         plan.needPeripheralBattery = menuPanelNeeds.peripheralBattery
             || defaults.bool(forKey: DefaultsKey.menuBarPeripheralBattery)
-        plan.needGPUUsage = panelGPU || defaults.bool(forKey: DefaultsKey.menuBarGPU)
-        plan.needCPUTemperature = panelTemps || menuPanelNeeds.cpuTemperature ||
-            defaults.bool(forKey: DefaultsKey.menuBarCPUTemperature) || defaults.bool(forKey: DefaultsKey.menuBarCPUTempPower) || alertCPUTemperature
-        plan.needGPUTemperature = panelTemps || menuPanelNeeds.gpuTemperature ||
-            defaults.bool(forKey: DefaultsKey.menuBarGPUTemperature) || defaults.bool(forKey: DefaultsKey.menuBarGPUTempPower)
-        plan.needBatteryTemperature = panelTemps || menuPanelNeeds.batteryTemperature ||
-            defaults.bool(forKey: DefaultsKey.menuBarBatteryTemperature)
-
-        // AMD kext power: active when any power metric is pinned to the menu bar
-        // OR when the system panel is open (shown in the temperature/power grid)
-        plan.needAMDPower = panelNeedsSystem
-            || defaults.bool(forKey: DefaultsKey.menuBarCPUPower)
-            || defaults.bool(forKey: DefaultsKey.menuBarGPUPower)
-            || defaults.bool(forKey: DefaultsKey.menuBarCPUTempPower)
-            || defaults.bool(forKey: DefaultsKey.menuBarGPUTempPower)
+        plan.needGPUUsage = true
+        plan.needCPUTemperature = true
+        plan.needGPUTemperature = true
+        plan.needBatteryTemperature = true
+        plan.needAMDPower = true
         // The hub gates whole metric families: an unavailable metric never
         // samples, no matter what is pinned, shown or alerting.
         func available(_ feature: AppFeature) -> Bool {
@@ -688,12 +656,15 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             if plan.needMemory {
                 if take(.memory),
                    let memory = self.stabilizedMemoryReading(now: now) {
-                    next.memoryUsed = memory.used
-                    next.memoryTotal = memory.total
-                    next.memoryPressure = memory.pressure
+                    self.lastMemoryReading = (memory.used, memory.total, memory.pressure)
                     if memory.isFresh, memory.total > 0 {
                         self.memoryHistory.push(Double(memory.used) / Double(memory.total))
                     }
+                }
+                if let memory = self.lastMemoryReading {
+                    next.memoryUsed = memory.used
+                    next.memoryTotal = memory.total
+                    next.memoryPressure = memory.pressure
                 }
             }
 
