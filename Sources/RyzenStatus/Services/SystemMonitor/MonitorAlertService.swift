@@ -12,6 +12,7 @@ final class MonitorAlertService {
 
     private var cancellables = Set<AnyCancellable>()
     private var highCPUSince: Date?
+    private var highCPUTempSince: Date?
     private var thermalThrottleSince: Date?
     private var highGPUTempSince: Date?
     private var highGPUPowerSince: Date?
@@ -55,6 +56,7 @@ final class MonitorAlertService {
     private func stopSink() {
         cancellables.removeAll()
         highCPUSince = nil
+        highCPUTempSince = nil
         thermalThrottleSince = nil
         highGPUTempSince = nil
         highGPUPowerSince = nil
@@ -177,7 +179,16 @@ final class MonitorAlertService {
                                                   fallback: 90,
                                                   range: 70...105)
         guard let temperature = snapshot.cpuTemperature,
-              temperature >= Double(threshold) else { return nil }
+              temperature >= Double(threshold) else {
+            highCPUTempSince = nil
+            return nil
+        }
+        let now = Date()
+        if highCPUTempSince == nil {
+            highCPUTempSince = now
+            return nil
+        }
+        guard let since = highCPUTempSince, now.timeIntervalSince(since) >= 5 else { return nil }
         return Int(temperature.rounded())
     }
 

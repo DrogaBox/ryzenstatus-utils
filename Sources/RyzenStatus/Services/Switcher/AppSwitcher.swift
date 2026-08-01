@@ -98,6 +98,7 @@ final class AppSwitcher: ObservableObject {
         static let escape: Int64 = 53
         static let enter: Int64 = 36
         static let q: Int64 = 12
+        static let w: Int64 = 13
         static let leftArrow: Int64 = 123
         static let rightArrow: Int64 = 124
         static let downArrow: Int64 = 125
@@ -389,6 +390,8 @@ final class AppSwitcher: ObservableObject {
             moveSelection(by: -grid.columns)
         case KeyCode.q where searchQuery.isEmpty:
             quitSelectedApp()
+        case KeyCode.w where searchQuery.isEmpty:
+            closeHighlightedWindow()
         case KeyCode.delete:
             removeLastSearchCharacter()
         case KeyCode.escape:
@@ -673,6 +676,11 @@ final class AppSwitcher: ObservableObject {
         selectedIndex = min(max(0, selectedIndex - removedBeforeSelection), windows.count - 1)
         recomputeLayouts(for: windows)
         resizePanel()
+    }
+
+    private func closeHighlightedWindow() {
+        guard windows.indices.contains(selectedIndex) else { return }
+        closeWindow(windows[selectedIndex])
     }
 
     private func finishClosingWindow(itemID: String, windowID: CGWindowID, pid: pid_t, attempt: Int) {

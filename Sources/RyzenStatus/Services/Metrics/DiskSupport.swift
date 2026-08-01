@@ -48,7 +48,7 @@ struct DiskDeviceReading: Identifiable, Equatable {
     }
 
     var canEject: Bool {
-        !isInternal && (isEjectable || isRemovable) && ejectBSDName != nil
+        !isInternal && ejectBSDName != nil
     }
 
     var ejectBSDName: String? {

@@ -51,6 +51,7 @@ struct ShortcutCaps: View {
 /// to the same radius as the card removes it. Pass the card's corner radius.
 struct HUDBackdrop: NSViewRepresentable {
     var cornerRadius: CGFloat = 0
+    var opacity: CGFloat = 1.0
 
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
@@ -70,5 +71,6 @@ struct HUDBackdrop: NSViewRepresentable {
         view.layer?.cornerRadius = cornerRadius
         view.layer?.cornerCurve = .continuous
         view.layer?.masksToBounds = true
+        view.alphaValue = opacity
     }
 }

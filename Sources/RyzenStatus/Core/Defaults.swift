@@ -73,6 +73,7 @@ enum DefaultsKey {
     static let whatsAppOrganizerLastFailed = "whatsAppOrganizerLastFailed"
     static let switcherShowWindowlessFinder = "switcherShowWindowlessFinder"
     static let dockPreviewEnabled = "dockPreviewEnabled"
+    static let dockPreviewBackgroundOpacity = "dockPreviewBackgroundOpacity"
     static let dockClickMinimize = "dockClickMinimize"    // click the active app's Dock icon to minimize its windows
     static let dockClickCycleWindows = "dockClickCycleWindows" // click the active app's Dock icon to cycle through its windows
     static let middleClickEnabled = "middleClickEnabled"  // three-finger PHYSICAL click on the trackpad acts as a middle click
@@ -579,6 +580,16 @@ enum Defaults {
     static let finderBundleIdentifier = "com.apple.finder"
     static let mandatoryAutoQuitExceptionBundleIDs = [finderBundleIdentifier]
 
+    static var dockPreviewBackgroundOpacity: Double {
+        get {
+            let val = UserDefaults.standard.double(forKey: DefaultsKey.dockPreviewBackgroundOpacity)
+            return val == 0 ? 0.85 : max(0.40, min(1.0, val))
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: DefaultsKey.dockPreviewBackgroundOpacity)
+        }
+    }
+
     static let allowedDurations = [0, 15, 30, 60, 120, 240, 480]
     static let allowedKeepAwakeMouseJiggleIntervals = [1, 2, 5, 10, 15]
     static let allowedBatteryLimits = [0, 5, 10, 15, 20]
@@ -655,6 +666,7 @@ enum Defaults {
         DefaultsKey.switcherMergeTabs: false,
         DefaultsKey.switcherShowWindowlessFinder: true,
         DefaultsKey.dockPreviewEnabled: false,
+        DefaultsKey.dockPreviewBackgroundOpacity: 0.85,
         DefaultsKey.dockClickMinimize: false,
         DefaultsKey.dockClickCycleWindows: false,
         DefaultsKey.middleClickEnabled: false,
