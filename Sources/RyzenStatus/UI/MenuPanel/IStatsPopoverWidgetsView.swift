@@ -435,7 +435,7 @@ struct IStatsProcessRow: View {
 
     var body: some View {
         Button {
-            showingDetail = true
+            ProcessInspectorWindowController.shared.present(for: proc)
         } label: {
             HStack(spacing: 6) {
                 if let icon = NSRunningApplication(processIdentifier: proc.pid)?.icon {
@@ -459,8 +459,5 @@ struct IStatsProcessRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .sheet(isPresented: $showingDetail) {
-            ProcessDetailSheet(row: proc)
-        }
     }
 }

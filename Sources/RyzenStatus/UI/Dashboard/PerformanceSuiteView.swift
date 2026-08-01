@@ -150,9 +150,11 @@ struct PerformanceSuiteView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { refreshData() }
-        .onReceive(NotificationCenter.default.publisher(for: .processUsageDidUpdate)) { _ in refreshData() }
-        .sheet(item: $selectedProcess) { proc in
-            ProcessDetailSheet(row: proc)
+        .onChange(of: selectedProcess) { _, proc in
+            if let proc = proc {
+                ProcessInspectorWindowController.shared.present(for: proc)
+                selectedProcess = nil
+            }
         }
     }
 

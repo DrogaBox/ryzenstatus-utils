@@ -30,6 +30,18 @@ struct ProcessDetailSheet: View {
         return "/System/Library/CoreServices/\(row.name)"
     }
 
+    private var liveCPUPercentage: Double {
+        // If row.value is a valid CPU percentage (<= 2000.0), use it
+        if row.value <= 2000.0 {
+            return row.value
+        }
+        // Otherwise look up the process's real CPU % from ProcessUsageService
+        if let match = ProcessUsageService.shared.topCPU(limit: 50).first(where: { $0.pid == row.pid }) {
+            return match.value
+        }
+        return 0.0
+    }
+
     private var memoryDetails: (rss: String, virt: String) {
         var info = proc_taskinfo()
         let size = MemoryLayout<proc_taskinfo>.size
@@ -39,15 +51,21 @@ struct ProcessDetailSheet: View {
             let virtMB = Double(info.pti_virtual_size) / (1024.0 * 1024.0)
             return (formatMB(rssMB), formatMB(virtMB))
         }
-        return ("\(Int(row.value)) MB", "N/A")
+        // If row.value represents memory bytes (> 2000.0), format row.value
+        if row.value > 2000.0 {
+            let mb = row.value / (1024.0 * 1024.0)
+            return (formatMB(mb), "N/A")
+        }
+        return ("N/A", "N/A")
     }
 
     var body: some View {
         let entry = glossaryEntry
         let path = executablePath
         let mem = memoryDetails
+        let cpuPct = liveCPUPercentage
 
-        VStack(spacing: 14) {
+        VStack(alignment: .leading, spacing: 14) {
             // --- HEADER BAR ---
             HStack(spacing: 12) {
                 Image(nsImage: ResponsibleProcess.icon(for: row.pid))
@@ -115,10 +133,11 @@ struct ProcessDetailSheet: View {
                     Text("CPU LOAD")
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .foregroundColor(.secondary)
-                    Text(String(format: "%.1f%%", row.value))
+                    Text(String(format: "%.1f%%", cpuPct))
                         .font(.system(size: 16, weight: .bold, design: .monospaced))
-                        .foregroundColor(row.value > 80.0 ? .red : .primary)
+                        .foregroundColor(cpuPct > 80.0 ? .red : .primary)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
                 .background(Color.primary.opacity(0.03))
                 .cornerRadius(6)
@@ -132,6 +151,7 @@ struct ProcessDetailSheet: View {
                         .font(.system(size: 16, weight: .bold, design: .monospaced))
                         .foregroundColor(.purple)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
                 .background(Color.primary.opacity(0.03))
                 .cornerRadius(6)
@@ -147,6 +167,7 @@ struct ProcessDetailSheet: View {
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundColor(.cyan)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
                 .background(Color.primary.opacity(0.03))
                 .cornerRadius(6)
@@ -193,6 +214,7 @@ struct ProcessDetailSheet: View {
                     .foregroundColor(.secondary)
                     .lineLimit(2)
                     .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
                     .background(Color.primary.opacity(0.04))
                     .cornerRadius(6)
@@ -207,8 +229,10 @@ struct ProcessDetailSheet: View {
                 Text(entry.localizedDescriptionKey)
                     .font(.system(size: 11))
                     .foregroundColor(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(10)
             .background(Color.primary.opacity(0.02))
             .cornerRadius(8)
@@ -218,6 +242,7 @@ struct ProcessDetailSheet: View {
             // --- ACTION BUTTONS ---
             HStack(spacing: 12) {
                 Button("Done") {
+                    ProcessInspectorWindowController.shared.close()
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -237,6 +262,7 @@ struct ProcessDetailSheet: View {
             Button("Cancel", role: .cancel) {}
             Button("Force Quit", role: .destructive) {
                 kill(row.pid, SIGKILL)
+                ProcessInspectorWindowController.shared.close()
                 dismiss()
             }
         } message: {
@@ -257,5 +283,41 @@ struct ProcessDetailSheet: View {
             return String(format: "%.1f MB/s", kb / 1024.0)
         }
         return String(format: "%.0f KB/s", kb)
+    }
+}
+
+/// Standalone Window Controller for Process Inspector to prevent NSPopover modality lockups.
+@MainActor
+final class ProcessInspectorWindowController {
+    static let shared = ProcessInspectorWindowController()
+    private var window: NSWindow?
+
+    private init() {}
+
+    func present(for process: ProcessUsage) {
+        if let existing = window {
+            existing.close()
+            self.window = nil
+        }
+
+        let view = ProcessDetailSheet(row: process)
+        let host = NSHostingController(rootView: view)
+        let window = NSWindow(contentViewController: host)
+        window.title = "Process Inspector — \(process.name) (\(process.pid))"
+        window.styleMask = [.titled, .closable, .fullSizeContentView]
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
+        window.level = .floating
+        window.center()
+
+        self.window = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func close() {
+        window?.close()
+        window = nil
     }
 }

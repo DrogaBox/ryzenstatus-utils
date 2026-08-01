@@ -353,7 +353,7 @@ struct BTopProcessRow: View {
     var body: some View {
         HStack {
             Button {
-                showingDetail = true
+                ProcessInspectorWindowController.shared.present(for: proc)
             } label: {
                 HStack {
                     Text("\(proc.pid)")
@@ -406,8 +406,5 @@ struct BTopProcessRow: View {
         .padding(.vertical, 2)
         .background(Color.white.opacity(0.03))
         .cornerRadius(4)
-        .sheet(isPresented: $showingDetail) {
-            ProcessDetailSheet(row: proc)
-        }
     }
 }

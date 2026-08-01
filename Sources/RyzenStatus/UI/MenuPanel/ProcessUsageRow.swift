@@ -13,15 +13,12 @@ struct ProcessUsageRow: View {
 
     var body: some View {
         Button {
-            showingDetail = true
+            ProcessInspectorWindowController.shared.present(for: row)
         } label: {
             content
         }
         .buttonStyle(.plain)
         .help(row.name)
-        .sheet(isPresented: $showingDetail) {
-            ProcessDetailSheet(row: row)
-        }
     }
 
     private var content: some View {
