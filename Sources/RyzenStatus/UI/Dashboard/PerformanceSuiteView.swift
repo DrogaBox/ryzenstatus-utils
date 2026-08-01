@@ -153,6 +153,8 @@ struct PerformanceSuiteView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { refreshData() }
+        .onReceive(NotificationCenter.default.publisher(for: .processUsageDidUpdate)) { _ in refreshData() }
+        .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in refreshData() }
         .onChange(of: selectedProcess) { _, proc in
             if let proc = proc {
                 ProcessInspectorWindowController.shared.present(for: proc)
@@ -368,16 +370,18 @@ struct PerformanceSuiteView: View {
                                     
                                     Spacer()
 
-                                    Button("Inspect Process") {
-                                        if let pid = card.pid, let proc = topProcesses.first(where: { $0.pid == pid }) {
-                                            selectedProcess = proc
-                                        } else {
-                                            selectedProcess = ProcessUsage(pid: card.pid ?? 0, name: card.title, value: 0.0)
+                                    if let pid = card.pid {
+                                        Button("Inspect Process") {
+                                            if let proc = topProcesses.first(where: { $0.pid == pid }) {
+                                                selectedProcess = proc
+                                            } else {
+                                                selectedProcess = ProcessUsage(pid: pid, name: card.title, value: 0.0)
+                                            }
                                         }
+                                        .font(.system(size: 10, weight: .bold))
+                                        .buttonStyle(.borderedProminent)
+                                        .controlSize(.small)
                                     }
-                                    .font(.system(size: 10, weight: .bold))
-                                    .buttonStyle(.borderedProminent)
-                                    .controlSize(.small)
                                 }
                                 .padding(.top, 4)
                             }

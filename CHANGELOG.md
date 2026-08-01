@@ -1,15 +1,25 @@
 # Changelog
 
+## [1.8.1] — 2026-07-31
+
+### Maintenance Pre-Release (Build 20)
+
+- **Network Process Telemetry Fix**: Unconditionally renew network sampling lease in `ProcessUsageService.topNetwork`, restoring real-time nettop per-process upload and download metrics for apps like `Helium`, `Discord`, `Safari`, etc.
+- **1Hz Live Telemetry Inspector**: `ProcessDetailSheet` updates CPU %, Resident Memory (RSS), and Network I/O in real-time every second while the inspector window stays open.
+- **Problem-Only Diagnostics**: Diagnostic Engine strictly generates cards for active problematic conditions (leaks, CPU > 90%, memory pressure, thermal throttling), displaying clean nominal status when system is running at peak efficiency.
+- **Smooth Spline Waveforms & Menu Bar Fill**: Catmull-Rom cubic spline interpolation in sparklines and sub-pixel continuous fill in menu bar item bars.
+
 ## [1.8.0-beta1] — 2026-07-31
 
 ### Major Pre-Release (Beta Build 19)
 
-- **Performance Suite Dashboard**: Introduced `PerformanceSuiteView` with 5 navigation tabs (Dashboard, Insights, Analytics, Energy, Network).
-- **Smart Insights Engine**: Integrated `InsightEngine` diagnostic cards detecting memory leaks, Rosetta 2 translation overhead, high sustained CPU load, and memory pressure.
-- **Analytics & Trend History**: R² linear regression curve metrics and historical peak load tracking.
-- **Energy Impact & Battery Flow**: Process energy impact scores (CPU, GPU, disk wakeups) and battery health flow.
-- **Network Scanner & Adapter Details**: Per-adapter network bandwidth, socket inspector, and local network device scanner.
-- **Modular Feature Catalog**: Registered all suite tools as togglable modules in `FeatureCatalog.swift`.
+- **Performance Suite Dashboard**: Introduced `PerformanceSuiteView` with 5 navigation tabs (Dashboard, Diagnostics, Analytics, Energy, Network).
+- **Standalone Process Inspector**: Universal process details presented in a standalone floating window (`ProcessInspectorWindowController`) preventing popover modality lockups and window freezes. Includes executable path, Reveal in Finder, Copy Path, and 1Hz live real-time updates.
+- **Smart Insights Engine**: Integrated `InsightEngine` diagnostic cards detecting memory leaks, Rosetta 2 translation, high CPU runaway processes, and thermal pressure. Cards display strictly when actionable issues occur.
+- **Catmull-Rom Cubic Spline Waveforms**: Upgraded timeline sparklines and trend charts to Catmull-Rom smooth cubic spline interpolation for fluid 60fps waveform visualization.
+- **Continuous Sub-Pixel Menu Bar Item Bars**: Sub-pixel continuous filling for menu bar item usage bars without coarse step quantization.
+- **Dynamic CPU Hardware Reader**: Real-time `sysctlbyname("machdep.cpu.brand_string")` and `ProcessInfo` thread/core topography detection without hardcoded processor names.
+- **RAM Sampling Persistence**: Continuous `lastMemoryReading` caching eliminating 0-value memory reading drops.
 - **13-Language Localization**: Complete translations across all 13 supported languages with zero hardcoded strings.
 
 ## [1.7.3-beta1] — 2026-07-31

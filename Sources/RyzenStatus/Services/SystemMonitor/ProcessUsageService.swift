@@ -214,21 +214,14 @@ final class ProcessUsageService {
     func topNetwork(limit: Int = 5) -> [ProcessUsage] {
         let now = ProcessInfo.processInfo.systemUptime
         cacheLock.lock()
-        let monitoring = networkMonitoringActive(now: now)
-        if monitoring {
-            networkLeaseExpiresAt = NetworkProcessSamplingPolicy.renewedLease(now: now)
-        }
-        if let cached = limitedRows(networkCache, limit: limit, now: now, maxAge: monitoring ? staleCacheSeconds : cacheFreshSeconds) {
+        networkLeaseExpiresAt = NetworkProcessSamplingPolicy.renewedLease(now: now)
+        if let cached = limitedRows(networkCache, limit: limit, now: now, maxAge: staleCacheSeconds) {
             cacheLock.unlock()
             return cached
         }
-        if monitoring {
-            networkLoading = true
-            cacheLock.unlock()
-            startNetworkSampler()
-            return []
-        }
+        networkLoading = true
         cacheLock.unlock()
+        startNetworkSampler()
         return []
     }
 

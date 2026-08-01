@@ -43,6 +43,7 @@ struct InsightCard: Identifiable, Sendable, Codable, Equatable {
 }
 
 /// Automated diagnostic engine synthesizing system performance insights.
+/// Generates insight cards strictly for conflicting, runaway, or problematic conditions.
 final class InsightEngine: @unchecked Sendable {
     static let shared = InsightEngine()
 
@@ -52,7 +53,7 @@ final class InsightEngine: @unchecked Sendable {
     func evaluate(snapshot: SystemSnapshot, processes: [ProcessUsage]) -> [InsightCard] {
         var cards: [InsightCard] = []
 
-        // 1. Memory Leak Detection Insights
+        // 1. Memory Leak Detection Insights (Critical)
         let leaks = ProcessUsageService.shared.leakingPIDs
         for pid in leaks {
             let procName = processes.first(where: { $0.pid == pid })?.name ?? "PID \(pid)"
@@ -68,7 +69,7 @@ final class InsightEngine: @unchecked Sendable {
             ))
         }
 
-        // 2. High CPU Runaway Process Insight
+        // 2. High CPU Runaway Process Insight (CPU > 90%)
         if let topProc = processes.filter({ $0.value > 90.0 }).first {
             cards.append(InsightCard(
                 id: "cpu-runaway-\(topProc.pid)",
@@ -79,33 +80,22 @@ final class InsightEngine: @unchecked Sendable {
                 actionHint: "Check if application is responsive",
                 pid: topProc.pid
             ))
-        } else {
+        }
+
+        // 3. High Memory Pressure Event Insight (Warning / Critical)
+        let pressure = snapshot.memoryPressure
+        if pressure == .warning || pressure == .critical {
             cards.append(InsightCard(
-                id: "cpu-status-nominal",
-                title: "CPU Load Nominal",
-                detail: "All active processes operating within balanced CPU execution limits.",
-                severity: .info,
-                categoryName: "CPU",
-                actionHint: "No runaway threads detected"
+                id: "mem-pressure-\(pressure)",
+                title: pressure == .critical ? "Critical Memory Pressure" : "Elevated Memory Pressure",
+                detail: "macOS is compressing memory pages or swapping to disk. Close unused applications to restore speed.",
+                severity: pressure == .critical ? .critical : .warning,
+                categoryName: "Memory",
+                actionHint: "Purge or close heavy apps"
             ))
         }
 
-        // 3. Memory Pressure & RAM Status Insight
-        let pressure = snapshot.memoryPressure
-        let usedRAM = Double(snapshot.memoryUsed ?? 0) / 1_073_741_824.0
-        let totalRAM = Double(snapshot.memoryTotal ?? 34_359_738_368) / 1_073_741_824.0
-        let ramPct = totalRAM > 0 ? (usedRAM / totalRAM * 100.0) : 0.0
-
-        cards.append(InsightCard(
-            id: "mem-status",
-            title: pressure == .critical ? "Critical Memory Pressure" : (pressure == .warning ? "Elevated Memory Pressure" : "Memory Footprint Nominal"),
-            detail: String(format: "%.1f GB of %.1f GB used (%.0f%%). macOS memory compression is active.", usedRAM, totalRAM, ramPct),
-            severity: pressure == .critical ? .critical : (pressure == .warning ? .warning : .info),
-            categoryName: "Memory",
-            actionHint: pressure == .critical ? "Close unused apps to free memory" : "RAM cache optimized"
-        ))
-
-        // 4. Architecture & Translation Insight
+        // 4. Rosetta 2 Translation Overhead Insight (Arm64 targets only)
         #if arch(arm64)
         var rosettaProcesses: [String] = []
         for proc in processes {
@@ -122,38 +112,20 @@ final class InsightEngine: @unchecked Sendable {
                 categoryName: "Architecture",
                 actionHint: "Upgrade to native Apple Silicon / Universal builds if available"
             ))
-        } else {
-            cards.append(InsightCard(
-                id: "arch-arm64-native",
-                title: "Native ARM64 Execution",
-                detail: "All running processes are executing native ARM64 machine code.",
-                severity: .info,
-                categoryName: "Architecture",
-                actionHint: "100% Native silicon efficiency"
-            ))
         }
-        #else
-        cards.append(InsightCard(
-            id: "arch-x86-native",
-            title: "Native x86_64 AMD Zen 3 Execution",
-            detail: "System is running 100% native x86_64 architecture code. Rosetta 2 emulation is not required on AMD Hackintosh systems.",
-            severity: .info,
-            categoryName: "Architecture",
-            actionHint: "Direct hardware execution"
-        ))
         #endif
 
-        // 5. Thermal Telemetry Insight
-        let cpuTemp = snapshot.cpuTemperature ?? 0.0
-        let gpuTemp = snapshot.gpuTemperature ?? 0.0
-        cards.append(InsightCard(
-            id: "thermal-status",
-            title: cpuTemp > 85.0 ? String(format: "High CPU Temperature (%.1f°C)", cpuTemp) : String(format: "Thermal Status Nominal (%.1f°C)", cpuTemp),
-            detail: cpuTemp > 85.0 ? "Thermal throttling may occur if temperatures remain above 90°C." : String(format: "CPU: %.1f°C  ·  GPU: %.1f°C  ·  All thermal sensors operating within safe limits.", cpuTemp, gpuTemp),
-            severity: cpuTemp > 92.0 ? .critical : (cpuTemp > 85.0 ? .warning : .info),
-            categoryName: "Thermal",
-            actionHint: cpuTemp > 85.0 ? "Ensure proper airflow or reduce heavy workload" : "Fan profiles operating normally"
-        ))
+        // 5. High Temperature Insight (CPU > 85°C)
+        if let cpuTemp = snapshot.cpuTemperature, cpuTemp > 85.0 {
+            cards.append(InsightCard(
+                id: "cpu-temp-high",
+                title: String(format: "High CPU Temperature (%.1f°C)", cpuTemp),
+                detail: "Thermal throttling may occur if temperatures remain above 90°C.",
+                severity: cpuTemp > 92.0 ? .critical : .warning,
+                categoryName: "Thermal",
+                actionHint: "Ensure proper airflow or reduce heavy workload"
+            ))
+        }
 
         return cards
     }
