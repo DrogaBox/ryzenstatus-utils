@@ -27,8 +27,21 @@ E2E/
 # macOS noise
 .DS_Store
 
-# Xcode / SwiftPM user state
+# Xcode / SwiftPM user state & DerivedData
 *.xcodeproj
 xcuserdata/
 .swiftpm/
+DerivedData/
 build_output.log
+*.log
+
+# Internal agent plans & artifacts
+task_plan.md
+implementation_plan.md
+walkthrough.md
+task.md
+.gemini/
+.agents/
+.user_uploaded/
+.system_generated/
+
