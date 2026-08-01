@@ -1,30 +1,27 @@
 # Changelog
 
-## [1.8.1-beta1] — 2026-07-31
+## [1.8.2-beta1] — 2026-08-01
 
-### Major Pre-Release (Beta Build 20)
+### Unified Pre-Release (Beta Build 21)
 
-- **Performance Suite Dashboard**: Introduced `PerformanceSuiteView` with 5 navigation tabs (Dashboard, Diagnostics, Analytics, Energy, Network).
-- **Standalone Process Inspector**: Universal process details presented in a standalone floating window (`ProcessInspectorWindowController`) preventing popover modality lockups and window freezes. Includes executable path, Reveal in Finder, Copy Path, and 1Hz live real-time updates.
-- **Network Process Telemetry Fix**: Unconditionally renew network sampling lease in `ProcessUsageService.topNetwork`, restoring real-time nettop per-process upload and download metrics for apps like `Helium`, `Discord`, `Safari`, etc.
-- **1Hz Live Telemetry Inspector**: `ProcessDetailSheet` updates CPU %, Resident Memory (RSS), and Network I/O in real-time every second while the inspector window stays open.
-- **Problem-Only Diagnostics**: Diagnostic Engine strictly generates cards for active problematic conditions (leaks, CPU > 90%, memory pressure, thermal throttling), displaying clean nominal status when system is running at peak efficiency.
-- **Catmull-Rom Cubic Spline Waveforms**: Upgraded timeline sparklines and trend charts to Catmull-Rom smooth cubic spline interpolation for fluid 60fps waveform visualization.
-- **Continuous Sub-Pixel Menu Bar Item Bars**: Sub-pixel continuous filling for menu bar item usage bars without coarse step quantization.
-- **Dynamic CPU Hardware Reader**: Real-time `sysctlbyname("machdep.cpu.brand_string")` and `ProcessInfo` thread/core topography detection without hardcoded processor names.
-- **RAM Sampling Persistence**: Continuous `lastMemoryReading` caching eliminating 0-value memory reading drops.
-- **13-Language Localization**: Complete translations across all 13 supported languages with zero hardcoded strings.
-
-## [1.7.3-beta1] — 2026-07-31
-
-### Pre-Release (Beta Build 18)
-
-- **Process Inspector Modal**: Universal process details sheet (`ProcessDetailSheet`) accessible across all views (Classic Cards, iStats Widgets, BTop Cyberpunk Dashboard).
-- **Process Glossary Fallback**: Automatic generic process role resolution for 100% of running applications and processes.
-- **Canvas Charts Engine**: `TrendChart` immediate-mode SwiftUI `Canvas` timeline charts integrated across all 3 Dashboard presets with 0.0% background CPU overhead.
-- **Segmented Control Layout**: Fixed segmented picker frame width alignment in menu panel header.
+- **20-Bug Stability & Optimization Sprint**: Complete audit resolution across core telemetry, UI rendering, thread concurrency, memory management, and process analysis engines.
+- **Process Inspector Memory Leak & Lifecycle Fix**: Implemented `NSWindowDelegate` and `windowWillClose` in `ProcessInspectorWindowController` to tear down live-telemetry timers when closed, preventing background memory leaks.
+- **Telemetry Logger Disk Exception Protection**: Handled file write exceptions gracefully (`write(contentsOf:)`) during low-disk states and synchronized queue transitions in `TelemetryLogger`.
+- **Memory Alignment & CPU Architecture Safety**: Replaced unsafe pointer type-punning with `loadUnaligned` in `NetworkSampler` and `withUnsafeMutableBytes` in `physicalFootprint`.
+- **Network Process Pipe Deadlock Resolution**: Implemented a concurrent drain queue for `nettop` in `NetworkProcessSupport`, eliminating pipe buffer deadlocks on high-traffic connections.
+- **Leak Detector Lock Contention**: Temporarily released `cacheLock` in `ProcessUsageService` during `LeakDetector` regression analysis, eliminating UI stuttering.
+- **Background Performance Suite Loading**: Offloaded data refresh in `PerformanceSuiteView` to background `Task.detached` routines with `MainActor` UI updates.
+- **Menu Bar Renderer & Chart Canvas Optimization**: Single-pass line layout in `MenuBarRenderer.attributed()` and precalculated `TrendChart` runs outside Canvas draw loops.
+- **Disk Sampler Timeout Protection**: Added a 4-second timeout with fallback process termination to `runDiskutilInfo` in `DiskSampler`.
+- **Accurate Energy Impact GPU Scoring**: Dynamically resolved process GPU utilization in `EnergyImpactService` from `topGPU` instead of hardcoding zero.
+- **Performance Suite Dashboard**: Full `PerformanceSuiteView` with 5 navigation tabs (Dashboard, Diagnostics, Analytics, Energy, Network).
+- **1Hz Real-Time Process Inspector**: Floating inspector window displaying executable path, Reveal in Finder, Copy Path, and 1Hz live telemetry.
+- **Catmull-Rom Cubic Spline Waveforms**: Smooth cubic spline timeline sparklines and trend charts.
+- **Dynamic CPU Hardware Detection**: Real-time `sysctlbyname("machdep.cpu.brand_string")` and core/thread topography resolution.
+- **13-Language Localization**: Full translations across all 13 supported languages with zero hardcoded strings.
 
 ## [1.7.2] — 2026-07-31
+
 
 ### Maintenance Release
 

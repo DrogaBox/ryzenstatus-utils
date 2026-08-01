@@ -54,7 +54,7 @@ final class InsightEngine: @unchecked Sendable {
         var cards: [InsightCard] = []
 
         // 1. Memory Leak Detection Insights (Critical)
-        let leaks = ProcessUsageService.shared.leakingPIDs
+        let leaks = ProcessUsageService.shared.leakingPIDsCopy()
         for pid in leaks {
             let procName = processes.first(where: { $0.pid == pid })?.name ?? "PID \(pid)"
             

@@ -64,19 +64,19 @@ final class NetworkSampler {
 
         var result = NetworkCounters()
         buffer.withUnsafeBytes { raw in
-            guard let base = raw.baseAddress else { return }
             var offset = 0
             let headerSize = MemoryLayout<if_msghdr>.size
             while offset + headerSize <= length {
-                let header = base.advanced(by: offset)
-                    .assumingMemoryBound(to: if_msghdr.self).pointee
+                // BUG-04 fix: NET_RT_IFLIST2 buffer has no alignment guarantee.
+                // assumingMemoryBound(to:) triggers EXC_BAD_ACCESS in optimized builds.
+                // loadUnaligned performs a byte-copy and is unconditionally safe.
+                let header = raw.loadUnaligned(fromByteOffset: offset, as: if_msghdr.self)
                 let messageLength = Int(header.ifm_msglen)
                 guard messageLength > 0, offset + messageLength <= length else { break }
 
                 if Int32(header.ifm_type) == RTM_IFINFO2,
                    offset + MemoryLayout<if_msghdr2>.size <= length {
-                    let info = base.advanced(by: offset)
-                        .assumingMemoryBound(to: if_msghdr2.self).pointee
+                    let info = raw.loadUnaligned(fromByteOffset: offset, as: if_msghdr2.self)
                     var nameBuffer = [CChar](repeating: 0, count: Int(IFNAMSIZ))
                     if if_indextoname(UInt32(info.ifm_index), &nameBuffer) != nil {
                         let name = String(cString: nameBuffer)

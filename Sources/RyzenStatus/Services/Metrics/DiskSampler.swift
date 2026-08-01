@@ -320,13 +320,34 @@ final class DiskSampler {
         } catch {
             return nil
         }
-        // Read first, wait second: a volume whose description does not fit in
-        // the pipe would otherwise leave both sides waiting on each other.
-        let data = output.fileHandleForReading.readDataToEndOfFile()
+        // BUG-13 fix: the previous implementation had no timeout. A slow or failing
+        // external drive (or an APFS container mid-fsck) can cause diskutil to stall
+        // indefinitely, blocking DiskSampler's sampling thread.
+        //
+        // Drain the pipe concurrently (prevents pipe-buffer deadlock on large output),
+        // then wait up to 4 seconds for the process to exit before killing it.
+        let drainQueue = DispatchQueue(label: "com.ryzenstatus.diskutil.drain", qos: .utility)
+        var collectedData = Data()
+        drainQueue.async {
+            collectedData = output.fileHandleForReading.readDataToEndOfFile()
+        }
+
+        let deadline = Date().addingTimeInterval(4.0)
+        while process.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        if process.isRunning {
+            process.terminate()
+            // Give SIGTERM 0.5 s to be handled, then escalate to SIGKILL.
+            Thread.sleep(forTimeInterval: 0.5)
+            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+        }
         process.waitUntilExit()
+        drainQueue.sync {}  // guarantee the drain closure has finished
+
         guard process.terminationStatus == 0 else { return nil }
         var format = PropertyListSerialization.PropertyListFormat.xml
-        guard let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: &format),
+        guard let plist = try? PropertyListSerialization.propertyList(from: collectedData, options: [], format: &format),
               let dict = plist as? [String: Any] else { return nil }
         return dict
     }

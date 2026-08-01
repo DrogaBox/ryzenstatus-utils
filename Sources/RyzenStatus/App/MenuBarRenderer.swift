@@ -907,9 +907,22 @@ enum MenuBarRenderer {
                            metrics: [MenuBarMetric],
                            allowStacked: Bool = true,
                            linePrefix: String = "") -> NSAttributedString {
+        // BUG-10 fix: previous code called lines() twice per invocation —
+        // once in usesStackedLayout() and once inside segments() — paying the
+        // full layout cost on every menu-bar redraw. Call lines() once, derive
+        // stacked from the result, then flatten directly without a second call.
+        let allLines = lines(for: snapshot, metrics: metrics, allowStacked: allowStacked)
+        let stacked = allLines.count > 1
+
+        // Flatten lines into a single segment array (same logic as segments()).
+        var allSegments: [MenuBarSegment] = []
+        for (index, line) in allLines.enumerated() {
+            if index > 0 { allSegments.append(.text("\n")) }
+            allSegments.append(contentsOf: line)
+        }
+
         let result = NSMutableAttributedString()
-        let stacked = usesStackedLayout(for: snapshot, metrics: metrics, allowStacked: allowStacked)
-        for segment in segments(for: snapshot, metrics: metrics, allowStacked: allowStacked) {
+        for segment in allSegments {
             switch segment {
             case let .text(string):
                 let rendered = string == "\n" && !linePrefix.isEmpty ? "\n" + linePrefix : string
@@ -940,9 +953,9 @@ enum MenuBarRenderer {
             case let .customImage(image):
                 result.append(customImageAttachment(image))
             case let .dot(pressure):
-                result.append(NSAttributedString(string: "●", attributes: [.foregroundColor: nsColor(for: pressure)]))
+                result.append(NSAttributedString(string: "\u{25CF}", attributes: [.foregroundColor: nsColor(for: pressure)]))
             case .separator:
-                result.append(NSAttributedString(string: " │ ",
+                result.append(NSAttributedString(string: " \u{2502} ",
                                                  attributes: [.foregroundColor: NSColor.tertiaryLabelColor]))
             }
         }

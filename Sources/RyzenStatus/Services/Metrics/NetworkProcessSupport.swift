@@ -33,6 +33,20 @@ enum NetworkProcessSupport {
             return []
         }
 
+        // BUG-06 fix: The previous approach waited in a spin-loop until nettop exited,
+        // then read from the pipe. If nettop produced more than the kernel pipe buffer
+        // (~64 KB), nettop would block on write, the spin-loop would never see it exit,
+        // and the 5.5 s timeout would fire — returning truncated data every time.
+        //
+        // Fix: drain the pipe on a concurrent queue while the process runs.
+        // nettop can always write, so it never deadlocks. We synchronize with a barrier
+        // after the process exits to guarantee we have all bytes before parsing.
+        let drainQueue = DispatchQueue(label: "com.ryzenstatus.nettop.drain", qos: .utility)
+        var collectedData = Data()
+        drainQueue.async {
+            collectedData = pipe.fileHandleForReading.readDataToEndOfFile()
+        }
+
         let deadline = Date().addingTimeInterval(timeout)
         while process.isRunning && Date() < deadline {
             Thread.sleep(forTimeInterval: 0.05)
@@ -41,16 +55,16 @@ enum NetworkProcessSupport {
             process.terminate()
             let p = process
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1.0) {
-                if p.isRunning {
-                    kill(p.processIdentifier, SIGKILL)
-                }
+                if p.isRunning { kill(p.processIdentifier, SIGKILL) }
             }
         }
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        guard !data.isEmpty,
-              let output = String(data: data, encoding: .utf8) else { return [] }
+        // Barrier sync: blocks until the drain closure finishes writing collectedData.
+        drainQueue.sync {}
+
+        guard !collectedData.isEmpty,
+              let output = String(data: collectedData, encoding: .utf8) else { return [] }
         return parseNettopCSV(output)
     }
 

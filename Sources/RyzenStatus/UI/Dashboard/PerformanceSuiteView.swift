@@ -34,7 +34,8 @@ struct PerformanceSuiteView: View {
     @State private var energyRecords: [ProcessEnergyRecord] = []
     @State private var networkAdapters: [NetworkAdapterInfo] = []
     @State private var selectedInsightFilter: String = "All"
-    @State private var selectedProcess: ProcessUsage? = nil
+    // BUG-17 fix: selectedProcess @State removed. Present is called directly in button actions
+    // to avoid the two-render round-trip: set proc -> onChange -> present -> set nil.
 
     @ObservedObject var l10n = L10n.shared
 
@@ -79,7 +80,7 @@ struct PerformanceSuiteView: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(strings.title)
                             .font(.system(size: 15, weight: .bold))
-                        Text(cpuBrandSubtitle)
+                        Text(Self.cpuBrandSubtitle)
                             .font(.system(size: 10, weight: .semibold, design: .monospaced))
                             .foregroundColor(.secondary)
                     }
@@ -155,12 +156,6 @@ struct PerformanceSuiteView: View {
         .onAppear { refreshData() }
         .onReceive(NotificationCenter.default.publisher(for: .processUsageDidUpdate)) { _ in refreshData() }
         .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in refreshData() }
-        .onChange(of: selectedProcess) { _, proc in
-            if let proc = proc {
-                ProcessInspectorWindowController.shared.present(for: proc)
-                selectedProcess = nil
-            }
-        }
     }
 
     // MARK: - 1. Dashboard Tab Content
@@ -372,11 +367,9 @@ struct PerformanceSuiteView: View {
 
                                     if let pid = card.pid {
                                         Button("Inspect Process") {
-                                            if let proc = topProcesses.first(where: { $0.pid == pid }) {
-                                                selectedProcess = proc
-                                            } else {
-                                                selectedProcess = ProcessUsage(pid: pid, name: card.title, value: 0.0)
-                                            }
+                                            let proc = topProcesses.first(where: { $0.pid == pid })
+                                                ?? ProcessUsage(pid: pid, name: card.title, value: 0.0)
+                                            ProcessInspectorWindowController.shared.present(for: proc)
                                         }
                                         .font(.system(size: 10, weight: .bold))
                                         .buttonStyle(.borderedProminent)
@@ -449,7 +442,7 @@ struct PerformanceSuiteView: View {
                                 .frame(width: 70, alignment: .trailing)
 
                             Button("Inspect") {
-                                selectedProcess = proc
+                                ProcessInspectorWindowController.shared.present(for: proc)
                             }
                             .font(.system(size: 10, weight: .semibold))
                             .buttonStyle(.plain)
@@ -624,7 +617,8 @@ struct PerformanceSuiteView: View {
                             .frame(width: 120, alignment: .trailing)
 
                         Button("Inspect") {
-                            selectedProcess = ProcessUsage(pid: record.pid, name: record.name, value: record.cpuPct)
+                            let proc = ProcessUsage(pid: record.pid, name: record.name, value: record.cpuPct)
+                            ProcessInspectorWindowController.shared.present(for: proc)
                         }
                         .font(.system(size: 10, weight: .semibold))
                         .buttonStyle(.plain)
@@ -702,10 +696,22 @@ struct PerformanceSuiteView: View {
     }
 
     private func refreshData() {
-        topProcesses = ProcessUsageService.shared.topCPU(limit: 20)
-        insightCards = InsightEngine.shared.evaluate(snapshot: monitor.snapshot, processes: topProcesses)
-        energyRecords = EnergyImpactService.shared.calculateEnergyImpact(processes: topProcesses)
-        networkAdapters = NetworkScannerService.shared.activeAdapters()
+        // BUG-09 fix: refreshData was called on the main thread and included
+        // NetworkScannerService.shared.activeAdapters() — a blocking network call.
+        // Now dispatched to a background Task; @State is updated via MainActor.
+        Task.detached(priority: .userInitiated) {
+            let procs = ProcessUsageService.shared.topCPU(limit: 20)
+            let snapshot = await MainActor.run { SystemMonitor.shared.snapshot }
+            let cards = InsightEngine.shared.evaluate(snapshot: snapshot, processes: procs)
+            let energy = EnergyImpactService.shared.calculateEnergyImpact(processes: procs)
+            let adapters = NetworkScannerService.shared.activeAdapters()
+            await MainActor.run {
+                self.topProcesses = procs
+                self.insightCards = cards
+                self.energyRecords = energy
+                self.networkAdapters = adapters
+            }
+        }
     }
 
     private func formatBytes(_ bytes: Double) -> String {
@@ -715,7 +721,9 @@ struct PerformanceSuiteView: View {
         return String(format: "%.0f B", bytes)
     }
 
-    private var cpuBrandSubtitle: String {
+    // BUG-16 fix: cpuBrandSubtitle was a computed property that called sysctlbyname twice
+    // on every view redraw (at least 1Hz). Moved to a static let computed once at launch.
+    private static let cpuBrandSubtitle: String = {
         var size = 0
         sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0)
         let brandName: String = {
@@ -730,7 +738,7 @@ struct PerformanceSuiteView: View {
         let threads = ProcessInfo.processInfo.processorCount
         let cores = max(1, threads / 2)
         return "\(brandName)  ·  \(cores)-Core / \(threads)-Thread"
-    }
+    }()
 
     private func cardColor(for severity: InsightSeverity) -> Color {
         switch severity {

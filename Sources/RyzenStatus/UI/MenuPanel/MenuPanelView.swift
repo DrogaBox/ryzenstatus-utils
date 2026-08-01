@@ -116,9 +116,10 @@ struct MenuPanelView: View {
             syncMonitorSampling()
         }
         .onDisappear {
-            if !panelFocus.isSwitchingMetricAnchor {
-                SystemMonitor.shared.setMenuPanelNeeds(.none)
-            }
+            // BUG-11 fix: Always stand down the monitor when the panel disappears.
+            // The previous guard skipped this when isSwitchingMetricAnchor was true,
+            // causing the monitor to sample at full rate indefinitely if the view was destroyed mid-transition.
+            SystemMonitor.shared.setMenuPanelNeeds(.none)
         }
         .onChange(of: monitorNeeds) { _, _ in
             syncMonitorSampling()

@@ -32,10 +32,18 @@ final class EnergyImpactService: @unchecked Sendable {
 
     /// Calculates energy impact score for processes based on CPU%, GPU%, and background activity.
     func calculateEnergyImpact(processes: [ProcessUsage]) -> [ProcessEnergyRecord] {
+        // BUG-18 fix: GPU was always hardcoded to 0.0. Build a PID-keyed GPU lookup
+        // from topGPU so each process reflects its real GPU utilization.
+        let gpuRows = ProcessUsageService.shared.topGPU(limit: 50)
+        let gpuByPID: [pid_t: Double] = Dictionary(
+            gpuRows.map { ($0.pid, $0.value) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
         return processes.map { proc in
             let isApp = ProcessGlossary.resolve(name: proc.name, pid: proc.pid).category == .app
             let cpuPct = proc.value
-            let gpuPct = 0.0
+            let gpuPct = gpuByPID[proc.pid] ?? 0.0
             // Formula: Energy = CPU% * 1.0 + GPU% * 1.5 + (isApp ? 2.0 : 0.5)
             let score = (cpuPct * 1.0) + (gpuPct * 1.5) + (isApp ? 2.0 : 0.5)
             return ProcessEnergyRecord(

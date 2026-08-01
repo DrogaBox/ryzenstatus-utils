@@ -12,19 +12,25 @@ final class TelemetryLogger: ObservableObject {
     @Published private(set) var isLogging: Bool = false
     @Published private(set) var currentLogPath: String?
 
+
     private var cancellable: AnyCancellable?
     private let logQueue = DispatchQueue(label: "com.ryzenstatus.telemetrylogger", qos: .utility)
     private var fileHandle: FileHandle?
     private var buffer: [String] = []
     private var lastFlushTime: Date = Date()
     private let flushIntervalSeconds: TimeInterval = 10.0
+    /// Reused across every logSnapshot call — ISO8601DateFormatter is expensive to construct.
+    private let dateFormatter: ISO8601DateFormatter = ISO8601DateFormatter()
 
     private init() {}
 
+
     func startLogging() {
-        guard !isLogging else { return }
+        // BUG-03 fix: move the isLogging check AND the transition inside the serial queue
+        // so concurrent calls see the flag atomically and cannot open two files.
         logQueue.async { [weak self] in
             guard let self else { return }
+            guard !self.isLogging else { return }
             self.setupNewLogFile()
             DispatchQueue.main.async {
                 self.isLogging = true
@@ -57,7 +63,7 @@ final class TelemetryLogger: ObservableObject {
     }
 
     private func logSnapshot(_ snapshot: SystemSnapshot) {
-        let nowStr = ISO8601DateFormatter().string(from: Date())
+        let nowStr = dateFormatter.string(from: Date())
         let cpuUsage = snapshot.cpuUsage ?? 0
         let cpuTemp = snapshot.cpuTemperature ?? 0
         let gpuTemp = snapshot.gpuTemperature ?? 0
@@ -85,7 +91,15 @@ final class TelemetryLogger: ObservableObject {
         buffer.removeAll(keepingCapacity: true)
         lastFlushTime = Date()
         let data = Data(combined.utf8)
-        handle.write(data)
+        // BUG-02 fix: the legacy handle.write(data) raises an uncatchable NSException when the
+        // disk is full or the file is externally deleted. The modern throwing API lets us recover.
+        do {
+            try handle.write(contentsOf: data)
+        } catch {
+            // Close and nil the handle — next logSnapshot will safely skip until a new log is created.
+            handle.closeFile()
+            fileHandle = nil
+        }
     }
 
     private func setupNewLogFile() {

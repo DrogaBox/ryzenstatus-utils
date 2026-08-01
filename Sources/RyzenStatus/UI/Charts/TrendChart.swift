@@ -39,6 +39,12 @@ struct TrendChart: View {
     private let bottomPad: CGFloat = 4
 
     var body: some View {
+        // BUG-12 fix: runs() was called inside the Canvas closure (every frame),
+        // executing an O(N log N) sort per series per draw pass.
+        // Precompute here at the body level — evaluated once per data update,
+        // then captured by value into the Canvas closure.
+        let precomputedRuns: [[[TrendPoint]]] = series.map { Self.runs($0.points) }
+
         Canvas(opaque: false, rendersAsynchronously: false) { ctx, size in
             let xAxisHeight: CGFloat = showsTimeAxis ? 14 : 0
             let plot = CGRect(
@@ -90,8 +96,8 @@ struct TrendChart: View {
             guard tMax > tMin else { return }
 
             // Series rendering
-            for s in series {
-                for run in Self.runs(s.points) where !run.isEmpty {
+            for (idx, s) in series.enumerated() {
+                for run in precomputedRuns[idx] where !run.isEmpty {
                     let cgPoints = run.map { CGPoint(x: xPos($0.date), y: yPos($0.value)) }
                     let linePath = Self.smoothPath(for: cgPoints)
 

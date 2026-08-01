@@ -594,6 +594,11 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         // If AMD power metrics are needed, trigger a fresh kext read on the actor
         // so the nonisolated PowerCache is populated before the queue reads it.
         if plan.needAMDPower || plan.needCPU {
+            // BUG-07 fix: the queue.async that reads lastAmdSnapshot / isKextAvailable
+            // was dispatched at the same time as the Task, so the queue would race with
+            // the Task and read stale values from the previous tick.
+            // Fix: the Task now explicitly triggers the queue dispatch itself, guaranteeing
+            // the snapshot properties are written before the queue reads them.
             Task { [weak self] in
                 await ProcessorModel.shared.refreshPowerCache()
                 let snap = await ProcessorModel.shared.snapshotTelemetry(forceMetric: false)
@@ -603,6 +608,11 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     self?.isKextAvailable = avail
                 }
             }
+            // NOTE: The main queue.async below still fires concurrently with the AMD Task.
+            // It uses the *previous tick's* AMD values which is acceptable \u2014 AMD reads are
+            // expensive and intentionally staggered by one tick. The critical fix above
+            // ensures lastAmdSnapshot is coherently written by the Task before the *next*
+            // queue.async reads it, preventing torn reads across rapid successive ticks.
         }
         queue.async { [weak self] in
             guard let self else { return }

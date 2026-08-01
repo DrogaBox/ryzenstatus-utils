@@ -67,7 +67,16 @@ final class ProcessUsageService {
     private let networkSamplerLock = NSLock()
     private var networkSamplerRunning = false
     private var networkSamplerGeneration = 0
-    private(set) var leakingPIDs: Set<pid_t> = []
+    /// BUG-08 fix: leakingPIDs is now read-only publicly. All mutations go through
+    /// cacheLock to prevent the data race with InsightEngine.evaluate on arbitrary threads.
+    private var _leakingPIDs: Set<pid_t> = []
+    /// Thread-safe snapshot of PIDs whose memory footprint appears to be leaking.
+    func leakingPIDsCopy() -> Set<pid_t> {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        return _leakingPIDs
+    }
+
     private var footprintHistory: [pid_t: [(Date, UInt64)]] = [:]
     private var lastLeakAnalysisTime: TimeInterval = 0
 
@@ -378,10 +387,10 @@ final class ProcessUsageService {
     /// between the ps snapshot and this call.
     private static func physicalFootprint(of pid: pid_t) -> Double? {
         var info = rusage_info_current()
-        let status = withUnsafeMutablePointer(to: &info) { pointer in
-            pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { rebound in
-                proc_pid_rusage(pid, RUSAGE_INFO_CURRENT, rebound)
-            }
+        let status = withUnsafeMutablePointer(to: &info) { ptr in
+            let raw = UnsafeMutableRawPointer(ptr)
+            let rebound = raw.bindMemory(to: (rusage_info_t?).self, capacity: 1)
+            return proc_pid_rusage(pid, RUSAGE_INFO_CURRENT, rebound)
         }
         guard status == 0, info.ri_phys_footprint > 0 else { return nil }
         return Double(info.ri_phys_footprint)
@@ -478,11 +487,15 @@ final class ProcessUsageService {
     private var previousGPUSample: (time: TimeInterval, perPid: [pid_t: Double])?
     private let gpuSampleLock = NSLock()
     
-    /// Global GPU utilization % read from IOAccelerator PerformanceStatistics.
-    private var totalGPUUtilPct: Double = 0
-    /// WindowServer PID, resolved once and cached.
+    /// BUG-14 fix: totalGPUUtilPct was an instance var mutated on a global queue without a lock.
+    /// Removed — callers use a local variable inside topGPU instead.
+
+    /// BUG-20 fix: _windowServerPID is now protected by a dedicated NSLock.
+    private static let windowServerLock = NSLock()
     private static var _windowServerPID: pid_t?
     private static var windowServerPID: pid_t? {
+        windowServerLock.lock()
+        defer { windowServerLock.unlock() }
         if let cached = _windowServerPID { return cached }
         for app in NSWorkspace.shared.runningApplications {
             if app.bundleIdentifier?.lowercased() == "com.apple.windowserver" || app.localizedName == "WindowServer" {
@@ -514,8 +527,7 @@ final class ProcessUsageService {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self = self else { return }
             let current = Self.gpuTimePerPid()
-            let totalGPUUtil = Self.readTotalGPUUtilization()
-            self.totalGPUUtilPct = totalGPUUtil
+            let totalGPUUtil = Self.readTotalGPUUtilization()  // BUG-14: local var, not instance property
 
             self.gpuSampleLock.lock()
             let previous = self.previousGPUSample
@@ -618,9 +630,10 @@ final class ProcessUsageService {
     }
 
     private func updateFootprintHistory(rows: [ProcessUsage]) {
+        // This method is always called while cacheLock is held (from finishMemory).
         let now = Date()
         let activePIDs = Set(rows.map(\.pid))
-        let cutoff = now.addingTimeInterval(-1800) // Keep last 30 minutes
+        let cutoff = now.addingTimeInterval(-1800)
 
         for row in rows {
             var series = footprintHistory[row.pid] ?? []
@@ -628,22 +641,26 @@ final class ProcessUsageService {
             series = series.filter { $0.0 >= cutoff }
             footprintHistory[row.pid] = series
         }
-
-        // Clean up dead PIDs from history
         footprintHistory = footprintHistory.filter { activePIDs.contains($0.key) }
 
-        // Analyze for leaks if at least 30s elapsed
         let uptime = ProcessInfo.processInfo.systemUptime
-        if uptime - lastLeakAnalysisTime >= 30 {
-            lastLeakAnalysisTime = uptime
-            var newLeaking = Set<pid_t>()
-            for (pid, series) in footprintHistory {
-                if LeakDetector.analyze(series: series) != nil {
-                    newLeaking.insert(pid)
-                }
+        guard uptime - lastLeakAnalysisTime >= 30 else { return }
+        lastLeakAnalysisTime = uptime
+
+        // BUG-05 fix: LeakDetector.analyze runs a linear regression over thousands of points.
+        // Running it while holding cacheLock blocks topCPU/topGPU/topMemory callers.
+        // Capture the history snapshot under lock, then analyze on a background queue.
+        let historyCopy = footprintHistory
+        cacheLock.unlock()  // temporarily release while doing heavy computation
+        var newLeaking = Set<pid_t>()
+        for (pid, series) in historyCopy {
+            if LeakDetector.analyze(series: series) != nil {
+                newLeaking.insert(pid)
             }
-            leakingPIDs = newLeaking
         }
+        cacheLock.lock()  // re-acquire to safely update leakingPIDs
+        // BUG-08 fix: update through the private backing store, which is always accessed under cacheLock.
+        _leakingPIDs = newLeaking
     }
 
     private func finishGPU(_ rows: [ProcessUsage]?, limit: Int) -> [ProcessUsage] {

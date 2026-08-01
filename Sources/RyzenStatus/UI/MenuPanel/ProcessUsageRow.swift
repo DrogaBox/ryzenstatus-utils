@@ -22,7 +22,7 @@ struct ProcessUsageRow: View {
     }
 
     private var content: some View {
-        let isLeaking = ProcessUsageService.shared.leakingPIDs.contains(row.pid)
+        let isLeaking = ProcessUsageService.shared.leakingPIDsCopy().contains(row.pid)
         let glossaryEntry = ProcessGlossary.lookup(name: row.name)
 
         return HStack(spacing: 7) {

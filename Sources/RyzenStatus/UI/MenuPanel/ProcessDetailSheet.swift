@@ -23,7 +23,7 @@ struct ProcessDetailSheet: View {
     }
 
     private var isLeaking: Bool {
-        ProcessUsageService.shared.leakingPIDs.contains(row.pid)
+        ProcessUsageService.shared.leakingPIDsCopy().contains(row.pid)
     }
 
     private var executablePath: String {
@@ -294,13 +294,17 @@ struct ProcessDetailSheet: View {
     }
 }
 
+// MARK: - ProcessInspectorWindowController
+
 /// Standalone Window Controller for Process Inspector to prevent NSPopover modality lockups.
+/// Conforms to NSWindowDelegate so the live-telemetry timer is properly torn down when the
+/// user clicks the native close (red) button — preventing an indefinite 1 Hz background drain.
 @MainActor
-final class ProcessInspectorWindowController {
+final class ProcessInspectorWindowController: NSObject, NSWindowDelegate {
     static let shared = ProcessInspectorWindowController()
     private var window: NSWindow?
 
-    private init() {}
+    private override init() {}
 
     func present(for process: ProcessUsage) {
         if let existing = window {
@@ -316,7 +320,11 @@ final class ProcessInspectorWindowController {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
+        // isReleasedWhenClosed = false is required so we control the lifetime ourselves.
+        // Without this the NSWindow would be deallocated on close, leaving window a dangling ref.
+        window.isReleasedWhenClosed = false
         window.level = .floating
+        window.delegate = self
         window.center()
 
         self.window = window
@@ -327,5 +335,15 @@ final class ProcessInspectorWindowController {
     func close() {
         window?.close()
         window = nil
+    }
+
+    // MARK: NSWindowDelegate
+
+    /// Called when the user clicks the red close button or presses Cmd+W.
+    /// Clears our reference so the SwiftUI view (and its 1 Hz timer) are released.
+    nonisolated func windowWillClose(_ notification: Notification) {
+        Task { @MainActor in
+            self.window = nil
+        }
     }
 }
