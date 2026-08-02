@@ -21,6 +21,7 @@ struct AmdPowerSettingsView: View {
     
     @ObservedObject private var autoEpp = AutoEppService.shared
     @ObservedObject private var monitor = SystemMonitor.shared
+    @ObservedObject private var nvramCState = CStateNvramService.shared
     @ObservedObject private var l10n = L10n.shared
 
     @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 10
@@ -280,8 +281,8 @@ struct AmdPowerSettingsView: View {
                             _ = ProcessorModel.shared.setLPM(enabled: newValue)
                         }
 
-                    // Deep C-state (C6) monitoring
-                    VStack(alignment: .leading, spacing: 4) {
+                    // Deep C-state (C6) monitoring & NVRAM control
+                    VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Image(systemName: "moon.zzz.fill")
                                 .foregroundColor(.purple)
@@ -289,14 +290,22 @@ struct AmdPowerSettingsView: View {
                             Text("Deep C-States (C6+)")
                                 .font(.subheadline)
                             Spacer()
-                            if c6Residency > 0 {
-                                Text(String(format: "%.1f%%", c6Residency))
-                                    .font(.system(.body, design: .monospaced))
-                                    .foregroundColor(c6Residency > 10 ? .green : .orange)
+                            if nvramCState.isC6Enabled {
+                                Text("amdcstate=0 (NVRAM)")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.green)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Capsule().fill(Color.green.opacity(0.15)))
                             } else {
-                                Text("—")
-                                    .font(.system(.body, design: .monospaced))
+                                Text("amdcstate=1 (Desactivado - Recomendado)")
+                                    .font(.caption)
+                                    .fontWeight(.medium)
                                     .foregroundColor(.secondary)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Capsule().fill(Color.secondary.opacity(0.12)))
                             }
                         }
                         
@@ -306,17 +315,112 @@ struct AmdPowerSettingsView: View {
                                 RoundedRectangle(cornerRadius: 3)
                                     .fill(Color.secondary.opacity(0.15))
                                     .frame(height: 6)
-                                RoundedRectangle(cornerRadius: 3)
-                                    .fill(c6Residency > 10 ? Color.green : Color.orange)
-                                    .frame(width: max(2, geo.size.width * CGFloat(min(c6Residency / 100.0, 1.0))), height: 6)
+                                if c6Residency > 0 {
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(c6Residency > 10 ? Color.green : Color.orange)
+                                        .frame(width: max(2, geo.size.width * CGFloat(min(c6Residency / 100.0, 1.0))), height: 6)
+                                }
                             }
                         }
                         .frame(height: 6)
                         
-                        Text("Default: OFF (telemetría rápida). Usá amdcstate=0 en boot-args para activarlos = CPU más frío, fans más silenciosos.")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                        HStack {
+                            Text("Desactivado por defecto. En PC de escritorio se recomienda mantenerlo OFF para evitar latencia de despertado y micro-pops de audio.")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 8)
+                            Button {
+                                nvramCState.toggleCState()
+                            } label: {
+                                HStack(spacing: 4) {
+                                    if nvramCState.isUpdating {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                    } else {
+                                        Image(systemName: "arrow.triangle.2.circlepath")
+                                            .font(.caption2)
+                                    }
+                                    Text(nvramCState.isC6Enabled ? "Desactivar C6 (NVRAM)" : "Activar C6 (NVRAM)")
+                                        .font(.caption)
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(nvramCState.isC6Enabled ? .orange : .accentColor)
+                            .disabled(nvramCState.isUpdating)
+                        }
+                    }
+                    .padding(.vertical, 4)
+
+                    // CPPC Active Mode (-amdcppcactive) NVRAM control
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Image(systemName: "bolt.badge.clock.fill")
+                                .foregroundColor(.blue)
+                                .font(.caption)
+                            Text("CPPC Active Mode (-amdcppcactive)")
+                                .font(.subheadline)
+                            Spacer()
+                            Text(nvramCState.isCppcActiveEnabled ? "Activo (-amdcppcactive)" : "Inactivo")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .foregroundColor(nvramCState.isCppcActiveEnabled ? .green : .secondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill((nvramCState.isCppcActiveEnabled ? Color.green : Color.secondary).opacity(0.12)))
+                        }
+
+                        HStack {
+                            Text("Permite a macOS gestionar perfiles EPP (Rendimiento, Ahorro) en procesadores AMD Zen.")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 8)
+                            Button {
+                                nvramCState.toggleCppcActive()
+                            } label: {
+                                Text(nvramCState.isCppcActiveEnabled ? "Quitar -amdcppcactive" : "Agregar -amdcppcactive")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(nvramCState.isUpdating)
+                        }
+                    }
+                    .padding(.vertical, 4)
+
+                    // Root Privilege Bypass (-amdpnopchk) NVRAM control
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Image(systemName: "lock.shield.fill")
+                                .foregroundColor(.orange)
+                                .font(.caption)
+                            Text("Bypass Privilegios Root (-amdpnopchk)")
+                                .font(.subheadline)
+                            Spacer()
+                            Text(nvramCState.isPnopchkEnabled ? "Activo (-amdpnopchk)" : "Inactivo")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .foregroundColor(nvramCState.isPnopchkEnabled ? .green : .secondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill((nvramCState.isPnopchkEnabled ? Color.green : Color.secondary).opacity(0.12)))
+                        }
+
+                        HStack {
+                            Text("Permite ajustar ventiladores, EPP y P-States sin pedir clave sudo en cada cambio.")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 8)
+                            Button {
+                                nvramCState.togglePnopchk()
+                            } label: {
+                                Text(nvramCState.isPnopchkEnabled ? "Quitar -amdpnopchk" : "Agregar -amdpnopchk")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(nvramCState.isUpdating)
+                        }
                     }
                     .padding(.vertical, 4)
                 } header: {

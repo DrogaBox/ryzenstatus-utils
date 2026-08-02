@@ -163,6 +163,7 @@ To get the most out of the AMD telemetry and fan control, you can add the follow
 
 - **`-amdpnopchk`**: (Recommended) Bypasses privilege checks, allowing RyzenStatus to control fans, EPP, P-States, and Curve Optimizer without running as `root`. Without this, the app is read-only.
 - **`-amdcppcactive`**: Enables CPPC Active Mode at boot, allowing the OS to respect EPP (Energy Performance Preference) profiles like Power Save or Performance.
+- **`amdcstate=0` / `amdcstate=1`**: Controls Deep C-States (C6+). `amdcstate=1` (or default OFF) is recommended on desktop PCs to eliminate core wake latency and audio pops, while `amdcstate=0` enables C6 deep sleep for laptops. Can be toggled with 1-click directly in **RyzenStatus** Settings.
 - **`-amdpdbg`**: Enables verbose debug logging (for troubleshooting panics or missing sensors).
 
 #### Supported Sensors & Fan Control
