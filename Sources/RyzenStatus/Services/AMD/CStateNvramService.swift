@@ -35,6 +35,23 @@ final class CStateNvramService: ObservableObject {
         // -amdpnopchk enables user-space privilege bypass
         isPnopchkEnabled = args.contains("-amdpnopchk")
     }
+    /// Constructs string containing only our application's AMD parameters
+    var amdBootArgsString: String {
+        var items: [String] = []
+        if isCppcActiveEnabled { items.append("-amdcppcactive") }
+        if isPnopchkEnabled { items.append("-amdpnopchk") }
+        items.append(isC6Enabled ? "amdcstate=0" : "amdcstate=1")
+        return items.joined(separator: " ")
+    }
+
+    /// Copies only our app's AMD parameters string to macOS system pasteboard
+    @discardableResult
+    func copyAmdArgsToClipboard() -> String {
+        let str = amdBootArgsString
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(str, forType: .string)
+        return str
+    }
 
     /// Toggles the C6 boot-arg in NVRAM and offers to reboot the system.
     func toggleCState() {

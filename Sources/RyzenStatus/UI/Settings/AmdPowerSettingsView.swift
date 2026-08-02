@@ -19,6 +19,7 @@ struct AmdPowerSettingsView: View {
     @State private var lastC6Timestamp: Date = .distantPast
     private let c6Timer = Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()
     
+    @State private var showCopiedToast: Bool = false
     @ObservedObject private var autoEpp = AutoEppService.shared
     @ObservedObject private var monitor = SystemMonitor.shared
     @ObservedObject private var nvramCState = CStateNvramService.shared
@@ -287,11 +288,11 @@ struct AmdPowerSettingsView: View {
                             Image(systemName: "moon.zzz.fill")
                                 .foregroundColor(.purple)
                                 .font(.caption)
-                            Text("Deep C-States (C6+)")
+                            Text(l10n.amdPower.deepCStatesTitle)
                                 .font(.subheadline)
                             Spacer()
                             if nvramCState.isC6Enabled {
-                                Text("amdcstate=0 (NVRAM)")
+                                Text(l10n.amdPower.c6ActiveBadge)
                                     .font(.caption)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.green)
@@ -299,7 +300,7 @@ struct AmdPowerSettingsView: View {
                                     .padding(.vertical, 2)
                                     .background(Capsule().fill(Color.green.opacity(0.15)))
                             } else {
-                                Text("amdcstate=1 (Desactivado - Recomendado)")
+                                Text(l10n.amdPower.c6DisabledBadge)
                                     .font(.caption)
                                     .fontWeight(.medium)
                                     .foregroundColor(.secondary)
@@ -325,7 +326,7 @@ struct AmdPowerSettingsView: View {
                         .frame(height: 6)
                         
                         HStack {
-                            Text("Desactivado por defecto. En PC de escritorio se recomienda mantenerlo OFF para evitar latencia de despertado y micro-pops de audio.")
+                            Text(l10n.amdPower.c6Guidance)
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -341,7 +342,7 @@ struct AmdPowerSettingsView: View {
                                         Image(systemName: "arrow.triangle.2.circlepath")
                                             .font(.caption2)
                                     }
-                                    Text(nvramCState.isC6Enabled ? "Desactivar C6 (NVRAM)" : "Activar C6 (NVRAM)")
+                                    Text(nvramCState.isC6Enabled ? l10n.amdPower.toggleC6DisableButton : l10n.amdPower.toggleC6EnableButton)
                                         .font(.caption)
                                 }
                             }
@@ -358,10 +359,10 @@ struct AmdPowerSettingsView: View {
                             Image(systemName: "bolt.badge.clock.fill")
                                 .foregroundColor(.blue)
                                 .font(.caption)
-                            Text("CPPC Active Mode (-amdcppcactive)")
+                            Text(l10n.amdPower.cppcTitle)
                                 .font(.subheadline)
                             Spacer()
-                            Text(nvramCState.isCppcActiveEnabled ? "Activo (-amdcppcactive)" : "Inactivo")
+                            Text(nvramCState.isCppcActiveEnabled ? l10n.amdPower.cppcActiveBadge : l10n.amdPower.cppcInactiveBadge)
                                 .font(.caption)
                                 .fontWeight(.medium)
                                 .foregroundColor(nvramCState.isCppcActiveEnabled ? .green : .secondary)
@@ -371,7 +372,7 @@ struct AmdPowerSettingsView: View {
                         }
 
                         HStack {
-                            Text("Permite a macOS gestionar perfiles EPP (Rendimiento, Ahorro) en procesadores AMD Zen.")
+                            Text(l10n.amdPower.cppcGuidance)
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -379,7 +380,7 @@ struct AmdPowerSettingsView: View {
                             Button {
                                 nvramCState.toggleCppcActive()
                             } label: {
-                                Text(nvramCState.isCppcActiveEnabled ? "Quitar -amdcppcactive" : "Agregar -amdcppcactive")
+                                Text(nvramCState.isCppcActiveEnabled ? l10n.amdPower.toggleCppcRemoveButton : l10n.amdPower.toggleCppcAddButton)
                                     .font(.caption)
                             }
                             .buttonStyle(.bordered)
@@ -394,10 +395,10 @@ struct AmdPowerSettingsView: View {
                             Image(systemName: "lock.shield.fill")
                                 .foregroundColor(.orange)
                                 .font(.caption)
-                            Text("Bypass Privilegios Root (-amdpnopchk)")
+                            Text(l10n.amdPower.pnopchkTitle)
                                 .font(.subheadline)
                             Spacer()
-                            Text(nvramCState.isPnopchkEnabled ? "Activo (-amdpnopchk)" : "Inactivo")
+                            Text(nvramCState.isPnopchkEnabled ? l10n.amdPower.pnopchkActiveBadge : l10n.amdPower.pnopchkInactiveBadge)
                                 .font(.caption)
                                 .fontWeight(.medium)
                                 .foregroundColor(nvramCState.isPnopchkEnabled ? .green : .secondary)
@@ -407,7 +408,7 @@ struct AmdPowerSettingsView: View {
                         }
 
                         HStack {
-                            Text("Permite ajustar ventiladores, EPP y P-States sin pedir clave sudo en cada cambio.")
+                            Text(l10n.amdPower.pnopchkGuidance)
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -415,7 +416,7 @@ struct AmdPowerSettingsView: View {
                             Button {
                                 nvramCState.togglePnopchk()
                             } label: {
-                                Text(nvramCState.isPnopchkEnabled ? "Quitar -amdpnopchk" : "Agregar -amdpnopchk")
+                                Text(nvramCState.isPnopchkEnabled ? l10n.amdPower.togglePnopchkRemoveButton : l10n.amdPower.togglePnopchkAddButton)
                                     .font(.caption)
                             }
                             .buttonStyle(.bordered)
@@ -423,6 +424,48 @@ struct AmdPowerSettingsView: View {
                         }
                     }
                     .padding(.vertical, 4)
+
+                    // Copy App AMD Boot-Args Section
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Image(systemName: "doc.on.doc.fill")
+                                .foregroundColor(.accentColor)
+                                .font(.caption)
+                            Text(l10n.amdPower.copyAmdArgsButton)
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                            Spacer()
+                            if showCopiedToast {
+                                Text(l10n.amdPower.copiedToastText + " " + nvramCState.amdBootArgsString)
+                                    .font(.caption2)
+                                    .foregroundColor(.green)
+                                    .transition(.opacity)
+                            }
+                        }
+
+                        HStack {
+                            Text(l10n.amdPower.copyAmdArgsGuidance)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 8)
+                            Button {
+                                nvramCState.copyAmdArgsToClipboard()
+                                withAnimation { showCopiedToast = true }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                                    withAnimation { showCopiedToast = false }
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: showCopiedToast ? "checkmark" : "doc.on.doc")
+                                    Text(l10n.amdPower.copyAmdArgsButton)
+                                }
+                                .font(.caption)
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    }
+                    .padding(.vertical, 6)
                 } header: {
                     Text(L10n.shared.amdPower.advancedEnergyHeader)
                 } footer: {
