@@ -282,7 +282,7 @@ struct AmdPowerSettingsView: View {
                             _ = ProcessorModel.shared.setLPM(enabled: newValue)
                         }
 
-                    // Deep C-state (C6) monitoring & NVRAM control
+                    // Deep C-States (C6) — read-only NVRAM status
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Image(systemName: "moon.zzz.fill")
@@ -309,7 +309,7 @@ struct AmdPowerSettingsView: View {
                                     .background(Capsule().fill(Color.secondary.opacity(0.12)))
                             }
                         }
-                        
+
                         // Visual bar for C6 residency
                         GeometryReader { geo in
                             ZStack(alignment: .leading) {
@@ -324,36 +324,15 @@ struct AmdPowerSettingsView: View {
                             }
                         }
                         .frame(height: 6)
-                        
-                        HStack {
-                            Text(l10n.amdPower.c6Guidance)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 8)
-                            Button {
-                                nvramCState.toggleCState()
-                            } label: {
-                                HStack(spacing: 4) {
-                                    if nvramCState.isUpdating {
-                                        ProgressView()
-                                            .controlSize(.small)
-                                    } else {
-                                        Image(systemName: "arrow.triangle.2.circlepath")
-                                            .font(.caption2)
-                                    }
-                                    Text(nvramCState.isC6Enabled ? l10n.amdPower.toggleC6DisableButton : l10n.amdPower.toggleC6EnableButton)
-                                        .font(.caption)
-                                }
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(nvramCState.isC6Enabled ? .orange : .accentColor)
-                            .disabled(nvramCState.isUpdating)
-                        }
+
+                        Text(l10n.amdPower.c6Guidance)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(.vertical, 4)
 
-                    // CPPC Active Mode (-amdcppcactive) NVRAM control
+                    // CPPC Active Mode — read-only NVRAM status
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Image(systemName: "bolt.badge.clock.fill")
@@ -370,26 +349,14 @@ struct AmdPowerSettingsView: View {
                                 .padding(.vertical, 2)
                                 .background(Capsule().fill((nvramCState.isCppcActiveEnabled ? Color.green : Color.secondary).opacity(0.12)))
                         }
-
-                        HStack {
-                            Text(l10n.amdPower.cppcGuidance)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 8)
-                            Button {
-                                nvramCState.toggleCppcActive()
-                            } label: {
-                                Text(nvramCState.isCppcActiveEnabled ? l10n.amdPower.toggleCppcRemoveButton : l10n.amdPower.toggleCppcAddButton)
-                                    .font(.caption)
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(nvramCState.isUpdating)
-                        }
+                        Text(l10n.amdPower.cppcGuidance)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(.vertical, 4)
 
-                    // Root Privilege Bypass (-amdpnopchk) NVRAM control
+                    // Root Privilege Bypass — read-only NVRAM status
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Image(systemName: "lock.shield.fill")
@@ -406,26 +373,14 @@ struct AmdPowerSettingsView: View {
                                 .padding(.vertical, 2)
                                 .background(Capsule().fill((nvramCState.isPnopchkEnabled ? Color.green : Color.secondary).opacity(0.12)))
                         }
-
-                        HStack {
-                            Text(l10n.amdPower.pnopchkGuidance)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 8)
-                            Button {
-                                nvramCState.togglePnopchk()
-                            } label: {
-                                Text(nvramCState.isPnopchkEnabled ? l10n.amdPower.togglePnopchkRemoveButton : l10n.amdPower.togglePnopchkAddButton)
-                                    .font(.caption)
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(nvramCState.isUpdating)
-                        }
+                        Text(l10n.amdPower.pnopchkGuidance)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(.vertical, 4)
 
-                    // Copy App AMD Boot-Args Section
+                    // Copy AMD Boot-Args — one-click clipboard copy for config.plist
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Image(systemName: "doc.on.doc.fill")

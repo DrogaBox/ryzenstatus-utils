@@ -243,25 +243,27 @@ final class FinderCutPaste: ObservableObject {
         operationGeneration += 1
         let generation = operationGeneration
         let urls = marked.map(\.url)
+        // Capture pasteboard image data here on the calling thread — NSPasteboard is not thread-safe
+        // and must not be accessed from DispatchQueue.global (issue #429 thread-safety fix).
+        let clipboardImageData: Data? = urls.isEmpty
+            ? (NSPasteboard.general.data(forType: .png) ?? NSPasteboard.general.data(forType: .tiff))
+            : nil
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let destPath = FinderBridge.insertionLocationPath() else {
                 DispatchQueue.main.async {
+                    self?.moveInProgress = false
                     self?.finishPaste(generation: generation, moved: 0, failed: urls.count)
                 }
                 return
             }
             let dir = URL(fileURLWithPath: destPath, isDirectory: true)
-            
-            // If no files are cut, check for image data on pasteboard to save as image file (issue #429)
+
+            // If no files are cut, check for pre-captured image data to save as image file (issue #429)
             if urls.isEmpty {
-                if let imageSaved = self?.pasteImageFromPasteboard(into: dir), imageSaved {
-                    DispatchQueue.main.async {
-                        self?.finishPaste(generation: generation, moved: 1, failed: 0)
-                    }
-                } else {
-                    DispatchQueue.main.async {
-                        self?.finishPaste(generation: generation, moved: 0, failed: 0)
-                    }
+                let imageSaved = self?.pasteImageFromPasteboard(data: clipboardImageData, into: dir) ?? false
+                DispatchQueue.main.async {
+                    self?.moveInProgress = false
+                    self?.finishPaste(generation: generation, moved: imageSaved ? 1 : 0, failed: 0)
                 }
                 return
             }
@@ -332,9 +334,8 @@ final class FinderCutPaste: ObservableObject {
         (try? url.resourceValues(forKeys: [.volumeIdentifierKey]))?.volumeIdentifier as? NSObject
     }
 
-    private func pasteImageFromPasteboard(into dir: URL) -> Bool {
-        let pb = NSPasteboard.general
-        guard let data = pb.data(forType: .png) ?? pb.data(forType: .tiff) else { return false }
+    private func pasteImageFromPasteboard(data: Data?, into dir: URL) -> Bool {
+        guard let data else { return false }
         guard let image = NSImage(data: data),
               let tiffData = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
