@@ -1,25 +1,32 @@
 # Changelog
 
-## [1.8.2-beta1] — 2026-08-01
+## [1.8.2] — 2026-08-02
 
-### Unified Pre-Release (Beta Build 21)
+### Stable Release
 
-- **20-Bug Stability & Optimization Sprint**: Complete audit resolution across core telemetry, UI rendering, thread concurrency, memory management, and process analysis engines.
-- **AMD SMT Core Topology Mapping**: Corrected XNU kernel interleaved SMT thread indexing (even indices = primary physical cores C1..C16, odd indices = secondary SMT threads T17..T32), restoring accurate per-core load visualization across all 16 physical cores.
-- **Process Inspector Memory Leak & Lifecycle Fix**: Implemented `NSWindowDelegate` and `windowWillClose` in `ProcessInspectorWindowController` to tear down live-telemetry timers when closed, preventing background memory leaks.
-- **Telemetry Logger Disk Exception Protection**: Handled file write exceptions gracefully (`write(contentsOf:)`) during low-disk states and synchronized queue transitions in `TelemetryLogger`.
-- **Memory Alignment & CPU Architecture Safety**: Replaced unsafe pointer type-punning with `loadUnaligned` in `NetworkSampler` and `withUnsafeMutableBytes` in `physicalFootprint`.
-- **Network Process Pipe Deadlock Resolution**: Implemented a concurrent drain queue for `nettop` in `NetworkProcessSupport`, eliminating pipe buffer deadlocks on high-traffic connections.
-- **Leak Detector Lock Contention**: Temporarily released `cacheLock` in `ProcessUsageService` during `LeakDetector` regression analysis, eliminating UI stuttering.
-- **Background Performance Suite Loading**: Offloaded data refresh in `PerformanceSuiteView` to background `Task.detached` routines with `MainActor` UI updates.
-- **Menu Bar Renderer & Chart Canvas Optimization**: Single-pass line layout in `MenuBarRenderer.attributed()` and precalculated `TrendChart` runs outside Canvas draw loops.
-- **Disk Sampler Timeout Protection**: Added a 4-second timeout with fallback process termination to `runDiskutilInfo` in `DiskSampler`.
-- **Accurate Energy Impact GPU Scoring**: Dynamically resolved process GPU utilization in `EnergyImpactService` from `topGPU` instead of hardcoding zero.
+### Features & Improvements
+- **AMD Boot-Args Read & Copy**: New section in AMD Power Settings displays the current NVRAM `boot-args` state (`amdcstate`, `-amdcppcactive`, `-amdpnopchk`) as live read-only badges. A single "Copy AMD Boot-Args" button copies the full recommended string to the clipboard for pasting into your bootloader `config.plist` — the app never writes to NVRAM directly.
+- **Finder Image Paste**: Pressing `⌘V` in a Finder window with no files marked for cut now saves clipboard PNG/TIFF images directly as `Pasted Image <timestamp>.png` in the current folder.
+- **Clipboard Privacy**: Password manager entries (1Password, Bitwarden, TypeIt4Me, `org.nspasteboard.ConcealedType`) are automatically excluded from clipboard history — passwords are never recorded.
 - **Performance Suite Dashboard**: Full `PerformanceSuiteView` with 5 navigation tabs (Dashboard, Diagnostics, Analytics, Energy, Network).
-- **1Hz Real-Time Process Inspector**: Floating inspector window displaying executable path, Reveal in Finder, Copy Path, and 1Hz live telemetry.
+- **AMD SMT Core Topology Mapping**: Corrected XNU kernel interleaved SMT thread indexing, restoring accurate per-core load visualization across all 16 physical cores.
+- **1Hz Real-Time Process Inspector**: Floating inspector window with executable path, Reveal in Finder, Copy Path, and 1Hz live telemetry.
 - **Catmull-Rom Cubic Spline Waveforms**: Smooth cubic spline timeline sparklines and trend charts.
 - **Dynamic CPU Hardware Detection**: Real-time `sysctlbyname("machdep.cpu.brand_string")` and core/thread topography resolution.
-- **13-Language Localization**: Full translations across all 13 supported languages with zero hardcoded strings.
+- **App Switcher Enhancements**: W-key window closing, thermal alert hysteresis, external disk eject support, and customizable Dock Preview opacity.
+
+### Bug Fixes
+- **Process Inspector Memory Leak**: `NSWindowDelegate` + `windowWillClose` tears down live-telemetry timers when inspector is closed.
+- **Telemetry Logger Disk Exception**: File write exceptions handled gracefully during low-disk states.
+- **Memory Alignment Safety**: Replaced unsafe pointer type-punning with `loadUnaligned` in `NetworkSampler`.
+- **Network Process Pipe Deadlock**: Concurrent drain queue for `nettop` eliminates pipe buffer deadlocks on high-traffic connections.
+- **Background Performance Suite Loading**: Data refresh offloaded to background `Task.detached` with `MainActor` UI updates.
+- **Disk Sampler Timeout**: 4-second timeout with fallback process termination in `runDiskutilInfo`.
+- **Accurate Energy Impact GPU Scoring**: Resolved process GPU utilization from `topGPU` instead of hardcoding zero.
+- **FinderCutPaste Thread-Safety**: `NSPasteboard` data captured on calling thread before `DispatchQueue.global` — eliminates race condition crash.
+- **FinderCutPaste moveInProgress Flag**: Reset correctly in all branches including the image-paste and `insertionLocation` failure paths.
+- **Bitwarden Clipboard Filtering**: Added `org.bitwarden.clipboard` and `com.bitwarden.bitwarden` to the pasteboard privacy exclusion list.
+
 
 ## [1.7.2] — 2026-07-31
 

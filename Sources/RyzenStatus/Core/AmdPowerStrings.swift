@@ -30,22 +30,16 @@ struct AMDPowerFeatureStrings {
     let c6ActiveBadge: String
     let c6DisabledBadge: String
     let c6Guidance: String
-    let toggleC6EnableButton: String
-    let toggleC6DisableButton: String
 
     let cppcTitle: String
     let cppcActiveBadge: String
     let cppcInactiveBadge: String
     let cppcGuidance: String
-    let toggleCppcAddButton: String
-    let toggleCppcRemoveButton: String
 
     let pnopchkTitle: String
     let pnopchkActiveBadge: String
     let pnopchkInactiveBadge: String
     let pnopchkGuidance: String
-    let togglePnopchkAddButton: String
-    let togglePnopchkRemoveButton: String
 
     let copyAmdArgsButton: String
     let copyAmdArgsGuidance: String
@@ -93,22 +87,16 @@ extension AMDPowerFeatureStrings {
         c6ActiveBadge: "amdcstate=0 (NVRAM Active)",
         c6DisabledBadge: "amdcstate=1 (Disabled - Recommended)",
         c6Guidance: "Disabled by default. Recommended OFF on desktop PCs to eliminate core wake latency and audio micro-pops.",
-        toggleC6EnableButton: "Enable C6 (NVRAM)",
-        toggleC6DisableButton: "Disable C6 (NVRAM)",
 
         cppcTitle: "CPPC Active Mode (-amdcppcactive)",
         cppcActiveBadge: "Active (-amdcppcactive)",
         cppcInactiveBadge: "Inactive",
         cppcGuidance: "Allows macOS to manage EPP energy profiles (Performance, Power Save) on AMD Zen processors.",
-        toggleCppcAddButton: "Add -amdcppcactive",
-        toggleCppcRemoveButton: "Remove -amdcppcactive",
 
         pnopchkTitle: "Root Privilege Bypass (-amdpnopchk)",
         pnopchkActiveBadge: "Active (-amdpnopchk)",
         pnopchkInactiveBadge: "Inactive",
         pnopchkGuidance: "Allows adjusting fans, EPP, and P-States without requiring administrator password on every change.",
-        togglePnopchkAddButton: "Add -amdpnopchk",
-        togglePnopchkRemoveButton: "Remove -amdpnopchk",
 
         copyAmdArgsButton: "Copy AMD Boot-Args",
         copyAmdArgsGuidance: "If OpenCore resets NVRAM on boot, click to copy only our app's AMD boot-args string to paste into your config.plist.",
@@ -142,22 +130,16 @@ extension AMDPowerFeatureStrings {
         c6ActiveBadge: "amdcstate=0 (NVRAM Activo)",
         c6DisabledBadge: "amdcstate=1 (Desactivado - Recomendado)",
         c6Guidance: "Desactivado por defecto. En PC de escritorio se recomienda mantenerlo OFF para evitar latencia de despertado y micro-pops de audio.",
-        toggleC6EnableButton: "Activar C6 (NVRAM)",
-        toggleC6DisableButton: "Desactivar C6 (NVRAM)",
 
         cppcTitle: "CPPC Active Mode (-amdcppcactive)",
         cppcActiveBadge: "Activo (-amdcppcactive)",
         cppcInactiveBadge: "Inactivo",
         cppcGuidance: "Permite a macOS gestionar perfiles EPP (Rendimiento, Ahorro) en procesadores AMD Zen.",
-        toggleCppcAddButton: "Agregar -amdcppcactive",
-        toggleCppcRemoveButton: "Quitar -amdcppcactive",
 
         pnopchkTitle: "Bypass Privilegios Root (-amdpnopchk)",
         pnopchkActiveBadge: "Activo (-amdpnopchk)",
         pnopchkInactiveBadge: "Inactivo",
         pnopchkGuidance: "Permite ajustar ventiladores, EPP y P-States sin pedir clave sudo en cada cambio.",
-        togglePnopchkAddButton: "Agregar -amdpnopchk",
-        togglePnopchkRemoveButton: "Quitar -amdpnopchk",
 
         copyAmdArgsButton: "Copiar argumentos AMD",
         copyAmdArgsGuidance: "Si tu OpenCore resetea la NVRAM al reiniciar, usá este botón para copiar únicamente la cadena de argumentos AMD de la app y pegarla en tu config.plist.",
