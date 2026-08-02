@@ -48,7 +48,7 @@ final class CStateNvramService: ObservableObject {
 
     /// Toggles `-amdpnopchk` in NVRAM and offers to reboot the system.
     func togglePnopchk() {
-        toggleBootArg(key: "-amdpnopchk", targetState: !isPnopchkEnabled, featureName: "Privilege Check Bypass (-amdpnopchk)")
+        toggleBootArg(key: "-amdpnopchk", targetState: !isPnopchkEnabled, featureName: "Bypass Privilegios Root (-amdpnopchk)")
     }
 
     private func toggleBootArg(key: String, targetState: Bool, featureName: String) {
@@ -59,14 +59,16 @@ final class CStateNvramService: ObservableObject {
         let updatedArgs = Self.modifiedBootArgs(current: currentBootArgs, key: key, enable: targetState)
 
         DispatchQueue.global(qos: .userInitiated).async {
-            let success = Self.writeBootArgs(updatedArgs)
+            let result = Self.writeBootArgs(updatedArgs)
             Task { @MainActor in
                 self.isUpdating = false
-                if success {
+                if result.success {
                     self.refresh()
                     self.promptForReboot(featureName: featureName, enabled: targetState)
                 } else {
-                    self.errorMessage = "No se pudo actualizar la NVRAM. Verificá los permisos del sistema."
+                    let msg = result.error ?? "No se pudo actualizar la NVRAM."
+                    self.errorMessage = msg
+                    self.promptForError(msg)
                 }
             }
         }
@@ -116,32 +118,42 @@ final class CStateNvramService: ObservableObject {
         return tokens.joined(separator: " ")
     }
 
-    nonisolated static func writeBootArgs(_ newArgs: String) -> Bool {
-        let script = "nvram boot-args=\"\(newArgs)\""
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-        task.arguments = ["/usr/sbin/nvram", "boot-args=\(newArgs)"]
-        
-        do {
-            try task.run()
-            task.waitUntilExit()
-            if task.terminationStatus == 0 {
-                return true
-            }
-            return executeWithAuthorization(script: script)
-        } catch {
-            return executeWithAuthorization(script: script)
-        }
-    }
+    nonisolated static func writeBootArgs(_ newArgs: String) -> (success: Bool, error: String?) {
+        // 1. Try direct nvram call first
+        let directTask = Process()
+        directTask.executableURL = URL(fileURLWithPath: "/usr/sbin/nvram")
+        directTask.arguments = ["boot-args=\(newArgs)"]
+        let directErrPipe = Pipe()
+        directTask.standardError = directErrPipe
 
-    nonisolated private static func executeWithAuthorization(script: String) -> Bool {
-        let appleScript = "do shell script \"\(script)\" with administrator privileges"
-        var error: NSDictionary?
-        if let scriptObject = NSAppleScript(source: appleScript) {
-            _ = scriptObject.executeAndReturnError(&error)
-            return error == nil
+        do {
+            try directTask.run()
+            directTask.waitUntilExit()
+            if directTask.terminationStatus == 0 {
+                return (true, nil)
+            }
+        } catch {}
+
+        // 2. Fallback to osascript with administrator privileges (prompts for Admin password natively)
+        let appleScriptCommand = "do shell script \"nvram boot-args=\\\"\(newArgs)\\\"\" with administrator privileges"
+        let osascript = Process()
+        osascript.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        osascript.arguments = ["-e", appleScriptCommand]
+        let errorPipe = Pipe()
+        osascript.standardError = errorPipe
+
+        do {
+            try osascript.run()
+            osascript.waitUntilExit()
+            if osascript.terminationStatus == 0 {
+                return (true, nil)
+            }
+            let errData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let errStr = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (false, errStr ?? "Cancelado por el usuario o permisos insuficientes.")
+        } catch {
+            return (false, error.localizedDescription)
         }
-        return false
     }
 
     private func promptForReboot(featureName: String, enabled: Bool) {
@@ -149,7 +161,7 @@ final class CStateNvramService: ObservableObject {
         alert.alertStyle = .informational
         alert.messageText = "NVRAM Boot-Args Actualizado"
         let statusStr = enabled ? "Activado" : "Desactivado"
-        alert.informativeText = "Se configuró '\(featureName)' como '\(statusStr)' en los boot-args de la NVRAM. Se requiere reiniciar la Mac para aplicar los cambios en el kernel."
+        alert.informativeText = "Se configuró '\(featureName)' como '\(statusStr)' en la NVRAM.\n\nboot-args actuales:\n\(currentBootArgs)\n\n¿Deseás reiniciar la Mac ahora para que el kernel aplique los cambios?"
         alert.addButton(withTitle: "Reiniciar Ahora")
         alert.addButton(withTitle: "Reiniciar Luego")
 
@@ -159,11 +171,20 @@ final class CStateNvramService: ObservableObject {
         }
     }
 
+    private func promptForError(_ message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "No se Pudo Modificar la NVRAM"
+        alert.informativeText = "Ocurrió el siguiente problema:\n\(message)\n\nVerificá si tu usuario tiene permisos de administrador o si la NVRAM está protegida."
+        alert.addButton(withTitle: "Entendido")
+        alert.runModal()
+    }
+
     private static func rebootSystem() {
         let script = "tell application \"System Events\" to restart"
-        if let appleScript = NSAppleScript(source: script) {
-            var error: NSDictionary?
-            appleScript.executeAndReturnError(&error)
-        }
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        task.arguments = ["-e", script]
+        try? task.run()
     }
 }
