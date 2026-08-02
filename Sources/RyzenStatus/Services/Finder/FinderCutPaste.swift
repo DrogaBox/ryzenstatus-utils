@@ -251,6 +251,20 @@ final class FinderCutPaste: ObservableObject {
                 return
             }
             let dir = URL(fileURLWithPath: destPath, isDirectory: true)
+            
+            // If no files are cut, check for image data on pasteboard to save as image file (issue #429)
+            if urls.isEmpty {
+                if let imageSaved = self?.pasteImageFromPasteboard(into: dir), imageSaved {
+                    DispatchQueue.main.async {
+                        self?.finishPaste(generation: generation, moved: 1, failed: 0)
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        self?.finishPaste(generation: generation, moved: 0, failed: 0)
+                    }
+                }
+                return
+            }
             let fm = FileManager.default
             let plan = Self.progressPlan(urls: urls, dir: dir)
             var moved = 0, failed = 0
@@ -316,6 +330,33 @@ final class FinderCutPaste: ObservableObject {
 
     private static func volumeIdentity(of url: URL) -> NSObject? {
         (try? url.resourceValues(forKeys: [.volumeIdentifierKey]))?.volumeIdentifier as? NSObject
+    }
+
+    private func pasteImageFromPasteboard(into dir: URL) -> Bool {
+        let pb = NSPasteboard.general
+        guard let data = pb.data(forType: .png) ?? pb.data(forType: .tiff) else { return false }
+        guard let image = NSImage(data: data),
+              let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else { return false }
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        let timestamp = formatter.string(from: Date())
+        var targetURL = dir.appendingPathComponent("Pasted Image \(timestamp).png")
+        var counter = 1
+        let fm = FileManager.default
+        while fm.fileExists(atPath: targetURL.path) {
+            targetURL = dir.appendingPathComponent("Pasted Image \(timestamp) \(counter).png")
+            counter += 1
+        }
+        
+        do {
+            try pngData.write(to: targetURL)
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// Samples the growing destination file while `FileManager` copies it, so
