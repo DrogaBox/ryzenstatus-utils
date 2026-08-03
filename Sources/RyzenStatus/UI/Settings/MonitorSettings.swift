@@ -578,7 +578,7 @@ private struct SectionVisibilityEye: View {
     }
 }
 
-private struct PanelOrderDropDelegate: DropDelegate {
+struct PanelOrderDropDelegate: DropDelegate {
     let target: PanelSectionID
     @Binding var order: [PanelSectionID]
     @Binding var dragging: PanelSectionID?
