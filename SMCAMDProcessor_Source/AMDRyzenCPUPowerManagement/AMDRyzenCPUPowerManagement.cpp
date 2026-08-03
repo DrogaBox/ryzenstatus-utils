@@ -369,6 +369,12 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
             provider->ccdTemperatures[i] = provider->getCCDTemp(i);
         }
         
+        // Update gpuTempC for fan curve source sensor from first GPU
+        if (provider->gpuCount > 0) {
+            // Convert UInt16 temperature (degrees C) to float
+            provider->gpuTempC = (float)provider->gpuTemperatures[0];
+        }
+
         provider->evaluateFanCurves();
 
         // GPU temperature and power update
@@ -379,12 +385,6 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
                     provider->gpuDevices[i]->getPower(&provider->gpuPowers[i]);
                 }
             }
-        }
-
-        // Update gpuTempC for fan curve source sensor from first GPU
-        if (provider->gpuCount > 0) {
-            // Convert UInt16 temperature (degrees C) to float
-            provider->gpuTempC = (float)provider->gpuTemperatures[0];
         }
 
         sender->setTimeoutMS(HF_TEMP_SAMPLE_PERIOD);
