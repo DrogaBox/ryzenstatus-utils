@@ -62,6 +62,8 @@ final class AppVolumeMixer: ObservableObject {
     @Published private(set) var apps: [MixerApp] = []
     @Published private(set) var outputDevices: [MixerOutputDevice] = []
     @Published private(set) var currentOutputDeviceUID: String?
+    @Published private(set) var systemOutputVolume: Double?
+    @Published private(set) var systemOutputMuted: Bool?
     @Published private(set) var outputSwitchError: String?
     /// Set when tap creation fails with a permission error, so the panel can
     /// point at the System Audio Recording consent.
@@ -571,12 +573,34 @@ final class AppVolumeMixer: ObservableObject {
         }
         next = Self.coalescingAppsWithDuplicateIDs(next)
 
+        if let defaultID = Self.defaultOutputDeviceID() {
+            let sysVol = Self.outputVolume(for: defaultID).map(Double.init)
+            let sysMuted = Self.outputMuted(for: defaultID)
+            if systemOutputVolume != sysVol { systemOutputVolume = sysVol }
+            if systemOutputMuted != sysMuted { systemOutputMuted = sysMuted }
+        }
+
         guard audioEnvironmentChanged || next != apps else { return }
         if apps != next {
             apps = next
         }
         reconcileEngines(with: next)
         clearPermissionIfNoActiveAdjustments()
+    }
+
+    func setCurrentOutputVolume(_ volume: Double) {
+        guard let defaultID = Self.defaultOutputDeviceID() else { return }
+        let clamped = min(max(volume, 0), 1)
+        _ = Self.setOutputVolume(Float32(clamped), for: defaultID)
+        if systemOutputVolume != clamped { systemOutputVolume = clamped }
+        if clamped > 0, systemOutputMuted == true { systemOutputMuted = false }
+    }
+
+    func toggleCurrentOutputMute() {
+        guard let defaultID = Self.defaultOutputDeviceID() else { return }
+        let newMuted = !(systemOutputMuted ?? false)
+        _ = Self.setOutputMuted(newMuted, for: defaultID)
+        systemOutputMuted = newMuted
     }
 
     private static func coalescingAppsWithDuplicateIDs(_ apps: [MixerApp]) -> [MixerApp] {
@@ -873,6 +897,74 @@ final class AppVolumeMixer: ObservableObject {
                                           nil,
                                           UInt32(MemoryLayout<AudioObjectID>.size),
                                           &nextDeviceID)
+    }
+
+    private static func defaultOutputDeviceID() -> AudioObjectID? {
+        var device = AudioObjectID(0)
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                                                 mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device) == noErr,
+              device != 0 else { return nil }
+        return device
+    }
+
+    private static func outputVolume(for deviceID: AudioObjectID) -> Float32? {
+        let selectors: [AudioObjectPropertySelector] = [
+            kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+            kAudioDevicePropertyVolumeScalar
+        ]
+        for selector in selectors {
+            var address = AudioObjectPropertyAddress(mSelector: selector,
+                                                     mScope: kAudioObjectPropertyScopeOutput,
+                                                     mElement: kAudioObjectPropertyElementMain)
+            guard AudioObjectHasProperty(deviceID, &address) else { continue }
+            var value: Float32 = 0
+            var size = UInt32(MemoryLayout<Float32>.size)
+            if AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &value) == noErr {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private static func muteElements(for deviceID: AudioObjectID) -> [AudioObjectPropertyElement] {
+        [kAudioObjectPropertyElementMain, 1, 2]
+    }
+
+    private static func outputMuted(for deviceID: AudioObjectID) -> Bool? {
+        for element in muteElements(for: deviceID) {
+            var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyMute,
+                                                     mScope: kAudioObjectPropertyScopeOutput,
+                                                     mElement: element)
+            guard AudioObjectHasProperty(deviceID, &address) else { continue }
+            var value: UInt32 = 0
+            var size = UInt32(MemoryLayout<UInt32>.size)
+            guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &value) == noErr
+            else { continue }
+            return value != 0
+        }
+        return nil
+    }
+
+    @discardableResult
+    private static func setOutputMuted(_ muted: Bool, for deviceID: AudioObjectID) -> Bool {
+        var changed = false
+        for element in muteElements(for: deviceID) {
+            var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyMute,
+                                                     mScope: kAudioObjectPropertyScopeOutput,
+                                                     mElement: element)
+            guard AudioObjectHasProperty(deviceID, &address) else { continue }
+            var settable = DarwinBoolean(false)
+            guard AudioObjectIsPropertySettable(deviceID, &address, &settable) == noErr,
+                  settable.boolValue else { continue }
+            var value: UInt32 = muted ? 1 : 0
+            if AudioObjectSetPropertyData(deviceID, &address, 0, nil, UInt32(MemoryLayout<UInt32>.size), &value) == noErr {
+                changed = true
+            }
+        }
+        return changed
     }
 
     private static func setOutputVolume(_ volume: Float32, for deviceID: AudioObjectID) -> Bool {

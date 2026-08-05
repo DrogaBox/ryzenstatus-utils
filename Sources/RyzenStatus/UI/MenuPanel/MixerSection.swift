@@ -104,6 +104,37 @@ struct MixerSection: View {
                 .help(l10n.s.mixerSystemOutputTooltip)
             }
 
+            if let volume = mixer.systemOutputVolume {
+                HStack(spacing: 8) {
+                    Button {
+                        mixer.toggleCurrentOutputMute()
+                    } label: {
+                        Image(systemName: mixer.systemOutputMuted == true || volume <= 0.001
+                              ? "speaker.slash.fill"
+                              : "speaker.wave.2.fill")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(mixer.systemOutputMuted == true || volume <= 0.001
+                                             ? Color.red
+                                             : Color.secondary)
+                            .frame(width: 16)
+                    }
+                    .buttonStyle(.plain)
+
+                    MixerVolumeSlider(value: systemOutputVolumeBinding,
+                                      normalTint: normalSliderTint,
+                                      boostTint: normalSliderTint,
+                                      isBoosting: false,
+                                      accentRevision: accentRevision,
+                                      accessibilityLabel: l10n.s.mixerSystemOutputTitle)
+
+                    Text("\(Int((volume * 100).rounded()))%")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .frame(width: 36, alignment: .trailing)
+                }
+            }
+
             if universalOutputDevices.isEmpty {
                 inputMessage(l10n.s.mixerSystemOutputNoDevices, systemImage: "speaker.slash")
             } else if let outputSwitchError = mixer.outputSwitchError {
@@ -124,6 +155,13 @@ struct MixerSection: View {
                 guard selection != MixerRoutingSupport.systemDefaultSelectionID else { return }
                 mixer.setUniversalOutputDeviceUID(selection)
             }
+        )
+    }
+
+    private var systemOutputVolumeBinding: Binding<Double> {
+        Binding(
+            get: { mixer.systemOutputVolume ?? 0 },
+            set: { mixer.setCurrentOutputVolume($0) }
         )
     }
 
