@@ -139,6 +139,8 @@ struct MonitorSettings: View {
             }
             monitorAlertsSection
             Section(l10n.s.monitorPanelSection) {
+                PanelOrderEditor()
+                Divider()
                 MonitorPanelConfig()
                 Text(l10n.s.monitorPanelConfigHint)
                     .font(.caption)

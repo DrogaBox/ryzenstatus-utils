@@ -41,6 +41,9 @@ struct MonitorPanelConfig: View {
     @AppStorage(DefaultsKey.monitorPwrHealth) private var pwrHealth = true
 
     @AppStorage(DefaultsKey.monitorShowMixer) private var showMixer = true
+    @AppStorage(DefaultsKey.mixerShowFinder) private var showFinder = true
+    @AppStorage(DefaultsKey.soundOutputSwitcherEnabled) private var soundOutputSwitcherEnabled = false
+    @AppStorage(DefaultsKey.mixerLowerVolumeOnHeadphonesDisconnect) private var lowerOnHeadphonesDisconnect = false
 
     var body: some View {
         if PanelSectionID.system.isAvailable {
@@ -90,9 +93,14 @@ struct MonitorPanelConfig: View {
                 Toggle(l10n.s.powerHealth, isOn: $pwrHealth)
             }
         }
-        // The mixer is a per-app list, so it has no sub-items — just show/hide.
         if AppFeature.mixer.isAvailable {
-            Toggle(l10n.s.mixerSection, isOn: $showMixer)
+            block(.mixer, title: l10n.s.mixerSection, master: $showMixer) {
+                Toggle(l10n.s.mixerShowFinder, isOn: $showFinder)
+                if AppFeature.soundOutputSwitcher.isAvailable {
+                    Toggle(l10n.s.soundOutputSwitcherEnable, isOn: $soundOutputSwitcherEnabled)
+                }
+                Toggle(l10n.s.mixerLowerOnHeadphonesDisconnect, isOn: $lowerOnHeadphonesDisconnect)
+            }
         }
     }
 
@@ -143,5 +151,5 @@ struct MonitorPanelConfig: View {
 }
 
 private enum PanelConfigBlock: Hashable {
-    case system, network, disk, power
+    case system, network, disk, power, mixer
 }
