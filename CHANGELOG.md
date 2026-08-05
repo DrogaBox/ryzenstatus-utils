@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.8.3] — 2026-08-05
+
+### Stable Maintenance Release
+
+### Features & Improvements
+- **Localization Infrastructure**: Added comprehensive `L10n` localization keys (`istatsUser`, `istatsSystem`, `istatsProcesses`, `amdRyzenProcessorInfo`, `amdMinFrequency`, `amdMaxFrequency`, `amdAvgFrequency`) across all 11 supported languages.
+- **Kext Callback Execution Order**: Adjusted GPU temperature callback execution timing in `SMCAMDProcessor.kext` prior to fan curve evaluation.
+- **Volume Mixer Drag-to-Reorder**: Integrated drag-to-reorder layout support and custom block styling for application volume controls in the menu panel.
+- **System Telemetry Stability**: Reinforced AMD Auto-EPP / CPPC state persistence and menu bar readout defaults.
+
 ## [1.8.2] — 2026-08-02
 
 ### Stable Release
