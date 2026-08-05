@@ -100,7 +100,7 @@ extension AppFeature {
         case .pastePlain, .mixer, .soundOutputSwitcher, .micMute,
              .musicBlock, .keepAwake, .brightness, .quickLauncher, .quickToggles, .colorPicker,
              .screenOCR, .cleaningMode, .mediaTools, .cleaner, .uninstaller, .homebrew,
-             .whatsAppDownloads, .screenshot,
+             .whatsAppDownloads, .screenshot, .screenRecorder,
              .cameraPreview, .scratchpad:
             return .idle
         case .appUpdates:

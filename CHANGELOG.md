@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.8.4] — 2026-08-05
+
+### Features & Improvements
+- **Screen Recorder & Live Video Editor**: Full screen and window recording with mouse pointer tracking, live editing timeline, composited cursor sprites, and fast export engine.
+- **Scrolling Screenshots**: Automatic scroll-capture engine stitches full-page screenshots with overlap detection, max-resolution guards, and graceful partial-completion fallback.
+- **System Master Volume Control**: Master output volume slider and mute toggle now appear at the top of the Audio Mixer section alongside per-app controls.
+- **App Switcher Multi-Space Support**: Instant transition between multiple Desktops/Spaces, corrected Adobe window previews, and support for apps with no open windows.
+- **Thermal Safety Filter**: CPU and GPU sensors now ignore bogus 0 °C readings — minimum valid chip temperature raised to 10 °C, with a 4-sample hold-last-good cache to bridge transient SMC gaps.
+- **Command Bar Improvements**: Direct app controls available in the Command Bar; full-width space characters (U+3000, IDEOGRAPHIC SPACE) are now handled as whitespace for search and shortcut matching.
+
 ## [1.8.3] — 2026-08-05
 
 ### Stable Maintenance Release

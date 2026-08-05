@@ -6,9 +6,14 @@ import Carbon.HIToolbox
 import SwiftUI
 
 /// Drives the QR button, which appears after the capture is scanned so the
-/// preview never waits on detection to show.
+/// preview never waits on detection to show, and the buttons grayed out
+/// because the after-capture action already did their work.
 final class ScreenshotQuickPreviewModel: ObservableObject {
     @Published var qr: BarcodeDetector.Reading?
+    @Published var disabledActions: Set<ScreenshotQuickPreviewController.Action> = []
+    @Published var sharing = false
+    @Published var sharedRecord: ScreenshotShareRecord?
+    @Published var deletingShare = false
 }
 
 /// A transient in-memory capture preview. It stays outside Command Tab and
@@ -18,36 +23,50 @@ final class ScreenshotQuickPreviewController {
         case edit
         case copy
         case save
+        case saveAndCopy
         case discard
     }
 
     private let capture: ScreenshotSelectionController.Capture
     private let strings: ScreenshotFeatureStrings
-    private let action: (Action) -> Bool
+    /// Runs one action and reports which sub-actions actually happened —
+    /// save-and-copy can succeed by halves, and only the done halves gray
+    /// their buttons out. Empty means the action failed entirely.
+    private let action: (Action) -> Set<Action>
+    private let share: (ScreenshotShareDuration,
+                        @escaping (ScreenshotShareRecord?) -> Void) -> Void
     private let onClose: () -> Void
     private let model = ScreenshotQuickPreviewModel()
     private var panel: ScreenshotQuickPreviewPanel?
     private var keyMonitor: Any?
     private var dismissWork: DispatchWorkItem?
+    private var autoDismissDuration: TimeInterval = 12
     private var closed = false
 
     init(capture: ScreenshotSelectionController.Capture,
          strings: ScreenshotFeatureStrings,
-         action: @escaping (Action) -> Bool,
+         action: @escaping (Action) -> Set<Action>,
+         share: @escaping (ScreenshotShareDuration,
+                           @escaping (ScreenshotShareRecord?) -> Void) -> Void,
          onClose: @escaping () -> Void) {
         self.capture = capture
         self.strings = strings
         self.action = action
+        self.share = share
         self.onClose = onClose
     }
 
     func show() {
         guard panel == nil, !closed else { return }
+        let defaultAction = ScreenshotDefaultAction.current
         let content = ScreenshotQuickPreviewView(
             image: Self.thumbnail(for: capture.image),
             strings: strings,
             model: model,
             perform: { [weak self] action in self?.perform(action) },
+            share: { [weak self] duration in self?.performShare(duration) },
+            copySharedLink: { [weak self] in self?.copySharedLink() },
+            deleteSharedLink: { [weak self] in self?.deleteSharedLink() },
             showQR: { [weak self] in self?.showQRResult() },
             hoverChanged: { [weak self] inside in
                 if inside {
@@ -58,7 +77,7 @@ final class ScreenshotQuickPreviewController {
                 }
             })
         let host = NSHostingController(rootView: content)
-        let size = CGSize(width: 310, height: 210)
+        let size = Self.size(showingLink: false)
         let panel = ScreenshotQuickPreviewPanel(
             contentRect: CGRect(origin: .zero, size: size),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -74,19 +93,38 @@ final class ScreenshotQuickPreviewController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary,
                                     .transient, .ignoresCycle]
 
-        let visibleFrame = (NSScreen.screens.first { $0.frame.intersects(capture.anchorRect) }
-            ?? NSScreen.withMouse)?.visibleFrame ?? NSScreen.pointerVisibleFrame
-        panel.setFrame(ScreenshotSupport.quickPreviewFrame(
-            size: size,
-            anchor: capture.anchorRect,
-            pointer: NSEvent.mouseLocation,
-            visibleFrame: visibleFrame), display: false)
+        let frame = previewFrame(for: size)
+        panel.setFrame(frame, display: false)
         self.panel = panel
         installKeyMonitor(for: panel)
         panel.orderFrontRegardless()
         panel.makeKey()
+        // A performed action turns the preview into a short confirmation; a
+        // failed one keeps the full stay so the person can still act by hand.
+        autoDismissDuration = runDefaultAction(defaultAction) ? 3 : 12
         scheduleAutoDismiss()
         scanForQR()
+    }
+
+    /// Runs the Settings-configured action once, right after the preview
+    /// appears, and reports whether anything happened. Only the halves that
+    /// actually succeeded gray their buttons out, so a failed copy leaves
+    /// Copy available. Unlike `perform(_:)` this never closes the panel: it
+    /// stays up as confirmation, and the person can still edit or discard
+    /// from it. Edit never reaches here, the service routes it straight
+    /// into the editor without a preview.
+    private func runDefaultAction(_ defaultAction: ScreenshotDefaultAction) -> Bool {
+        let mapped: Action
+        switch defaultAction {
+        case .none, .edit: return false
+        case .save: mapped = .save
+        case .saveAndCopy: mapped = .saveAndCopy
+        case .copy: mapped = .copy
+        }
+        let performed = action(mapped)
+        guard !performed.isEmpty else { return false }
+        model.disabledActions = performed.intersection([.save, .copy])
+        return true
     }
 
     /// Scans the full resolution capture off the main thread and reveals the
@@ -149,13 +187,111 @@ final class ScreenshotQuickPreviewController {
 
     private func perform(_ requested: Action) {
         guard !closed else { return }
+        // Keyboard shortcuts honor the grayed-out buttons: what the
+        // after-capture action already did is not done twice.
+        guard !model.disabledActions.contains(requested) else { return }
         dismissWork?.cancel()
         dismissWork = nil
-        guard action(requested) else {
+        guard !action(requested).isEmpty else {
             scheduleAutoDismiss()
             return
         }
         close()
+    }
+
+    private func performShare(_ duration: ScreenshotShareDuration) {
+        guard !closed, !model.sharing else { return }
+        dismissWork?.cancel()
+        dismissWork = nil
+        model.sharing = true
+        share(duration) { [weak self] record in
+            guard let self, !self.closed else {
+                if let record {
+                    Task { @MainActor in
+                        try? await ScreenshotShareService.shared.delete(record)
+                    }
+                }
+                return
+            }
+            self.model.sharing = false
+            guard let record else {
+                self.scheduleAutoDismiss()
+                return
+            }
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+                self.model.sharedRecord = record
+            }
+            self.autoDismissDuration = 30
+            self.resizePanel(showingLink: true)
+            self.scheduleAutoDismiss()
+        }
+    }
+
+    private func copySharedLink() {
+        guard let record = model.sharedRecord else { return }
+        dismissWork?.cancel()
+        dismissWork = nil
+        Task { @MainActor [weak self] in
+            guard let self, !self.closed else { return }
+            if ScreenshotShareService.shared.copy(record.url) {
+                QuickToolHUD.show(icon: "link", message: self.strings.sharedHUD)
+            } else {
+                NSSound.beep()
+            }
+            self.scheduleAutoDismiss()
+        }
+    }
+
+    private func deleteSharedLink() {
+        guard let record = model.sharedRecord, !model.deletingShare else { return }
+        dismissWork?.cancel()
+        dismissWork = nil
+        model.deletingShare = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await ScreenshotShareService.shared.delete(record)
+                guard !self.closed else { return }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    self.model.sharedRecord = nil
+                    self.model.deletingShare = false
+                }
+                QuickToolHUD.show(icon: "link", message: self.strings.linkDeletedHUD)
+                self.autoDismissDuration = 12
+                self.resizePanel(showingLink: false)
+            } catch {
+                guard !self.closed else { return }
+                self.model.deletingShare = false
+                QuickToolHUD.show(icon: "link", message: self.strings.deleteFailedHUD)
+                NSSound.beep()
+            }
+            self.scheduleAutoDismiss()
+        }
+    }
+
+    fileprivate static func size(showingLink: Bool) -> CGSize {
+        CGSize(width: 350, height: showingLink ? 268 : 210)
+    }
+
+    private func previewFrame(for size: CGSize) -> CGRect {
+        let visibleFrame = (NSScreen.screens.first { $0.frame.intersects(capture.anchorRect) }
+            ?? NSScreen.withMouse)?.visibleFrame ?? NSScreen.pointerVisibleFrame
+        // With an after-capture action the preview is just a confirmation,
+        // so it sits quietly in the corner and leaves sooner, instead of
+        // popping up next to the selection and waiting.
+        return ScreenshotDefaultAction.current == .none
+            ? ScreenshotSupport.quickPreviewFrame(
+                size: size,
+                anchor: capture.anchorRect,
+                pointer: NSEvent.mouseLocation,
+                visibleFrame: visibleFrame)
+            : ScreenshotSupport.quickPreviewCornerFrame(size: size, visibleFrame: visibleFrame)
+    }
+
+    private func resizePanel(showingLink: Bool) {
+        panel?.setFrame(previewFrame(for: Self.size(showingLink: showingLink)),
+                        display: true,
+                        animate: true)
     }
 
     private func scheduleAutoDismiss() {
@@ -163,7 +299,7 @@ final class ScreenshotQuickPreviewController {
         dismissWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.close() }
         dismissWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + autoDismissDuration, execute: work)
     }
 
     private func installKeyMonitor(for panel: NSPanel) {
@@ -191,8 +327,15 @@ final class ScreenshotQuickPreviewController {
             case kVK_Return, kVK_ANSI_KeypadEnter, kVK_ANSI_E:
                 self.perform(.edit)
                 return nil
-            case kVK_Delete, kVK_ForwardDelete, kVK_Escape:
+            case kVK_Delete, kVK_ForwardDelete:
                 self.perform(.discard)
+                return nil
+            case kVK_Escape:
+                // Escape only dismisses. Before the after-capture actions it
+                // was equivalent to discard; now a discard can delete a file
+                // the HUD just announced as saved, and "make this popup go
+                // away" must never do that. Deleting stays on Trash and ⌫.
+                self.close()
                 return nil
             default:
                 return event
@@ -210,6 +353,9 @@ private struct ScreenshotQuickPreviewView: View {
     let strings: ScreenshotFeatureStrings
     @ObservedObject var model: ScreenshotQuickPreviewModel
     let perform: (ScreenshotQuickPreviewController.Action) -> Void
+    let share: (ScreenshotShareDuration) -> Void
+    let copySharedLink: () -> Void
+    let deleteSharedLink: () -> Void
     let showQR: () -> Void
     let hoverChanged: (Bool) -> Void
 
@@ -222,8 +368,8 @@ private struct ScreenshotQuickPreviewView: View {
                     .resizable()
                     .interpolation(.high)
                     .scaledToFit()
-                    .frame(maxWidth: 280, maxHeight: 138)
-                    .frame(width: 280, height: 138)
+                    .frame(maxWidth: 320, maxHeight: 138)
+                    .frame(width: 320, height: 138)
                     .background(Color.black.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                     .overlay(
@@ -234,6 +380,11 @@ private struct ScreenshotQuickPreviewView: View {
             .buttonStyle(.plain)
             .screenshotSafeHelp(strings.editButton)
             .accessibilityLabel(strings.editButton)
+
+            if let record = model.sharedRecord {
+                sharedLinkRow(record)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
 
             HStack(spacing: 5) {
                 Button {
@@ -252,13 +403,18 @@ private struct ScreenshotQuickPreviewView: View {
                 }
                 actionButton(symbol: "square.and.arrow.down",
                              title: strings.saveButton,
-                             shortcut: "⌘S") {
+                             shortcut: "⌘S",
+                             disabled: model.disabledActions.contains(.save)) {
                     perform(.save)
                 }
                 actionButton(symbol: "doc.on.doc",
                              title: strings.copyButton,
-                             shortcut: "⌘C") {
+                             shortcut: "⌘C",
+                             disabled: model.disabledActions.contains(.copy)) {
                     perform(.copy)
+                }
+                if model.sharedRecord == nil {
+                    shareMenu
                 }
                 Spacer(minLength: 4)
                 Button(strings.editButton) {
@@ -270,7 +426,9 @@ private struct ScreenshotQuickPreviewView: View {
             }
         }
         .padding(10)
-        .frame(width: 310, height: 210)
+        .frame(width: ScreenshotQuickPreviewController.size(showingLink: false).width,
+               height: ScreenshotQuickPreviewController.size(
+                   showingLink: model.sharedRecord != nil).height)
         .background(.regularMaterial,
                     in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
@@ -278,6 +436,58 @@ private struct ScreenshotQuickPreviewView: View {
                 .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
         )
         .onHover(perform: hoverChanged)
+    }
+
+    private func sharedLinkRow(_ record: ScreenshotShareRecord) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "link")
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(record.url.absoluteString)
+                    .font(.system(size: 11, design: .rounded))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                HStack(spacing: 3) {
+                    Text(strings.expiresLabel)
+                    Text(record.expiresAt, style: .relative)
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 2)
+            Button(action: copySharedLink) {
+                Image(systemName: "doc.on.doc")
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(.borderless)
+            .disabled(model.deletingShare)
+            .screenshotSafeHelp(strings.copyLink)
+            .accessibilityLabel(strings.copyLink)
+            Button(role: .destructive, action: deleteSharedLink) {
+                Group {
+                    if model.deletingShare {
+                        ProgressView()
+                            .controlSize(.mini)
+                    } else {
+                        Image(systemName: "trash")
+                    }
+                }
+                .frame(width: 18, height: 18)
+            }
+            .buttonStyle(.borderless)
+            .disabled(model.deletingShare)
+            .screenshotSafeHelp(strings.deleteLink)
+            .accessibilityLabel(strings.deleteLink)
+        }
+        .padding(.horizontal, 9)
+        .frame(width: 320, height: 48)
+        .background(Color.primary.opacity(0.055),
+                    in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.09), lineWidth: 1)
+        )
     }
 
     /// A code was found: open the result panel that spells out its content.
@@ -293,9 +503,34 @@ private struct ScreenshotQuickPreviewView: View {
         .accessibilityLabel(L10n.shared.s.qrResultTitle)
     }
 
+    private var shareMenu: some View {
+        Menu {
+            ForEach(ScreenshotShareDuration.allCases) { duration in
+                Button(duration.title(strings)) { share(duration) }
+            }
+        } label: {
+            Group {
+                if model.sharing {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "link")
+                }
+            }
+            .frame(width: 22, height: 18)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(model.sharing)
+        .screenshotSafeHelp(model.sharing ? strings.sharingHUD : strings.shareButton)
+        .accessibilityLabel(strings.shareButton)
+    }
+
     private func actionButton(symbol: String,
                               title: String,
                               shortcut: String,
+                              disabled: Bool = false,
                               action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: symbol)
@@ -305,6 +540,8 @@ private struct ScreenshotQuickPreviewView: View {
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
+        .disabled(disabled)
+        .opacity(disabled ? 0.4 : 1)
         .screenshotSafeHelp("\(title)  (\(shortcut))")
         .accessibilityLabel(title)
     }

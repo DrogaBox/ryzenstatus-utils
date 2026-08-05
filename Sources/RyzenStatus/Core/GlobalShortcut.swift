@@ -181,6 +181,12 @@ struct GlobalShortcut: Equatable, Hashable {
     // Default screenshot shortcut on the available control-option-command layer.
     static let screenshotDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_4),
                                                   modifiers: [.control, .option, .command])
+    static let screenshotFullScreenDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_3),
+                                                          modifiers: [.control, .option, .command])
+    static let screenshotLastCaptureDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_E),
+                                                           modifiers: [.control, .option, .command])
+    static let screenRecorderDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_5),
+                                                     modifiers: [.control, .option, .command])
     // Space for the wheel, on the same free control-option-command layer.
     static let radialMenuDefault = GlobalShortcut(keyCode: Int64(kVK_Space),
                                                   modifiers: [.control, .option, .command])
@@ -420,6 +426,9 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     case micMute
     case quickLauncher
     case screenshot
+    case screenshotFullScreen
+    case screenshotLastCapture
+    case screenRecorder
     case cameraPreview
     case radialMenu
     case snippetLibrary
@@ -441,6 +450,9 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .micMute: return DefaultsKey.micMuteShortcut
         case .quickLauncher: return DefaultsKey.quickLauncherShortcut
         case .screenshot: return DefaultsKey.screenshotShortcut
+        case .screenshotFullScreen: return DefaultsKey.screenshotFullScreenShortcut
+        case .screenshotLastCapture: return DefaultsKey.screenshotLastCaptureShortcut
+        case .screenRecorder: return DefaultsKey.recorderShortcut
         case .cameraPreview: return DefaultsKey.cameraPreviewShortcut
         case .radialMenu: return DefaultsKey.radialMenuShortcut
         case .snippetLibrary: return DefaultsKey.snippetLibraryShortcut
@@ -462,6 +474,9 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .micMute: return .micMuteDefault
         case .quickLauncher: return .quickLauncherDefault
         case .screenshot: return .screenshotDefault
+        case .screenshotFullScreen: return .screenshotFullScreenDefault
+        case .screenshotLastCapture: return .screenshotLastCaptureDefault
+        case .screenRecorder: return .screenRecorderDefault
         case .cameraPreview: return .cameraPreviewDefault
         case .radialMenu: return .radialMenuDefault
         case .snippetLibrary: return .snippetLibraryDefault
@@ -486,7 +501,8 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .screenOCR: return strings.ocrName
         case .micMute: return strings.micMuteName
         case .quickLauncher: return strings.launcherName
-        case .screenshot: return FeatureStrings.screenshot(L10n.shared.language).pageTitle
+        case .screenshot, .screenshotFullScreen, .screenshotLastCapture: return FeatureStrings.screenshot(L10n.shared.language).pageTitle
+        case .screenRecorder: return FeatureStrings.recorder(L10n.shared.language).pageTitle
         case .cameraPreview: return FeatureStrings.cameraPreview(L10n.shared.language).pageTitle
         case .radialMenu: return FeatureStrings.radialMenu(L10n.shared.language).pageTitle
         case .snippetLibrary: return FeatureStrings.snippets(L10n.shared.language).pageTitle
@@ -518,6 +534,9 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .micMute: return [DefaultsKey.micMuteShortcutEnabled]
         case .quickLauncher: return [DefaultsKey.quickLauncherShortcutEnabled]
         case .screenshot: return [DefaultsKey.screenshotShortcutEnabled]
+        case .screenshotFullScreen: return [DefaultsKey.screenshotFullScreenShortcutEnabled]
+        case .screenshotLastCapture: return [DefaultsKey.screenshotLastCaptureShortcutEnabled]
+        case .screenRecorder: return [DefaultsKey.recorderShortcutEnabled]
         case .cameraPreview: return [DefaultsKey.cameraPreviewShortcutEnabled]
         case .radialMenu: return [DefaultsKey.radialMenuEnabled]
         case .snippetLibrary: return [DefaultsKey.snippetLibraryEnabled]
@@ -540,7 +559,8 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .screenOCR: return .screenOCR
         case .micMute: return .micMute
         case .quickLauncher: return .quickLauncher
-        case .screenshot: return .screenshot
+        case .screenshot, .screenshotFullScreen, .screenshotLastCapture: return .screenshot
+        case .screenRecorder: return .screenRecorder
         case .cameraPreview: return .cameraPreview
         case .radialMenu: return .radialMenu
         case .snippetLibrary: return .textSnippets

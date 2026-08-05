@@ -451,11 +451,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         }
     }
 
-    private struct CachedSensorReading {
-        var value: Double
-        var updatedAt: TimeInterval
-        var missedSamples: Int = 0
-    }
+
 
     private struct CachedMemoryReading {
         var used: UInt64
@@ -773,32 +769,35 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             let temperatureBridge: TimeInterval = 10.0
             if plan.needCPUTemperature {
                 if take(.temperature) {
-                    let temp = self.cpuTemperature()
-                    next.cpuTemperature = temp
-                    if let t = temp {
-                        self.cpuTemperatureCache = CachedSensorReading(value: t, updatedAt: now)
-                    }
+                    next.cpuTemperature = TemperatureSensorSelector.stabilizedTemperature(
+                        self.cpuTemperature(),
+                        cache: &self.cpuTemperatureCache,
+                        now: now,
+                        maxAge: temperatureBridge,
+                        minimum: TemperatureSensorSelector.minimumChipTemperature)
                 } else {
                     next.cpuTemperature = self.cpuTemperatureCache?.value
                 }
             }
             if plan.needGPUTemperature {
                 if take(.temperature) {
-                    let temp = self.maxTemperature(of: self.gpuKeys)
-                    next.gpuTemperature = temp
-                    if let t = temp {
-                        self.gpuTemperatureCache = CachedSensorReading(value: t, updatedAt: now)
-                    }
+                    next.gpuTemperature = TemperatureSensorSelector.stabilizedTemperature(
+                        self.maxTemperature(of: self.gpuKeys),
+                        cache: &self.gpuTemperatureCache,
+                        now: now,
+                        maxAge: temperatureBridge,
+                        minimum: TemperatureSensorSelector.minimumChipTemperature)
                 } else {
                     next.gpuTemperature = self.gpuTemperatureCache?.value
                 }
             }
             if plan.needBatteryTemperature {
                 if take(.temperature) {
-                    next.batteryTemperature = Self.stabilizedTemperature(self.maxTemperature(of: self.batteryKeys),
-                                                                         cache: &self.batteryTemperatureCache,
-                                                                         now: now,
-                                                                         maxAge: temperatureBridge)
+                    next.batteryTemperature = TemperatureSensorSelector.stabilizedTemperature(
+                        self.maxTemperature(of: self.batteryKeys),
+                        cache: &self.batteryTemperatureCache,
+                        now: now,
+                        maxAge: temperatureBridge)
                 } else {
                     next.batteryTemperature = self.batteryTemperatureCache?.value
                 }
@@ -939,24 +938,6 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         }
         memoryCache = cached
         return (cached.used, cached.total, cached.pressure, false)
-    }
-
-    private static func stabilizedTemperature(_ reading: Double?,
-                                              cache: inout CachedSensorReading?,
-                                              now: TimeInterval,
-                                              maxAge: TimeInterval) -> Double? {
-        if let reading, reading > 1, reading < 125 {
-            cache = CachedSensorReading(value: reading, updatedAt: now, missedSamples: 0)
-            return reading
-        }
-        guard var cached = cache else { return nil }
-        cached.missedSamples += 1
-        if cached.missedSamples <= 4, now - cached.updatedAt <= maxAge {
-            cache = cached
-            return cached.value
-        }
-        cache = nil
-        return nil
     }
 
     // MARK: - Sensor preparation

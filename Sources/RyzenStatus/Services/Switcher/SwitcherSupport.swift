@@ -23,6 +23,54 @@ struct SwitcherSearchRecord: Equatable {
     let appName: String
 }
 
+/// What a letter typed with the panel open does. Anything else goes to search.
+enum SwitcherLetterAction: Equatable {
+    case closeWindow
+    case quitApp
+}
+
+/// Whether a switcher session lists every app or only the frontmost app's windows.
+enum SwitcherSessionScope: Equatable {
+    case allApps
+    case frontmostApp
+}
+
+/// Which running apps earn an entry of their own when they have no window the
+/// switcher can show. The switcher lists windows, so an app that closed all of
+/// them disappears from it while the system switcher still offers it.
+enum SwitcherWindowlessApps: String, CaseIterable, Equatable {
+    /// Windows only.
+    case off
+    /// The desktop app alone, which is always running and often has no window.
+    case finder
+    /// Every running app, the way the system switcher lists them.
+    case all
+
+    static let fallback = SwitcherWindowlessApps.finder
+
+    /// Preferences are stored as plain strings, so an unknown or missing value
+    /// resolves to the behavior the app shipped with instead of nothing.
+    static func mode(storedValue: String?) -> SwitcherWindowlessApps {
+        guard let storedValue, let mode = SwitcherWindowlessApps(rawValue: storedValue) else {
+            return fallback
+        }
+        return mode
+    }
+
+    /// The value that carries the old on/off preference over unchanged: the
+    /// desktop app kept its entry, anything else stayed windows only.
+    static func migrated(showsWindowlessFinder: Bool) -> SwitcherWindowlessApps {
+        showsWindowlessFinder ? .finder : .off
+    }
+}
+
+/// A running app considered for an entry of its own, with the identity the
+/// choice above is decided on.
+struct SwitcherAppCandidate: Equatable {
+    let pid: pid_t
+    let bundleIdentifier: String?
+}
+
 struct SwitcherAppGroup: Identifiable, Equatable {
     let pid: pid_t
     let appName: String
@@ -49,6 +97,8 @@ struct SwitcherIconRowLayout: Equatable {
     static var appTileWidth: CGFloat { iconLabelWidth + 12 }
     static var previewCardWidth: CGFloat { 220 * scale }
     static var previewCardHeight: CGFloat { 164 * scale }
+    static var appEntryIconSize: CGFloat { 66 * scale }
+    static var appEntrySpacing: CGFloat { 7 * scale }
     static var previewHeight: CGFloat { previewCardHeight + 76 * scale }
     static var hintHeight: CGFloat { 28 * scale }
     static var hintGap: CGFloat { 8 * scale }
@@ -133,22 +183,30 @@ enum SwitcherSupport {
         !simpleMode
     }
 
+    static func shouldPausePreviewCapture(frontmostBundleIdentifier: String?,
+                                          excludedBundleIdentifiers: [String]) -> Bool {
+        guard let frontmostBundleIdentifier else { return false }
+        return excludedBundleIdentifiers.contains(frontmostBundleIdentifier)
+    }
+
     static func needsScreenRecording(switcherEnabled: Bool,
                                      simpleMode: Bool,
                                      dockPreviewEnabled: Bool) -> Bool {
         dockPreviewEnabled || (switcherEnabled && capturesPreviews(simpleMode: simpleMode))
     }
 
-    /// Resolves the foreground surface before the custom switcher takes over
-    /// ⌘Tab. Fullscreen and custom-rendered apps can expose no Accessibility
-    /// window; failing open keeps the system switcher available instead of
-    /// mistaking an older off-screen window for the source.
+    /// Resolves the foreground surface a session is measured against: the
+    /// window the user is looking at right now. It can legitimately not exist
+    /// (the app in front was left with no windows, or all of them are
+    /// minimized or parked on another Space), and nil says exactly that
+    /// instead of mistaking an older off-screen window for the source. The
+    /// session opens either way; `initialSelectionPosition` handles the
+    /// sourceless case.
     static func sessionSourceItem(frontmostPID: pid_t?,
                                   focusedWindowID: CGWindowID?,
                                   items: [SwitcherItem]) -> SwitcherItem? {
         guard let frontmostPID else { return nil }
-        let appPID = items.first(where: { $0.windowOwnerPID == frontmostPID })?.pid
-            ?? frontmostPID
+        let appPID = appPID(forFrontmost: frontmostPID, items: items)
         let candidates = items.filter { $0.pid == appPID }
         if let focusedWindowID,
            let focused = candidates.first(where: { $0.windowID == focusedWindowID }) {
@@ -156,6 +214,38 @@ enum SwitcherSupport {
         }
         return candidates.first(where: { $0.isOnScreen && !$0.isMinimized })
             ?? candidates.first(where: { $0.windowID == nil })
+    }
+
+    /// The regular app behind the process holding the keyboard. Multi-process
+    /// apps render their windows in an embedded helper, so the front process
+    /// is not always the one the entries are filed under.
+    static func appPID(forFrontmost frontmostPID: pid_t, items: [SwitcherItem]) -> pid_t {
+        items.first(where: { $0.windowOwnerPID == frontmostPID })?.pid ?? frontmostPID
+    }
+
+    /// Keeps only the windows belonging to the app that owns the keyboard.
+    static func frontmostAppWindows(allItems: [SwitcherItem], frontmostPID: pid_t) -> [SwitcherItem] {
+        let appPID = appPID(forFrontmost: frontmostPID, items: allItems)
+        return allItems.filter { $0.pid == appPID }
+    }
+
+    /// Where a window-scoped session starts. The foreground window sits first,
+    /// so index 1 is the next window to switch to; a lone window stays at 0.
+    static func initialWindowScopedSelectionIndex(itemCount: Int,
+                                                  hasForegroundItem: Bool,
+                                                  reversed: Bool) -> Int {
+        guard itemCount > 0 else { return 0 }
+        if reversed { return itemCount - 1 }
+        guard hasForegroundItem else { return 0 }
+        return itemCount > 1 ? 1 : 0
+    }
+
+    /// Shift means backward only for a physical-key match. Some keyboard
+    /// layouts need Shift merely to type the shortcut's displayed character.
+    static func windowNavigationDelta(positionalMatch: Bool,
+                                      shiftIsNavigationModifier: Bool,
+                                      shiftHeld: Bool) -> Int {
+        positionalMatch && shiftIsNavigationModifier && shiftHeld ? -1 : 1
     }
 
     /// Whether a process looks like a compatibility layer hosting a program
@@ -179,6 +269,16 @@ enum SwitcherSupport {
         return localizedName.hasPrefix("wine")
     }
 
+    /// Adobe's video and audio apps expose their main surface as a floating
+    /// Accessibility window instead of a standard macOS window. Match bundle
+    /// prefixes because recent releases append version or application suffixes.
+    static func isAdobeFloatingWindow(bundleIdentifier: String?, subrole: String?) -> Bool {
+        guard subrole == "AXFloatingWindow", let bundleIdentifier else { return false }
+        return bundleIdentifier.hasPrefix("com.adobe.Audition")
+            || bundleIdentifier.hasPrefix("com.adobe.AfterEffects")
+            || bundleIdentifier.hasPrefix("com.adobe.PremierePro")
+    }
+
     /// Finds the regular app that contains an accessory helper bundle.
     static func embeddedHostPID(helperBundlePath: String,
                                 regularBundlePaths: [pid_t: String]) -> pid_t? {
@@ -190,6 +290,53 @@ enum SwitcherSupport {
             }
             .max { lhs, rhs in lhs.value.count < rhs.value.count }?
             .key
+    }
+
+    /// Picks the processes queried through Accessibility when the switcher
+    /// opens. Every embedded helper stays eligible because Accessibility can be
+    /// the only source for its fullscreen window on another desktop; the
+    /// enumerator overlaps these remote queries so slow helpers do not stack.
+    static func accessibilityPIDs(regularAppPIDs: Set<pid_t>,
+                                  embeddedHostPIDs: [pid_t: pid_t],
+                                  ownPID: pid_t,
+                                  filterPID: pid_t?) -> Set<pid_t> {
+        if let filterPID {
+            let embeddedPIDs = embeddedHostPIDs.compactMap { ownerPID, hostPID in
+                hostPID == filterPID ? ownerPID : nil
+            }
+            return Set([filterPID] + embeddedPIDs)
+        }
+        return regularAppPIDs.union(embeddedHostPIDs.keys).subtracting([ownPID])
+    }
+
+    /// Picks the running apps that earn an entry of their own because the
+    /// window list has nothing for them.
+    ///
+    /// Only a total absence counts. An app whose windows exist but were left
+    /// out on purpose keeps its absence: showing the app anyway would undo the
+    /// choice the user just made, which is what the current-desktop option
+    /// (issue #337) would suffer from otherwise. Order follows the candidate
+    /// list, so the caller keeps ranking these entries the same way it ranks
+    /// windows.
+    static func windowlessAppPIDs(mode: SwitcherWindowlessApps,
+                                  candidates: [SwitcherAppCandidate],
+                                  pidsWithWindows: Set<pid_t>,
+                                  pidsWithWithheldWindows: Set<pid_t>,
+                                  desktopAppBundleIdentifier: String) -> [pid_t] {
+        guard mode != .off else { return [] }
+        return candidates.compactMap { candidate in
+            guard !pidsWithWindows.contains(candidate.pid),
+                  !pidsWithWithheldWindows.contains(candidate.pid)
+            else { return nil }
+            switch mode {
+            case .off:
+                return nil
+            case .finder:
+                return candidate.bundleIdentifier == desktopAppBundleIdentifier ? candidate.pid : nil
+            case .all:
+                return candidate.pid
+            }
+        }
     }
 
     /// Downsamples a capture into a small alpha grid for classification.
@@ -231,6 +378,33 @@ enum SwitcherSupport {
         ]
         let transparent = probes.filter { alphaGrid[$0.0 * gridSize + $0.1] < 0.05 }.count
         return transparent >= 2
+    }
+
+    /// How far the two axes of a capture may disagree before it counts as a
+    /// slice of a window instead of the whole window.
+    static let captureCoverageTolerance = 0.08
+
+    /// Whether a capture holds the whole window or only the part of it that
+    /// was inside a display. The window server clips a window capture to the
+    /// visible region, so a window hanging over a screen edge comes back as a
+    /// thin band of real content while still reporting its full size. Measured
+    /// with a 620 by 452 point window: fully visible it captures 2.00 by 2.00
+    /// pixels per point, hanging over the bottom edge 2.00 by 0.32, hanging
+    /// past the side edge 0.19 by 2.00. Comparing the two axes catches that
+    /// without caring about the display scale, so a plain screen and a Retina
+    /// screen both score the same. A window with nothing to measure passes,
+    /// because there is no evidence either way.
+    static func captureCoversWindow(imageWidth: Int,
+                                    imageHeight: Int,
+                                    windowSize: CGSize,
+                                    tolerance: Double = captureCoverageTolerance) -> Bool {
+        guard windowSize.width.isFinite, windowSize.height.isFinite,
+              windowSize.width > 1, windowSize.height > 1
+        else { return true }
+        let horizontal = Double(imageWidth) / Double(windowSize.width)
+        let vertical = Double(imageHeight) / Double(windowSize.height)
+        guard horizontal > 0, vertical > 0 else { return true }
+        return max(horizontal, vertical) / min(horizontal, vertical) <= 1 + tolerance
     }
 
     /// Corners of the opaque quadrilateral in a capture, in top-left-origin
@@ -320,23 +494,6 @@ enum SwitcherSupport {
         shiftIsNavigationModifier && isShiftHeld && !wasShiftHeld
     }
 
-    static func updatedMRU(afterActivating activatedID: String,
-                           previousID: String?,
-                           existing: [String],
-                           limit: Int = 64) -> [String] {
-        var list = existing
-        list.removeAll { $0 == activatedID }
-        list.insert(activatedID, at: 0)
-        if let previousID, previousID != activatedID {
-            list.removeAll { $0 == previousID }
-            list.insert(previousID, at: 1)
-        }
-        if list.count > limit {
-            list.removeLast(list.count - limit)
-        }
-        return list
-    }
-
     static func selectedPreviewPlacement(appCount rawAppCount: Int,
                                          selectedAppIndex rawSelectedAppIndex: Int,
                                          selectedWindowIndex _: Int,
@@ -385,6 +542,27 @@ enum SwitcherSupport {
                                            itemIDs: items.filter { $0.pid == item.pid }.map(\.id)))
         }
         return groups
+    }
+
+    /// Where a session starts. `pids` is the list in display order, one entry
+    /// per position the shortcut steps through: one per window in the grid,
+    /// one per app in the icon row.
+    ///
+    /// The foreground window always sits first, so the selection starts one
+    /// step past it and a single press already switches. When there is no
+    /// foreground window the list holds nothing the user is looking at, except
+    /// windows the front app left minimized or on another Space; those are
+    /// skipped for the same reason, so one press still lands somewhere else.
+    static func initialSelectionPosition(pids: [pid_t],
+                                         hasForegroundEntry: Bool,
+                                         frontmostPID: pid_t?,
+                                         reversed: Bool) -> Int {
+        guard !pids.isEmpty else { return 0 }
+        if reversed { return pids.count - 1 }
+        guard hasForegroundEntry else {
+            return pids.firstIndex { $0 != frontmostPID } ?? 0
+        }
+        return pids.count > 1 ? 1 : 0
     }
 
     /// Moves between rows without wrapping. When the row below is shorter,
@@ -571,6 +749,76 @@ enum SwitcherSupport {
                                   selectedIndex: clampedSelection(nextIndex, count: remaining.count),
                                   didRemove: true,
                                   shouldEndSession: false)
+    }
+
+    /// Which entry a release should raise while windows are already closing:
+    /// the highlight lands where the grid settles once they are gone, so
+    /// letting go right after closing one never raises it again. With nothing
+    /// left to raise, the release only dismisses the panel.
+    static func commitTargetID(itemIDs: [String],
+                               selectedIndex: Int,
+                               closingItemIDs: Set<String>) -> String? {
+        guard itemIDs.indices.contains(selectedIndex) else { return nil }
+        let selected = itemIDs[selectedIndex]
+        guard closingItemIDs.contains(selected) else { return selected }
+        let remaining = itemIDs.filter { !closingItemIDs.contains($0) }
+        guard !remaining.isEmpty else { return nil }
+        let position = itemIDs[..<selectedIndex].filter { !closingItemIDs.contains($0) }.count
+        return remaining[clampedSelection(position, count: remaining.count)]
+    }
+
+    /// Whether a click ends the session. The panel floats above everything and
+    /// never takes the keyboard from the app in front, so clicking another
+    /// window is what most people try when they want it gone, and a session
+    /// opened with no key held down has no release coming to close it either
+    /// (issue #384). Anything on the panel still belongs to the panel.
+    static func shouldDismissForClick(panelIsVisible: Bool,
+                                      panelFrame: CGRect,
+                                      location: CGPoint) -> Bool {
+        panelIsVisible && !panelFrame.contains(location)
+    }
+
+    /// The two letters the panel acts on: W closes the highlighted window and
+    /// Q quits its app. A keyboard answers by the letter it types, so both keys
+    /// stay where they are printed even on layouts that move them (measured:
+    /// French and Italian put W elsewhere, Turkish moves both). Layouts that
+    /// type no Latin letter at all, like Cyrillic and Greek, go by the key's
+    /// position instead, which is exactly where macOS resolves their command
+    /// shortcuts (measured: with Command held both translate that key to "w").
+    static func letterAction(typedCharacter: String?, keyCode: Int64) -> SwitcherLetterAction? {
+        guard let letter = latinLetter(in: typedCharacter) else {
+            switch keyCode {
+            case USKeyPosition.w: return .closeWindow
+            case USKeyPosition.q: return .quitApp
+            default: return nil
+            }
+        }
+        switch letter {
+        case "w": return .closeWindow
+        case "q": return .quitApp
+        default: return nil
+        }
+    }
+
+    /// Key positions on the US keyboard, the fallback for layouts with no
+    /// Latin letters of their own.
+    private enum USKeyPosition {
+        static let q: Int64 = 12
+        static let w: Int64 = 13
+    }
+
+    /// The plain letter a keystroke typed, when it typed one. Accents fold
+    /// away, so a letter of a Latin alphabet is never mistaken for one of the
+    /// keys above.
+    private static func latinLetter(in text: String?) -> Character? {
+        guard let folded = text?.folding(options: [.diacriticInsensitive, .caseInsensitive],
+                                         locale: .current),
+              folded.count == 1,
+              let letter = folded.first,
+              letter.isASCII,
+              letter.isLetter
+        else { return nil }
+        return letter
     }
 
     static func filteredSearchIDs(records: [SwitcherSearchRecord], query: String) -> [String] {

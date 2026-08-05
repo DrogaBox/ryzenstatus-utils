@@ -366,6 +366,32 @@ enum DefaultsKey {
     static let screenshotBackdropStyle = "screenshotBackdropStyle"
     static let screenshotBackdropPresets = "screenshotBackdropPresets"
     static let screenshotOpenEditorDirectly = "screenshotOpenEditorDirectly"
+    static let screenshotFullScreenShortcutEnabled = "screenshotFullScreenShortcutEnabled"
+    static let screenshotFullScreenShortcut = "screenshotFullScreenShortcut"
+    static let screenshotLastCaptureShortcutEnabled = "screenshotLastCaptureShortcutEnabled"
+    static let screenshotLastCaptureShortcut = "screenshotLastCaptureShortcut"
+    static let screenshotShowLastRegion = "screenshotShowLastRegion"
+    static let screenshotCopyToClipboard = "screenshotCopyToClipboard"
+    static let screenshotSaveSubfolder = "screenshotSaveSubfolder"
+    static let screenshotFileNamePattern = "screenshotFileNamePattern"
+    static let screenshotFileNumberStart = "screenshotFileNumberStart"
+    static let screenshotFileNumberNext = "screenshotFileNumberNext"
+    static let screenshotSharingDeveloperEndpoint = "screenshotSharingDeveloperEndpoint"
+    static let screenshotDefaultAction = "screenshotDefaultAction"
+
+    // Screen recorder - records the picked area, keeps the untouched master
+    static let recorderShortcutEnabled = "recorderShortcutEnabled"
+    static let recorderShortcut = "recorderShortcut"
+    static let recorderCountdown = "recorderCountdown"
+    static let recorderQuality = "recorderQuality"
+    static let recorderFrameRate = "recorderFrameRate"
+    static let recorderSystemAudio = "recorderSystemAudio"
+    static let recorderSaveFolder = "recorderSaveFolder"
+    static let recorderOpenEditor = "recorderOpenEditor"
+    static let recorderGIFSize = "recorderGIFSize"
+    static let recorderGIFFrameRate = "recorderGIFFrameRate"
+    static let recorderEditorPresets = "recorderEditorPresets"
+
     static let panelUtilityScreenshot = "panelUtilityScreenshot"
 
     // Window Layout — snapping, global shortcuts and optional pointer gestures.
@@ -935,6 +961,29 @@ enum Defaults {
         DefaultsKey.screenshotBackdropStyle: "",
         DefaultsKey.screenshotBackdropPresets: "[]",
         DefaultsKey.screenshotOpenEditorDirectly: false,
+        DefaultsKey.screenshotFullScreenShortcutEnabled: false,
+        DefaultsKey.screenshotFullScreenShortcut: GlobalShortcut.screenshotFullScreenDefault.storageValue,
+        DefaultsKey.screenshotLastCaptureShortcutEnabled: false,
+        DefaultsKey.screenshotLastCaptureShortcut: GlobalShortcut.screenshotLastCaptureDefault.storageValue,
+        DefaultsKey.screenshotShowLastRegion: false,
+        DefaultsKey.screenshotCopyToClipboard: false,
+        DefaultsKey.screenshotSaveSubfolder: "",
+        DefaultsKey.screenshotFileNamePattern: "",
+        DefaultsKey.screenshotFileNumberStart: 1,
+        DefaultsKey.screenshotFileNumberNext: 1,
+        DefaultsKey.screenshotSharingDeveloperEndpoint: "",
+        DefaultsKey.screenshotDefaultAction: "",
+        DefaultsKey.recorderShortcutEnabled: false,
+        DefaultsKey.recorderShortcut: GlobalShortcut.screenRecorderDefault.storageValue,
+        DefaultsKey.recorderCountdown: 3,
+        DefaultsKey.recorderQuality: "balanced",
+        DefaultsKey.recorderFrameRate: 60,
+        DefaultsKey.recorderSystemAudio: true,
+        DefaultsKey.recorderSaveFolder: "",
+        DefaultsKey.recorderOpenEditor: true,
+        DefaultsKey.recorderGIFSize: "medium",
+        DefaultsKey.recorderGIFFrameRate: 12,
+        DefaultsKey.recorderEditorPresets: Data(),
         DefaultsKey.panelUtilityScreenshot: true,
         DefaultsKey.windowLayoutShortcutsEnabled: false,
         DefaultsKey.windowGestureEnabled: false,

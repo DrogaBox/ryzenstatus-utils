@@ -9,7 +9,7 @@ import Vision
 /// Everything the annotation editor can do to one capture: the mutable
 /// document (image, annotations, undo history) and the export paths. The
 /// SwiftUI editor view observes this model; geometry is in image pixels.
-final class ScreenshotEditorModel: ObservableObject {
+final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     @Published private(set) var baseImage: CGImage
     @Published var annotations: [ScreenshotSupport.Annotation] = []
     @Published var selectedID: UUID?
@@ -18,6 +18,10 @@ final class ScreenshotEditorModel: ObservableObject {
         didSet {
             UserDefaults.standard.set(tool.rawValue, forKey: DefaultsKey.screenshotLastTool)
             if tool != .select { clearTextSelection() }
+            if tool != oldValue, tool != .select {
+                selectedID = nil
+                editingTextID = nil
+            }
             if tool == .crop, oldValue != .crop {
                 selectedID = nil
                 cropDraft = CGRect(origin: .zero, size: imageSize)
@@ -115,6 +119,7 @@ final class ScreenshotEditorModel: ObservableObject {
     private var cropResizeOrigin: CGRect?
     private var cropMoveOrigin: CGRect?
     private var dragRegistered = false
+    private var editingSelectedAnnotation = false
     private var newTextID: UUID?
 
     var imageSize: CGSize {
@@ -232,10 +237,12 @@ final class ScreenshotEditorModel: ObservableObject {
         // A preset is the look, not this capture's sliders.
         snapshot.padding = 0.5
         snapshot.cornerRadius = 0.1
+        snapshot.blur = 0
         guard !backdropPresets.contains(where: {
             var candidate = $0
             candidate.padding = 0.5
             candidate.cornerRadius = 0.1
+            candidate.blur = 0
             return candidate == snapshot
         }) else { return }
         backdropPresets = Array((backdropPresets + [snapshot])
@@ -461,6 +468,12 @@ final class ScreenshotEditorModel: ObservableObject {
     func beginDrag(at point: CGPoint) {
         dragStart = point
         dragRegistered = false
+        editingSelectedAnnotation = false
+        if tool != .select, tool != .crop, selectedAnnotationOwns(point) {
+            editingSelectedAnnotation = true
+            beginSelectDrag(at: point)
+            return
+        }
         switch tool {
         case .select:
             beginSelectDrag(at: point)
@@ -544,6 +557,10 @@ final class ScreenshotEditorModel: ObservableObject {
     }
 
     func continueDrag(to point: CGPoint) {
+        if editingSelectedAnnotation {
+            continueSelectDrag(to: point)
+            return
+        }
         switch tool {
         case .select:
             continueSelectDrag(to: point)
@@ -614,10 +631,16 @@ final class ScreenshotEditorModel: ObservableObject {
             cropMoveOrigin = nil
             cropLoupePoint = nil
             dragRegistered = false
+            editingSelectedAnnotation = false
+        }
+        if editingSelectedAnnotation {
+            finishSelectDrag(at: point, isTap: isTap)
+            return
         }
         switch tool {
         case .text:
             guard isTap else { return }
+            if selectExistingAnnotation(at: point) { return }
             registerUndo()
             var annotation = ScreenshotSupport.Annotation(
                 tool: .text, color: color, stroke: stroke)
@@ -628,6 +651,7 @@ final class ScreenshotEditorModel: ObservableObject {
             editingTextID = annotation.id
         case .sticker:
             guard isTap else { return }
+            if selectExistingAnnotation(at: point) { return }
             registerUndo()
             let bounds = CGRect(origin: .zero, size: imageSize)
             let side = ScreenshotSupport.stickerSide(for: imageSize, scale: scale)
@@ -643,6 +667,7 @@ final class ScreenshotEditorModel: ObservableObject {
             selectedID = annotation.id
         case .counter:
             guard isTap else { return }
+            if selectExistingAnnotation(at: point) { return }
             registerUndo()
             let annotation = ScreenshotSupport.Annotation(
                 tool: .counter,
@@ -659,28 +684,73 @@ final class ScreenshotEditorModel: ObservableObject {
                 if !undoStack.isEmpty { undoStack.removeLast() }
                 refreshUndoFlags()
                 refreshDirtyState()
-                selectedID = hitTest(point)
-                if selectedID != nil { tool = .select }
+                _ = selectExistingAnnotation(at: point)
             } else if let draftID {
                 selectedID = draftID
             }
         case .select:
-            textSelectionAnchor = nil
-            if isTap, !dragRegistered {
-                selectedID = hitTest(point)
-                if let selectedID,
-                   let hit = annotations.first(where: { $0.id == selectedID }),
-                   hit.tool == .text {
-                    editingTextID = selectedID
-                } else if selectedID == nil, let word = wordIndex(at: point) {
-                    selectedWordIndexes = [word]
-                } else if selectedID == nil {
-                    clearTextSelection()
-                }
-            }
+            finishSelectDrag(at: point, isTap: isTap)
         case .crop:
             break
         }
+    }
+
+    /// The visible selection remains directly editable after creation. A new
+    /// tool or a gesture outside it ends that priority and creates normally.
+    func selectedAnnotationOwns(_ point: CGPoint) -> Bool {
+        guard let selectedID,
+              let selected = annotations.first(where: { $0.id == selectedID })
+        else { return false }
+        let tolerance = 12 * scale
+        if selected.tool.resizesWithHandles,
+           ScreenshotSupport.handle(at: point, rect: selected.rect,
+                                    tolerance: tolerance) != nil {
+            return true
+        }
+        if selected.points.prefix(2).contains(where: {
+            hypot(point.x - $0.x, point.y - $0.y) < tolerance
+        }) {
+            return true
+        }
+        return hitTest(point) == selectedID
+    }
+
+    private func finishSelectDrag(at point: CGPoint, isTap: Bool) {
+        textSelectionAnchor = nil
+        guard isTap, !dragRegistered else { return }
+        selectedID = hitTest(point)
+        if let selectedID,
+           let hit = annotations.first(where: { $0.id == selectedID }),
+           hit.tool == .text {
+            editingTextID = selectedID
+        } else if selectedID == nil, let word = wordIndex(at: point) {
+            selectedWordIndexes = [word]
+        } else if selectedID == nil {
+            clearTextSelection()
+        }
+    }
+
+    /// A click on an existing mark always means "edit this", even while a
+    /// creation tool is active. Real drags still create with the active tool.
+    /// Sticker selection updates the style picker without mutating the mark;
+    /// text enters its inline editor immediately.
+    @discardableResult
+    private func selectExistingAnnotation(at point: CGPoint) -> Bool {
+        guard let hitID = hitTest(point, includeShapeInteriors: false),
+              let hit = annotations.first(where: { $0.id == hitID })
+        else {
+            selectedID = nil
+            return false
+        }
+        if hit.tool == .sticker {
+            selectedID = nil
+            sticker = ScreenshotSupport.StickerID.sanitized(hit.text)
+        }
+        selectedID = hitID
+        editingTextID = hit.tool == .text ? hitID : nil
+        clearTextSelection()
+        tool = .select
+        return true
     }
 
     private func updateDraft(_ mutate: (inout ScreenshotSupport.Annotation) -> Void) {
@@ -690,7 +760,11 @@ final class ScreenshotEditorModel: ObservableObject {
         mutate(&annotations[index])
     }
 
-    func hitTest(_ point: CGPoint) -> UUID? {
+    /// `includeShapeInteriors: false` is the creation-tap variant: area
+    /// shapes (boxes, ellipses, highlights, censors) only answer near their
+    /// edge, so their inside stays free for placing a new text, sticker or
+    /// counter — the tap that used to create one there must keep doing so.
+    func hitTest(_ point: CGPoint, includeShapeInteriors: Bool = true) -> UUID? {
         let tolerance = 10 * scale
         for annotation in annotations.reversed() {
             switch annotation.tool {
@@ -713,9 +787,22 @@ final class ScreenshotEditorModel: ObservableObject {
                     <= radius + 4 * scale {
                     return annotation.id
                 }
-        case .rect, .ellipse, .highlight, .pixelate, .redact, .text, .sticker:
-            if annotation.rect.insetBy(dx: -tolerance / 2, dy: -tolerance / 2)
-                .contains(point) {
+        case .rect, .ellipse, .highlight, .pixelate, .redact:
+                let outer = annotation.rect.insetBy(dx: -tolerance / 2, dy: -tolerance / 2)
+                guard outer.contains(point) else { continue }
+                if includeShapeInteriors {
+                    return annotation.id
+                }
+                // Edge ring only: a shape too small to have a meaningful
+                // interior stays fully tappable.
+                let inner = annotation.rect.insetBy(dx: tolerance, dy: tolerance)
+                if inner.isEmpty || inner.width <= 0 || inner.height <= 0
+                    || !inner.contains(point) {
+                    return annotation.id
+                }
+            case .text, .sticker:
+                if annotation.rect.insetBy(dx: -tolerance / 2, dy: -tolerance / 2)
+                    .contains(point) {
                     return annotation.id
                 }
             case .select, .crop:
@@ -736,6 +823,18 @@ final class ScreenshotEditorModel: ObservableObject {
         self.selectedID = nil
         editingTextID = nil
         if newTextID == selectedID { newTextID = nil }
+    }
+
+    /// Moves the selected annotation one step through the drawing order, so a
+    /// box drawn last can sit behind text written first. Counters are numbered
+    /// by their place in the array, so moving one past another renumbers both,
+    /// the same way deleting one already does.
+    func moveSelected(_ move: ScreenshotSupport.LayerMove) {
+        guard let selectedID else { return }
+        let reordered = ScreenshotSupport.reordering(annotations, moving: selectedID, move)
+        guard reordered.map(\.id) != annotations.map(\.id) else { return }
+        registerUndo()
+        annotations = ScreenshotSupport.renumberingCounters(reordered)
     }
 
     func commitText(_ id: UUID, text: String) {
@@ -911,7 +1010,12 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
 
     private func installKeyMonitor() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, let window = self.window, event.window === window else { return event }
+            guard let self, let window = self.window,
+                  ScreenshotSupport.editorOwnsKeyEvent(
+                    eventWindowNumber: event.windowNumber,
+                    editorWindowNumber: window.windowNumber,
+                    editorIsKey: window.isKeyWindow)
+            else { return event }
             // While a text field edits, every key belongs to it.
             if window.firstResponder is NSText || self.model.editingTextID != nil {
                 return event
@@ -920,7 +1024,11 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
         }
         // Control-scroll adjusts canvas zoom.
         scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            guard let self, let window = self.window, event.window === window,
+            guard let self, let window = self.window,
+                  ScreenshotSupport.editorOwnsKeyEvent(
+                    eventWindowNumber: event.windowNumber,
+                    editorWindowNumber: window.windowNumber,
+                    editorIsKey: window.isKeyWindow),
                   event.modifierFlags.contains(.control)
             else { return event }
             let delta = event.scrollingDeltaY
@@ -1004,6 +1112,46 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
 
     // MARK: Export actions
 
+    /// Uploads the rendered editor result without copying the URL or closing
+    /// the editor. The view presents the owner controls after it succeeds.
+    func share(duration: ScreenshotShareDuration,
+               completion: @escaping (ScreenshotShareRecord?) -> Void) {
+        guard let image = model.exportImage() else {
+            QuickToolHUD.show(icon: "link", message: strings.shareFailedHUD)
+            completion(nil)
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else {
+                completion(nil)
+                return
+            }
+            let data = await Task.detached(priority: .userInitiated) {
+                ScreenshotRenderer.pngData(from: image)
+            }.value
+            guard let data else {
+                QuickToolHUD.show(icon: "link", message: self.strings.shareFailedHUD)
+                completion(nil)
+                return
+            }
+            do {
+                let record = try await ScreenshotShareService.shared.createLink(
+                    pngData: data, duration: duration)
+                guard self.window != nil else {
+                    try? await ScreenshotShareService.shared.delete(record)
+                    completion(nil)
+                    return
+                }
+                self.model.markExported()
+                completion(record)
+            } catch {
+                QuickToolHUD.show(icon: "link", message: self.strings.shareFailedHUD)
+                NSSound.beep()
+                completion(nil)
+            }
+        }
+    }
+
     /// Every terminal output closes the editor: the capture leaves the app
     /// and the window's job is done, so nothing lingers to tidy up.
     func copyToClipboard() {
@@ -1019,14 +1167,29 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
 
     @discardableResult
     static func copyImage(_ image: CGImage) -> Bool {
+        copyClipboardPayload(clipboardPayload(from: image))
+    }
+
+    struct ClipboardPayload: Sendable {
+        let png: Data?
+        let tiff: Data?
+    }
+
+    static func clipboardPayload(from image: CGImage) -> ClipboardPayload {
+        let png = ScreenshotRenderer.pngData(from: image)
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        return ClipboardPayload(png: png, tiff: bitmap.tiffRepresentation)
+    }
+
+    @discardableResult
+    static func copyClipboardPayload(_ payload: ClipboardPayload) -> Bool {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         let item = NSPasteboardItem()
-        if let png = ScreenshotRenderer.pngData(from: image) {
+        if let png = payload.png {
             item.setData(png, forType: .png)
         }
-        let bitmap = NSBitmapImageRep(cgImage: image)
-        if let tiff = bitmap.tiffRepresentation {
+        if let tiff = payload.tiff {
             item.setData(tiff, forType: .tiff)
         }
         return pasteboard.writeObjects([item])
@@ -1036,7 +1199,7 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
         guard let image = model.exportImage(),
               let data = ScreenshotRenderer.pngData(from: image)
         else { return }
-        let url = ScreenshotService.saveDestination(strings: strings)
+        let (url, consumedNumber) = ScreenshotService.saveDestination(strings: strings)
         do {
             try data.write(to: url, options: .atomic)
             model.markExported()
@@ -1045,6 +1208,9 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
                                               url.deletingLastPathComponent().lastPathComponent))
             window?.close()
         } catch {
+            if let consumedNumber {
+                ScreenshotService.rewindNumberSequence(toReuse: consumedNumber)
+            }
             NSSound.beep()
         }
     }
