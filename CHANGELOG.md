@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.8.5] — 2026-08-06
+
+### Features & Fixes
+- **Screen Recorder UI Sidebar Integration**: Exposed the full Screen Recorder configuration panel, controls, and shortcut bindings under Settings > Utilities.
+- **AMD Ryzen Temperature Spike Filter**: Integrated `TemperatureAlertGate` hysteresis to eliminate false high-temperature alert spikes during single-core CPU boost on AMD Zen 3.
+- **Display DDC Sleep Recovery**: Automatically rebuilds I2C display routing paths upon system wake, preserving external monitor brightness controls.
+- **Menu Bar Icon Recovery Retries**: Multi-attempt status item placement checks prevent icon loss when macOS delays menu bar rendering.
+- **App Switcher & Scratchpad Dismissal**: Added outside-click dismissal for App Switcher and Scratchpad panels, with customizable pin floating options.
+
 ## [1.8.4] — 2026-08-05
 
 ### Features & Improvements

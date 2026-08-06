@@ -135,6 +135,10 @@ struct SettingsView: View {
                                        FeatureStrings.screenshot(l10n.language).pinButton,
                                        FeatureStrings.screenshot(l10n.language).toolPixelate,
                                        FeatureStrings.screenshot(l10n.language).toolArrow]),
+                SidebarItem(page: .screenRecorder,
+                            title: FeatureStrings.recorder(l10n.language).pageTitle,
+                            icon: "record.circle",
+                            keywords: ["screen", "recording", "recorder", "video"]),
                 SidebarItem(page: .urlCleaner, title: l10n.s.urlCleanerName, icon: "link"),
                 SidebarItem(page: .keyDebounce, title: l10n.s.keyDebounceName, icon: "keyboard"),
                 SidebarItem(page: .textSnippets, title: FeatureStrings.snippets(l10n.language).pageTitle,
@@ -257,6 +261,7 @@ struct SettingsView: View {
         case .clipboard: ClipboardSettings()
         case .quickTools: QuickToolsSettings()
         case .screenshot: ScreenshotSettings()
+        case .screenRecorder: ScreenRecorderSettings()
         case .windowLayout: WindowLayoutSettings()
         case .shelf: ShelfSettings()
         case .shortcuts: ShortcutsSettings()

@@ -361,6 +361,23 @@ enum SwitcherSupport {
         return (0..<(gridSize * gridSize)).map { Double(data[$0 * bytesPerPixel + 3]) / 255.0 }
     }
 
+    static func updatedMRU(afterActivating activatedID: String,
+                           previousID: String?,
+                           existing: [String],
+                           limit: Int = 64) -> [String] {
+        var list = existing
+        list.removeAll { $0 == activatedID }
+        list.insert(activatedID, at: 0)
+        if let previousID, previousID != activatedID {
+            list.removeAll { $0 == previousID }
+            list.insert(previousID, at: 1)
+        }
+        if list.count > limit {
+            list.removeLast(list.count - limit)
+        }
+        return list
+    }
+
     /// Whether a window capture looks like Stage Manager's strip rendering
     /// instead of real window content. Parked windows are captured as a sheared
     /// snapshot whose bounding box leaves fully transparent wedges in at least

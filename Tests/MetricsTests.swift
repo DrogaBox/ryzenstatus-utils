@@ -4874,7 +4874,7 @@ struct MetricsTests {
 
         // MARK: Features hub catalog
 
-        expect(AppFeature.allCases.count == 51, "feature catalog has 51 features")
+        expect(AppFeature.allCases.count == 52, "feature catalog has 52 features")
         expect(Set(AppFeature.allCases.map(\.rawValue)).count == AppFeature.allCases.count,
                "feature ids are unique")
         expect(AppFeature.allCases.map(\.rawValue) == [
@@ -4885,7 +4885,7 @@ struct MetricsTests {
             "mixer", "soundOutputSwitcher", "micMute", "musicBlock",
             "keepAwake", "brightness", "extraBrightness",
             "quickLauncher", "quickToggles", "colorPicker", "screenOCR", "cleaningMode", "mediaTools",
-            "cleaner", "uninstaller", "homebrew", "appUpdates", "whatsAppDownloads", "screenshot", "cameraPreview", "radialMenu",
+            "cleaner", "uninstaller", "homebrew", "appUpdates", "whatsAppDownloads", "screenshot", "screenRecorder", "cameraPreview", "radialMenu",
             "scratchpad",
             "monitorCPU", "monitorGPU", "monitorMemory", "monitorNetwork", "monitorDisk", "monitorPower",
             "monitorInsights", "monitorAnalytics", "monitorEnergy", "monitorNetworkDetails",
@@ -4911,7 +4911,7 @@ struct MetricsTests {
                                           stringFor: { strings[$0] }))
         }
 
-        expect(activeSet(.accessibility) == [.windowLayout, .cleaningMode],
+        expect(activeSet(.accessibility) == [.windowLayout, .cleaningMode, .screenRecorder],
                "with nothing enabled only on-demand features use accessibility")
         expect(activeSet(.accessibility, on: [DefaultsKey.scrollInverterEnabled]).contains(.scrollInverter),
                "an enabled feature counts as using its permission")
@@ -4933,11 +4933,11 @@ struct MetricsTests {
                "brightness sliders alone never use accessibility")
 
         expect(activeSet(.screenRecording, on: [DefaultsKey.switcherEnabled])
-                == [.switcher, .screenOCR, .screenshot],
+                == [.switcher, .screenOCR, .screenshot, .screenRecorder],
                "switcher with previews uses screen recording; OCR and screenshots are on demand")
         expect(activeSet(.screenRecording,
                          on: [DefaultsKey.switcherEnabled, DefaultsKey.switcherSimpleMode])
-                == [.screenOCR, .screenshot],
+                == [.screenOCR, .screenshot, .screenRecorder],
                "simple-mode switcher stops using screen recording")
         expect(activeSet(.screenRecording,
                          on: [DefaultsKey.switcherSimpleMode, DefaultsKey.dockPreviewEnabled])
