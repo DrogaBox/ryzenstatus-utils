@@ -3,6 +3,7 @@
 ## [1.8.5] — 2026-08-06
 
 ### Features & Fixes
+- **AMD Auto EPP & CPU Load Meter Fix**: Fixed the toggle state feedback loop in AMD Power Control popover/settings and ensured real-time CPU load sampling runs continuously across all 32 hardware threads whether Auto EPP is active or inactive.
 - **Screen Recorder UI Sidebar Integration**: Exposed the full Screen Recorder configuration panel, controls, and shortcut bindings under Settings > Utilities.
 - **AMD Ryzen Temperature Spike Filter**: Integrated `TemperatureAlertGate` hysteresis to eliminate false high-temperature alert spikes during single-core CPU boost on AMD Zen 3.
 - **Display DDC Sleep Recovery**: Automatically rebuilds I2C display routing paths upon system wake, preserving external monitor brightness controls.

@@ -4,7 +4,6 @@
 import SwiftUI
 
 struct AmdPowerSettingsView: View {
-    @State private var isCPPCActive: Bool = false
     @State private var selectedEpp: UInt8 = 127
     @State private var cppcSupported: Bool = false
     @State private var cpbSupported: Bool = false
@@ -121,12 +120,12 @@ struct AmdPowerSettingsView: View {
 
                 if cppcSupported {
                     Section {
-                        Toggle("Auto EPP (Zen 3)", isOn: $isCPPCActive)
-                            .onChange(of: isCPPCActive) { _, newValue in
-                                _ = ProcessorModel.shared.setCPPCActiveMode(active: newValue)
-                            }
+                        Toggle("Auto EPP (Zen 3)", isOn: Binding(
+                            get: { autoEpp.isActive },
+                            set: { autoEpp.setCPPCActive($0) }
+                        ))
 
-                        if isCPPCActive {
+                        if autoEpp.isActive {
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack {
                                     Text("CPU Load")
@@ -210,11 +209,11 @@ struct AmdPowerSettingsView: View {
                                 .font(.headline)
 
                             HStack {
-                                Text(isCPPCActive ? "Auto" : eppLabel)
+                                Text(autoEpp.isActive ? "Auto" : eppLabel)
                                     .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(isCPPCActive ? .secondary : .cyan)
+                                    .foregroundColor(autoEpp.isActive ? .secondary : .cyan)
                                 Spacer()
-                                if !isCPPCActive {
+                                if !autoEpp.isActive {
                                     Text("Manual")
                                         .font(.caption2)
                                         .foregroundColor(.secondary)
@@ -232,10 +231,10 @@ struct AmdPowerSettingsView: View {
                             .onChange(of: selectedEpp) { _, newValue in
                                 _ = ProcessorModel.shared.setCPPCEPPValue(epp: newValue)
                             }
-                            .disabled(isCPPCActive)
+                            .disabled(autoEpp.isActive)
                         }
                         .padding(.vertical, 8)
-                        .opacity(isCPPCActive ? 0.5 : 1.0)
+                        .opacity(autoEpp.isActive ? 0.5 : 1.0)
                     } header: {
                         Text("Collaborative Processor Performance Control")
                     } footer: {
@@ -454,7 +453,7 @@ struct AmdPowerSettingsView: View {
     }
 
     private var autoEppTargetColor: Color {
-        guard isCPPCActive else { return .secondary }
+        guard autoEpp.isActive else { return .secondary }
         let load = autoEpp.currentCPULoad
         if load < Float(idleThreshold) { return .green }
         if load > Float(loadThreshold) { return .red }
@@ -473,9 +472,6 @@ struct AmdPowerSettingsView: View {
             cppcSupported = kernelAnswered
             if kernelAnswered {
                 let state = ProcessorModel.shared.getCPPCActiveMode()
-                if isCPPCActive != state.active {
-                    isCPPCActive = state.active
-                }
                 // Snap to segmented value
                 let target = snapEPP(state.epp)
                 if selectedEpp != target {

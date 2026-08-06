@@ -6,7 +6,6 @@ import SwiftUI
 struct AmdControlSection: View {
     let collapsible: Bool
 
-    @State private var isCPPCActive: Bool = false
     @State private var selectedEpp: UInt8 = 127
     @State private var cppcSupported: Bool = false
     @State private var cpbSupported: Bool = false
@@ -35,7 +34,7 @@ struct AmdControlSection: View {
     }
 
     private var eppLabel: String {
-        if isCPPCActive {
+        if autoEpp.isActive {
             return autoEpp.currentTarget.isEmpty ? "Monitor…" : autoEpp.currentTarget
         }
         switch snapEPP(selectedEpp) {
@@ -47,7 +46,7 @@ struct AmdControlSection: View {
     }
 
     private var eppColor: Color {
-        if isCPPCActive { return .secondary }
+        if autoEpp.isActive { return .secondary }
         switch snapEPP(selectedEpp) {
         case 0:   return .red      // Rendimiento = high power
         case 85:  return .orange
@@ -57,7 +56,7 @@ struct AmdControlSection: View {
     }
 
     private var autoEppTargetColor: Color {
-        guard isCPPCActive else { return .cyan }
+        guard autoEpp.isActive else { return .cyan }
         let load = autoEpp.currentCPULoad
         if load < Float(idleThreshold) { return .green }
         if load > Float(loadThreshold) { return .red }
@@ -103,7 +102,7 @@ struct AmdControlSection: View {
 
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(isCPPCActive ? L10n.shared.amdPower.autoEPPActive : L10n.shared.amdPower.energyProfileManual)
+                                Text(autoEpp.isActive ? L10n.shared.amdPower.autoEPPActive : L10n.shared.amdPower.energyProfileManual)
                                     .font(.system(size: 11, weight: .semibold))
                                     .foregroundColor(.cyan)
                                 Text(eppLabel)
@@ -111,7 +110,7 @@ struct AmdControlSection: View {
                                     .foregroundColor(eppColor)
                             }
                             Spacer()
-                            if isCPPCActive {
+                            if autoEpp.isActive {
                                 ZStack {
                                     Circle()
                                         .stroke(Color.secondary.opacity(0.15), lineWidth: 3)
@@ -137,14 +136,14 @@ struct AmdControlSection: View {
                                 Text("Eco").tag(UInt8(255))
                             }
                             .pickerStyle(.segmented)
-                            .disabled(isCPPCActive)
+                            .disabled(autoEpp.isActive)
                             .onChange(of: selectedEpp) { _, newValue in
                                 _ = ProcessorModel.shared.setCPPCEPPValue(epp: newValue)
                             }
                         }
-                        .opacity(isCPPCActive ? 0.4 : 1.0)
+                        .opacity(autoEpp.isActive ? 0.4 : 1.0)
 
-                        if isCPPCActive {
+                        if autoEpp.isActive {
                             VStack(spacing: 10) {
                                 Button(action: { withAnimation { showThresholds.toggle() } }) {
                                     HStack {
@@ -229,12 +228,12 @@ struct AmdControlSection: View {
                         if cppcSupported {
                             HStack {
                                 Image(systemName: "cpu").foregroundColor(.cyan).frame(width: 20)
-                                Toggle("Auto EPP (Zen 3)", isOn: $isCPPCActive)
+                                Toggle("Auto EPP (Zen 3)", isOn: Binding(
+                                    get: { autoEpp.isActive },
+                                    set: { autoEpp.setCPPCActive($0) }
+                                ))
                                     .font(.system(size: 12))
                                     .toggleStyle(SwitchToggleStyle(tint: .cyan))
-                            }
-                            .onChange(of: isCPPCActive) { _, newValue in
-                                _ = ProcessorModel.shared.setCPPCActiveMode(active: newValue)
                             }
                         }
 
@@ -309,9 +308,6 @@ struct AmdControlSection: View {
                 
                 if cppcSupported {
                     let state = ProcessorModel.shared.getCPPCActiveMode()
-                    if isCPPCActive != state.active {
-                        isCPPCActive = state.active
-                    }
                     // Snap to segmented value
                     let target = snapEPP(state.epp)
                     if selectedEpp != target {

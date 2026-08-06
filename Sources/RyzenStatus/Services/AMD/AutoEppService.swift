@@ -57,9 +57,17 @@ final class AutoEppService: ObservableObject {
         timer = nil
     }
 
+    /// Toggles CPPC Active Mode in the kext and updates published state immediately.
+    @MainActor
+    func setCPPCActive(_ active: Bool) {
+        _ = ProcessorModel.shared.setCPPCActiveMode(active: active)
+        isActive = active
+        poll()
+    }
+
     // MARK: - Polling
 
-    private func poll() {
+    func poll() {
         Task { @MainActor in
             guard ProcessorModel.shared.connect != 0 else {
                 isActive = false
@@ -73,9 +81,22 @@ final class AutoEppService: ObservableObject {
             isActive = state.active
             currentEPP = state.epp
 
+            // Read CPU load continuously so the UI load meter always reflects live load
+            let loads = await ProcessorModel.shared.getLoadIndex()
+            let cpuAvg: Float
+            if !loads.isEmpty {
+                cpuAvg = loads.reduce(0, +) * 100 / Float(loads.count)
+            } else {
+                cpuAvg = Float((SystemMonitor.shared.snapshot.cpuUsage ?? 0) * 100)
+            }
+            currentCPULoad = cpuAvg
+
+            // Read GPU load from SystemMonitor snapshot
+            let gpuUtil = SystemMonitor.shared.snapshot.gpuUsage ?? 0
+            let gpuLoad = Float(gpuUtil * 100)
+            currentGPULoad = gpuLoad
+
             guard state.active else {
-                currentCPULoad = 0
-                currentGPULoad = 0
                 currentTarget = ""
                 return
             }
@@ -83,15 +104,6 @@ final class AutoEppService: ObservableObject {
             // Read thresholds live from UserDefaults — they change via @AppStorage.
             let idleThreshold = UserDefaults.standard.integer(forKey: DefaultsKey.autoEppIdleThreshold)
             let loadThreshold = UserDefaults.standard.integer(forKey: DefaultsKey.autoEppLoadThreshold)
-
-            let loads = await ProcessorModel.shared.getLoadIndex()
-            let avg = loads.isEmpty ? 0 : loads.reduce(0, +) * 100 / Float(loads.count)
-            currentCPULoad = avg
-
-            // Read GPU load from SystemMonitor snapshot
-            let gpuUtil = SystemMonitor.shared.snapshot.gpuUsage ?? 0
-            let gpuLoad = Float(gpuUtil * 100)
-            currentGPULoad = gpuLoad
 
             // GPU-aware EPP logic:
             // - If GPU is heavily loaded (>60%), force Performance mode for gaming/rendering
@@ -105,12 +117,12 @@ final class AutoEppService: ObservableObject {
                 _ = ProcessorModel.shared.setCPPCEPPValue(epp: 0)
                 currentTarget = "GPU Performance"
                 currentEPP = 0
-            } else if avg < Float(idleThreshold) && gpuLoad < gpuActiveThreshold {
+            } else if cpuAvg < Float(idleThreshold) && gpuLoad < gpuActiveThreshold {
                 // CPU + GPU idle: Power Save
                 _ = ProcessorModel.shared.setCPPCEPPValue(epp: 255)
                 currentTarget = "Power Save"
                 currentEPP = 255
-            } else if avg > Float(loadThreshold) {
+            } else if cpuAvg > Float(loadThreshold) {
                 // High CPU load: Performance
                 _ = ProcessorModel.shared.setCPPCEPPValue(epp: 0)
                 currentTarget = NSLocalizedString("Performance", comment: "EPP Performance mode label")
