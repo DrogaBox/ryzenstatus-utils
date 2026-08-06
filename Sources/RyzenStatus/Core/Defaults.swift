@@ -455,6 +455,7 @@ enum DefaultsKey {
     static let radialMenuItems = "radialMenuItems"        // Data: [RadialMenuItem] JSON
 
     // AMD Auto EPP — thresholds for automatic EPP switching based on CPU load.
+    static let autoEppEnabled = "autoEppEnabled"                 // Bool: whether software Auto EPP is active
     static let autoEppIdleThreshold = "autoEppIdleThreshold"     // 0-100, CPU load % below which → Power Save (255)
     static let autoEppLoadThreshold = "autoEppLoadThreshold"     // 0-100, CPU load % above which → Performance (0)
     // Last manual EPP value set by the user via the slider, persisted across launches.

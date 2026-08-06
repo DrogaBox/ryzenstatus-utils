@@ -28,13 +28,17 @@ final class AutoEppService: ObservableObject {
     @Published private(set) var currentTarget: String = ""
     /// The raw EPP value last written to the kext.
     @Published private(set) var currentEPP: UInt8 = 0
+    /// Whether the last write attempt returned kIOReturnNotPrivileged.
+    @Published private(set) var privilegeDenied: Bool = false
 
     // MARK: - Internal state
 
     private var timer: Timer?
-    private static let pollInterval: TimeInterval = 2.0
+    private static let pollInterval: TimeInterval = 1.5
 
-    private init() {}
+    private init() {
+        self.isActive = UserDefaults.standard.bool(forKey: DefaultsKey.autoEppEnabled)
+    }
 
     // MARK: - Lifecycle
 
@@ -60,8 +64,14 @@ final class AutoEppService: ObservableObject {
     /// Toggles CPPC Active Mode in the kext and updates published state immediately.
     @MainActor
     func setCPPCActive(_ active: Bool) {
-        _ = ProcessorModel.shared.setCPPCActiveMode(active: active)
-        isActive = active
+        UserDefaults.standard.set(active, forKey: DefaultsKey.autoEppEnabled)
+        self.isActive = active
+        let res = ProcessorModel.shared.setCPPCActiveMode(active: active)
+        if res == ProcessorModel.kIOReturnNotPrivilegedCode {
+            privilegeDenied = true
+        } else {
+            privilegeDenied = false
+        }
         poll()
     }
 
@@ -70,16 +80,16 @@ final class AutoEppService: ObservableObject {
     func poll() {
         Task { @MainActor in
             guard ProcessorModel.shared.connect != 0 else {
-                isActive = false
                 currentCPULoad = 0
                 currentGPULoad = 0
                 currentTarget = ""
                 return
             }
 
-            let state = ProcessorModel.shared.getCPPCActiveMode()
-            isActive = state.active
-            currentEPP = state.epp
+            let enabled = UserDefaults.standard.bool(forKey: DefaultsKey.autoEppEnabled)
+            if self.isActive != enabled {
+                self.isActive = enabled
+            }
 
             // Read CPU load continuously so the UI load meter always reflects live load
             let loads = await ProcessorModel.shared.getLoadIndex()
@@ -96,7 +106,7 @@ final class AutoEppService: ObservableObject {
             let gpuLoad = Float(gpuUtil * 100)
             currentGPULoad = gpuLoad
 
-            guard state.active else {
+            guard enabled else {
                 currentTarget = ""
                 return
             }
@@ -112,31 +122,32 @@ final class AutoEppService: ObservableObject {
             let gpuHeavyThreshold: Float = 60
             let gpuActiveThreshold: Float = 30
 
+            let targetEPP: UInt8
+            let targetName: String
+
             if gpuLoad > gpuHeavyThreshold {
-                // GPU gaming/rendering: maximum performance
-                _ = ProcessorModel.shared.setCPPCEPPValue(epp: 0)
-                currentTarget = "GPU Performance"
-                currentEPP = 0
+                targetEPP = 0
+                targetName = "GPU Performance"
             } else if cpuAvg < Float(idleThreshold) && gpuLoad < gpuActiveThreshold {
-                // CPU + GPU idle: Power Save
-                _ = ProcessorModel.shared.setCPPCEPPValue(epp: 255)
-                currentTarget = "Power Save"
-                currentEPP = 255
+                targetEPP = 255
+                targetName = "Power Save"
             } else if cpuAvg > Float(loadThreshold) {
-                // High CPU load: Performance
-                _ = ProcessorModel.shared.setCPPCEPPValue(epp: 0)
-                currentTarget = NSLocalizedString("Performance", comment: "EPP Performance mode label")
-                currentEPP = 0
+                targetEPP = 0
+                targetName = "Performance"
             } else if gpuLoad > gpuActiveThreshold {
-                // GPU active (media/video): Balanced
-                _ = ProcessorModel.shared.setCPPCEPPValue(epp: 128)
-                currentTarget = "GPU Active"
-                currentEPP = 128
+                targetEPP = 128
+                targetName = "GPU Active"
             } else {
-                // Moderate CPU load: Balanced
-                _ = ProcessorModel.shared.setCPPCEPPValue(epp: 128)
-                currentTarget = "Balanced"
-                currentEPP = 128
+                targetEPP = 128
+                targetName = "Balanced"
+            }
+
+            currentTarget = targetName
+            currentEPP = targetEPP
+
+            let writeRes = ProcessorModel.shared.setCPPCEPPValue(epp: targetEPP)
+            if writeRes == ProcessorModel.kIOReturnNotPrivilegedCode {
+                privilegeDenied = true
             }
         }
     }

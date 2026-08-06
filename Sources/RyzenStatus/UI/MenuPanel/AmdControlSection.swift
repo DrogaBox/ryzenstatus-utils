@@ -226,14 +226,22 @@ struct AmdControlSection: View {
                             .foregroundColor(.secondary)
 
                         if cppcSupported {
-                            HStack {
-                                Image(systemName: "cpu").foregroundColor(.cyan).frame(width: 20)
-                                Toggle("Auto EPP (Zen 3)", isOn: Binding(
-                                    get: { autoEpp.isActive },
-                                    set: { autoEpp.setCPPCActive($0) }
-                                ))
-                                    .font(.system(size: 12))
-                                    .toggleStyle(SwitchToggleStyle(tint: .cyan))
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Image(systemName: "cpu").foregroundColor(.cyan).frame(width: 20)
+                                    Toggle("Auto EPP (Zen 3)", isOn: Binding(
+                                        get: { autoEpp.isActive },
+                                        set: { autoEpp.setCPPCActive($0) }
+                                    ))
+                                        .font(.system(size: 12))
+                                        .toggleStyle(SwitchToggleStyle(tint: .cyan))
+                                }
+                                if autoEpp.privilegeDenied {
+                                    Text("⚠️ Requiere boot-arg -amdpnopchk en OpenCore para hardware MSR")
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.orange)
+                                        .padding(.leading, 24)
+                                }
                             }
                         }
 
