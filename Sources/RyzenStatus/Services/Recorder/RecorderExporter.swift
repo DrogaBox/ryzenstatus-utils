@@ -248,7 +248,7 @@ final class RecorderExporter {
                              cancelled: Cancellation,
                              next: @escaping () -> CMSampleBuffer?,
                              onAppended: @escaping () -> Void) async {
-        let queue = DispatchQueue(label: "com.vorssaint." + label, qos: .userInitiated)
+        let queue = DispatchQueue(label: "com.ryzenstatus." + label, qos: .userInitiated)
         await withCheckedContinuation { continuation in
             let finished = OnceFlag()
             // AVFoundation invokes this callback only on the serial queue above.

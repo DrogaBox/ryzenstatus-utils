@@ -633,7 +633,7 @@ final class ScreenshotService: ObservableObject {
 /// without holding a full-resolution screenshot in memory while the app rests.
 enum ScreenshotLastCaptureStore {
     private static let writeQueue = DispatchQueue(
-        label: "com.vorssaint.utils.latest-screenshot",
+        label: "com.ryzenstatus.utils.latest-screenshot",
         qos: .utility)
     private static let stateLock = NSLock()
     private static var generation = 0

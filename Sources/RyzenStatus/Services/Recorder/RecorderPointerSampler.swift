@@ -69,7 +69,7 @@ final class RecorderPointerSampler {
 
         let thread = Thread { [weak self] in self?.loop() }
         thread.qualityOfService = .userInteractive
-        thread.name = "com.vorssaint.recorder.pointer"
+        thread.name = "com.ryzenstatus.recorder.pointer"
         self.thread = thread
         thread.start()
     }

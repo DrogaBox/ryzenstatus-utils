@@ -38,7 +38,7 @@ final class RecorderCaptureEngine: NSObject {
 
     weak var delegate: RecorderCaptureEngineDelegate?
 
-    private let queue = DispatchQueue(label: "com.vorssaint.recorder.capture",
+    private let queue = DispatchQueue(label: "com.ryzenstatus.recorder.capture",
                                       qos: .userInitiated)
     private var stream: SCStream?
     private var stopping = false

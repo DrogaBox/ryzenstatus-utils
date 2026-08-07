@@ -522,7 +522,7 @@ private struct ScreenshotQuickPreviewView: View {
         .menuStyle(.button)
         .buttonStyle(.bordered)
         .controlSize(.small)
-        .disabled(model.sharing)
+        .disabled(model.sharing || !ScreenshotShareService.shared.isSharingConfigured)
         .screenshotSafeHelp(model.sharing ? strings.sharingHUD : strings.shareButton)
         .accessibilityLabel(strings.shareButton)
     }

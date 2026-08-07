@@ -38,12 +38,16 @@ final class ScreenshotShareService: ObservableObject {
         refresh()
     }
 
-    var endpoint: URL {
+    var endpoint: URL? {
         ScreenshotSharingSupport.endpoint(
             bundleIdentifier: Bundle.main.bundleIdentifier,
             developerOverride: UserDefaults.standard.string(
                 forKey: DefaultsKey.screenshotSharingDeveloperEndpoint))
     }
+
+    /// True when a share server endpoint is configured. Share controls stay
+    /// disabled until then — this build never uploads screenshots by default.
+    var isSharingConfigured: Bool { endpoint != nil }
 
     func refresh(now: Date = Date()) {
         guard let stored = try? loadRecords() else {
@@ -70,7 +74,7 @@ final class ScreenshotShareService: ObservableObject {
               pngData.count <= ScreenshotSharingSupport.maximumUploadBytes,
               pngData.starts(with: [137, 80, 78, 71, 13, 10, 26, 10])
         else { throw ScreenshotShareError.invalidImage }
-        let serviceEndpoint = endpoint
+        guard let serviceEndpoint = endpoint else { throw ScreenshotShareError.unavailable }
         guard let url = ScreenshotSharingSupport.uploadURL(endpoint: serviceEndpoint,
                                                            duration: duration)
         else { throw ScreenshotShareError.invalidEndpoint }
@@ -178,7 +182,7 @@ final class ScreenshotShareService: ObservableObject {
                                                   in: .userDomainMask).first
         else { return nil }
         return base
-            .appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.vorssaint.utils",
+            .appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.ryzenstatus.utils",
                                     isDirectory: true)
             .appendingPathComponent("TemporaryScreenshotLinks", isDirectory: true)
     }
@@ -219,6 +223,9 @@ final class ScreenshotShareService: ObservableObject {
     private func normalizedRecords(_ candidates: [ScreenshotShareRecord],
                                    now: Date = Date()) -> [ScreenshotShareRecord] {
         var byID: [String: ScreenshotShareRecord] = [:]
+        // Purge links created by older builds that point at a third-party
+        // upload host we no longer use — they must never surface in the UI.
+        let candidates = candidates.filter { $0.endpoint.host?.lowercased() != "screenshots.vorssaint.com" }
         for record in candidates
         where record.expiresAt > now && !removedRecordIDs.contains(record.id) {
             if let existing = byID[record.id], existing.expiresAt >= record.expiresAt {

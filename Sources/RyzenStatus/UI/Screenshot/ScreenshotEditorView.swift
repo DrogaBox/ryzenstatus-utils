@@ -775,7 +775,7 @@ struct ScreenshotEditorView: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .disabled(sharing)
+        .disabled(sharing || !ScreenshotShareService.shared.isSharingConfigured)
         .screenshotSafeHelp(sharing ? strings.sharingHUD : strings.shareButton)
         .accessibilityLabel(strings.shareButton)
     }

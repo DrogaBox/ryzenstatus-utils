@@ -39,15 +39,17 @@ struct ScreenshotShareResponse: Decodable {
 }
 
 enum ScreenshotSharingSupport {
-    static let productionEndpoint = URL(string: "https://screenshots.vorssaint.com")!
-    static let developerBundleIdentifier = "com.vorssaint.utils.dev"
+    /// No default upload server: sharing requires a developer-configured
+    /// endpoint (see DefaultsKey.screenshotSharingDeveloperEndpoint). The app
+    /// must never send screenshots to a third-party host we do not control.
+    static let developerBundleIdentifier = "com.ryzenstatus.utils.dev"
     static let maximumUploadBytes = 25 * 1_024 * 1_024
 
-    static func endpoint(bundleIdentifier: String?, developerOverride: String?) -> URL {
+    static func endpoint(bundleIdentifier: String?, developerOverride: String?) -> URL? {
         guard bundleIdentifier == developerBundleIdentifier,
               let developerOverride,
               let candidate = sanitizedEndpoint(developerOverride)
-        else { return productionEndpoint }
+        else { return nil }
         return candidate
     }
 
