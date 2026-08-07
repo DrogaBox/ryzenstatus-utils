@@ -424,23 +424,6 @@ actor ProcessorModel {
         return Array(output.prefix(valid))
     }
 
-    nonisolated func kernelGetUInt8s(count: Int, selector: UInt32) -> [UInt8] {
-        if isTerminating || Task.isCancelled { return [] }
-        var output = [UInt8](repeating: 0, count: count)
-        var outputSize = count
-
-        let status = IOConnectCallMethod(connect, selector, nil, 0, nil, 0,
-                                         nil, nil,
-                                         &output, &outputSize)
-        guard status == KERN_SUCCESS else {
-            logKernelError(status)
-            return []
-        }
-
-        let valid = min(count, outputSize)
-        return Array(output.prefix(valid))
-    }
-
     /// IOKit `kIOReturnNotPrivileged` (0xe00002c1) — write selectors require root or `-amdpnopchk`.
     static let kIOReturnNotPrivilegedCode: kern_return_t = kern_return_t(bitPattern: 0xe00002c1)
 
@@ -967,9 +950,12 @@ actor ProcessorModel {
     }
 
     /// GPU capabilities from kext (selector 30).
-    /// Bit 0: supportsPower
+    /// Bit 0: supportsPower. The kext packs each GPU's capability bitmap as a
+    /// little-endian uint64 (one slot per GPU); reduce each slot to its low byte
+    /// so the result is a per-GPU `UInt8` array as documented (bit 0 = supportsPower).
     nonisolated func getKextGPUCapabilities() -> [UInt8] {
-        return kernelGetUInt8s(count: 16, selector: 30)
+        let raw = kernelGetUInt64(count: 16, selector: 30)
+        return raw.map { UInt8(truncatingIfNeeded: $0) }
     }
 
     /// Refresh cached kext GPU data. Call from actor context.

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.6] — 2026-08-07
+
+### Features & Fixes
+- **GPU Power Badge Uses Kext Capabilities**: The per-GPU power badge now respects the kext's capabilities bitmap (selector 30, bit 0) — power is shown only for GPUs that actually support power reporting, instead of inferring it from a non-zero reading.
+- **AMD Auto EPP Persistence & Privilege Feedback**: The Auto EPP toggle state now persists across launches in user defaults, and a clear hardware-privilege warning is shown when the kext denies the write. Removed the redundant privilege warning caption from the popover.
+- **CPU Load Meter Sampling Fix**: Per-thread CPU load sampling now runs continuously across all 32 logical threads whether or not Auto EPP is active, eliminating the load-meter feedback loop.
+
 ## [1.8.5] — 2026-08-06
 
 ### Features & Fixes

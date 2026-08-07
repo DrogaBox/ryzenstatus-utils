@@ -815,11 +815,18 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 if gpuCount > 0 {
                     let temps = ProcessorModel.shared.gpuCache.temperatures
                     let powers = ProcessorModel.shared.gpuCache.powers
+                    let capabilities = ProcessorModel.shared.gpuCache.capabilities
                     var devices: [GPUDeviceSnapshot] = []
                     for i in 0..<gpuCount {
                         let temp = i < temps.count ? temps[i] : 0
                         let power = i < powers.count ? powers[i] : 0
-                        let supportsPower = power > 0
+                        // Capabilities bitmap (selector 30), bit 0 = supportsPower.
+                        // Falls back to the power > 0 heuristic when the loaded
+                        // kext does not report capabilities (older kext without
+                        // selector 30 returns an empty array).
+                        let supportsPower = i < capabilities.count
+                            ? (capabilities[i] & 0x01) != 0
+                            : power > 0
                         devices.append(GPUDeviceSnapshot(id: i, temperature: temp, power: power, supportsPower: supportsPower))
                     }
                     next.gpuDevices = devices
