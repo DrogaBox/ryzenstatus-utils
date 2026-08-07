@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.7] — 2026-08-07
+
+### Privacy & Security
+- **Screenshot Sharing Disabled by Default**: RyzenStatus no longer uploads screenshots to a third-party server (`screenshots.vorssaint.com`) that we do not control. Sharing now requires a developer-configured server endpoint; the share buttons stay disabled until one is set up.
+- **Legacy Share Links Purged**: Share records created by older builds that point at the removed server are dropped from the app so no stale links surface in Settings.
+
 ## [1.8.6] — 2026-08-07
 
 ### Features & Fixes
