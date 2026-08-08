@@ -515,7 +515,17 @@ struct AmdPowerSettingsView: View {
                                     .foregroundColor(.cyan)
                             }
 
-                            Picker("", selection: $selectedEpp) {
+                            Picker("", selection: Binding(
+                                get: { 
+                                    if autoEpp.isActive {
+                                        let e = autoEpp.currentEPP
+                                        return e < 42 ? UInt8(0) : (e < 127 ? UInt8(85) : (e < 212 ? UInt8(170) : UInt8(255)))
+                                    } else {
+                                        return selectedEpp
+                                    }
+                                },
+                                set: { selectedEpp = $0 }
+                            )) {
                                 Text("Max").tag(UInt8(0))
                                 Text("Bal+").tag(UInt8(85))
                                 Text("Bal-").tag(UInt8(170))
