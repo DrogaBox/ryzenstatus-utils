@@ -33,6 +33,16 @@ final class AmdPresetController: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
 
+    /// Tail of the preset-transaction queue. Every `withPresetTransaction`
+    /// chains behind the previous one so the key write + kext write + rollback
+    /// of one preset never interleaves with another — otherwise a restore and
+    /// a new activation running in separate Tasks could leave the persisted
+    /// key and the kext on different presets (FIFO: last queued wins).
+    private var presetQueueTail: Task<AMDPowerPresetApplyResult, Never>?
+    /// Monotonic sequence for the tail bookkeeping — `Task` is a struct, so
+    /// identity is tracked by sequence number instead of `===`.
+    private var presetQueueSequence = 0
+
     private init() {
         // Keep selectedPreset in sync whenever Gaming Mode toggles the kext
         // preset. The Gaming Mode service writes to DefaultsKey.amdPowerPreset
@@ -76,27 +86,52 @@ final class AmdPresetController: ObservableObject {
     /// Internal so `GamingModeService` can reuse it for its activate/deactivate/
     /// restoreIfNeeded paths (it does NOT touch Auto EPP — callers that need
     /// that behavior use `apply(_:)` instead).
+    ///
+    /// All transactions are serialized FIFO through `presetQueueTail`, so a
+    /// restore and a concurrent activation can never interleave their key
+    /// write / kext write / rollback steps. The kext apply itself runs even if
+    /// the controller has been released; only the published state needs `self`.
+    ///
+    /// - Warning: do NOT call this re-entrantly from inside `apply` — the
+    ///   chain tasks await each other's values on the MainActor, so a nested
+    ///   transaction would deadlock.
     @discardableResult
     func withPresetTransaction(
         _ preset: AMDPowerPreset,
-        apply: (AMDPowerPreset) async -> AMDPowerPresetApplyResult
+        apply: @escaping (AMDPowerPreset) async -> AMDPowerPresetApplyResult
     ) async -> AMDPowerPresetApplyResult {
-        let previous = AmdSettingsStore.shared.amdPowerPreset
-        AmdSettingsStore.shared.amdPowerPreset = preset.rawValue
-        self.selectedPreset = preset
+        let previous = presetQueueTail
+        let sequence = presetQueueSequence
+        presetQueueSequence += 1
+        let task = Task { [weak self] () -> AMDPowerPresetApplyResult in
+            // Wait for the previous transaction to fully settle (key + kext)
+            // before starting this one — this is the serialization point.
+            _ = await previous?.value
 
-        let result = await apply(preset)
+            let previousKey = AmdSettingsStore.shared.amdPowerPreset
+            AmdSettingsStore.shared.amdPowerPreset = preset.rawValue
+            self?.selectedPreset = preset
 
-        if result.privilegeDenied {
-            // Roll back: the kext never accepted the preset, so the persisted
-            // key must not claim it did. Keep the privilege error visible.
-            AmdSettingsStore.shared.amdPowerPreset = previous
-            self.selectedPreset = previous.flatMap(AMDPowerPreset.init(rawValue:))
-            self.privilegeMessage = result.firstFailureMessage
-                ?? "Requires admin privileges (-amdpnopchk)."
-        } else {
-            self.privilegeMessage = nil
+            let result = await apply(preset)
+
+            if result.privilegeDenied {
+                // Roll back: the kext never accepted the preset, so the
+                // persisted key must not claim it did. Keep the error visible.
+                AmdSettingsStore.shared.amdPowerPreset = previousKey
+                self?.selectedPreset = previousKey.flatMap(AMDPowerPreset.init(rawValue:))
+                self?.privilegeMessage = result.firstFailureMessage
+                    ?? "Requires admin privileges (-amdpnopchk)."
+            } else {
+                self?.privilegeMessage = nil
+            }
+            return result
         }
+        presetQueueTail = task
+        let result = await task.value
+        // Release the completed tail only when no newer transaction was queued
+        // while this one ran (a newer transaction replaced `presetQueueTail`,
+        // so the chain must keep pointing at it).
+        if presetQueueSequence == sequence + 1 { presetQueueTail = nil }
         return result
     }
 
