@@ -560,12 +560,12 @@ struct AmdPowerSettingsView: View {
                     // Gaming Mode — one click: Extreme preset + Keep Awake +
                     // hidden menu bar icon. Recoverable by relaunching the app.
                     Section {
-                        Toggle("Gaming Mode", isOn: Binding(
+                        Toggle(l10n.amdPower.gamingModeTitle, isOn: Binding(
                             get: { gaming.isActive },
                             set: { $0 ? gaming.activate() : gaming.deactivate() }
                         ))
 
-                        Toggle("Hide menu bar icon", isOn: Binding(
+                        Toggle(l10n.amdPower.gamingModeHideIcon, isOn: Binding(
                             get: { gaming.hideMenuBar },
                             set: { newValue in
                                 UserDefaults.standard.set(newValue, forKey: DefaultsKey.gamingModeHideMenuBar)
@@ -578,13 +578,13 @@ struct AmdPowerSettingsView: View {
 
                         if gaming.isActive {
                             VStack(alignment: .leading, spacing: 6) {
-                                Label("Extreme preset applied (EPP 0, CPB on)", systemImage: "flame.fill")
-                                Label("Keep Awake active (indefinite)", systemImage: "moon.zzz.fill")
+                                Label(l10n.amdPower.gamingModeActivePreset, systemImage: "flame.fill")
+                                Label(l10n.amdPower.gamingModeActiveKeepAwake, systemImage: "moon.zzz.fill")
                                 if gaming.hideMenuBar {
-                                    Label("Menu bar icon hidden — relaunch RyzenStatus to open Settings", systemImage: "eye.slash.fill")
+                                    Label(l10n.amdPower.gamingModeIconHiddenHint, systemImage: "eye.slash.fill")
                                 }
                                 if nvramCState.isC6Enabled {
-                                    Label("C6 still enabled at the NVRAM level — set amdcstate=0 and reboot for the full effect", systemImage: "exclamationmark.triangle.fill")
+                                    Label(l10n.amdPower.gamingModeC6Hint, systemImage: "exclamationmark.triangle.fill")
                                         .foregroundColor(.orange)
                                 }
                             }
@@ -603,9 +603,9 @@ struct AmdPowerSettingsView: View {
                                 .transition(.opacity)
                         }
                     } header: {
-                        Label("Gaming Mode", systemImage: "gamecontroller.fill")
+                        Label(l10n.amdPower.gamingModeTitle, systemImage: "gamecontroller.fill")
                     } footer: {
-                        Text("One click: applies the Extreme power preset, starts Keep Awake indefinitely and hides the menu bar icon. Toggle off, or relaunch the app, to restore your previous profile.")
+                        Text(l10n.amdPower.gamingModeFooter)
                     }
                 } else if legacyPstateAllowed {
                     Section {

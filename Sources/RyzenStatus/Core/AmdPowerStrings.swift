@@ -39,6 +39,14 @@ struct AMDPowerFeatureStrings {
     let presetPerformanceSummary: String
     let presetExtremeSummary: String
 
+    let gamingModeTitle: String
+    let gamingModeHideIcon: String
+    let gamingModeActivePreset: String
+    let gamingModeActiveKeepAwake: String
+    let gamingModeIconHiddenHint: String
+    let gamingModeC6Hint: String
+    let gamingModeFooter: String
+
     let deepCStatesTitle: String
     let c6ActiveBadge: String
     let c6DisabledBadge: String
@@ -109,6 +117,14 @@ extension AMDPowerFeatureStrings {
         presetPerformanceSummary: "Performance EPP · CPB on",
         presetExtremeSummary: "Max EPP · CPB on · no limits",
 
+        gamingModeTitle: "Gaming Mode",
+        gamingModeHideIcon: "Hide menu bar icon",
+        gamingModeActivePreset: "Extreme preset applied (EPP 0, CPB on)",
+        gamingModeActiveKeepAwake: "Keep Awake active (indefinite)",
+        gamingModeIconHiddenHint: "Menu bar icon hidden — relaunch RyzenStatus to open Settings",
+        gamingModeC6Hint: "C6 still enabled at the NVRAM level — set amdcstate=0 and reboot for the full effect",
+        gamingModeFooter: "One click: applies the Extreme power preset, starts Keep Awake indefinitely and hides the menu bar icon. Toggle off, or relaunch the app, to restore your previous profile.",
+
         deepCStatesTitle: "Deep C-States (C6+)",
         c6ActiveBadge: "amdcstate=0 (NVRAM Active)",
         c6DisabledBadge: "amdcstate=1 (Disabled - Recommended)",
@@ -164,6 +180,14 @@ extension AMDPowerFeatureStrings {
         presetBalanceSummary: "EPP Balanceado · CPB on",
         presetPerformanceSummary: "EPP Rendimiento · CPB on",
         presetExtremeSummary: "EPP Máximo · CPB on · sin límites",
+
+        gamingModeTitle: "Modo Gaming",
+        gamingModeHideIcon: "Ocultar ícono de la barra de menús",
+        gamingModeActivePreset: "Preset Extreme aplicado (EPP 0, CPB on)",
+        gamingModeActiveKeepAwake: "Keep Awake activo (indefinido)",
+        gamingModeIconHiddenHint: "Ícono de la barra de menús oculto — relanzá RyzenStatus para abrir Ajustes",
+        gamingModeC6Hint: "C6 aún activado a nivel NVRAM — configurá amdcstate=0 y reiniciá para el efecto completo",
+        gamingModeFooter: "Un clic: aplica el preset Extreme de energía, inicia Keep Awake indefinidamente y oculta el ícono de la barra de menús. Desactivá el modo, o relanzá la app, para restaurar tu perfil anterior.",
 
         deepCStatesTitle: "Deep C-States (C6+)",
         c6ActiveBadge: "amdcstate=0 (NVRAM Activo)",

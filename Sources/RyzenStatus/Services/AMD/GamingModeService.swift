@@ -70,6 +70,10 @@ final class GamingModeService: ObservableObject {
         }
 
         let result = ProcessorModel.shared.applyPowerPreset(.extreme)
+        // Mirror the presets UI: the key always names what is actually applied,
+        // so deactivate() can tell a mid-mode manual preset change apart from
+        // the untouched Extreme this mode applied.
+        UserDefaults.standard.set(AMDPowerPreset.extreme.rawValue, forKey: presetKey)
         UserDefaults.standard.set(true, forKey: activeKey)
         isActive = true
 
@@ -90,11 +94,24 @@ final class GamingModeService: ObservableObject {
     func deactivate() {
         guard isActive else { return }
 
-        let restore = ProcessorModel.shared.applyPowerPreset(restoredPreset)
-        if restore.privilegeDenied {
-            statusMessage = restore.firstFailureMessage
-                ?? "Could not restore your previous profile (privilege)."
-            statusIsError = true
+        // The presets section stays live during the mode: if the user picked a
+        // different preset manually, that choice wins over the pre-gaming
+        // profile and is left applied (only a preset that is still Extreme is
+        // one this mode applied).
+        let currentPreset = UserDefaults.standard.string(forKey: presetKey)
+            .flatMap(AMDPowerPreset.init(rawValue:)) ?? .balance
+        let shouldRestorePreset = currentPreset == .extreme
+
+        if shouldRestorePreset {
+            let restore = ProcessorModel.shared.applyPowerPreset(restoredPreset)
+            if restore.privilegeDenied {
+                statusMessage = restore.firstFailureMessage
+                    ?? "Could not restore your previous profile (privilege)."
+                statusIsError = true
+            } else {
+                statusMessage = nil
+            }
+            UserDefaults.standard.set(restoredPreset.rawValue, forKey: presetKey)
         } else {
             statusMessage = nil
         }
@@ -128,7 +145,16 @@ final class GamingModeService: ObservableObject {
         if autoEppWasActive {
             AutoEppService.shared.setCPPCActive(false)
         }
-        _ = ProcessorModel.shared.applyPowerPreset(.extreme)
+        let result = ProcessorModel.shared.applyPowerPreset(.extreme)
+        if result.privilegeDenied {
+            // Surfaces in Settings while the mode stays active, so a launch
+            // that could not re-apply the profile is not silent.
+            statusMessage = result.firstFailureMessage
+                ?? "Could not re-apply the Extreme preset on launch; Keep Awake and the hidden icon are still active."
+            statusIsError = true
+        } else {
+            statusMessage = nil
+        }
         if hideMenuBar {
             StatusItemController.shared?.setForceHidden(true)
         }

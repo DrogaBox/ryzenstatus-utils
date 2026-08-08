@@ -297,9 +297,15 @@ final class StatusItemController {
     /// Gaming Mode: forces the main status item off (or back on). The regular
     /// refresh tick respects `forceHidden`, so the icon stays hidden until the
     /// mode ends instead of being restored by the next appearance update.
+    /// In the separate-items mode the metric items are their own status items,
+    /// so they are hidden too — "hide menu bar icon" must really hide the
+    /// app's whole menu bar presence.
     func setForceHidden(_ hidden: Bool) {
         forceHidden = hidden
         statusItem?.isVisible = !hidden
+        for item in metricStatusItems.values {
+            item.isVisible = !hidden
+        }
     }
 
     @objc private func clicked() {
@@ -567,7 +573,9 @@ final class StatusItemController {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.autosaveName = "\(Self.metricAutosavePrefix).\(group.id)"
         item.behavior = []
-        item.isVisible = true
+        // A metric item (re)installed while Gaming Mode forces the bar hidden
+        // must not surface mid-mode; the regular refresh only touches titles.
+        item.isVisible = !forceHidden
         if let button = item.button {
             button.font = MenuBarRenderer.statusFont(stacked: false)
             button.alignment = .left
