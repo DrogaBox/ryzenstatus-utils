@@ -227,9 +227,15 @@ final class ScreenshotShareService: ObservableObject {
     private func normalizedRecords(_ candidates: [ScreenshotShareRecord],
                                    now: Date = Date()) -> [ScreenshotShareRecord] {
         var byID: [String: ScreenshotShareRecord] = [:]
-        // Purge links created by older builds that point at a third-party
-        // upload host we no longer use — they must never surface in the UI.
-        let candidates = candidates.filter { $0.endpoint.host?.lowercased() != "screenshots.vorssaint.com" }
+        // Only surface records that point at the currently configured share
+        // server — links from any other host (legacy third-party uploads)
+        // must never appear in the UI. With no server configured the list is
+        // empty, matching the disabled-by-default sharing behavior.
+        let configuredHost = endpoint?.host?.lowercased()
+        let candidates = candidates.filter { record in
+            guard let configuredHost else { return false }
+            return record.endpoint.host?.lowercased() == configuredHost
+        }
         for record in candidates
         where record.expiresAt > now && !removedRecordIDs.contains(record.id) {
             if let existing = byID[record.id], existing.expiresAt >= record.expiresAt {
