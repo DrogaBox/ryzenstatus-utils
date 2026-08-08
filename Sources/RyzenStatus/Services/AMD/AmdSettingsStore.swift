@@ -37,6 +37,15 @@ public final class AmdSettingsStore: ObservableObject {
         defaults.bool(forKey: DefaultsKey.gamingModeHideMenuBar)
     }
 
+    /// The user's preset before Gaming Mode was activated, persisted so a
+    /// relaunch with the mode still active can restore the real profile
+    /// instead of a hardcoded fallback. nil when the mode has never been
+    /// activated or has already been deactivated.
+    public var gamingModeRestorePreset: String? {
+        get { defaults.string(forKey: DefaultsKey.gamingModeRestorePreset) }
+        set { defaults.set(newValue, forKey: DefaultsKey.gamingModeRestorePreset) }
+    }
+
     // MARK: - Presets Settings
 
     public var amdPowerPreset: String? {

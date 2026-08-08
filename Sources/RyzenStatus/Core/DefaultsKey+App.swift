@@ -384,6 +384,7 @@ extension DefaultsKey {
     static let gamingModeActive = "gamingModeActive"             // Bool, persisted across launches
     static let gamingModeHideMenuBar = "gamingModeHideMenuBar"   // Bool, hide the status icon while active
     static let gamingModeRestoreAutoEpp = "gamingModeRestoreAutoEpp" // Bool, Auto EPP state snapshotted before the mode
+    static let gamingModeRestorePreset = "gamingModeRestorePreset"   // AMDPowerPreset.rawValue, preset before the mode
 
     // Dev-build only: force the "update available" UI for local testing.
 #if DEBUG

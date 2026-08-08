@@ -52,13 +52,16 @@ final class GamingModeService: ObservableObject {
     func activate() {
         guard !isActive else { return }
 
-        // Remember the current profile so deactivate() can put it back.
+        // Remember the current profile so deactivate() can put it back — both
+        // in memory and persisted, so a relaunch with the mode still active
+        // can restore the user's real preset (not a .balance fallback).
         if let raw = AmdSettingsStore.shared.amdPowerPreset,
            let preset = AMDPowerPreset(rawValue: raw) {
             restoredPreset = preset
         } else {
             restoredPreset = .balance
         }
+        AmdSettingsStore.shared.gamingModeRestorePreset = restoredPreset.rawValue
 
         keepAwakeWasActive = KeepAwakeManager.shared.isActive
         if !keepAwakeWasActive {
@@ -172,6 +175,10 @@ final class GamingModeService: ObservableObject {
                     await ProcessorModel.shared.applyPowerPreset(preset)
                 }
                 guard self.activationGeneration == generation, !self.isActive else { return }
+                // The snapshot has served its purpose — the user's preset is
+                // back where it belongs (or the restore failed visibly). Only
+                // clear it if no newer activation re-snapshotted meanwhile.
+                AmdSettingsStore.shared.gamingModeRestorePreset = nil
                 if restore.privilegeDenied {
                     self.statusMessage = restore.firstFailureMessage
                         ?? "Could not restore your previous profile (privilege)."
@@ -185,6 +192,9 @@ final class GamingModeService: ObservableObject {
             }
         } else {
             statusMessage = nil
+            // The user changed the preset manually during the mode (or the
+            // activation never applied) — their choice wins, snapshot is stale.
+            AmdSettingsStore.shared.gamingModeRestorePreset = nil
             // No preset to restore — Auto EPP is safe to resume right away.
             AutoEppService.shared.resume()
         }
@@ -197,6 +207,14 @@ final class GamingModeService: ObservableObject {
     /// hidden icon. Safe to call early in `applicationDidFinishLaunching`.
     func restoreIfNeeded() {
         guard AmdSettingsStore.shared.gamingModeActive, !isActive else { return }
+        // Recover the user's pre-gaming preset from the persisted snapshot so
+        // a later deactivate() restores the real profile, not .balance.
+        if let raw = AmdSettingsStore.shared.gamingModeRestorePreset,
+           let preset = AMDPowerPreset(rawValue: raw) {
+            restoredPreset = preset
+        } else {
+            restoredPreset = .balance
+        }
         keepAwakeWasActive = KeepAwakeManager.shared.isActive
         if !keepAwakeWasActive {
             KeepAwakeManager.shared.activate(minutes: 0)
