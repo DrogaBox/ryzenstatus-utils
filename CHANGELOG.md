@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.9.1] — 2026-08-08
+
+### Gaming Mode
+- **Gaming Mode**: One click applies the Extreme power preset, starts an indefinite Keep Awake session and hides the menu bar icon. The mode persists across launches and is re-applied on startup; turning it off restores your previous profile — including your Auto EPP preference, even after a relaunch while the mode is active.
+- **Full Menu Bar Hiding**: With separate menu bar metrics enabled, Gaming Mode now hides those items too instead of leaving CPU/GPU readouts on screen.
+- **Localized Section**: The Gaming Mode settings now follow the app language (English and Spanish; other languages fall back like the existing AMD Power strings).
+- **Smarter Preset Restore**: Choosing a different power preset while Gaming Mode is active keeps your choice — deactivation only restores the pre-gaming profile when it hasn't been changed. Preset cards highlight what the kext is actually running while the mode is on.
+
+### Privacy & Security
+- **Strict Share Record Filtering**: Screenshot share links only surface when they point at the currently configured server — records from any other host (including the removed legacy upload server) never appear in Settings.
+
 ## [1.9.0] — 2026-08-07
 
 ### AMD Power — Full Kext Selector Integration
