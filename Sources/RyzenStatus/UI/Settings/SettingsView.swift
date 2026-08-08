@@ -188,6 +188,7 @@ struct SettingsView: View {
     /// opaque sidebar chrome.
     @ViewBuilder
     private var sidebar: some View {
+#if compiler(>=6.2)
         if #available(macOS 27, *) {
             sidebarList
                 .searchable(text: $searchQuery,
@@ -205,6 +206,12 @@ struct SettingsView: View {
                             placement: .sidebar,
                             prompt: l10n.s.settingsSearchPlaceholder)
         }
+#else
+        sidebarList
+            .searchable(text: $searchQuery,
+                        placement: .sidebar,
+                        prompt: l10n.s.settingsSearchPlaceholder)
+#endif
     }
 
     private var sidebarList: some View {

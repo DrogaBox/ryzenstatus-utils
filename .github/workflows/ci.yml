@@ -36,3 +36,26 @@ jobs:
           name: RyzenStatus-dmg
           path: dist/*.dmg
           if-no-files-found: error
+
+  # Compile the full app against the macOS 15 SDK with a pre-26 toolchain
+  # (Swift < 6.2). Exercises the #if compiler(>=6.2) fallback branches in
+  # MixerSection/SettingsView so macOS-26-only APIs (GlassEffectContainer,
+  # glassEffect, scrollEdgeEffectStyle) are proven to compile out on Sequoia.
+  sdk15:
+    name: SDK 15 fallback build (Xcode 16)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Select Xcode 16 (Swift < 6.2, SDK 15)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.4'
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          echo "SDK: $(xcrun --sdk macosx --show-sdk-version)"
+
+      - name: Build against SDK 15
+        run: ./build.sh

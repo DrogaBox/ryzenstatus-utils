@@ -378,6 +378,7 @@ struct MixerSection: View {
 
     @ViewBuilder
     private var mixerRows: some View {
+#if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             GlassEffectContainer(spacing: 8) {
                 rowList
@@ -385,6 +386,9 @@ struct MixerSection: View {
         } else {
             rowList
         }
+#else
+        rowList
+#endif
     }
 
     @ViewBuilder
@@ -609,6 +613,7 @@ private struct MixerVolumeSlider: View {
 
     var body: some View {
         Group {
+#if compiler(>=6.2)
             if #available(macOS 26.0, *) {
                 LiquidGlassMixerSlider(value: $value,
                                        tint: activeTint,
@@ -619,6 +624,11 @@ private struct MixerVolumeSlider: View {
                     .accessibilityLabel(accessibilityLabel)
                     .accessibilityValue("\(percentage)%")
             }
+#else
+            nativeSlider
+                .accessibilityLabel(accessibilityLabel)
+                .accessibilityValue("\(percentage)%")
+#endif
         }
     }
 
@@ -633,6 +643,7 @@ private struct MixerVolumeSlider: View {
     }
 }
 
+#if compiler(>=6.2)
 @available(macOS 26.0, *)
 private struct LiquidGlassMixerSlider: View {
     @Binding var value: Double
@@ -735,3 +746,4 @@ private struct LiquidGlassMixerSlider: View {
         value = Double(normalized) * AppVolumeMixer.maxVolume
     }
 }
+#endif
