@@ -6269,19 +6269,22 @@ struct MetricsTests {
         expect(!AMDCpuGeneration.zen3.isZen4OrNewer && !AMDCpuGeneration.zen2AndOlder.isZen4OrNewer,
                "Zen 3 and older keep the grid")
 
-        // The kext only accepts Curve Optimizer writes on Vermeer with legacy
-        // P-states enabled (baseline/telemetry-only profiles are blocked).
-        expect(AMDCurveOptimizer.supported(family: 0x19, model: 0x21, legacyPstateAllowed: true),
-               "Vermeer with legacy P-states accepts CO writes")
-        expect(!AMDCurveOptimizer.supported(family: 0x19, model: 0x21, legacyPstateAllowed: false),
-               "baseline profile blocks CO writes even on Vermeer")
-        expect(!AMDCurveOptimizer.supported(family: 0x19, model: 0x61, legacyPstateAllowed: true),
+        // The kext only accepts Curve Optimizer writes on Vermeer
+        // (family 0x19, model 0x21–0x2F). The legacy-P-states gate moved into
+        // the kext's capability profile — see AMDCurveOptimizer.supported.
+        expect(AMDCurveOptimizer.supported(family: 0x19, model: 0x21),
+               "Vermeer accepts CO writes")
+        expect(AMDCurveOptimizer.supported(family: 0x19, model: 0x2F),
+               "upper Vermeer model bound accepts CO writes")
+        expect(!AMDCurveOptimizer.supported(family: 0x19, model: 0x20),
+               "below-Vermeer model is not a supported CO target")
+        expect(!AMDCurveOptimizer.supported(family: 0x19, model: 0x61),
                "Raphael (Zen 4) never accepts CO writes")
-        expect(!AMDCurveOptimizer.supported(family: 0x19, model: 0x50, legacyPstateAllowed: true),
+        expect(!AMDCurveOptimizer.supported(family: 0x19, model: 0x50),
                "Cezanne (non-Vermeer Zen 3) is not a supported CO target")
-        expect(!AMDCurveOptimizer.supported(family: 0x17, model: 0x71, legacyPstateAllowed: true),
+        expect(!AMDCurveOptimizer.supported(family: 0x17, model: 0x71),
                "Matisse (Zen 2) is not a supported CO target")
-        expect(!AMDCurveOptimizer.supported(family: 0x19, model: 0xA0, legacyPstateAllowed: true),
+        expect(!AMDCurveOptimizer.supported(family: 0x19, model: 0xA0),
                "Granite Ridge (Zen 5) never accepts CO writes")
 
         expect(AMDCurveOptimizer.clamp(-100) == -30, "clamp floor is -30")

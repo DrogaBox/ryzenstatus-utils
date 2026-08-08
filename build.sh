@@ -127,6 +127,7 @@ if (( TEST )); then
         Sources/RyzenStatus/Services/GeneralPasteboardAccess.swift \
         Sources/RyzenStatus/Services/Audio/MixerRoutingSupport.swift \
         Sources/RyzenStatus/Services/AMD/AMDPowerPresets.swift \
+        Sources/RyzenStatus/Services/AMD/AmdSettingsStore.swift \
         Sources/RyzenStatus/Services/AMD/AMDCoreRanking.swift \
         Sources/RyzenStatus/Services/AMD/CPUSensorPacket.swift \
         Sources/RyzenStatus/Services/AMD/AMDFanCurvePresets.swift \
