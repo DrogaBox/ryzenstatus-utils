@@ -29,6 +29,7 @@ struct AmdControlSection: View {
 
     @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 10
     @AppStorage(DefaultsKey.autoEppLoadThreshold) private var loadThreshold: Int = 50
+    @AppStorage(DefaultsKey.showFansInAmdPower) private var showFansInAmdPower = false
 
     // snapEPP and presetColor are now on AMDPowerPreset — no local duplication.
 
@@ -66,23 +67,29 @@ struct AmdControlSection: View {
         PanelSection(.amdPower, title: "AMD Ryzen Power Control", collapsible: collapsible) {
             VStack(alignment: .leading, spacing: 18) {
                 if !availableFans.isEmpty {
-                    HStack {
-                        Picker("", selection: $selectedFanId) {
-                            ForEach(availableFans, id: \.id) { fan in
-                                Text(fan.name).tag(fan.id)
+                    DisclosureGroup(isExpanded: $showFansInAmdPower) {
+                        HStack {
+                            Picker("", selection: $selectedFanId) {
+                                ForEach(availableFans, id: \.id) { fan in
+                                    Text(fan.name).tag(fan.id)
+                                }
                             }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .frame(width: 80)
+                            .onChange(of: selectedFanId) { _, _ in
+                                updateFanRpm()
+                            }
+                            
+                            Spacer()
+                            
+                            Text("\(selectedFanRpm) RPM")
+                                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                                .foregroundColor(.secondary)
                         }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        .frame(width: 80)
-                        .onChange(of: selectedFanId) { _, _ in
-                            updateFanRpm()
-                        }
-                        
-                        Spacer()
-                        
-                        Text("\(selectedFanRpm) RPM")
-                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    } label: {
+                        Text("SMC Fan Control (Advanced)")
+                            .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.secondary)
                     }
                     Divider().padding(.top, -6).padding(.bottom, -6)

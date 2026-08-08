@@ -379,6 +379,7 @@ extension DefaultsKey {
     static let amdFanCurvePreset = "amdFanCurvePreset"           // AMDFanCurvePreset.rawValue
     static let amdFanCurveSensor = "amdFanCurveSensor"           // FanSensor.rawValue (Int)
     static let amdFanCurveFanIndex = "amdFanCurveFanIndex"       // Int, fan header for selector 102
+    static let showFansInAmdPower = "showFansInAmdPower"         // Bool, fan picker DisclosureGroup expanded in the panel
     // Gaming Mode — Extreme preset + Keep Awake + hidden menu bar icon.
     static let gamingModeActive = "gamingModeActive"             // Bool, persisted across launches
     static let gamingModeHideMenuBar = "gamingModeHideMenuBar"   // Bool, hide the status icon while active

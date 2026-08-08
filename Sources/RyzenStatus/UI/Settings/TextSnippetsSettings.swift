@@ -111,8 +111,8 @@ struct TextSnippetsSettings: View {
 private struct SnippetRow: View {
     let snippet: TextSnippet
     let modeLabel: String
-    let toggle: (Bool) -> Void
-    let edit: () -> Void
+    let toggle: @MainActor @Sendable (Bool) -> Void
+    let edit: @MainActor @Sendable () -> Void
 
     var body: some View {
         HStack(spacing: 10) {

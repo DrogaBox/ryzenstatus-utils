@@ -8,6 +8,7 @@ import SwiftUI
 /// the Features section, so every feature gets its own page.
 /// Selects the visible Settings page; the menu bar uses it to open Settings
 /// directly on a specific page.
+@MainActor
 final class SettingsRouter: ObservableObject {
     static let shared = SettingsRouter()
     @Published var page: SettingsPage = .general
@@ -569,7 +570,7 @@ struct EnergySettings: View {
                     if keepAwakeMouseJiggle {
                         Picker(l10n.s.keepAwakeMouseJiggleInterval, selection: $keepAwakeMouseJiggleInterval) {
                             ForEach(Defaults.allowedKeepAwakeMouseJiggleIntervals, id: \.self) { minutes in
-                                Text(KeepAwakeMouseJiggleIntervalPicker.label(for: minutes)).tag(minutes)
+                                Text("\(minutes) min").tag(minutes)
                             }
                         }
                         if !permissions.accessibility {

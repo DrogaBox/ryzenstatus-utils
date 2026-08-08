@@ -119,6 +119,7 @@ private struct PanelGlassSurface: View {
     }
 }
 
+@MainActor
 func appDelegate() -> AppDelegate? {
     NSApp.delegate as? AppDelegate
 }

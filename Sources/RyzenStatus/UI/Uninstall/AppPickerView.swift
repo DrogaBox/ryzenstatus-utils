@@ -10,14 +10,14 @@ struct AppPickerView: View {
     @State private var isLoading = false
 
     var compact = false
-    var loadApps: () -> [InstalledApps.InstalledApp] = { InstalledApps.installedApplications() }
+    var loadApps: @Sendable () -> [InstalledApps.InstalledApp] = { InstalledApps.installedApplications() }
     var onCancel: () -> Void
     var onSelect: (URL) -> Void
 
     init(compact: Bool = false,
          onCancel: @escaping () -> Void,
          onSelect: @escaping (URL) -> Void,
-         loadApps: @escaping () -> [InstalledApps.InstalledApp] = { InstalledApps.installedApplications() }) {
+         loadApps: @escaping @Sendable () -> [InstalledApps.InstalledApp] = { InstalledApps.installedApplications() }) {
         self.compact = compact
         self.onCancel = onCancel
         self.onSelect = onSelect
@@ -101,11 +101,12 @@ struct AppPickerView: View {
     private func loadAppsIfNeeded() {
         guard apps.isEmpty, !isLoading else { return }
         isLoading = true
+        let fetch = self.loadApps
         DispatchQueue.global(qos: .userInitiated).async {
-            let loaded = loadApps()
+            let loaded = fetch()
             DispatchQueue.main.async {
-                apps = loaded
-                isLoading = false
+                self.apps = loaded
+                self.isLoading = false
             }
         }
     }

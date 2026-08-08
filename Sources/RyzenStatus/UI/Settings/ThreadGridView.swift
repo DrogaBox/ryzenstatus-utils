@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 class ThreadGridViewModel: ObservableObject {
     struct ThreadData: Identifiable {
         let id: Int

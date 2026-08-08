@@ -899,6 +899,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         openSettingsWindow()
     }
 
+    @MainActor
     @objc private func menuOpenUninstaller() {
         SettingsRouter.shared.page = .uninstaller
         openSettingsWindow()
