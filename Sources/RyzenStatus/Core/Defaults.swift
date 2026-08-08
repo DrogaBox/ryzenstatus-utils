@@ -564,6 +564,11 @@ enum Defaults {
         DefaultsKey.amdCpbEnabled: true,
         DefaultsKey.amdPpmEnabled: false,
         DefaultsKey.amdLpmEnabled: false,
+        // Kext fan curve editor — defaults to the balanced 256-point LUT.
+        DefaultsKey.amdFanCurvePreset: AMDFanCurvePreset.balanced.rawValue,
+        // FanSensor.cpu.rawValue (FanCurveModels is not in the test target).
+        DefaultsKey.amdFanCurveSensor: 0,
+        DefaultsKey.amdFanCurveFanIndex: 0,
     ]
 
     private static let currentMigrationVersion = 5

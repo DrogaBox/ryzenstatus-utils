@@ -16,6 +16,27 @@ struct AmdPowerSettingsView: View {
     @State private var cpuProfile = ProcessorModel.CPUProfile()
     @State private var cppcActiveMode: Bool = false
     @State private var cppcCurrentEPP: UInt8 = 0
+    @State private var telemetryPacket: CPUSensorPacket?
+    @State private var selectedFanCurve: AMDFanCurvePreset = {
+        guard let raw = UserDefaults.standard.string(forKey: DefaultsKey.amdFanCurvePreset),
+              let preset = AMDFanCurvePreset(rawValue: raw) else { return .balanced }
+        return preset
+    }()
+    @State private var fanCurveSensor: FanSensor = {
+        guard let raw = UserDefaults.standard.object(forKey: DefaultsKey.amdFanCurveSensor) as? Int,
+              let sensor = FanSensor(rawValue: raw) else { return .cpu }
+        return sensor
+    }()
+    @State private var selectedFanIndex = UserDefaults.standard.integer(forKey: DefaultsKey.amdFanCurveFanIndex)
+    @State private var availableFans: [FanSnapshot] = []
+    @State private var fanCurveStatusMessage: String?
+    @State private var coGeneration = AMDCpuGeneration.unknown
+    @State private var coSupported = false
+    @State private var coCoreCount = 16
+    @State private var curveOffsets: [Int8] = []
+    @State private var coStatusMessage: String?
+    @State private var coStatusIsError = false
+    @ObservedObject private var fanCtrl = FanCurveController.shared
     @ObservedObject private var c6Service = C6ResidencyService.shared
     
     @State private var showCopiedToast: Bool = false
@@ -160,6 +181,61 @@ struct AmdPowerSettingsView: View {
                     Text(l10n.amdPower.cpuProfileFooter)
                 }
 
+                // AMD Telemetry Packet — zero-copy selector 100 readout (304 bytes).
+                if let packet = telemetryPacket {
+                    Section {
+                        HStack {
+                            Image(systemName: "waveform.path.ecg")
+                                .foregroundColor(.cyan)
+                                .frame(width: 20)
+                            Text("Telemetry Packet (Selector 100)")
+                                .font(.subheadline)
+                            Spacer()
+                            Text("\(CPUSensorPacket.byteSize) B")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        HStack {
+                            Text("Package Power")
+                            Spacer()
+                            Text(String(format: "%.1f W", packet.packagePowerW))
+                                .font(.system(.body, design: .monospaced))
+                        }
+                        HStack {
+                            Text("Package Temp")
+                            Spacer()
+                            Text(String(format: "%.1f °C", packet.packageTempC))
+                                .font(.system(.body, design: .monospaced))
+                        }
+                        if packet.ccdCount > 0 {
+                            HStack {
+                                Text("CCDs (\(packet.ccdCount))")
+                                Spacer()
+                                Text(packet.ccdTemperatures.prefix(Int(packet.ccdCount))
+                                    .map { String(format: "%.0f°C", $0) }
+                                    .joined(separator: " · "))
+                                    .font(.system(.body, design: .monospaced))
+                            }
+                        }
+                        let freqs = packet.activeFrequenciesMHz
+                        if !freqs.isEmpty {
+                            HStack {
+                                Text("Core Freq (\(freqs.count) threads)")
+                                Spacer()
+                                Text(String(format: "%.0f / %.0f / %.0f MHz",
+                                           freqs.min() ?? 0,
+                                           freqs.reduce(0, +) / Float(freqs.count),
+                                           freqs.max() ?? 0))
+                                    .font(.system(.body, design: .monospaced))
+                            }
+                        }
+                    } header: {
+                        Text("Telemetry Packet")
+                    } footer: {
+                        Text("Zero-copy streaming packet from the kext (selector 100).")
+                    }
+                }
+
                 // AMD GPU — dedicated GPU telemetry from the kext (selectors 27-30).
                 // Hidden entirely when no AMD discrete GPU is detected (iGPU/NVIDIA).
                 if !monitor.snapshot.gpuDevices.isEmpty {
@@ -192,6 +268,138 @@ struct AmdPowerSettingsView: View {
                     } footer: {
                         Text(l10n.amdPower.amdGPUFooter)
                     }
+                }
+
+                // AMD Fan Curves — kext-native 256-point LUT control (selectors 101/102).
+                // Uploads a preset curve and maps it onto a physical fan header.
+                Section {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Picker("Curve Preset", selection: $selectedFanCurve) {
+                            ForEach(AMDFanCurvePreset.allCases) { preset in
+                                Text(preset.rawValue).tag(preset)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: selectedFanCurve) { _, newValue in
+                            UserDefaults.standard.set(newValue.rawValue, forKey: DefaultsKey.amdFanCurvePreset)
+                            fanCurveStatusMessage = nil
+                        }
+
+                        // Live miniature preview of the selected 256-point LUT.
+                        fanCurvePreview(lut: selectedFanCurve.makeLUT())
+
+                        HStack(spacing: 16) {
+                            Picker("Sensor", selection: $fanCurveSensor) {
+                                ForEach(FanSensor.allCases, id: \.self) { sensor in
+                                    Text(sensor == .cpu ? "CPU" : "GPU").tag(sensor)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
+                            .frame(width: 100)
+                            .onChange(of: fanCurveSensor) { _, newValue in
+                                UserDefaults.standard.set(newValue.rawValue, forKey: DefaultsKey.amdFanCurveSensor)
+                                fanCurveStatusMessage = nil
+                            }
+
+                            Picker("Fan", selection: $selectedFanIndex) {
+                                if availableFans.isEmpty {
+                                    Text("Fan 1").tag(0)
+                                } else {
+                                    ForEach(availableFans) { fan in
+                                        Text(fan.name).tag(fan.id)
+                                    }
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
+                            .frame(width: 110)
+                            .onChange(of: selectedFanIndex) { _, newValue in
+                                UserDefaults.standard.set(newValue, forKey: DefaultsKey.amdFanCurveFanIndex)
+                                fanCurveStatusMessage = nil
+                            }
+
+                            Spacer()
+
+                            Button {
+                                applyFanCurve()
+                            } label: {
+                                Label("Apply Curve", systemImage: "fan.fill")
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            Button("Auto") {
+                                restoreFanAuto()
+                            }
+                            .buttonStyle(.bordered)
+                            .help("Unmap the fan and restore automatic control")
+                        }
+
+                        if let message = fanCurveStatusMessage {
+                            Label(message, systemImage: "checkmark.circle.fill")
+                                .font(.caption2)
+                                .foregroundColor(.green)
+                        }
+                        if !fanCtrl.fanMappings.isEmpty {
+                            Label("The SMC fan-control loop has active mappings — both systems may drive the same header. Disable the custom curves in Fan Curves settings before applying kext curves.", systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                } header: {
+                    Text("Fan Curves (Kext)")
+                } footer: {
+                    Text("Uploads a 256-point LUT to the kext (selector 101) and maps it to the selected fan header (selector 102). Curves are slots 0–3; requires root or -amdpnopchk.")
+                }
+
+                // AMD Curve Optimizer — per-core offsets (selectors 110/111).
+                // The kext only accepts writes on Zen 3 Vermeer; Zen 4/5 and the
+                // baseline profile get an explanatory message instead of a grid.
+                Section {
+                    if coGeneration.isZen4OrNewer {
+                        Label("Curve Optimizer is not supported on Zen 4/5 CPUs. Use PBO in BIOS instead.", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if coSupported {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                            ForEach(0..<coCoreCount, id: \.self) { core in
+                                curveOptimizerCell(core)
+                            }
+                        }
+                        HStack(spacing: 10) {
+                            Button {
+                                applyAllCurveOffsets()
+                            } label: {
+                                Label("Apply All", systemImage: "bolt.fill")
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            Button("Reset to 0") {
+                                resetCurveOffsets()
+                            }
+                            .buttonStyle(.bordered)
+
+                            Spacer()
+
+                            if let message = coStatusMessage {
+                                Text(message)
+                                    .font(.caption2)
+                                    .foregroundColor(coStatusIsError ? .red : .green)
+                                    .lineLimit(2)
+                            }
+                        }
+                    } else {
+                        Label("Curve Optimizer writes are only accepted on Zen 3 Vermeer (Family 0x19, Model 0x21–0x2F) in this kext build. Reads still work on other families.", systemImage: "info.circle")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } header: {
+                    Text("Curve Optimizer (Selectors 110/111)")
+                } footer: {
+                    Text("Per-core voltage offset −30..+30 applied via SMU command 0x3D. Writes require root or -amdpnopchk and are blocked above 75 °C package temperature.")
                 }
 
                 if cppcSupported {
@@ -562,6 +770,209 @@ struct AmdPowerSettingsView: View {
         return .orange
     }
 
+    // MARK: - Curve Optimizer (selectors 110/111)
+
+    private func curveOptimizerCell(_ core: Int) -> some View {
+        let offset = core < curveOffsets.count ? curveOffsets[core] : 0
+        return VStack(spacing: 3) {
+            Text("Core \(core + 1)")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            HStack(spacing: 8) {
+                Button {
+                    stepCurveOffset(core, delta: -1)
+                } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.system(size: 15))
+                        .foregroundColor(.cyan)
+                }
+                .buttonStyle(.plain)
+                .disabled(offset <= AMDCurveOptimizer.minOffset)
+
+                Text("\(offset)")
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .foregroundColor(curveOffsetColor(offset))
+                    .frame(minWidth: 24)
+
+                Button {
+                    stepCurveOffset(core, delta: 1)
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 15))
+                        .foregroundColor(.cyan)
+                }
+                .buttonStyle(.plain)
+                .disabled(offset >= AMDCurveOptimizer.maxOffset)
+            }
+        }
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.06)))
+    }
+
+    private func curveOffsetColor(_ offset: Int8) -> Color {
+        if offset < 0 { return .green }      // undervolt
+        if offset > 0 { return .orange }     // overvolt
+        return .secondary                    // stock
+    }
+
+    /// Optimistic UI update per tap; the kext write confirms (or reverts via
+    /// a reload from selector 110 on failure).
+    private func stepCurveOffset(_ core: Int, delta: Int) {
+        guard core < curveOffsets.count else { return }
+        let candidate = AMDCurveOptimizer.clamp(Int(curveOffsets[core]) + delta)
+        guard candidate != curveOffsets[core] else { return }
+        curveOffsets[core] = candidate
+        writeCurveOffset(core: core, offset: candidate)
+    }
+
+    private func writeCurveOffset(core: Int, offset: Int8) {
+        // Detached: the SMU 0x3D write can take 5–15 ms on Zen 3 (PLL
+        // reconfiguration) — keep it off the main thread, like Apply All.
+        // The UI already updated optimistically; on failure we reload from
+        // selector 110 so the grid reverts to the kext's real state.
+        Task.detached(priority: .userInitiated) {
+            let status = ProcessorModel.shared.setCurveOptimizerOffset(core: UInt8(core), offset: offset)
+            await MainActor.run {
+                if status == KERN_SUCCESS {
+                    coStatusMessage = "Core \(core + 1) → \(offset)"
+                    coStatusIsError = false
+                } else {
+                    reloadCurveOffsets()
+                    coStatusMessage = curveOptimizerError(status)
+                    coStatusIsError = true
+                }
+            }
+        }
+    }
+
+    private func applyAllCurveOffsets() {
+        let offsets = curveOffsets
+        coStatusMessage = nil
+        Task.detached(priority: .userInitiated) {
+            var firstError: kern_return_t = KERN_SUCCESS
+            var applied = 0
+            for (core, offset) in offsets.enumerated() {
+                let status = ProcessorModel.shared.setCurveOptimizerOffset(core: UInt8(core), offset: offset)
+                if status == KERN_SUCCESS {
+                    applied += 1
+                } else if firstError == KERN_SUCCESS {
+                    firstError = status
+                }
+            }
+            // Snapshot before hopping actors so the concurrent closure captures
+            // immutable lets (Swift 6 sendable-safe).
+            let reportError = firstError
+            let reportApplied = applied
+            await MainActor.run {
+                if reportError == KERN_SUCCESS {
+                    coStatusMessage = "Applied \(reportApplied) cores"
+                    coStatusIsError = false
+                } else {
+                    reloadCurveOffsets()
+                    coStatusMessage = curveOptimizerError(reportError)
+                    coStatusIsError = true
+                }
+            }
+        }
+    }
+
+    private func resetCurveOffsets() {
+        curveOffsets = [Int8](repeating: 0, count: coCoreCount)
+        applyAllCurveOffsets()
+    }
+
+    private func reloadCurveOffsets() {
+        let raw = ProcessorModel.shared.getCurveOptimizerOffsets()
+        if AMDCurveOptimizer.validOffsets(raw, coreCount: coCoreCount) {
+            curveOffsets = Array(raw.prefix(coCoreCount))
+        } else {
+            curveOffsets = [Int8](repeating: 0, count: coCoreCount)
+        }
+    }
+
+    /// Maps the kext's selector-111 return codes to friendly messages.
+    private func curveOptimizerError(_ status: kern_return_t) -> String {
+        if status == ProcessorModel.kIOReturnNotPrivilegedCode {
+            return "Requires root or -amdpnopchk"
+        }
+        if status == kIOReturnUnsupported { return "Not supported by the kext on this CPU (Vermeer only)" }
+        if status == kIOReturnNotReady { return "Blocked: package temperature above 75 °C" }
+        if status == kIOReturnBadArgument { return "Invalid core index" }
+        if status == kIOReturnTimeout { return "SMU timeout — try again" }
+        if status == kIOReturnBusy { return "SMU busy — try again" }
+        return ProcessorModel.privilegeHint(for: status) ?? "Failed (0x\(String(status, radix: 16)))"
+    }
+
+    // MARK: - Kext Fan Curves
+
+    private func applyFanCurve() {
+        let preset = selectedFanCurve
+        let lut = preset.makeLUT()
+        // Kext curve slots are 0..<MAX_FAN_CURVES (4) in declaration order.
+        let curveIndex = UInt32(AMDFanCurvePreset.allCases.firstIndex(of: preset) ?? 0)
+
+        let setStatus = ProcessorModel.shared.setKextFanCurve(index: curveIndex,
+                                                              sourceSensor: UInt32(fanCurveSensor.rawValue),
+                                                              hysteresis: preset.hysteresis,
+                                                              rampRate: preset.rampRate,
+                                                              lut: lut)
+        if setStatus != KERN_SUCCESS {
+            privilegeMessage = ProcessorModel.privilegeHint(for: setStatus)
+            fanCurveStatusMessage = nil
+            return
+        }
+
+        let mapStatus = ProcessorModel.shared.mapKextFanToCurve(fanIndex: selectedFanIndex,
+                                                                curveIndex: Int(curveIndex))
+        if mapStatus != KERN_SUCCESS {
+            privilegeMessage = ProcessorModel.privilegeHint(for: mapStatus)
+            fanCurveStatusMessage = nil
+        } else {
+            fanCurveStatusMessage = "\(preset.rawValue) → \(fanLabel(for: selectedFanIndex))"
+        }
+    }
+
+    private func restoreFanAuto() {
+        let status = ProcessorModel.shared.mapKextFanToCurve(fanIndex: selectedFanIndex, curveIndex: -1)
+        if status != KERN_SUCCESS {
+            privilegeMessage = ProcessorModel.privilegeHint(for: status)
+            fanCurveStatusMessage = nil
+        } else {
+            fanCurveStatusMessage = "\(fanLabel(for: selectedFanIndex)) → Auto"
+        }
+    }
+
+    private func fanLabel(for index: Int) -> String {
+        availableFans.first { $0.id == index }?.name ?? "Fan \(index + 1)"
+    }
+
+    /// Miniature LUT visualization: one bar per 4 °C bucket, height = PWM.
+    private func fanCurvePreview(lut: [UInt8]) -> some View {
+        GeometryReader { geo in
+            HStack(alignment: .bottom, spacing: 1) {
+                ForEach(0..<64, id: \.self) { i in
+                    let temp = i * 4
+                    let pwm = Double(lut[temp]) / 255.0
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(fanCurveTempColor(temp))
+                        .frame(height: max(1, geo.size.height * pwm))
+                }
+            }
+        }
+        .frame(height: 28)
+        .animation(.easeOut(duration: 0.2), value: selectedFanCurve)
+    }
+
+    private func fanCurveTempColor(_ temp: Int) -> Color {
+        switch temp {
+        case ..<45: return .cyan.opacity(0.55)
+        case ..<60: return .green.opacity(0.6)
+        case ..<75: return .orange.opacity(0.7)
+        default:    return .red.opacity(0.75)
+        }
+    }
+
     private func loadColor(for load: Float) -> Color {
         if load < Float(idleThreshold) { return .green }
         if load > Float(loadThreshold) { return .red }
@@ -686,6 +1097,25 @@ struct AmdPowerSettingsView: View {
             let profile = await ProcessorModel.shared.cpuProfile
             legacyPstateAllowed = profile.legacyPstateAllowed
             cpuProfile = profile
+
+            telemetryPacket = ProcessorModel.shared.getTelemetry()
+
+            // Fan headers for the kext curve mapper (selector 102 fan index).
+            availableFans = ProcessorModel.shared.getFans()
+
+            // Curve Optimizer gate (selectors 110/111): family/model from the
+            // kext CPUID report (selector 7) decide between grid and message.
+            let family = await ProcessorModel.shared.cpuFamily
+            let model = await ProcessorModel.shared.cpuModel
+            let physicalCores = await ProcessorModel.shared.physicalCoreCount
+            coGeneration = AMDCpuGeneration.classify(family: family, model: model)
+            coSupported = AMDCurveOptimizer.supported(family: family,
+                                                      model: model,
+                                                      legacyPstateAllowed: profile.legacyPstateAllowed)
+            coCoreCount = physicalCores > 0 ? min(physicalCores, 32) : 16
+            if coSupported {
+                reloadCurveOffsets()
+            }
             
             if legacyPstateAllowed {
                 let curState = await ProcessorModel.shared.getPState()

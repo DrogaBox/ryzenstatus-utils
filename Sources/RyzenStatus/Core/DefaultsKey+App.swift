@@ -375,6 +375,10 @@ extension DefaultsKey {
     static let amdCpbEnabled = "amdCpbEnabled"                   // Bool, last Core Performance Boost state
     static let amdPpmEnabled = "amdPpmEnabled"                   // Bool, last PPM state
     static let amdLpmEnabled = "amdLpmEnabled"                   // Bool, last LPM state
+    // Kext fan curve editor (selectors 101/102) — last applied selection.
+    static let amdFanCurvePreset = "amdFanCurvePreset"           // AMDFanCurvePreset.rawValue
+    static let amdFanCurveSensor = "amdFanCurveSensor"           // FanSensor.rawValue (Int)
+    static let amdFanCurveFanIndex = "amdFanCurveFanIndex"       // Int, fan header for selector 102
 
     // Dev-build only: force the "update available" UI for local testing.
 #if DEBUG

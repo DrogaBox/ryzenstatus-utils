@@ -144,6 +144,18 @@ actor ProcessorModel {
     var cpuFamily: Int {
         return cpuidBasic.count > 0 ? Int(cpuidBasic[0]) : 0
     }
+
+    /// CPU model from the kext's CPUID report (selector 7, dataOut[1]).
+    /// Combined with `cpuFamily` this classifies the Zen generation.
+    var cpuModel: Int {
+        return cpuidBasic.count > 1 ? Int(cpuidBasic[1]) : 0
+    }
+
+    /// Physical core count from the kext's CPUID report (selector 7,
+    /// dataOut[2]) — the bound used by the kext's Curve Optimizer (selector 111).
+    var physicalCoreCount: Int {
+        return cpuidBasic.count > 2 ? Int(cpuidBasic[2]) : 0
+    }
     
     // CPU profile: architecture name and capability flags from the kext.
     // Populated by loadCPUProfile().
@@ -1131,6 +1143,23 @@ actor ProcessorModel {
         return o.first ?? 0
     }
 
+    /// Reads the zero-copy telemetry packet (selector 100) — a packed
+    /// `CPUSensorPacket` of exactly 304 bytes. Returns nil when the kext does
+    /// not answer or the buffer comes back short.
+    nonisolated func getTelemetry() -> CPUSensorPacket? {
+        if isTerminating || Task.isCancelled { return nil }
+        var output = [UInt8](repeating: 0, count: CPUSensorPacket.byteSize)
+        var outputSize = CPUSensorPacket.byteSize
+        let status = IOConnectCallMethod(connect, 100, nil, 0, nil, 0,
+                                         nil, nil,
+                                         &output, &outputSize)
+        guard status == KERN_SUCCESS, outputSize >= CPUSensorPacket.byteSize else {
+            if status != KERN_SUCCESS { logKernelError(status) }
+            return nil
+        }
+        return CPUSensorPacket.parse(output)
+    }
+
     nonisolated func getCStateAddress() -> UInt64 {
         var scalerOut: UInt64 = 0
         var outputCount: UInt32 = 1
@@ -1294,6 +1323,39 @@ actor ProcessorModel {
         return res == KERN_SUCCESS
     }
     
+    // MARK: - Kext Fan Curves (selectors 101/102)
+
+    /// Uploads a 256-point fan curve LUT plus its parameters to the kext
+    /// (selector 101, packed `FanCurveInput`, 272 bytes). `index` must be in
+    /// `0..<MAX_FAN_CURVES` (4). Returns `kIOReturnNotPrivileged` when the
+    /// process lacks root or the `-amdpnopchk` boot-arg.
+    @discardableResult
+    nonisolated func setKextFanCurve(index: UInt32,
+                                     sourceSensor: UInt32,
+                                     hysteresis: UInt32,
+                                     rampRate: UInt32,
+                                     lut: [UInt8]) -> kern_return_t {
+        guard index < 4 else { return kIOReturnBadArgument }
+        let input = AMDFanCurveInput(curveIndex: index,
+                                     sourceSensor: sourceSensor,
+                                     hysteresis: hysteresis,
+                                     rampRate: rampRate,
+                                     lut: lut)
+        return kernelSetStruct(selector: 101, data: input.packedData())
+    }
+
+    /// Maps a physical fan header to a curve slot (selector 102).
+    /// `curveIndex == -1` unmaps the fan and restores automatic control
+    /// (the kext calls `setDefaultFanControl`). `fanIndex` must be a real
+    /// SuperIO fan header (`0..<getNumberOfFans()`); the kext rejects others
+    /// with `kIOReturnBadArgument`.
+    @discardableResult
+    nonisolated func mapKextFanToCurve(fanIndex: Int, curveIndex: Int) -> kern_return_t {
+        // Curve index -1 (Auto) must cross as UInt64 bit pattern, not trap.
+        let rawCurve = UInt64(bitPattern: Int64(curveIndex))
+        return kernelSetUInt64Status(selector: 102, args: [UInt64(fanIndex), rawCurve])
+    }
+
     @discardableResult
     nonisolated func setCurveOptimizerOffset(core: UInt8, offset: Int8) -> kern_return_t {
         // cast offset to raw bit representation for transfer over 64-bit parameter

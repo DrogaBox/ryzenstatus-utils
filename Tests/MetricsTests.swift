@@ -6179,6 +6179,118 @@ struct MetricsTests {
         expect(AMDCoreRanking.favoriteThreads(supported: true, scores: [], logicalThreadCount: 0).isEmpty,
                "empty input yields no favorites")
 
+        // MARK: CPUSensorPacket (selector 100, 304-byte packed layout)
+
+        expect(CPUSensorPacket.byteSize == 304, "packet is exactly 304 bytes")
+
+        func leBytes<T>(_ value: T) -> [UInt8] {
+            withUnsafeBytes(of: value) { Array($0) }
+        }
+        var raw = [UInt8]()
+        raw += leBytes(Float(87.5))   // packagePowerW   @0
+        raw += leBytes(Float(61.25))  // packageTempC    @4
+        raw += leBytes(UInt32(16))    // numLogicalCores @8
+        raw += leBytes(UInt32(2))     // ccdCount        @12
+        for t in [Float(60), 58, 0, 0, 0, 0, 0, 0] { raw += leBytes(t) } // ccdTemps @16
+        for _ in 0..<64 { raw += leBytes(Float(3700)) } // freqs @48..304
+        expect(raw.count == 304, "synthetic packet is 304 bytes")
+
+        let parsedPacket = CPUSensorPacket.parse(raw)
+        expect(parsedPacket != nil, "valid 304-byte packet parses")
+        if let p = parsedPacket {
+            expectClose(Double(p.packagePowerW), 87.5, "packet package power")
+            expectClose(Double(p.packageTempC), 61.25, "packet package temp")
+            expect(p.numLogicalCores == 16, "packet logical cores")
+            expect(p.ccdCount == 2, "packet CCD count")
+            expectClose(Double(p.ccdTemperatures[0]), 60, "packet CCD0 temp")
+            expectClose(Double(p.ccdTemperatures[1]), 58, "packet CCD1 temp")
+            expectClose(Double(p.ccdTemperatures[7]), 0, "unused CCD slot stays zero")
+            expect(p.activeFrequenciesMHz.count == 64, "packet frequency count")
+            expectClose(Double(p.coreFrequenciesMHz[63]), 3700, "packet last core freq")
+        }
+        expect(CPUSensorPacket.parse(Array(raw.prefix(303))) == nil,
+               "short packet is rejected")
+
+        // MARK: AMD Fan Curve Presets + packed input (selectors 101/102)
+
+        let silentLUT = AMDFanCurvePreset.silent.makeLUT()
+        expect(silentLUT.count == 256, "silent LUT has exactly 256 entries")
+        expect(silentLUT[0] == 0 && silentLUT[40] == 0, "silent idles at 0 PWM up to 40°C")
+        expect(silentLUT[50] == 40, "silent ramps 0→80 across 40–60°C (midpoint 40)")
+        expect(silentLUT[60] == 80, "silent reaches 80 PWM at 60°C")
+        expect(silentLUT[70] == 115, "silent ramps 80→150 across 60–80°C (midpoint 115)")
+        expect(silentLUT[80] == 150, "silent reaches 150 PWM at 80°C")
+        expect(silentLUT[100] == 255, "silent saturates at 255 PWM from 100°C")
+        expect(silentLUT[255] == 255, "silent stays maxed above 100°C")
+
+        let monotonic = AMDFanCurvePreset.allCases.allSatisfy { preset in
+            let lut = preset.makeLUT()
+            return (0..<255).allSatisfy { lut[$0] <= lut[$0 + 1] }
+        }
+        expect(monotonic, "every preset LUT is monotonically non-decreasing")
+        expect(AMDFanCurvePreset.interpolate(anchors: []).allSatisfy { $0 == 0 },
+               "empty anchor list yields an all-zero LUT")
+        expect(AMDFanCurvePreset.interpolate(anchors: [(100, 200)]).allSatisfy { $0 == 200 },
+               "single anchor clamps the whole LUT")
+
+        let curveInput = AMDFanCurveInput(curveIndex: 2, sourceSensor: 1,
+                                          hysteresis: 2, rampRate: 5,
+                                          lut: silentLUT)
+        let packed = curveInput.packedData()
+        expect(packed.count == 272, "FanCurveInput packs to exactly 272 bytes")
+        expect(packed[0] == 2, "curveIndex low byte at offset 0")
+        expect(packed[4] == 1, "sourceSensor low byte at offset 4")
+        expect(packed[8] == 2, "hysteresis low byte at offset 8")
+        expect(packed[12] == 5, "rampRate low byte at offset 12")
+        expect(packed[16] == silentLUT[0], "LUT starts at offset 16")
+        expect(packed[271] == silentLUT[255], "LUT ends at offset 271")
+
+        // MARK: CPU Generation + Curve Optimizer gate (selectors 110/111)
+
+        // Classification ranges (family 0x19: Zen 3 < 0x60, Zen 4 0x60–0x7F,
+        // Zen 5 ≥ 0x90; family 0x1A = Zen 5 mobile).
+        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x21) == .zen3, "Vermeer is Zen 3")
+        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x50) == .zen3, "Cezanne is Zen 3")
+        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x61) == .zen4, "Raphael is Zen 4")
+        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x74) == .zen4, "Phoenix is Zen 4")
+        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x7F) == .zen4, "upper Zen 4 model bound")
+        expect(AMDCpuGeneration.classify(family: 0x19, model: 0xA0) == .zen5, "Granite Ridge is Zen 5")
+        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x90) == .zen5, "lower Zen 5 model bound")
+        expect(AMDCpuGeneration.classify(family: 0x1A, model: 0x24) == .zen5, "Strix Point family 0x1A is Zen 5")
+        // The 0x80–0x8F band on family 0x19 is unpopulated silicon; it classifies
+        // as Zen 3 today. Harmless: the CO grid is still gated on Vermeer below.
+        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x85) == .zen3, "unpopulated 0x80–0x8F band classifies as zen3")
+        expect(AMDCpuGeneration.classify(family: 0x17, model: 0x71) == .zen2AndOlder, "Matisse is Zen 2")
+        expect(AMDCpuGeneration.classify(family: 0x0F, model: 0x08) == .zen2AndOlder, "family below 0x19 is older")
+        expect(AMDCpuGeneration.classify(family: 0, model: 0) == .zen2AndOlder,
+               "zero family classifies as older")
+        expect(AMDCpuGeneration.zen4.isZen4OrNewer && AMDCpuGeneration.zen5.isZen4OrNewer,
+               "Zen 4/5 trigger the not-supported message")
+        expect(!AMDCpuGeneration.zen3.isZen4OrNewer && !AMDCpuGeneration.zen2AndOlder.isZen4OrNewer,
+               "Zen 3 and older keep the grid")
+
+        // The kext only accepts Curve Optimizer writes on Vermeer with legacy
+        // P-states enabled (baseline/telemetry-only profiles are blocked).
+        expect(AMDCurveOptimizer.supported(family: 0x19, model: 0x21, legacyPstateAllowed: true),
+               "Vermeer with legacy P-states accepts CO writes")
+        expect(!AMDCurveOptimizer.supported(family: 0x19, model: 0x21, legacyPstateAllowed: false),
+               "baseline profile blocks CO writes even on Vermeer")
+        expect(!AMDCurveOptimizer.supported(family: 0x19, model: 0x61, legacyPstateAllowed: true),
+               "Raphael (Zen 4) never accepts CO writes")
+        expect(!AMDCurveOptimizer.supported(family: 0x19, model: 0x50, legacyPstateAllowed: true),
+               "Cezanne (non-Vermeer Zen 3) is not a supported CO target")
+        expect(!AMDCurveOptimizer.supported(family: 0x17, model: 0x71, legacyPstateAllowed: true),
+               "Matisse (Zen 2) is not a supported CO target")
+        expect(!AMDCurveOptimizer.supported(family: 0x19, model: 0xA0, legacyPstateAllowed: true),
+               "Granite Ridge (Zen 5) never accepts CO writes")
+
+        expect(AMDCurveOptimizer.clamp(-100) == -30, "clamp floor is -30")
+        expect(AMDCurveOptimizer.clamp(100) == 30, "clamp ceiling is +30")
+        expect(AMDCurveOptimizer.clamp(12) == 12, "in-range offset passes through")
+        expect(AMDCurveOptimizer.validOffsets([1, 2, 3], coreCount: 3), "full-length offsets are valid")
+        expect(!AMDCurveOptimizer.validOffsets([1, 2], coreCount: 3), "short offsets are invalid")
+        expect(!AMDCurveOptimizer.validOffsets([], coreCount: 4), "empty offsets are invalid")
+
         // MARK: Result
 
         if failures.isEmpty {

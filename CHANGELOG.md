@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.9.0] — 2026-08-07
+
+### AMD Power — Full Kext Selector Integration
+- **Power Presets (Eco / Balance / Performance / Extreme)**: One-tap profiles that configure EPP, Core Performance Boost and PPM/LPM together — Eco (EPP 255 + C6 + LPM), Balance (EPP 128), Performance (EPP 32) and Extreme (EPP 0). PPM and LPM stay mutually exclusive and the selection persists across launches.
+- **CPB / PPM / LPM Toggles**: Core Performance Boost (selector 12), Processor Power Manager (14) and Low Power Mode (19) now persist their last state and report privilege errors clearly.
+- **CCD Temperatures**: Per-CCD thermal readout (selector 20) shown as dashboard cards and inside the telemetry packet.
+- **C6 Residency Meter**: Live percentage of time the package spends in C6 (selector 31) rendered as a progress bar in the dashboard and AMD Power Settings.
+- **CPU Profile Readout**: The kext's architecture codename (selector 26) — e.g. "Zen 3 Vermeer" — appears in the dashboard header, with PM Dispatch / Legacy P-States / CPPC capability badges in Settings.
+- **CPPC Info & Core Ranking**: Shows the active CPPC mode and current EPP value (selector 23), and marks the highest-HighestPerf threads with a star (selector 21).
+- **AMD GPU Monitoring**: Dedicated AMD GPU temperature and power (selectors 27–30) appear in the dashboard and Settings, using the capabilities bitmap for power reporting — hidden when only an iGPU or NVIDIA GPU is present.
+- **Telemetry Streaming**: Zero-copy 304-byte `CPUSensorPacket` (selector 100) with package power/temp, per-CCD temperatures and per-thread frequencies, read out in Settings.
+- **Kext Fan Curves**: Four predefined 256-point LUTs (Silent / Balanced / Performance / Aggressive) uploaded to the kext (selector 101) and mapped to a fan header (selector 102), with a live curve preview and one-click Auto restore.
+- **Curve Optimizer**: Per-core offset grid −30..+30 (selectors 110/111) with Apply All and Reset to 0, gated to Zen 3 Vermeer — Zen 4/5 shows an explanatory "use PBO in BIOS" message and the kext blocks writes above 75 °C.
+
 ## [1.8.8] — 2026-08-07
 
 ### Features & Fixes
