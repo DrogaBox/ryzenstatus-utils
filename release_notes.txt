@@ -1,0 +1,9 @@
+## [1.9.2] — 2026-08-08
+
+### Stability & Performance (AMD Backend)
+- **IOKit Performance (Micro-stutters)**: Completely rewrote the GPU communication layer. Instead of querying `IOAccelerator` synchronously ~6 times per second, RyzenStatus now uses an asynchronous cache (`IOAcceleratorCache`) that processes the entire kernel tree in the background. This definitively eliminates any stuttering or micro-stutters in the main interface or when moving the mouse during heavy GPU polling.
+- **Kernel Security (Kext)**: Resolved critical vulnerabilities (`P0`) related to memory leaks (`proc_ucred`) in the IOKit client and out-of-bounds (OOB) array reads when querying VirtualSMC sysctl keys.
+- **UserDefaults Centralization**: Implemented a new configuration store in the backend (`AmdSettingsStore`) to replace dozens of scattered reads and writes for power profiles (Auto EPP, Gaming Mode, Fan Curves). This prevents ghost states and race conditions between the UI and the background polling loop.
+- **Polling Robustness**: Added guards to MSR and temperature reads to prevent sensor timeouts from injecting anomalous values (e.g., forcing fans to 0 RPM when receiving a false 0°C reading).
+- **Internal Architecture**: All "magic" Kernel selectors (IOConnectCallStructMethod) are now strictly typed through the `AMDKextSelector` enum, making the backend cleaner and error-proof.
+

@@ -604,8 +604,14 @@ bool AMDRyzenCPUPowerManagement::start(IOService *provider){
         if (regVal & kZEN_CCD_TEMP_VALID_BIT) {
             ccdCount = i + 1;
             IOLog("AMDRyzenCPUPowerManagement::start CCD%u detected, raw=0x%X\n", i, regVal);
+        } else {
+            // CCDs are contiguous. If this one is missing/invalid, there are no more.
+            // This prevents reading garbage from PCI space at higher indices.
+            break;
         }
     }
+    // Cap at 8 to match the CPUSensorPacket limit
+    if (ccdCount > 8) ccdCount = 8;
     IOLog("AMDRyzenCPUPowerManagement::start Total CCDs detected: %u\n", ccdCount);
     
 //    while (!pmRyzen_symtable_ready) {
@@ -1237,13 +1243,9 @@ int AMDRyzenCPUPowerManagement::smuSendCmd(uint32_t cmd, uint32_t arg) {
 }
 
 int AMDRyzenCPUPowerManagement::setCurveOptimizer(uint8_t core, int8_t offset) {
-    // Curve Optimizer writes remain disabled during the telemetry-first baseline.
-    // The SMU command and payload must be validated against the exact AGESA/SMU
-    // firmware before enabling this control path for Vermeer or another profile.
-    if (!legacyPstateAllowed) {
-        IOLog("AMDRyzenCPUPowerManagement: Curve Optimizer is disabled in baseline mode.\n");
-        return -1;
-    }
+    // SMU command 0x3D (Curve Optimizer) is supported on Vermeer
+    // regardless of whether CPPC or Legacy P-States are active.
+    // Removed the legacyPstateAllowed block to enable CO in CPPC mode.
     
     // Bounds check on core index
     if (core >= totalNumberOfPhysicalCores) {

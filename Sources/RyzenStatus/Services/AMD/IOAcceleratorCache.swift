@@ -146,9 +146,14 @@ actor IOAcceleratorCache {
         let keys = ["Device Utilization %", "GPU Activity(%)", "GPU Core Utilization",
                     "GPU Busy", "Hardware Activity"]
         for key in keys {
-            if let v = (s[key] as? NSNumber)?.doubleValue { return v }
-            if let v = s[key] as? Double { return v }
-            if let v = s[key] as? Int    { return Double(v) }
+            var val: Double? = nil
+            if let v = (s[key] as? NSNumber)?.doubleValue { val = v }
+            else if let v = s[key] as? Double { val = v }
+            else if let v = s[key] as? Int { val = Double(v) }
+            
+            if let v = val {
+                return v > 1.0 ? v / 100.0 : v
+            }
         }
         return nil
     }

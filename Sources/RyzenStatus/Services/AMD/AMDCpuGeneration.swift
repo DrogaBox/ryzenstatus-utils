@@ -39,8 +39,8 @@ enum AMDCurveOptimizer {
     /// (family 0x19, model 0x21–0x2F) and only when `legacyPstateAllowed`
     /// — the baseline/telemetry-only profile disables the SMU control path
     /// and returns `kIOReturnUnsupported` for every write.
-    static func supported(family: Int, model: Int, legacyPstateAllowed: Bool) -> Bool {
-        legacyPstateAllowed && family == 0x19 && (0x21...0x2F).contains(model)
+    static func supported(family: Int, model: Int) -> Bool {
+        family == 0x19 && (0x21...0x2F).contains(model)
     }
 
     /// Safe offset range enforced by the kext ([-30, +30]).

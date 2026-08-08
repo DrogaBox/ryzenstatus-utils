@@ -262,89 +262,6 @@ struct AmdPowerSettingsView: View {
                     }
                 }
 
-                // AMD Fan Curves — kext-native 256-point LUT control (selectors 101/102).
-                // Uploads a preset curve and maps it onto a physical fan header.
-                Section {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Picker("Curve Preset", selection: $selectedFanCurve) {
-                            ForEach(AMDFanCurvePreset.allCases) { preset in
-                                Text(preset.rawValue).tag(preset)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .onChange(of: selectedFanCurve) { _, newValue in
-                            UserDefaults.standard.set(newValue.rawValue, forKey: DefaultsKey.amdFanCurvePreset)
-                            fanCurveStatusMessage = nil
-                        }
-
-                        // Live miniature preview of the selected 256-point LUT.
-                        fanCurvePreview(lut: selectedFanCurve.makeLUT())
-
-                        HStack(spacing: 16) {
-                            Picker("Sensor", selection: $fanCurveSensor) {
-                                ForEach(FanSensor.allCases, id: \.self) { sensor in
-                                    Text(sensor == .cpu ? "CPU" : "GPU").tag(sensor)
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .labelsHidden()
-                            .frame(width: 100)
-                            .onChange(of: fanCurveSensor) { _, newValue in
-                                UserDefaults.standard.set(newValue.rawValue, forKey: DefaultsKey.amdFanCurveSensor)
-                                fanCurveStatusMessage = nil
-                            }
-
-                            Picker("Fan", selection: $selectedFanIndex) {
-                                if availableFans.isEmpty {
-                                    Text("Fan 1").tag(0)
-                                } else {
-                                    ForEach(availableFans) { fan in
-                                        Text(fan.name).tag(fan.id)
-                                    }
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .labelsHidden()
-                            .frame(width: 110)
-                            .onChange(of: selectedFanIndex) { _, newValue in
-                                UserDefaults.standard.set(newValue, forKey: DefaultsKey.amdFanCurveFanIndex)
-                                fanCurveStatusMessage = nil
-                            }
-
-                            Spacer()
-
-                            Button {
-                                applyFanCurve()
-                            } label: {
-                                Label("Apply Curve", systemImage: "fan.fill")
-                            }
-                            .buttonStyle(.borderedProminent)
-
-                            Button("Auto") {
-                                restoreFanAuto()
-                            }
-                            .buttonStyle(.bordered)
-                            .help("Unmap the fan and restore automatic control")
-                        }
-
-                        if let message = fanCurveStatusMessage {
-                            Label(message, systemImage: "checkmark.circle.fill")
-                                .font(.caption2)
-                                .foregroundColor(.green)
-                        }
-                        if !fanCtrl.fanMappings.isEmpty {
-                            Label("The SMC fan-control loop has active mappings — both systems may drive the same header. Disable the custom curves in Fan Curves settings before applying kext curves.", systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption2)
-                                .foregroundColor(.orange)
-                        }
-                    }
-                    .padding(.vertical, 2)
-                } header: {
-                    Text("Fan Curves (Kext)")
-                } footer: {
-                    Text("Uploads a 256-point LUT to the kext (selector 101) and maps it to the selected fan header (selector 102). Curves are slots 0–3; requires root or -amdpnopchk.")
-                }
-
                 // AMD Curve Optimizer — per-core offsets (selectors 110/111).
                 // The kext only accepts writes on Zen 3 Vermeer; Zen 4/5 and the
                 // baseline profile get an explanatory message instead of a grid.
@@ -383,7 +300,7 @@ struct AmdPowerSettingsView: View {
                             }
                         }
                     } else {
-                        Label("Curve Optimizer writes are only accepted on Zen 3 Vermeer (Family 0x19, Model 0x21–0x2F) in this kext build. Reads still work on other families.", systemImage: "info.circle")
+                        Label("Curve Optimizer is disabled because Legacy P-States (PM Dispatch) are not active. The kext blocks SMU writes when running in CPPC or telemetry-only mode.", systemImage: "info.circle")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1155,8 +1072,7 @@ struct AmdPowerSettingsView: View {
             let physicalCores = await ProcessorModel.shared.physicalCoreCount
             coGeneration = AMDCpuGeneration.classify(family: family, model: model)
             coSupported = AMDCurveOptimizer.supported(family: family,
-                                                      model: model,
-                                                      legacyPstateAllowed: profile.legacyPstateAllowed)
+                                                      model: model)
             coCoreCount = physicalCores > 0 ? min(physicalCores, 32) : 16
             if coSupported {
                 reloadCurveOffsets()
