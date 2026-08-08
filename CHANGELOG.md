@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.9.5] — 2026-08-08
+
+### Sequoia (macOS 15) Compatibility
+- **Runs on Sequoia**: The macOS‑26‑only SwiftUI pieces — the Liquid Glass mixer styling (`GlassEffectContainer`, `glassEffect`) and the Settings sidebar scroll edge effect (`scrollEdgeEffectStyle`) — are now compiled behind `#if compiler(>=6.2)` guards. Built with Xcode 16 / SDK 15 they fall back to the native pre‑26 UI, so the app builds and runs on macOS 15 Sequoia (and macOS 14) exactly as before. Runtime behavior on macOS 26 is unchanged — the glass mixer slider and styled sidebar still appear there.
+- **CI‑proven**: A new `sdk15` CI job builds the full app against the macOS 15 SDK (Xcode 16.4) on every push, so the Sequoia fallback branch can never silently regress again.
+
 ## [1.9.4] — 2026-08-08
 
 ### Fans & Cooling — Usability & Safety
