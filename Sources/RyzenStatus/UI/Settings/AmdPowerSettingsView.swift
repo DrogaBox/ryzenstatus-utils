@@ -41,11 +41,7 @@ struct AmdPowerSettingsView: View {
     @ObservedObject private var c6Service = C6ResidencyService.shared
     
     @State private var showCopiedToast: Bool = false
-    @State private var selectedPreset: AMDPowerPreset? = {
-        guard let raw = UserDefaults.standard.object(forKey: DefaultsKey.amdPowerPreset) as? String,
-              let preset = AMDPowerPreset(rawValue: raw) else { return nil }
-        return preset
-    }()
+    @State private var selectedPreset: AMDPowerPreset? = AMDPowerPreset.saved()
     @State private var privilegeMessage: String?
     @ObservedObject private var autoEpp = AutoEppService.shared
     @ObservedObject private var monitor = SystemMonitor.shared
@@ -803,6 +799,12 @@ struct AmdPowerSettingsView: View {
         }
         .onDisappear {
             SystemMonitor.shared.setMenuPanelNeeds(.none)
+        }
+        // Gaming Mode applies the Extreme preset and restores the previous one
+        // on deactivation; re-read the applied preset so the cards highlight
+        // what the kext is really running instead of a stale @State value.
+        .onChange(of: gaming.isActive) { _, _ in
+            selectedPreset = AMDPowerPreset.saved() ?? selectedPreset
         }
         .alert(
             L10n.shared.amdPower.title,

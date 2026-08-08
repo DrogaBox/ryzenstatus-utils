@@ -16,13 +16,10 @@ struct AmdControlSection: View {
     @State private var selectedPState: Int = 0
     @State private var validPStateLabels: [String] = []
     @ObservedObject private var autoEpp = AutoEppService.shared
+    @ObservedObject private var gaming = GamingModeService.shared
     @State private var loadTimer: Timer?
     @State private var showThresholds: Bool = false
-    @State private var selectedPreset: AMDPowerPreset? = {
-        guard let raw = UserDefaults.standard.object(forKey: DefaultsKey.amdPowerPreset) as? String,
-              let preset = AMDPowerPreset(rawValue: raw) else { return nil }
-        return preset
-    }()
+    @State private var selectedPreset: AMDPowerPreset? = AMDPowerPreset.saved()
     @State private var panelWarning: String = ""
     
     // Fan state
@@ -338,6 +335,13 @@ struct AmdControlSection: View {
             .onDisappear {
                 loadTimer?.invalidate()
                 loadTimer = nil
+            }
+            // Gaming Mode applies the Extreme preset and restores the previous
+            // one on deactivation; re-read the applied preset so the buttons
+            // highlight what the kext is really running (the panel can stay
+            // open beside Settings while the mode toggles).
+            .onChange(of: gaming.isActive) { _, _ in
+                selectedPreset = AMDPowerPreset.saved() ?? selectedPreset
             }
         }
     }

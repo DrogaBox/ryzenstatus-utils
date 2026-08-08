@@ -79,4 +79,14 @@ enum AMDPowerPreset: String, CaseIterable, Identifiable {
         case .extreme: return "flame.fill"
         }
     }
+
+    /// The preset last applied by the user or by Gaming Mode, from
+    /// `DefaultsKey.amdPowerPreset`, or nil when none has been applied yet.
+    /// Views that highlight the selected card re-read this whenever Gaming
+    /// Mode toggles, so the highlight tracks what is actually applied.
+    static func saved() -> AMDPowerPreset? {
+        guard let raw = UserDefaults.standard.object(forKey: DefaultsKey.amdPowerPreset) as? String,
+              let preset = AMDPowerPreset(rawValue: raw) else { return nil }
+        return preset
+    }
 }
