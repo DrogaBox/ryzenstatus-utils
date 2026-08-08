@@ -57,6 +57,7 @@ struct SystemSnapshot {
 
     // History (oldest → newest) for the graphs
     var cpuHistory: [Double] = []          // 0...1
+    var ipsHistory: [Double] = []          // 0...500 GIPS
     var gpuHistory: [Double] = []          // 0...1
     var memoryHistory: [Double] = []       // 0...1
     var netDownHistory: [Double] = []      // bytes/sec
@@ -210,6 +211,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     private var cpuPowerHistory: MetricHistory
     private var gpuPowerHistory: MetricHistory
     private var cpuFreqHistory: MetricHistory
+    private var ipsHistory: MetricHistory
     private var lastPeakCPUFreq: Double = 0
     private var powerSourceRunLoopSource: CFRunLoopSource?
 
@@ -229,6 +231,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         cpuPowerHistory = MetricHistory(capacity: historyCapacity)
         gpuPowerHistory = MetricHistory(capacity: historyCapacity)
         cpuFreqHistory = MetricHistory(capacity: historyCapacity)
+        ipsHistory = MetricHistory(capacity: historyCapacity)
         installPowerSourceObserver()
     }
 
@@ -642,6 +645,13 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     self.lastCPUUsage = cpu
                     self.missedCPUUsageSamples = 0
                     self.cpuHistory.push(cpu)
+                    
+                    let freqs = self.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
+                    let rawAvg = freqs.isEmpty ? 0 : freqs.reduce(0, +) / Double(freqs.count)
+                    let freq = rawAvg / 1000.0
+                    let logicalCores = ProcessInfo.processInfo.activeProcessorCount
+                    let ips = cpu * Double(logicalCores) * freq
+                    self.ipsHistory.push(ips)
                 } else if !self.cores.isEmpty {
                     let physicalCores = self.cores.filter { !$0.isLogical }
                     let avgPct = physicalCores.reduce(0.0) { $0 + Double($1.loadPct) } / Double(max(1, physicalCores.count))
@@ -649,6 +659,13 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     self.lastCPUUsage = cpuLoad
                     self.missedCPUUsageSamples = 0
                     self.cpuHistory.push(cpuLoad)
+                    
+                    let freqs = self.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
+                    let rawAvg = freqs.isEmpty ? 0 : freqs.reduce(0, +) / Double(freqs.count)
+                    let freq = rawAvg / 1000.0
+                    let logicalCores = ProcessInfo.processInfo.activeProcessorCount
+                    let ips = cpuLoad * Double(logicalCores) * freq
+                    self.ipsHistory.push(ips)
                 } else if self.missedCPUUsageSamples < 3 {
                     self.missedCPUUsageSamples += 1
                 } else {
@@ -875,6 +892,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             }
             next.numPhysicalCores = self.lastAmdSnapshot?.numPhysicalCores ?? max(1, ProcessInfo.processInfo.processorCount / 2)
             next.cpuHistory = plan.needCPU ? self.cpuHistory.values : []
+            next.ipsHistory = plan.needCPU ? self.ipsHistory.values : []
             next.gpuHistory = plan.needGPUUsage ? self.gpuHistory.values : []
             next.memoryHistory = plan.needMemory ? self.memoryHistory.values : []
             next.netDownHistory = plan.needNetwork ? self.netDownHistory.values : []

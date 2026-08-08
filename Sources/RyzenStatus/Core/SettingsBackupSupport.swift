@@ -69,15 +69,16 @@ enum SettingsBackupSupport {
     /// anything an update flow owns. Clipboard entries and shelf items stay
     /// out by construction (they are not preference keys), listed here only
     /// when they would otherwise slip in through the registered set.
-    static let machineStateKeys: Set<String> = [
-        DefaultsKey.micMuteActive,
+    static let machineStateKeys: Set<String> = {
+        var keys: Set<String> = [
+            DefaultsKey.micMuteActive,
         DefaultsKey.micMuteSavedVolume,
         // Levels and device ids belong to the microphones of one Mac.
         DefaultsKey.micMuteSavedVolumes,
         DefaultsKey.micMuteMutedDevices,
         DefaultsKey.cleanerLastAutoRun,
         DefaultsKey.cleanerLastAutoFreed,
-        DefaultsKey.simulateUpdate,
+
         // When the last check ran and what it found belong to one Mac.
         DefaultsKey.appUpdatesLastCheck,
         DefaultsKey.appUpdatesLastCount,
@@ -85,7 +86,12 @@ enum SettingsBackupSupport {
         DefaultsKey.updateShowcaseMediaOverride,
         DefaultsKey.settingsWindowWidth,
         DefaultsKey.settingsWindowHeight,
-    ]
+        ]
+#if DEBUG
+        keys.insert(DefaultsKey.simulateUpdate)
+#endif
+        return keys
+    }()
 
     /// The file's content: an envelope with the format version, the app
     /// version that wrote it, and the filtered settings.

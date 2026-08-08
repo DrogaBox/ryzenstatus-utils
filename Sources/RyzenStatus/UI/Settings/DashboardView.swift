@@ -17,6 +17,7 @@ enum DashboardModule: String, Codable, CaseIterable, Identifiable {
 
 struct DashboardView: View {
     @ObservedObject private var monitor = SystemMonitor.shared
+    @State private var cpuProfile = ProcessorModel.CPUProfile()
     @AppStorage("dashboardPresetStyle") private var selectedPreset: DashboardPreset = .amdGadget
     
     // Default order
@@ -56,9 +57,17 @@ struct DashboardView: View {
 
             // Header with Title, Style Selector & Edit button
             HStack(alignment: .center, spacing: 12) {
-                Text("Dashboard")
-                    .font(.headline)
-                    .foregroundColor(.white)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Dashboard")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                    // Architecture codename from the kext (selector 26), e.g. "Zen 3 Vermeer".
+                    if !cpuProfile.archName.isEmpty {
+                        Text(cpuProfile.archName)
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.cyan.opacity(0.9))
+                    }
+                }
                 
                 Spacer()
                 
@@ -118,6 +127,9 @@ struct DashboardView: View {
         .onAppear {
             SystemMonitor.shared.setMenuPanelNeeds(SystemMonitorPanelNeeds(power: true, cpu: true, gpu: true, memory: true, cpuTemperature: true, gpuTemperature: true))
         }
+        .task {
+            cpuProfile = await ProcessorModel.shared.cpuProfile
+        }
         .onDisappear {
             SystemMonitor.shared.setMenuPanelNeeds(.none)
         }
@@ -131,7 +143,7 @@ struct DashboardView: View {
         case .mainCharts:
             MainChartsView(monitor: monitor)
         case .coreGrid:
-            CoreGridDashboardWrapper(monitor: monitor)
+            ThreadGridView()
         }
     }
 }
@@ -140,10 +152,7 @@ struct DashboardView: View {
 
 struct TopCardsView: View {
     @ObservedObject var monitor: SystemMonitor
-    @State private var c6Pct: Double = 0
-    @State private var lastC6Raw: UInt64 = 0
-    @State private var lastC6Time: Date = .distantPast
-    private let c6Timer = Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()
+    @ObservedObject private var c6 = C6ResidencyService.shared
     
     /// Preferred GPU temperature: kext > IOAccelerator > SMC
     private var preferredGPUTemp: Double? {
@@ -159,6 +168,20 @@ struct TopCardsView: View {
             return kextGpu.power
         }
         return monitor.snapshot.gpuPower
+    }
+
+    /// Thermal color for a CCD card: green < 70 °C, orange < 85 °C, red above.
+    private func ccdTempColor(for temp: Float) -> Color {
+        if temp > 85 { return .red }
+        if temp > 70 { return .orange }
+        return .green
+    }
+
+    /// Color for the C6 residency bar: green when C6 is meaningfully engaged.
+    private var c6Color: Color {
+        if c6.percentage > 10 { return .green }
+        if c6.percentage > 0 { return .orange }
+        return .secondary
     }
     
     var body: some View {
@@ -183,43 +206,65 @@ struct TopCardsView: View {
                 GadgetCard(title: "RAM Usage", value: ramStr, icon: "memorychip", history: monitor.snapshot.memoryHistory, color: .purple)
                 GadgetCard(title: "GPU Usage", value: gpuStr, icon: "display", history: monitor.snapshot.gpuHistory.isEmpty ? monitor.snapshot.gpuTempHistory : monitor.snapshot.gpuHistory, color: .orange)
                 GadgetCard(title: "GPU Power", value: gpuPwrStr, icon: "bolt.fill", history: monitor.snapshot.gpuPowerHistory, color: .green)
-                
-                if c6Pct > 0 {
-                    GadgetCard(title: "C6", value: String(format: "%.1f%%", c6Pct), icon: "moon.zzz.fill", history: [], color: .purple)
-                }
             }
             
-            // Multi-GPU row (if more than 1 GPU detected by kext)
-            if monitor.snapshot.gpuDevices.count > 1 {
+            // AMD GPU devices from the kext (selectors 27-30). Only populated when
+            // the kext finds a dedicated AMD GPU — iGPU-only or NVIDIA leaves the
+            // array empty and this row hidden.
+            if !monitor.snapshot.gpuDevices.isEmpty {
                 HStack(spacing: 12) {
                     ForEach(monitor.snapshot.gpuDevices) { gpu in
-                        if gpu.id > 0 {
-                            let gpuTempStr = gpu.temperature > 0 ? String(format: "%.1f°C", gpu.temperature) : "---"
-                            let gpuPwrStr2 = gpu.power > 0 ? String(format: "%.1f W", gpu.power) : "--- W"
-                            
-                            GadgetCard(title: "GPU \(gpu.id) Temp", value: gpuTempStr, icon: "display", history: monitor.snapshot.gpuTempHistory, color: .orange.opacity(0.7))
-                            GadgetCard(title: "GPU \(gpu.id) Power", value: gpuPwrStr2, icon: "bolt.fill", history: monitor.snapshot.gpuPowerHistory, color: .green.opacity(0.7))
+                        let label = monitor.snapshot.gpuDevices.count > 1 ? "AMD GPU \(gpu.id)" : "AMD GPU"
+                        let gpuTempStr = gpu.temperature > 0 ? String(format: "%.1f°C", gpu.temperature) : "---"
+                        let gpuPwrStr = gpu.supportsPower && gpu.power > 0 ? String(format: "%.1f W", gpu.power) : "--- W"
+                        
+                        GadgetCard(title: "\(label) Temp", value: gpuTempStr, icon: "display", history: monitor.snapshot.gpuTempHistory, color: .orange.opacity(0.7))
+                        GadgetCard(title: "\(label) Power", value: gpuPwrStr, icon: "bolt.fill", history: monitor.snapshot.gpuPowerHistory, color: .green.opacity(0.7))
+                    }
+                }
+            }
+
+            // CCD temperature row — one card per Core Complex Die (kext selector 20).
+            if !monitor.snapshot.ccdTemperatures.isEmpty {
+                HStack(spacing: 12) {
+                    ForEach(Array(monitor.snapshot.ccdTemperatures.enumerated()), id: \.offset) { index, temp in
+                        if temp > 0 {
+                            GadgetCard(title: "CCD\(index)",
+                                       value: String(format: "%.0f°C", temp),
+                                       icon: "cpu",
+                                       history: [],
+                                       color: ccdTempColor(for: temp))
                         }
                     }
                 }
             }
+
+            // C6 residency — % of time in the deepest C-state (kext selector 31).
+            if c6.percentage > 0 {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Image(systemName: "moon.zzz.fill")
+                            .foregroundColor(.purple)
+                            .font(.system(size: 11))
+                        Text("C6 RESIDENCY")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text(String(format: "%.1f%%", c6.percentage))
+                            .font(.system(size: 13, weight: .bold, design: .monospaced))
+                            .foregroundColor(c6Color)
+                    }
+                    ProgressView(value: c6.percentage, total: 100)
+                        .progressViewStyle(.linear)
+                        .tint(c6Color)
+                }
+                .padding(10)
+                .background(Color(red: 0.15, green: 0.15, blue: 0.18))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.1), lineWidth: 1))
+            }
         }
         .padding(.horizontal)
-        .onReceive(c6Timer) { _ in
-            let raw = ProcessorModel.shared.getPackageC6Residency()
-            if raw > 0 && lastC6Raw > 0 {
-                let now = Date()
-                let delta = Double(raw &- lastC6Raw)
-                let elapsed = now.timeIntervalSince(lastC6Time) * 1_000_000
-                if elapsed > 0 {
-                    c6Pct = min((delta / elapsed) * 100.0, 100.0)
-                }
-            }
-            if raw > 0 {
-                lastC6Raw = raw
-                lastC6Time = Date()
-            }
-        }
     }
 }
 
@@ -228,8 +273,16 @@ struct MainChartsView: View {
     
     var body: some View {
         VStack(spacing: 16) {
-            // Real Frequency Chart
-            ChartBox(title: "FREQUENCY", unit: "GHz", data: monitor.snapshot.cpuFreqHistory, color: .purple)
+            // Real Frequency + IPS Combined Chart
+            VStack(alignment: .leading, spacing: 4) {
+                Text("FREQUENCY & IPS")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.secondary)
+                CombinedFreqIPSGraph(
+                    freqHistory: monitor.snapshot.cpuFreqHistory,
+                    ipsHistory: monitor.snapshot.ipsHistory
+                )
+            }
             // CPU Temperature Chart
             ChartBox(title: "CPU TEMP", unit: "°C", data: monitor.snapshot.cpuTempHistory, color: .red)
             // CPU Power Chart

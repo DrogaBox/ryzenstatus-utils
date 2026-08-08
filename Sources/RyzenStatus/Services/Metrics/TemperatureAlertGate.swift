@@ -8,11 +8,14 @@ import Foundation
 struct TemperatureAlertGate {
     /// How long the temperature must stay at or above the threshold before an alert fires.
     private let window: TimeInterval
+    private let hysteresis: Double
     private var hotSince: Date?
     private var lastReadingAt: TimeInterval?
+    private var armed: Bool = true
 
-    init(window: TimeInterval = 10) {
+    init(window: TimeInterval = 10, hysteresis: Double = 5) {
         self.window = window
+        self.hysteresis = hysteresis
     }
 
     /// Evaluates a new temperature reading against the alert threshold.
@@ -20,18 +23,40 @@ struct TemperatureAlertGate {
                               threshold: Double,
                               readAt: TimeInterval?,
                               now: Date = Date()) -> Bool {
-        guard let temperature, temperature >= threshold, let readAt else {
-            hotSince = nil
-            lastReadingAt = nil
+        guard let temperature, let readAt else {
+            reset()
             return false
         }
-        if lastReadingAt == readAt {
-            guard let hotSince else { return false }
-            return now.timeIntervalSince(hotSince) >= window
+        
+        if temperature < threshold {
+            hotSince = nil
+            lastReadingAt = nil
+            if temperature <= threshold - hysteresis {
+                armed = true
+            }
+            return false
         }
+
+        if !armed {
+            return false
+        }
+
+        if let last = lastReadingAt, readAt <= last {
+            guard let hotSince else { return false }
+            if now.timeIntervalSince(hotSince) >= window {
+                armed = false
+                return true
+            }
+            return false
+        }
+        
         lastReadingAt = readAt
         if let hotSince {
-            return now.timeIntervalSince(hotSince) >= window
+            if now.timeIntervalSince(hotSince) >= window {
+                armed = false
+                return true
+            }
+            return false
         } else {
             hotSince = now
             return false
@@ -41,5 +66,6 @@ struct TemperatureAlertGate {
     mutating func reset() {
         hotSince = nil
         lastReadingAt = nil
+        armed = true
     }
 }

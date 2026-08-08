@@ -111,14 +111,20 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
     }
 
     static func enabled(in defaults: UserDefaults) -> [MenuBarMetric] {
-        order(in: defaults).filter {
+        if defaults.string(forKey: DefaultsKey.menuBarLayoutMode) == "classic" {
+            return [.cpu, .cpuTemperature, .cpuFrequency, .cpuPower]
+        }
+        return order(in: defaults).filter {
             defaults.bool(forKey: $0.defaultsKey)
                 && defaults.bool(forKey: $0.feature.availabilityKey)
         }
     }
 
     static func anyEnabled(in defaults: UserDefaults) -> Bool {
-        allCases.contains {
+        if defaults.string(forKey: DefaultsKey.menuBarLayoutMode) == "classic" {
+            return true
+        }
+        return allCases.contains {
             defaults.bool(forKey: $0.defaultsKey)
                 && defaults.bool(forKey: $0.feature.availabilityKey)
         }
@@ -465,6 +471,23 @@ enum MenuBarRenderer {
     private static func blockSegments(for snapshot: SystemSnapshot,
                                       metrics: [MenuBarMetric],
                                       style: MenuBarBlockStyle) -> [MenuBarSegment] {
+        if UserDefaults.standard.string(forKey: DefaultsKey.menuBarLayoutMode) == "classic" {
+            var segments: [MenuBarSegment] = []
+            if let usage = snapshot.cpuUsage {
+                segments.append(.text(percent(usage)))
+            }
+            if let temp = snapshot.cpuTemperature {
+                segments.append(.text(String(format: " %.0f°C", temp)))
+            }
+            let avg = snapshot.avgCPUFreq ?? (snapshot.cores.isEmpty ? 0 : snapshot.cores.map { Double($0.freqMHz) }.reduce(0, +) / Double(snapshot.cores.count))
+            if avg > 0 {
+                segments.append(.text(String(format: " %.1fGHz", avg / 1000.0)))
+            }
+            if let power = snapshot.cpuPower {
+                segments.append(.text(String(format: " %.0fW", power)))
+            }
+            return segments
+        }
         var groups: [[MenuBarSegment]] = []
         let enabled = Set(metrics)
         var renderedCPU = false

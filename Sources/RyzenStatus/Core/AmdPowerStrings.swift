@@ -26,6 +26,19 @@ struct AMDPowerFeatureStrings {
     let perfBalMinus: String
     let perfEco: String
 
+    let cpuProfileHeader: String
+    let cpuProfileFooter: String
+    let amdGPUHeader: String
+    let amdGPUFooter: String
+
+    let powerPresetsHeader: String
+    let powerPresetsFooter: String
+    let presetsDisableAutoEppHint: String
+    let presetEcoSummary: String
+    let presetBalanceSummary: String
+    let presetPerformanceSummary: String
+    let presetExtremeSummary: String
+
     let deepCStatesTitle: String
     let c6ActiveBadge: String
     let c6DisabledBadge: String
@@ -83,6 +96,19 @@ extension AMDPowerFeatureStrings {
         perfBalMinus: "Balanced Power",
         perfEco: "Power Save",
 
+        cpuProfileHeader: "CPU Profile",
+        cpuProfileFooter: "Architecture and power-management capabilities detected by the kext.",
+        amdGPUHeader: "AMD GPU",
+        amdGPUFooter: "Dedicated AMD GPU telemetry from the kext (selectors 27-30). Hidden when no AMD discrete GPU is detected.",
+
+        powerPresetsHeader: "Power Presets",
+        powerPresetsFooter: "One-tap profiles that apply EPP, CPB and PPM/LPM together. Deep C-States (C6) follow your NVRAM boot-args and require a reboot, so presets don't change them.",
+        presetsDisableAutoEppHint: "Applying a preset turns Auto EPP off so the profile sticks.",
+        presetEcoSummary: "Power Save EPP · CPB off · LPM on",
+        presetBalanceSummary: "Balanced EPP · CPB on",
+        presetPerformanceSummary: "Performance EPP · CPB on",
+        presetExtremeSummary: "Max EPP · CPB on · no limits",
+
         deepCStatesTitle: "Deep C-States (C6+)",
         c6ActiveBadge: "amdcstate=0 (NVRAM Active)",
         c6DisabledBadge: "amdcstate=1 (Disabled - Recommended)",
@@ -125,6 +151,19 @@ extension AMDPowerFeatureStrings {
         perfBalPlus: "Rendimiento Bal.",
         perfBalMinus: "Ahorro Bal.",
         perfEco: "Ahorro Máx.",
+
+        cpuProfileHeader: "Perfil de CPU",
+        cpuProfileFooter: "Arquitectura y capacidades de gestión de energía detectadas por el kext.",
+        amdGPUHeader: "GPU AMD",
+        amdGPUFooter: "Telemetría de GPU AMD dedicada desde el kext (selectores 27-30). Oculta cuando no se detecta una GPU AMD discreta.",
+
+        powerPresetsHeader: "Presets de Energía",
+        powerPresetsFooter: "Perfiles de un toque que aplican EPP, CPB y PPM/LPM juntos. Los C-States profundos (C6) siguen tus boot-args de NVRAM y requieren reinicio, por lo que los presets no los modifican.",
+        presetsDisableAutoEppHint: "Aplicar un preset desactiva Auto EPP para que el perfil se mantenga.",
+        presetEcoSummary: "EPP Ahorro · CPB off · LPM on",
+        presetBalanceSummary: "EPP Balanceado · CPB on",
+        presetPerformanceSummary: "EPP Rendimiento · CPB on",
+        presetExtremeSummary: "EPP Máximo · CPB on · sin límites",
 
         deepCStatesTitle: "Deep C-States (C6+)",
         c6ActiveBadge: "amdcstate=0 (NVRAM Activo)",

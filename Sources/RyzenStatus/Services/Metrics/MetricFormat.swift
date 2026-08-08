@@ -68,44 +68,35 @@ enum MetricFormat {
         return value < 10 ? String(format: "%.1f", value) : String(format: "%.0f", value)
     }
 
-    /// A whole quantity of bytes, e.g. "1.2 GB". Used for session totals.
-    static func bytes(_ bytes: UInt64) -> String {
-        let (value, unit) = scale(Double(bytes))
-        return "\(number(value, unit: unit)) \(unit)"
-    }
-
-    static func diskBytes(_ bytes: UInt64) -> String {
+    private static func formatBytes<T: BinaryInteger>(_ bytes: T, base: Double, precise: Bool = false) -> String {
         let units = ["B", "KB", "MB", "GB", "TB", "PB"]
         var value = max(0, Double(bytes))
         var index = 0
-        while value >= 1000, index < units.count - 1 {
-            value /= 1000
-            index += 1
-        }
-        if units[index] == "B" {
-            return String(format: "%.0f B", value)
-        }
-        return value < 10 ? String(format: "%.1f %@", value, units[index])
-            : String(format: "%.0f %@", value, units[index])
-    }
-
-    static func diskBytesPrecise(_ bytes: UInt64) -> String {
-        let units = ["B", "KB", "MB", "GB", "TB", "PB"]
-        var value = max(0, Double(bytes))
-        var index = 0
-        while value >= 1000, index < units.count - 1 {
-            value /= 1000
+        while value >= base, index < units.count - 1 {
+            value /= base
             index += 1
         }
         let unit = units[index]
         if unit == "B" {
             return String(format: "%.0f B", value)
         }
-        if unit == "TB" || unit == "PB" {
+        if precise && (unit == "TB" || unit == "PB") {
             return String(format: "%.2f %@", value, unit)
         }
-        return value < 10 ? String(format: "%.1f %@", value, unit)
-            : String(format: "%.0f %@", value, unit)
+        return value < 10 ? String(format: "%.1f %@", value, unit) : String(format: "%.0f %@", value, unit)
+    }
+
+    /// A whole quantity of bytes, e.g. "1.2 GB". Used for session totals.
+    static func bytes(_ bytes: UInt64) -> String {
+        formatBytes(bytes, base: 1024)
+    }
+
+    static func diskBytes(_ bytes: UInt64) -> String {
+        formatBytes(bytes, base: 1000)
+    }
+
+    static func diskBytesPrecise(_ bytes: UInt64) -> String {
+        formatBytes(bytes, base: 1000, precise: true)
     }
 
     /// A throughput, e.g. "1.2 MB/s". Used in the panel.
@@ -263,16 +254,28 @@ enum TemperatureUnit: String {
 /// Appending past `capacity` drops the oldest values.
 struct MetricHistory {
     let capacity: Int
-    private(set) var values: [Double] = []
+    private var buffer: [Double]
+    private var writeIndex: Int = 0
+    private var count: Int = 0
+
+    var values: [Double] {
+        if count == 0 { return [] }
+        if count < capacity {
+            return Array(buffer[0..<count])
+        }
+        return Array(buffer[writeIndex..<capacity]) + Array(buffer[0..<writeIndex])
+    }
 
     init(capacity: Int) {
         self.capacity = max(1, capacity)
+        self.buffer = [Double](repeating: 0, count: self.capacity)
     }
 
     mutating func push(_ value: Double) {
-        values.append(value)
-        if values.count > capacity {
-            values.removeFirst(values.count - capacity)
+        buffer[writeIndex] = value
+        writeIndex = (writeIndex + 1) % capacity
+        if count < capacity {
+            count += 1
         }
     }
 }

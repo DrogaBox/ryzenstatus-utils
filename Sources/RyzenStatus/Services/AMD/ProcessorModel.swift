@@ -839,6 +839,32 @@ actor ProcessorModel {
         return IOConnectCallMethod(connect, 19, &input, 1, nil, 0, nil, nil, nil, nil)
     }
 
+    // MARK: - Power Presets (EPP + CPB + PPM/LPM)
+
+    /// Applies a full power preset through the existing write selectors:
+    /// EPP (25), CPB (12) and PPM/LPM (14/19). PPM and LPM are mutually
+    /// exclusive — the preset's choice wins and the other is forced off.
+    /// Returns per-component IOKit statuses so the UI can surface privilege
+    /// errors (`kIOReturnNotPrivilegedCode`) per feature.
+    nonisolated func applyPowerPreset(_ preset: AMDPowerPreset) -> AMDPowerPresetApplyResult {
+        let epp = setCPPCEPPValue(epp: preset.eppValue)
+        let cpb = setCPB(enabled: preset.cpbEnabled)
+
+        // PPM (selector 14) and LPM (selector 19) share the kext's
+        // `setPMPStateLimit`; exactly one may be on at a time.
+        var ppm: kern_return_t = KERN_SUCCESS
+        var lpm: kern_return_t = KERN_SUCCESS
+        if preset.lpmEnabled {
+            ppm = setPPM(enabled: false)   // enforce exclusivity
+            lpm = setLPM(enabled: true)
+        } else {
+            lpm = setLPM(enabled: false)   // enforce exclusivity
+            ppm = setPPM(enabled: preset.ppmEnabled)
+        }
+
+        return AMDPowerPresetApplyResult(epp: epp, cpb: cpb, ppm: ppm, lpm: lpm)
+    }
+
     nonisolated func getInstructionDelta() -> [UInt64]{
         let o = kernelGetUInt64(count: 1, selector: 5)
         return o.count > 0 ? [o[0]] : [0]
@@ -1274,5 +1300,27 @@ actor ProcessorModel {
         let rawOffset = UInt64(bitPattern: Int64(offset))
         var input: [UInt64] = [UInt64(core), rawOffset]
         return IOConnectCallMethod(connect, 111, &input, 2, nil, 0, nil, nil, nil, nil)
+    }
+}
+
+/// Per-component IOKit statuses of a `ProcessorModel.applyPowerPreset(_:)` call.
+struct AMDPowerPresetApplyResult {
+    let epp: kern_return_t
+    let cpb: kern_return_t
+    let ppm: kern_return_t
+    let lpm: kern_return_t
+
+    /// True when the kext rejected any write with `kIOReturnNotPrivileged`
+    /// (writes need root or the `-amdpnopchk` boot-arg).
+    var privilegeDenied: Bool {
+        [epp, cpb, ppm, lpm].contains(ProcessorModel.kIOReturnNotPrivilegedCode)
+    }
+
+    /// Localized, human-readable reason for the first failed component.
+    var firstFailureMessage: String? {
+        for status in [epp, cpb, ppm, lpm] where status != KERN_SUCCESS {
+            return ProcessorModel.privilegeHint(for: status)
+        }
+        return nil
     }
 }

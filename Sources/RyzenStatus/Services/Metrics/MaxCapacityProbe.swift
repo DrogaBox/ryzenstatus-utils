@@ -42,7 +42,6 @@ final class MaxCapacityProbe {
             return
         }
         running = true
-        lastRefresh = now
         lock.unlock()
 
         queue.async { [weak self] in
@@ -50,6 +49,7 @@ final class MaxCapacityProbe {
             guard let self else { return }
             self.lock.lock()
             self.cached = value
+            self.lastRefresh = ProcessInfo.processInfo.systemUptime
             self.running = false
             self.lock.unlock()
         }

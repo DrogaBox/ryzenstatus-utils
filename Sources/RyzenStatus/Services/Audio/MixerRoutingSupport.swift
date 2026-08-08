@@ -18,7 +18,9 @@ enum MixerRoutingSupport {
     static let systemDefaultSelectionID = "__system_default__"
     static let finderBundleIdentifier = "com.apple.finder"
 
-    private static let forbiddenScalars = CharacterSet.controlCharacters.union(.newlines)
+    private static let forbiddenScalars = CharacterSet.controlCharacters
+        .union(.newlines)
+        .union(CharacterSet(charactersIn: "\u{200B}\u{200C}\u{200D}\u{FEFF}"))
 
     static func isUnity(_ volume: Double) -> Bool {
         abs(volume - 1) < 0.005
@@ -183,13 +185,7 @@ enum MixerRoutingSupport {
             return true
         }
 
-        let normalizedName = name
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
-            .lowercased()
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalizedName == "zoom"
-            || normalizedName == "zoom.us"
-            || normalizedName == "zoom workplace"
+        return false
     }
 
     /// Ordering for mixer rows: display name, then id. Swift's sort is not

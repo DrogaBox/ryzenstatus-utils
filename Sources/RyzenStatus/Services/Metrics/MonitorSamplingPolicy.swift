@@ -25,12 +25,34 @@ enum MonitorSamplingPolicy {
         return tick % stride == 0
     }
 
+    private struct CacheKey: Hashable {
+        let kind: MonitorSamplingKind
+        let intervalSeconds: Double
+        let foreground: Bool
+    }
+    private static let lock = NSLock()
+    private static var strideCache: [CacheKey: Int] = [:]
+
     static func sampleStride(for kind: MonitorSamplingKind,
                              intervalSeconds: Double,
                              foreground: Bool) -> Int {
+        let key = CacheKey(kind: kind, intervalSeconds: intervalSeconds, foreground: foreground)
+        lock.lock()
+        if let cached = strideCache[key] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+
         let interval = max(0.1, intervalSeconds)
         let targetSeconds = targetIntervalSeconds(for: kind, foreground: foreground)
-        return max(1, Int(ceil(targetSeconds / interval)))
+        let stride = max(1, Int(ceil(targetSeconds / interval)))
+
+        lock.lock()
+        strideCache[key] = stride
+        lock.unlock()
+
+        return stride
     }
 
     /// The timer cadence, in base ticks, that still lands every needed kind
@@ -41,6 +63,7 @@ enum MonitorSamplingPolicy {
     static func wakeTicks(for kinds: [MonitorSamplingKind],
                           intervalSeconds: Double,
                           foreground: Bool) -> Int {
+        guard !kinds.isEmpty else { return 1 }
         let cadence = kinds.reduce(0) { partial, kind in
             gcd(partial, sampleStride(for: kind, intervalSeconds: intervalSeconds, foreground: foreground))
         }
@@ -83,7 +106,7 @@ enum MonitorSamplingPolicy {
         case .gpuUsage:
             return 10
         case .power, .temperature:
-            return 0
+            return 5
         case .disk:
             // Must stay comfortably under DiskSampler.maxGap (15 s) even
             // after timer tolerance and scheduling slop, or the delta guard

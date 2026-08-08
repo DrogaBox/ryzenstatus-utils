@@ -56,10 +56,12 @@ final class UpdateService: ObservableObject {
         // The local dev build never auto-updates, but can simulate the
         // "update available" UI via the `simulateUpdate` default, for testing.
         if AppInfo.isDeveloperBuild {
+#if DEBUG
             if UserDefaults.standard.bool(forKey: DefaultsKey.simulateUpdate) {
                 state = .available(version: "9.9.9")
                 availableNotes = ReleaseNotes.rawNotes(for: AppInfo.version)
             }
+#endif
             return
         }
         configureAutomaticChecks()
@@ -90,6 +92,7 @@ final class UpdateService: ObservableObject {
         if AppInfo.isDeveloperBuild {
             // No real update target; reflect the simulation default so the
             // notification UI can be exercised locally.
+#if DEBUG
             if UserDefaults.standard.bool(forKey: DefaultsKey.simulateUpdate) {
                 state = .available(version: "9.9.9")
                 availableNotes = ReleaseNotes.rawNotes(for: AppInfo.version)
@@ -97,6 +100,10 @@ final class UpdateService: ObservableObject {
                 state = .upToDate
                 availableNotes = nil
             }
+#else
+            state = .upToDate
+            availableNotes = nil
+#endif
             lastChecked = Date()
             return
         }

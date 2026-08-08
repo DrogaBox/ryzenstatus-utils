@@ -7,18 +7,24 @@ struct AmdPowerSettingsView: View {
     @State private var selectedEpp: UInt8 = 127
     @State private var cppcSupported: Bool = false
     @State private var cpbSupported: Bool = false
-    @State private var corePerformanceBoost: Bool = false
-    @State private var ppmEnabled: Bool = false
-    @State private var lpmEnabled: Bool = false
+    @AppStorage(DefaultsKey.amdCpbEnabled) private var corePerformanceBoost = true
+    @AppStorage(DefaultsKey.amdPpmEnabled) private var ppmEnabled = false
+    @AppStorage(DefaultsKey.amdLpmEnabled) private var lpmEnabled = false
     @State private var legacyPstateAllowed: Bool = false
     @State private var selectedPState: Int = 0
     @State private var validPStateLabels: [String] = []
-    @State private var c6Residency: Double = 0
-    @State private var lastC6Raw: UInt64 = 0
-    @State private var lastC6Timestamp: Date = .distantPast
-    private let c6Timer = Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()
+    @State private var cpuProfile = ProcessorModel.CPUProfile()
+    @State private var cppcActiveMode: Bool = false
+    @State private var cppcCurrentEPP: UInt8 = 0
+    @ObservedObject private var c6Service = C6ResidencyService.shared
     
     @State private var showCopiedToast: Bool = false
+    @State private var selectedPreset: AMDPowerPreset? = {
+        guard let raw = UserDefaults.standard.object(forKey: DefaultsKey.amdPowerPreset) as? String,
+              let preset = AMDPowerPreset(rawValue: raw) else { return nil }
+        return preset
+    }()
+    @State private var privilegeMessage: String?
     @ObservedObject private var autoEpp = AutoEppService.shared
     @ObservedObject private var monitor = SystemMonitor.shared
     @ObservedObject private var nvramCState = CStateNvramService.shared
@@ -115,6 +121,76 @@ struct AmdPowerSettingsView: View {
                         Text(L10n.shared.amdPower.modeDetectedPStates)
                             .font(.system(size: 13, weight: .bold, design: .monospaced))
                             .foregroundColor(.green)
+                    }
+                }
+
+                // CPU Profile — architecture codename + capabilities (kext selector 26).
+                Section {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Image(systemName: "cpu.fill")
+                                .foregroundColor(.cyan)
+                            Text(cpuProfile.archName.isEmpty ? "AMD Ryzen" : cpuProfile.archName)
+                                .font(.system(size: 15, weight: .bold, design: .monospaced))
+                            Spacer()
+                            Text(cpuProfile.modeDescription)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        HStack(spacing: 6) {
+                            capabilityBadge(title: "PM Dispatch",
+                                            active: cpuProfile.pmDispatchAllowed,
+                                            color: .blue,
+                                            help: "Full power-management dispatch (Zen 1/2).")
+                            capabilityBadge(title: "Legacy P-States",
+                                            active: cpuProfile.legacyPstateAllowed,
+                                            color: .teal,
+                                            help: "Legacy P-State frequency overrides available.")
+                            capabilityBadge(title: "CPPC",
+                                            active: cpuProfile.supportsCPPC,
+                                            color: .green,
+                                            help: "Collaborative Power & Performance Control (EPP).")
+                            Spacer()
+                        }
+                    }
+                    .padding(.vertical, 2)
+                } header: {
+                    Text(l10n.amdPower.cpuProfileHeader)
+                } footer: {
+                    Text(l10n.amdPower.cpuProfileFooter)
+                }
+
+                // AMD GPU — dedicated GPU telemetry from the kext (selectors 27-30).
+                // Hidden entirely when no AMD discrete GPU is detected (iGPU/NVIDIA).
+                if !monitor.snapshot.gpuDevices.isEmpty {
+                    Section {
+                        ForEach(monitor.snapshot.gpuDevices) { gpu in
+                            let label = monitor.snapshot.gpuDevices.count > 1 ? "AMD GPU \(gpu.id)" : "AMD GPU"
+                            HStack {
+                                Image(systemName: "display")
+                                    .foregroundColor(.orange)
+                                    .frame(width: 20)
+                                Text(label)
+                                    .font(.subheadline)
+                                Spacer()
+                                if gpu.supportsPower {
+                                    Text(gpu.power > 0 ? String(format: "%.1f W", gpu.power) : "— W")
+                                        .font(.system(.body, design: .monospaced))
+                                        .foregroundColor(.green)
+                                } else {
+                                    Text("— W")
+                                        .font(.system(.body, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                }
+                                Text(gpu.temperature > 0 ? String(format: "%.1f °C", gpu.temperature) : "— °C")
+                                    .font(.system(.body, design: .monospaced))
+                                    .foregroundColor(.orange)
+                            }
+                        }
+                    } header: {
+                        Text(l10n.amdPower.amdGPUHeader)
+                    } footer: {
+                        Text(l10n.amdPower.amdGPUFooter)
                     }
                 }
 
@@ -220,6 +296,20 @@ struct AmdPowerSettingsView: View {
                                 }
                             }
 
+                            // CPPC info (selector 23): active mode + raw EPP value.
+                            HStack {
+                                Image(systemName: cppcActiveMode ? "bolt.fill" : "bolt.slash")
+                                    .font(.caption)
+                                    .foregroundColor(cppcActiveMode ? .green : .secondary)
+                                Text(cppcActiveMode ? "CPPC Active Mode: On" : "CPPC Active Mode: Off")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                Text("EPP \(cppcCurrentEPP)/255")
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.cyan)
+                            }
+
                             Picker("", selection: $selectedEpp) {
                                 Text("Max").tag(UInt8(0))
                                 Text("Bal+").tag(UInt8(85))
@@ -239,6 +329,23 @@ struct AmdPowerSettingsView: View {
                         Text("Collaborative Processor Performance Control")
                     } footer: {
                         Text(L10n.shared.amdPower.autoEPPFooter)
+                    }
+
+                    Section {
+                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                            ForEach(AMDPowerPreset.allCases) { preset in
+                                presetCard(preset)
+                            }
+                        }
+                        if autoEpp.isActive {
+                            Label(l10n.amdPower.presetsDisableAutoEppHint, systemImage: "info.circle")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    } header: {
+                        Text(l10n.amdPower.powerPresetsHeader)
+                    } footer: {
+                        Text(l10n.amdPower.powerPresetsFooter)
                     }
                 } else if legacyPstateAllowed {
                     Section {
@@ -273,11 +380,13 @@ struct AmdPowerSettingsView: View {
 
                     Toggle("Processor Power Manager (PPM)", isOn: $ppmEnabled)
                         .onChange(of: ppmEnabled) { _, newValue in
+                            if newValue { lpmEnabled = false } // PPM and LPM are mutually exclusive
                             _ = ProcessorModel.shared.setPPM(enabled: newValue)
                         }
 
                     Toggle("Low Power Mode (LPM)", isOn: $lpmEnabled)
                         .onChange(of: lpmEnabled) { _, newValue in
+                            if newValue { ppmEnabled = false } // PPM and LPM are mutually exclusive
                             _ = ProcessorModel.shared.setLPM(enabled: newValue)
                         }
 
@@ -315,10 +424,10 @@ struct AmdPowerSettingsView: View {
                                 RoundedRectangle(cornerRadius: 3)
                                     .fill(Color.secondary.opacity(0.15))
                                     .frame(height: 6)
-                                if c6Residency > 0 {
+                                if c6Service.percentage > 0 {
                                     RoundedRectangle(cornerRadius: 3)
-                                        .fill(c6Residency > 10 ? Color.green : Color.orange)
-                                        .frame(width: max(2, geo.size.width * CGFloat(min(c6Residency / 100.0, 1.0))), height: 6)
+                                        .fill(c6Service.percentage > 10 ? Color.green : Color.orange)
+                                        .frame(width: max(2, geo.size.width * CGFloat(min(c6Service.percentage / 100.0, 1.0))), height: 6)
                                 }
                             }
                         }
@@ -435,20 +544,13 @@ struct AmdPowerSettingsView: View {
         .onDisappear {
             SystemMonitor.shared.setMenuPanelNeeds(.none)
         }
-        .onReceive(c6Timer) { _ in
-            let raw = ProcessorModel.shared.getPackageC6Residency()
-            if raw > 0 && lastC6Raw > 0 {
-                let now = Date()
-                let deltaNs = Double(raw &- lastC6Raw) // microseconds
-                let elapsed = now.timeIntervalSince(lastC6Timestamp) * 1_000_000 // microseconds
-                if elapsed > 0 {
-                    c6Residency = min((deltaNs / elapsed) * 100.0, 100.0)
-                }
-            }
-            if raw > 0 {
-                lastC6Raw = raw
-                lastC6Timestamp = Date()
-            }
+        .alert(
+            L10n.shared.amdPower.title,
+            isPresented: .init(get: { privilegeMessage != nil }, set: { if !$0 { privilegeMessage = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(privilegeMessage ?? "")
         }
     }
 
@@ -466,17 +568,110 @@ struct AmdPowerSettingsView: View {
         return .orange
     }
 
+    /// Capsule badge for a CPU capability flag, with an explanatory tooltip.
+    private func capabilityBadge(title: String, active: Bool, color: Color, help: String) -> some View {
+        Text(title)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundColor(active ? color : .secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Capsule().fill((active ? color : Color.secondary).opacity(active ? 0.15 : 0.1)))
+            .help(help)
+    }
+
+    // MARK: - Power Presets
+
+    private func presetCard(_ preset: AMDPowerPreset) -> some View {
+        let isSelected = selectedPreset == preset
+        return Button {
+            applyPreset(preset)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: preset.systemImage)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(presetColor(preset))
+                    Text(preset.rawValue)
+                        .font(.system(size: 13, weight: .semibold))
+                    Spacer(minLength: 4)
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.green)
+                    }
+                }
+                Text(presetSummary(preset))
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isSelected ? presetColor(preset).opacity(0.12) : Color.secondary.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isSelected ? presetColor(preset).opacity(0.7) : Color.secondary.opacity(0.15),
+                            lineWidth: isSelected ? 1.5 : 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func applyPreset(_ preset: AMDPowerPreset) {
+        // A preset owns the EPP profile: stop Auto EPP so its next poll cycle
+        // cannot overwrite the preset's values.
+        if autoEpp.isActive {
+            autoEpp.setCPPCActive(false)
+        }
+        let result = ProcessorModel.shared.applyPowerPreset(preset)
+        UserDefaults.standard.set(preset.rawValue, forKey: DefaultsKey.amdPowerPreset)
+        selectedPreset = preset
+        if result.privilegeDenied {
+            privilegeMessage = result.firstFailureMessage
+        }
+        fetchState() // re-sync toggle states with the kext echo
+    }
+
+    private func presetSummary(_ preset: AMDPowerPreset) -> String {
+        switch preset {
+        case .eco: return l10n.amdPower.presetEcoSummary
+        case .balance: return l10n.amdPower.presetBalanceSummary
+        case .performance: return l10n.amdPower.presetPerformanceSummary
+        case .extreme: return l10n.amdPower.presetExtremeSummary
+        }
+    }
+
+    private func presetColor(_ preset: AMDPowerPreset) -> Color {
+        switch preset {
+        case .eco: return .green
+        case .balance: return .blue
+        case .performance: return .orange
+        case .extreme: return .red
+        }
+    }
+
     private func fetchState() {
         Task { @MainActor in
             let kernelAnswered = ProcessorModel.shared.connect != 0
             cppcSupported = kernelAnswered
             if kernelAnswered {
                 let state = ProcessorModel.shared.getCPPCActiveMode()
+                cppcActiveMode = state.active
+                cppcCurrentEPP = state.epp
                 // Snap to segmented value
                 let target = snapEPP(state.epp)
                 if selectedEpp != target {
                     selectedEpp = target
                 }
+
+                let ppm = ProcessorModel.shared.getPPM()
+                if ppmEnabled != ppm { ppmEnabled = ppm }
+                let lpm = ProcessorModel.shared.getLPM()
+                if lpmEnabled != lpm { lpmEnabled = lpm }
             }
 
             let cpb = ProcessorModel.shared.getCPB()
@@ -486,13 +681,11 @@ struct AmdPowerSettingsView: View {
                     corePerformanceBoost = cpb[1]
                 }
             }
-
-            ppmEnabled = ProcessorModel.shared.getPPM()
-            lpmEnabled = ProcessorModel.shared.getLPM()
             
             // P-States (Legacy Zen)
             let profile = await ProcessorModel.shared.cpuProfile
             legacyPstateAllowed = profile.legacyPstateAllowed
+            cpuProfile = profile
             
             if legacyPstateAllowed {
                 let curState = await ProcessorModel.shared.getPState()

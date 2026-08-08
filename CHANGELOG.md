@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.8] — 2026-08-07
+
+### Features & Fixes
+- **32-Thread Support (Zen 3)**: Complete UI overhaul for the Core Grid dashboard to natively support and properly render up to 32 hardware threads, using responsive layouts and proper color coding for physical vs SMT cores.
+- **Combined Frequency & IPS Metrics**: A new real-time graph mapping average CPU frequency against Instructions Per Second (IPS) estimates.
+- **Classic Menu Revival (NF-03)**: Brought back the classic menu layout (Layout 2) without breaking the modern unified panel.
+- **Robust Telemetry & Stability**: System-wide bug fixes targeting zombie `nettop` polling, thermal deadlocks, temperature hysteresis, and memory safety improvements.
+
 ## [1.8.7] — 2026-08-07
 
 ### Privacy & Security

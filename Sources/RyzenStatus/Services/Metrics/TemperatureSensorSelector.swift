@@ -19,9 +19,28 @@ struct CachedSensorReading {
     var missedSamples: Int
 }
 
+protocol PlatformDetector {
+    func currentPlatform() -> CPUTemperaturePlatform
+}
+
+struct SysctlPlatformDetector: PlatformDetector {
+    func currentPlatform() -> CPUTemperaturePlatform {
+        var size = 0
+        guard sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0) == 0, size > 0 else {
+            return .generic
+        }
+        var buffer = [CChar](repeating: 0, count: size)
+        guard sysctlbyname("machdep.cpu.brand_string", &buffer, &size, nil, 0) == 0 else {
+            return .generic
+        }
+        return TemperatureSensorSelector.platform(brandString: String(cString: buffer))
+    }
+}
+
 enum TemperatureSensorSelector {
     static let minimumChipTemperature = 10.0
 
+#if arch(arm64)
     private static let appleM1CPUCoreKeys: Set<String> = [
         "Tp09", "Tp0T",
         "Tp01", "Tp05", "Tp0D", "Tp0H",
@@ -54,9 +73,11 @@ enum TemperatureSensorSelector {
         "Tp0a", "Tp0d", "Tp0g", "Tp0j",
         "Tp0m", "Tp0p", "Tp0u", "Tp0y",
     ]
+#endif
 
     static func platform(brandString: String?) -> CPUTemperaturePlatform {
         let brand = brandString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+#if arch(arm64)
         switch appleSiliconGeneration(in: brand) {
         case 1: return .appleM1Family
         case 2: return .appleM2Family
@@ -65,18 +86,13 @@ enum TemperatureSensorSelector {
         case 5: return .appleM5Family
         default: return .generic
         }
+#else
+        return .generic
+#endif
     }
 
-    static func currentPlatform() -> CPUTemperaturePlatform {
-        var size = 0
-        guard sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0) == 0, size > 0 else {
-            return .generic
-        }
-        var buffer = [CChar](repeating: 0, count: size)
-        guard sysctlbyname("machdep.cpu.brand_string", &buffer, &size, nil, 0) == 0 else {
-            return .generic
-        }
-        return platform(brandString: String(cString: buffer))
+    static func currentPlatform(detector: PlatformDetector = SysctlPlatformDetector()) -> CPUTemperaturePlatform {
+        detector.currentPlatform()
     }
 
     static func displayedCPUTemperature(readings: [(key: String, value: Double)],
@@ -100,6 +116,7 @@ enum TemperatureSensorSelector {
 
     static func isCPUCoreKey(_ key: String, platform: CPUTemperaturePlatform) -> Bool {
         switch platform {
+#if arch(arm64)
         case .appleM1Family:
             return appleM1CPUCoreKeys.contains(key)
         case .appleM2Family:
@@ -110,11 +127,22 @@ enum TemperatureSensorSelector {
             return appleM4CPUCoreKeys.contains(key)
         case .appleM5Family:
             return appleM5CPUCoreKeys.contains(key)
+#else
+        case .appleM1Family, .appleM2Family, .appleM3Family, .appleM4Family, .appleM5Family:
+            return false
+#endif
         case .generic:
-            return ["TC0D", "TC0P", "TC0C", "TCXC", "TC0E", "TC0F"].contains(key)
+            return [
+                // Intel legacy
+                "TC0D", "TC0P", "TC0C", "TCXC", "TC0E", "TC0F",
+                // AMD Ryzen (SMCAMDProcessor.kext)
+                "Tdie", "Tctl", "Tccd1", "Tccd2", "Tccd3", "Tccd4",
+                "TSI0", "TSI1", "TC0R"
+            ].contains(key)
         }
     }
 
+#if arch(arm64)
     private static func appleSiliconGeneration(in brand: String) -> Int? {
         guard brand.hasPrefix("Apple M") else { return nil }
         let remainder = brand.dropFirst("Apple M".count)
@@ -124,6 +152,7 @@ enum TemperatureSensorSelector {
         guard afterGeneration.isEmpty || afterGeneration.first == " " else { return nil }
         return generation
     }
+#endif
 
     static func stabilizedTemperature(_ reading: Double?,
                                       cache: inout CachedSensorReading?,

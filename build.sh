@@ -23,6 +23,11 @@ for arg in "$@"; do
     esac
 done
 
+if ! command -v swiftc >/dev/null 2>&1; then
+    echo "Error: swiftc is not installed or not in PATH."
+    exit 1
+fi
+
 if (( DEV )); then
     APP_NAME="RyzenStatus (Developer)"
     EXECUTABLE="RyzenStatusDeveloper"
@@ -72,7 +77,7 @@ fi
 
 # Prefer the macOS 26 SDK when present: the 27 SDK turns SwiftUI property wrappers
 # into macros (SwiftUIMacros plugin) that the Command Line Tools cannot load yet.
-PINNED_SDK="/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk"
+PINNED_SDK=$(xcrun --sdk macosx --show-sdk-path)
 if [[ -d "$PINNED_SDK" ]]; then
     SDK="$PINNED_SDK"
 else
@@ -89,6 +94,8 @@ if (( TEST )); then
     swiftc -O -target "$TARGET" -sdk "$SDK" \
         Sources/RyzenStatus/Services/Media/MediaSupport.swift \
         Sources/RyzenStatus/Core/Defaults.swift \
+        Sources/RyzenStatus/Core/DefaultsKey+App.swift \
+        Sources/RyzenStatus/Core/DefaultsKey+Monitor.swift \
         Sources/RyzenStatus/Core/FeatureCatalog.swift \
         Sources/RyzenStatus/Core/FeaturePresets.swift \
         Sources/RyzenStatus/Core/FeatureHubStrings.swift \
@@ -119,6 +126,8 @@ if (( TEST )); then
         Sources/RyzenStatus/Core/URLCleaning.swift \
         Sources/RyzenStatus/Services/GeneralPasteboardAccess.swift \
         Sources/RyzenStatus/Services/Audio/MixerRoutingSupport.swift \
+        Sources/RyzenStatus/Services/AMD/AMDPowerPresets.swift \
+        Sources/RyzenStatus/Services/AMD/AMDCoreRanking.swift \
         Sources/RyzenStatus/Services/DockPreview/DockPreviewSupport.swift \
         Sources/RyzenStatus/Services/Homebrew/HomebrewSupport.swift \
         Sources/RyzenStatus/Services/AppUpdates/AppUpdatesSupport.swift \
@@ -336,6 +345,13 @@ fi
 echo "✓ Bundle ready: $BUILD_STAGE"
 
 if (( INSTALL )); then
+    if [[ -n "${RYZENSTATUS_TEAM_ID:-}" ]]; then
+        ACTUAL_TEAM=$(codesign -dvv "$BUILD_STAGE" 2>&1 | grep "TeamIdentifier=" | cut -d= -f2 || true)
+        if [[ "$ACTUAL_TEAM" != "$RYZENSTATUS_TEAM_ID" ]]; then
+            echo "Error: Team ID mismatch. Expected $RYZENSTATUS_TEAM_ID, got $ACTUAL_TEAM. Aborting install."
+            exit 1
+        fi
+    fi
     echo "▸ Installing into /Applications…"
     stop_process "$EXECUTABLE"
     # Remove the pre-rename apps so two menu bar items never coexist. Same bundle

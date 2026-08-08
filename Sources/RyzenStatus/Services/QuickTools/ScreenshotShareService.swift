@@ -39,10 +39,14 @@ final class ScreenshotShareService: ObservableObject {
     }
 
     var endpoint: URL? {
-        ScreenshotSharingSupport.endpoint(
+#if DEBUG
+        let override = UserDefaults.standard.string(forKey: DefaultsKey.screenshotSharingDeveloperEndpoint)
+#else
+        let override: String? = nil
+#endif
+        return ScreenshotSharingSupport.endpoint(
             bundleIdentifier: Bundle.main.bundleIdentifier,
-            developerOverride: UserDefaults.standard.string(
-                forKey: DefaultsKey.screenshotSharingDeveloperEndpoint))
+            developerOverride: override)
     }
 
     /// True when a share server endpoint is configured. Share controls stay

@@ -28,6 +28,8 @@ struct PeripheralBatteryDevice: Identifiable, Equatable {
     let kind: PeripheralBatteryKind
 }
 
+// TODO: Implement USB HID parsing for wired peripherals (e.g. mice/keyboards connected via USB).
+// Currently, this only supports Bluetooth devices via IOBluetooth / IOPowerSources.
 enum PeripheralBatterySupport {
     static let percentKeys = [
         "BatteryPercent",
@@ -57,9 +59,8 @@ enum PeripheralBatterySupport {
             raw = nil
         }
         guard let raw, raw.isFinite else { return nil }
-        let rounded = Int(raw.rounded())
-        guard (0...100).contains(rounded) else { return nil }
-        return rounded
+        let clamped = max(0, min(100, raw))
+        return Int(clamped.rounded())
     }
 
     static func percent(in properties: [String: Any]) -> Int? {

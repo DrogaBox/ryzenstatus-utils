@@ -84,6 +84,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // Start global AMD Auto EPP monitoring — runs continuously in the
         // background so the CPU throttles down even when Settings are closed.
         AutoEppService.shared.start()
+        // C6 residency sampling (kext selector 31) feeds the dashboard bar and
+        // the AMD settings page from one shared poller.
+        C6ResidencyService.shared.start()
         if AppFeature.monitorPower.isAvailable {
             MaxCapacityProbe.shared.refreshIfStale()
         }
@@ -139,6 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             BrightnessService.shared.restoreDisplaysBeforeTermination()
         }
         AutoEppService.shared.stop()
+        C6ResidencyService.shared.stop()
         FanCurveController.shared.resetFansToAutoSync()
         ExtraBrightnessService.shared.stop()
         ProcessUsageService.shared.stopNetworkMonitoring(force: true)

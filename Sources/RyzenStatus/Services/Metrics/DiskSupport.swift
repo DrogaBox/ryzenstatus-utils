@@ -106,7 +106,8 @@ enum DiskSupport {
         guard let low else { return nil }
         let high = high ?? 0
         guard high <= UInt64(UInt32.max) else { return nil }
-        let units = low.addingReportingOverflow(high << 32)
+        let shifted = high << 32
+        let units = low.addingReportingOverflow(shifted)
         guard !units.overflow else { return nil }
         let bytes = units.partialValue.multipliedReportingOverflow(by: nvmeDataUnitBytes)
         return bytes.overflow ? nil : bytes.partialValue

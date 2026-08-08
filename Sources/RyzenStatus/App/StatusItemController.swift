@@ -236,7 +236,8 @@ final class StatusItemController {
         }
         let micBadgeActive = MicMuteService.shared.isMuted
             && defaults.bool(forKey: DefaultsKey.micMuteMenuBarIndicator)
-        let optionEnabled = defaults.bool(forKey: DefaultsKey.menuBarHideIconWithMetrics)
+        let mode = defaults.string(forKey: DefaultsKey.menuBarLayoutMode) ?? "modern"
+        let optionEnabled = mode == "classic" ? false : defaults.bool(forKey: DefaultsKey.menuBarHideIconWithMetrics)
         let separateMetrics = defaults.bool(forKey: DefaultsKey.menuBarSeparateMetrics)
         let signal = updateAvailable || micBadgeActive
         let hidden = MenuBarSpacingSupport.shouldHideStatusIcon(
@@ -358,7 +359,15 @@ final class StatusItemController {
         // every monitor tick and defaults change. Rounded metric strings
         // repeat most ticks, so skipping no-op writes skips that churn.
         if statusItem.length != NSStatusItem.variableLength {
-            statusItem.length = NSStatusItem.variableLength
+            let mode = defaults.string(forKey: DefaultsKey.menuBarLayoutMode) ?? "modern"
+            if mode == "classic" {
+                NSAnimationContext.beginGrouping()
+                NSAnimationContext.current.duration = 0
+                statusItem.length = NSStatusItem.variableLength
+                NSAnimationContext.endGrouping()
+            } else {
+                statusItem.length = NSStatusItem.variableLength
+            }
         }
 
         if title.length == 0 {
@@ -382,8 +391,9 @@ final class StatusItemController {
             }
             let micBadgeActive = MicMuteService.shared.isMuted
                 && defaults.bool(forKey: DefaultsKey.micMuteMenuBarIndicator)
+            let mode = defaults.string(forKey: DefaultsKey.menuBarLayoutMode) ?? "modern"
             let glyphHidden = MenuBarSpacingSupport.shouldHideStatusIcon(
-                optionEnabled: defaults.bool(forKey: DefaultsKey.menuBarHideIconWithMetrics),
+                optionEnabled: mode == "classic" ? false : defaults.bool(forKey: DefaultsKey.menuBarHideIconWithMetrics),
                 separateMetrics: separateMetrics,
                 metricsEnabled: !metrics.isEmpty,
                 renderedTitleLength: 1,
@@ -407,8 +417,16 @@ final class StatusItemController {
                                   range: NSRange(location: 0, length: full.length))
             }
             if !full.isEqual(to: button.attributedTitle) {
-                button.font = font
-                button.attributedTitle = full
+                if mode == "classic" {
+                    NSAnimationContext.beginGrouping()
+                    NSAnimationContext.current.duration = 0
+                    button.font = font
+                    button.attributedTitle = full
+                    NSAnimationContext.endGrouping()
+                } else {
+                    button.font = font
+                    button.attributedTitle = full
+                }
             }
             if button.imagePosition != .imageLeading {
                 button.imagePosition = .imageLeading

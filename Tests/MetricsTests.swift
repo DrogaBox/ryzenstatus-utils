@@ -442,8 +442,8 @@ struct MetricsTests {
                "peripheral battery parses percentage strings")
         expect(PeripheralBatterySupport.percent(from: NSNumber(value: 62.4)) == 62,
                "peripheral battery rounds numeric values")
-        expect(PeripheralBatterySupport.percent(from: 140) == nil,
-               "peripheral battery ignores invalid percentages")
+        expect(PeripheralBatterySupport.percent(from: 140) == 100,
+               "peripheral battery clamps percentages to 100")
         let usageMouse = [["DeviceUsagePage": 1, "DeviceUsage": 2]]
         expect(PeripheralBatterySupport.kind(product: "Wireless Device",
                                              primaryUsagePage: nil,
@@ -781,6 +781,7 @@ struct MetricsTests {
 
         // MARK: Temperature sensor selection
 
+#if arch(arm64)
         expect(TemperatureSensorSelector.platform(brandString: "Apple M1") == .appleM1Family,
                "Apple M1 uses the mapped CPU core sensor set")
         expect(TemperatureSensorSelector.platform(brandString: "Apple M2 Pro") == .appleM2Family,
@@ -828,6 +829,7 @@ struct MetricsTests {
             platform: .appleM4Family
         )
         expectClose(m4FallbackCPU ?? -1, 67.0, "mapped CPU core selection falls back when no mapped sensor is available")
+#endif
         let genericCPU = TemperatureSensorSelector.displayedCPUTemperature(
             readings: [("Tp00", 44.5), ("Tp01", 51.6)],
             platform: .generic
@@ -4730,8 +4732,8 @@ struct MetricsTests {
 
         expect(MonitorSamplingPolicy.wakeTicks(for: [.cpu, .disk], intervalSeconds: 2, foreground: false) == 1,
                "monitor wakes every tick while an every-tick metric is on")
-        expect(MonitorSamplingPolicy.wakeTicks(for: [.temperature], intervalSeconds: 2, foreground: false) == 1,
-               "monitor with only temperature wakes every tick")
+        expect(MonitorSamplingPolicy.wakeTicks(for: [.temperature], intervalSeconds: 2, foreground: false) == 3,
+               "monitor with only temperature wakes every 3 ticks in background")
         expect(MonitorSamplingPolicy.wakeTicks(for: [.peripheralBattery], intervalSeconds: 2, foreground: false) == 30,
                "monitor with only peripheral battery wakes once per minute")
         expect(MonitorSamplingPolicy.wakeTicks(for: [.disk, .peripheralBattery], intervalSeconds: 2, foreground: false) == 2,
@@ -6122,6 +6124,60 @@ struct MetricsTests {
             SettingsBackupSupport.formatVersionKey: 99,
             SettingsBackupSupport.settingsKey: [String: Any](),
         ]) == nil, "a future format version is rejected")
+
+        // MARK: AMD Power Presets
+
+        let allPresets = AMDPowerPreset.allCases
+        expect(allPresets.count == 4, "presets expose exactly four profiles")
+        expect(allPresets.map(\.id) == ["Eco", "Balance", "Performance", "Extreme"],
+               "preset ids follow cheat-sheet order")
+        expect(allPresets.allSatisfy { AMDPowerPreset(rawValue: $0.rawValue) == $0 },
+               "preset rawValue round-trips through init(rawValue:)")
+
+        expect(AMDPowerPreset.eco.eppValue == 255, "Eco EPP is max efficiency (255)")
+        expect(AMDPowerPreset.balance.eppValue == 128, "Balance EPP is 128")
+        expect(AMDPowerPreset.performance.eppValue == 32, "Performance EPP is 32")
+        expect(AMDPowerPreset.extreme.eppValue == 0, "Extreme EPP is 0")
+
+        expect(AMDPowerPreset.eco.cpbEnabled == false, "Eco disables CPB")
+        expect(AMDPowerPreset.balance.cpbEnabled == true, "Balance enables CPB")
+        expect(AMDPowerPreset.performance.cpbEnabled == true, "Performance enables CPB")
+        expect(AMDPowerPreset.extreme.cpbEnabled == true, "Extreme enables CPB")
+
+        expect(AMDPowerPreset.eco.lpmEnabled == true, "Eco enables LPM (P2 limit)")
+        expect(AMDPowerPreset.balance.lpmEnabled == false, "Balance leaves LPM off")
+        expect(AMDPowerPreset.performance.lpmEnabled == false, "Performance leaves LPM off")
+        expect(AMDPowerPreset.extreme.lpmEnabled == false, "Extreme leaves LPM off")
+
+        expect(allPresets.allSatisfy { !$0.ppmEnabled }, "no preset enables PPM today")
+        expect(allPresets.allSatisfy(\.keepsPowerLimitsExclusive),
+               "PPM and LPM stay mutually exclusive in every preset")
+
+        expect(AMDPowerPreset.eco.c6Desired == true, "Eco wants C6 on")
+        expect(AMDPowerPreset.balance.c6Desired == true, "Balance wants C6 on")
+        expect(AMDPowerPreset.performance.c6Desired == false, "Performance wants C6 off")
+        expect(AMDPowerPreset.extreme.c6Desired == false, "Extreme wants C6 off")
+
+        // MARK: CPPC Core Ranking (selector 21)
+
+        expect(AMDCoreRanking.favoriteThreads(supported: false, scores: [100, 90, 80], logicalThreadCount: 3).isEmpty,
+               "unsupported ranking yields no favorites")
+        expect(AMDCoreRanking.favoriteThreads(supported: true, scores: [0, 0, 0], logicalThreadCount: 3).isEmpty,
+               "all-zero scores yield no favorites")
+        expect(AMDCoreRanking.favoriteThreads(supported: true, scores: [100, 100, 100], logicalThreadCount: 3).isEmpty,
+               "equal scores yield no favorites")
+        // The kext returns a fixed 64-entry buffer with trailing zeros; the
+        // trim to the real thread count must prevent the padding from faking
+        // a spread (and starring every equal-score core).
+        let padded = Array(repeating: UInt8(100), count: 8) + Array(repeating: UInt8(0), count: 56)
+        expect(AMDCoreRanking.favoriteThreads(supported: true, scores: padded, logicalThreadCount: 8).isEmpty,
+               "trailing padding zeros are trimmed before the spread check")
+        expect(AMDCoreRanking.favoriteThreads(supported: true, scores: [120, 100, 100, 90], logicalThreadCount: 4) == [0],
+               "highest-score thread is the favorite")
+        expect(AMDCoreRanking.favoriteThreads(supported: true, scores: [100, 120, 120, 90], logicalThreadCount: 4) == [1, 2],
+               "tied top scores are all favorites")
+        expect(AMDCoreRanking.favoriteThreads(supported: true, scores: [], logicalThreadCount: 0).isEmpty,
+               "empty input yields no favorites")
 
         // MARK: Result
 

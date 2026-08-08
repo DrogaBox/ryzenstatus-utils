@@ -9,13 +9,21 @@ struct AmdControlSection: View {
     @State private var selectedEpp: UInt8 = 127
     @State private var cppcSupported: Bool = false
     @State private var cpbSupported: Bool = false
-    @State private var corePerformanceBoost: Bool = false
+    @AppStorage(DefaultsKey.amdCpbEnabled) private var corePerformanceBoost = true
+    @AppStorage(DefaultsKey.amdPpmEnabled) private var ppmEnabled = false
+    @AppStorage(DefaultsKey.amdLpmEnabled) private var lpmEnabled = false
     @State private var legacyPstateAllowed: Bool = false
     @State private var selectedPState: Int = 0
     @State private var validPStateLabels: [String] = []
     @ObservedObject private var autoEpp = AutoEppService.shared
     @State private var loadTimer: Timer?
     @State private var showThresholds: Bool = false
+    @State private var selectedPreset: AMDPowerPreset? = {
+        guard let raw = UserDefaults.standard.object(forKey: DefaultsKey.amdPowerPreset) as? String,
+              let preset = AMDPowerPreset(rawValue: raw) else { return nil }
+        return preset
+    }()
+    @State private var panelWarning: String = ""
     
     // Fan state
     @State private var availableFans: [(id: Int, name: String)] = []
@@ -143,6 +151,29 @@ struct AmdControlSection: View {
                         }
                         .opacity(autoEpp.isActive ? 0.4 : 1.0)
 
+                        // One-tap power presets (EPP + CPB + PPM/LPM)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(L10n.shared.amdPower.powerPresetsHeader)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(.secondary)
+                            HStack(spacing: 6) {
+                                ForEach(AMDPowerPreset.allCases) { preset in
+                                    presetButton(preset)
+                                }
+                            }
+                            if !panelWarning.isEmpty {
+                                Text(panelWarning)
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.red)
+                            }
+                            if autoEpp.isActive {
+                                Text(L10n.shared.amdPower.presetsDisableAutoEppHint)
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 2)
+
                         if autoEpp.isActive {
                             VStack(spacing: 10) {
                                 Button(action: { withAnimation { showThresholds.toggle() } }) {
@@ -248,6 +279,28 @@ struct AmdControlSection: View {
                                 _ = ProcessorModel.shared.setCPB(enabled: newValue)
                             }
                         }
+
+                        HStack {
+                            Image(systemName: "speedometer").foregroundColor(.teal).frame(width: 20)
+                            Toggle("PPM Limit", isOn: $ppmEnabled)
+                                .font(.system(size: 12))
+                                .toggleStyle(SwitchToggleStyle(tint: .teal))
+                        }
+                        .onChange(of: ppmEnabled) { _, newValue in
+                            if newValue { lpmEnabled = false } // PPM and LPM are mutually exclusive
+                            _ = ProcessorModel.shared.setPPM(enabled: newValue)
+                        }
+
+                        HStack {
+                            Image(systemName: "moon.zzz.fill").foregroundColor(.purple).frame(width: 20)
+                            Toggle("LPM Limit", isOn: $lpmEnabled)
+                                .font(.system(size: 12))
+                                .toggleStyle(SwitchToggleStyle(tint: .purple))
+                        }
+                        .onChange(of: lpmEnabled) { _, newValue in
+                            if newValue { ppmEnabled = false } // PPM and LPM are mutually exclusive
+                            _ = ProcessorModel.shared.setLPM(enabled: newValue)
+                        }
                     }
                 }
             }
@@ -348,6 +401,61 @@ struct AmdControlSection: View {
                     corePerformanceBoost = cpb[1]
                 }
             }
+
+            if kernelAnswered {
+                let ppm = ProcessorModel.shared.getPPM()
+                if ppmEnabled != ppm { ppmEnabled = ppm }
+                let lpm = ProcessorModel.shared.getLPM()
+                if lpmEnabled != lpm { lpmEnabled = lpm }
+            }
+        }
+    }
+
+    // MARK: - Power Presets (menu panel)
+
+    private func presetButton(_ preset: AMDPowerPreset) -> some View {
+        let isSelected = selectedPreset == preset
+        return Button {
+            applyPreset(preset)
+        } label: {
+            VStack(spacing: 3) {
+                Image(systemName: preset.systemImage)
+                    .font(.system(size: 11))
+                Text(preset.rawValue)
+                    .font(.system(size: 9, weight: .medium))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isSelected ? presetColor(preset).opacity(0.15) : Color.secondary.opacity(0.07))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(isSelected ? presetColor(preset) : Color.secondary.opacity(0.15), lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func applyPreset(_ preset: AMDPowerPreset) {
+        if autoEpp.isActive {
+            autoEpp.setCPPCActive(false)
+        }
+        let result = ProcessorModel.shared.applyPowerPreset(preset)
+        UserDefaults.standard.set(preset.rawValue, forKey: DefaultsKey.amdPowerPreset)
+        selectedPreset = preset
+        panelWarning = result.privilegeDenied ? "Requires admin privileges (-amdpnopchk)." : ""
+        checkCapabilities() // re-sync toggles + EPP picker with the kext echo right away
+    }
+
+    private func presetColor(_ preset: AMDPowerPreset) -> Color {
+        switch preset {
+        case .eco: return .green
+        case .balance: return .blue
+        case .performance: return .orange
+        case .extreme: return .red
         }
     }
 }
