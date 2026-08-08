@@ -28,6 +28,16 @@ final class GamingModeService: ObservableObject {
     private var keepAwakeWasActive = false
     private var restoredPreset: AMDPowerPreset = .balance
 
+    /// In-flight activation transaction. deactivate() must wait for it before
+    /// deciding what to restore: activate() publishes isActive synchronously
+    /// but the key write + kext write happen in a Task, so a fast toggle-off
+    /// could otherwise read the pre-activation key, skip the restore, and let
+    /// the late transaction leave the kext on Extreme with the mode off.
+    private var activationTask: Task<Void, Never>?
+    /// Bumped whenever a new activate()/deactivate() supersedes a pending
+    /// activation, so a stale task cannot publish its status afterwards.
+    private var activationGeneration = 0
+
     private let activeKey = DefaultsKey.gamingModeActive
     private let presetKey = DefaultsKey.amdPowerPreset
     // restoreAutoEppKey removed: AutoEppService.suspend()/resume() make the
@@ -70,13 +80,22 @@ final class GamingModeService: ObservableObject {
             StatusItemController.shared?.setForceHidden(true)
         }
 
-        Task {
+        // Track the in-flight transaction so deactivate() can wait for it
+        // before deciding what to restore (see activationTask).
+        let generation = activationGeneration + 1
+        activationGeneration = generation
+        activationTask = Task { [weak self] in
+            guard let self else { return }
             // Transactional: the key is written before the kext write and rolled
             // back on privilege denial, so the persisted key always names what
             // the kext actually applied.
             let result = await AmdPresetController.shared.withPresetTransaction(.extreme) { preset in
                 await ProcessorModel.shared.applyPowerPreset(preset)
             }
+            // A newer activate()/deactivate() superseded this one — do not
+            // publish status from a stale activation.
+            guard self.activationGeneration == generation else { return }
+            self.activationTask = nil
             if result.privilegeDenied {
                 self.statusMessage = result.firstFailureMessage
                     ?? "The power preset needs root or -amdpnopchk; Keep Awake and the hidden icon are still active."
@@ -89,7 +108,52 @@ final class GamingModeService: ObservableObject {
     }
 
     func deactivate() {
-        guard isActive else { return }
+        // Toggling off while an activation is still in flight must wait for
+        // that transaction to settle: activate() publishes isActive
+        // synchronously but the key write + kext write happen in a Task, so a
+        // fast toggle-off could otherwise read the pre-activation key, skip
+        // the restore, and let the late transaction leave the kext on Extreme
+        // with the mode off. The pending task is awaited below and its stale
+        // status is suppressed via the generation counter.
+        guard isActive || activationTask != nil else { return }
+
+        // Flip the user-visible off state synchronously (toggle, persistence,
+        // icon, Keep Awake) so the UI reacts instantly even while the kext
+        // settles. Keep Awake teardown MUST be synchronous, not deferred into
+        // the awaited finishDeactivation: if the user re-activates during the
+        // await, the new activation would snapshot keepAwakeWasActive = true
+        // (this session still running) and never end it — a leak.
+        isActive = false
+        AmdSettingsStore.shared.gamingModeActive = false
+        StatusItemController.shared?.setForceHidden(false)
+        if !keepAwakeWasActive {
+            KeepAwakeManager.shared.deactivate(reason: .manual)
+        }
+
+        let generation = activationGeneration + 1
+        activationGeneration = generation
+        let pending = activationTask
+        activationTask = nil
+
+        if let pending {
+            Task { [weak self] in
+                guard let self else { return }
+                _ = await pending.value
+                self.finishDeactivation(generation: generation)
+            }
+        } else {
+            finishDeactivation(generation: generation)
+        }
+    }
+
+    /// Shared teardown: restore the pre-gaming preset if Extreme is still
+    /// what the kext has applied, end the Keep Awake session, show the icon.
+    ///
+    /// `generation` guards against a re-activation racing this teardown: if
+    /// the user toggled on again while we were restoring, the new activation
+    /// owns the preset and this must not restore over it.
+    private func finishDeactivation(generation: Int) {
+        guard activationGeneration == generation, !isActive else { return }
 
         // The presets section stays live during the mode: if the user picked a
         // different preset manually, that choice wins over the pre-gaming
@@ -101,9 +165,13 @@ final class GamingModeService: ObservableObject {
 
         if shouldRestorePreset {
             Task {
+                // A newer activation may have started while this restore was
+                // queued — do not clobber its Extreme with the old profile.
+                guard self.activationGeneration == generation, !self.isActive else { return }
                 let restore = await AmdPresetController.shared.withPresetTransaction(self.restoredPreset) { preset in
                     await ProcessorModel.shared.applyPowerPreset(preset)
                 }
+                guard self.activationGeneration == generation, !self.isActive else { return }
                 if restore.privilegeDenied {
                     self.statusMessage = restore.firstFailureMessage
                         ?? "Could not restore your previous profile (privilege)."
@@ -120,12 +188,8 @@ final class GamingModeService: ObservableObject {
             // No preset to restore — Auto EPP is safe to resume right away.
             AutoEppService.shared.resume()
         }
-        if !keepAwakeWasActive {
-            KeepAwakeManager.shared.deactivate(reason: .manual)
-        }
-        StatusItemController.shared?.setForceHidden(false)
-        AmdSettingsStore.shared.gamingModeActive = false
-        isActive = false
+        // Keep Awake teardown, icon and flags are handled synchronously in
+        // deactivate(); only the preset restore + Auto EPP resume are deferred.
     }
 
     /// Re-applies a persisted Gaming Mode on launch (same pattern as Keep
