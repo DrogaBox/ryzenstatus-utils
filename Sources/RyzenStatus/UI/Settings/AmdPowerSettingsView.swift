@@ -17,19 +17,6 @@ struct AmdPowerSettingsView: View {
     @State private var cppcActiveMode: Bool = false
     @State private var cppcCurrentEPP: UInt8 = 0
     @State private var telemetryPacket: CPUSensorPacket?
-    @State private var selectedFanCurve: AMDFanCurvePreset = {
-        guard let raw = UserDefaults.standard.string(forKey: DefaultsKey.amdFanCurvePreset),
-              let preset = AMDFanCurvePreset(rawValue: raw) else { return .balanced }
-        return preset
-    }()
-    @State private var fanCurveSensor: FanSensor = {
-        guard let raw = UserDefaults.standard.object(forKey: DefaultsKey.amdFanCurveSensor) as? Int,
-              let sensor = FanSensor(rawValue: raw) else { return .cpu }
-        return sensor
-    }()
-    @State private var selectedFanIndex = UserDefaults.standard.integer(forKey: DefaultsKey.amdFanCurveFanIndex)
-    @State private var availableFans: [FanSnapshot] = []
-    @State private var fanCurveStatusMessage: String?
     @State private var coGeneration = AMDCpuGeneration.unknown
     @State private var coSupported = false
     @State private var coCoreCount = 16
@@ -37,7 +24,6 @@ struct AmdPowerSettingsView: View {
     @State private var coStatusMessage: String?
     @State private var coStatusIsError = false
     @ObservedObject private var gaming = GamingModeService.shared
-    @ObservedObject private var fanCtrl = FanCurveController.shared
     @ObservedObject private var c6Service = C6ResidencyService.shared
     
     @State private var showCopiedToast: Bool = false
@@ -886,75 +872,6 @@ struct AmdPowerSettingsView: View {
         return ProcessorModel.privilegeHint(for: status) ?? "Failed (0x\(String(status, radix: 16)))"
     }
 
-    // MARK: - Kext Fan Curves
-
-    private func applyFanCurve() {
-        let preset = selectedFanCurve
-        let lut = preset.makeLUT()
-        // Kext curve slots are 0..<MAX_FAN_CURVES (4) in declaration order.
-        let curveIndex = UInt32(AMDFanCurvePreset.allCases.firstIndex(of: preset) ?? 0)
-
-        let setStatus = ProcessorModel.shared.setKextFanCurve(index: curveIndex,
-                                                              sourceSensor: UInt32(fanCurveSensor.rawValue),
-                                                              hysteresis: preset.hysteresis,
-                                                              rampRate: preset.rampRate,
-                                                              lut: lut)
-        if setStatus != KERN_SUCCESS {
-            privilegeMessage = ProcessorModel.privilegeHint(for: setStatus)
-            fanCurveStatusMessage = nil
-            return
-        }
-
-        let mapStatus = ProcessorModel.shared.mapKextFanToCurve(fanIndex: selectedFanIndex,
-                                                                curveIndex: Int(curveIndex))
-        if mapStatus != KERN_SUCCESS {
-            privilegeMessage = ProcessorModel.privilegeHint(for: mapStatus)
-            fanCurveStatusMessage = nil
-        } else {
-            fanCurveStatusMessage = "\(preset.rawValue) → \(fanLabel(for: selectedFanIndex))"
-        }
-    }
-
-    private func restoreFanAuto() {
-        let status = ProcessorModel.shared.mapKextFanToCurve(fanIndex: selectedFanIndex, curveIndex: -1)
-        if status != KERN_SUCCESS {
-            privilegeMessage = ProcessorModel.privilegeHint(for: status)
-            fanCurveStatusMessage = nil
-        } else {
-            fanCurveStatusMessage = "\(fanLabel(for: selectedFanIndex)) → Auto"
-        }
-    }
-
-    private func fanLabel(for index: Int) -> String {
-        availableFans.first { $0.id == index }?.name ?? "Fan \(index + 1)"
-    }
-
-    /// Miniature LUT visualization: one bar per 4 °C bucket, height = PWM.
-    private func fanCurvePreview(lut: [UInt8]) -> some View {
-        GeometryReader { geo in
-            HStack(alignment: .bottom, spacing: 1) {
-                ForEach(0..<64, id: \.self) { i in
-                    let temp = i * 4
-                    let pwm = Double(lut[temp]) / 255.0
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(fanCurveTempColor(temp))
-                        .frame(height: max(1, geo.size.height * pwm))
-                }
-            }
-        }
-        .frame(height: 28)
-        .animation(.easeOut(duration: 0.2), value: selectedFanCurve)
-    }
-
-    private func fanCurveTempColor(_ temp: Int) -> Color {
-        switch temp {
-        case ..<45: return .cyan.opacity(0.55)
-        case ..<60: return .green.opacity(0.6)
-        case ..<75: return .orange.opacity(0.7)
-        default:    return .red.opacity(0.75)
-        }
-    }
-
     private func loadColor(for load: Float) -> Color {
         if load < Float(idleThreshold) { return .green }
         if load > Float(loadThreshold) { return .red }
@@ -1067,9 +984,6 @@ struct AmdPowerSettingsView: View {
             cpuProfile = profile
 
             telemetryPacket = ProcessorModel.shared.getTelemetry()
-
-            // Fan headers for the kext curve mapper (selector 102 fan index).
-            availableFans = ProcessorModel.shared.getFans()
 
             // Curve Optimizer gate (selectors 110/111): family/model from the
             // kext CPUID report (selector 7) decide between grid and message.
