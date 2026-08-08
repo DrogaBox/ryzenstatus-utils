@@ -171,6 +171,15 @@ class FanCurveController: ObservableObject {
                         newPWM = current + (diff > 0 ? curve.rampRate : -curve.rampRate)
                     }
                     
+                    // Thermal safety guard — mirrors the kext's own fan-curve
+                    // guard (kTHERMAL_GUARD_TEMP_C 85°C / kTHERMAL_GUARD_PWM
+                    // 80%) so a user-drawn curve can never leave the CPU
+                    // without airflow near TjMax. Applies to every supported
+                    // family (Zen 1-5 all share the 90-95°C TjMax range).
+                    if effectiveTemp >= 85.0 {
+                        newPWM = max(newPWM, 80.0)
+                    }
+                    
                     currentPWM[fanId] = newPWM
                     
                     // Only call setFanMode once per fan when transitioning to manual
