@@ -7,6 +7,10 @@ import Combine
 /// Owns the menu bar presence: the black hole glyph, the optional countdown
 /// title and the tooltip. Click handling is delegated back to the AppDelegate.
 final class StatusItemController {
+    /// Set by AppDelegate after construction so services (Gaming Mode) can
+    /// force-hide the icon without owning the controller.
+    static weak var shared: StatusItemController?
+
     var onLeftClick: (() -> Void)?
     var onRightClick: ((NSStatusItem) -> Void)?
     var onMetricClick: ((MenuBarMetric, NSStatusBarButton) -> Void)?
@@ -20,6 +24,9 @@ final class StatusItemController {
     /// Last combination applied by updateIconAppearance, so refresh ticks
     /// don't re-render an unchanged icon every 2 seconds.
     private var lastIconStateKey = ""
+    /// Gaming Mode override: keeps the main item hidden even when the regular
+    /// appearance logic would show it.
+    private(set) var forceHidden = false
     private static let mainAutosaveName = "RyzenStatusMenuBarItem"
     private static let metricAutosavePrefix = "RyzenStatusMetric"
     private static let maxPlacementGeneration = 10_000
@@ -248,8 +255,9 @@ final class StatusItemController {
             mustShowForSignal: signal)
         // In the separate-items mode the metrics are their own clickable
         // items, so hiding means the whole main item steps aside instead of
-        // just its image (which is all that item has).
-        let mainItemHidden = MenuBarSpacingSupport.shouldHideMainStatusItem(
+        // just its image (which is all that item has). Gaming Mode forces the
+        // item off entirely and the refresh tick keeps it that way.
+        let mainItemHidden = forceHidden || MenuBarSpacingSupport.shouldHideMainStatusItem(
             optionEnabled: optionEnabled,
             separateMetrics: separateMetrics,
             metricItemsShown: metricStatusItems.count,
@@ -284,6 +292,14 @@ final class StatusItemController {
         } else {
             button.image = stateImage
         }
+    }
+
+    /// Gaming Mode: forces the main status item off (or back on). The regular
+    /// refresh tick respects `forceHidden`, so the icon stays hidden until the
+    /// mode ends instead of being restored by the next appearance update.
+    func setForceHidden(_ hidden: Bool) {
+        forceHidden = hidden
+        statusItem?.isVisible = !hidden
     }
 
     @objc private func clicked() {

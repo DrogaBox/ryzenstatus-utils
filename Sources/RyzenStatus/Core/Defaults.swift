@@ -569,6 +569,10 @@ enum Defaults {
         // FanSensor.cpu.rawValue (FanCurveModels is not in the test target).
         DefaultsKey.amdFanCurveSensor: 0,
         DefaultsKey.amdFanCurveFanIndex: 0,
+        // Gaming Mode — off by default; hiding the icon is the default behavior.
+        DefaultsKey.gamingModeActive: false,
+        DefaultsKey.gamingModeHideMenuBar: true,
+        DefaultsKey.gamingModeRestoreAutoEpp: false,
     ]
 
     private static let currentMigrationVersion = 5

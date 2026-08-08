@@ -52,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         PanelLayout.resetCollapsedSectionsOnce(for: "2.15.1")
 
         statusController = StatusItemController()
+        StatusItemController.shared = statusController
         statusController.onLeftClick = { [weak self] in
             self?.captureStatusClick()
             self?.toggleMainPopover()
@@ -87,6 +88,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // C6 residency sampling (kext selector 31) feeds the dashboard bar and
         // the AMD settings page from one shared poller.
         C6ResidencyService.shared.start()
+        // Re-apply a persisted Gaming Mode (Extreme preset + Keep Awake +
+        // hidden icon) left on by a previous session.
+        GamingModeService.shared.restoreIfNeeded()
         if AppFeature.monitorPower.isAvailable {
             MaxCapacityProbe.shared.refreshIfStale()
         }
@@ -176,6 +180,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// in. (A cold launch can't happen while running, so this is the recovery path.)
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         guard !flag else { return true }
+        // Gaming Mode hides the status icon by design — a relaunch is the
+        // guaranteed way back in, so skip the icon-recovery dance and open
+        // Settings directly instead of racing the next refresh tick.
+        if GamingModeService.shared.isActive {
+            openSettingsWindow()
+            return true
+        }
         // A deliberate reopen with no windows showing is the user's recovery action.
         // Rebuild the menu bar item only when it is actually missing: the
         // pre-rebuild item has a settled frame, so iconIsOnScreen() is trustworthy

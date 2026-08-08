@@ -36,6 +36,7 @@ struct AmdPowerSettingsView: View {
     @State private var curveOffsets: [Int8] = []
     @State private var coStatusMessage: String?
     @State private var coStatusIsError = false
+    @ObservedObject private var gaming = GamingModeService.shared
     @ObservedObject private var fanCtrl = FanCurveController.shared
     @ObservedObject private var c6Service = C6ResidencyService.shared
     
@@ -554,6 +555,57 @@ struct AmdPowerSettingsView: View {
                         Text(l10n.amdPower.powerPresetsHeader)
                     } footer: {
                         Text(l10n.amdPower.powerPresetsFooter)
+                    }
+
+                    // Gaming Mode — one click: Extreme preset + Keep Awake +
+                    // hidden menu bar icon. Recoverable by relaunching the app.
+                    Section {
+                        Toggle("Gaming Mode", isOn: Binding(
+                            get: { gaming.isActive },
+                            set: { $0 ? gaming.activate() : gaming.deactivate() }
+                        ))
+
+                        Toggle("Hide menu bar icon", isOn: Binding(
+                            get: { gaming.hideMenuBar },
+                            set: { newValue in
+                                UserDefaults.standard.set(newValue, forKey: DefaultsKey.gamingModeHideMenuBar)
+                                if gaming.isActive {
+                                    StatusItemController.shared?.setForceHidden(newValue)
+                                }
+                            }
+                        ))
+                        .disabled(!gaming.isActive)
+
+                        if gaming.isActive {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Label("Extreme preset applied (EPP 0, CPB on)", systemImage: "flame.fill")
+                                Label("Keep Awake active (indefinite)", systemImage: "moon.zzz.fill")
+                                if gaming.hideMenuBar {
+                                    Label("Menu bar icon hidden — relaunch RyzenStatus to open Settings", systemImage: "eye.slash.fill")
+                                }
+                                if nvramCState.isC6Enabled {
+                                    Label("C6 still enabled at the NVRAM level — set amdcstate=0 and reboot for the full effect", systemImage: "exclamationmark.triangle.fill")
+                                        .foregroundColor(.orange)
+                                }
+                            }
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .transition(.opacity)
+                        }
+                        // Rendered even after a failed deactivation: the info
+                        // block above disappears with isActive, but the user
+                        // must still see that their previous profile could not
+                        // be restored.
+                        if let message = gaming.statusMessage {
+                            Label(message, systemImage: gaming.statusIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                                .font(.caption2)
+                                .foregroundColor(gaming.statusIsError ? .orange : .green)
+                                .transition(.opacity)
+                        }
+                    } header: {
+                        Label("Gaming Mode", systemImage: "gamecontroller.fill")
+                    } footer: {
+                        Text("One click: applies the Extreme power preset, starts Keep Awake indefinitely and hides the menu bar icon. Toggle off, or relaunch the app, to restore your previous profile.")
                     }
                 } else if legacyPstateAllowed {
                     Section {
