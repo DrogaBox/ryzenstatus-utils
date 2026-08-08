@@ -51,6 +51,7 @@ struct AmdPowerSettingsView: View {
 
     @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 10
     @AppStorage(DefaultsKey.autoEppLoadThreshold) private var loadThreshold: Int = 50
+    @AppStorage("coUnlocked") private var coUnlocked: Bool = false
 
     // snapEPP is now AMDPowerPreset.snapEPP() — single definition, no duplication.
 
@@ -272,31 +273,36 @@ struct AmdPowerSettingsView: View {
                             .foregroundColor(.orange)
                             .fixedSize(horizontal: false, vertical: true)
                     } else if coSupported {
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-                            ForEach(0..<coCoreCount, id: \.self) { core in
-                                curveOptimizerCell(core)
+                        Toggle("Unlock Curve Optimizer Controls", isOn: $coUnlocked)
+                            .padding(.bottom, 4)
+                        
+                        if coUnlocked {
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                                ForEach(0..<coCoreCount, id: \.self) { core in
+                                    curveOptimizerCell(core)
+                                }
                             }
-                        }
-                        HStack(spacing: 10) {
-                            Button {
-                                applyAllCurveOffsets()
-                            } label: {
-                                Label("Apply All", systemImage: "bolt.fill")
-                            }
-                            .buttonStyle(.borderedProminent)
+                            HStack(spacing: 10) {
+                                Button {
+                                    applyAllCurveOffsets()
+                                } label: {
+                                    Label("Apply All", systemImage: "bolt.fill")
+                                }
+                                .buttonStyle(.borderedProminent)
 
-                            Button("Reset to 0") {
-                                resetCurveOffsets()
-                            }
-                            .buttonStyle(.bordered)
+                                Button("Reset to 0") {
+                                    resetCurveOffsets()
+                                }
+                                .buttonStyle(.bordered)
 
-                            Spacer()
+                                Spacer()
 
-                            if let message = coStatusMessage {
-                                Text(message)
-                                    .font(.caption2)
-                                    .foregroundColor(coStatusIsError ? .red : .green)
-                                    .lineLimit(2)
+                                if let message = coStatusMessage {
+                                    Text(message)
+                                        .font(.caption2)
+                                        .foregroundColor(coStatusIsError ? .red : .green)
+                                        .lineLimit(2)
+                                }
                             }
                         }
                     } else {
