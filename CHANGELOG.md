@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.9.3] — 2026-08-08
+
+### Gaming Mode — Reliability
+- **Pre-Gaming Preset Persistence**: Gaming Mode now remembers your actual power profile (not a fallback) when you activate it, so after a relaunch with the mode still active, turning it off restores the exact preset you were running before — even across app restarts.
+- **Serialized Preset Transactions**: All power-preset writes (Settings cards, menu panel, and Gaming Mode activate/deactivate/restore) now go through a single FIFO queue in `AmdPresetController`. A fast toggle-off during activation or a restore racing a new activation can no longer interleave their persisted-key and kext writes, so the app and hardware can never disagree about which preset is active.
+
 ## [1.9.2] — 2026-08-08
 
 ### Stability & Performance (AMD Backend)
