@@ -17,9 +17,9 @@ struct AmdControlSection: View {
     @State private var validPStateLabels: [String] = []
     @ObservedObject private var autoEpp = AutoEppService.shared
     @ObservedObject private var gaming = GamingModeService.shared
+    @ObservedObject private var presetCtrl = AmdPresetController.shared
     @State private var loadTimer: Timer?
     @State private var showThresholds: Bool = false
-    @State private var selectedPreset: AMDPowerPreset? = AMDPowerPreset.saved()
     @State private var panelWarning: String = ""
     
     // Fan state
@@ -30,19 +30,13 @@ struct AmdControlSection: View {
     @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 10
     @AppStorage(DefaultsKey.autoEppLoadThreshold) private var loadThreshold: Int = 50
 
-    // Mapping for EPP values: 0 (Rendimiento), 85 (Balanced Perf), 170 (Balanced Power), 255 (Power Save)
-    private func snapEPP(_ e: UInt8) -> UInt8 {
-        if e < 42 { return 0 }
-        if e < 127 { return 85 }
-        if e < 212 { return 170 }
-        return 255
-    }
+    // snapEPP and presetColor are now on AMDPowerPreset — no local duplication.
 
     private var eppLabel: String {
         if autoEpp.isActive {
             return autoEpp.currentTarget.isEmpty ? "Monitor…" : autoEpp.currentTarget
         }
-        switch snapEPP(selectedEpp) {
+        switch AMDPowerPreset.snapEPP(selectedEpp) {
         case 0:   return "Rendimiento"
         case 85:  return "Balanced Perf"
         case 170: return "Balanced Power"
@@ -52,11 +46,11 @@ struct AmdControlSection: View {
 
     private var eppColor: Color {
         if autoEpp.isActive { return .secondary }
-        switch snapEPP(selectedEpp) {
-        case 0:   return .red      // Rendimiento = high power
+        switch AMDPowerPreset.snapEPP(selectedEpp) {
+        case 0:   return .red
         case 85:  return .orange
         case 170: return .yellow
-        default:  return .green    // Power Save = efficient
+        default:  return .green
         }
     }
 
@@ -137,10 +131,9 @@ struct AmdControlSection: View {
                             Picker("", selection: Binding(
                                 get: { 
                                     if autoEpp.isActive {
-                                        let e = autoEpp.currentEPP
-                                        return e < 42 ? UInt8(0) : (e < 127 ? UInt8(85) : (e < 212 ? UInt8(170) : UInt8(255)))
+                                        return AMDPowerPreset.snapEPP(autoEpp.currentEPP)
                                     } else {
-                                        return selectedEpp
+                                        return AMDPowerPreset.snapEPP(selectedEpp)
                                     }
                                 },
                                 set: { selectedEpp = $0 }
@@ -314,7 +307,7 @@ struct AmdControlSection: View {
             .padding(.top, 8)
             .padding(.bottom, 4)
             .onAppear {
-                let fansRes = ProcessorModel.shared.kernelGetUInt64(count: 1, selector: 91)
+                let fansRes = ProcessorModel.shared.kernelGetUInt64(count: 1, selector: AMDKextSelector.fanSpeedRead.id)
                 if fansRes.count > 0 {
                     let numFans = Int(fansRes[0])
                     var initFans: [(id: Int, name: String)] = []
@@ -347,18 +340,14 @@ struct AmdControlSection: View {
                 loadTimer = nil
             }
             // Gaming Mode applies the Extreme preset and restores the previous
-            // one on deactivation; re-read the applied preset so the buttons
-            // highlight what the kext is really running (the panel can stay
-            // open beside Settings while the mode toggles).
-            .onChange(of: gaming.isActive) { _, _ in
-                selectedPreset = AMDPowerPreset.saved() ?? selectedPreset
-            }
+            // one on deactivation; AmdPresetController.shared syncs automatically
+            // via its GamingModeService Combine subscription.
         }
     }
     
     private func updateFanRpm() {
         if !availableFans.isEmpty {
-            let rpms = ProcessorModel.shared.kernelGetUInt64(count: availableFans.count, selector: 93)
+            let rpms = ProcessorModel.shared.kernelGetUInt64(count: availableFans.count, selector: AMDKextSelector.fanSpeedWrite.id)
             if selectedFanId < rpms.count {
                 selectedFanRpm = Int(min(rpms[selectedFanId], 9999))
             }
@@ -376,7 +365,7 @@ struct AmdControlSection: View {
                 if cppcSupported {
                     let state = ProcessorModel.shared.getCPPCActiveMode()
                     // Snap to segmented value
-                    let target = snapEPP(state.epp)
+                    let target = AMDPowerPreset.snapEPP(state.epp)
                     if selectedEpp != target {
                         selectedEpp = target
                     }
@@ -428,7 +417,7 @@ struct AmdControlSection: View {
     // MARK: - Power Presets (menu panel)
 
     private func presetButton(_ preset: AMDPowerPreset) -> some View {
-        let isSelected = selectedPreset == preset
+        let isSelected = presetCtrl.selectedPreset == preset
         return Button {
             applyPreset(preset)
         } label: {
@@ -442,11 +431,11 @@ struct AmdControlSection: View {
             .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(isSelected ? presetColor(preset).opacity(0.15) : Color.secondary.opacity(0.07))
+                    .fill(isSelected ? preset.color.opacity(0.15) : Color.secondary.opacity(0.07))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
-                    .stroke(isSelected ? presetColor(preset) : Color.secondary.opacity(0.15), lineWidth: 1)
+                    .stroke(isSelected ? preset.color : Color.secondary.opacity(0.15), lineWidth: 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: 6))
         }
@@ -454,22 +443,10 @@ struct AmdControlSection: View {
     }
 
     private func applyPreset(_ preset: AMDPowerPreset) {
-        if autoEpp.isActive {
-            autoEpp.setCPPCActive(false)
-        }
-        let result = ProcessorModel.shared.applyPowerPreset(preset)
-        UserDefaults.standard.set(preset.rawValue, forKey: DefaultsKey.amdPowerPreset)
-        selectedPreset = preset
-        panelWarning = result.privilegeDenied ? "Requires admin privileges (-amdpnopchk)." : ""
-        checkCapabilities() // re-sync toggles + EPP picker with the kext echo right away
+        presetCtrl.apply(preset)
+        panelWarning = presetCtrl.privilegeMessage != nil ? "Requires admin privileges (-amdpnopchk)." : ""
+        checkCapabilities()
     }
 
-    private func presetColor(_ preset: AMDPowerPreset) -> Color {
-        switch preset {
-        case .eco: return .green
-        case .balance: return .blue
-        case .performance: return .orange
-        case .extreme: return .red
-        }
-    }
+    // presetColor(_:) removed — use preset.color directly (AMDPowerPreset.color).
 }

@@ -11,7 +11,7 @@ import Foundation
 /// so the CPU throttles down to Power Save during idle even when no Settings
 /// or menu panel view is open.
 ///
-/// Thresholds are read live from UserDefaults, so changes via `@AppStorage`
+/// Thresholds are read live from AmdSettingsStore, so changes via `@AppStorage`
 /// in the settings views take effect immediately on the next poll cycle.
 final class AutoEppService: ObservableObject {
     static let shared = AutoEppService()
@@ -35,9 +35,13 @@ final class AutoEppService: ObservableObject {
 
     private var timer: Timer?
     private static let pollInterval: TimeInterval = 1.5
+    /// Sentinel (0xFF) means "never written". Used to skip redundant MSR writes.
+    private var lastWrittenEPP: UInt8 = 0xFF
+    /// Set by suspend()/resume() — blocks poll() writes without touching UserDefaults.
+    private(set) var isSuspended: Bool = false
 
     private init() {
-        self.isActive = UserDefaults.standard.bool(forKey: DefaultsKey.autoEppEnabled)
+        self.isActive = AmdSettingsStore.shared.autoEppEnabled
     }
 
     // MARK: - Lifecycle
@@ -61,10 +65,30 @@ final class AutoEppService: ObservableObject {
         timer = nil
     }
 
+    // MARK: - Gaming Mode coordination
+
+    /// Suspends the Auto EPP poll loop without touching AmdSettingsStore.
+    /// Used by GamingModeService to prevent poll-cycle EPP overwrites
+    /// while Gaming Mode holds the Extreme preset.
+    /// Safe to call when already suspended (idempotent).
+    func suspend() {
+        timer?.invalidate()
+        timer = nil
+        isSuspended = true
+    }
+
+    /// Resumes the poll loop if Auto EPP is still enabled in AmdSettingsStore.
+    /// GamingModeService calls this on deactivation.
+    func resume() {
+        isSuspended = false
+        guard AmdSettingsStore.shared.autoEppEnabled else { return }
+        start() // idempotent — guard timer == nil inside start()
+    }
+
     /// Toggles CPPC Active Mode in the kext and updates published state immediately.
     @MainActor
     func setCPPCActive(_ active: Bool) {
-        UserDefaults.standard.set(active, forKey: DefaultsKey.autoEppEnabled)
+        AmdSettingsStore.shared.autoEppEnabled = active
         self.isActive = active
         let res = ProcessorModel.shared.setCPPCActiveMode(active: active)
         if res == ProcessorModel.kIOReturnNotPrivilegedCode {
@@ -79,6 +103,7 @@ final class AutoEppService: ObservableObject {
 
     func poll() {
         Task { @MainActor in
+            guard !isSuspended else { return }
             guard ProcessorModel.shared.connect != 0 else {
                 currentCPULoad = 0
                 currentGPULoad = 0
@@ -86,7 +111,7 @@ final class AutoEppService: ObservableObject {
                 return
             }
 
-            let enabled = UserDefaults.standard.bool(forKey: DefaultsKey.autoEppEnabled)
+            let enabled = AmdSettingsStore.shared.autoEppEnabled
             if self.isActive != enabled {
                 self.isActive = enabled
             }
@@ -111,9 +136,9 @@ final class AutoEppService: ObservableObject {
                 return
             }
 
-            // Read thresholds live from UserDefaults — they change via @AppStorage.
-            let idleThreshold = UserDefaults.standard.integer(forKey: DefaultsKey.autoEppIdleThreshold)
-            let loadThreshold = UserDefaults.standard.integer(forKey: DefaultsKey.autoEppLoadThreshold)
+            // Read thresholds live from AmdSettingsStore — they change via @AppStorage.
+            let idleThreshold = AmdSettingsStore.shared.autoEppIdleThreshold
+            let loadThreshold = AmdSettingsStore.shared.autoEppLoadThreshold
 
             // GPU-aware EPP logic:
             // - If GPU is heavily loaded (>60%), force Performance mode for gaming/rendering
@@ -145,9 +170,15 @@ final class AutoEppService: ObservableObject {
             currentTarget = targetName
             currentEPP = targetEPP
 
+            // P2-fix: Skip the MSR write when the EPP target hasn't changed.
+            // Every IOConnectCallMethod crosses into the kernel and acquires locks.
+            // In idle scenarios this was firing unconditionally every 1.5s.
+            guard targetEPP != lastWrittenEPP else { return }
             let writeRes = ProcessorModel.shared.setCPPCEPPValue(epp: targetEPP)
             if writeRes == ProcessorModel.kIOReturnNotPrivilegedCode {
                 privilegeDenied = true
+            } else {
+                lastWrittenEPP = targetEPP
             }
         }
     }

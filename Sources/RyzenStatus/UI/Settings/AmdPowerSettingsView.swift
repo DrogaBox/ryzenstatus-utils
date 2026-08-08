@@ -44,6 +44,7 @@ struct AmdPowerSettingsView: View {
     @State private var selectedPreset: AMDPowerPreset? = AMDPowerPreset.saved()
     @State private var privilegeMessage: String?
     @ObservedObject private var autoEpp = AutoEppService.shared
+    @ObservedObject private var presetCtrl = AmdPresetController.shared
     @ObservedObject private var monitor = SystemMonitor.shared
     @ObservedObject private var nvramCState = CStateNvramService.shared
     @ObservedObject private var l10n = L10n.shared
@@ -51,16 +52,10 @@ struct AmdPowerSettingsView: View {
     @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 10
     @AppStorage(DefaultsKey.autoEppLoadThreshold) private var loadThreshold: Int = 50
 
-    // Mapping for EPP values
-    private func snapEPP(_ e: UInt8) -> UInt8 {
-        if e < 42 { return 0 }
-        if e < 127 { return 85 }
-        if e < 212 { return 170 }
-        return 255
-    }
+    // snapEPP is now AMDPowerPreset.snapEPP() — single definition, no duplication.
 
     private var eppLabel: String {
-        switch snapEPP(selectedEpp) {
+        switch AMDPowerPreset.snapEPP(selectedEpp) {
         case 0:   return "Rendimiento"
         case 85:  return "Balanced Perf"
         case 170: return "Balanced Power"
@@ -1057,7 +1052,7 @@ struct AmdPowerSettingsView: View {
     // MARK: - Power Presets
 
     private func presetCard(_ preset: AMDPowerPreset) -> some View {
-        let isSelected = selectedPreset == preset
+        let isSelected = presetCtrl.selectedPreset == preset
         return Button {
             applyPreset(preset)
         } label: {
@@ -1065,7 +1060,7 @@ struct AmdPowerSettingsView: View {
                 HStack(spacing: 6) {
                     Image(systemName: preset.systemImage)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(presetColor(preset))
+                        .foregroundColor(preset.color)
                     Text(preset.rawValue)
                         .font(.system(size: 13, weight: .semibold))
                     Spacer(minLength: 4)
@@ -1084,11 +1079,11 @@ struct AmdPowerSettingsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(isSelected ? presetColor(preset).opacity(0.12) : Color.secondary.opacity(0.06))
+                    .fill(isSelected ? preset.color.opacity(0.12) : Color.secondary.opacity(0.06))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(isSelected ? presetColor(preset).opacity(0.7) : Color.secondary.opacity(0.15),
+                    .stroke(isSelected ? preset.color.opacity(0.7) : Color.secondary.opacity(0.15),
                             lineWidth: isSelected ? 1.5 : 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: 8))
@@ -1097,18 +1092,11 @@ struct AmdPowerSettingsView: View {
     }
 
     private func applyPreset(_ preset: AMDPowerPreset) {
-        // A preset owns the EPP profile: stop Auto EPP so its next poll cycle
-        // cannot overwrite the preset's values.
-        if autoEpp.isActive {
-            autoEpp.setCPPCActive(false)
+        presetCtrl.apply(preset)
+        if let msg = presetCtrl.privilegeMessage {
+            privilegeMessage = msg
         }
-        let result = ProcessorModel.shared.applyPowerPreset(preset)
-        UserDefaults.standard.set(preset.rawValue, forKey: DefaultsKey.amdPowerPreset)
-        selectedPreset = preset
-        if result.privilegeDenied {
-            privilegeMessage = result.firstFailureMessage
-        }
-        fetchState() // re-sync toggle states with the kext echo
+        fetchState()
     }
 
     private func presetSummary(_ preset: AMDPowerPreset) -> String {
@@ -1120,14 +1108,7 @@ struct AmdPowerSettingsView: View {
         }
     }
 
-    private func presetColor(_ preset: AMDPowerPreset) -> Color {
-        switch preset {
-        case .eco: return .green
-        case .balance: return .blue
-        case .performance: return .orange
-        case .extreme: return .red
-        }
-    }
+    // presetColor(_:) removed — use preset.color directly from AMDPowerPreset.
 
     private func fetchState() {
         Task { @MainActor in
@@ -1138,7 +1119,7 @@ struct AmdPowerSettingsView: View {
                 cppcActiveMode = state.active
                 cppcCurrentEPP = state.epp
                 // Snap to segmented value
-                let target = snapEPP(state.epp)
+                let target = AMDPowerPreset.snapEPP(state.epp)
                 if selectedEpp != target {
                     selectedEpp = target
                 }

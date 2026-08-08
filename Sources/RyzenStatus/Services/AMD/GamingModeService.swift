@@ -22,19 +22,16 @@ final class GamingModeService: ObservableObject {
 
     /// Whether the mode hides the menu bar icon (default on).
     var hideMenuBar: Bool {
-        UserDefaults.standard.bool(forKey: DefaultsKey.gamingModeHideMenuBar)
+        AmdSettingsStore.shared.gamingModeHideMenuBar
     }
 
     private var keepAwakeWasActive = false
-    private var autoEppWasActive = false
     private var restoredPreset: AMDPowerPreset = .balance
 
     private let activeKey = DefaultsKey.gamingModeActive
     private let presetKey = DefaultsKey.amdPowerPreset
-    /// Persisted snapshot of the Auto EPP preference taken at activation, so a
-    /// relaunch while the mode is active can still restore it on deactivation
-    /// (setCPPCActive flips the live `autoEppEnabled` key).
-    private let restoreAutoEppKey = DefaultsKey.gamingModeRestoreAutoEpp
+    // restoreAutoEppKey removed: AutoEppService.suspend()/resume() make the
+    // snapshot-in-UserDefaults pattern unnecessary and race-free.
 
     private init() {}
 
@@ -46,7 +43,7 @@ final class GamingModeService: ObservableObject {
         guard !isActive else { return }
 
         // Remember the current profile so deactivate() can put it back.
-        if let raw = UserDefaults.standard.string(forKey: presetKey),
+        if let raw = AmdSettingsStore.shared.amdPowerPreset,
            let preset = AMDPowerPreset(rawValue: raw) {
             restoredPreset = preset
         } else {
@@ -58,23 +55,17 @@ final class GamingModeService: ObservableObject {
             KeepAwakeManager.shared.activate(minutes: 0)
         }
 
-        // The preset owns the EPP profile: stop Auto EPP so its next poll
-        // cycle cannot overwrite the Extreme value (same guard as the presets UI).
-        // Snapshot the original preference BEFORE the flip, and persist it:
-        // setCPPCActive(false) writes `autoEppEnabled` to UserDefaults, so the
-        // in-memory flag alone would read wrong after a relaunch.
-        autoEppWasActive = UserDefaults.standard.bool(forKey: DefaultsKey.autoEppEnabled)
-        UserDefaults.standard.set(autoEppWasActive, forKey: restoreAutoEppKey)
-        if autoEppWasActive {
-            AutoEppService.shared.setCPPCActive(false)
-        }
+        // Suspend Auto EPP poll loop so it cannot overwrite the Extreme preset
+        // value during Gaming Mode. suspend() is idempotent and does not touch
+        // UserDefaults, so the user's Auto EPP preference is preserved.
+        AutoEppService.shared.suspend()
 
         let result = ProcessorModel.shared.applyPowerPreset(.extreme)
         // Mirror the presets UI: the key always names what is actually applied,
         // so deactivate() can tell a mid-mode manual preset change apart from
         // the untouched Extreme this mode applied.
-        UserDefaults.standard.set(AMDPowerPreset.extreme.rawValue, forKey: presetKey)
-        UserDefaults.standard.set(true, forKey: activeKey)
+        AmdPresetController.shared.apply(.extreme)
+        AmdSettingsStore.shared.gamingModeActive = true
         isActive = true
 
         if hideMenuBar {
@@ -98,7 +89,7 @@ final class GamingModeService: ObservableObject {
         // different preset manually, that choice wins over the pre-gaming
         // profile and is left applied (only a preset that is still Extreme is
         // one this mode applied).
-        let currentPreset = UserDefaults.standard.string(forKey: presetKey)
+        let currentPreset = AmdSettingsStore.shared.amdPowerPreset
             .flatMap(AMDPowerPreset.init(rawValue:)) ?? .balance
         let shouldRestorePreset = currentPreset == .extreme
 
@@ -111,21 +102,19 @@ final class GamingModeService: ObservableObject {
             } else {
                 statusMessage = nil
             }
-            UserDefaults.standard.set(restoredPreset.rawValue, forKey: presetKey)
+            AmdSettingsStore.shared.amdPowerPreset = restoredPreset.rawValue
         } else {
             statusMessage = nil
         }
         if !keepAwakeWasActive {
             KeepAwakeManager.shared.deactivate(reason: .manual)
         }
-        if autoEppWasActive {
-            AutoEppService.shared.setCPPCActive(true)
-        }
-        // The snapshot has served its purpose (restore decided above); drop it
-        // so the next activation snapshots fresh state.
-        UserDefaults.standard.removeObject(forKey: restoreAutoEppKey)
+        // Resume Auto EPP poll loop if the user had it enabled.
+        // resume() checks UserDefaults.autoEppEnabled internally and is a no-op
+        // if the user explicitly disabled it during Gaming Mode.
+        AutoEppService.shared.resume()
         StatusItemController.shared?.setForceHidden(false)
-        UserDefaults.standard.set(false, forKey: activeKey)
+        AmdSettingsStore.shared.gamingModeActive = false
         isActive = false
     }
 
@@ -133,18 +122,13 @@ final class GamingModeService: ObservableObject {
     /// Awake's auto-start): Extreme preset, indefinite Keep Awake and the
     /// hidden icon. Safe to call early in `applicationDidFinishLaunching`.
     func restoreIfNeeded() {
-        guard UserDefaults.standard.bool(forKey: activeKey), !isActive else { return }
+        guard AmdSettingsStore.shared.gamingModeActive, !isActive else { return }
         keepAwakeWasActive = KeepAwakeManager.shared.isActive
         if !keepAwakeWasActive {
             KeepAwakeManager.shared.activate(minutes: 0)
         }
-        // The snapshot taken at activation survives the relaunch even though
-        // setCPPCActive(false) flipped the live preference key; reading it
-        // restores the user's original Auto EPP choice on deactivation.
-        autoEppWasActive = UserDefaults.standard.bool(forKey: restoreAutoEppKey)
-        if autoEppWasActive {
-            AutoEppService.shared.setCPPCActive(false)
-        }
+        // Suspend Auto EPP on relaunch just like on initial activation.
+        AutoEppService.shared.suspend()
         let result = ProcessorModel.shared.applyPowerPreset(.extreme)
         if result.privilegeDenied {
             // Surfaces in Settings while the mode stays active, so a launch

@@ -51,7 +51,7 @@ actor ProcessorModel {
     
     // Performance optimization: cache for expensive kernel calls
     private var cachedGPUStats: (temp: Float, power: Float, util: Float, vram: Float, fan: Float, freq: Float, lastUpdate: Date) = (0, 0, 0, 0, 0, 0, .distantPast)
-    private let gpuStatsCacheInterval: TimeInterval = 0.5 // Update GPU stats every 500ms
+    // gpuStatsCacheInterval removed — IOAcceleratorCache owns the 500ms refresh cadence.
 
     // Thread-safe power cache: readable nonisolated from any queue (SystemMonitor, MenuBarRenderer)
     // Uses same class-wrapper pattern as TerminationState to avoid actor isolation issues.
@@ -190,7 +190,7 @@ actor ProcessorModel {
         var output = [UInt8](repeating: 0, count: totalSize)
         var outputSize = totalSize
         
-        let res: kern_return_t = IOConnectCallMethod(connect, 26, nil, 0, nil, 0,
+        let res: kern_return_t = IOConnectCallMethod(connect, AMDKextSelector.cpuPowerProfile.id, nil, 0, nil, 0,
                                                       nil, nil,
                                                       &output, &outputSize)
         guard res == KERN_SUCCESS, outputSize >= nameSize else {
@@ -276,7 +276,7 @@ actor ProcessorModel {
         let maxStrLength = 16
         var outputStr: [CChar] = [CChar](repeating: 0, count: maxStrLength)
         var outputStrCount: Int = maxStrLength
-        let versionResult = IOConnectCallMethod(connect, 8, nil, 0, nil, 0,
+        let versionResult = IOConnectCallMethod(connect, AMDKextSelector.kextVersion.id, nil, 0, nil, 0,
                                                  &scalerOut, &outputCount,
                                                  &outputStr, &outputStrCount)
         guard versionResult == KERN_SUCCESS, outputStrCount > 0 else {
@@ -310,7 +310,7 @@ actor ProcessorModel {
         loadPStateDefClock()
 
         // Initialize SuperIO for fan reading (selector 90)
-        _ = kernelGetUInt64(count: 2, selector: 90)
+        _ = kernelGetUInt64(count: 2, selector: AMDKextSelector.fanInit)
 
         if numberOfCores < 1 {
             await MainActor.run {
@@ -514,7 +514,7 @@ actor ProcessorModel {
         let maxStrLength = 67 //MaxCpu + 3
         var outputStr: [Float] = [Float](repeating: 0, count: maxStrLength)
         var outputStrCount: Int = 4/*sizeof(float)*/ * maxStrLength
-        let res = IOConnectCallMethod(connect, 4, nil, 0, nil, 0,
+        let res = IOConnectCallMethod(connect, AMDKextSelector.coreMetric.id, nil, 0, nil, 0,
                                       &scalerOut, &outputCount,
                                       &outputStr, &outputStrCount)
 
@@ -582,7 +582,7 @@ actor ProcessorModel {
 
     private func loadPStateDef(){
 
-        PStateDef = kernelGetUInt64(count: 8, selector: 0)
+        PStateDef = kernelGetUInt64(count: 8, selector: AMDKextSelector.pStateDef)
         var i = 0
         while i < PStateDef.count {
             if (PStateDef[i] & 0x8000000000000000) == 0 { //LOL Swift
@@ -595,7 +595,7 @@ actor ProcessorModel {
     }
 
     private func loadCPUID(){
-        cpuidBasic = kernelGetUInt64(count: 8, selector: 7)
+        cpuidBasic = kernelGetUInt64(count: 8, selector: AMDKextSelector.cpuidInfo.id)
     }
 
     private func loadBaseBoardInfo(){
@@ -605,7 +605,7 @@ actor ProcessorModel {
         let maxStrLength = 128
         var outputStr: [CChar] = [CChar](repeating: 0, count: maxStrLength)
         var outputStrCount: Int = maxStrLength
-        let _ = IOConnectCallMethod(connect, 16, nil, 0, nil, 0,
+        let _ = IOConnectCallMethod(connect, AMDKextSelector.baseboardInfo.id, nil, 0, nil, 0,
                                       &scalerOut, &outputCount,
                                       &outputStr, &outputStrCount)
 
@@ -629,7 +629,7 @@ actor ProcessorModel {
             return
         }
 
-        PStateDefClock = kernelGetFloats(count: 10, selector: 1)
+        PStateDefClock = kernelGetFloats(count: 10, selector: AMDKextSelector.pStateDefClock)
 
         // Sanitizar valores NaN/Inf del kernel (CpuDfsId=0 produce NaN en la división)
         for i in 0..<PStateDefClock.count {
@@ -703,7 +703,7 @@ actor ProcessorModel {
     }
 
     nonisolated func getHPCpus() -> Int{
-        let o = kernelGetUInt64(count: 1, selector: 17)
+        let o = kernelGetUInt64(count: 1, selector: AMDKextSelector.lpmRead)
         return o.count > 0 ? Int(o[0]) : 0
     }
 
@@ -741,7 +741,7 @@ actor ProcessorModel {
         }
 
         var input: [UInt64] = [UInt64(state)]
-        let res = IOConnectCallMethod(connect, 10, &input, 1, nil, 0,
+        let res = IOConnectCallMethod(connect, AMDKextSelector.pStateWrite.id, &input, 1, nil, 0,
                                       nil, nil,
                                       nil, nil)
 
@@ -772,7 +772,7 @@ actor ProcessorModel {
     nonisolated func getCPPCActiveMode() -> (active: Bool, epp: UInt8) {
         var output: [UInt64] = [0, 0]
         var outputCount: UInt32 = 2
-        let res = IOConnectCallMethod(connect, 23, nil, 0, nil, 0, &output, &outputCount, nil, nil)
+        let res = IOConnectCallMethod(connect, AMDKextSelector.cppcActive.id, nil, 0, nil, 0, &output, &outputCount, nil, nil)
         if res != KERN_SUCCESS {
             logKernelError(res)
             return (false, 0x3F)
@@ -782,12 +782,12 @@ actor ProcessorModel {
 
     nonisolated func setCPPCActiveMode(active: Bool) -> kern_return_t {
         var input: [UInt64] = [active ? 1 : 0]
-        return IOConnectCallMethod(connect, 24, &input, 1, nil, 0, nil, nil, nil, nil)
+        return IOConnectCallMethod(connect, AMDKextSelector.cppcActiveMode.id, &input, 1, nil, 0, nil, nil, nil, nil)
     }
 
     nonisolated func setCPPCEPPValue(epp: UInt8) -> kern_return_t {
         var input: [UInt64] = [UInt64(epp)]
-        return IOConnectCallMethod(connect, 25, &input, 1, nil, 0, nil, nil, nil, nil)
+        return IOConnectCallMethod(connect, AMDKextSelector.eppValue.id, &input, 1, nil, 0, nil, nil, nil, nil)
     }
 
     func getPStateDef() -> [UInt64]{
@@ -819,36 +819,36 @@ actor ProcessorModel {
     }
 
     nonisolated func getCPB() -> [Bool] {
-        let o = kernelGetUInt64(count: 2, selector: 11)
+        let o = kernelGetUInt64(count: 2, selector: AMDKextSelector.cpbRead)
         return o.map{ $0 == 0 ? false : true }
     }
 
     @discardableResult
     nonisolated func setCPB(enabled: Bool) -> kern_return_t {
         var input: [UInt64] = [UInt64(enabled ? 1 : 0)]
-        return IOConnectCallMethod(connect, 12, &input, 1, nil, 0, nil, nil, nil, nil)
+        return IOConnectCallMethod(connect, AMDKextSelector.cpb.id, &input, 1, nil, 0, nil, nil, nil, nil)
     }
 
     nonisolated func getPPM() -> Bool {
-        let o = kernelGetUInt64(count: 2, selector: 13)
+        let o = kernelGetUInt64(count: 2, selector: AMDKextSelector.ppmRead)
         return o.count > 0 && o[0] != 0
     }
 
     @discardableResult
     nonisolated func setPPM(enabled: Bool) -> kern_return_t {
         var input: [UInt64] = [UInt64(enabled ? 1 : 0)]
-        return IOConnectCallMethod(connect, 14, &input, 1, nil, 0, nil, nil, nil, nil)
+        return IOConnectCallMethod(connect, AMDKextSelector.ppm.id, &input, 1, nil, 0, nil, nil, nil, nil)
     }
 
     nonisolated func getLPM() -> Bool {
-        let o = kernelGetUInt64(count: 1, selector: 18)
+        let o = kernelGetUInt64(count: 1, selector: AMDKextSelector.c6ResidencyMSR)
         return o.count > 0 && o[0] != 0
     }
 
     @discardableResult
     nonisolated func setLPM(enabled: Bool) -> kern_return_t {
         var input: [UInt64] = [UInt64(enabled ? 1 : 0)]
-        return IOConnectCallMethod(connect, 19, &input, 1, nil, 0, nil, nil, nil, nil)
+        return IOConnectCallMethod(connect, AMDKextSelector.lpm.id, &input, 1, nil, 0, nil, nil, nil, nil)
     }
 
     // MARK: - Power Presets (EPP + CPB + PPM/LPM)
@@ -878,7 +878,7 @@ actor ProcessorModel {
     }
 
     nonisolated func getInstructionDelta() -> [UInt64]{
-        let o = kernelGetUInt64(count: 1, selector: 5)
+        let o = kernelGetUInt64(count: 1, selector: AMDKextSelector.deltaInstructions.id)
         return o.count > 0 ? [o[0]] : [0]
     }
 
@@ -888,7 +888,7 @@ actor ProcessorModel {
         }
 
         var input: [UInt64] = def
-        let res = IOConnectCallMethod(connect, 15, &input, 8, nil, 0,
+        let res = IOConnectCallMethod(connect, AMDKextSelector.pStateManual.id, &input, 8, nil, 0,
                                       nil, nil,
                                       nil, nil)
 
@@ -906,7 +906,11 @@ actor ProcessorModel {
     static func sysctlString(key : String) -> String {
         var size = 0
         sysctlbyname(key, nil, &size, nil, 0)
-        var machine = [CChar](repeating: 0,  count: size)
+        // P1-fix: size == 0 means the key is absent or the call failed.
+        // Do NOT allocate an empty [CChar] — String(cString:) would read
+        // past the buffer boundary looking for a NUL terminator.
+        guard size > 0 else { return "" }
+        var machine = [CChar](repeating: 0, count: size + 1) // +1 guarantees NUL terminator
         sysctlbyname(key, &machine, &size, nil, 0)
         return String(cString: machine)
     }
@@ -972,19 +976,19 @@ actor ProcessorModel {
     /// Number of AMD GPUs detected by the kext (selector 27).
     /// Returns 0 if selectors are not implemented in the loaded kext.
     nonisolated func getKextGPUCount() -> Int {
-        let result = kernelGetUInt64(count: 1, selector: 27)
+        let result = kernelGetUInt64(count: 1, selector: AMDKextSelector.gpuLoad)
         return result.isEmpty ? 0 : Int(result[0])
     }
 
     /// GPU temperatures from kext in SP78 format (selector 28).
     /// Convert to °C: `Double(Int16(bitPattern: raw)) / 256.0`
     nonisolated func getKextGPUTemperatures() -> [UInt16] {
-        return kernelGetUInt16s(count: 16, selector: 28)
+        return kernelGetUInt16s(count: 16, selector: AMDKextSelector.gpuStats1.id)
     }
 
     /// GPU powers from kext in watts (selector 29).
     nonisolated func getKextGPUPowers() -> [Float] {
-        return kernelGetFloats(count: 16, selector: 29)
+        return kernelGetFloats(count: 16, selector: AMDKextSelector.gpuStats2.id)
     }
 
     /// GPU capabilities from kext (selector 30).
@@ -992,7 +996,7 @@ actor ProcessorModel {
     /// little-endian uint64 (one slot per GPU); reduce each slot to its low byte
     /// so the result is a per-GPU `UInt8` array as documented (bit 0 = supportsPower).
     nonisolated func getKextGPUCapabilities() -> [UInt8] {
-        let raw = kernelGetUInt64(count: 16, selector: 30)
+        let raw = kernelGetUInt64(count: 16, selector: AMDKextSelector.gpuStats3.id)
         return raw.map { UInt8(truncatingIfNeeded: $0) }
     }
 
@@ -1012,87 +1016,52 @@ actor ProcessorModel {
         gpuCache.update(count: count, temperatures: temps, powers: powers, capabilities: capabilities)
     }
 
-    // MARK: - GPU Statistics (from IOAccelerator PerformanceStatistics)
+    // MARK: - GPU Statistics (via IOAcceleratorCache — single shared IOKit iterator)
 
-    /// Reads all GPU PerformanceStatistics in a single IOKit iterator pass.
-    private func readAllIOAcceleratorStats() -> [String: Float] {
-        var iter: io_iterator_t = 0
-        let err = IOServiceGetMatchingServices(kIOMainPortDefault,
-                                               IOServiceMatching("IOAccelerator"), &iter)
-        if err != kIOReturnSuccess { return [:] }
-        defer { IOObjectRelease(iter) }
+    /// Refreshes the GPU stats tuple from the shared IOAcceleratorCache.
+    /// The cache throttles IOKit walks to once per 500ms; this call is cheap
+    /// when called more frequently (returns cached snapshot).
+    private func updateGPUStatsCache() async {
+        let s   = await IOAcceleratorCache.shared.snapshot()
+        let temp  = (s["Temperature(C)"] as? NSNumber)?.floatValue ?? (s["Temperature(C)"] as? Float) ?? 0
+        let power = (s["Total Power(W)"] as? NSNumber)?.floatValue ?? (s["Total Power(W)"] as? Float) ?? 0
+        let util  = (s["Device Utilization %"] as? NSNumber)?.floatValue ?? 0
+        let vram  = (s["inUseVidMemoryBytes"] as? NSNumber)?.floatValue ?? 0
+        let freq  = (s["Core Clock(MHz)"] as? NSNumber)?.floatValue ?? 0
+        let rawFan = (s["Fan Speed(RPM)"] as? NSNumber)?.floatValue ?? 0
+        let fan   = (temp > 0 && temp < 50.0) ? 0 : rawFan
 
-        var results: [String: Float] = [:]
-        while true {
-            let reg = IOIteratorNext(iter)
-            if reg == 0 { break }
-            defer { IOObjectRelease(reg) }
-
-            if let dict = IORegistryEntryCreateCFProperty(reg, "PerformanceStatistics" as CFString,
-                                                         kCFAllocatorDefault, 0)?.takeRetainedValue() as? [String: Any] {
-                for key in ["Temperature(C)", "Total Power(W)", "Device Utilization %", "inUseVidMemoryBytes", "Core Clock(MHz)", "Fan Speed(RPM)"] {
-                    if let v = dict[key] as? NSNumber { results[key] = v.floatValue }
-                    else if let v = dict[key] as? Int  { results[key] = Float(v) }
-                }
-                break // First accelerator found
-            }
-        }
-        return results
-    }
-
-    /// Optimized GPU stats with caching to reduce IOAccelerator queries (single pass)
-    private func updateGPUStatsCache() {
-        let now = Date()
-        if now.timeIntervalSince(cachedGPUStats.lastUpdate) < gpuStatsCacheInterval {
-            return
-        }
-        
-        let stats = readAllIOAcceleratorStats()
-        let temp = stats["Temperature(C)"] ?? 0
-        let power = stats["Total Power(W)"] ?? 0
-        let util = stats["Device Utilization %"] ?? 0
-        let vram = stats["inUseVidMemoryBytes"] ?? 0
-        let freq = stats["Core Clock(MHz)"] ?? 0
-        let rawFan = stats["Fan Speed(RPM)"] ?? 0
-        // Zero-RPM mode: clamp fan reading to 0 when the card is cool enough
-        // that the fan is stopped. The 50°C threshold is conservative for most
-        // GPUs; Navi 21 can hold zero-RPM up to ~60°C, but we use 50°C as a
-        // safe noise-floor threshold that works across vendors.
-        let fan = (temp > 0 && temp < 50.0) ? 0 : rawFan
-        
-        cachedGPUStats = (temp, power, util, vram, fan, freq, now)
-
-        // Update thread-safe GPU power cache
+        cachedGPUStats = (temp, power, util, vram, fan, freq, Date())
         powerCache.setGPU(Double(power))
     }
     
-    func getGPUTemp() -> Float {
-        updateGPUStatsCache()
+    func getGPUTemp() async -> Float {
+        await updateGPUStatsCache()
         return cachedGPUStats.temp
     }
 
-    func getGPUPower() -> Float {
-        updateGPUStatsCache()
+    func getGPUPower() async -> Float {
+        await updateGPUStatsCache()
         return cachedGPUStats.power
     }
 
-    func getGPUUtilization() -> Float {
-        updateGPUStatsCache()
+    func getGPUUtilization() async -> Float {
+        await updateGPUStatsCache()
         return cachedGPUStats.util
     }
 
-    func getGPUVramUsed() -> Float {
-        updateGPUStatsCache()
+    func getGPUVramUsed() async -> Float {
+        await updateGPUStatsCache()
         return cachedGPUStats.vram
     }
 
-    func getGPUFanRPM() -> Float {
-        updateGPUStatsCache()
+    func getGPUFanRPM() async -> Float {
+        await updateGPUStatsCache()
         return cachedGPUStats.fan
     }
 
-    func getGPUFreq() -> Float {
-        updateGPUStatsCache()
+    func getGPUFreq() async -> Float {
+        await updateGPUStatsCache()
         return cachedGPUStats.freq
     }
 
@@ -1103,7 +1072,7 @@ actor ProcessorModel {
         var outputStr: [Float] = [Float](repeating: 0.0, count: maxCCDs)
         var outputStrCount: Int = MemoryLayout<Float>.size * maxCCDs
         
-        let res = IOConnectCallMethod(connect, 20, nil, 0, nil, 0,
+        let res = IOConnectCallMethod(connect, AMDKextSelector.ccdTopology.id, nil, 0, nil, 0,
                                       &scalerOut, &outputCount,
                                       &outputStr, &outputStrCount)
                                       
@@ -1126,7 +1095,7 @@ actor ProcessorModel {
         var outputStr: [UInt8] = [UInt8](repeating: 0, count: maxLogicalCores)
         var outputStrCount: Int = MemoryLayout<UInt8>.size * maxLogicalCores
         
-        let res = IOConnectCallMethod(connect, 21, nil, 0, nil, 0,
+        let res = IOConnectCallMethod(connect, AMDKextSelector.coreRanking.id, nil, 0, nil, 0,
                                       &scalerOut, &outputCount,
                                       &outputStr, &outputStrCount)
                                       
@@ -1139,7 +1108,7 @@ actor ProcessorModel {
     }
 
     nonisolated func getPackageC6Residency() -> UInt64 {
-        let o = kernelGetUInt64(count: 1, selector: 31)
+        let o = kernelGetUInt64(count: 1, selector: AMDKextSelector.c6ResidencyPkg)
         return o.first ?? 0
     }
 
@@ -1150,7 +1119,7 @@ actor ProcessorModel {
         if isTerminating || Task.isCancelled { return nil }
         var output = [UInt8](repeating: 0, count: CPUSensorPacket.byteSize)
         var outputSize = CPUSensorPacket.byteSize
-        let status = IOConnectCallMethod(connect, 100, nil, 0, nil, 0,
+        let status = IOConnectCallMethod(connect, AMDKextSelector.telemetryFull.id, nil, 0, nil, 0,
                                          nil, nil,
                                          &output, &outputSize)
         guard status == KERN_SUCCESS, outputSize >= CPUSensorPacket.byteSize else {
@@ -1164,7 +1133,7 @@ actor ProcessorModel {
         var scalerOut: UInt64 = 0
         var outputCount: UInt32 = 1
         
-        let res = IOConnectCallMethod(connect, 22, nil, 0, nil, 0,
+        let res = IOConnectCallMethod(connect, AMDKextSelector.cStateAddress.id, nil, 0, nil, 0,
                                       &scalerOut, &outputCount,
                                       nil, nil)
                                       
@@ -1194,11 +1163,11 @@ actor ProcessorModel {
     /// Fetches all kext/mach telemetry in a single actor-isolated call,
     /// collapsing ~8 `await` crossings into one. Internally caches GPU stats
     /// via `updateGPUStatsCache()` (500 ms TTL).
-    func snapshotTelemetry(forceMetric: Bool) -> TelemetrySnapshot {
+    func snapshotTelemetry(forceMetric: Bool) async -> TelemetrySnapshot {
         let metric = getMetric(forced: forceMetric)
         let loadIdx = getLoadIndex()
         let cores = numberOfCores
-        updateGPUStatsCache()
+        await updateGPUStatsCache()
         return TelemetrySnapshot(
             metric: metric,
             loadIndex: loadIdx,
@@ -1217,10 +1186,10 @@ actor ProcessorModel {
     /// are pinned to the menu bar. Updates the nonisolated PowerCache so the
     /// monitor queue can read fresh values without any actor crossing.
     /// Also refreshes kext GPU data (selectors 27-30).
-    func refreshPowerCache() {
-        loadMetric()           // updates powerCache.cpu via setCPU
-        updateGPUStatsCache()  // updates powerCache.gpu via setGPU
-        refreshKextGPUStats()  // updates gpuCache via kext selectors 27-30
+    func refreshPowerCache() async {
+        loadMetric()              // updates powerCache.cpu via setCPU
+        await updateGPUStatsCache()  // updates powerCache.gpu via setGPU
+        refreshKextGPUStats()    // updates gpuCache via kext selectors 27-30
     }
     
     // MARK: - CPU Details (sysctl)
@@ -1265,7 +1234,7 @@ actor ProcessorModel {
         var output = [Int8](repeating: 0, count: 64) // MaxCpus is typically 64
         var outputSize = output.count
         
-        let res = IOConnectCallMethod(connect, 110, nil, 0, nil, 0,
+        let res = IOConnectCallMethod(connect, AMDKextSelector.curveOptimizerRead.id, nil, 0, nil, 0,
                                       nil, nil,
                                       &output, &outputSize)
         
@@ -1278,17 +1247,17 @@ actor ProcessorModel {
     }
     
     nonisolated func getFans() -> [FanSnapshot] {
-        let fansRes = kernelGetUInt64(count: 1, selector: 91)
+        let fansRes = kernelGetUInt64(count: 1, selector: AMDKextSelector.fanSpeedRead.id)
         guard fansRes.count > 0 else { return [] }
         let numFans = min(Int(fansRes[0]), 16) // Cap at 16 to prevent unbounded allocation
         guard numFans > 0 else { return [] }
         
-        let fanRpms = kernelGetUInt64(count: numFans, selector: 93)
-        let fanCtrls = kernelGetUInt64(count: numFans, selector: 94)
+        let fanRpms = kernelGetUInt64(count: numFans, selector: AMDKextSelector.fanSpeedWrite.id)
+        let fanCtrls = kernelGetUInt64(count: numFans, selector: AMDKextSelector.fanCtrlRead)
         
         var fans: [FanSnapshot] = []
         for i in 0..<numFans {
-            let name = kernelGetString(selector: 92, args: [UInt64(i)])
+            let name = kernelGetString(selector: AMDKextSelector.fanName, args: [UInt64(i)])
             let finalName = name.isEmpty ? "Fan \(i + 1)" : name
             let customName = UserDefaults.standard.string(forKey: "FanName_\(i)") ?? finalName
             
@@ -1311,7 +1280,7 @@ actor ProcessorModel {
     nonisolated func setFanMode(auto: Bool, fanIndex: Int = 0) -> Bool {
         if auto {
             // Selector 96 = setDefaultFanControl(fanSel)
-            let res = kernelSetUInt64Status(selector: 96, args: [UInt64(fanIndex)])
+            let res = kernelSetUInt64Status(selector: AMDKextSelector.fanModeWrite, args: [UInt64(fanIndex)])
             return res == KERN_SUCCESS
         }
         return true
@@ -1319,7 +1288,7 @@ actor ProcessorModel {
     
     nonisolated func setFanSpeed(pwm: Int, fanIndex: Int = 0) -> Bool {
         // Selector 95 = overrideFanControl(fanSel, pwm)
-        let res = kernelSetUInt64Status(selector: 95, args: [UInt64(fanIndex), UInt64(pwm)])
+        let res = kernelSetUInt64Status(selector: AMDKextSelector.fanSpeedWrite2, args: [UInt64(fanIndex), UInt64(pwm)])
         return res == KERN_SUCCESS
     }
     
@@ -1341,7 +1310,7 @@ actor ProcessorModel {
                                      hysteresis: hysteresis,
                                      rampRate: rampRate,
                                      lut: lut)
-        return kernelSetStruct(selector: 101, data: input.packedData())
+        return kernelSetStruct(selector: AMDKextSelector.fanCurveLUTRead.id, data: input.packedData())
     }
 
     /// Maps a physical fan header to a curve slot (selector 102).
@@ -1353,7 +1322,7 @@ actor ProcessorModel {
     nonisolated func mapKextFanToCurve(fanIndex: Int, curveIndex: Int) -> kern_return_t {
         // Curve index -1 (Auto) must cross as UInt64 bit pattern, not trap.
         let rawCurve = UInt64(bitPattern: Int64(curveIndex))
-        return kernelSetUInt64Status(selector: 102, args: [UInt64(fanIndex), rawCurve])
+        return kernelSetUInt64Status(selector: AMDKextSelector.fanCurveLUTWrite.id, args: [UInt64(fanIndex), rawCurve])
     }
 
     @discardableResult
@@ -1361,7 +1330,7 @@ actor ProcessorModel {
         // cast offset to raw bit representation for transfer over 64-bit parameter
         let rawOffset = UInt64(bitPattern: Int64(offset))
         var input: [UInt64] = [UInt64(core), rawOffset]
-        return IOConnectCallMethod(connect, 111, &input, 2, nil, 0, nil, nil, nil, nil)
+        return IOConnectCallMethod(connect, AMDKextSelector.curveOptimizerWrite.id, &input, 2, nil, 0, nil, nil, nil, nil)
     }
 }
 

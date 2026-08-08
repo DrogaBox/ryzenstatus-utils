@@ -96,7 +96,13 @@ class FanCurveController: ObservableObject {
                 guard let self else { break }
                 
                 let telemetry = await ProcessorModel.shared.snapshotTelemetry(forceMetric: false)
-                let cpuTemp = telemetry.metric.count > 1 ? Double(telemetry.metric[1]) : 0.0 // Package Temp with bounds check
+                // P1-fix: If the kext times out, metric[1] comes back as 0.0.
+                // Injecting 0°C to the PID curve shuts fans off abruptly under load.
+                // Retain the last valid reading instead.
+                let rawCPUTemp = telemetry.metric.count > 1 ? Double(telemetry.metric[1]) : 0.0
+                if rawCPUTemp > 0 { lastTemp[.cpu] = rawCPUTemp }
+                let cpuTemp = lastTemp[.cpu] ?? rawCPUTemp  // falls back to 0 only on first read
+
 
                 // Kext GPU temp (thread-safe, no actor hop)
                 let kextGPUTemp = ProcessorModel.shared.lastKextGPUTemperature

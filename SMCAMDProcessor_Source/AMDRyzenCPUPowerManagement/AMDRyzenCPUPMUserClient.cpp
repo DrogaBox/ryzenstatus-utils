@@ -36,7 +36,11 @@ bool AMDRyzenCPUPMUserClient::initWithTask(task_t owningTask,
     //   per-call via hasPrivilege() — root or boot-arg -amdpnopchk only.
     // - Do NOT return false for non-root here: that makes IOServiceOpen fail and
     //   the GUI shows a false "kext not found" error.
-    bool isRoot = (proc_suser(proc) == 0 || kauth_cred_getuid(proc_ucred(proc)) == 0);
+    // kauth_cred_proc_ref() increments the refcount; we must balance it with
+    // kauth_cred_unref() after reading the UID to avoid a kernel memory leak.
+    kauth_cred_t cred = kauth_cred_proc_ref(proc);
+    bool isRoot = (proc_suser(proc) == 0 || kauth_cred_getuid(cred) == 0);
+    kauth_cred_unref(&cred);
     bool isDebugBypass = checkKernelArgument("-amdpnopchk");
 
     if (isDebugBypass) {
@@ -80,8 +84,14 @@ bool AMDRyzenCPUPMUserClient::hasPrivilege(uint32_t selector){
     // where a process opens a UserClient connection as root, then drops
     // privileges — the cached flag would incorrectly remain true.
     proc_t proc = (proc_t)get_bsdtask_info(fOwningTask);
-    if (proc && (proc_suser(proc) == 0 || kauth_cred_getuid(proc_ucred(proc)) == 0))
-        return true;
+    if (proc) {
+        // Acquire + read + release — mirrors the fix in initWithTask.
+        kauth_cred_t cred = kauth_cred_proc_ref(proc);
+        bool privileged = (proc_suser(proc) == 0 || kauth_cred_getuid(cred) == 0);
+        kauth_cred_unref(&cred);
+        if (privileged)
+            return true;
+    }
     
     IOLog("AMDRyzenCPUPMUserClient: DENIED select %u pid=%d binary='%s' (need root or -amdpnopchk)\n",
           selector, proc_selfpid(), taskProcessBinaryName);

@@ -692,13 +692,14 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             }
 
             if plan.needGPUUsage || plan.needMemory {
-                // Track GPU VRAM with state persistence across sampling ticks
                 if take(.gpuUsage) {
-                    if let vramUsed = self.readGPUVRAM() {
-                        self.lastGPUVRAMUsed = vramUsed
-                        let totalVram = self.readGPUVRAMTotal() ?? UInt64(16 * 1024 * 1024 * 1024)
-                        self.lastGPUVRAMTotal = totalVram
-                        self.gpuMemoryHistory.push(Double(vramUsed) / Double(totalVram))
+                    Task {
+                        if let vramUsed = await self.readGPUVRAM() {
+                            self.lastGPUVRAMUsed = vramUsed
+                            let totalVram = await self.readGPUVRAMTotal() ?? UInt64(16 * 1024 * 1024 * 1024)
+                            self.lastGPUVRAMTotal = totalVram
+                            self.gpuMemoryHistory.push(Double(vramUsed) / Double(totalVram))
+                        }
                     }
                 }
                 next.gpuMemoryUsed = self.lastGPUVRAMUsed
@@ -768,15 +769,17 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 let suppressGPUForUI = suppressImmediateGPU || now < suppressGPUReadsUntil
                 let shouldSampleGPU = !suppressGPUForUI && take(.gpuUsage)
                 if shouldSampleGPU {
-                    if let rawGPU = self.readGPUUsage() {
-                        self.lastGPUUsage = MetricFormat.stabilizedGPUUsage(previous: self.lastGPUUsage,
-                                                                            current: rawGPU)
-                        self.missedGPUUsageSamples = 0
-                        if let gpu = self.lastGPUUsage { self.gpuHistory.push(gpu) }
-                    } else if self.missedGPUUsageSamples < 3 {
-                        self.missedGPUUsageSamples += 1
-                    } else {
-                        self.lastGPUUsage = nil
+                    Task {
+                        if let rawGPU = await self.readGPUUsage() {
+                            self.lastGPUUsage = MetricFormat.stabilizedGPUUsage(previous: self.lastGPUUsage,
+                                                                                current: rawGPU)
+                            self.missedGPUUsageSamples = 0
+                            if let gpu = self.lastGPUUsage { self.gpuHistory.push(gpu) }
+                        } else if self.missedGPUUsageSamples < 3 {
+                            self.missedGPUUsageSamples += 1
+                        } else {
+                            self.lastGPUUsage = nil
+                        }
                     }
                 }
                 next.gpuUsage = self.lastGPUUsage
@@ -1163,100 +1166,29 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         return nil
     }
 
-    private func readGPUUsage() -> Double? {
-        let serviceClasses = ["IOAccelerator", "AMDRadeonX6000_AMDAcceleratedVKDriver", "AMDGPUAccelerator"]
-        for serviceClass in serviceClasses {
-            var iterator = io_iterator_t()
-            guard IOServiceGetMatchingServices(kIOMainPortDefault,
-                                               IOServiceMatching(serviceClass),
-                                               &iterator) == kIOReturnSuccess else { continue }
-            defer { IOObjectRelease(iterator) }
-
-            var entry = IOIteratorNext(iterator)
-            while entry != 0 {
-                defer {
-                    IOObjectRelease(entry)
-                    entry = IOIteratorNext(iterator)
-                }
-                guard let ref = IORegistryEntryCreateCFProperty(entry, "PerformanceStatistics" as CFString,
-                                                                kCFAllocatorDefault, 0),
-                      let stats = ref.takeRetainedValue() as? [String: Any]
-                else { continue }
-                
-                if let util = Self.extractUtilization(from: stats) {
-                    return util
-                }
-            }
+    private func readGPUUsage() async -> Double? {
+        // Delegate to the shared IOAcceleratorCache — avoids a second IOKit registry walk.
+        if let util = await IOAcceleratorCache.shared.utilization() {
+            return util
         }
+        // Fallback: last AMD kext snapshot if the accelerator dict has no utilisation key.
         if let amdUtil = self.lastAmdSnapshot?.gpuUtil, amdUtil > 0 {
             return Double(amdUtil) / 100.0
         }
         return nil
     }
 
-    private func readGPUVRAM() -> UInt64? {
-        let serviceClasses = ["IOAccelerator", "AMDRadeonX6000_AMDAcceleratedVKDriver", "AMDGPUAccelerator"]
-        let keys = ["inUseVidMemoryBytes", "vramUsed", "allocatedVidMemoryBytes", "usedVRAM", "VRAMUsed"]
-        
-        for cls in serviceClasses {
-            var iterator = io_iterator_t()
-            guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching(cls), &iterator) == kIOReturnSuccess else { continue }
-            defer { IOObjectRelease(iterator) }
-
-            while true {
-                let entry = IOIteratorNext(iterator)
-                if entry == 0 { break }
-                defer { IOObjectRelease(entry) }
-                
-                if let ref = IORegistryEntryCreateCFProperty(entry, "PerformanceStatistics" as CFString, kCFAllocatorDefault, 0),
-                   let stats = ref.takeRetainedValue() as? [String: Any] {
-                    for key in keys {
-                        if let vram = stats[key] as? NSNumber, vram.uint64Value > 0 {
-                            return vram.uint64Value
-                        } else if let vram = stats[key] as? UInt64, vram > 0 {
-                            return vram
-                        } else if let vram = stats[key] as? Double, vram > 0 {
-                            return UInt64(vram)
-                        }
-                    }
-                }
-            }
-        }
-        
+    private func readGPUVRAM() async -> UInt64? {
+        if let v = await IOAcceleratorCache.shared.vramUsed() { return v }
         if let vramMB = self.lastAmdSnapshot?.gpuVram, vramMB > 0 {
             return UInt64(vramMB * 1024 * 1024)
         }
         return nil
     }
 
-    private func readGPUVRAMTotal() -> UInt64? {
-        let serviceClasses = ["IOAccelerator", "AMDRadeonX6000_AMDAcceleratedVKDriver", "AMDGPUAccelerator"]
-        let keys = ["VRAM,totalMB", "vramTotal", "totalVidMemoryBytes", "VRAMTotal"]
-        
-        for cls in serviceClasses {
-            var iterator = io_iterator_t()
-            guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching(cls), &iterator) == kIOReturnSuccess else { continue }
-            defer { IOObjectRelease(iterator) }
-
-            while true {
-                let entry = IOIteratorNext(iterator)
-                if entry == 0 { break }
-                defer { IOObjectRelease(entry) }
-                
-                if let ref = IORegistryEntryCreateCFProperty(entry, "PerformanceStatistics" as CFString, kCFAllocatorDefault, 0),
-                   let stats = ref.takeRetainedValue() as? [String: Any] {
-                    for key in keys {
-                        if let total = stats[key] as? NSNumber {
-                            let val = total.uint64Value
-                            return val < 100000 ? val * 1024 * 1024 : val
-                        } else if let total = stats[key] as? UInt64 {
-                            return total < 100000 ? total * 1024 * 1024 : total
-                        }
-                    }
-                }
-            }
-        }
-        return UInt64(16 * 1024 * 1024 * 1024)
+    private func readGPUVRAMTotal() async -> UInt64? {
+        if let v = await IOAcceleratorCache.shared.vramTotal() { return v }
+        return UInt64(16 * 1024 * 1024 * 1024) // RX 6800 XT fallback: 16 GB
     }
 
     // MARK: - Memory pressure

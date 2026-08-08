@@ -2,6 +2,7 @@
 // Copyright (C) 2026 RyzenStatus
 
 import Foundation
+import SwiftUI
 
 /// One-tap power profiles applied through the kext's existing selectors:
 /// EPP (25), CPB (12), PPM (14) and LPM (19).
@@ -34,35 +35,20 @@ enum AMDPowerPreset: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Processor Power Manager limit (selector 14) — locks to P1 when on.
-    /// No preset enables PPM today; kept explicit so the exclusivity logic
-    /// below stays self-documenting and future presets can opt in.
-    var ppmEnabled: Bool {
-        switch self {
-        case .eco: return false
-        case .balance: return false
-        case .performance: return false
-        case .extreme: return false
-        }
-    }
+    /// Processor Power Manager limit (selector 14).
+    var ppmEnabled: Bool { false }
 
-    /// Low Power Mode limit (selector 19) — locks to P2 when on.
+    /// Low Power Mode limit (selector 19).
     var lpmEnabled: Bool {
         switch self {
         case .eco: return true
-        case .balance: return false
-        case .performance: return false
-        case .extreme: return false
+        case .balance, .performance, .extreme: return false
         }
     }
 
-    /// PPM and LPM are mutually exclusive in the kext (`setPMPStateLimit`).
-    /// Invariant enforced by the model and by `applyPowerPreset(_:)`.
+    /// PPM and LPM are mutually exclusive in the kext.
     var keepsPowerLimitsExclusive: Bool { !(ppmEnabled && lpmEnabled) }
 
-    /// Whether the preset wants deep C-States (C6) enabled. C6 is a boot-arg
-    /// (`amdcstate=0`, NVRAM) — it is informational here and requires a reboot;
-    /// presets never touch it live.
     var c6Desired: Bool {
         switch self {
         case .eco, .balance: return true
@@ -70,7 +56,6 @@ enum AMDPowerPreset: String, CaseIterable, Identifiable {
         }
     }
 
-    /// SF Symbol shown on the preset card.
     var systemImage: String {
         switch self {
         case .eco: return "leaf.fill"
@@ -80,12 +65,30 @@ enum AMDPowerPreset: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The preset last applied by the user or by Gaming Mode, from
-    /// `DefaultsKey.amdPowerPreset`, or nil when none has been applied yet.
-    /// Views that highlight the selected card re-read this whenever Gaming
-    /// Mode toggles, so the highlight tracks what is actually applied.
+    // MARK: — UI helpers (single source of truth — eliminates duplication in views)
+
+    /// Accent color used by all preset buttons and cards.
+    var color: Color {
+        switch self {
+        case .eco: return .green
+        case .balance: return .blue
+        case .performance: return .orange
+        case .extreme: return .red
+        }
+    }
+
+    /// Snaps a raw EPP byte to the nearest segmented-picker value (0/85/170/255).
+    /// Used by both AmdPowerSettingsView and AmdControlSection — single definition.
+    static func snapEPP(_ e: UInt8) -> UInt8 {
+        if e < 42  { return 0 }
+        if e < 127 { return 85 }
+        if e < 212 { return 170 }
+        return 255
+    }
+
+    /// The preset last applied by the user or by Gaming Mode, from UserDefaults.
     static func saved() -> AMDPowerPreset? {
-        guard let raw = UserDefaults.standard.object(forKey: DefaultsKey.amdPowerPreset) as? String,
+        guard let raw = AmdSettingsStore.shared.amdPowerPreset,
               let preset = AMDPowerPreset(rawValue: raw) else { return nil }
         return preset
     }

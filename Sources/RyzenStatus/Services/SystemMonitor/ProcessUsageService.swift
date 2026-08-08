@@ -527,22 +527,27 @@ final class ProcessUsageService {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self = self else { return }
             let current = Self.gpuTimePerPid()
-            let totalGPUUtil = Self.readTotalGPUUtilization()  // BUG-14: local var, not instance property
 
             self.gpuSampleLock.lock()
             let previous = self.previousGPUSample
             self.previousGPUSample = (now, Dictionary(uniqueKeysWithValues: current.map { ($0.pid, $0.time) }))
             self.gpuSampleLock.unlock()
 
-            var rows: [ProcessUsage] = []
-            var computePercentSum: Double = 0
-            
-            if let previous, now > previous.time, now - previous.time < 30 {
-                let elapsedNs = (now - previous.time) * 1_000_000_000
-                for (pid, name, total) in current {
-                    guard let before = previous.perPid[pid], total > before else { continue }
-                    let percent = (total - before) / elapsedNs * 100
-                    guard percent >= 0.05 else { continue }
+            Task {
+                let totalGPUUtil = await Self.readTotalGPUUtilization()
+                self.gpuSampleLock.lock()
+                let prevSnapshot = previous
+                self.gpuSampleLock.unlock()
+
+                var rows: [ProcessUsage] = []
+                var computePercentSum: Double = 0
+
+                if let prevSnapshot, now > prevSnapshot.time, now - prevSnapshot.time < 30 {
+                    let elapsedNs = (now - prevSnapshot.time) * 1_000_000_000
+                    for (pid, name, total) in current {
+                        guard let before = prevSnapshot.perPid[pid], total > before else { continue }
+                        let percent = (total - before) / elapsedNs * 100
+                        guard percent >= 0.05 else { continue }
                     let displayName = ResponsibleProcess.displayName(pid: pid, fallback: name)
                     rows.append(ProcessUsage(pid: pid, name: displayName, value: min(percent, 100)))
                     computePercentSum += percent
@@ -559,43 +564,14 @@ final class ProcessUsageService {
             }
 
             _ = self.finishGPU(self.groupedByApp(rows), limit: limit)
-        }
+            } // Close Task
+        } // Close DispatchQueue
         return cached
     }
     
-    /// Reads the global GPU utilization (%) from IOAccelerator PerformanceStatistics.
-    /// Reads the global GPU utilization (%) from IOAccelerator PerformanceStatistics.
-    private static func readTotalGPUUtilization() -> Double {
-        let serviceClasses = ["IOAccelerator", "AMDRadeonX6000_AMDAcceleratedVKDriver", "AMDGPUAccelerator"]
-        let keys = ["Device Utilization %", "GPU Activity(%)", "GPU Core Utilization", "GPU Busy", "Hardware Activity"]
-        
-        for cls in serviceClasses {
-            var iterator = io_iterator_t()
-            guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching(cls), &iterator) == kIOReturnSuccess else { continue }
-            defer { IOObjectRelease(iterator) }
-            
-            while true {
-                let entry = IOIteratorNext(iterator)
-                if entry == 0 { break }
-                defer { IOObjectRelease(entry) }
-                
-                if let ref = IORegistryEntryCreateCFProperty(entry, "PerformanceStatistics" as CFString, kCFAllocatorDefault, 0),
-                   let stats = ref.takeRetainedValue() as? [String: Any] {
-                    for key in keys {
-                        if let util = stats[key] as? NSNumber {
-                            return util.doubleValue
-                        } else if let util = stats[key] as? Double {
-                            return util
-                        } else if let util = stats[key] as? Int {
-                            return Double(util)
-                        } else if let util = stats[key] as? UInt64 {
-                            return Double(util)
-                        }
-                    }
-                }
-            }
-        }
-        return 0
+    /// Reads the global GPU utilization (%) from IOAcceleratorCache (single shared IOKit iterator).
+    private static func readTotalGPUUtilization() async -> Double {
+        return await IOAcceleratorCache.shared.utilization() ?? 0
     }
 
     private func finishCPU(_ rows: [ProcessUsage]?, limit: Int) -> [ProcessUsage] {
