@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.9.4] — 2026-08-08
+
+### Fans & Cooling — Usability & Safety
+- **Fan Curve Editor as a Master Switch**: Turning the curve editor on now maps the first curve to the first fan right away, so one tap visibly starts controlling a header. Turning it off restores every mapped fan to automatic control and stops the userspace loop — no more fans staying curve-driven after the toggle is off.
+- **Reliable First Tap**: The one-tap mapping retries once fan detection completes, so it no longer silently does nothing when the kext is slow to report fans on startup.
+- **GPU Temp Source Hidden When Not Applicable**: The curve editor only offers the GPU temperature source when a discrete AMD GPU is present (the GPU fan is managed by the GPU itself). Hiding it is non-destructive — stored GPU-sourced curves keep their intent and are just shown as CPU.
+- **Thermal Safety Guard**: The userspace fan-curve loop now enforces the same safety floor as the kext — at least 80% PWM above 85 °C — so a user-drawn curve can never leave the CPU without airflow near its thermal limit, on every supported CPU family (Zen 1–5).
+
+### Housekeeping
+- Removed dead kext fan-curve code (selectors 101/102 UI) left over in AMD Power Settings after the feature moved to Fans & Cooling.
+
 ## [1.9.3] — 2026-08-08
 
 ### Gaming Mode — Reliability
