@@ -2,8 +2,19 @@ import SwiftUI
 
 struct InteractiveFanCurveEditor: View {
     @ObservedObject var controller = FanCurveController.shared
+    /// False when no discrete AMD GPU is present. The GPU fan is always
+    /// managed by the GPU itself (vBIOS), so a GPU-temp-sourced curve can only
+    /// drive a case/CPU fan header — and the control loop falls back to CPU
+    /// temp when no GPU temperature is available. Hiding the option on
+    /// GPU-less machines is purely cosmetic: the user's stored curves are
+    /// never rewritten, only the visible picker choices shrink.
+    var hasDiscreteGPU: Bool = true
     @State private var selectedCurveIndex: Int = 0
     @State private var hoveredPointIndex: Int? = nil
+
+    private var visibleSensors: [FanSensor] {
+        hasDiscreteGPU ? [.cpu, .gpu] : [.cpu]
+    }
     
     var body: some View {
         guard selectedCurveIndex < controller.customCurves.count else {
@@ -81,18 +92,26 @@ struct InteractiveFanCurveEditor: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Temp Source").font(.system(size: 10)).foregroundColor(.secondary)
                         Picker("", selection: Binding(
-                            get: { curve.sourceSensor },
+                            get: {
+                                // Display-only fallback: a stored .gpu curve on
+                                // a GPU-less machine shows as CPU Temp, but the
+                                // stored value is left untouched so the curve
+                                // keeps its intent if a GPU appears later.
+                                visibleSensors.contains(curve.sourceSensor) ? curve.sourceSensor : .cpu
+                            },
                             set: { newVal in
+                                guard visibleSensors.contains(newVal) else { return }
                                 var updated = controller.customCurves
                                 updated[selectedCurveIndex].sourceSensor = newVal
                                 controller.customCurves = updated
                             }
                         )) {
-                            Text("CPU Temp").tag(FanSensor.cpu)
-                            Text("GPU Temp").tag(FanSensor.gpu)
+                            ForEach(visibleSensors, id: \.self) { sensor in
+                                Text(sensor == .cpu ? "CPU Temp" : "GPU Temp").tag(sensor)
+                            }
                         }
                         .pickerStyle(.segmented)
-                        .frame(width: 150)
+                        .frame(width: hasDiscreteGPU ? 150 : 100)
                     }
                     
                     VStack(alignment: .leading, spacing: 4) {

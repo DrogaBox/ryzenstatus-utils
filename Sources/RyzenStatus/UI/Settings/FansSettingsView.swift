@@ -6,9 +6,10 @@ struct FansSettingsView: View {
     @State private var hasSMCWriteAccess: Bool = true
     @State private var loadTimer: Timer?
     @State private var hiddenFanIDs: Set<Int> = []
-    @State private var autoFanCurveEnabled: Bool = false
+    @AppStorage(DefaultsKey.fanCurvesEditorEnabled) private var autoFanCurveEnabled = false
     @State private var customFanNames: [Int: String] = [:]
     @ObservedObject var controller = FanCurveController.shared
+    @ObservedObject private var monitor = SystemMonitor.shared
     
     var body: some View {
         Form {
@@ -136,7 +137,9 @@ struct FansSettingsView: View {
                         
                         if autoFanCurveEnabled {
                             Divider()
-                            InteractiveFanCurveEditor()
+                            InteractiveFanCurveEditor(
+                                hasDiscreteGPU: !monitor.snapshot.gpuDevices.isEmpty
+                            )
                         }
                     }
                     .padding(.vertical, 4)
@@ -144,6 +147,20 @@ struct FansSettingsView: View {
                     Text("Curves")
                         .font(.system(size: 11, weight: .semibold))
                         .textCase(nil)
+                }                footer: {
+                    Text("Turning this on evaluates your custom curves in the app and drives the first fan with the first curve — pick a different curve per fan in the dropdown below each card. Turning it off restores every mapped fan to automatic control. The GPU fan is managed by the GPU itself and cannot be controlled here.")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+                .onChange(of: autoFanCurveEnabled) { _, enabled in
+                    if enabled {
+                        autoMapFirstCurveIfNeeded()
+                    } else {
+                        // Master switch: restore every curve-mapped fan to
+                        // automatic control and stop the userspace loop.
+                        controller.resetFansToAutoSync()
+                        controller.fanMappings = [:]
+                    }
                 }
                 
                 Section {
@@ -187,9 +204,29 @@ struct FansSettingsView: View {
                         self.customFanNames[fan.id] = saved
                     }
                 }
+                // The toggle may have been left on in a previous session; the
+                // persisted .onChange does not re-fire on appear, so retry the
+                // one-tap mapping now that fan detection has completed.
+                if autoFanCurveEnabled {
+                    autoMapFirstCurveIfNeeded()
+                }
                 self.fetchState()
             }
         }
+    }
+
+    /// One tap should do something: map the first curve to the first fan so
+    /// the toggle visibly starts driving a header. The user can re-map or
+    /// disable per fan in the cards. Safe to call repeatedly — no-ops when a
+    /// mapping already exists, no curves exist, or no fan is detected yet.
+    private func autoMapFirstCurveIfNeeded() {
+        let mappings = controller.fanMappings
+        let hasAnyMapping = mappings.values.contains { $0 >= 0 }
+        guard !hasAnyMapping, !controller.customCurves.isEmpty else { return }
+        guard let firstFan = fans.first else { return }
+        var updated = controller.fanMappings
+        updated[firstFan.id] = 0
+        controller.fanMappings = updated
     }
     
     private func fetchState() {
