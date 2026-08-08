@@ -6,6 +6,7 @@ import Combine
 
 /// Single source of truth for AMD backend settings.
 /// Replaces scattered UserDefaults accesses to prevent race conditions and "ghost states".
+@MainActor
 public final class AmdSettingsStore: ObservableObject {
     public static let shared = AmdSettingsStore()
     private let defaults = UserDefaults.standard

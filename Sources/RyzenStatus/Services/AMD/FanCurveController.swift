@@ -1,13 +1,23 @@
 import Foundation
 import Combine
 import os.log
+import os
 
 @MainActor
 class FanCurveController: ObservableObject {
     static let shared = FanCurveController()
     
+    struct FanCurveState {
+        var mappings: [Int: Int] = [:]
+        var curves: [FanCurve] = []
+    }
+    
+    private let stateLock = OSAllocatedUnfairLock(initialState: FanCurveState())
+    
     @Published var customCurves: [FanCurve] = [] {
         didSet {
+            let curvesToSave = customCurves
+            stateLock.withLock { $0.curves = curvesToSave }
             if let data = try? JSONEncoder().encode(customCurves) {
                 UserDefaults.standard.set(data, forKey: "customCurves")
             }
@@ -16,6 +26,8 @@ class FanCurveController: ObservableObject {
     
     @Published var fanMappings: [Int: Int] = [:] {
         didSet {
+            let mappingsToSave = fanMappings
+            stateLock.withLock { $0.mappings = mappingsToSave }
             if let data = try? JSONEncoder().encode(fanMappings) {
                 UserDefaults.standard.set(data, forKey: "fanMappings")
             }
@@ -67,6 +79,13 @@ class FanCurveController: ObservableObject {
             self.fanMappings = [:]
         }
         
+        let curvesToSave = self.customCurves
+        let mappingsToSave = self.fanMappings
+        stateLock.withLock {
+            $0.curves = curvesToSave
+            $0.mappings = mappingsToSave
+        }
+        
         updateControlLoopState()
     }
     
@@ -96,13 +115,12 @@ class FanCurveController: ObservableObject {
                 guard let self else { break }
                 
                 let telemetry = await ProcessorModel.shared.snapshotTelemetry(forceMetric: false)
-                // P1-fix: If the kext times out, metric[1] comes back as 0.0.
-                // Injecting 0°C to the PID curve shuts fans off abruptly under load.
+                // P1/P2-fix: If the kext times out, metric[1] comes back as 0.0.
+                // Thermal safety guardrails: rawCPUTemp <= 0 or > 125.0 are considered sensor failures.
                 // Retain the last valid reading instead.
                 let rawCPUTemp = telemetry.metric.count > 1 ? Double(telemetry.metric[1]) : 0.0
-                if rawCPUTemp > 0 { lastTemp[.cpu] = rawCPUTemp }
-                let cpuTemp = lastTemp[.cpu] ?? rawCPUTemp  // falls back to 0 only on first read
-
+                if rawCPUTemp > 0 && rawCPUTemp <= 125.0 { lastTemp[.cpu] = rawCPUTemp }
+                let cpuTemp = lastTemp[.cpu] ?? rawCPUTemp  // falls back to bad value only on first read
 
                 // Kext GPU temp (thread-safe, no actor hop)
                 let kextGPUTemp = ProcessorModel.shared.lastKextGPUTemperature
@@ -110,14 +128,15 @@ class FanCurveController: ObservableObject {
                 let fallbackGPUTemp = await MainActor.run {
                     SystemMonitor.shared.snapshot.gpuTemperature ?? cpuTemp
                 }
-                // If both kext and fallback are 0 (e.g. kext not loaded yet,
-                // snapshot not updated), fall back to CPU temp as a safe minimum
-                // so the fan curve never uses 0 °C as its temperature input.
-                let gpuTemp = kextGPUTemp > 0 ? kextGPUTemp : fallbackGPUTemp > 0 ? fallbackGPUTemp : cpuTemp
-                
-                let (mappings, curves) = await MainActor.run {
-                    (self.fanMappings, self.customCurves)
+                var rawGPUTemp = kextGPUTemp > 0 ? kextGPUTemp : fallbackGPUTemp > 0 ? fallbackGPUTemp : cpuTemp
+                if rawGPUTemp > 0 && rawGPUTemp <= 125.0 {
+                    lastTemp[.gpu] = rawGPUTemp
+                } else {
+                    rawGPUTemp = lastTemp[.gpu] ?? rawGPUTemp
                 }
+                let gpuTemp = rawGPUTemp
+                
+                let (mappings, curves) = self.stateLock.withLock { ($0.mappings, $0.curves) }
                 
                 for (fanId, curveIdx) in mappings {
                     if curveIdx < 0 || curveIdx >= curves.count {
@@ -183,12 +202,15 @@ class FanCurveController: ObservableObject {
 
     /// Resets all custom-mapped fans back to automatic mode asynchronously.
     /// Safe to call on app termination or teardown.
+    ///
+    /// Reads the fan mapping from the thread-safe `stateLock` snapshot instead
+    /// of crossing to the MainActor to capture `FanCurveController.shared` —
+    /// on teardown the shared instance may already be deallocated, and the
+    /// lock snapshot needs no actor hop.
     nonisolated func resetFansToAutoSync() {
-        Task {
-            let mappings = await MainActor.run { FanCurveController.shared.fanMappings }
-            for (fanId, curveIdx) in mappings where curveIdx >= 0 {
-                _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fanId)
-            }
+        let mappings = stateLock.withLock { $0.mappings }
+        for (fanId, curveIdx) in mappings where curveIdx >= 0 {
+            _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fanId)
         }
     }
 }

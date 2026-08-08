@@ -58,13 +58,11 @@ final class GamingModeService: ObservableObject {
         // Suspend Auto EPP poll loop so it cannot overwrite the Extreme preset
         // value during Gaming Mode. suspend() is idempotent and does not touch
         // UserDefaults, so the user's Auto EPP preference is preserved.
+        // NOTE: do NOT go through AmdPresetController.apply(_:) here — it calls
+        // setCPPCActive(false) when Auto EPP is on, which would permanently
+        // write autoEppEnabled=false to UserDefaults.
         AutoEppService.shared.suspend()
 
-        let result = ProcessorModel.shared.applyPowerPreset(.extreme)
-        // Mirror the presets UI: the key always names what is actually applied,
-        // so deactivate() can tell a mid-mode manual preset change apart from
-        // the untouched Extreme this mode applied.
-        AmdPresetController.shared.apply(.extreme)
         AmdSettingsStore.shared.gamingModeActive = true
         isActive = true
 
@@ -72,13 +70,21 @@ final class GamingModeService: ObservableObject {
             StatusItemController.shared?.setForceHidden(true)
         }
 
-        if result.privilegeDenied {
-            statusMessage = result.firstFailureMessage
-                ?? "The power preset needs root or -amdpnopchk; Keep Awake and the hidden icon are still active."
-            statusIsError = true
-        } else {
-            statusMessage = "Extreme preset, Keep Awake and hidden icon active."
-            statusIsError = false
+        Task {
+            // Transactional: the key is written before the kext write and rolled
+            // back on privilege denial, so the persisted key always names what
+            // the kext actually applied.
+            let result = await AmdPresetController.shared.withPresetTransaction(.extreme) { preset in
+                await ProcessorModel.shared.applyPowerPreset(preset)
+            }
+            if result.privilegeDenied {
+                self.statusMessage = result.firstFailureMessage
+                    ?? "The power preset needs root or -amdpnopchk; Keep Awake and the hidden icon are still active."
+                self.statusIsError = true
+            } else {
+                self.statusMessage = "Extreme preset, Keep Awake and hidden icon active."
+                self.statusIsError = false
+            }
         }
     }
 
@@ -94,25 +100,29 @@ final class GamingModeService: ObservableObject {
         let shouldRestorePreset = currentPreset == .extreme
 
         if shouldRestorePreset {
-            let restore = ProcessorModel.shared.applyPowerPreset(restoredPreset)
-            if restore.privilegeDenied {
-                statusMessage = restore.firstFailureMessage
-                    ?? "Could not restore your previous profile (privilege)."
-                statusIsError = true
-            } else {
-                statusMessage = nil
+            Task {
+                let restore = await AmdPresetController.shared.withPresetTransaction(self.restoredPreset) { preset in
+                    await ProcessorModel.shared.applyPowerPreset(preset)
+                }
+                if restore.privilegeDenied {
+                    self.statusMessage = restore.firstFailureMessage
+                        ?? "Could not restore your previous profile (privilege)."
+                    self.statusIsError = true
+                } else {
+                    self.statusMessage = nil
+                }
+                // Resume Auto EPP only after the restored preset lands, so its
+                // first poll cycle cannot overwrite the restored EPP mid-apply.
+                AutoEppService.shared.resume()
             }
-            AmdSettingsStore.shared.amdPowerPreset = restoredPreset.rawValue
         } else {
             statusMessage = nil
+            // No preset to restore — Auto EPP is safe to resume right away.
+            AutoEppService.shared.resume()
         }
         if !keepAwakeWasActive {
             KeepAwakeManager.shared.deactivate(reason: .manual)
         }
-        // Resume Auto EPP poll loop if the user had it enabled.
-        // resume() checks UserDefaults.autoEppEnabled internally and is a no-op
-        // if the user explicitly disabled it during Gaming Mode.
-        AutoEppService.shared.resume()
         StatusItemController.shared?.setForceHidden(false)
         AmdSettingsStore.shared.gamingModeActive = false
         isActive = false
@@ -129,19 +139,24 @@ final class GamingModeService: ObservableObject {
         }
         // Suspend Auto EPP on relaunch just like on initial activation.
         AutoEppService.shared.suspend()
-        let result = ProcessorModel.shared.applyPowerPreset(.extreme)
-        if result.privilegeDenied {
-            // Surfaces in Settings while the mode stays active, so a launch
-            // that could not re-apply the profile is not silent.
-            statusMessage = result.firstFailureMessage
-                ?? "Could not re-apply the Extreme preset on launch; Keep Awake and the hidden icon are still active."
-            statusIsError = true
-        } else {
-            statusMessage = nil
-        }
+        isActive = true
         if hideMenuBar {
             StatusItemController.shared?.setForceHidden(true)
         }
-        isActive = true
+        
+        Task {
+            let result = await AmdPresetController.shared.withPresetTransaction(.extreme) { preset in
+                await ProcessorModel.shared.applyPowerPreset(preset)
+            }
+            if result.privilegeDenied {
+                // Surfaces in Settings while the mode stays active, so a launch
+                // that could not re-apply the profile is not silent.
+                self.statusMessage = result.firstFailureMessage
+                    ?? "Could not re-apply the Extreme preset on launch; Keep Awake and the hidden icon are still active."
+                self.statusIsError = true
+            } else {
+                self.statusMessage = nil
+            }
+        }
     }
 }

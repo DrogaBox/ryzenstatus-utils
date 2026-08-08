@@ -13,6 +13,7 @@ import Foundation
 ///
 /// Thresholds are read live from AmdSettingsStore, so changes via `@AppStorage`
 /// in the settings views take effect immediately on the next poll cycle.
+@MainActor
 final class AutoEppService: ObservableObject {
     static let shared = AutoEppService()
 
@@ -33,13 +34,14 @@ final class AutoEppService: ObservableObject {
 
     // MARK: - Internal state
 
-    private var timer: Timer?
+    private var pollTask: Task<Void, Never>?
     private static let pollInterval: TimeInterval = 1.5
     /// Sentinel (0xFF) means "never written". Used to skip redundant MSR writes.
     private var lastWrittenEPP: UInt8 = 0xFF
     /// Set by suspend()/resume() — blocks poll() writes without touching UserDefaults.
     private(set) var isSuspended: Bool = false
 
+    @MainActor
     private init() {
         self.isActive = AmdSettingsStore.shared.autoEppEnabled
     }
@@ -49,20 +51,20 @@ final class AutoEppService: ObservableObject {
     /// Starts the monitoring loop. Called once from the app delegate at launch.
     /// Idempotent — safe to call multiple times.
     func start() {
-        guard timer == nil else { return }
-        let t = Timer(timeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
-            self?.poll()
+        guard pollTask == nil else { return }
+        pollTask = Task.detached(priority: .background) { [weak self] in
+            await self?.poll()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(Self.pollInterval * 1_000_000_000))
+                await self?.poll()
+            }
         }
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
-        // Fire immediately so the UI has data on first observation.
-        poll()
     }
 
     /// Stops the monitoring loop. Called on termination.
     func stop() {
-        timer?.invalidate()
-        timer = nil
+        pollTask?.cancel()
+        pollTask = nil
     }
 
     // MARK: - Gaming Mode coordination
@@ -72,13 +74,14 @@ final class AutoEppService: ObservableObject {
     /// while Gaming Mode holds the Extreme preset.
     /// Safe to call when already suspended (idempotent).
     func suspend() {
-        timer?.invalidate()
-        timer = nil
+        pollTask?.cancel()
+        pollTask = nil
         isSuspended = true
     }
 
     /// Resumes the poll loop if Auto EPP is still enabled in AmdSettingsStore.
     /// GamingModeService calls this on deactivation.
+    @MainActor
     func resume() {
         isSuspended = false
         guard AmdSettingsStore.shared.autoEppEnabled else { return }
@@ -90,96 +93,101 @@ final class AutoEppService: ObservableObject {
     func setCPPCActive(_ active: Bool) {
         AmdSettingsStore.shared.autoEppEnabled = active
         self.isActive = active
-        let res = ProcessorModel.shared.setCPPCActiveMode(active: active)
-        if res == ProcessorModel.kIOReturnNotPrivilegedCode {
-            privilegeDenied = true
-        } else {
-            privilegeDenied = false
+        Task {
+            let res = await ProcessorModel.shared.setCPPCActiveMode(active: active)
+            if res == ProcessorModel.kIOReturnNotPrivilegedCode {
+                self.privilegeDenied = true
+            } else {
+                self.privilegeDenied = false
+            }
+            await self.poll()
         }
-        poll()
     }
 
     // MARK: - Polling
 
-    func poll() {
-        Task { @MainActor in
-            guard !isSuspended else { return }
-            guard ProcessorModel.shared.connect != 0 else {
+    func poll() async {
+        guard !isSuspended else { return }
+        let isConnected = await ProcessorModel.shared.connect != 0
+        guard isConnected else {
+            await MainActor.run {
                 currentCPULoad = 0
                 currentGPULoad = 0
                 currentTarget = ""
-                return
             }
+            return
+        }
 
-            let enabled = AmdSettingsStore.shared.autoEppEnabled
-            if self.isActive != enabled {
-                self.isActive = enabled
-            }
+        let enabled = await MainActor.run { AmdSettingsStore.shared.autoEppEnabled }
 
-            // Read CPU load continuously so the UI load meter always reflects live load
-            let loads = await ProcessorModel.shared.getLoadIndex()
-            let cpuAvg: Float
-            if !loads.isEmpty {
-                cpuAvg = loads.reduce(0, +) * 100 / Float(loads.count)
-            } else {
-                cpuAvg = Float((SystemMonitor.shared.snapshot.cpuUsage ?? 0) * 100)
-            }
-            currentCPULoad = cpuAvg
+        let loads = await ProcessorModel.shared.getLoadIndex()
+        let cpuAvg: Float
+        if !loads.isEmpty {
+            cpuAvg = loads.reduce(0, +) * 100 / Float(loads.count)
+        } else {
+            cpuAvg = Float(await MainActor.run { SystemMonitor.shared.snapshot.cpuUsage ?? 0 } * 100)
+        }
 
-            // Read GPU load from SystemMonitor snapshot
-            let gpuUtil = SystemMonitor.shared.snapshot.gpuUsage ?? 0
-            let gpuLoad = Float(gpuUtil * 100)
-            currentGPULoad = gpuLoad
+        let gpuUtil = await MainActor.run { SystemMonitor.shared.snapshot.gpuUsage ?? 0 }
+        let gpuLoad = Float(gpuUtil * 100)
 
-            guard enabled else {
+        guard enabled else {
+            await MainActor.run {
+                if self.isActive != enabled { self.isActive = enabled }
+                currentCPULoad = cpuAvg
+                currentGPULoad = gpuLoad
                 currentTarget = ""
-                return
             }
+            return
+        }
 
-            // Read thresholds live from AmdSettingsStore — they change via @AppStorage.
-            let idleThreshold = AmdSettingsStore.shared.autoEppIdleThreshold
-            let loadThreshold = AmdSettingsStore.shared.autoEppLoadThreshold
+        let idleThreshold = await MainActor.run { AmdSettingsStore.shared.autoEppIdleThreshold }
+        let loadThreshold = await MainActor.run { AmdSettingsStore.shared.autoEppLoadThreshold }
 
-            // GPU-aware EPP logic:
-            // - If GPU is heavily loaded (>60%), force Performance mode for gaming/rendering
-            // - If GPU is loaded (>30%) but CPU is idle, use Balanced (media playback)
-            // - Otherwise, use standard CPU-based logic
-            let gpuHeavyThreshold: Float = 60
-            let gpuActiveThreshold: Float = 30
+        let gpuHeavyThreshold: Float = 60
+        let gpuActiveThreshold: Float = 30
 
-            let targetEPP: UInt8
-            let targetName: String
+        let targetEPP: UInt8
+        let targetName: String
 
-            if gpuLoad > gpuHeavyThreshold {
-                targetEPP = 0
-                targetName = "GPU Performance"
-            } else if cpuAvg < Float(idleThreshold) && gpuLoad < gpuActiveThreshold {
-                targetEPP = 255
-                targetName = "Power Save"
-            } else if cpuAvg > Float(loadThreshold) {
-                targetEPP = 0
-                targetName = "Performance"
-            } else if gpuLoad > gpuActiveThreshold {
-                targetEPP = 128
-                targetName = "GPU Active"
-            } else {
-                targetEPP = 128
-                targetName = "Balanced"
-            }
+        if gpuLoad > gpuHeavyThreshold {
+            targetEPP = 0
+            targetName = "GPU Performance"
+        } else if cpuAvg < Float(idleThreshold) && gpuLoad < gpuActiveThreshold {
+            targetEPP = 255
+            targetName = "Power Save"
+        } else if cpuAvg > Float(loadThreshold) {
+            targetEPP = 0
+            targetName = "Performance"
+        } else if gpuLoad > gpuActiveThreshold {
+            targetEPP = 128
+            targetName = "GPU Active"
+        } else {
+            targetEPP = 128
+            targetName = "Balanced"
+        }
 
-            currentTarget = targetName
-            currentEPP = targetEPP
-
-            // P2-fix: Skip the MSR write when the EPP target hasn't changed.
-            // Every IOConnectCallMethod crosses into the kernel and acquires locks.
-            // In idle scenarios this was firing unconditionally every 1.5s.
-            guard targetEPP != lastWrittenEPP else { return }
-            let writeRes = ProcessorModel.shared.setCPPCEPPValue(epp: targetEPP)
+        var newPrivilegeDenied = self.privilegeDenied
+        if targetEPP != lastWrittenEPP {
+            let writeRes = await ProcessorModel.shared.setCPPCEPPValue(epp: targetEPP)
             if writeRes == ProcessorModel.kIOReturnNotPrivilegedCode {
-                privilegeDenied = true
+                newPrivilegeDenied = true
             } else {
+                newPrivilegeDenied = false
                 lastWrittenEPP = targetEPP
             }
+        }
+
+        let finalEPP = targetEPP
+        let finalPrivilegeDenied = newPrivilegeDenied
+
+        await MainActor.run {
+            if self.isActive != enabled { self.isActive = enabled }
+            currentCPULoad = cpuAvg
+            currentGPULoad = gpuLoad
+            if currentTarget != targetName { currentTarget = targetName }
+            if currentEPP != finalEPP { currentEPP = finalEPP }
+            if privilegeDenied != finalPrivilegeDenied { privilegeDenied = finalPrivilegeDenied }
         }
     }
 }

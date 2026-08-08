@@ -59,16 +59,45 @@ final class AmdPresetController: ObservableObject {
             AutoEppService.shared.setCPPCActive(false)
         }
 
-        let result = ProcessorModel.shared.applyPowerPreset(preset)
+        Task {
+            await withPresetTransaction(preset) { preset in
+                await ProcessorModel.shared.applyPowerPreset(preset)
+            }
+        }
+    }
+
+    /// Applies a preset transactionally: the persisted `amdPowerPreset` key is
+    /// written *before* the kext is touched, so a crash between the kext write
+    /// and `UserDefaults.set` can never leave hardware and UI out of sync.
+    /// If the kext denies the write (`kIOReturnNotPrivileged`), the key is
+    /// rolled back to its previous value so the UI never advertises a preset
+    /// the kext rejected.
+    ///
+    /// Internal so `GamingModeService` can reuse it for its activate/deactivate/
+    /// restoreIfNeeded paths (it does NOT touch Auto EPP — callers that need
+    /// that behavior use `apply(_:)` instead).
+    @discardableResult
+    func withPresetTransaction(
+        _ preset: AMDPowerPreset,
+        apply: (AMDPowerPreset) async -> AMDPowerPresetApplyResult
+    ) async -> AMDPowerPresetApplyResult {
+        let previous = AmdSettingsStore.shared.amdPowerPreset
         AmdSettingsStore.shared.amdPowerPreset = preset.rawValue
-        selectedPreset = preset
+        self.selectedPreset = preset
+
+        let result = await apply(preset)
 
         if result.privilegeDenied {
-            privilegeMessage = result.firstFailureMessage
+            // Roll back: the kext never accepted the preset, so the persisted
+            // key must not claim it did. Keep the privilege error visible.
+            AmdSettingsStore.shared.amdPowerPreset = previous
+            self.selectedPreset = previous.flatMap(AMDPowerPreset.init(rawValue:))
+            self.privilegeMessage = result.firstFailureMessage
                 ?? "Requires admin privileges (-amdpnopchk)."
         } else {
-            privilegeMessage = nil
+            self.privilegeMessage = nil
         }
+        return result
     }
 
     /// Clears any stale privilege warning (called after the user dismisses it).

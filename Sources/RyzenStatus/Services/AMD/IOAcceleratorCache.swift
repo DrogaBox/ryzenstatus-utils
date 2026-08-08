@@ -3,6 +3,7 @@
 
 import Foundation
 import IOKit
+import os
 
 /// Single-pass IOAccelerator PerformanceStatistics cache.
 ///
@@ -37,7 +38,12 @@ actor IOAcceleratorCache {
     /// matching IOAccelerator service. Keys: `"Temperature(C)"`, `"Total Power(W)"`,
     /// `"Device Utilization %"`, `"inUseVidMemoryBytes"`, `"Core Clock(MHz)"`,
     /// `"Fan Speed(RPM)"`, `"VRAM,totalMB"`, etc.
-    private(set) var stats: [String: Any] = [:]
+    private let _stats = OSAllocatedUnfairLock(initialState: [String: Any]())
+
+    private(set) var stats: [String: Any] {
+        get { _stats.withLock { $0 } }
+        set { _stats.withLock { $0 = newValue } }
+    }
 
     /// Timestamp of the last successful registry read.
     private(set) var lastRefresh: Date = .distantPast
@@ -73,20 +79,7 @@ actor IOAcceleratorCache {
     /// Synchronous access to the last snapshot — for use from non-async contexts
     /// (e.g. ProcessUsageService background queues). Never triggers a refresh.
     nonisolated func cachedStatsSync() -> [String: Any] {
-        // Safe: actor isolation guarantees the dict is only mutated inside the actor.
-        // External readers see either the old or new dict atomically (Swift's ARC
-        // copy-on-write for Dictionary provides this guarantee when read outside
-        // the actor during a non-mutating read).
-        var result: [String: Any] = [:]
-        // Use a synchronous dispatch onto the actor's executor to read atomically.
-        // This is a deliberate escape hatch: callers must accept potentially stale data.
-        let sema = DispatchSemaphore(value: 0)
-        Task {
-            result = await self.stats
-            sema.signal()
-        }
-        sema.wait()
-        return result
+        return _stats.withLock { $0 }
     }
 
     // MARK: - Refresh

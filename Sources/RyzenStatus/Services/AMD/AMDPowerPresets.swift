@@ -87,6 +87,7 @@ enum AMDPowerPreset: String, CaseIterable, Identifiable {
     }
 
     /// The preset last applied by the user or by Gaming Mode, from UserDefaults.
+    @MainActor
     static func saved() -> AMDPowerPreset? {
         guard let raw = AmdSettingsStore.shared.amdPowerPreset,
               let preset = AMDPowerPreset(rawValue: raw) else { return nil }

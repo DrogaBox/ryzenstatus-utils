@@ -13,7 +13,28 @@ import Metal
 actor ProcessorModel {
     static let shared = ProcessorModel()
 
-    let connect: io_connect_t
+
+    nonisolated let iokitLock = NSLock()
+    nonisolated(unsafe) var connect: io_connect_t
+    private var kextWatchdogTask: Task<Void, Never>?
+
+    nonisolated func safeIOConnectCallMethod(
+        _ selector: UInt32,
+        _ scalarInput: UnsafePointer<UInt64>!,
+        _ scalarInputCount: UInt32,
+        _ structureInput: UnsafeRawPointer!,
+        _ structureInputSize: Int,
+        _ scalarOutput: UnsafeMutablePointer<UInt64>!,
+        _ scalarOutputCount: UnsafeMutablePointer<UInt32>!,
+        _ structureOutput: UnsafeMutableRawPointer!,
+        _ structureOutputSize: UnsafeMutablePointer<Int>!
+    ) -> kern_return_t {
+        iokitLock.lock()
+        defer { iokitLock.unlock() }
+        if connect == 0 { return kIOReturnNoDevice }
+        return IOConnectCallMethod(connect, selector, scalarInput, scalarInputCount, structureInput, structureInputSize, scalarOutput, scalarOutputCount, structureOutput, structureOutputSize)
+    }
+
 
     class TerminationState {
         private let lock = NSLock()
@@ -190,7 +211,7 @@ actor ProcessorModel {
         var output = [UInt8](repeating: 0, count: totalSize)
         var outputSize = totalSize
         
-        let res: kern_return_t = IOConnectCallMethod(connect, AMDKextSelector.cpuPowerProfile.id, nil, 0, nil, 0,
+        let res: kern_return_t = safeIOConnectCallMethod( AMDKextSelector.cpuPowerProfile.id, nil, 0, nil, 0,
                                                       nil, nil,
                                                       &output, &outputSize)
         guard res == KERN_SUCCESS, outputSize >= nameSize else {
@@ -258,6 +279,31 @@ actor ProcessorModel {
         // This avoids Swift 6 warnings about calling actor-isolated methods from
         // a nonisolated init() context.
         Task { await self._finishInit() }
+        
+        self.kextWatchdogTask = Task.detached(priority: .background) { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard let self = self else { break }
+                let serviceObject = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AMDRyzenCPUPowerManagement"))
+                if serviceObject == 0 {
+                    self.iokitLock.lock()
+                    let wasConnected = (self.connect != 0)
+                    if wasConnected {
+                        IOServiceClose(self.connect)
+                        self.connect = 0
+                    }
+                    self.iokitLock.unlock()
+                    
+                    if wasConnected {
+                        self.terminationState.isTerminating = true
+                        NSLog("ProcessorModel: AMDRyzenCPUPowerManagement was unloaded!")
+                        NotificationCenter.default.post(name: NSNotification.Name("KextUnloaded"), object: nil)
+                    }
+                } else {
+                    IOObjectRelease(serviceObject)
+                }
+            }
+        }
     }
 
     private(set) var isKextAvailable: Bool = false
@@ -276,7 +322,7 @@ actor ProcessorModel {
         let maxStrLength = 16
         var outputStr: [CChar] = [CChar](repeating: 0, count: maxStrLength)
         var outputStrCount: Int = maxStrLength
-        let versionResult = IOConnectCallMethod(connect, AMDKextSelector.kextVersion.id, nil, 0, nil, 0,
+        let versionResult = safeIOConnectCallMethod( AMDKextSelector.kextVersion.id, nil, 0, nil, 0,
                                                  &scalerOut, &outputCount,
                                                  &outputStr, &outputStrCount)
         guard versionResult == KERN_SUCCESS, outputStrCount > 0 else {
@@ -386,7 +432,7 @@ actor ProcessorModel {
         var output = [Float](repeating: 0, count: count)
         var outputSize = MemoryLayout<Float>.size * count
 
-        let status = IOConnectCallMethod(connect, selector, nil, 0, nil, 0,
+        let status = safeIOConnectCallMethod( selector, nil, 0, nil, 0,
                                          &scalarOut, &scalarOutCount,
                                          &output, &outputSize)
         guard status == KERN_SUCCESS else {
@@ -405,7 +451,7 @@ actor ProcessorModel {
         var output = [UInt64](repeating: 0, count: count)
         var outputSize = MemoryLayout<UInt64>.size * count
 
-        let status = IOConnectCallMethod(connect, selector, nil, 0, nil, 0,
+        let status = safeIOConnectCallMethod( selector, nil, 0, nil, 0,
                                          &scalarOut, &scalarOutCount,
                                          &output, &outputSize)
         guard status == KERN_SUCCESS else {
@@ -424,7 +470,7 @@ actor ProcessorModel {
         var output = [UInt16](repeating: 0, count: count)
         var outputSize = MemoryLayout<UInt16>.size * count
 
-        let status = IOConnectCallMethod(connect, selector, nil, 0, nil, 0,
+        let status = safeIOConnectCallMethod( selector, nil, 0, nil, 0,
                                          &scalarOut, &scalarOutCount,
                                          &output, &outputSize)
         guard status == KERN_SUCCESS else {
@@ -443,7 +489,7 @@ actor ProcessorModel {
         if isTerminating || Task.isCancelled { return kIOReturnNotReady }
         return data.withUnsafeBytes { rawBuffer -> kern_return_t in
             guard let baseAddress = rawBuffer.baseAddress else { return kIOReturnBadArgument }
-            return IOConnectCallMethod(connect, selector, nil, 0, baseAddress, data.count, nil, nil, nil, nil)
+            return safeIOConnectCallMethod( selector, nil, 0, baseAddress, data.count, nil, nil, nil, nil)
         }
     }
 
@@ -458,13 +504,13 @@ actor ProcessorModel {
         var outbuffersize = 16
         var outputStr: [CChar] = [CChar](repeating: 0, count: outbuffersize)
 
-        var res = IOConnectCallMethod(connect, selector, &argcpy, UInt32(args.count), nil, 0,
+        var res = safeIOConnectCallMethod( selector, &argcpy, UInt32(args.count), nil, 0,
                                       nil, nil,
                                       &outputStr, &outbuffersize)
 
         if res == MIG_ARRAY_TOO_LARGE{
             outputStr = [CChar](repeating: 0, count: outbuffersize)
-            res = IOConnectCallMethod(connect, selector, &argcpy, UInt32(args.count), nil, 0,
+            res = safeIOConnectCallMethod( selector, &argcpy, UInt32(args.count), nil, 0,
                                       nil, nil,
                                       &outputStr, &outbuffersize)
         }
@@ -485,7 +531,7 @@ actor ProcessorModel {
     nonisolated func kernelSetUInt64Status(selector: UInt32, args: [UInt64]) -> kern_return_t {
         if isTerminating || Task.isCancelled { return kIOReturnNotReady }
         var argcpy = args
-        return IOConnectCallMethod(connect, selector, &argcpy, UInt32(args.count), nil, 0,
+        return safeIOConnectCallMethod( selector, &argcpy, UInt32(args.count), nil, 0,
                                    nil, nil, nil, nil)
     }
 
@@ -514,7 +560,7 @@ actor ProcessorModel {
         let maxStrLength = 67 //MaxCpu + 3
         var outputStr: [Float] = [Float](repeating: 0, count: maxStrLength)
         var outputStrCount: Int = 4/*sizeof(float)*/ * maxStrLength
-        let res = IOConnectCallMethod(connect, AMDKextSelector.coreMetric.id, nil, 0, nil, 0,
+        let res = safeIOConnectCallMethod( AMDKextSelector.coreMetric.id, nil, 0, nil, 0,
                                       &scalerOut, &outputCount,
                                       &outputStr, &outputStrCount)
 
@@ -605,7 +651,7 @@ actor ProcessorModel {
         let maxStrLength = 128
         var outputStr: [CChar] = [CChar](repeating: 0, count: maxStrLength)
         var outputStrCount: Int = maxStrLength
-        let _ = IOConnectCallMethod(connect, AMDKextSelector.baseboardInfo.id, nil, 0, nil, 0,
+        let _ = safeIOConnectCallMethod( AMDKextSelector.baseboardInfo.id, nil, 0, nil, 0,
                                       &scalerOut, &outputCount,
                                       &outputStr, &outputStrCount)
 
@@ -741,7 +787,7 @@ actor ProcessorModel {
         }
 
         var input: [UInt64] = [UInt64(state)]
-        let res = IOConnectCallMethod(connect, AMDKextSelector.pStateWrite.id, &input, 1, nil, 0,
+        let res = safeIOConnectCallMethod( AMDKextSelector.pStateWrite.id, &input, 1, nil, 0,
                                       nil, nil,
                                       nil, nil)
 
@@ -772,7 +818,7 @@ actor ProcessorModel {
     nonisolated func getCPPCActiveMode() -> (active: Bool, epp: UInt8) {
         var output: [UInt64] = [0, 0]
         var outputCount: UInt32 = 2
-        let res = IOConnectCallMethod(connect, AMDKextSelector.cppcActive.id, nil, 0, nil, 0, &output, &outputCount, nil, nil)
+        let res = safeIOConnectCallMethod( AMDKextSelector.cppcActive.id, nil, 0, nil, 0, &output, &outputCount, nil, nil)
         if res != KERN_SUCCESS {
             logKernelError(res)
             return (false, 0x3F)
@@ -782,12 +828,12 @@ actor ProcessorModel {
 
     nonisolated func setCPPCActiveMode(active: Bool) -> kern_return_t {
         var input: [UInt64] = [active ? 1 : 0]
-        return IOConnectCallMethod(connect, AMDKextSelector.cppcActiveMode.id, &input, 1, nil, 0, nil, nil, nil, nil)
+        return safeIOConnectCallMethod( AMDKextSelector.cppcActiveMode.id, &input, 1, nil, 0, nil, nil, nil, nil)
     }
 
-    nonisolated func setCPPCEPPValue(epp: UInt8) -> kern_return_t {
+    func setCPPCEPPValue(epp: UInt8) -> kern_return_t {
         var input: [UInt64] = [UInt64(epp)]
-        return IOConnectCallMethod(connect, AMDKextSelector.eppValue.id, &input, 1, nil, 0, nil, nil, nil, nil)
+        return safeIOConnectCallMethod( AMDKextSelector.eppValue.id, &input, 1, nil, 0, nil, nil, nil, nil)
     }
 
     func getPStateDef() -> [UInt64]{
@@ -824,9 +870,9 @@ actor ProcessorModel {
     }
 
     @discardableResult
-    nonisolated func setCPB(enabled: Bool) -> kern_return_t {
+    func setCPB(enabled: Bool) -> kern_return_t {
         var input: [UInt64] = [UInt64(enabled ? 1 : 0)]
-        return IOConnectCallMethod(connect, AMDKextSelector.cpb.id, &input, 1, nil, 0, nil, nil, nil, nil)
+        return safeIOConnectCallMethod( AMDKextSelector.cpb.id, &input, 1, nil, 0, nil, nil, nil, nil)
     }
 
     nonisolated func getPPM() -> Bool {
@@ -835,9 +881,9 @@ actor ProcessorModel {
     }
 
     @discardableResult
-    nonisolated func setPPM(enabled: Bool) -> kern_return_t {
+    func setPPM(enabled: Bool) -> kern_return_t {
         var input: [UInt64] = [UInt64(enabled ? 1 : 0)]
-        return IOConnectCallMethod(connect, AMDKextSelector.ppm.id, &input, 1, nil, 0, nil, nil, nil, nil)
+        return safeIOConnectCallMethod( AMDKextSelector.ppm.id, &input, 1, nil, 0, nil, nil, nil, nil)
     }
 
     nonisolated func getLPM() -> Bool {
@@ -846,9 +892,9 @@ actor ProcessorModel {
     }
 
     @discardableResult
-    nonisolated func setLPM(enabled: Bool) -> kern_return_t {
+    func setLPM(enabled: Bool) -> kern_return_t {
         var input: [UInt64] = [UInt64(enabled ? 1 : 0)]
-        return IOConnectCallMethod(connect, AMDKextSelector.lpm.id, &input, 1, nil, 0, nil, nil, nil, nil)
+        return safeIOConnectCallMethod( AMDKextSelector.lpm.id, &input, 1, nil, 0, nil, nil, nil, nil)
     }
 
     // MARK: - Power Presets (EPP + CPB + PPM/LPM)
@@ -858,7 +904,7 @@ actor ProcessorModel {
     /// exclusive — the preset's choice wins and the other is forced off.
     /// Returns per-component IOKit statuses so the UI can surface privilege
     /// errors (`kIOReturnNotPrivilegedCode`) per feature.
-    nonisolated func applyPowerPreset(_ preset: AMDPowerPreset) -> AMDPowerPresetApplyResult {
+    func applyPowerPreset(_ preset: AMDPowerPreset) -> AMDPowerPresetApplyResult {
         let epp = setCPPCEPPValue(epp: preset.eppValue)
         let cpb = setCPB(enabled: preset.cpbEnabled)
 
@@ -888,7 +934,7 @@ actor ProcessorModel {
         }
 
         var input: [UInt64] = def
-        let res = IOConnectCallMethod(connect, AMDKextSelector.pStateManual.id, &input, 8, nil, 0,
+        let res = safeIOConnectCallMethod( AMDKextSelector.pStateManual.id, &input, 8, nil, 0,
                                       nil, nil,
                                       nil, nil)
 
@@ -940,35 +986,41 @@ actor ProcessorModel {
             systemConfig["mb"] = "\(boardName) \(boardVendor)"
         }
 
-        // GPU info detection optimized
-        var iter: io_iterator_t = 0
-        let err = IOServiceGetMatchingServices(kIOMainPortDefault,
-                                               IOServiceMatching("IOPCIDevice"), &iter)
-        if err == kIOReturnSuccess {
-            defer { IOObjectRelease(iter) }
-            var foundGPU = false
-            while !foundGPU {
-                let reg = IOIteratorNext(iter)
-                guard reg != 0 else { break }
-                defer { IOObjectRelease(reg) }
-                
-                var serviceDictionary: Unmanaged<CFMutableDictionary>?
-                let e = IORegistryEntryCreateCFProperties(reg, &serviceDictionary, kCFAllocatorDefault, .zero)
-                guard e == kIOReturnSuccess, let dic = serviceDictionary?.takeRetainedValue() as? NSDictionary else { continue }
-                
-                if let type = dic.object(forKey: "IOName") as? String, type == "display" {
-                    if let model = dic.object(forKey: "model") as? Data {
-                        let rawStr = String(data: model, encoding: .ascii) ?? String(data: model, encoding: .utf8) ?? "Unknown GPU"
-                        systemConfig["gpu"] = rawStr
-                            .trimmingCharacters(in: .controlCharacters)
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                    } else {
-                        systemConfig["gpu"] = "Unknown"
+        // GPU info detection optimized and offloaded to avoid blocking the actor
+        Task.detached(priority: .background) {
+            var gpuString = "Unknown"
+            var iter: io_iterator_t = 0
+            let err = IOServiceGetMatchingServices(kIOMainPortDefault,
+                                                   IOServiceMatching("IOPCIDevice"), &iter)
+            if err == kIOReturnSuccess {
+                defer { IOObjectRelease(iter) }
+                var foundGPU = false
+                while !foundGPU {
+                    let reg = IOIteratorNext(iter)
+                    guard reg != 0 else { break }
+                    defer { IOObjectRelease(reg) }
+                    
+                    var serviceDictionary: Unmanaged<CFMutableDictionary>?
+                    let e = IORegistryEntryCreateCFProperties(reg, &serviceDictionary, kCFAllocatorDefault, .zero)
+                    guard e == kIOReturnSuccess, let dic = serviceDictionary?.takeRetainedValue() as? NSDictionary else { continue }
+                    
+                    if let type = dic.object(forKey: "IOName") as? String, type == "display" {
+                        if let model = dic.object(forKey: "model") as? Data {
+                            let rawStr = String(data: model, encoding: .ascii) ?? String(data: model, encoding: .utf8) ?? "Unknown GPU"
+                            gpuString = rawStr
+                                .trimmingCharacters(in: .controlCharacters)
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
+                        foundGPU = true
                     }
-                    foundGPU = true
                 }
             }
+            await self.updateGPUConfig(gpuString)
         }
+    }
+
+    private func updateGPUConfig(_ gpu: String) {
+        self.systemConfig["gpu"] = gpu
     }
 
     // MARK: - Kext GPU Data (Selectors 27-30)
@@ -1072,7 +1124,7 @@ actor ProcessorModel {
         var outputStr: [Float] = [Float](repeating: 0.0, count: maxCCDs)
         var outputStrCount: Int = MemoryLayout<Float>.size * maxCCDs
         
-        let res = IOConnectCallMethod(connect, AMDKextSelector.ccdTopology.id, nil, 0, nil, 0,
+        let res = safeIOConnectCallMethod( AMDKextSelector.ccdTopology.id, nil, 0, nil, 0,
                                       &scalerOut, &outputCount,
                                       &outputStr, &outputStrCount)
                                       
@@ -1095,7 +1147,7 @@ actor ProcessorModel {
         var outputStr: [UInt8] = [UInt8](repeating: 0, count: maxLogicalCores)
         var outputStrCount: Int = MemoryLayout<UInt8>.size * maxLogicalCores
         
-        let res = IOConnectCallMethod(connect, AMDKextSelector.coreRanking.id, nil, 0, nil, 0,
+        let res = safeIOConnectCallMethod( AMDKextSelector.coreRanking.id, nil, 0, nil, 0,
                                       &scalerOut, &outputCount,
                                       &outputStr, &outputStrCount)
                                       
@@ -1119,7 +1171,7 @@ actor ProcessorModel {
         if isTerminating || Task.isCancelled { return nil }
         var output = [UInt8](repeating: 0, count: CPUSensorPacket.byteSize)
         var outputSize = CPUSensorPacket.byteSize
-        let status = IOConnectCallMethod(connect, AMDKextSelector.telemetryFull.id, nil, 0, nil, 0,
+        let status = safeIOConnectCallMethod( AMDKextSelector.telemetryFull.id, nil, 0, nil, 0,
                                          nil, nil,
                                          &output, &outputSize)
         guard status == KERN_SUCCESS, outputSize >= CPUSensorPacket.byteSize else {
@@ -1133,7 +1185,7 @@ actor ProcessorModel {
         var scalerOut: UInt64 = 0
         var outputCount: UInt32 = 1
         
-        let res = IOConnectCallMethod(connect, AMDKextSelector.cStateAddress.id, nil, 0, nil, 0,
+        let res = safeIOConnectCallMethod( AMDKextSelector.cStateAddress.id, nil, 0, nil, 0,
                                       &scalerOut, &outputCount,
                                       nil, nil)
                                       
@@ -1234,7 +1286,7 @@ actor ProcessorModel {
         var output = [Int8](repeating: 0, count: 64) // MaxCpus is typically 64
         var outputSize = output.count
         
-        let res = IOConnectCallMethod(connect, AMDKextSelector.curveOptimizerRead.id, nil, 0, nil, 0,
+        let res = safeIOConnectCallMethod( AMDKextSelector.curveOptimizerRead.id, nil, 0, nil, 0,
                                       nil, nil,
                                       &output, &outputSize)
         
@@ -1330,7 +1382,7 @@ actor ProcessorModel {
         // cast offset to raw bit representation for transfer over 64-bit parameter
         let rawOffset = UInt64(bitPattern: Int64(offset))
         var input: [UInt64] = [UInt64(core), rawOffset]
-        return IOConnectCallMethod(connect, AMDKextSelector.curveOptimizerWrite.id, &input, 2, nil, 0, nil, nil, nil, nil)
+        return safeIOConnectCallMethod( AMDKextSelector.curveOptimizerWrite.id, &input, 2, nil, 0, nil, nil, nil, nil)
     }
 }
 
