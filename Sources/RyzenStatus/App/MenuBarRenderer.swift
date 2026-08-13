@@ -248,6 +248,22 @@ enum MenuBarRenderer {
         return cache
     }()
 
+    /// SF symbols resolved for the menu bar, keyed by symbol + traits. These
+    /// are pure and expensive to mint, so a small cache beats re-asking the
+    /// system for them on every snapshot tick.
+    private static let symbolImageCache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 80
+        return cache
+    }()
+
+    /// The effective appearance participates in every rendered bitmap, because
+    /// dynamic colors are resolved at draw time. Including it in cache keys
+    /// keeps a light-mode frame from being served while the system is dark.
+    private static var appearanceSuffix: String {
+        NSApp.effectiveAppearance.name.rawValue
+    }
+
     /// Estimated bitmap bytes of a rendered block at 2x backing scale.
     private static func blockImageCost(_ image: NSImage) -> Int {
         max(1, Int(image.size.width * image.size.height) * 16)
@@ -681,7 +697,7 @@ enum MenuBarRenderer {
                 
                 let image = stackedRatesImage(lines: [maxStr, avgStr],
                                              reservedLines: ["0.0G", "0.0G"],
-                                             cacheKey: "cpuFreq|\(maxStr)|\(avgStr)|\(style)" as NSString,
+                                             cacheKey: "cpuFreq|\(maxStr)|\(avgStr)|\(style)|\(appearanceSuffix)" as NSString,
                                              style: style)
                 groups.append([.customImage(image)])
             case .cpuTempPower:
@@ -689,7 +705,7 @@ enum MenuBarRenderer {
                 let pwr = snapshot.cpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
                 let image = stackedRatesImage(lines: [temp, pwr],
                                              reservedLines: ["000°", "000W"],
-                                             cacheKey: "cpuTempPwr|\(temp)|\(pwr)|\(style)" as NSString,
+                                             cacheKey: "cpuTempPwr|\(temp)|\(pwr)|\(style)|\(appearanceSuffix)" as NSString,
                                              style: style)
                 groups.append([.customImage(image)])
             case .gpuTempPower:
@@ -697,7 +713,7 @@ enum MenuBarRenderer {
                 let pwr = snapshot.gpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
                 let image = stackedRatesImage(lines: [temp, pwr],
                                              reservedLines: ["000°", "000W"],
-                                             cacheKey: "gpuTempPwr|\(temp)|\(pwr)|\(style)" as NSString,
+                                             cacheKey: "gpuTempPwr|\(temp)|\(pwr)|\(style)|\(appearanceSuffix)" as NSString,
                                              style: style)
                 groups.append([.customImage(image)])
             case .memory:
@@ -1028,11 +1044,19 @@ enum MenuBarRenderer {
         let configuration = NSImage.SymbolConfiguration(pointSize: enlarged ? 13.6 : (stacked ? 8.8 : 10.8),
                                                         weight: .semibold)
             .applying(NSImage.SymbolConfiguration(paletteColors: [.labelColor]))
-        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(configuration) else {
-            return NSAttributedString(string: "")
+        let cacheKey = "sym|\(name)|\(stacked)|\(enlarged)|\(appearanceSuffix)" as NSString
+        let image: NSImage
+        if let cached = symbolImageCache.object(forKey: cacheKey) {
+            image = cached
+        } else {
+            guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+                .withSymbolConfiguration(configuration) else {
+                return NSAttributedString(string: "")
+            }
+            symbol.isTemplate = false
+            symbolImageCache.setObject(symbol, forKey: cacheKey)
+            image = symbol
         }
-        image.isTemplate = false
         let attachment = NSTextAttachment()
         attachment.image = image
         let side: CGFloat = enlarged ? 14.2 : (stacked ? 9.2 : 11.4)
@@ -1131,7 +1155,7 @@ enum MenuBarRenderer {
             ? MenuBarSpacingSupport.compactReserve(label: label, value: value)
             : reservedValue
         let pressureKey = pressure.map(String.init(describing:)) ?? "none"
-        let cacheKey = "metric|\(label)|\(value)|\(minimumValue)|\(style)|\(pressureKey)" as NSString
+        let cacheKey = "metric|\(label)|\(value)|\(minimumValue)|\(style)|\(pressureKey)|\(appearanceSuffix)" as NSString
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
 
         let labelFont = NSFont.systemFont(ofSize: style == .readable ? 7.2 : 6.6, weight: .medium)
@@ -1187,7 +1211,7 @@ enum MenuBarRenderer {
         } ?? "missing"
         let pressureKey = pressure.map(String.init(describing:)) ?? "none"
         let levelKey = fillLevel.map(String.init) ?? "missing"
-        let cacheKey = "usageBar|\(label)|\(levelKey)|\(fillColorHex)|\(style)|\(pressureKey)" as NSString
+        let cacheKey = "usageBar|\(label)|\(levelKey)|\(fillColorHex)|\(style)|\(pressureKey)|\(appearanceSuffix)" as NSString
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
 
         let size = usageBarSize(style: style, showsPressure: pressure != nil)
@@ -1270,7 +1294,7 @@ enum MenuBarRenderer {
 
     private static func networkBlockImage(down: String, up: String, style: MenuBarBlockStyle) -> NSImage {
         let uploadFirst = UserDefaults.standard.bool(forKey: DefaultsKey.menuBarNetworkUploadFirst)
-        let cacheKey = "network|\(down)|\(up)|\(style)|\(uploadFirst)" as NSString
+        let cacheKey = "network|\(down)|\(up)|\(style)|\(uploadFirst)|\(appearanceSuffix)" as NSString
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
 
         let lines = uploadFirst ? ["↑\(up)", "↓\(down)"] : ["↓\(down)", "↑\(up)"]
@@ -1284,7 +1308,7 @@ enum MenuBarRenderer {
     private static func diskActivityBlockImage(read: String,
                                                write: String,
                                                style: MenuBarBlockStyle) -> NSImage {
-        let cacheKey = "diskActivity|\(read)|\(write)|\(style)" as NSString
+        let cacheKey = "diskActivity|\(read)|\(write)|\(style)|\(appearanceSuffix)" as NSString
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
 
         return stackedRatesImage(label: nil,
@@ -1361,7 +1385,7 @@ enum MenuBarRenderer {
                                           isCharging: Bool,
                                           style: MenuBarBlockStyle) -> NSImage {
         let clampedPercent = max(0, min(100, percent))
-        let cacheKey = "battery|\(clampedPercent)|\(isCharging)|\(style)" as NSString
+        let cacheKey = "battery|\(clampedPercent)|\(isCharging)|\(style)|\(appearanceSuffix)" as NSString
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
 
         let symbolName = batterySymbol(for: percent, isCharging: isCharging)
@@ -1376,13 +1400,17 @@ enum MenuBarRenderer {
         let gap: CGFloat = style == .readable ? 5 : 4
         let height: CGFloat = style == .readable ? 22 : 20
         let imageSize = NSSize(width: ceil(symbolWidth + gap + reservedValueSize), height: height)
+        // Resolve the symbol once, before the drawing block, and reuse it on
+        // every frame the cache misses for; minting SF symbols inside a draw
+        // closure re-resolves on each redraw.
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: symbolPointSize, weight: .regular)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [.labelColor]))
+        let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(symbolConfig)
         let image = NSImage(size: imageSize, flipped: false) { rect in
             NSColor.clear.setFill()
             rect.fill()
-            let symbolConfig = NSImage.SymbolConfiguration(pointSize: symbolPointSize, weight: .regular)
-                .applying(NSImage.SymbolConfiguration(paletteColors: [.labelColor]))
-            if let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
-                .withSymbolConfiguration(symbolConfig) {
+            if let symbol {
                 let symbolSize = symbol.size
                 let symbolRect = NSRect(x: 0,
                                         y: (height - symbolSize.height) / 2,
@@ -1468,7 +1496,7 @@ enum MenuBarRenderer {
                                                    style: MenuBarBlockStyle) -> NSImage {
         let downKey = downHistory.suffix(12).map { String(format: "%.0f", $0) }.joined(separator: ",")
         let upKey = upHistory.suffix(12).map { String(format: "%.0f", $0) }.joined(separator: ",")
-        let cacheKey = "netDual|\(downKey)|\(upKey)|\(style)" as NSString
+        let cacheKey = "netDual|\(downKey)|\(upKey)|\(style)|\(appearanceSuffix)" as NSString
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
 
         let height: CGFloat = style == .readable ? 22 : 20
@@ -1578,7 +1606,7 @@ enum MenuBarRenderer {
                                                 style: MenuBarBlockStyle) -> NSImage {
         let sampleKey = cores.map { String(format: "%.0f", $0.loadPct) }.joined(separator: ",")
         let valKey = valueText ?? ""
-        let cacheKey = "coreHisto|\(sampleKey)|\(valKey)|\(style)" as NSString
+        let cacheKey = "coreHisto|\(sampleKey)|\(valKey)|\(style)|\(appearanceSuffix)" as NSString
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
 
         let height: CGFloat = style == .readable ? 22 : 20
@@ -1643,7 +1671,7 @@ enum MenuBarRenderer {
         let level = MenuBarUsageBarSupport.currentLevel(for: frac)
         let fillColorHex = MenuBarUsageBarSupport.currentColorHex(for: level)
         let valKey = valueText ?? ""
-        let cacheKey = "pie|\(label)|\(Int(frac * 100))|\(fillColorHex)|\(valKey)|\(style)" as NSString
+        let cacheKey = "pie|\(label)|\(Int(frac * 100))|\(fillColorHex)|\(valKey)|\(style)|\(appearanceSuffix)" as NSString
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
 
         let height: CGFloat = style == .readable ? 22 : 20
@@ -1704,7 +1732,7 @@ enum MenuBarRenderer {
                                             style: MenuBarBlockStyle) -> NSImage {
         let sampleKey = history.suffix(12).map { String(format: "%.1f", $0) }.joined(separator: ",")
         let valKey = valueText ?? ""
-        let cacheKey = "sparkline|\(label)|\(sampleKey)|\(valKey)|\(colorHex)|\(style)" as NSString
+        let cacheKey = "sparkline|\(label)|\(sampleKey)|\(valKey)|\(colorHex)|\(style)|\(appearanceSuffix)" as NSString
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
 
         let height: CGFloat = style == .readable ? 22 : 20

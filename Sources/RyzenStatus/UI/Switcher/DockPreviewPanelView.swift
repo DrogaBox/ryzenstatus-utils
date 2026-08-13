@@ -150,6 +150,7 @@ private struct DockPreviewPanelContent: View {
             .help(l10n.s.dockPreviewClosePanel)
             .accessibilityLabel(l10n.s.dockPreviewClosePanel)
         }
+        .focusEffectDisabled()
         .padding(.horizontal, DockPreviewSupport.panelPadding)
         .frame(height: DockPreviewSupport.panelHeaderHeight)
     }
@@ -189,6 +190,7 @@ private struct DockPreviewPanelContent: View {
                 }
                 if isPinned {
                     Text(l10n.s.dockPreviewPinned)
+                        .lineLimit(1)
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 6)
@@ -395,6 +397,7 @@ private struct DockPreviewCard: View {
                     .foregroundStyle(Color.white.opacity(0.92))
                 if isPanelPinned, isSelected {
                     Text(l10n.s.dockPreviewPinned)
+                        .lineLimit(1)
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(Color.white.opacity(0.70))
                         .padding(.horizontal, 5)

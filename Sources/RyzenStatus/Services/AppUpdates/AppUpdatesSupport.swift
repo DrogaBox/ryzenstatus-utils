@@ -190,6 +190,10 @@ enum AppUpdatesSupport {
               let results = root["results"] as? [[String: Any]] else { return [:] }
         var entries: [String: StoreEntry] = [:]
         for result in results {
+            // A bundle-ID lookup can ignore `entity` and return another
+            // platform's listing. Its version and minimum OS then describe
+            // a different binary, so only accept records identified as Mac.
+            guard result["kind"] as? String == "mac-software" else { continue }
             guard let bundleID = result["bundleId"] as? String,
                   let version = result["version"] as? String,
                   !version.isEmpty else { continue }
@@ -231,6 +235,54 @@ enum AppUpdatesSupport {
 
     static func hasStoreSelection(in items: [Item], selection: Set<String>) -> Bool {
         items.contains { selection.contains($0.id) && $0.source == .appStore }
+    }
+
+    // MARK: - Application discovery
+
+    /// Merges the normal Applications folders with shallow Spotlight results
+    /// from the user's home. Deep build products, hidden folders, nested apps
+    /// and system-owned bundles are not installed apps a person should update.
+    static func applicationScanPaths(folderPaths: [String],
+                                     spotlightPaths: [String],
+                                     homeDirectory: String) -> [String] {
+        let home = URL(fileURLWithPath: homeDirectory)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL.path
+        let homePrefix = home.hasSuffix("/") ? home : home + "/"
+        var seen = Set<String>()
+        var result: [String] = []
+
+        func append(_ path: String, fromSpotlight: Bool) {
+            let url = URL(fileURLWithPath: path)
+                .resolvingSymlinksInPath()
+                .standardizedFileURL
+            let normalized = url.path
+            guard url.pathExtension.lowercased() == "app",
+                  !isSystemApplicationPath(normalized),
+                  !normalized.split(separator: "/").dropLast().contains(where: {
+                      $0.lowercased().hasSuffix(".app")
+                  }) else { return }
+
+            if fromSpotlight {
+                guard normalized.hasPrefix(homePrefix) else { return }
+                let components = normalized.dropFirst(homePrefix.count).split(separator: "/")
+                let folders = components.dropLast()
+                guard (1...3).contains(components.count),
+                      components.first?.lowercased() != "library",
+                      !folders.contains(where: { $0.hasPrefix(".") }) else { return }
+            }
+
+            guard seen.insert(normalized).inserted else { return }
+            result.append(normalized)
+        }
+
+        folderPaths.forEach { append($0, fromSpotlight: false) }
+        spotlightPaths.forEach { append($0, fromSpotlight: true) }
+        return result
+    }
+
+    static func isSystemApplicationPath(_ path: String) -> Bool {
+        path.hasPrefix("/System/") || path.hasPrefix("/Library/Apple/")
     }
 
     static func reconciledSelection(previous: Set<String>,

@@ -44,6 +44,8 @@ struct CutFeedbackView: View {
                     .foregroundStyle(.orange)
                 Text(l10n.s.cutReadyTitle)
                     .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                 Spacer()
                 Text("\(service.marked.count)")
                     .font(.system(size: 12, weight: .bold))
@@ -103,6 +105,8 @@ struct CutFeedbackView: View {
                     .foregroundStyle(.blue)
                 Text(l10n.s.cutMovingTitle)
                     .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                 Spacer()
                 if progress.total > 1 {
                     Text(String(format: l10n.s.cutMovingCountFormat,

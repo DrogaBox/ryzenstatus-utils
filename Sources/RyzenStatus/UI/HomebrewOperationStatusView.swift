@@ -278,6 +278,7 @@ struct HomebrewOperationStatusView: View {
 
 private struct HomebrewIndeterminateProgressBar: View {
     @State private var offset: CGFloat = -0.35
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { geometry in
@@ -286,14 +287,16 @@ private struct HomebrewIndeterminateProgressBar: View {
                     .fill(Color.secondary.opacity(0.18))
                 Capsule()
                     .fill(Color.accentColor.opacity(0.72))
-                    .frame(width: max(geometry.size.width * 0.34, 36))
-                    .offset(x: offset * geometry.size.width)
+                    .frame(width: reduceMotion ? geometry.size.width
+                                               : max(geometry.size.width * 0.34, 36))
+                    .offset(x: reduceMotion ? 0 : offset * geometry.size.width)
             }
             .clipped()
         }
         .frame(height: 5)
         .onAppear {
             offset = -0.35
+            guard !reduceMotion else { return }
             withAnimation(.linear(duration: 1.15).repeatForever(autoreverses: false)) {
                 offset = 1.05
             }

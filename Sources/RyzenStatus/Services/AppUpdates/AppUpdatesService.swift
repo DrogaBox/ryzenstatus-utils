@@ -37,6 +37,7 @@ final class AppUpdatesService: ObservableObject {
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var scanGeneration = 0
+    private var sourceRefreshPending = false
     private var knownIDs = Set<String>()
     private(set) var storeHandoffPending = false
     private var upgradeObserver: AnyCancellable?
@@ -97,19 +98,33 @@ final class AppUpdatesService: ObservableObject {
 
     // MARK: - Checking
 
+    /// A source switch changes the answer. Let an in-flight scan finish its
+    /// read, discard that answer and immediately run once with the new choice.
+    func sourceSelectionDidChange() {
+        if isChecking {
+            sourceRefreshPending = true
+        } else {
+            check()
+        }
+    }
+
     func check(automatic: Bool = false) {
         guard AppFeature.appUpdates.isAvailable, !isChecking else { return }
         isChecking = true
         lastError = nil
         scanGeneration += 1
         let generation = scanGeneration
+        let includeHomebrewApps = UserDefaults.standard.bool(
+            forKey: DefaultsKey.appUpdatesIncludeHomebrewApps)
         let includeAppStore = UserDefaults.standard.bool(forKey: DefaultsKey.appUpdatesIncludeAppStore)
         let country = Locale.current.region?.identifier
 
         workQueue.async { [weak self] in
             guard let self else { return }
             let apps = Self.scanInstalledApps()
-            let packageResult = self.packageManagerFindings(apps: apps)
+            let packageResult = includeHomebrewApps
+                ? self.packageManagerFindings(apps: apps)
+                : PackageResult(items: [], available: true)
             let coveredPaths = Set(packageResult.items.compactMap(\.bundlePath))
             let storeCandidates = includeAppStore
                 ? AppUpdatesSupport.appStoreCandidates(
@@ -132,6 +147,13 @@ final class AppUpdatesService: ObservableObject {
                              automatic: Bool) {
         guard AppFeature.appUpdates.isAvailable else {
             isChecking = false
+            sourceRefreshPending = false
+            return
+        }
+        if sourceRefreshPending {
+            sourceRefreshPending = false
+            isChecking = false
+            check()
             return
         }
         let fresh = newItems.filter { !knownIDs.contains($0.id) }
@@ -333,29 +355,41 @@ final class AppUpdatesService: ObservableObject {
     }
 
     private static func scanInstalledApps() -> [ScannedApp] {
+        AppUpdatesSupport.applicationScanPaths(
+            folderPaths: folderApplicationPaths(),
+            spotlightPaths: spotlightApplicationPaths(),
+            homeDirectory: NSHomeDirectory()
+        ).compactMap { scannedApp(at: URL(fileURLWithPath: $0)) }
+    }
+
+    private static func folderApplicationPaths() -> [String] {
         let fm = FileManager.default
         let roots = [
             URL(fileURLWithPath: "/Applications", isDirectory: true),
             URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Applications",
                                                                           isDirectory: true),
         ]
-        var seen = Set<String>()
-        var apps: [ScannedApp] = []
+        var paths: [String] = []
         for root in roots where fm.fileExists(atPath: root.path) {
             guard let enumerator = fm.enumerator(at: root,
                                                  includingPropertiesForKeys: [.isDirectoryKey],
                                                  options: [.skipsPackageDescendants]) else { continue }
             for case let url as URL in enumerator {
                 guard url.pathExtension == "app" else { continue }
-                let resolved = url.resolvingSymlinksInPath().standardizedFileURL
-                guard !resolved.path.hasPrefix("/System/"),
-                      !resolved.path.hasPrefix("/Library/Apple/"),
-                      seen.insert(resolved.path).inserted,
-                      let app = scannedApp(at: url) else { continue }
-                apps.append(app)
+                paths.append(url.path)
             }
         }
-        return apps
+        return paths
+    }
+
+    private static func spotlightApplicationPaths() -> [String] {
+        let command = HomebrewCommand(
+            executable: "/usr/bin/mdfind",
+            arguments: ["-onlyin", NSHomeDirectory(),
+                        "kMDItemContentType == 'com.apple.application-bundle'"])
+        let result = runCommand(command)
+        guard result.status == 0 else { return [] }
+        return result.output.split(separator: "\n").map(String.init)
     }
 
     private static func scannedApp(at url: URL) -> ScannedApp? {

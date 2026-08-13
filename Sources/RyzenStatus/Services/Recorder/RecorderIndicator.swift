@@ -104,15 +104,18 @@ final class RecorderIndicator {
             dot.cornerRadius = 4
             dot.frame = CGRect(x: 13, y: (Self.size.height - 8) / 2, width: 8, height: 8)
             // A pulse is the one thing that reads as "live" at a glance, and
-            // Core Animation runs it on its own without waking the app.
-            let pulse = CABasicAnimation(keyPath: "opacity")
-            pulse.fromValue = 1
-            pulse.toValue = 0.28
-            pulse.duration = 0.85
-            pulse.autoreverses = true
-            pulse.repeatCount = .infinity
-            pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            dot.add(pulse, forKey: "pulse")
+            // Core Animation runs it on its own without waking the app. Skip it
+            // for people who asked the system for less motion.
+            if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                let pulse = CABasicAnimation(keyPath: "opacity")
+                pulse.fromValue = 1
+                pulse.toValue = 0.28
+                pulse.duration = 0.85
+                pulse.autoreverses = true
+                pulse.repeatCount = .infinity
+                pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                dot.add(pulse, forKey: "pulse")
+            }
             layer?.addSublayer(dot)
 
             label.font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .semibold)

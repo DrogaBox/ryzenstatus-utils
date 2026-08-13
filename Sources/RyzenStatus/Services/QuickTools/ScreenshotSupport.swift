@@ -490,6 +490,31 @@ enum ScreenshotSupport {
         return "\(prefix) \(formatter.string(from: date)).\(fileExtension)"
     }
 
+    /// Removes leftover drag directories that outlived their payloads, e.g.
+    /// after a Finder crash or a quit mid-drag. Only `ScreenshotDrag-<UUID>`
+    /// folders are touched, and symlinks are never followed.
+    static func removeTemporaryDragDirectories(
+        directory: URL = FileManager.default.temporaryDirectory
+    ) {
+        let manager = FileManager.default
+        guard let children = try? manager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        let prefix = "ScreenshotDrag-"
+        for child in children {
+            let name = child.lastPathComponent
+            guard name.hasPrefix(prefix),
+                  UUID(uuidString: String(name.dropFirst(prefix.count))) != nil,
+                  let values = try? child.resourceValues(
+                    forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+                  values.isDirectory == true,
+                  values.isSymbolicLink != true else { continue }
+            try? manager.removeItem(at: child)
+        }
+    }
+
     /// Writes one drag payload into its own temporary directory. Separate
     /// directories keep captures made in the same second from replacing each
     /// other while either drag is still in flight.

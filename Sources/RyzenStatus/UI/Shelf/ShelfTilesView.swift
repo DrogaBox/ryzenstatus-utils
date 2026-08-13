@@ -160,6 +160,8 @@ final class ShelfTileView: NSView, NSDraggingSource {
     private var isDropTargeted = false
     private var closeButton: NSButton!
     private var expandButton: NSButton?
+    private var iconWellView: NSView?
+    private var stackBackplates: [NSView] = []
 
     init(item: ShelfService.Item, isSelected: Bool, isExpanded: Bool) {
         self.item = item
@@ -202,7 +204,7 @@ final class ShelfTileView: NSView, NSDraggingSource {
         let iconWell = NSView(frame: NSRect(x: 7, y: 6, width: 64, height: 50))
         iconWell.wantsLayer = true
         iconWell.layer?.cornerRadius = 8
-        iconWell.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.06).cgColor
+        iconWellView = iconWell
         addSubview(iconWell)
 
         let imageView = NSImageView(frame: iconWell.bounds.insetBy(dx: item.isImage ? 4 : 13,
@@ -263,20 +265,35 @@ final class ShelfTileView: NSView, NSDraggingSource {
         closeButton.action = #selector(removeSelf)
         closeButton.isHidden = true
         addSubview(closeButton)
+        applyLayerColors()
+    }
+
+    /// Layer colors are plain CGColor values resolved once, so they go stale
+    /// the moment the system switches appearance. Re-resolve them on change.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyLayerColors()
+    }
+
+    private func applyLayerColors() {
+        iconWellView?.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.06).cgColor
+        for (index, view) in stackBackplates.enumerated() {
+            view.layer?.backgroundColor = NSColor.white.withAlphaComponent(index == 0 ? 0.035 : 0.055).cgColor
+            view.layer?.borderColor = NSColor.white.withAlphaComponent(0.05).cgColor
+        }
     }
 
     private func addStackBackplates() {
-        for (index, offset) in [2, 1].enumerated() {
+        for (_, offset) in [2, 1].enumerated() {
             let view = NSView(frame: NSRect(x: 7 + CGFloat(offset) * 3,
                                            y: 6 + CGFloat(offset) * 3,
                                            width: 64,
                                            height: 50))
             view.wantsLayer = true
             view.layer?.cornerRadius = 8
-            view.layer?.backgroundColor = NSColor.white.withAlphaComponent(index == 0 ? 0.035 : 0.055).cgColor
             view.layer?.borderWidth = 1
-            view.layer?.borderColor = NSColor.white.withAlphaComponent(0.05).cgColor
             addSubview(view)
+            stackBackplates.append(view)
         }
     }
 

@@ -171,6 +171,14 @@ enum MetricFormat {
         String(format: "%.0fW", value.rounded())
     }
 
+    static func systemPowerWatts(measured: Double?,
+                                 batteryWatts: Double?,
+                                 externalConnected: Bool) -> Double? {
+        if let measured { return measured }
+        guard !externalConnected, let batteryWatts, batteryWatts < 0 else { return nil }
+        return -batteryWatts
+    }
+
     /// A 0...1 fraction as a rounded percentage, e.g. "12%".
     static func percent(_ fraction: Double) -> String {
         "\(Int((max(0, min(1, fraction)) * 100).rounded()))%"

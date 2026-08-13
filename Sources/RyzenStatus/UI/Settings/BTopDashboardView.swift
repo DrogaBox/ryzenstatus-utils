@@ -10,6 +10,7 @@ struct BTopDashboardView: View {
     @State private var topProcesses: [ProcessUsage] = []
     @State private var procSortMode: ProcSortMode = .cpu
     @State private var processTimer: Timer?
+    @Environment(\.colorScheme) private var colorScheme
     
     enum ProcSortMode: String, CaseIterable, Identifiable {
         case cpu = "CPU %"
@@ -23,8 +24,16 @@ struct BTopDashboardView: View {
     private let neonGreen = Color(red: 0.22, green: 0.88, blue: 0.45)   // #38E54D
     private let neonOrange = Color(red: 1.0, green: 0.6, blue: 0.0)     // #FF9F1C
     private let neonPink = Color(red: 1.0, green: 0.0, blue: 0.45)      // #FF0072
-    private let darkBg = Color(red: 0.07, green: 0.07, blue: 0.09)      // #121217
-    private let boxBg = Color(red: 0.11, green: 0.11, blue: 0.14)       // #1C1C24
+    private var darkBg: Color {
+        colorScheme == .dark
+            ? Color(red: 0.07, green: 0.07, blue: 0.09)   // #121217
+            : Color(nsColor: .windowBackgroundColor)
+    }
+    private var boxBg: Color {
+        colorScheme == .dark
+            ? Color(red: 0.11, green: 0.11, blue: 0.14)   // #1C1C24
+            : Color(nsColor: .controlBackgroundColor)
+    }
 
     /// Hardware-derived box title (brand + core/thread counts), computed once
     /// instead of hardcoding a specific SKU.
@@ -200,10 +209,10 @@ struct BTopDashboardView: View {
                     
                     // Table Header
                     HStack {
-                        Text("PID").frame(width: 50, alignment: .leading)
-                        Text("NAME").frame(maxWidth: .infinity, alignment: .leading)
-                        Text("RESOURCE VALUE").frame(width: 120, alignment: .trailing)
-                        Text("ACTION").frame(width: 60, alignment: .center)
+                        Text("PID").lineLimit(1).truncationMode(.tail).frame(width: 50, alignment: .leading)
+                        Text("NAME").lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
+                        Text("RESOURCE VALUE").lineLimit(1).truncationMode(.tail).frame(width: 120, alignment: .trailing)
+                        Text("ACTION").lineLimit(1).truncationMode(.tail).frame(width: 60, alignment: .center)
                     }
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundColor(neonOrange)

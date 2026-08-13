@@ -34,6 +34,8 @@ struct SuperKeyMapping: Equatable {
 enum SuperKeySupport {
     /// HID usage values (page 7, keyboard) of the two keys involved.
     static let capsLockUsage: UInt64 = 0x700000039
+    /// Modifier Keys represents “No Action” with this sentinel.
+    static let noActionUsage = UInt64.max
     /// F18 is the destination: a key defined by the standard, so the system
     /// delivers it like any other, and one no portable keyboard carries.
     static let triggerUsage: UInt64 = 0x70000006D
@@ -45,13 +47,32 @@ enum SuperKeySupport {
     // MARK: - Key mapping table
 
     /// The table to write for the wanted state. A mapping the user set up
-    /// elsewhere stays as it is; only the entry for Caps Lock belongs to this
-    /// feature, which is also why turning it off leaves the rest untouched.
+    /// elsewhere stays as it is; only the entries created for this feature are
+    /// removed when it is turned off.
     static func mappings(enablingSuperKey enabled: Bool,
-                         existing: [SuperKeyMapping]) -> [SuperKeyMapping] {
-        let others = existing.filter { $0.source != capsLockUsage }
+                         existing: [SuperKeyMapping],
+                         includeNoAction: Bool = false) -> [SuperKeyMapping] {
+        let others = existing.filter {
+            $0.source != capsLockUsage
+                && !($0.source == noActionUsage && $0.destination == triggerUsage)
+        }
         guard enabled else { return others }
-        return [SuperKeyMapping(source: capsLockUsage, destination: triggerUsage)] + others
+        var owned = [SuperKeyMapping(source: capsLockUsage, destination: triggerUsage)]
+        if includeNoAction, !others.contains(where: { $0.source == noActionUsage }) {
+            owned.append(SuperKeyMapping(source: noActionUsage, destination: triggerUsage))
+        }
+        return owned + others
+    }
+
+    /// “No Action” has one shared sentinel after Modifier Keys. It is safe to
+    /// recover only when Caps Lock is the sole modifier using that sentinel.
+    static func canMapNoAction(from modifierMappings: [SuperKeyMapping]) -> Bool {
+        let disabledSources = Set(
+            modifierMappings.lazy
+                .filter { $0.destination == noActionUsage }
+                .map(\.source)
+        )
+        return disabledSources == [capsLockUsage]
     }
 
     /// The mapping table as the command line takes it.
@@ -79,8 +100,13 @@ enum SuperKeySupport {
 
     private static func number(after field: String, in body: String) -> UInt64? {
         guard let range = body.range(of: field) else { return nil }
-        let rest = body[range.upperBound...].drop { $0 == " " || $0 == "=" }
-        return UInt64(rest.prefix { $0.isNumber })
+        let rest = body[range.upperBound...].drop {
+            $0 == " " || $0 == "=" || $0 == "\""
+        }
+        let token = rest.prefix { $0.isNumber || $0 == "-" }
+        if let value = UInt64(token) { return value }
+        guard let value = Int64(token) else { return nil }
+        return UInt64(bitPattern: value)
     }
 
     // MARK: - What each event means

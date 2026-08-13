@@ -948,7 +948,7 @@ struct ScreenshotEditorView: View {
     private func colorDot(_ colorID: ScreenshotSupport.ColorID) -> some View {
         let selected = model.color == colorID
         return Button {
-            withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
                 model.color = colorID
             }
         } label: {
@@ -1099,6 +1099,7 @@ struct ScreenshotEditorView: View {
             } action: {
                 model.zoomOverride = nil
             }
+            .accessibilityLabel("Ajustar al lienzo")
             Text(zoomPercentLabel)
                 .font(.system(size: 10.5, weight: .medium).monospacedDigit())
                 .foregroundStyle(.secondary)

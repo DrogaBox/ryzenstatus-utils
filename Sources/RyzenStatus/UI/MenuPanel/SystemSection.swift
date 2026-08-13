@@ -315,7 +315,7 @@ struct SystemSection: View {
                 HStack(spacing: 8) {
                     if cpuAvailable {
                         Button {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                                 toggleBreakdown(.cpu)
                             }
                         } label: {
@@ -327,7 +327,9 @@ struct SystemSection: View {
                                 freq: String(format: "%.1f GHz", averageCPUFreq),
                                 power: monitor.snapshot.cpuPower ?? 0,
                                 accentColor: .cyan,
-                                backgroundColor: Color(red: 0.1, green: 0.2, blue: 0.2, opacity: 0.3)
+                                backgroundColor: colorScheme == .dark
+                                    ? Color(red: 0.1, green: 0.2, blue: 0.2, opacity: 0.3)
+                                    : Color.cyan.opacity(0.06)
                             )
                         }
                         .buttonStyle(.plain)
@@ -335,7 +337,7 @@ struct SystemSection: View {
                     if gpuAvailable {
                         let gpuFreqVal = monitor.snapshot.gpuFreq ?? 0
                         Button {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                                 toggleBreakdown(.gpu)
                             }
                         } label: {
@@ -347,7 +349,9 @@ struct SystemSection: View {
                                 freq: String(format: "%.0f MHz", gpuFreqVal),
                                 power: monitor.snapshot.gpuPower ?? 0,
                                 accentColor: .orange,
-                                backgroundColor: Color(red: 0.2, green: 0.15, blue: 0.05, opacity: 0.3)
+                                backgroundColor: colorScheme == .dark
+                                    ? Color(red: 0.2, green: 0.15, blue: 0.05, opacity: 0.3)
+                                    : Color.orange.opacity(0.06)
                             )
                         }
                         .buttonStyle(.plain)
@@ -705,7 +709,7 @@ struct SystemSection: View {
                     memoryRowContent(isInteractive: false)
                 } else {
                     Button(action: {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                             toggleBreakdown(.memory)
                         }
                     }) {

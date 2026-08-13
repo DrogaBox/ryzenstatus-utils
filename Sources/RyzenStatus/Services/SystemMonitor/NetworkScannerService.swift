@@ -38,12 +38,12 @@ final class NetworkScannerService: @unchecked Sendable {
         defer { freeifaddrs(ifaddr) }
 
         var ptr: UnsafeMutablePointer<ifaddrs>? = firstAddr
-        while ptr != nil {
-            let flags = Int32(ptr!.pointee.ifa_flags)
+        while let current = ptr {
+            let flags = Int32(current.pointee.ifa_flags)
             let isUp = (flags & IFF_UP) != 0
-            let name = String(cString: ptr!.pointee.ifa_name)
+            let name = String(cString: current.pointee.ifa_name)
             
-            if let addr = ptr!.pointee.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET) {
+            if let addr = current.pointee.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET) {
                 var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
                 if getnameinfo(addr, socklen_t(addr.pointee.sa_len), &hostname, socklen_t(hostname.count), nil, 0, NI_NUMERICHOST) == 0 {
                     let ip = String(cString: hostname)
@@ -52,7 +52,7 @@ final class NetworkScannerService: @unchecked Sendable {
                     }
                 }
             }
-            ptr = ptr!.pointee.ifa_next
+            ptr = current.pointee.ifa_next
         }
 
         if adapters.isEmpty {

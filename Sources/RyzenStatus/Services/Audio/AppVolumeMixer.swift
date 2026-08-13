@@ -1052,6 +1052,12 @@ private final class TapGainEngine: GainEngine {
     private var aggregateID = AudioObjectID(0)
     private var ioProc: AudioDeviceIOProcID?
 
+    /// A broken HAL path can park inside teardown. Cleanup stays serialized so
+    /// repeated failures cannot accumulate blocked worker threads; every IO
+    /// proc is already stopped before it reaches this queue.
+    private static let teardownQueue = DispatchQueue(label: "com.ryzenstatus.utils.mixer.teardown",
+                                                     qos: .utility)
+
     init?(objects: [AudioObjectID], gain: Float, outputDeviceUID: String) {
         tappedObjects = objects
         gainBox.value = min(max(gain, 0), Float(AppVolumeMixer.maxVolume))
@@ -1117,18 +1123,32 @@ private final class TapGainEngine: GainEngine {
     }
 
     func stop() {
-        if let ioProc {
+        let tapID = self.tapID
+        let aggregateID = self.aggregateID
+        let ioProc = self.ioProc
+        guard tapID != 0 || aggregateID != 0 || ioProc != nil else { return }
+
+        self.tapID = 0
+        self.aggregateID = 0
+        self.ioProc = nil
+
+        // Stop the read before returning so audio is handed back immediately;
+        // the destroy calls after it may wait on a broken HAL path and
+        // therefore run away from the main thread.
+        if let ioProc, aggregateID != 0 {
             AudioDeviceStop(aggregateID, ioProc)
-            AudioDeviceDestroyIOProcID(aggregateID, ioProc)
-            self.ioProc = nil
         }
-        if aggregateID != 0 {
-            AudioHardwareDestroyAggregateDevice(aggregateID)
-            aggregateID = 0
-        }
-        if tapID != 0 {
-            AudioHardwareDestroyProcessTap(tapID)
-            tapID = 0
+
+        Self.teardownQueue.async {
+            if let ioProc, aggregateID != 0 {
+                AudioDeviceDestroyIOProcID(aggregateID, ioProc)
+            }
+            if aggregateID != 0 {
+                AudioHardwareDestroyAggregateDevice(aggregateID)
+            }
+            if tapID != 0 {
+                AudioHardwareDestroyProcessTap(tapID)
+            }
         }
     }
 

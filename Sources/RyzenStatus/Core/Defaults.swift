@@ -193,7 +193,7 @@ enum Defaults {
         DefaultsKey.whatsAppDownloadsLastCleanupBytes: 0,
         DefaultsKey.whatsAppDownloadsLastCleanupFailed: 0,
         DefaultsKey.whatsAppDownloadsLastCleanupAutomatic: false,
-        DefaultsKey.whatsAppDownloadsExclusions: [],
+        DefaultsKey.whatsAppDownloadsExclusions: [String](),
         DefaultsKey.whatsAppDownloadsAccessConfirmed: false,
         DefaultsKey.whatsAppOrganizerEnabled: false,
         DefaultsKey.whatsAppOrganizerDestinationPath: "",
@@ -272,7 +272,7 @@ enum Defaults {
         // keeps the value shipped releases always had.
         DefaultsKey.shelfCloseAfterDrop: false,
         DefaultsKey.shelfRemoveAfterDrop: true,
-        DefaultsKey.shelfAutomaticExclusions: [],
+        DefaultsKey.shelfAutomaticExclusions: [String](),
         DefaultsKey.extraBrightnessEnabled: false,
         DefaultsKey.extraBrightnessLevel: 100,
         DefaultsKey.brightnessControlEnabled: false,
@@ -313,6 +313,7 @@ enum Defaults {
         // The list itself costs nothing until it is opened; only the
         // background check keeps a timer, so it starts off.
         DefaultsKey.appUpdatesCheckFrequency: AppUpdatesSupport.CheckFrequency.off.rawValue,
+        DefaultsKey.appUpdatesIncludeHomebrewApps: true,
         DefaultsKey.appUpdatesIncludeAppStore: true,
         DefaultsKey.appUpdatesNotify: true,
         DefaultsKey.appUpdatesLastCheck: 0.0,

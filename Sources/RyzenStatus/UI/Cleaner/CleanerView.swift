@@ -181,7 +181,9 @@ struct CleanerView: View {
                 .controlSize(.large)
                 .buttonStyle(.borderedProminent)
             scheduleCard
-            if !permissions.fullDiskAccess { fdaNote }
+            if !permissions.fullDiskAccess {
+                FullDiskAccessNote(compact: compact).frame(maxWidth: 380)
+            }
             if !compact { Spacer() }
         }
         .padding(compact ? 14 : 28)
@@ -482,26 +484,6 @@ struct CleanerView: View {
                 }
             }
         }
-    }
-
-    private var fdaNote: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "info.circle").foregroundStyle(.secondary)
-                Text(l10n.s.uninstallerFDANote)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            HStack(spacing: 8) {
-                Button(l10n.s.uninstallerFDAGrant) { permissions.requestFullDiskAccess() }
-                Button(l10n.s.uninstallerFDARelaunch) { appDelegate()?.relaunchApp() }
-            }
-            .controlSize(.small)
-        }
-        .padding(11)
-        .frame(maxWidth: 380)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(0.05)))
     }
 
     // MARK: Busy

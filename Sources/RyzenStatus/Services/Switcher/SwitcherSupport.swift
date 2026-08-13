@@ -767,8 +767,9 @@ enum SwitcherSupport {
                                          sourcePID: pid_t?,
                                          frontmostPID: pid_t?,
                                          targetIsMinimized: Bool,
+                                         targetStartedMinimized: Bool,
                                          ownPID: pid_t = ProcessInfo.processInfo.processIdentifier) -> Bool {
-        guard !targetIsMinimized else { return false }
+        guard !targetIsMinimized || targetStartedMinimized else { return false }
         guard let sourcePID,
               let frontmostPID else { return true }
         return frontmostPID == targetPID || frontmostPID == sourcePID || frontmostPID == ownPID

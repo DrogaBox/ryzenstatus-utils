@@ -5,6 +5,7 @@ import SwiftUI
 
 public struct CPUCoreGridView: View {
     let cores: [CoreSnapshot]
+    @Environment(\.colorScheme) private var colorScheme
     
     private var colCount: Int {
         let count = cores.count
@@ -40,7 +41,8 @@ public struct CPUCoreGridView: View {
                 GeometryReader { geo in
                     ZStack(alignment: .bottom) {
                         RoundedRectangle(cornerRadius: 3.5)
-                            .fill(Color.black.opacity(0.25))
+                            .fill(colorScheme == .dark ? Color.black.opacity(0.25)
+                                                        : Color.primary.opacity(0.07))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 3.5)
                                     .stroke(Color.white.opacity(0.06), lineWidth: 0.5)
@@ -61,7 +63,7 @@ public struct CPUCoreGridView: View {
                                 HStack {
                                     Text("\(core.id)")
                                         .font(.system(size: 7, weight: .bold))
-                                        .foregroundColor(.white.opacity(0.35))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.35) : .black.opacity(0.45))
                                         .padding(.leading, 3)
                                         .padding(.top, 1)
                                     Spacer()
@@ -69,7 +71,7 @@ public struct CPUCoreGridView: View {
                                 Spacer()
                                 Text(String(format: "%.0f%%", core.loadPct))
                                     .font(.system(size: 7.5, weight: .bold, design: .monospaced))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
                                     .padding(.bottom, 1.5)
                             }
                         }

@@ -206,7 +206,7 @@ extension Strings {
         switcherEnableCaption: "Passez d’une app ou fenêtre à l’autre, y compris les fenêtres minimisées et plusieurs fenêtres d’une même app.",
         switcherUsageHint: "Maintenez le raccourci pour naviguer ; relâchez pour activer la fenêtre. Maj ou ← revient en arrière ; Q quitte l’app sélectionnée ; Échap annule.",
         switcherNoWindows: "Aucune fenêtre ouverte",
-        switcherIconRowMode: "Afficher ⌘Tab avec de grandes icônes",
+        switcherIconRowMode: "Afficher %@ avec de grandes icônes",
         switcherIconRowModeCaption: "Affiche une icône par app avec les aperçus de ses fenêtres au-dessus.",
         switcherSimpleMode: "Sélecteur d’apps simple",
         switcherSimpleModeCaption: "Affiche les icônes des apps et les titres des fenêtres, sans aperçu ni capture d’écran par le sélecteur.",

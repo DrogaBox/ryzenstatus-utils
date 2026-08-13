@@ -33,6 +33,9 @@ struct AppUpdateStrings {
     let notificationBodyFormat: String
     let notificationBodyOne: String
     let showInPanel: String
+    let homebrewBadge: String
+    let sourcesTitle: String
+    let includeHomebrewToggle: String
 }
 
 extension FeatureStrings {
@@ -85,7 +88,10 @@ extension AppUpdateStrings {
         packageMissing: "Homebrew is not installed, so apps cannot be updated from here yet.",
         notificationBodyFormat: "%@ apps have a newer version.",
         notificationBodyOne: "One app has a newer version.",
-        showInPanel: "Show in panel"
+        showInPanel: "Show in panel",
+        homebrewBadge: "Homebrew",
+        sourcesTitle: "Sources",
+        includeHomebrewToggle: "Include Homebrew apps"
     )
 
     static let ptBR = AppUpdateStrings(
@@ -117,7 +123,10 @@ extension AppUpdateStrings {
         packageMissing: "O Homebrew não está instalado, então ainda não dá para atualizar apps por aqui.",
         notificationBodyFormat: "%@ apps têm versão nova.",
         notificationBodyOne: "Um app tem versão nova.",
-        showInPanel: "Mostrar no painel"
+        showInPanel: "Mostrar no painel",
+        homebrewBadge: "Homebrew",
+        sourcesTitle: "Fontes",
+        includeHomebrewToggle: "Incluir apps do Homebrew"
     )
 
     static let es = AppUpdateStrings(
@@ -149,7 +158,10 @@ extension AppUpdateStrings {
         packageMissing: "Homebrew no está instalado, así que todavía no se pueden actualizar apps desde aquí.",
         notificationBodyFormat: "%@ apps tienen una versión más nueva.",
         notificationBodyOne: "Una app tiene una versión más nueva.",
-        showInPanel: "Mostrar en el panel"
+        showInPanel: "Mostrar en el panel",
+        homebrewBadge: "Homebrew",
+        sourcesTitle: "Fuentes",
+        includeHomebrewToggle: "Incluir apps de Homebrew"
     )
 
     static let de = AppUpdateStrings(
@@ -181,7 +193,10 @@ extension AppUpdateStrings {
         packageMissing: "Homebrew ist nicht installiert, deshalb lassen sich Apps von hier noch nicht aktualisieren.",
         notificationBodyFormat: "%@ Apps haben eine neuere Version.",
         notificationBodyOne: "Eine App hat eine neuere Version.",
-        showInPanel: "Im Panel anzeigen"
+        showInPanel: "Im Panel anzeigen",
+        homebrewBadge: "Homebrew",
+        sourcesTitle: "Quellen",
+        includeHomebrewToggle: "Homebrew-Apps einbeziehen"
     )
 
     static let fr = AppUpdateStrings(
@@ -213,7 +228,10 @@ extension AppUpdateStrings {
         packageMissing: "Homebrew n'est pas installé, les apps ne peuvent donc pas encore être mises à jour d'ici.",
         notificationBodyFormat: "%@ apps ont une version plus récente.",
         notificationBodyOne: "Une app a une version plus récente.",
-        showInPanel: "Afficher dans le panneau"
+        showInPanel: "Afficher dans le panneau",
+        homebrewBadge: "Homebrew",
+        sourcesTitle: "Sources",
+        includeHomebrewToggle: "Inclure les apps Homebrew"
     )
 
     static let it = AppUpdateStrings(
@@ -245,7 +263,10 @@ extension AppUpdateStrings {
         packageMissing: "Homebrew non è installato, quindi da qui non si possono ancora aggiornare le app.",
         notificationBodyFormat: "%@ app hanno una versione più recente.",
         notificationBodyOne: "Un'app ha una versione più recente.",
-        showInPanel: "Mostra nel pannello"
+        showInPanel: "Mostra nel pannello",
+        homebrewBadge: "Homebrew",
+        sourcesTitle: "Fonti",
+        includeHomebrewToggle: "Includi le app Homebrew"
     )
 
     static let ja = AppUpdateStrings(
@@ -277,7 +298,10 @@ extension AppUpdateStrings {
         packageMissing: "Homebrewが入っていないため、ここからAppをアップデートすることはまだできません。",
         notificationBodyFormat: "%@件のAppに新しいバージョンがあります。",
         notificationBodyOne: "1件のAppに新しいバージョンがあります。",
-        showInPanel: "パネルに表示"
+        showInPanel: "パネルに表示",
+        homebrewBadge: "Homebrew",
+        sourcesTitle: "ソース",
+        includeHomebrewToggle: "HomebrewのAppを含める"
     )
 
     static let zhHans = AppUpdateStrings(
@@ -309,7 +333,10 @@ extension AppUpdateStrings {
         packageMissing: "Homebrew 未安装，因此尚无法从此处更新 App。",
         notificationBodyFormat: "%@ 个 App 有较新版本。",
         notificationBodyOne: "有一个 App 有较新版本。",
-        showInPanel: "在面板中显示"
+        showInPanel: "在面板中显示",
+        homebrewBadge: "Homebrew",
+        sourcesTitle: "来源",
+        includeHomebrewToggle: "包含 Homebrew App"
     )
 
     static let zhTW = AppUpdateStrings(
@@ -341,7 +368,10 @@ extension AppUpdateStrings {
         packageMissing: "尚未安裝 Homebrew，因此無法從此處更新 App。",
         notificationBodyFormat: "%@ 個 App 有較新版本。",
         notificationBodyOne: "有一個 App 有較新版本。",
-        showInPanel: "在面板中顯示"
+        showInPanel: "在面板中顯示",
+        homebrewBadge: "Homebrew",
+        sourcesTitle: "來源",
+        includeHomebrewToggle: "包含 Homebrew App"
     )
 
     static let zhHK = AppUpdateStrings(
@@ -373,7 +403,10 @@ extension AppUpdateStrings {
         packageMissing: "Homebrew 未安裝，所以暫時冇得由呢度更新 App。",
         notificationBodyFormat: "%@ 個 App 有新版本。",
         notificationBodyOne: "有一個 App 有新版本。",
-        showInPanel: "喺面板顯示"
+        showInPanel: "喺面板顯示",
+        homebrewBadge: "Homebrew",
+        sourcesTitle: "來源",
+        includeHomebrewToggle: "包含 Homebrew App"
     )
 
     static let tr = AppUpdateStrings(
@@ -405,7 +438,10 @@ extension AppUpdateStrings {
         packageMissing: "Homebrew kurulu değil, bu yüzden uygulamalar buradan henüz güncellenemiyor.",
         notificationBodyFormat: "%@ uygulamanın yeni sürümü var.",
         notificationBodyOne: "Bir uygulamanın yeni sürümü var.",
-        showInPanel: "Panelde göster"
+        showInPanel: "Panelde göster",
+        homebrewBadge: "Homebrew",
+        sourcesTitle: "Kaynaklar",
+        includeHomebrewToggle: "Homebrew uygulamalarını dahil et"
     )
 
     static let ru = AppUpdateStrings(
@@ -437,7 +473,10 @@ extension AppUpdateStrings {
         packageMissing: "Homebrew не установлен, поэтому обновлять приложения отсюда пока нельзя.",
         notificationBodyFormat: "Приложений с новой версией: %@.",
         notificationBodyOne: "У одного приложения есть новая версия.",
-        showInPanel: "Показывать в панели"
+        showInPanel: "Показывать в панели",
+        homebrewBadge: "Homebrew",
+        sourcesTitle: "Источники",
+        includeHomebrewToggle: "Включать приложения Homebrew"
     )
 
     static let ko = AppUpdateStrings(
@@ -469,6 +508,9 @@ extension AppUpdateStrings {
         packageMissing: "Homebrew가 설치되지 않아 여기서 앱을 업데이트할 수 없습니다.",
         notificationBodyFormat: "%@개 앱에 새 버전이 있습니다.",
         notificationBodyOne: "한 앱에 새 버전이 있습니다.",
-        showInPanel: "패널에 표시"
+        showInPanel: "패널에 표시",
+        homebrewBadge: "Homebrew",
+        sourcesTitle: "소스",
+        includeHomebrewToggle: "Homebrew 앱 포함"
     )
 }

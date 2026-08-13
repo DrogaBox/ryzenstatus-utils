@@ -370,7 +370,7 @@ private struct MetricRowOptionToggle: View {
                         .fill(isOn ? Color.accentColor : Color.secondary.opacity(0.28))
                         .frame(width: 28, height: 16)
                     Circle()
-                        .fill(Color.white)
+                        .fill(Color(nsColor: .controlBackgroundColor))
                         .frame(width: 12, height: 12)
                         .padding(2)
                 }

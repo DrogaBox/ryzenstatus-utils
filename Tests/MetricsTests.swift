@@ -4043,24 +4043,35 @@ struct MetricsTests {
                                                         sourcePID: 20,
                                                         frontmostPID: 10,
                                                         targetIsMinimized: false,
+                                                        targetStartedMinimized: false,
                                                         ownPID: 99),
                "App Switcher focus retries can continue while the selected target app is still active")
         expect(SwitcherSupport.shouldContinueFocusRetry(targetPID: 10,
                                                         sourcePID: 20,
                                                         frontmostPID: 20,
                                                         targetIsMinimized: false,
+                                                        targetStartedMinimized: false,
                                                         ownPID: 99),
                "App Switcher focus retries can continue during the source-target handoff")
         expect(!SwitcherSupport.shouldContinueFocusRetry(targetPID: 10,
                                                          sourcePID: 20,
                                                          frontmostPID: 20,
                                                          targetIsMinimized: true,
+                                                         targetStartedMinimized: false,
                                                          ownPID: 99),
                "App Switcher focus retries stop once the selected target window was minimized")
+        expect(SwitcherSupport.shouldContinueFocusRetry(targetPID: 10,
+                                                        sourcePID: 20,
+                                                        frontmostPID: 20,
+                                                        targetIsMinimized: true,
+                                                        targetStartedMinimized: true,
+                                                        ownPID: 99),
+               "App Switcher retries restoration when the selected target started minimized")
         expect(!SwitcherSupport.shouldContinueFocusRetry(targetPID: 10,
                                                          sourcePID: 20,
                                                          frontmostPID: 30,
                                                          targetIsMinimized: false,
+                                                         targetStartedMinimized: false,
                                                          ownPID: 99),
                "App Switcher focus retries do not steal focus after the user moves to another app")
         expect(SwitcherSupport.shouldContinueAppActivationRetry(targetPID: 10,
@@ -5212,8 +5223,9 @@ struct MetricsTests {
         // MARK: Display brightness (DDC/CI helpers)
 
         let ddcWrite = BrightnessSupport.writePacket(code: 0x10, value: 0x1234)
-        expect(ddcWrite == [0x84, 0x03, 0x10, 0x12, 0x34,
-                            UInt8(0x6E ^ 0x51 ^ 0x84 ^ 0x03 ^ 0x10 ^ 0x12 ^ 0x34)],
+        let expectedDdcWrite: [UInt8] = [0x84, 0x03, 0x10, 0x12, 0x34,
+                                         UInt8(0x6E ^ 0x51 ^ 0x84 ^ 0x03 ^ 0x10 ^ 0x12 ^ 0x34)]
+        expect(ddcWrite == expectedDdcWrite,
                "DDC write packet carries the set opcode, big-endian value and checksum")
         let ddcRead = BrightnessSupport.readRequestPacket(code: 0x10)
         expect(ddcRead == [0x82, 0x01, 0x10, UInt8(0x6E ^ 0x82 ^ 0x01 ^ 0x10)],

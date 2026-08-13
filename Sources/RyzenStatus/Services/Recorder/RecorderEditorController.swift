@@ -54,6 +54,7 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
 
     private var timeObserver: Any?
     private var thumbnailTask: Task<Void, Never>?
+    private var waveformTask: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
     private var compositionTask: Task<Void, Never>?
     private lazy var sourceAsset = AVURLAsset(url: take.videoURL)
@@ -112,6 +113,7 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
             player.removeTimeObserver(timeObserver)
         }
         thumbnailTask?.cancel()
+        waveformTask?.cancel()
         previewTask?.cancel()
         compositionTask?.cancel()
     }
@@ -166,9 +168,10 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
     }
 
     private func loadAudioWaveforms(_ tracks: [RecorderAudioSource: AVAssetTrack]) {
+        waveformTask?.cancel()
         let duration = duration
         let asset = sourceAsset
-        Task.detached(priority: .utility) { [weak self] in
+        waveformTask = Task.detached(priority: .utility) { [weak self] in
             var waveforms: [RecorderAudioSource: [Float]] = [:]
             for source in RecorderAudioSource.allCases {
                 guard let track = tracks[source], !Task.isCancelled else { continue }

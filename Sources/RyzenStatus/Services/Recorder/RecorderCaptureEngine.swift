@@ -153,8 +153,18 @@ final class RecorderCaptureEngine: NSObject {
         // command bar, which are exactly the things somebody records when they
         // want to show what the app does.
         let excluded = Set(windowNumbers.map { CGWindowID($0) })
-        let chrome = content.windows.filter { excluded.contains($0.windowID) }
-        return SCContentFilter(display: display, excludingWindows: chrome)
+        let ownPID = NSRunningApplication.current.processIdentifier
+        let ownWindows = content.windows.filter { $0.owningApplication?.processID == ownPID }
+        guard let ownApplication = content.applications.first(where: { $0.processID == ownPID })
+                ?? ownWindows.compactMap(\.owningApplication).first else { return nil }
+        let exceptedIDs = RecorderSupport.exceptedOwnWindowIDs(
+            ownWindowIDs: Set(ownWindows.map(\.windowID)),
+            protectedWindowIDs: excluded
+        )
+        let ordinaryWindows = ownWindows.filter { exceptedIDs.contains($0.windowID) }
+        return SCContentFilter(display: display,
+                               excludingApplications: [ownApplication],
+                               exceptingWindows: ordinaryWindows)
     }
 
     /// The recorded area inside the display, in points with a top-left origin,

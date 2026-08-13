@@ -283,10 +283,27 @@ final class SuperKeyService: ObservableObject {
         }
         UserDefaults.standard.set(enabled, forKey: DefaultsKey.superKeyMappingApplied)
         let work = { [hidutilPath, keyboardMatch] in
+            let includeNoAction: Bool
+            if enabled {
+                let modifierReport = Shell.run(
+                    hidutilPath,
+                    ["property", "--matching", keyboardMatch,
+                     "--get", "HIDKeyboardModifierMappingPairs"]
+                )
+                includeNoAction = SuperKeySupport.canMapNoAction(
+                    from: SuperKeySupport.parseMappings(modifierReport.output)
+                )
+            } else {
+                includeNoAction = false
+            }
             let report = Shell.run(hidutilPath,
                                    ["property", "--matching", keyboardMatch, "--get", "UserKeyMapping"])
             let existing = SuperKeySupport.parseMappings(report.output)
-            let wanted = SuperKeySupport.mappings(enablingSuperKey: enabled, existing: existing)
+            let wanted = SuperKeySupport.mappings(
+                enablingSuperKey: enabled,
+                existing: existing,
+                includeNoAction: includeNoAction
+            )
             Shell.run(hidutilPath,
                       ["property", "--matching", keyboardMatch,
                        "--set", SuperKeySupport.mappingArgument(wanted)])

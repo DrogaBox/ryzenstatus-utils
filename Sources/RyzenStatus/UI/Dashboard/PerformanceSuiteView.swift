@@ -160,21 +160,16 @@ struct PerformanceSuiteView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            SystemMonitor.shared.setMenuPanelNeeds(SystemMonitorPanelNeeds(
-                network: true,
-                power: true,
-                cpu: true,
-                gpu: true,
-                memory: true,
-                cpuTemperature: true,
-                gpuTemperature: true
-            ))
+            // A full monitor surface: register as a panel client (a depth
+            // counter), not via setMenuPanelNeeds, so opening or closing the
+            // menu popover cannot wipe these needs and freeze the metrics.
+            SystemMonitor.shared.panelDidAppear()
             refreshData()
         }
         .onReceive(NotificationCenter.default.publisher(for: .processUsageDidUpdate)) { _ in refreshData() }
         .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in refreshData() }
         .onDisappear {
-            SystemMonitor.shared.setMenuPanelNeeds(.none)
+            SystemMonitor.shared.panelDidDisappear()
         }
     }
 
@@ -273,7 +268,7 @@ struct PerformanceSuiteView: View {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(value)
                     .font(.system(size: 18, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.primary)
                 Text(subtitle)
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundColor(.secondary)
@@ -425,11 +420,11 @@ struct PerformanceSuiteView: View {
 
                 VStack(spacing: 4) {
                     HStack {
-                        Text("PID").frame(width: 55, alignment: .leading)
-                        Text("PROCESS / APP NAME").frame(maxWidth: .infinity, alignment: .leading)
-                        Text("CATEGORY").frame(width: 140, alignment: .leading)
-                        Text("CPU %").frame(width: 70, alignment: .trailing)
-                        Text("ACTION").frame(width: 80, alignment: .center)
+                        Text("PID").lineLimit(1).truncationMode(.tail).frame(width: 55, alignment: .leading)
+                        Text("PROCESS / APP NAME").lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
+                        Text("CATEGORY").lineLimit(1).truncationMode(.tail).frame(width: 140, alignment: .leading)
+                        Text("CPU %").lineLimit(1).truncationMode(.tail).frame(width: 70, alignment: .trailing)
+                        Text("ACTION").lineLimit(1).truncationMode(.tail).frame(width: 80, alignment: .center)
                     }
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundColor(.secondary)
@@ -598,12 +593,12 @@ struct PerformanceSuiteView: View {
             // Top Energy Impact Table
             VStack(spacing: 4) {
                 HStack {
-                    Text("PID").frame(width: 50, alignment: .leading)
-                    Text("APPLICATION / PROCESS").frame(maxWidth: .infinity, alignment: .leading)
-                    Text("TYPE").frame(width: 80, alignment: .center)
-                    Text("CPU %").frame(width: 70, alignment: .trailing)
-                    Text("ENERGY IMPACT").frame(width: 120, alignment: .trailing)
-                    Text("ACTION").frame(width: 70, alignment: .center)
+                    Text("PID").lineLimit(1).truncationMode(.tail).frame(width: 50, alignment: .leading)
+                    Text("APPLICATION / PROCESS").lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
+                    Text("TYPE").lineLimit(1).truncationMode(.tail).frame(width: 80, alignment: .center)
+                    Text("CPU %").lineLimit(1).truncationMode(.tail).frame(width: 70, alignment: .trailing)
+                    Text("ENERGY IMPACT").lineLimit(1).truncationMode(.tail).frame(width: 120, alignment: .trailing)
+                    Text("ACTION").lineLimit(1).truncationMode(.tail).frame(width: 70, alignment: .center)
                 }
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundColor(.secondary)

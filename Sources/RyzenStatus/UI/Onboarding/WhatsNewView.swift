@@ -265,6 +265,7 @@ struct UpdateSupportIntroView: View {
 
     @ObservedObject private var l10n = L10n.shared
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var step: SupportUpdateIntroStep
     @State private var isMovingForward = true
     @State private var copiedCommand: String?
@@ -302,7 +303,8 @@ struct UpdateSupportIntroView: View {
     }
 
     private var pageTransition: AnyTransition {
-        .asymmetric(
+        guard !reduceMotion else { return .opacity }
+        return .asymmetric(
             insertion: .move(edge: isMovingForward ? .trailing : .leading)
                 .combined(with: .opacity),
             removal: .move(edge: isMovingForward ? .leading : .trailing)

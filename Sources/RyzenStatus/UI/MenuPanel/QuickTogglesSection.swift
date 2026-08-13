@@ -59,7 +59,8 @@ struct PanelQuickTogglesView: View {
                     .frame(width: 22, height: 22)
             }
             .buttonStyle(.plain)
-            .help(l10n.s.uninstallerCancel)
+            .help(l10n.s.menuClose)
+            .accessibilityLabel(l10n.s.menuClose)
         }
     }
 }
