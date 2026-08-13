@@ -24,7 +24,7 @@
   <a href="https://github.com/DrogaBox/ryzenstatus-utils/releases"><img src="https://img.shields.io/github/v/release/DrogaBox/ryzenstatus-utils?label=release&color=4c8dff" alt="Latest release"></a>
   <a href="https://github.com/DrogaBox/ryzenstatus-utils/releases"><img src="https://img.shields.io/github/downloads/DrogaBox/ryzenstatus-utils/total?color=4c8dff" alt="Downloads"></a>
   <a href="https://github.com/DrogaBox/ryzenstatus-utils/actions/workflows/ci.yml"><img src="https://github.com/DrogaBox/ryzenstatus-utils/actions/workflows/ci.yml/badge.svg?branch=main&event=push" alt="CI status"></a>
-  <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-13%2B%20AMD%2FIntel-black" alt="macOS 13 and newer, AMD/Intel"></a>
+  <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-13%20to%2015%20AMD%2FIntel-black" alt="macOS 13 to 15 (Sequoia), AMD/Intel"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License GPL 3.0 or later"></a>
 </p>
 
@@ -65,6 +65,13 @@ The rest bends the same way: panel sections reorder and hide, the compact layout
 - **Menu bar readouts.** Keep the readings you care about in the bar itself, with values or compact usage bars, including optional battery time remaining, combined or as separate items.
 - **Network.** Live rates, session totals and a built in speed test.
 - **Alerts.** Optional notifications for sustained CPU load, high temperature, memory pressure, low disk space and low battery.
+
+### AMD Processors & Power Management
+
+- **AMD Telemetry:** Real-time monitoring of AMD CPU and discrete GPU temperatures, power draw, and frequencies.
+- **Fan Curve Control:** Dynamically control your CPU and GPU fans via SuperIO chips (Nuvoton/ITE) using custom curves.
+- **Gaming Mode:** A one-click toggle to apply the Extreme power preset (EPP 0) and prevent display sleep during intense workloads.
+- **EPP & C-State Management:** Manage Energy Performance Preference (EPP) and toggle Deep C-States (C6) directly from the settings for latency and power optimization.
 
 ### Windows and the Dock
 
@@ -154,7 +161,7 @@ The shelf and almost every quick toggle need no permission at all. Finder cut an
 ## What you need
 
 - A Hackintosh with an **AMD Ryzen CPU** (Zen architecture or newer)
-- macOS 13 Ventura or newer
+- macOS 13 Ventura up to macOS 15 Sequoia
 - **Kernel Extensions (For AMD CPU telemetry):** You must have `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` injected via OpenCore in your EFI folder. The source code for these is bundled in the `SMCAMDProcessor_Source` folder for reference.
 
 ### Kernel Extension Boot Arguments & Features
