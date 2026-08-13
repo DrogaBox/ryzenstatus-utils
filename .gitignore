@@ -48,3 +48,6 @@ task.md
 # Upstream sync tooling (local-only: holds the upstream repo URL; never pushed)
 .upstream-sync/
 
+
+# Merge/diff backup artifacts (never commit)
+*.orig
