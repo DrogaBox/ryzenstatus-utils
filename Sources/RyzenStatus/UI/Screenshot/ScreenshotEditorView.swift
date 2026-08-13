@@ -681,6 +681,7 @@ struct ScreenshotEditorView: View {
             }
             .buttonStyle(.borderless)
             .disabled(!model.canUndo)
+            .accessibilityLabel(l10n.s.menuUndo)
             Button {
                 commitEditingTextIfNeeded()
                 model.redo()
@@ -690,6 +691,7 @@ struct ScreenshotEditorView: View {
             }
             .buttonStyle(.borderless)
             .disabled(!model.canRedo)
+            .accessibilityLabel(l10n.s.menuRedo)
 
             if model.qrReading != nil {
                 Divider().frame(height: 16).padding(.horizontal, 3)

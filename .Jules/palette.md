@@ -1,0 +1,3 @@
+## 2024-08-13 - [Adding Accessibility Labels to Undo/Redo Buttons]
+**Learning:** Found that the Undo and Redo icon-only buttons in the screen recording and screenshot editors lacked `accessibilityLabel`s, though they had tooltips for visual users. By adding `.accessibilityLabel(l10n.s.menuUndo)` and `.accessibilityLabel(l10n.s.menuRedo)`, I've made these crucial destructive/constructive actions apparent to screen reader users, completing a critical a11y improvement.
+**Action:** When creating icon-only buttons with tooltips (`screenshotSafeHelp` or similar), always ensure they have an equivalent `accessibilityLabel`.
