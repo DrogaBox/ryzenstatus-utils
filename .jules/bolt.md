@@ -1,0 +1,3 @@
+## 2024-06-03 - Avoid expensive process name lookups
+**Learning:** `NSRunningApplication(processIdentifier: pid)?.localizedName` is an expensive cross-process RPC in macOS. Doing it on every refresh tick for hundreds of idle/background processes from `ps` output burns CPU heavily for a background status bar app.
+**Action:** When summarizing process metrics (like system or network usage), filter out inactive zero-usage apps and sort the data BEFORE constructing row objects. Use `enumerated()` to only call the expensive `displayName` lookup on the top N items that will actually be cached or shown, using a fast fallback string for the rest.
