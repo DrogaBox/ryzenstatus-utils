@@ -446,11 +446,15 @@ final class ProcessUsageService {
                 }
                 return a.key < b.key
             }
-            .map { owner, value in
-                ProcessUsage(pid: owner,
-                             name: ResponsibleProcess.displayName(pid: owner,
-                                                                  fallback: fallbackNames[owner] ?? "pid \(owner)"),
-                             value: value)
+            .enumerated()
+            .map { index, element in
+                let owner = element.key
+                let value = element.value
+                let fallback = fallbackNames[owner] ?? "pid \(owner)"
+                let name = index < maximumCachedRows
+                    ? ResponsibleProcess.displayName(pid: owner, fallback: fallback)
+                    : fallback
+                return ProcessUsage(pid: owner, name: name, value: value)
             }
     }
 
@@ -470,16 +474,22 @@ final class ProcessUsageService {
         }
 
         return totals
-            .map { owner, value in
-                ProcessUsage(pid: owner,
-                             name: ResponsibleProcess.displayName(pid: owner,
-                                                                  fallback: fallbackNames[owner] ?? "pid \(owner)"),
+            .filter { $0.value.down + $0.value.up > 0 }
+            .sorted { ($0.value.down + $0.value.up) > ($1.value.down + $1.value.up) }
+            .enumerated()
+            .map { index, element in
+                let owner = element.key
+                let value = element.value
+                let fallback = fallbackNames[owner] ?? "pid \(owner)"
+                let name = index < maximumCachedRows
+                    ? ResponsibleProcess.displayName(pid: owner, fallback: fallback)
+                    : fallback
+                return ProcessUsage(pid: owner,
+                             name: name,
                              value: value.down + value.up,
                              networkDownBytesPerSec: value.down,
                              networkUpBytesPerSec: value.up)
             }
-            .filter { $0.value > 0 }
-            .sorted { $0.value > $1.value }
     }
 
     // MARK: - GPU
