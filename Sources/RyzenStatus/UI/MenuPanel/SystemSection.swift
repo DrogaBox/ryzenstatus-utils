@@ -131,10 +131,10 @@ struct SystemSection: View {
         menuBarCPUTemperature ||
         menuBarCPUFrequency ||
         menuBarGPUTemperature ||
-        menuBarBatteryTemperature ||
+        (batteryAvailable && menuBarBatteryTemperature) ||
         menuBarNetwork ||
-        menuBarBattery ||
-        menuBarBatteryTime ||
+        (batteryAvailable && menuBarBattery) ||
+        (batteryAvailable && menuBarBatteryTime) ||
         menuBarPeripheralBattery ||
         menuBarPower
     }
@@ -149,10 +149,13 @@ struct SystemSection: View {
     private var gpuAvailable: Bool { AppFeature.monitorGPU.isAvailable }
     private var memoryAvailable: Bool { AppFeature.monitorMemory.isAvailable }
     private var powerAvailable: Bool { AppFeature.monitorPower.isAvailable }
+    private var batteryAvailable: Bool {
+        powerAvailable && PowerSampler.hasInternalBattery
+    }
 
     private var usageVisible: Bool {
         (sysCPU && cpuAvailable) || (sysGPU && gpuAvailable)
-            || (sysBattery && powerAvailable && monitor.snapshot.power?.chargePercent != nil)
+            || (sysBattery && batteryAvailable && monitor.snapshot.power?.chargePercent != nil)
     }
 
     private var visibleBlocks: [Block] {
@@ -165,7 +168,7 @@ struct SystemSection: View {
 
     private func isBlockAvailable(_ block: Block) -> Bool {
         switch block {
-        case .temps, .usage: return cpuAvailable || gpuAvailable || powerAvailable
+        case .temps, .usage: return cpuAvailable || gpuAvailable || batteryAvailable
         case .memory: return memoryAvailable
         case .alerts, .uptime: return true
         }
@@ -492,9 +495,9 @@ struct SystemSection: View {
             } else if editing, gpuAvailable {
                 PanelHiddenItemRow(title: l10n.s.gpuLabel, systemImage: "memorychip", isVisible: $sysGPU)
             }
-            if sysBattery, powerAvailable {
+            if sysBattery, batteryAvailable {
                 batteryUsageRow(editing: editing)
-            } else if editing, powerAvailable {
+            } else if editing, batteryAvailable {
                 PanelHiddenItemRow(title: l10n.s.batteryLabel,
                                    systemImage: "battery.100",
                                    isVisible: $sysBattery)

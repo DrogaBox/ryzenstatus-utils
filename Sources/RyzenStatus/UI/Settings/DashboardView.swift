@@ -125,7 +125,7 @@ struct DashboardView: View {
         }
         .background(Color(red: 0.1, green: 0.1, blue: 0.12).edgesIgnoringSafeArea(.all)) // Dark theme similar to AMD PG
         .onAppear {
-            SystemMonitor.shared.setMenuPanelNeeds(SystemMonitorPanelNeeds(power: true, cpu: true, gpu: true, memory: true, cpuTemperature: true, gpuTemperature: true))
+            SystemMonitor.shared.setMenuPanelNeeds(SystemMonitorPanelNeeds(network: true, power: true, cpu: true, gpu: true, memory: true, cpuTemperature: true, gpuTemperature: true))
         }
         .task {
             cpuProfile = await ProcessorModel.shared.cpuProfile

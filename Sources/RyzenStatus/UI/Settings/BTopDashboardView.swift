@@ -26,10 +26,21 @@ struct BTopDashboardView: View {
     private let darkBg = Color(red: 0.07, green: 0.07, blue: 0.09)      // #121217
     private let boxBg = Color(red: 0.11, green: 0.11, blue: 0.14)       // #1C1C24
 
+    /// Hardware-derived box title (brand + core/thread counts), computed once
+    /// instead of hardcoding a specific SKU.
+    private static let cpuBoxTitle: String = {
+        let brand = ProcessorModel.sysctlString(key: "machdep.cpu.brand_string")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let threads = ProcessInfo.processInfo.processorCount
+        let cores = max(1, threads / 2)
+        let name = brand.isEmpty ? "AMD Ryzen" : brand
+        return "CPU  ·  \(name) (\(cores)-Core / \(threads)-Thread)"
+    }()
+
     var body: some View {
         VStack(spacing: 14) {
             // --- TOP ROW: CPU & SYSTEM OVERVIEW (32-THREAD MATRIX & TOTAL LOAD) ---
-            bTopBox(title: "CPU  ·  AMD Ryzen 9 5900XT (16-Core / 32-Thread)", accentColor: neonCyan) {
+            bTopBox(title: Self.cpuBoxTitle, accentColor: neonCyan) {
                 VStack(spacing: 12) {
                     HStack(spacing: 16) {
                         // Left: Total Load gauge + Sparkline
@@ -123,15 +134,15 @@ struct BTopDashboardView: View {
                 // NETWORK TRAFFIC BOX
                 bTopBox(title: "NET  ·  BANDWIDTH TRAFFIC", accentColor: neonGreen) {
                     VStack(alignment: .leading, spacing: 6) {
-                        let downRate = monitor.snapshot.netDownBytesPerSec ?? 0.0
-                        let upRate = monitor.snapshot.netUpBytesPerSec ?? 0.0
+                        let downRate = monitor.snapshot.netDownBytesPerSec
+                        let upRate = monitor.snapshot.netUpBytesPerSec
                         
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("DOWNLOAD")
                                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                                     .foregroundColor(.secondary)
-                                Text(formatBytes(downRate) + "/s")
+                                Text(formatOptionalBytes(downRate))
                                     .font(.system(size: 13, weight: .bold, design: .monospaced))
                                     .foregroundColor(neonCyan)
                             }
@@ -140,7 +151,7 @@ struct BTopDashboardView: View {
                                 Text("UPLOAD")
                                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                                     .foregroundColor(.secondary)
-                                Text(formatBytes(upRate) + "/s")
+                                Text(formatOptionalBytes(upRate))
                                     .font(.system(size: 13, weight: .bold, design: .monospaced))
                                     .foregroundColor(neonGreen)
                             }
@@ -151,7 +162,8 @@ struct BTopDashboardView: View {
                         let downPoints: [Double] = rawDown.count >= 24 ? Array(rawDown.suffix(24)) : Array(repeating: 0.0, count: 24 - rawDown.count) + rawDown
                         let rawUp = monitor.snapshot.netUpHistory
                         let upPoints: [Double] = rawUp.count >= 24 ? Array(rawUp.suffix(24)) : Array(repeating: 0.0, count: 24 - rawUp.count) + rawUp
-                        let maxPeak = max(1024.0, max(downPoints.max() ?? 0.0, upPoints.max() ?? 0.0))
+                        let peak = max(downPoints.max() ?? 0.0, upPoints.max() ?? 0.0)
+                        let maxPeak = max(1.0, peak * 1.15)
                         
                         ZStack {
                             Sparkline(values: downPoints, color: neonCyan, maxValue: maxPeak, fillOpacity: 0.25, lineWidth: 1.5, showsZeroBaseline: true)
@@ -245,6 +257,11 @@ struct BTopDashboardView: View {
         if bytes >= 1048576 { return String(format: "%.1f MB", bytes / 1048576.0) }
         if bytes >= 1024 { return String(format: "%.0f KB", bytes / 1024.0) }
         return String(format: "%.0f B", bytes)
+    }
+
+    private func formatOptionalBytes(_ bytes: Double?) -> String {
+        guard let bytes, bytes.isFinite, bytes >= 0 else { return "—" }
+        return formatBytes(bytes) + "/s"
     }
     
     @ViewBuilder

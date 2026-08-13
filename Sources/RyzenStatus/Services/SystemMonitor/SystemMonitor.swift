@@ -35,6 +35,7 @@ struct SystemSnapshot {
     var cpuUsage: Double?          // 0...1
     var gpuUsage: Double?          // 0...1
     var memoryUsed: UInt64?
+    var memoryAppUsed: UInt64?
     var memoryTotal: UInt64?
     var memoryPressure: MemoryPressure = .unknown
     
@@ -60,6 +61,7 @@ struct SystemSnapshot {
     var ipsHistory: [Double] = []          // 0...500 GIPS
     var gpuHistory: [Double] = []          // 0...1
     var memoryHistory: [Double] = []       // 0...1
+    var memoryAppHistory: [Double] = []    // 0...1
     var netDownHistory: [Double] = []      // bytes/sec
     var netUpHistory: [Double] = []        // bytes/sec
     var diskReadHistory: [Double] = []     // bytes/sec
@@ -173,7 +175,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     /// what triggers the immediate resample instead of a wait of up to 60 s.
     private var lastSyncedPlan: SamplingPlan?
     private var lastCPUUsage: Double?
-    private var lastMemoryReading: (used: UInt64, total: UInt64, pressure: MemoryPressure)?
+    private var lastMemoryReading: (used: UInt64, appUsed: UInt64, total: UInt64, pressure: MemoryPressure)?
     private var cores: [CoreSnapshot] = []
     private var ccdTemperatures: [Double] = []
     private var lastAmdSnapshot: ProcessorModel.TelemetrySnapshot?
@@ -199,6 +201,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     private var cpuHistory: MetricHistory
     private var gpuHistory: MetricHistory
     private var memoryHistory: MetricHistory
+    private var memoryAppHistory: MetricHistory
     private var netDownHistory: MetricHistory
     private var netUpHistory: MetricHistory
     private var diskReadHistory: MetricHistory
@@ -219,6 +222,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         cpuHistory = MetricHistory(capacity: historyCapacity)
         gpuHistory = MetricHistory(capacity: historyCapacity)
         memoryHistory = MetricHistory(capacity: historyCapacity)
+        memoryAppHistory = MetricHistory(capacity: historyCapacity)
         netDownHistory = MetricHistory(capacity: historyCapacity)
         netUpHistory = MetricHistory(capacity: historyCapacity)
         diskReadHistory = MetricHistory(capacity: historyCapacity)
@@ -458,6 +462,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
 
     private struct CachedMemoryReading {
         var used: UInt64
+        var appUsed: UInt64
         var total: UInt64
         var pressure: MemoryPressure
         var updatedAt: TimeInterval
@@ -466,18 +471,17 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
 
     private func currentPlan(defaults: UserDefaults) -> SamplingPlan {
         var plan = SamplingPlan()
-        plan.needCPU = true
-        plan.needMemory = true
-        plan.needNetwork = true
-        plan.needDisk = true
-        plan.needPower = true
-        plan.needPeripheralBattery = menuPanelNeeds.peripheralBattery
-            || defaults.bool(forKey: DefaultsKey.menuBarPeripheralBattery)
-        plan.needGPUUsage = true
-        plan.needCPUTemperature = true
-        plan.needGPUTemperature = true
-        plan.needBatteryTemperature = true
-        plan.needAMDPower = true
+        if fullMonitorVisible || menuPanelNeeds.system || alertsActive {
+            enableAll(&plan)
+        } else {
+            apply(menuPanelNeeds, to: &plan)
+            if menuBarActive {
+                for metric in MenuBarMetric.enabled(in: defaults) {
+                    apply(metric, to: &plan)
+                }
+            }
+        }
+
         // The hub gates whole metric families: an unavailable metric never
         // samples, no matter what is pinned, shown or alerting.
         func available(_ feature: AppFeature) -> Bool {
@@ -499,7 +503,68 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             plan.needPeripheralBattery = false
             plan.needBatteryTemperature = false
         }
+        plan.needAMDPower = plan.needCPU || plan.needGPUUsage ||
+            plan.needCPUTemperature || plan.needGPUTemperature
         return plan
+    }
+
+    private func enableAll(_ plan: inout SamplingPlan) {
+        plan.needCPU = true
+        plan.needMemory = true
+        plan.needNetwork = true
+        plan.needDisk = true
+        plan.needPower = true
+        plan.needPeripheralBattery = true
+        plan.needGPUUsage = true
+        plan.needCPUTemperature = true
+        plan.needGPUTemperature = true
+        plan.needBatteryTemperature = true
+    }
+
+    private func apply(_ needs: SystemMonitorPanelNeeds, to plan: inout SamplingPlan) {
+        if needs.system {
+            enableAll(&plan)
+            return
+        }
+        plan.needCPU = plan.needCPU || needs.cpu
+        plan.needMemory = plan.needMemory || needs.memory
+        plan.needNetwork = plan.needNetwork || needs.network
+        plan.needDisk = plan.needDisk || needs.disk
+        plan.needPower = plan.needPower || needs.power || needs.battery
+        plan.needPeripheralBattery = plan.needPeripheralBattery || needs.peripheralBattery
+        plan.needGPUUsage = plan.needGPUUsage || needs.gpu
+        plan.needCPUTemperature = plan.needCPUTemperature || needs.cpuTemperature
+        plan.needGPUTemperature = plan.needGPUTemperature || needs.gpuTemperature
+        plan.needBatteryTemperature = plan.needBatteryTemperature || needs.batteryTemperature
+    }
+
+    private func apply(_ metric: MenuBarMetric, to plan: inout SamplingPlan) {
+        switch metric {
+        case .cpu, .cpuPower, .cpuFrequency, .cpuTempPower:
+            plan.needCPU = true
+        case .cpuTemperature:
+            plan.needCPU = true
+            plan.needCPUTemperature = true
+        case .gpu:
+            plan.needGPUUsage = true
+        case .gpuTemperature:
+            plan.needGPUTemperature = true
+        case .gpuPower, .gpuTempPower:
+            plan.needGPUUsage = true
+            plan.needGPUTemperature = metric == .gpuTempPower
+        case .memory:
+            plan.needMemory = true
+        case .network:
+            plan.needNetwork = true
+        case .diskUsage, .diskActivity:
+            plan.needDisk = true
+        case .battery, .batteryTime, .batteryTemperature, .power:
+            plan.needPower = true
+            plan.needBatteryTemperature = plan.needBatteryTemperature || metric == .batteryTemperature
+        case .peripheralBattery:
+            plan.needPower = true
+            plan.needPeripheralBattery = true
+        }
     }
 
     private func ensureTimer() {
@@ -615,7 +680,8 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         }
         queue.async { [weak self] in
             guard let self else { return }
-            self.prepareIfNeeded(needSMC: plan.needSMC, needTemperature: plan.needTemperature)
+            self.prepareIfNeeded(needSMC: plan.needSMC,
+                                 needTemperature: plan.needTemperature)
             let now = ProcessInfo.processInfo.systemUptime
 
             var next = SystemSnapshot()
@@ -679,13 +745,14 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             if plan.needMemory {
                 if take(.memory),
                    let memory = self.stabilizedMemoryReading(now: now) {
-                    self.lastMemoryReading = (memory.used, memory.total, memory.pressure)
+                    self.lastMemoryReading = (memory.used, memory.appUsed, memory.total, memory.pressure)
                     if memory.isFresh, memory.total > 0 {
                         self.memoryHistory.push(Double(memory.used) / Double(memory.total))
                     }
                 }
                 if let memory = self.lastMemoryReading {
                     next.memoryUsed = memory.used
+                    next.memoryAppUsed = memory.appUsed
                     next.memoryTotal = memory.total
                     next.memoryPressure = memory.pressure
                 }
@@ -822,7 +889,6 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     next.batteryTemperature = self.batteryTemperatureCache?.value
                 }
             }
-
             // AMD kext power — read from the nonisolated PowerCache (zero async overhead)
             if plan.needAMDPower {
                 let cpuW = ProcessorModel.shared.lastCPUPowerWatts
@@ -898,6 +964,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             next.ipsHistory = plan.needCPU ? self.ipsHistory.values : []
             next.gpuHistory = plan.needGPUUsage ? self.gpuHistory.values : []
             next.memoryHistory = plan.needMemory ? self.memoryHistory.values : []
+            next.memoryAppHistory = plan.needMemory ? self.memoryAppHistory.values : []
             next.netDownHistory = plan.needNetwork ? self.netDownHistory.values : []
             next.netUpHistory = plan.needNetwork ? self.netUpHistory.values : []
             next.diskReadHistory = plan.needDisk ? self.diskReadHistory.values : []
@@ -933,7 +1000,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         }
     }
 
-    private func stabilizedMemoryReading(now: TimeInterval) -> (used: UInt64, total: UInt64, pressure: MemoryPressure, isFresh: Bool)? {
+    private func stabilizedMemoryReading(now: TimeInterval) -> (used: UInt64, appUsed: UInt64, total: UInt64, pressure: MemoryPressure, isFresh: Bool)? {
         let pressure = Self.readMemoryPressure()
         if let memory = SystemInfo.memoryUsage(), memory.total > 0 {
             let stablePressure: MemoryPressure
@@ -944,11 +1011,12 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 stablePressure = pressure
             }
             memoryCache = CachedMemoryReading(used: memory.used,
+                                              appUsed: memory.appUsed,
                                               total: memory.total,
                                               pressure: stablePressure,
                                               updatedAt: now,
                                               missedSamples: 0)
-            return (memory.used, memory.total, stablePressure, true)
+            return (memory.used, memory.appUsed, memory.total, stablePressure, true)
         }
 
         guard var cached = memoryCache else { return nil }
@@ -965,7 +1033,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             break
         }
         memoryCache = cached
-        return (cached.used, cached.total, cached.pressure, false)
+        return (cached.used, cached.appUsed, cached.total, cached.pressure, false)
     }
 
     // MARK: - Sensor preparation
@@ -973,16 +1041,18 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     /// Opens the SMC lazily. Temperature key discovery is heavier (it enumerates
     /// every SMC key) so it waits until the panel or a pinned temperature metric
     /// actually needs it.
-    private func prepareIfNeeded(needSMC: Bool, needTemperature: Bool) {
+    private func prepareIfNeeded(needSMC: Bool,
+                                 needTemperature: Bool) {
         if needSMC, !smcTried {
             smcTried = true
             smc = SMCClient()
             cpuTemperaturePlatform = TemperatureSensorSelector.currentPlatform()
             powerSampler = PowerSampler(smc: smc)
         }
+        guard let client = smc else { return }
+
         guard needTemperature, !tempKeysPrepared else { return }
         tempKeysPrepared = true
-        guard let client = smc else { return }
 
         let all = client.keys { name in
             name.hasPrefix("Tp") || name.hasPrefix("Te") || name.hasPrefix("Tg") || name.hasPrefix("TG")
@@ -1157,9 +1227,9 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             if let val = stats[key] {
                 if let num = val as? NSNumber {
                     let d = num.doubleValue
-                    return d > 1.0 ? d / 100.0 : d
+                    return MetricFormat.normalizedGPUUtilization(rawValue: d, key: key)
                 } else if let str = val as? String, let d = Double(str) {
-                    return d > 1.0 ? d / 100.0 : d
+                    return MetricFormat.normalizedGPUUtilization(rawValue: d, key: key)
                 }
             }
         }

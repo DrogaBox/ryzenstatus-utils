@@ -23,6 +23,7 @@ struct AmdPowerSettingsView: View {
     @State private var curveOffsets: [Int8] = []
     @State private var coStatusMessage: String?
     @State private var coStatusIsError = false
+    @State private var isLoading = false
     @ObservedObject private var gaming = GamingModeService.shared
     @ObservedObject private var c6Service = C6ResidencyService.shared
     
@@ -104,7 +105,16 @@ struct AmdPowerSettingsView: View {
                 }
             }
             
-            if !cppcSupported && !cpbSupported {
+            if isLoading {
+                Section {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Loading AMD power controls…")
+                            .foregroundColor(.secondary)
+                    }
+                }
+            } else if !cppcSupported && !cpbSupported {
                 Section {
                     Text(L10n.shared.amdPower.amdPowerControlUnsupported)
                         .foregroundColor(.red)
@@ -707,9 +717,9 @@ struct AmdPowerSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear {
+        .task {
             SystemMonitor.shared.setMenuPanelNeeds(SystemMonitorPanelNeeds(cpu: true))
-            fetchState()
+            await fetchState()
         }
         .onDisappear {
             SystemMonitor.shared.setMenuPanelNeeds(.none)
@@ -936,7 +946,7 @@ struct AmdPowerSettingsView: View {
         if let msg = presetCtrl.privilegeMessage {
             privilegeMessage = msg
         }
-        fetchState()
+        Task { await fetchState() }
     }
 
     private func presetSummary(_ preset: AMDPowerPreset) -> String {
@@ -950,71 +960,106 @@ struct AmdPowerSettingsView: View {
 
     // presetColor(_:) removed — use preset.color directly from AMDPowerPreset.
 
-    private func fetchState() {
-        Task { @MainActor in
+    private struct PowerLoadState {
+        let kernelAnswered: Bool
+        let cpb: [Bool]
+        let cppcState: (active: Bool, epp: UInt8)
+        let ppm: Bool
+        let lpm: Bool
+        let profile: ProcessorModel.CPUProfile
+        let packet: CPUSensorPacket?
+        let generation: AMDCpuGeneration
+        let supportsCurveOptimizer: Bool
+        let coreCount: Int
+        let offsets: [Int8]
+        let currentPState: Int?
+        let pStateLabels: [String]
+    }
+
+    private func fetchState() async {
+        isLoading = true
+        let worker = Task.detached(priority: .userInitiated) {
             let kernelAnswered = ProcessorModel.shared.connect != 0
-            cppcSupported = kernelAnswered
-            if kernelAnswered {
-                let state = ProcessorModel.shared.getCPPCActiveMode()
-                cppcActiveMode = state.active
-                cppcCurrentEPP = state.epp
-                // Snap to segmented value
-                let target = AMDPowerPreset.snapEPP(state.epp)
-                if selectedEpp != target {
-                    selectedEpp = target
-                }
-
-                let ppm = ProcessorModel.shared.getPPM()
-                if ppmEnabled != ppm { ppmEnabled = ppm }
-                let lpm = ProcessorModel.shared.getLPM()
-                if lpmEnabled != lpm { lpmEnabled = lpm }
-            }
-
             let cpb = ProcessorModel.shared.getCPB()
-            if cpb.count > 1 {
-                cpbSupported = cpb[0]
-                if corePerformanceBoost != cpb[1] {
-                    corePerformanceBoost = cpb[1]
-                }
-            }
-            
-            // P-States (Legacy Zen)
+            let cppcState: (active: Bool, epp: UInt8) = kernelAnswered
+                ? ProcessorModel.shared.getCPPCActiveMode()
+                : (active: false, epp: 0)
+            let ppm = kernelAnswered ? ProcessorModel.shared.getPPM() : false
+            let lpm = kernelAnswered ? ProcessorModel.shared.getLPM() : false
             let profile = await ProcessorModel.shared.cpuProfile
-            legacyPstateAllowed = profile.legacyPstateAllowed
-            cpuProfile = profile
-
-            telemetryPacket = ProcessorModel.shared.getTelemetry()
-
-            // Curve Optimizer gate (selectors 110/111): family/model from the
-            // kext CPUID report (selector 7) decide between grid and message.
+            let packet = ProcessorModel.shared.getTelemetry()
             let family = await ProcessorModel.shared.cpuFamily
             let model = await ProcessorModel.shared.cpuModel
             let physicalCores = await ProcessorModel.shared.physicalCoreCount
-            coGeneration = AMDCpuGeneration.classify(family: family, model: model)
-            coSupported = AMDCurveOptimizer.supported(family: family,
-                                                      model: model)
-            coCoreCount = physicalCores > 0 ? min(physicalCores, 32) : 16
-            if coSupported {
-                reloadCurveOffsets()
-            }
-            
-            if legacyPstateAllowed {
-                let curState = await ProcessorModel.shared.getPState()
-                if selectedPState != curState {
-                    selectedPState = curState
+            let generation = AMDCpuGeneration.classify(family: family, model: model)
+            let supportsCurveOptimizer = AMDCurveOptimizer.supported(family: family, model: model)
+            let coreCount = physicalCores > 0 ? min(physicalCores, 32) : 16
+            let rawCurveOffsets = supportsCurveOptimizer
+                ? ProcessorModel.shared.getCurveOptimizerOffsets()
+                : []
+            let offsets = AMDCurveOptimizer.validOffsets(rawCurveOffsets, coreCount: coreCount)
+                ? Array(rawCurveOffsets.prefix(coreCount))
+                : [Int8](repeating: 0, count: coreCount)
+            let currentPState: Int?
+            let pStateLabels: [String]
+            if profile.legacyPstateAllowed {
+                currentPState = await ProcessorModel.shared.getPState()
+                let clocks = await ProcessorModel.shared.getValidPStateClocks()
+                pStateLabels = clocks.enumerated().map { index, clock in
+                    String(format: "P%d (%.1f GHz)", index, Double(clock) / 1000.0)
                 }
-                
-                if validPStateLabels.isEmpty {
-                    let clocks = await ProcessorModel.shared.getValidPStateClocks()
-                    if !clocks.isEmpty {
-                        var labels: [String] = []
-                        for (i, c) in clocks.enumerated() {
-                            labels.append(String(format: "P%d (%.1f GHz)", i, Double(c)/1000.0))
-                        }
-                        validPStateLabels = labels
-                    }
-                }
+            } else {
+                currentPState = nil
+                pStateLabels = []
             }
+
+            return PowerLoadState(kernelAnswered: kernelAnswered,
+                                   cpb: cpb,
+                                   cppcState: cppcState,
+                                   ppm: ppm,
+                                   lpm: lpm,
+                                   profile: profile,
+                                   packet: packet,
+                                   generation: generation,
+                                   supportsCurveOptimizer: supportsCurveOptimizer,
+                                   coreCount: coreCount,
+                                   offsets: offsets,
+                                   currentPState: currentPState,
+                                   pStateLabels: pStateLabels)
         }
+        let state = await withTaskCancellationHandler(operation: {
+            await worker.value
+        }, onCancel: {
+            worker.cancel()
+        })
+        guard !Task.isCancelled else { return }
+
+        cppcSupported = state.kernelAnswered
+        cppcActiveMode = state.cppcState.active
+        cppcCurrentEPP = state.cppcState.epp
+        let target = AMDPowerPreset.snapEPP(state.cppcState.epp)
+        if selectedEpp != target { selectedEpp = target }
+        if state.kernelAnswered {
+            if ppmEnabled != state.ppm { ppmEnabled = state.ppm }
+            if lpmEnabled != state.lpm { lpmEnabled = state.lpm }
+        }
+        if state.cpb.count > 1 {
+            cpbSupported = state.cpb[0]
+            if corePerformanceBoost != state.cpb[1] { corePerformanceBoost = state.cpb[1] }
+        }
+        legacyPstateAllowed = state.profile.legacyPstateAllowed
+        cpuProfile = state.profile
+        telemetryPacket = state.packet
+        coGeneration = state.generation
+        coSupported = state.supportsCurveOptimizer
+        coCoreCount = state.coreCount
+        curveOffsets = state.offsets
+        if let currentPState = state.currentPState, selectedPState != currentPState {
+            selectedPState = currentPState
+        }
+        if validPStateLabels.isEmpty, !state.pStateLabels.isEmpty {
+            validPStateLabels = state.pStateLabels
+        }
+        isLoading = false
     }
 }

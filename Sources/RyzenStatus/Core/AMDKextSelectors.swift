@@ -68,22 +68,23 @@ enum AMDKextSelector: UInt32 {
 
     // MARK: — C-State Telemetry (Read-only)
 
-    /// C6 residency percentage per core.
+    /// C6 residency percentage (package-level).
     case c6Residency       = 31
 
     // MARK: — Fan Control (via SuperIO)
 
-    /// Fan speed read (RPM / duty cycle from SuperIO).
-    case fanSpeedRead      = 91
-    /// Fan speed write — set target PWM duty cycle.
-    case fanSpeedWrite     = 93
+    /// Fan count query — returns the number of SuperIO fan headers.
+    case fanCountRead      = 91
+    /// Fan speed read — per-fan RPM values (the kext also calls this path
+    /// “fan speed write”; selector 95 is the actual PWM write).
+    case fanSpeedRead      = 93
 
-    // MARK: — Fan Curve LUT
+    // MARK: — Fan Curve LUT & Fan Mapping
 
-    /// Read current fan curve LUT from kext storage.
-    case fanCurveLUTRead   = 101
-    /// Write fan curve LUT to kext storage.
-    case fanCurveLUTWrite  = 102
+    /// Write fan curve LUT (256 points) + hysteresis/ramp parameters to kext storage.
+    case fanCurveLUTWrite  = 101
+    /// Map a physical fan header to a curve slot; -1 restores automatic control.
+    case fanToCurveMap     = 102
 
     // MARK: — Curve Optimizer
 
@@ -116,11 +117,11 @@ extension AMDKextSelector {
     static let cpbRead        = UInt32(11)
     /// PPM status read (2 × UInt64: [supported, enabled]).
     static let ppmRead        = UInt32(13)
-    /// LPM status read (1 × UInt64).
-    static let lpmRead        = UInt32(17)
-    /// C6 residency MSR address (1 × UInt64).
-    static let c6ResidencyMSR = UInt32(18)
-    /// C6 residency per-core read (1 × UInt64) — package-level.
+    /// Number of high-performance CPUs (getHPcpus, 1 × UInt64).
+    static let hpCpusRead     = UInt32(17)
+    /// LPM status read (1 × UInt64) — true when the PMP state limit is 2.
+    static let lpmRead        = UInt32(18)
+    /// C6 residency read (1 × UInt64) — package-level percentage.
     static let c6ResidencyPkg = UInt32(31)
 
     // --- GPU stats (read) — use enum cases .gpuStats0/.gpuStats1/.gpuStats2/.gpuStats3 directly ---
@@ -134,8 +135,8 @@ extension AMDKextSelector {
     static let fanName        = UInt32(92)
     /// Fan control read.
     static let fanCtrlRead    = UInt32(94)
-    /// Fan speed write (selector 95 — used in setFanSpeed).
-    static let fanSpeedWrite2 = UInt32(95)
+    /// Fan override control write (selector 95 — used in setFanSpeed).
+    static let fanSpeedWrite = UInt32(95)
     /// Fan mode write (selector 96 — auto/manual).
     static let fanModeWrite   = UInt32(96)
 }

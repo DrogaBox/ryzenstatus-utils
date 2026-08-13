@@ -110,6 +110,15 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
         }
     }
 
+    var isAvailableOnCurrentHardware: Bool {
+        switch self {
+        case .battery, .batteryTime, .batteryTemperature:
+            return PowerSampler.hasInternalBattery
+        default:
+            return true
+        }
+    }
+
     static func enabled(in defaults: UserDefaults) -> [MenuBarMetric] {
         if defaults.string(forKey: DefaultsKey.menuBarLayoutMode) == "classic" {
             return [.cpu, .cpuTemperature, .cpuFrequency, .cpuPower]
@@ -117,6 +126,7 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
         return order(in: defaults).filter {
             defaults.bool(forKey: $0.defaultsKey)
                 && defaults.bool(forKey: $0.feature.availabilityKey)
+                && $0.isAvailableOnCurrentHardware
         }
     }
 
@@ -127,6 +137,7 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
         return allCases.contains {
             defaults.bool(forKey: $0.defaultsKey)
                 && defaults.bool(forKey: $0.feature.availabilityKey)
+                && $0.isAvailableOnCurrentHardware
         }
     }
 }
@@ -154,6 +165,31 @@ enum MemoryMenuBarStyle: String, CaseIterable {
 
     var showsDot: Bool { self == .dot || self == .both }
     var showsPercent: Bool { self == .percent || self == .both }
+}
+
+/// Which memory figure the monitor displays across the menu bar and panel.
+enum MonitorMemoryMetric: String, CaseIterable {
+    case used, app
+
+    static var current: MonitorMemoryMetric {
+        let raw = UserDefaults.standard.string(forKey: DefaultsKey.monitorMemoryMetric) ?? ""
+        let metric = Defaults.sanitizedMonitorMemoryMetric(raw)
+        return MonitorMemoryMetric(rawValue: metric) ?? .used
+    }
+
+    func value(in snapshot: SystemSnapshot) -> UInt64? {
+        MetricFormat.selectedMemory(used: snapshot.memoryUsed,
+                                    app: snapshot.memoryAppUsed,
+                                    metric: rawValue)
+    }
+
+    func history(in snapshot: SystemSnapshot) -> [Double] {
+        self == .app ? snapshot.memoryAppHistory : snapshot.memoryHistory
+    }
+
+    func title(in strings: Strings) -> String {
+        self == .app ? strings.memoryMetricApp : strings.memoryMetricUsed
+    }
 }
 
 enum MenuBarLabelStyle: String, CaseIterable {
@@ -369,6 +405,7 @@ enum MenuBarRenderer {
                                         width: reservedWidth(for: metric, preset: preset)))
             case .memory:
                 let style = MemoryMenuBarStyle.current
+                let memoryValue = MonitorMemoryMetric.current.value(in: snapshot)
                 var segments: [MenuBarSegment] = []
                 segments.append(.symbol(metric.symbolName))
                 if style.showsDot {
@@ -376,7 +413,7 @@ enum MenuBarRenderer {
                     segments.append(.dot(snapshot.memoryPressure))
                 }
                 if style.showsPercent {
-                    let text = " RAM " + MetricFormat.menuBarMemoryPercent(used: snapshot.memoryUsed,
+                    let text = " RAM " + MetricFormat.menuBarMemoryPercent(used: memoryValue,
                                                                             total: snapshot.memoryTotal)
                     segments.append(.text(text))
                 }
@@ -665,26 +702,16 @@ enum MenuBarRenderer {
                 groups.append([.customImage(image)])
             case .memory:
                 let memoryStyle = MemoryMenuBarStyle.current
-                let memFraction = MenuBarUsageBarSupport.memoryFraction(used: snapshot.memoryUsed, total: snapshot.memoryTotal)
-                let valStr = showsGraphValue
-                    ? MetricFormat.menuBarMemoryPercent(used: snapshot.memoryUsed, total: snapshot.memoryTotal)
-                    : nil
-                if appearance == .pie {
-                    let img = pieBlockImage(label: "RAM", fraction: memFraction, valueText: valStr, style: style, pressure: memoryStyle.showsDot ? snapshot.memoryPressure : nil)
-                    groups.append([.customImage(img)])
-                } else if appearance == .sparkline || appearance == .histogram {
-                    let ramLevel = MenuBarUsageBarSupport.currentLevel(for: memFraction ?? 0)
-                    let ramColorHex = MenuBarUsageBarSupport.currentColorHex(for: ramLevel)
-                    let img = sparklineBlockImage(label: "RAM", history: snapshot.memoryHistory, colorHex: ramColorHex, valueText: valStr, style: style)
-                    groups.append([.customImage(img)])
-                } else if usesBars {
+                let memoryValue = MonitorMemoryMetric.current.value(in: snapshot)
+                if usesBars {
                     groups.append([.usageBarBlock(label: "RAM",
-                                                  fraction: memFraction,
+                                                  fraction: MenuBarUsageBarSupport.memoryFraction(used: memoryValue,
+                                                                                                  total: snapshot.memoryTotal),
                                                   style: style,
                                                   pressure: memoryStyle.showsDot ? snapshot.memoryPressure : nil)])
                 } else {
                     let value = memoryStyle.showsPercent
-                        ? MetricFormat.menuBarMemoryPercent(used: snapshot.memoryUsed, total: snapshot.memoryTotal)
+                        ? MetricFormat.menuBarMemoryPercent(used: memoryValue, total: snapshot.memoryTotal)
                         : ""
                     groups.append([.metricBlock(label: "RAM",
                                                 value: value,
@@ -804,6 +831,7 @@ enum MenuBarRenderer {
                                                 style: style,
                                                 pressure: nil)])
                 }
+
             }
         }
         return blockJoined(groups, style: style)
@@ -1395,6 +1423,7 @@ enum MenuBarRenderer {
         snapshot.cpuPower = 150
         snapshot.gpuPower = 300
         snapshot.memoryUsed = 100
+        snapshot.memoryAppUsed = 100
         snapshot.memoryTotal = 100
         snapshot.memoryPressure = .normal
         snapshot.cpuTemperature = 125

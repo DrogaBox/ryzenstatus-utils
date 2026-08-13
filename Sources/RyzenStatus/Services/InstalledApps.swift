@@ -34,6 +34,16 @@ enum InstalledApps {
         return NSWorkspace.shared.icon(for: .applicationBundle)
     }
 
+    /// Apps that belong to the system wherever their bundle really sits. An
+    /// app inside these is never offered for uninstalling, and only shows up
+    /// in the pickers that ask for system apps too.
+    private static let systemPathPrefixes = ["/System/", "/Library/Apple/"]
+
+    static func isSystemApplication(at url: URL) -> Bool {
+        let path = url.resolvingSymlinksInPath().standardizedFileURL.path
+        return systemPathPrefixes.contains { path.hasPrefix($0) }
+    }
+
     static func installedApplications(includeSystemApplications: Bool = false) -> [InstalledApp] {
         let fm = FileManager.default
         var roots = [
@@ -72,9 +82,28 @@ enum InstalledApps {
         }
     }
 
-    static func installedBundleApplications(excluding excludedBundleIDs: Set<String>) -> [InstalledApp] {
+    static func installedBundleApplications(excluding excludedBundleIDs: Set<String>,
+                                            includeRunningApplications: Bool = false) -> [InstalledApp] {
+        var apps = installedApplications(includeSystemApplications: true)
+        if includeRunningApplications {
+            apps += NSWorkspace.shared.runningApplications.compactMap { runningApp in
+                guard runningApp.activationPolicy == .regular,
+                      let bundleID = runningApp.bundleIdentifier,
+                      !bundleID.isEmpty,
+                      let url = runningApp.bundleURL,
+                      url.pathExtension.caseInsensitiveCompare("app") == .orderedSame else {
+                    return nil
+                }
+                let name = runningApp.localizedName ?? FileManager.default.displayName(atPath: url.path)
+                return InstalledApp(id: url.standardizedFileURL.path,
+                                    name: name,
+                                    bundleID: bundleID,
+                                    url: url)
+            }
+        }
+
         var seen = Set<String>()
-        return installedApplications(includeSystemApplications: true).filter { app in
+        return apps.filter { app in
             guard let bundleID = app.bundleID,
                   !excludedBundleIDs.contains(bundleID),
                   seen.insert(bundleID).inserted else { return false }

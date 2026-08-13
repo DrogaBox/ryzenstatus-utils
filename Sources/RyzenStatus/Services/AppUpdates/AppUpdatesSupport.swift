@@ -130,18 +130,23 @@ enum AppUpdatesSupport {
             guard update.kind == .cask, !update.isPinned else { return nil }
             guard !isUncomparable(update.currentVersion) else { return nil }
             let record = recordsByToken[update.name]
-            let bundle = candidateBundleNames(for: record).lazy.compactMap(bundleVersion).first
-            let receipt = update.installedVersions.first ?? record?.installedVersion ?? ""
-            let installedVersion = bundle?.version ?? versionCore(receipt)
+            // The app bundle on disk is the truth: package receipts can outlive
+            // an app removed by hand, and plenty of apps update themselves
+            // without refreshing that receipt. A row only survives when its
+            // bundle is still there and its version is really behind.
+            guard let bundle = candidateBundleNames(for: record).lazy.compactMap(bundleVersion).first else {
+                return nil
+            }
+            let installedVersion = bundle.version
             guard !installedVersion.isEmpty else { return nil }
             guard isNewer(update.currentVersion, than: installedVersion) else { return nil }
             return Item(id: "\(Source.packageManager.rawValue):\(update.name)",
                         source: .packageManager,
-                        name: bundle?.name ?? record?.displayName ?? update.name,
+                        name: bundle.name,
                         installedVersion: installedVersion,
                         latestVersion: versionCore(update.currentVersion),
                         token: update.name,
-                        bundlePath: bundle?.path,
+                        bundlePath: bundle.path,
                         storePage: nil)
         }
     }

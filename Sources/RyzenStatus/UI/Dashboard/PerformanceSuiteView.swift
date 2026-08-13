@@ -37,6 +37,12 @@ struct PerformanceSuiteView: View {
     // BUG-17 fix: selectedProcess @State removed. Present is called directly in button actions
     // to avoid the two-render round-trip: set proc -> onChange -> present -> set nil.
 
+    // The adapter list (getifaddrs walk) is expensive and barely changes, so it is
+    // rescanned at most every 10 s instead of on every 1 s refresh tick.
+    @State private var cachedAdapters: [NetworkAdapterInfo] = []
+    @State private var lastAdaptersRefresh = Date.distantPast
+    @State private var refreshInFlight = false
+
     @ObservedObject var l10n = L10n.shared
 
     init(monitor: SystemMonitor) {
@@ -153,9 +159,23 @@ struct PerformanceSuiteView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { refreshData() }
+        .onAppear {
+            SystemMonitor.shared.setMenuPanelNeeds(SystemMonitorPanelNeeds(
+                network: true,
+                power: true,
+                cpu: true,
+                gpu: true,
+                memory: true,
+                cpuTemperature: true,
+                gpuTemperature: true
+            ))
+            refreshData()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .processUsageDidUpdate)) { _ in refreshData() }
         .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in refreshData() }
+        .onDisappear {
+            SystemMonitor.shared.setMenuPanelNeeds(.none)
+        }
     }
 
     // MARK: - 1. Dashboard Tab Content
@@ -177,11 +197,13 @@ struct PerformanceSuiteView: View {
             let cpuVal = (monitor.snapshot.cpuUsage ?? 0.0) * 100.0
             let cpuTemp = monitor.snapshot.cpuTemperature
             let cpuPwr = monitor.snapshot.cpuPower
+            let cpuThreads = ProcessInfo.processInfo.processorCount
+            let cpuCores = max(1, cpuThreads / 2)
             suiteMetricCard(
                 title: "CPU TOTAL",
                 value: String(format: "%.1f%%", cpuVal),
-                subtitle: cpuTemp.map { String(format: "%.1f°C", $0) } ?? "AMD Zen 3",
-                extraInfo: cpuPwr.map { String(format: "%.1f W", $0) } ?? "16C / 32T",
+                subtitle: cpuTemp.map { String(format: "%.1f°C", $0) } ?? "—",
+                extraInfo: cpuPwr.map { String(format: "%.1f W", $0) } ?? "\(cpuCores)C / \(cpuThreads)T",
                 accentColor: .cyan,
                 history: monitor.snapshot.cpuHistory.map { Double($0) * 100.0 },
                 maxDomain: 100.0
@@ -202,29 +224,32 @@ struct PerformanceSuiteView: View {
             )
 
             // Card 3: GPU Compute
-            let gpuVal = (monitor.snapshot.gpuUsage ?? 0.0) * 100.0
+            let gpuVal = monitor.snapshot.gpuUsage.map { String(format: "%.1f%%", $0 * 100.0) } ?? "—"
             let gpuTemp = monitor.snapshot.gpuTemperature
             let gpuPwr = monitor.snapshot.gpuPower
+            let gpuVRAMGB = monitor.snapshot.gpuMemoryTotal.map { Double($0) / 1_073_741_824.0 }
             suiteMetricCard(
-                title: "GPU NAVI 21",
-                value: String(format: "%.1f%%", gpuVal),
-                subtitle: gpuTemp.map { String(format: "%.1f°C", $0) } ?? "RX 6800 XT",
-                extraInfo: gpuPwr.map { String(format: "%.1f W", $0) } ?? "16GB VRAM",
+                title: "GPU",
+                value: gpuVal,
+                subtitle: gpuTemp.map { String(format: "%.1f°C", $0) } ?? "—",
+                extraInfo: gpuPwr.map { String(format: "%.1f W", $0) }
+                    ?? gpuVRAMGB.map { String(format: "%.0f GB VRAM", $0) }
+                    ?? "—",
                 accentColor: .orange,
                 history: monitor.snapshot.gpuHistory.map { Double($0) * 100.0 },
                 maxDomain: 100.0
             )
 
             // Card 4: Network Live
-            let netDown = monitor.snapshot.netDownBytesPerSec ?? 0.0
-            let netUp = monitor.snapshot.netUpBytesPerSec ?? 0.0
+            let netDown = monitor.snapshot.netDownBytesPerSec
+            let netUp = monitor.snapshot.netUpBytesPerSec
             let netHistory = monitor.snapshot.netDownHistory.map { Double($0) }
-            let maxNet = max(1000.0, netHistory.max() ?? 1000.0)
+            let maxNet = networkChartMax(netHistory)
             suiteMetricCard(
                 title: "NET BANDWIDTH",
-                value: formatBytes(netDown) + "/s",
-                subtitle: "↓ " + formatBytes(netDown) + "/s",
-                extraInfo: "↑ " + formatBytes(netUp) + "/s",
+                value: formatOptionalBytes(netDown),
+                subtitle: "↓ " + formatOptionalBytes(netDown),
+                extraInfo: "↑ " + formatOptionalBytes(netUp),
                 accentColor: .green,
                 history: netHistory,
                 maxDomain: maxNet
@@ -504,7 +529,7 @@ struct PerformanceSuiteView: View {
 
                 // Chart 4: Network Download Rate
                 let netHist = monitor.snapshot.netDownHistory.map { Double($0) }
-                let maxNet = max(1000.0, netHist.max() ?? 1000.0)
+                let maxNet = networkChartMax(netHist)
                 analyticsChartCard(
                     title: "NETWORK DOWNLOAD BANDWIDTH",
                     data: netHist,
@@ -675,14 +700,14 @@ struct PerformanceSuiteView: View {
 
                         Spacer()
 
-                        let downRate = monitor.snapshot.netDownBytesPerSec ?? 0.0
-                        let upRate = monitor.snapshot.netUpBytesPerSec ?? 0.0
+                        let downRate = monitor.snapshot.netDownBytesPerSec
+                        let upRate = monitor.snapshot.netUpBytesPerSec
 
                         VStack(alignment: .trailing, spacing: 2) {
-                            Text("↓ " + formatBytes(downRate) + "/s")
+                            Text("↓ " + formatOptionalBytes(downRate))
                                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                                 .foregroundColor(.cyan)
-                            Text("↑ " + formatBytes(upRate) + "/s")
+                            Text("↑ " + formatOptionalBytes(upRate))
                                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                                 .foregroundColor(.green)
                         }
@@ -699,17 +724,32 @@ struct PerformanceSuiteView: View {
         // BUG-09 fix: refreshData was called on the main thread and included
         // NetworkScannerService.shared.activeAdapters() — a blocking network call.
         // Now dispatched to a background Task; @State is updated via MainActor.
+        // The adapters list is only rescanned when stale (10 s) and a refresh
+        // already in flight is skipped so 1 Hz ticks never pile up tasks.
+        guard !refreshInFlight else { return }
+        refreshInFlight = true
+        let adaptersStale = Date().timeIntervalSince(lastAdaptersRefresh) >= 10
+        let cached = cachedAdapters
         Task.detached(priority: .userInitiated) {
             let procs = ProcessUsageService.shared.topCPU(limit: 20)
             let snapshot = await MainActor.run { SystemMonitor.shared.snapshot }
             let cards = InsightEngine.shared.evaluate(snapshot: snapshot, processes: procs)
             let energy = EnergyImpactService.shared.calculateEnergyImpact(processes: procs)
-            let adapters = NetworkScannerService.shared.activeAdapters()
+            let adapters = adaptersStale
+                ? NetworkScannerService.shared.activeAdapters()
+                : cached
             await MainActor.run {
                 self.topProcesses = procs
                 self.insightCards = cards
                 self.energyRecords = energy
-                self.networkAdapters = adapters
+                if self.networkAdapters != adapters {
+                    self.networkAdapters = adapters
+                }
+                if adaptersStale {
+                    self.cachedAdapters = adapters
+                    self.lastAdaptersRefresh = Date()
+                }
+                self.refreshInFlight = false
             }
         }
     }
@@ -719,6 +759,16 @@ struct PerformanceSuiteView: View {
         if bytes >= 1_048_576 { return String(format: "%.1f MB", bytes / 1_048_576.0) }
         if bytes >= 1_024 { return String(format: "%.1f KB", bytes / 1_024.0) }
         return String(format: "%.0f B", bytes)
+    }
+
+    private func formatOptionalBytes(_ bytes: Double?) -> String {
+        guard let bytes, bytes.isFinite, bytes >= 0 else { return "—" }
+        return formatBytes(bytes) + "/s"
+    }
+
+    private func networkChartMax(_ values: [Double]) -> Double {
+        let peak = values.filter { $0.isFinite && $0 >= 0 }.max() ?? 0
+        return max(1.0, peak * 1.15)
     }
 
     // BUG-16 fix: cpuBrandSubtitle was a computed property that called sysctlbyname twice

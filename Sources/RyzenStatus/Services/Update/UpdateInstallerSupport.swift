@@ -71,19 +71,44 @@ enum UpdateInstallerSupport {
                 # Clear ALL xattrs (quarantine + FinderInfo the DMG round-trip
                 # adds): FinderInfo breaks strict signature verification.
                 /usr/bin/xattr -cr "$STAGE" 2>/dev/null
+                # Two kinds of build are accepted:
+                #   1. Developer ID + notarized (the official CI pipeline): the
+                #      certificate anchor below proves the publisher.
+                #   2. Ad-hoc signed (manual releases, no paid Apple identity):
+                #      there is no certificate to anchor, so the gate falls back
+                #      to an intact seal plus the project's bundle identifier —
+                #      enough to reject corrupted downloads and foreign apps.
+                # Detect the signature kind first: Gatekeeper cannot assess an
+                # ad-hoc bundle (never notarized), so it would always fail the
+                # spctl check below even when the seal is perfectly intact.
+                ADHOC=0
+                # codesign -dv prints the signature info to stderr, so stderr
+                # must be merged in or the kind is never detected.
+                if /usr/bin/codesign -dv "$STAGE" 2>&1 | /usr/bin/grep -q "Signature=adhoc"; then
+                    ADHOC=1
+                fi
+                VERIFY_REQ='identifier "com.ryzenstatus.utils" and anchor apple generic and certificate leaf[subject.OU] = "3D485NHW29"'
+                note fail-verify
+                VERIFY_OK=0
+                if /usr/bin/codesign -v --deep --strict -R='identifier "com.ryzenstatus.utils"' "$STAGE" 2>/dev/null; then
+                    if [ "$ADHOC" = 1 ] || /usr/bin/codesign -v --deep --strict -R="$VERIFY_REQ" "$STAGE" 2>/dev/null; then
+                        VERIFY_OK=1
+                    fi
+                fi
                 # When the user disabled Gatekeeper, spctl cannot assess anything
                 # and rejects even a healthy bundle; the codesign identity check
-                # below stays as the gate in that case.
+                # stays as the gate in that case. Ad-hoc builds skip this check:
+                # they can never be assessed (no notarization), and the seal +
+                # identifier check above is their gate.
                 GATEKEEPER_OK=0
-                if /usr/sbin/spctl --status 2>/dev/null | /usr/bin/grep -q disabled; then
+                if [ "$ADHOC" = 1 ]; then
+                    GATEKEEPER_OK=1
+                elif /usr/sbin/spctl --status 2>/dev/null | /usr/bin/grep -q disabled; then
                     GATEKEEPER_OK=1
                 elif /usr/sbin/spctl -a -t exec "$STAGE" >/dev/null 2>&1; then
                     GATEKEEPER_OK=1
                 fi
-                VERIFY_REQ='identifier "com.ryzenstatus.utils" and anchor apple generic and certificate leaf[subject.OU] = "3D485NHW29"'
-                note fail-verify
-                if /usr/bin/codesign -v --deep --strict -R="$VERIFY_REQ" "$STAGE" 2>/dev/null \
-                    && [ "$GATEKEEPER_OK" = 1 ]; then
+                if [ "$VERIFY_OK" = 1 ] && [ "$GATEKEEPER_OK" = 1 ]; then
                     note fail-swap
                     # The backup name is unique per run: after an elevated
                     # install the old bundle is root-owned, a later user-run
@@ -163,6 +188,35 @@ enum UpdateInstallerSupport {
     static func progressStepAdvanced(from current: Double?, to fraction: Double) -> Bool {
         guard let current else { return true }
         return Int(fraction * 100) > Int(current * 100)
+    }
+
+    /// Absolute ceiling for an update download. Releases are DMGs of roughly
+    /// ten megabytes, so this is far above any real asset and only exists to
+    /// stop a response that never ends.
+    static let downloadCeilingBytes: Int64 = 200 * 1024 * 1024
+
+    /// How many bytes the download may write before it is abandoned. The
+    /// release lists the asset's exact size, so that is the bound whenever it
+    /// looks sane; an absent or absurd size falls back to the ceiling.
+    static func downloadByteLimit(expectedBytes: Int64?,
+                                  ceiling: Int64 = downloadCeilingBytes) -> Int64 {
+        guard let expectedBytes, expectedBytes > 0, expectedBytes <= ceiling else {
+            return ceiling
+        }
+        return expectedBytes
+    }
+
+    /// Whether a finished download may be handed to the installer. The
+    /// signature check still decides what gets installed; this only refuses
+    /// bodies that cannot be the asset before they are handed to the installer
+    /// and mounted.
+    static func downloadIsUsable(status: Int,
+                                 receivedBytes: Int64,
+                                 expectedBytes: Int64?,
+                                 ceiling: Int64 = downloadCeilingBytes) -> Bool {
+        guard status == 200, receivedBytes > 0, receivedBytes <= ceiling else { return false }
+        guard let expectedBytes, expectedBytes > 0 else { return true }
+        return receivedBytes == expectedBytes
     }
 
     /// True when the app cannot be updated in place at all: running from the

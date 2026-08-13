@@ -1,5 +1,105 @@
 # Changelog
 
+## [1.9.16] — 2026-08-09
+
+### App Switcher — Rules & Windowless Apps
+- **Per-App Rules**: choose how each app appears in the switcher — always show it without windows, windows only, or never — from Settings → Switcher, with an app picker and per-app icons.
+- **Windowless Apps Choice**: replaced the single "show Finder" switch with a picker — not shown, Finder only, or all apps — for apps running with no window at all.
+- **Search Pin Toggle**: typing "S" pins the search field open while the switcher is up, so typing no longer closes it or triggers special characters when the shortcut uses ⌥. Off by default; the toggle lives in Settings → Switcher.
+- **Thumbnail Pauses**: window thumbnails stop updating while a chosen app is frontmost (privacy), from the preview-size section.
+
+### App Switcher — Polish
+- **No Open Window View**: selecting an app with no open windows shows its icon with "no open window" instead of an empty tile.
+- **Shortcut Hints Toggle**: the hints under each tile can be hidden.
+
+### Clipboard — Control & Editing
+- **Skipped Apps**: choose apps whose copied content is never saved to the history.
+- **Preview Sidebar & Editing**: preview clipboard entries in a sidebar and edit saved text (up to 20,000 characters) before reuse.
+
+### Screenshot & Recorder
+- **Screenshot**: a clipboard shortcut, an option to hide RyzenStatus windows from captures, and a preview-position picker.
+- **Recorder**: microphone input with its own permission flow.
+- **Sharing (developer)**: screenshots and recordings can be shared as expiring links to your own server. There is no default server and never a third-party host; see docs/SHARING_SERVER.md.
+
+### Essentials — Input & Display
+- **Dock Click to Hide**: clicking the Dock icon can hide all of the app's windows.
+- **Keep Awake Options**: allow the display to sleep while keeping the system awake, and toggle keep-awake with a right-click on the menu-bar icon.
+- **Scroll Inverter — Horizontal Axis**: invert horizontal scrolling direction independently.
+- **URL Cleaner — Custom Parameters**: strip your own query parameters from copied links.
+
+### Monitor
+- **Memory Metric Choice**: choose which memory metric the monitor shows.
+
+## [1.9.15] — 2026-08-09
+
+### Essentials — Input & Stability
+- **No More Frozen Input During Games**: with Dock Preview enabled, every mouse move ran a Dock Accessibility hit-test on the main thread. While a fullscreen app (e.g. a game) was frontmost, the Dock is hidden, so the hit-test fell through to AX IPC against the app under the cursor — often a game that answers accessibility slowly — with no messaging timeout, freezing the main run loop for seconds and stalling every event tap on it: clicks were missed, delayed, or read as drags (in-game clicks "not registering", apps feeling hung). The hover pipeline now only runs while the Dock is actually on screen.
+- **Hover Detection Hardened**: the per-mouse-move path gates on cheap geometry before any IPC, skips the AX parent walk when the element under the cursor isn't the Dock, and caps every Accessibility round-trip at 0.2 s, so a busy or unresponsive app can never block the main thread again.
+
+## [1.9.14] — 2026-08-08
+
+### AMD Power — Menu Panel
+- **No More Panel Blocking**: kext reads (CPPC, CPB, PPM/LPM, fans and fan count) now run off the main thread; only the UI refresh hops back, preventing micro-stutters when opening the menu.
+
+### Essentials — Stability & Telemetry
+- **Kext Selectors Documented**: the selector table now matches the kext's real semantics (101 writes the fan-curve LUT, 102 maps a fan to a curve, 17 reads HP CPUs, 18 reads LPM state) — no behavior change.
+- **No More mach Port Leaks**: per-core load sampling releases the host port it acquires on every read, matching the rest of the monitor.
+
+### Dashboard — Real Data
+- **No More Hardcoded Hardware**: the BTop section and Performance Suite cards show the machine's actual CPU/GPU and VRAM instead of fixed models ("Ryzen 9 5900XT", "NAVI 21").
+
+## [1.9.13] — 2026-08-08
+
+### Settings — Fan & Cooling
+- **Immediate Fan Loading**: the screen no longer waits for the kext's slow name lookups; it shows RPM and controls from a minimal read and applies the saved names afterwards.
+- **No Duplicate Polling on Entry**: the periodic timer starts after the first read, so it no longer races the initial detection.
+
+## [1.9.12] — 2026-08-08
+
+### Settings — Fan & Cooling / AMD Ryzen Power
+- **Reliable Tab Switching**: kext reads are now cancelled when leaving the screen, so no stale tasks keep updating a destroyed view.
+- **Visible, Non-Blocking Loading**: AMD Ryzen Power shows its loading state immediately and avoids duplicate reads when switching pages quickly.
+- **Controlled Fan Refresh**: periodic polls are cancelled and replaced instead of accumulating while navigating.
+
+## [1.9.11] — 2026-08-08
+
+### Essentials — GPU & Counters
+- **No More False 100% GPU Spikes**: integer percentage values from AMD are no longer interpreted as `1` = `100%`; the card also distinguishes a pending read from a real `0%`.
+- **Unified Normalization**: all GPU paths share the same conversion and validation before feeding the chart and the per-process breakdown.
+
+## [1.9.10] — 2026-08-08
+
+### Essentials — Network & Charts
+- **Correct 64-bit Counters on Sequoia**: reading `NET_RT_IFLIST2` could truncate received bytes; it now uses `IFMIB_IFDATA`, matching `netstat`.
+- **Charts Visible with Low Traffic**: network scales adapt to the real peak instead of being pinned at `1024 B/s`, and the download/upload lines stay distinguishable.
+
+## [1.9.9] — 2026-08-08
+
+### Essentials — Real-Time Network
+- **Sampling Enabled in Performance Suite**: the dashboard requests the network metrics it displays, preventing stale cards while the history kept drawing.
+- **Real Zero Kept Apart from “Measuring”**: the UI no longer turns a pending first sample into `0 B/s`, avoiding misleading readings when switching pages or resuming the monitor.
+
+## [1.9.8] — 2026-08-08
+
+### GPU — Coherent Readings
+- **Discards Impossible Spikes**: the monitor no longer accepts high GPU load while the core clock is idle (`<100 MHz`), avoiding cases like `63%` at `15 MHz` with nearly idle GPU processes.
+- **More Reliable Total & Breakdown**: the overall percentage keeps the hardware counter, while the process list keeps using the GPU time attributed by macOS without turning a spurious reading into real load.
+
+## [1.9.7] — 2026-08-08
+
+### DMG & GPU Monitor
+- **Kexts Included**: the installer uses the official precompiled kexts from the `SMCAMDProcessor v3.34.0` release when no local build is available, and shows them inside the DMG.
+- **Better-Organized Installer**: the DMG window only positions the Kexts folder when it exists, avoiding shifted icons or Finder errors.
+- **GPU Without False Spikes**: non-finite or out-of-range values are discarded and an isolated `100%` is not accepted as a first sample; sustained load still climbs gradually.
+
+## [1.9.6] — 2026-08-08
+
+### Essentials — Responsiveness
+- **Faster Settings Opening**: the global monitor now activates only the metrics the visible screen needs, instead of starting network, disk, GPU and memory work for no reason.
+- **AMD Power Without Blocking the UI**: CPPC, PPM/LPM, telemetry and Curve Optimizer reads run off the main thread.
+- **Nimble Fan & Controls**: fan detection and updates run in the background; names are read only when hardware is detected, not on every periodic query.
+- **Optimized SMC Sensors**: the connection is reused, the key list is cached, and full reads run on a low-priority queue.
+
 ## [1.9.5] — 2026-08-08
 
 ### Sequoia (macOS 15) Compatibility

@@ -165,6 +165,22 @@ final class ScratchpadService: ObservableObject {
         }
     }
 
+    /// Settings export asks for a current document only when the user invokes
+    /// it; normal app launch still performs no scratchpad content read.
+    func prepareForSettingsBackup() {
+        if hasLoaded { flushSave() } else { loadApplyingRetention() }
+    }
+
+    /// Import intentionally replaces settings. Drop the in-memory document so
+    /// the termination flush cannot overwrite the restored backup on the way out.
+    func prepareForSettingsRestore() {
+        pendingSave?.cancel()
+        pendingSave = nil
+        hasLoaded = false
+        text = ""
+        lastSavedText = nil
+    }
+
     // MARK: - Actions
 
     func copyAll() {

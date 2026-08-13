@@ -16,6 +16,13 @@ enum SpaceHopSupport {
     /// is visible right now, is a real window parked elsewhere. A window on no
     /// Space at all is a leftover surface (the ghosts the Accessibility veto
     /// exists for), and a window on a visible Space needs no special handling.
+    /// Whether the window server tags this window as excluded from the
+    /// ⌘-backtick cycle (the private tags query in SpaceWindowBridge).
+    static func isExcludedFromWindowCycle(windowTagsLow: UInt32) -> Bool {
+        let ignoresCycleTag: UInt32 = 1 << 18
+        return windowTagsLow & ignoresCycleTag != 0
+    }
+
     static func isParkedOnHiddenSpace(windowSpaces: [UInt64], visibleSpaces: Set<UInt64>) -> Bool {
         guard !windowSpaces.isEmpty, !visibleSpaces.isEmpty else { return false }
         return !windowSpaces.contains { visibleSpaces.contains($0) }

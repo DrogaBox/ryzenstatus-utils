@@ -19,6 +19,9 @@ final class TextSnippetService {
     private var runLoopSource: CFRunLoopSource?
     private var activationObserver: NSObjectProtocol?
     private var buffer = ""
+    /// True while the snippet library panel is up; typing inside the library's
+    /// own search field must not feed the expansion buffer.
+    private var libraryVisible = false
     /// Split by expansion mode at load time; the tap callback only scans.
     private var immediateSnippets: [TextSnippet] = []
     private var delimiterSnippets: [TextSnippet] = []
@@ -40,6 +43,11 @@ final class TextSnippetService {
     }
 
     func suspend() { stop() }
+
+    func setLibraryVisible(_ visible: Bool) {
+        libraryVisible = visible
+        if visible { buffer = "" }
+    }
 
     /// Reloads the stored snippets; called by the settings page after edits.
     private func reloadSnippets() {
@@ -111,6 +119,12 @@ final class TextSnippetService {
             return Unmanaged.passUnretained(event)
         }
         guard type == .keyDown else { return Unmanaged.passUnretained(event) }
+        // Typing into the snippet library's own search field is not expansion
+        // input; clear the buffer so nothing half-typed fires later.
+        guard !libraryVisible else {
+            buffer = ""
+            return Unmanaged.passUnretained(event)
+        }
         // Never react to our own synthetic typing.
         guard event.getIntegerValueField(.eventSourceUserData) != Self.syntheticMarker else {
             return Unmanaged.passUnretained(event)

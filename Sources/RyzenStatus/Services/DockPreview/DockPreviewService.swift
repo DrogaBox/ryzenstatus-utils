@@ -58,6 +58,23 @@ final class DockPreviewService: ObservableObject {
     private var pinnedPanelWindows: [UUID: NSPanel] = [:]
     private var dockPIDCache: pid_t?
     private var cachedPreferences: DockPreviewPreferences?
+    /// Short-TTL cache of whether the Dock strip is on screen, so the per-mouse-move
+    /// gate never pays a window-list round-trip more than a few times per second.
+    private var dockStripOnScreenCache: Bool?
+    private var dockStripOnScreenCheckedAt: CFTimeInterval = 0
+    private static let dockStripCheckTTL: CFTimeInterval = 1.0
+    /// Every AX round-trip on the mouse-move hot path is capped at this timeout.
+    /// The default messaging timeout lets a busy or unresponsive app (a game, a
+    /// JVM mid-GC) freeze the shared main run loop for seconds per call — which
+    /// stalls every event tap on it and eats clicks system-wide.
+    private static let tapAXTimeout: Float = 0.2
+    /// Fallback geometry when the Dock preferences domain can't be read.
+    private static let defaultDockPreferences = DockPreviewPreferences.sanitized(
+        orientation: DockPreviewOrientation.bottom.rawValue,
+        autohide: false,
+        tileSize: 64,
+        magnification: false,
+        magnifiedTileSize: 128)
 
     private init() {}
 
@@ -469,18 +486,61 @@ final class DockPreviewService: ObservableObject {
     }
 
     /// Whether the cursor sits within the Dock's edge strip, so the expensive
-    /// `dockHit` Accessibility call is worth making. Errs toward `true` when the
-    /// Dock geometry is unknown so detection never silently stops working.
+    /// `dockHit` Accessibility call is worth making.
+    ///
+    /// Two gates, cheapest first:
+    /// 1. The Dock strip must actually be on screen. With the Dock hidden
+    ///    (fullscreen app, auto-hide parked) no icon is hittable, so a hit-test
+    ///    would run AX IPC against whatever window covers the band — often a
+    ///    game that answers accessibility slowly, freezing the shared main run
+    ///    loop (and every event tap on it) for the duration of each call.
+    /// 2. The cursor must be inside the strip's edge band. Unknown Dock geometry
+    ///    defaults to a bottom Dock instead of "everywhere", so a missing
+    ///    preference can never turn every mouse move system-wide into an AX call.
     private func isNearDock(_ point: CGPoint) -> Bool {
-        guard let preferences = cachedPreferences else { return true }
+        // Cheapest gate first: pure geometry, no IPC. The window-list round-trip
+        // below must never run for mid-screen moves — under game load it can
+        // stall the shared main run loop for a few ms, and a few ms between a
+        // click's down and up is all it takes for a game to read a drag.
+        let preferences = cachedPreferences ?? Self.defaultDockPreferences
         let screen = NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main
-        guard let frame = screen?.frame else { return true }
+        guard let frame = screen?.frame else { return false }
         let band = DockPreviewSupport.dockProximityBand(tileSize: preferences.hoverTileSize)
+        let inBand: Bool
         switch preferences.orientation {
-        case .bottom: return point.y <= frame.minY + band
-        case .left: return point.x <= frame.minX + band
-        case .right: return point.x >= frame.maxX - band
+        case .bottom: inBand = point.y <= frame.minY + band
+        case .left: inBand = point.x <= frame.minX + band
+        case .right: inBand = point.x >= frame.maxX - band
         }
+        guard inBand else { return false }
+        // Only then confirm the Dock is actually on screen (fullscreen apps and
+        // auto-hide park it). Cached, so this costs at most one window-list
+        // round-trip per TTL while the cursor stays in the strip.
+        return dockStripOnScreen()
+    }
+
+    /// Whether the Dock's strip window is currently on screen — the same layer-20
+    /// window DockClickService keys on. Mirrors the Dock's real visibility:
+    /// hidden while a fullscreen app owns the Space, parked while auto-hide is on
+    /// and the cursor is away. Cached briefly so the hot path stays a memory read.
+    private func dockStripOnScreen() -> Bool {
+        let now = CFAbsoluteTimeGetCurrent()
+        if let cached = dockStripOnScreenCache,
+           now - dockStripOnScreenCheckedAt < Self.dockStripCheckTTL {
+            return cached
+        }
+        var visible = false
+        if let list = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]],
+           let dockPID = dockProcessID() {
+            let dockLevel = Int(CGWindowLevelForKey(.dockWindow))
+            visible = list.contains { window in
+                (window[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == dockPID
+                    && (window[kCGWindowLayer as String] as? Int) == dockLevel
+            }
+        }
+        dockStripOnScreenCache = visible
+        dockStripOnScreenCheckedAt = now
+        return visible
     }
 
     /// Where the cursor stands relative to the live session. The corridor only
@@ -1030,14 +1090,21 @@ final class DockPreviewService: ObservableObject {
         else { return nil }
 
         let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, Self.tapAXTimeout)
         var rawElement: AXUIElement?
         guard AXUIElementCopyElementAtPosition(system, Float(axPoint.x), Float(axPoint.y), &rawElement) == .success,
               let element = rawElement
         else { return nil }
 
+        // The cursor is not over the Dock: the element's parents all live in the
+        // same (possibly slow) app as it does, so walking them — up to 8 AX
+        // round-trips against, say, a busy game that answers accessibility
+        // slowly — can only ever confirm "not the dock". Bail before any IPC.
+        guard pid(of: element) == dockPID else { return nil }
+        AXUIElementSetMessagingTimeout(element, Self.tapAXTimeout)
+
         for candidate in elementAndParents(from: element) {
-            guard pid(of: candidate) == dockPID,
-                  let frame = appKitFrame(of: candidate),
+            guard let frame = appKitFrame(of: candidate),
                   let app = runningApplication(forDockElement: candidate)
             else { continue }
             return DockHit(app: app, iconFrame: frame, preferences: preferences)
@@ -1089,6 +1156,9 @@ final class DockPreviewService: ObservableObject {
         var current = element
         for _ in 0..<8 {
             guard let parent = elementAttribute(current, kAXParentAttribute as String) else { break }
+            // A parent can belong to a slow app; cap the round-trip so the main
+            // run loop (and every event tap on it) can never be frozen by it.
+            AXUIElementSetMessagingTimeout(parent, Self.tapAXTimeout)
             result.append(parent)
             current = parent
         }

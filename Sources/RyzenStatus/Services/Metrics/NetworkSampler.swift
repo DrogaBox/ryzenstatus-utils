@@ -47,10 +47,48 @@ final class NetworkSampler {
                               totalDown: totalDown, totalUp: totalUp)
     }
 
-    /// Sums received/sent bytes across the physical interfaces via the routing
-    /// socket (`NET_RT_IFLIST2`), which reports 64-bit counters in `if_data64` —
-    /// unlike `getifaddrs`, whose 32-bit counters wrap and corrupt totals.
+    /// Sums received/sent bytes across physical interfaces using the per-interface
+    /// MIB, which returns the 64-bit `if_data64` counters on Sequoia.
     static func readCounters() -> NetworkCounters {
+        if let counters = readCountersFromInterfaceMIB() {
+            return counters
+        }
+
+        return readCountersFromRouteList()
+    }
+
+    private static func readCountersFromInterfaceMIB() -> NetworkCounters? {
+        var countMib: [Int32] = [CTL_NET, PF_LINK, NETLINK_GENERIC,
+                                 IFMIB_SYSTEM, IFMIB_IFCOUNT]
+        var interfaceCount = 0
+        var countLength = MemoryLayout<Int32>.size
+        guard sysctl(&countMib, 5, &interfaceCount, &countLength, nil, 0) == 0,
+              interfaceCount > 0 else {
+            return nil
+        }
+
+        var result = NetworkCounters()
+        var foundInterface = false
+        for index in 1...interfaceCount {
+            var nameBuffer = [CChar](repeating: 0, count: Int(IFNAMSIZ))
+            guard if_indextoname(UInt32(index), &nameBuffer) != nil else { continue }
+            let name = String(cString: nameBuffer)
+            guard MetricFormat.includeNetworkInterface(name) else { continue }
+
+            var mib: [Int32] = [CTL_NET, PF_LINK, NETLINK_GENERIC,
+                                IFMIB_IFDATA, Int32(index), IFDATA_GENERAL]
+            var data = ifmibdata()
+            var length = MemoryLayout<ifmibdata>.size
+            guard sysctl(&mib, 6, &data, &length, nil, 0) == 0 else { continue }
+
+            result.received += data.ifmd_data.ifi_ibytes
+            result.sent += data.ifmd_data.ifi_obytes
+            foundInterface = true
+        }
+        return foundInterface ? result : nil
+    }
+
+    private static func readCountersFromRouteList() -> NetworkCounters {
         var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0]
         var length = 0
         guard sysctl(&mib, 6, nil, &length, nil, 0) == 0, length > 0 else {

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 RyzenStatus
 
 import AppKit
+import Carbon.HIToolbox
 import Combine
 import os.log
 import SwiftUI
@@ -57,7 +58,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             self?.captureStatusClick()
             self?.toggleMainPopover()
         }
-        statusController.onRightClick = { [weak self] item in self?.showContextMenu(for: item) }
+        statusController.onRightClick = { [weak self] item in
+            if AppFeature.keepAwake.isAvailable
+                && UserDefaults.standard.bool(forKey: DefaultsKey.keepAwakeRightClickToggle) {
+                KeepAwakeManager.shared.toggle()
+            } else {
+                self?.showContextMenu(for: item)
+            }
+        }
         statusController.onMetricClick = { [weak self] metric, button in
             self?.captureStatusClick()
             self?.showMetricPanel(for: metric, anchoredTo: button)
@@ -91,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // Re-apply a persisted Gaming Mode (Extreme preset + Keep Awake +
         // hidden icon) left on by a previous session.
         GamingModeService.shared.restoreIfNeeded()
-        if AppFeature.monitorPower.isAvailable {
+        if AppFeature.monitorPower.isAvailable, PowerSampler.hasInternalBattery {
             MaxCapacityProbe.shared.refreshIfStale()
         }
         UpdateService.shared.startAutomaticChecks()
@@ -553,6 +561,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     private func handlePopoverKeyDown(_ event: NSEvent) -> NSEvent? {
+        if popover.isShown, event.keyCode == UInt16(kVK_Escape) {
+            closePopover()
+            return nil
+        }
+
         guard popover.isShown,
               PanelInteractionState.shared.keepsPopoverOpen,
               isPlainPopoverHoldKey(event),

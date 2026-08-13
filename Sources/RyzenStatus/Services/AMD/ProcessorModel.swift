@@ -587,7 +587,11 @@ actor ProcessorModel {
         var infoArray: processor_info_array_t?
         var infoCount: mach_msg_type_number_t = 0
         
-        let kr = host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &numCPUs, &infoArray, &infoCount)
+        // mach_host_self() returns a send right the caller owns; release it or
+        // each call leaks a mach port (this runs on every sampling tick).
+        let host = mach_host_self()
+        defer { mach_port_deallocate(mach_task_self_, host) }
+        let kr = host_processor_info(host, PROCESSOR_CPU_LOAD_INFO, &numCPUs, &infoArray, &infoCount)
         guard kr == KERN_SUCCESS, let info = infoArray else {
             return
         }
@@ -749,7 +753,7 @@ actor ProcessorModel {
     }
 
     nonisolated func getHPCpus() -> Int{
-        let o = kernelGetUInt64(count: 1, selector: AMDKextSelector.lpmRead)
+        let o = kernelGetUInt64(count: 1, selector: AMDKextSelector.hpCpusRead)
         return o.count > 0 ? Int(o[0]) : 0
     }
 
@@ -887,7 +891,7 @@ actor ProcessorModel {
     }
 
     nonisolated func getLPM() -> Bool {
-        let o = kernelGetUInt64(count: 1, selector: AMDKextSelector.c6ResidencyMSR)
+        let o = kernelGetUInt64(count: 1, selector: AMDKextSelector.lpmRead)
         return o.count > 0 && o[0] != 0
     }
 
@@ -1298,20 +1302,24 @@ actor ProcessorModel {
         }
     }
     
-    nonisolated func getFans() -> [FanSnapshot] {
-        let fansRes = kernelGetUInt64(count: 1, selector: AMDKextSelector.fanSpeedRead.id)
+    nonisolated func getFans(includeNames: Bool = true) -> [FanSnapshot] {
+        let fansRes = kernelGetUInt64(count: 1, selector: AMDKextSelector.fanCountRead.id)
         guard fansRes.count > 0 else { return [] }
         let numFans = min(Int(fansRes[0]), 16) // Cap at 16 to prevent unbounded allocation
         guard numFans > 0 else { return [] }
         
-        let fanRpms = kernelGetUInt64(count: numFans, selector: AMDKextSelector.fanSpeedWrite.id)
+        let fanRpms = kernelGetUInt64(count: numFans, selector: AMDKextSelector.fanSpeedRead.id)
         let fanCtrls = kernelGetUInt64(count: numFans, selector: AMDKextSelector.fanCtrlRead)
         
         var fans: [FanSnapshot] = []
         for i in 0..<numFans {
-            let name = kernelGetString(selector: AMDKextSelector.fanName, args: [UInt64(i)])
+            let name = includeNames
+                ? kernelGetString(selector: AMDKextSelector.fanName, args: [UInt64(i)])
+                : ""
             let finalName = name.isEmpty ? "Fan \(i + 1)" : name
-            let customName = UserDefaults.standard.string(forKey: "FanName_\(i)") ?? finalName
+            let customName = includeNames
+                ? (UserDefaults.standard.string(forKey: "FanName_\(i)") ?? finalName)
+                : finalName
             
             let rpm = (i < fanRpms.count) ? min(fanRpms[i], 9999) : 0
             
@@ -1340,7 +1348,7 @@ actor ProcessorModel {
     
     nonisolated func setFanSpeed(pwm: Int, fanIndex: Int = 0) -> Bool {
         // Selector 95 = overrideFanControl(fanSel, pwm)
-        let res = kernelSetUInt64Status(selector: AMDKextSelector.fanSpeedWrite2, args: [UInt64(fanIndex), UInt64(pwm)])
+        let res = kernelSetUInt64Status(selector: AMDKextSelector.fanSpeedWrite, args: [UInt64(fanIndex), UInt64(pwm)])
         return res == KERN_SUCCESS
     }
     
@@ -1362,7 +1370,7 @@ actor ProcessorModel {
                                      hysteresis: hysteresis,
                                      rampRate: rampRate,
                                      lut: lut)
-        return kernelSetStruct(selector: AMDKextSelector.fanCurveLUTRead.id, data: input.packedData())
+        return kernelSetStruct(selector: AMDKextSelector.fanCurveLUTWrite.id, data: input.packedData())
     }
 
     /// Maps a physical fan header to a curve slot (selector 102).
@@ -1374,7 +1382,7 @@ actor ProcessorModel {
     nonisolated func mapKextFanToCurve(fanIndex: Int, curveIndex: Int) -> kern_return_t {
         // Curve index -1 (Auto) must cross as UInt64 bit pattern, not trap.
         let rawCurve = UInt64(bitPattern: Int64(curveIndex))
-        return kernelSetUInt64Status(selector: AMDKextSelector.fanCurveLUTWrite.id, args: [UInt64(fanIndex), rawCurve])
+        return kernelSetUInt64Status(selector: AMDKextSelector.fanToCurveMap.id, args: [UInt64(fanIndex), rawCurve])
     }
 
     @discardableResult

@@ -314,30 +314,13 @@ struct AmdControlSection: View {
             .padding(.top, 8)
             .padding(.bottom, 4)
             .onAppear {
-                let fansRes = ProcessorModel.shared.kernelGetUInt64(count: 1, selector: AMDKextSelector.fanSpeedRead.id)
-                if fansRes.count > 0 {
-                    let numFans = Int(fansRes[0])
-                    var initFans: [(id: Int, name: String)] = []
-                    for i in 0..<numFans {
-                        initFans.append((id: i, name: "Fan \(i + 1)"))
-                    }
-                    availableFans = initFans
-                }
-                
+                loadFanPicker()
                 checkCapabilities()
-                
-                if cppcSupported {
-                    loadTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
-                        checkCapabilities()
-                        updateFanRpm()
-                    }
-                } else {
-                    loadTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
-                        checkCapabilities()
-                        if !availableFans.isEmpty {
-                            updateFanRpm()
-                        }
-                    }
+                // One timer: updateFanRpm already no-ops when no fan is
+                // detected, so no separate branch is needed.
+                loadTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
+                    checkCapabilities()
+                    updateFanRpm()
                 }
                 // Trigger initial read
                 updateFanRpm()
@@ -352,71 +335,122 @@ struct AmdControlSection: View {
         }
     }
     
-    private func updateFanRpm() {
-        if !availableFans.isEmpty {
-            let rpms = ProcessorModel.shared.kernelGetUInt64(count: availableFans.count, selector: AMDKextSelector.fanSpeedWrite.id)
-            if selectedFanId < rpms.count {
-                selectedFanRpm = Int(min(rpms[selectedFanId], 9999))
+    /// The kext's fan-count query (selector 91) is a synchronous IOKit call, so
+    /// it runs on a background task; the picker only fills in on the main thread.
+    private func loadFanPicker() {
+        Task.detached(priority: .userInitiated) {
+            let fansRes = ProcessorModel.shared.kernelGetUInt64(count: 1, selector: AMDKextSelector.fanCountRead.id)
+            var initFans: [(id: Int, name: String)] = []
+            if fansRes.count > 0 {
+                let numFans = Int(fansRes[0])
+                for i in 0..<numFans {
+                    initFans.append((id: i, name: "Fan \(i + 1)"))
+                }
+            }
+            await MainActor.run {
+                guard !Task.isCancelled else { return }
+                self.availableFans = initFans
             }
         }
     }
 
+    /// RPM readout for the selected fan — a synchronous kext call (selector 93),
+    /// so it runs off the main thread and only the state write hops back.
+    private func updateFanRpm() {
+        guard !availableFans.isEmpty else { return }
+        let fanCount = availableFans.count
+        Task.detached(priority: .utility) {
+            let rpms = ProcessorModel.shared.kernelGetUInt64(count: fanCount, selector: AMDKextSelector.fanSpeedRead.id)
+            await MainActor.run {
+                guard !Task.isCancelled else { return }
+                if self.selectedFanId < rpms.count {
+                    self.selectedFanRpm = Int(min(rpms[self.selectedFanId], 9999))
+                }
+            }
+        }
+    }
+
+    /// Immutable snapshot of the kext capability/state reads, built off the
+    /// main thread and applied to the view state in a single MainActor hop.
+    private struct CapabilitySnapshot {
+        var kernelAnswered = false
+        var cppcSupported = false
+        var legacyPstateAllowed = false
+        var epp: UInt8 = 0
+        var pState: Int = 0
+        var pStateLabels: [String] = []
+        var cpb: [Bool] = []
+        var ppm = false
+        var lpm = false
+    }
+
+    /// All kext reads (CPPC, CPB, PPM/LPM, P-State clocks) are synchronous IOKit
+    /// calls, so they run on a detached task; only the state writes touch main.
     private func checkCapabilities() {
-        Task { @MainActor in
-            let kernelAnswered = ProcessorModel.shared.connect != 0
-            if kernelAnswered {
-                let profile = await ProcessorModel.shared.cpuProfile
-                cppcSupported = profile.supportsCPPC
-                legacyPstateAllowed = profile.legacyPstateAllowed
-                
-                if cppcSupported {
-                    let state = ProcessorModel.shared.getCPPCActiveMode()
-                    // Snap to segmented value
-                    let target = AMDPowerPreset.snapEPP(state.epp)
-                    if selectedEpp != target {
-                        selectedEpp = target
-                    }
-                } else if legacyPstateAllowed {
-                    let curState = await ProcessorModel.shared.getPState()
-                    if selectedPState != curState {
-                        selectedPState = curState
-                    }
-                    
-                    if validPStateLabels.isEmpty {
-                        let clocks = await ProcessorModel.shared.getValidPStateClocks()
-                        if !clocks.isEmpty {
-                            var labels: [String] = []
-                            for i in 0..<clocks.count {
-                                if i == 0 {
-                                    labels.append(String(format: "P%d (Max)", i))
-                                } else if i == clocks.count - 1 {
-                                    labels.append(String(format: "P%d (Low)", i))
-                                } else {
-                                    labels.append(String(format: "P%d", i))
-                                }
-                            }
-                            validPStateLabels = labels
+        Task.detached(priority: .userInitiated) {
+            var state = CapabilitySnapshot()
+            state.kernelAnswered = ProcessorModel.shared.connect != 0
+            let profile = await ProcessorModel.shared.cpuProfile
+            state.cppcSupported = profile.supportsCPPC
+            state.legacyPstateAllowed = profile.legacyPstateAllowed
+
+            if state.kernelAnswered {
+                if state.cppcSupported {
+                    state.epp = ProcessorModel.shared.getCPPCActiveMode().epp
+                } else if state.legacyPstateAllowed {
+                    state.pState = await ProcessorModel.shared.getPState()
+                    let clocks = await ProcessorModel.shared.getValidPStateClocks()
+                    if !clocks.isEmpty {
+                        state.pStateLabels = clocks.enumerated().map { index, clock in
+                            if index == 0 { return String(format: "P%d (Max)", index) }
+                            if index == clocks.count - 1 { return String(format: "P%d (Low)", index) }
+                            return String(format: "P%d", index)
                         }
                     }
                 }
-            } else {
-                cppcSupported = false
-                legacyPstateAllowed = false
             }
 
-            let cpb = ProcessorModel.shared.getCPB()
-            if cpb.count > 1 {
-                cpbSupported = cpb[0]
-                if corePerformanceBoost != cpb[1] {
-                    corePerformanceBoost = cpb[1]
+            state.cpb = ProcessorModel.shared.getCPB()
+            if state.kernelAnswered {
+                state.ppm = ProcessorModel.shared.getPPM()
+                state.lpm = ProcessorModel.shared.getLPM()
+            }
+
+            await MainActor.run {
+                guard !Task.isCancelled else { return }
+                self.cppcSupported = state.cppcSupported
+                self.legacyPstateAllowed = state.legacyPstateAllowed
+                if state.kernelAnswered {
+                    if state.cppcSupported {
+                        // Snap to segmented value
+                        let target = AMDPowerPreset.snapEPP(state.epp)
+                        if self.selectedEpp != target {
+                            self.selectedEpp = target
+                        }
+                    } else if state.legacyPstateAllowed {
+                        if self.selectedPState != state.pState {
+                            self.selectedPState = state.pState
+                        }
+                        if self.validPStateLabels.isEmpty, !state.pStateLabels.isEmpty {
+                            self.validPStateLabels = state.pStateLabels
+                        }
+                    }
+                } else {
+                    self.cppcSupported = false
+                    self.legacyPstateAllowed = false
                 }
-            }
 
-            if kernelAnswered {
-                let ppm = ProcessorModel.shared.getPPM()
-                if ppmEnabled != ppm { ppmEnabled = ppm }
-                let lpm = ProcessorModel.shared.getLPM()
-                if lpmEnabled != lpm { lpmEnabled = lpm }
+                if state.cpb.count > 1 {
+                    self.cpbSupported = state.cpb[0]
+                    if self.corePerformanceBoost != state.cpb[1] {
+                        self.corePerformanceBoost = state.cpb[1]
+                    }
+                }
+
+                if state.kernelAnswered {
+                    if self.ppmEnabled != state.ppm { self.ppmEnabled = state.ppm }
+                    if self.lpmEnabled != state.lpm { self.lpmEnabled = state.lpm }
+                }
             }
         }
     }

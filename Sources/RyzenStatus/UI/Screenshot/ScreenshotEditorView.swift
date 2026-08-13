@@ -24,6 +24,7 @@ struct ScreenshotEditorView: View {
     @AppStorage(DefaultsKey.screenshotToolOrder) private var toolOrderRaw =
         ScreenshotSupport.Tool.defaultOrderStorage
     @AppStorage(DefaultsKey.screenshotToolShortcutsEnabled) private var toolShortcutsEnabled = true
+    @AppStorage(DefaultsKey.screenshotSharingEnabled) private var sharingEnabled = true
 
     private var strings: ScreenshotFeatureStrings {
         FeatureStrings.screenshot(l10n.language)
@@ -714,8 +715,10 @@ struct ScreenshotEditorView: View {
 
             Divider().frame(height: 16).padding(.horizontal, 3)
 
-            shareMenu
-            Divider().frame(height: 16).padding(.horizontal, 3)
+            if sharingEnabled {
+                shareMenu
+                Divider().frame(height: 16).padding(.horizontal, 3)
+            }
 
             Menu {
                 Button(strings.saveButton) {
@@ -1164,17 +1167,11 @@ struct ScreenshotEditorView: View {
             .onDrag {
                 commitEditingTextIfNeeded()
                 guard let image = model.exportImage(),
-                      let data = ScreenshotRenderer.pngData(from: image)
+                      let provider = ScreenshotService.dragItemProvider(image: image,
+                                                                        strings: strings)
                 else { return NSItemProvider() }
-                let name = ScreenshotSupport.fileName(prefix: strings.fileNamePrefix, date: Date())
-                let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-                do {
-                    try data.write(to: url, options: .atomic)
-                } catch {
-                    return NSItemProvider()
-                }
                 model.markExported()
-                return NSItemProvider(contentsOf: url) ?? NSItemProvider()
+                return provider
             }
             .screenshotSafeHelp(strings.editorTitle)
     }

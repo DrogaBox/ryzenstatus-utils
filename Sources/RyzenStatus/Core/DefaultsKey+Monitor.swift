@@ -96,4 +96,5 @@ extension DefaultsKey {
     static let monitorAlertDiskFreePercent = "monitorAlertDiskFreePercent"
     static let monitorAlertBatteryPercent = "monitorAlertBatteryPercent"
     static let monitorAlertCooldownMinutes = "monitorAlertCooldownMinutes"
+    static let monitorMemoryMetric = "monitorMemoryMetric"           // used | app
 }

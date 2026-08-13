@@ -6,6 +6,9 @@ struct FansSettingsView: View {
     @State private var hasSMCWriteAccess: Bool = true
     @State private var loadTimer: Timer?
     @State private var hiddenFanIDs: Set<Int> = []
+    @State private var setupTask: Task<Void, Never>?
+    @State private var refreshTask: Task<Void, Never>?
+    @State private var isLoadingFans = false
     @AppStorage(DefaultsKey.fanCurvesEditorEnabled) private var autoFanCurveEnabled = false
     @State private var customFanNames: [Int: String] = [:]
     @ObservedObject var controller = FanCurveController.shared
@@ -19,10 +22,21 @@ struct FansSettingsView: View {
                 }
             } else if fans.isEmpty {
                 Section {
-                    Text("No fans detected.")
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(32)
+                    Group {
+                        if isLoadingFans {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Loading fan sensors…")
+                                    .foregroundColor(.secondary)
+                            }
+                        } else {
+                            Text("No fans detected.")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(32)
                 }
             } else {
                 Section {
@@ -176,25 +190,39 @@ struct FansSettingsView: View {
         .formStyle(.grouped)
         .environment(\.defaultMinListRowHeight, 4)
         .onAppear {
+            SystemMonitor.shared.setMenuPanelNeeds(.none)
+            isLoadingFans = true
             setupFans()
-            loadTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
-                fetchState()
-            }
         }
         .onDisappear {
             loadTimer?.invalidate()
             loadTimer = nil
+            setupTask?.cancel()
+            setupTask = nil
+            refreshTask?.cancel()
+            refreshTask = nil
         }
     }
     
     private func setupFans() {
-        Task {
+        setupTask?.cancel()
+        setupTask = Task.detached(priority: .userInitiated) {
             let conn = ProcessorModel.shared.connect
             let hasAccess = conn != 0
-            let currentFans = ProcessorModel.shared.getFans()
+            let currentFans = ProcessorModel.shared.getFans(includeNames: false)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
+                guard !Task.isCancelled else { return }
                 self.hasSMCWriteAccess = hasAccess
-                self.fans = currentFans
+                self.fans = currentFans.map { fan in
+                    var updated = fan
+                    if let savedName = UserDefaults.standard.string(forKey: "FanName_\(fan.id)"),
+                       !savedName.isEmpty {
+                        updated.name = savedName
+                    }
+                    return updated
+                }
+                self.isLoadingFans = false
                 // Load hidden fans state & custom names
                 if let savedHidden = UserDefaults.standard.array(forKey: "HiddenFanIDs") as? [Int] {
                     self.hiddenFanIDs = Set(savedHidden)
@@ -211,6 +239,9 @@ struct FansSettingsView: View {
                     autoMapFirstCurveIfNeeded()
                 }
                 self.fetchState()
+                self.loadTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
+                    self.fetchState()
+                }
             }
         }
     }
@@ -230,9 +261,12 @@ struct FansSettingsView: View {
     }
     
     private func fetchState() {
-        Task {
-            let currentFans = ProcessorModel.shared.getFans()
+        refreshTask?.cancel()
+        refreshTask = Task.detached(priority: .utility) {
+            let currentFans = ProcessorModel.shared.getFans(includeNames: false)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
+                guard !Task.isCancelled else { return }
                 if self.fans.count != currentFans.count {
                     self.fans = currentFans
                 } else {

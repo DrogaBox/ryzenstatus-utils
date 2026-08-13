@@ -41,7 +41,7 @@ enum FeatureGroup: String, CaseIterable {
 /// System permissions surfaced by the hub's transparency portal.
 enum AppPermission: String, CaseIterable {
     case accessibility, screenRecording, fullDiskAccess, filesAndFolders, notifications,
-         automationFinder, automationTerminal, audioCapture, camera
+         automationFinder, automationTerminal, audioCapture, microphone, camera
 }
 
 extension AppFeature {
@@ -126,8 +126,10 @@ extension AppFeature {
 
     var availabilityKey: String { DefaultsKey.featureAvailable(rawValue) }
 
-    /// Availability read straight from defaults (registered true, so updates
-    /// change nothing for existing users).
+    var isBeta: Bool { false }
+
+    /// Availability read straight from defaults. Existing features stay
+    /// available on update; explicit beta opt-ins may start unavailable.
     var isAvailable: Bool {
         UserDefaults.standard.bool(forKey: availabilityKey)
     }
@@ -140,10 +142,13 @@ extension AppFeature {
         switch self {
         case .switcher: return [DefaultsKey.switcherEnabled]
         case .dockPreview: return [DefaultsKey.dockPreviewEnabled]
-        case .dockClick: return [DefaultsKey.dockClickMinimize, DefaultsKey.dockClickCycleWindows]
+        case .dockClick: return [DefaultsKey.dockClickMinimize,
+                                 DefaultsKey.dockClickHide,
+                                 DefaultsKey.dockClickCycleWindows]
         case .windowMaximizer: return [DefaultsKey.windowMaximizeEnabled]
         case .autoQuit: return [DefaultsKey.autoQuitEnabled]
-        case .scrollInverter: return [DefaultsKey.scrollInverterEnabled]
+        case .scrollInverter: return [DefaultsKey.scrollInverterEnabled,
+                                      DefaultsKey.scrollInverterHorizontalEnabled]
         case .smoothScroll: return [DefaultsKey.smoothScrollEnabled]
         case .mouseNavigation: return [DefaultsKey.mouseNavigationEnabled]
         case .middleClick: return [DefaultsKey.middleClickEnabled]
@@ -188,7 +193,9 @@ extension AppFeature {
         case .dockPreview: return [.accessibility, .screenRecording]
         case .screenOCR: return [.screenRecording]
         case .screenshot: return [.screenRecording]
-        case .screenRecorder: return [.screenRecording, .accessibility]
+        // The sound of the Mac rides the same grant the pixels do. Microphone
+        // access stays contextual, and Accessibility only keeps typing timing.
+        case .screenRecorder: return [.screenRecording, .accessibility, .microphone]
         case .cameraPreview: return [.camera]
         case .keepAwake: return [.accessibility]
         case .brightness: return [.accessibility]
@@ -207,15 +214,30 @@ extension AppFeature {
         }
     }
 
+    /// Broad grants worth explaining during first run. Permissions used only
+    /// by an optional sub-feature stay contextual, at the moment that control
+    /// is actually used.
+    var onboardingPermissions: [AppPermission] {
+        switch self {
+        case .keepAwake, .brightness, .radialMenu, .quickToggles, .cleaner,
+             .uninstaller, .homebrew, .appUpdates, .mixer, .cameraPreview,
+             .micMute:
+            return []
+        default:
+            return permissions.filter { $0 == .accessibility || $0 == .screenRecording }
+        }
+    }
+
     static func features(in group: FeatureGroup) -> [AppFeature] {
         allCases.filter { $0.group == group }
     }
 
-    /// Registered defaults: every feature ships available, so an update is a
-    /// no-op for existing users. Generated from allCases so a new case can
-    /// never be forgotten.
+    /// Registered defaults preserve existing features on update. New opt-in
+    /// features and explicit betas ship uninstalled.
     static var availabilityDefaults: [String: Any] {
-        Dictionary(uniqueKeysWithValues: allCases.map { ($0.availabilityKey, true) })
+        Dictionary(uniqueKeysWithValues: allCases.map {
+            ($0.availabilityKey, true)
+        })
     }
 
     /// Features that are available, engaged and using `permission` right now.
@@ -301,6 +323,7 @@ extension AppPermission {
         case .notifications: return "bell.badge"
         case .automationFinder, .automationTerminal: return "gearshape.2"
         case .audioCapture: return "waveform"
+        case .microphone: return "mic"
         case .camera: return "camera"
         }
     }

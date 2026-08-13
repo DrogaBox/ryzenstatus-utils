@@ -136,6 +136,12 @@ actor IOAcceleratorCache {
 
     func utilization() async -> Double? {
         let s = await snapshot()
+        let coreClock: Double? = {
+            if let value = (s["Core Clock(MHz)"] as? NSNumber)?.doubleValue { return value }
+            if let value = s["Core Clock(MHz)"] as? Double { return value }
+            if let value = s["Core Clock(MHz)"] as? Int { return Double(value) }
+            return nil
+        }()
         let keys = ["Device Utilization %", "GPU Activity(%)", "GPU Core Utilization",
                     "GPU Busy", "Hardware Activity"]
         for key in keys {
@@ -145,7 +151,12 @@ actor IOAcceleratorCache {
             else if let v = s[key] as? Int { val = Double(v) }
             
             if let v = val {
-                return v > 1.0 ? v / 100.0 : v
+                guard v.isFinite else { continue }
+                guard let normalized = MetricFormat.normalizedGPUUtilization(rawValue: v, key: key) else { continue }
+                if normalized >= 0.50, let coreClock, coreClock.isFinite, coreClock < 100 {
+                    continue
+                }
+                return normalized
             }
         }
         return nil

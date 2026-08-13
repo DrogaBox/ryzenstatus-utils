@@ -27,6 +27,10 @@ enum AutoQuitSupport {
     /// first (key codes are positional: 13 types "z" on AZERTY).
     static let commandWKeyCode: Int64 = 13
 
+    /// Bundle metadata key some standalone apps use to declare which host
+    /// process they depend on (Chromium's "CrBundleIdentifier").
+    private static let hostBundleIdentifierKey = "CrBundleIdentifier"
+
     static func shouldScheduleWindowCheck(for event: AutoQuitWindowEvent,
                                           hasRecentCloseRequest: Bool) -> Bool {
         switch event {
@@ -60,5 +64,17 @@ enum AutoQuitSupport {
 
     static func isCommandW(keyCode: Int64, command: Bool, control: Bool) -> Bool {
         keyCode == commandWKeyCode && command && !control
+    }
+
+    /// Some standalone apps depend on a separate host process and declare that
+    /// relationship in their bundle metadata. Quitting the host while one of
+    /// those apps is running would close both from a single window close.
+    static func hasDependentApplication(hostBundleIdentifier: String?,
+                                        applicationBundleURLs: [URL]) -> Bool {
+        guard let hostBundleIdentifier, !hostBundleIdentifier.isEmpty else { return false }
+        return applicationBundleURLs.contains { bundleURL in
+            Bundle(url: bundleURL)?.object(forInfoDictionaryKey: hostBundleIdentifierKey) as? String
+                == hostBundleIdentifier
+        }
     }
 }

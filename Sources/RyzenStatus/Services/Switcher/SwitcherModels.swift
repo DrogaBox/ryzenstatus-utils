@@ -85,3 +85,8 @@ struct SwitcherItem: Identifiable, Equatable {
                      isMinimized: false, isFullscreen: false, frame: .zero)
     }
 }
+
+extension SwitcherItem {
+    /// An entry that represents an app without any open window.
+    var isAppEntry: Bool { windowID == nil }
+}

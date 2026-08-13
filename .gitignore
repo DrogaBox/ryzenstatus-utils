@@ -45,3 +45,6 @@ task.md
 .user_uploaded/
 .system_generated/
 
+# Upstream sync tooling (local-only: holds the upstream repo URL; never pushed)
+.upstream-sync/
+

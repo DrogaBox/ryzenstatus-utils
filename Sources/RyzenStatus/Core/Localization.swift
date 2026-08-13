@@ -331,8 +331,11 @@ struct Strings {
     let switcherWindowShortcutCaption: String
     let switcherMergeTabs: String
     let switcherMergeTabsCaption: String
-    let switcherShowFinder: String
-    let switcherShowFinderCaption: String
+    let switcherWindowlessApps: String
+    let switcherWindowlessAppsCaption: String
+    let switcherWindowlessAppsOff: String
+    let switcherWindowlessAppsFinder: String
+    let switcherWindowlessAppsAll: String
     let dockPreviewName: String
     let dockPreviewEnable: String
     let dockPreviewEnableCaption: String
@@ -446,7 +449,23 @@ struct Strings {
     let urlCleanerCleaned: String
     let urlCleanerCopied: String
     let urlCleanerLocalNote: String
-
+    let dockClickHide: String
+    let dockClickHideCaption: String
+    let monitorMemoryMetricLabel: String
+    let memoryMetricUsed: String
+    let memoryMetricApp: String
+    let keepAwakeRightClickToggle: String
+    let keepAwakeRightClickToggleCaption: String
+    let urlCleanerCustomTitle: String
+    let urlCleanerCustomPlaceholder: String
+    let urlCleanerCustomCaption: String
+    let switcherSearchPin: String
+    let switcherSearchPinCaption: String
+    let invertVerticalScroll: String
+    let invertHorizontalScroll: String
+    let switcherShowShortcutHints: String
+    let switcherShowShortcutHintsCaption: String
+    let switcherNoOpenWindow: String
     // MARK: Feature — Homebrew manager
     let homebrewName: String
     let homebrewEnableCaption: String
@@ -1259,8 +1278,11 @@ extension Strings {
         switcherWindowShortcutCaption: "Com o seletor aberto, pula entre as janelas do app selecionado.",
         switcherMergeTabs: "Mostrar uma entrada por app",
         switcherMergeTabsCaption: "Junta todas as janelas de um app em uma só entrada no alternador, em vez de uma por janela.",
-        switcherShowFinder: "Mostrar Finder sem janelas",
-        switcherShowFinderCaption: "Mostra o Finder no alternador mesmo quando nenhuma janela do Finder estiver aberta.",
+        switcherWindowlessApps: "Apps sem janela aberta",
+        switcherWindowlessAppsCaption: "Escolhe quais apps que estão abertos sem nenhuma janela aparecem no alternador.",
+        switcherWindowlessAppsOff: "Não mostrar",
+        switcherWindowlessAppsFinder: "Só o Finder",
+        switcherWindowlessAppsAll: "Todos os apps",
         dockPreviewName: "Dock Preview",
         dockPreviewEnable: "Pré-visualizar janelas no Dock",
         dockPreviewEnableCaption: "Passe o mouse em um app aberto no Dock para ver e espiar suas janelas.",
@@ -1371,6 +1393,23 @@ extension Strings {
         urlCleanerCopied: "Copiado.",
         urlCleanerLocalNote: "Local. Sem rede.",
 
+        dockClickHide: "Clicar no Dock oculta o app",
+        dockClickHideCaption: "O app ativo é ocultado ao clicar no ícone dele no Dock. Clique de novo para trazê-lo de volta.",
+        monitorMemoryMetricLabel: "Medir memória como",
+        memoryMetricUsed: "Memória usada",
+        memoryMetricApp: "Memória de apps",
+        keepAwakeRightClickToggle: "Clique com o botão direito no ícone da barra de menus para alternar “Manter acordado”",
+        keepAwakeRightClickToggleCaption: "Substitui o menu de contexto do clique com o botão direito.",
+        urlCleanerCustomTitle: "Mais nomes para remover",
+        urlCleanerCustomPlaceholder: "ref, origem",
+        urlCleanerCustomCaption: "Separe os nomes dos parâmetros com vírgulas. Eles serão removidos de todos os links.",
+        switcherSearchPin: "Fixar busca com S",
+        switcherSearchPinCaption: "S inicia uma busca e fixa o alternador aberto, assim digitar não produz mais caracteres especiais quando o atalho usa ⌥, e uma busca que comece com Q ou W não fecha a janela nem encerra o app por engano.",
+        invertVerticalScroll: "Inverter rolagem vertical",
+        invertHorizontalScroll: "Inverter rolagem horizontal",
+        switcherShowShortcutHints: "Mostrar dicas de atalhos",
+        switcherShowShortcutHintsCaption: "Exibe os atalhos de apps e janelas abaixo dos ícones.",
+        switcherNoOpenWindow: "Nenhuma janela aberta",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Pesquise, instale e remova fórmulas e casks.",
         homebrewMissingTitle: "Homebrew não encontrado",
@@ -2158,8 +2197,11 @@ extension Strings {
         switcherWindowShortcutCaption: "While the switcher is open, jumps between the selected app's windows.",
         switcherMergeTabs: "Show one entry per app",
         switcherMergeTabsCaption: "Collapses all of an app's windows into one entry in the switcher, instead of one entry per window.",
-        switcherShowFinder: "Show Finder without windows",
-        switcherShowFinderCaption: "Shows Finder in the switcher even when no Finder window is open.",
+        switcherWindowlessApps: "Apps with no open window",
+        switcherWindowlessAppsCaption: "Chooses which running apps with no window at all show up in the switcher.",
+        switcherWindowlessAppsOff: "Do not show",
+        switcherWindowlessAppsFinder: "Finder only",
+        switcherWindowlessAppsAll: "All apps",
         dockPreviewName: "Dock Preview",
         dockPreviewEnable: "Preview windows from the Dock",
         dockPreviewEnableCaption: "Hover over an open app in the Dock to preview and peek at its windows.",
@@ -2269,6 +2311,24 @@ extension Strings {
         urlCleanerCleaned: "URL cleaned.",
         urlCleanerCopied: "Copied.",
         urlCleanerLocalNote: "Local. No network.",
+
+        dockClickHide: "Click the Dock icon to hide the app",
+        dockClickHideCaption: "The active app hides when you click its Dock icon. Click again to bring it back.",
+        monitorMemoryMetricLabel: "Measure memory as",
+        memoryMetricUsed: "Memory Used",
+        memoryMetricApp: "App Memory",
+        keepAwakeRightClickToggle: "Right-click the menu bar icon to toggle Keep Awake",
+        keepAwakeRightClickToggleCaption: "Replaces the right-click context menu.",
+        urlCleanerCustomTitle: "More names to remove",
+        urlCleanerCustomPlaceholder: "ref, source",
+        urlCleanerCustomCaption: "Separate parameter names with commas. They are removed from every link.",
+        switcherSearchPin: "Pin search with S",
+        switcherSearchPinCaption: "S starts a search and pins the switcher open, so typing no longer produces special characters when your shortcut uses ⌥, and a search starting with Q or W no longer closes the window or quits the app by mistake.",
+        invertVerticalScroll: "Invert vertical scrolling",
+        invertHorizontalScroll: "Invert horizontal scrolling",
+        switcherShowShortcutHints: "Show shortcut hints",
+        switcherShowShortcutHintsCaption: "Shows the app and window shortcuts below the icons.",
+        switcherNoOpenWindow: "No open window",
 
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Search, install and remove formulae and casks.",

@@ -769,8 +769,14 @@ struct MetricsTests {
                     "GPU usage readout still climbs during sustained load")
         expectClose(MetricFormat.stabilizedGPUUsage(previous: 0.60, current: 0.10), 0.275,
                     "GPU usage readout falls quickly after transient load")
-        expectClose(MetricFormat.stabilizedGPUUsage(previous: nil, current: 1.4), 1.0,
-                    "GPU usage readout clamps first sample")
+        expectClose(MetricFormat.stabilizedGPUUsage(previous: nil, current: 1.4), 0.0,
+                    "GPU usage readout rejects a saturated first sample")
+        expectClose(MetricFormat.normalizedGPUUtilization(rawValue: 1, key: "Device Utilization %") ?? -1,
+                    0.01, "GPU percentage fields keep 1% distinct from 100%")
+        expectClose(MetricFormat.normalizedGPUUtilization(rawValue: 63, key: "GPU Activity(%)") ?? -1,
+                    0.63, "GPU percentage fields normalize integer percentages")
+        expectClose(MetricFormat.normalizedGPUUtilization(rawValue: 0.63, key: "GPU Core Utilization") ?? -1,
+                    0.63, "GPU fraction fields preserve normalized values")
         expectEqual(MetricFormat.temperature(0, unit: .celsius), "0 °C", "celsius freezing")
         expectEqual(MetricFormat.temperature(0, unit: .fahrenheit), "32 °F", "fahrenheit freezing")
         expectEqual(MetricFormat.temperature(41, unit: .fahrenheit), "106 °F", "fahrenheit rounds")
@@ -2966,6 +2972,14 @@ struct MetricsTests {
         }
         expect(installerScript.contains("spctl --status"),
                "installer script skips Gatekeeper assessment when the user disabled it")
+        expect(installerScript.contains("Signature=adhoc"),
+               "installer detects ad-hoc signed bundles")
+        expect(installerScript.contains("codesign -dv \"$STAGE\" 2>&1"),
+               "ad-hoc detection merges codesign -dv's stderr output")
+        expect(installerScript.contains("VERIFY_OK"),
+               "installer gate separates signature integrity from publisher identity")
+        expect(installerScript.contains("-R='identifier \"com.ryzenstatus.utils\"'"),
+               "ad-hoc bundles are accepted on an intact seal plus the project identifier")
         expect(installerScript.contains("chown -R"),
                "an elevated install hands the bundle back to the user")
         expect(installerScript.contains("update-old.$PID"),
@@ -4786,7 +4800,7 @@ struct MetricsTests {
         // MARK: Cleaning-mode unlock gesture
 
         // Five deliberate taps of the same key unlock, on the fifth.
-        var taps = CleaningUnlockCounter(threshold: 5, pressWindow: 2.0)
+        var taps = CleaningUnlockCounter(requiredKeyCode: 0, threshold: 5, pressWindow: 2.0)
         var tapUnlock = false
         for (i, t) in [0.0, 0.3, 0.6, 0.9, 1.2].enumerated() {
             tapUnlock = taps.registerKeyDown(code: 0, time: t, isRepeat: false)
@@ -4796,24 +4810,25 @@ struct MetricsTests {
         expect(taps.progress == 5, "progress reaches the threshold")
 
         // Wiping the keyboard hits many different keys: it must never unlock.
-        var wipe = CleaningUnlockCounter(threshold: 5, pressWindow: 2.0)
+        var wipe = CleaningUnlockCounter(requiredKeyCode: 0, threshold: 5, pressWindow: 2.0)
         var wipeUnlock = false
         for (i, code) in [Int64(10), 11, 12, 13, 14, 15, 16, 17].enumerated() {
             if wipe.registerKeyDown(code: code, time: Double(i) * 0.1, isRepeat: false) { wipeUnlock = true }
         }
         expect(!wipeUnlock, "wiping different keys never unlocks")
-        expect(wipe.progress == 1, "different keys keep progress at 1")
+        expect(wipe.progress == 0, "different keys never advance progress")
 
         // A different key mid-streak resets the count.
-        var streak = CleaningUnlockCounter(threshold: 5, pressWindow: 2.0)
+        var streak = CleaningUnlockCounter(requiredKeyCode: 9, threshold: 5, pressWindow: 2.0)
         _ = streak.registerKeyDown(code: 9, time: 0.0, isRepeat: false)
         _ = streak.registerKeyDown(code: 9, time: 0.2, isRepeat: false)
         _ = streak.registerKeyDown(code: 9, time: 0.4, isRepeat: false)
+        expect(streak.progress == 3, "same-key presses accumulate before the switch")
         _ = streak.registerKeyDown(code: 8, time: 0.6, isRepeat: false)
-        expect(streak.progress == 1, "a different key mid-streak resets to 1")
+        expect(streak.progress == 0, "a different key mid-streak resets to 0")
 
         // Auto-repeat (holding a key) is ignored, so resting on a key can't unlock.
-        var held = CleaningUnlockCounter(threshold: 5, pressWindow: 2.0)
+        var held = CleaningUnlockCounter(requiredKeyCode: 7, threshold: 5, pressWindow: 2.0)
         var heldUnlock = false
         for i in 0..<10 {
             if held.registerKeyDown(code: 7, time: Double(i) * 0.1, isRepeat: true) { heldUnlock = true }
@@ -4822,7 +4837,7 @@ struct MetricsTests {
         expect(held.progress == 0, "auto-repeat does not advance progress")
 
         // A pause longer than the window restarts the count.
-        var paused = CleaningUnlockCounter(threshold: 5, pressWindow: 2.0)
+        var paused = CleaningUnlockCounter(requiredKeyCode: 3, threshold: 5, pressWindow: 2.0)
         _ = paused.registerKeyDown(code: 3, time: 0.0, isRepeat: false)
         _ = paused.registerKeyDown(code: 3, time: 0.5, isRepeat: false)
         expect(paused.progress == 2, "presses within the window accumulate")
@@ -4830,7 +4845,7 @@ struct MetricsTests {
         expect(paused.progress == 1, "a pause beyond the window restarts the count")
 
         // reset() clears everything.
-        var cleared = CleaningUnlockCounter(threshold: 5, pressWindow: 2.0)
+        var cleared = CleaningUnlockCounter(requiredKeyCode: 1, threshold: 5, pressWindow: 2.0)
         _ = cleared.registerKeyDown(code: 1, time: 0.0, isRepeat: false)
         _ = cleared.registerKeyDown(code: 1, time: 0.2, isRepeat: false)
         expect(cleared.progress == 2, "progress accumulates before reset")
@@ -5198,10 +5213,10 @@ struct MetricsTests {
 
         let ddcWrite = BrightnessSupport.writePacket(code: 0x10, value: 0x1234)
         expect(ddcWrite == [0x84, 0x03, 0x10, 0x12, 0x34,
-                            0x6E ^ 0x51 ^ 0x84 ^ 0x03 ^ 0x10 ^ 0x12 ^ 0x34],
+                            UInt8(0x6E ^ 0x51 ^ 0x84 ^ 0x03 ^ 0x10 ^ 0x12 ^ 0x34)],
                "DDC write packet carries the set opcode, big-endian value and checksum")
         let ddcRead = BrightnessSupport.readRequestPacket(code: 0x10)
-        expect(ddcRead == [0x82, 0x01, 0x10, 0x6E ^ 0x82 ^ 0x01 ^ 0x10],
+        expect(ddcRead == [0x82, 0x01, 0x10, UInt8(0x6E ^ 0x82 ^ 0x01 ^ 0x10)],
                "DDC read request omits the sub-address from its checksum seed")
         expect(Array(BrightnessSupport.writePacket(code: 0x10, value: 100)[3...4]) == [0x00, 0x64],
                "DDC values split into high and low bytes")

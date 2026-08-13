@@ -9,7 +9,7 @@ protocol PanelOrderItem: RawRepresentable, CaseIterable, Hashable where RawValue
 /// The major, user-customizable sections of the menu panel. Raw values are the
 /// stable identifiers persisted in the saved order and the collapsed set, so
 /// renaming a case would orphan a user's stored layout — keep them stable.
-enum PanelSectionID: String, CaseIterable, Identifiable {
+enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
     case keepAwake, brightness, mixer, system, network, disk, power, amdPower, utilities, controls,
          toggles
 

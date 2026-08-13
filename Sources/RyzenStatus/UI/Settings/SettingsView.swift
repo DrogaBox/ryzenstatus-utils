@@ -885,7 +885,8 @@ struct SwitcherSettings: View {
     @AppStorage(DefaultsKey.switcherIconRowMode) private var switcherIconRowMode = false
     @AppStorage(DefaultsKey.switcherSimpleMode) private var switcherSimpleMode = false
     @AppStorage(DefaultsKey.switcherMergeTabs) private var switcherMergeTabs = false
-    @AppStorage(DefaultsKey.switcherShowWindowlessFinder) private var switcherShowWindowlessFinder = true
+    @AppStorage(DefaultsKey.switcherSearchPinEnabled) private var switcherSearchPinEnabled = false
+    @AppStorage(DefaultsKey.switcherWindowlessApps) private var switcherWindowlessApps = SwitcherWindowlessApps.fallback.rawValue
     @AppStorage(DefaultsKey.dockPreviewEnabled) private var dockPreviewEnabled = false
     @AppStorage(DefaultsKey.dockClickMinimize) private var dockClickMinimize = false
     @AppStorage(DefaultsKey.dockClickCycleWindows) private var dockClickCycleWindows = false
@@ -923,6 +924,12 @@ struct SwitcherSettings: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
+                    Toggle(l10n.s.switcherSearchPin, isOn: $switcherSearchPinEnabled)
+                        .disabled(!switcherEnabled)
+                    Text(l10n.s.switcherSearchPinCaption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
                     Toggle(l10n.s.switcherSimpleMode, isOn: $switcherSimpleMode)
                         .disabled(!switcherEnabled)
                         .onChange(of: switcherSimpleMode) { _, _ in
@@ -947,12 +954,16 @@ struct SwitcherSettings: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    if switcherEnabled {
-                        Toggle(l10n.s.switcherShowFinder, isOn: $switcherShowWindowlessFinder)
-                        Text(l10n.s.switcherShowFinderCaption)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    Picker(l10n.s.switcherWindowlessApps, selection: $switcherWindowlessApps) {
+                        Text(l10n.s.switcherWindowlessAppsOff).tag(SwitcherWindowlessApps.off.rawValue)
+                        Text(l10n.s.switcherWindowlessAppsFinder).tag(SwitcherWindowlessApps.finder.rawValue)
+                        Text(l10n.s.switcherWindowlessAppsAll).tag(SwitcherWindowlessApps.all.rawValue)
                     }
+                    .disabled(!switcherEnabled)
+                    Text(l10n.s.switcherWindowlessAppsCaption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    SwitcherAppRulesList()
                 }
             }
             if AppFeature.dockPreview.isAvailable || AppFeature.dockClick.isAvailable {
@@ -997,6 +1008,7 @@ struct SwitcherSettings: View {
                     .onChange(of: previewSize) { _, _ in
                         AppSwitcher.shared.syncWithPreferences()
                     }
+                    WindowPreviewExclusionsList()
                 } header: {
                     Text(l10n.s.previewSizeLabel)
                 }
@@ -1343,6 +1355,7 @@ private struct SettingsToggleWithCaption: View {
 enum PermissionKind {
     case accessibility
     case screenRecording
+    case microphone
 }
 
 /// Status + actions for one TCC permission; shared by Settings and onboarding.
@@ -1352,11 +1365,20 @@ struct PermissionRow: View {
     let kind: PermissionKind
 
     private var granted: Bool {
-        kind == .accessibility ? permissions.accessibility : permissions.screenRecording
+        switch kind {
+        case .accessibility: return permissions.accessibility
+        case .screenRecording: return permissions.screenRecording
+        case .microphone: return permissions.microphone == .granted
+        }
     }
 
     private var name: String {
-        kind == .accessibility ? l10n.s.permissionAccessibility : l10n.s.permissionScreenRecording
+        switch kind {
+        case .accessibility: return l10n.s.permissionAccessibility
+        case .screenRecording: return l10n.s.permissionScreenRecording
+        case .microphone:
+            return FeatureStrings.recorder(l10n.language).microphonePermissionName
+        }
     }
 
     var body: some View {
@@ -1373,17 +1395,23 @@ struct PermissionRow: View {
             if !granted {
                 HStack(spacing: 8) {
                     Button(l10n.s.permissionRequest) {
-                        if kind == .accessibility {
+                        switch kind {
+                        case .accessibility:
                             permissions.requestAccessibility()
-                        } else {
+                        case .screenRecording:
                             permissions.requestScreenRecording()
+                        case .microphone:
+                            permissions.requestMicrophone()
                         }
                     }
                     Button(l10n.s.permissionOpenSettings) {
-                        if kind == .accessibility {
+                        switch kind {
+                        case .accessibility:
                             permissions.openAccessibilitySettings()
-                        } else {
+                        case .screenRecording:
                             permissions.openScreenRecordingSettings()
+                        case .microphone:
+                            permissions.openMicrophoneSettings()
                         }
                     }
                 }

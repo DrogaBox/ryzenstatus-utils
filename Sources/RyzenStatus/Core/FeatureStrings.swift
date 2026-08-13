@@ -147,7 +147,11 @@ extension ClipboardFeatureStrings {
         includeImagesFiles: "복사한 이미지와 파일도 저장",
         includeImagesFilesCaption: "이미지는 기록에 추가되고 파일은 위치 링크로 저장됩니다. 텍스트 항목처럼 고정하고 붙여넣을 수 있습니다.",
         imageEntryLabel: "이미지",
-        fileCountFormat: "파일 %d개"
+        fileCountFormat: "파일 %d개",
+        previewLabel: "미리보기",
+        edit: "편집",
+        cancel: "취소",
+        save: "저장"
     )
 }
 
@@ -402,6 +406,10 @@ struct ClipboardFeatureStrings {
     let includeImagesFilesCaption: String
     let imageEntryLabel: String
     let fileCountFormat: String
+    let previewLabel: String
+    let edit: String
+    let cancel: String
+    let save: String
 
     static let enUS = ClipboardFeatureStrings(
         title: "Clipboard",
@@ -443,7 +451,11 @@ struct ClipboardFeatureStrings {
         includeImagesFiles: "Also save copied images and files",
         includeImagesFilesCaption: "Images join the history and files are remembered as links to their location. Pin and paste them like any text item.",
         imageEntryLabel: "Image",
-        fileCountFormat: "%d files"
+        fileCountFormat: "%d files",
+        previewLabel: "Preview",
+        edit: "Edit",
+        cancel: "Cancel",
+        save: "Save"
     )
 
     static let ptBR = ClipboardFeatureStrings(
@@ -486,7 +498,11 @@ struct ClipboardFeatureStrings {
         includeImagesFiles: "Guardar também imagens e arquivos copiados",
         includeImagesFilesCaption: "Imagens entram no histórico e arquivos são lembrados como links para o local deles. Fixe e cole como qualquer texto.",
         imageEntryLabel: "Imagem",
-        fileCountFormat: "%d arquivos"
+        fileCountFormat: "%d arquivos",
+        previewLabel: "Prévia",
+        edit: "Editar",
+        cancel: "Cancelar",
+        save: "Salvar"
     )
 
     static let tr = ClipboardFeatureStrings(
@@ -529,7 +545,11 @@ struct ClipboardFeatureStrings {
         includeImagesFiles: "Kopyalanan görselleri ve dosyaları da kaydet",
         includeImagesFilesCaption: "Görseller geçmişe eklenir, dosyalar konumlarına bağlantı olarak hatırlanır. Metin gibi sabitle ve yapıştır.",
         imageEntryLabel: "Görsel",
-        fileCountFormat: "%d dosya"
+        fileCountFormat: "%d dosya",
+        previewLabel: "Önizleme",
+        edit: "Düzenle",
+        cancel: "İptal",
+        save: "Kaydet"
     )
 
     static let ru = ClipboardFeatureStrings(
@@ -572,7 +592,11 @@ struct ClipboardFeatureStrings {
         includeImagesFiles: "Сохранять также изображения и файлы",
         includeImagesFilesCaption: "Изображения попадают в историю, а файлы запоминаются как ссылки на их расположение. Закрепляйте и вставляйте их как текст.",
         imageEntryLabel: "Изображение",
-        fileCountFormat: "Файлов: %d"
+        fileCountFormat: "Файлов: %d",
+        previewLabel: "Просмотр",
+        edit: "Редактировать",
+        cancel: "Отмена",
+        save: "Сохранить"
     )
 
     static let es = ClipboardFeatureStrings(
@@ -615,7 +639,11 @@ struct ClipboardFeatureStrings {
         includeImagesFiles: "Guardar también imágenes y archivos copiados",
         includeImagesFilesCaption: "Las imágenes entran en el historial y los archivos se recuerdan como enlaces a su ubicación. Fíjalos y pégalos como cualquier texto.",
         imageEntryLabel: "Imagen",
-        fileCountFormat: "%d archivos"
+        fileCountFormat: "%d archivos",
+        previewLabel: "Vista previa",
+        edit: "Editar",
+        cancel: "Cancelar",
+        save: "Guardar"
     )
 
     static let de = ClipboardFeatureStrings(
@@ -658,7 +686,11 @@ struct ClipboardFeatureStrings {
         includeImagesFiles: "Auch kopierte Bilder und Dateien speichern",
         includeImagesFilesCaption: "Bilder wandern in den Verlauf, Dateien werden als Verweise auf ihren Ort gemerkt. Anheften und Einsetzen wie bei Text.",
         imageEntryLabel: "Bild",
-        fileCountFormat: "%d Dateien"
+        fileCountFormat: "%d Dateien",
+        previewLabel: "Vorschau",
+        edit: "Bearbeiten",
+        cancel: "Abbrechen",
+        save: "Sichern"
     )
 
     static let fr = ClipboardFeatureStrings(
@@ -701,7 +733,11 @@ struct ClipboardFeatureStrings {
         includeImagesFiles: "Enregistrer aussi les images et fichiers copiés",
         includeImagesFilesCaption: "Les images rejoignent l'historique et les fichiers sont mémorisés comme des liens vers leur emplacement. Épinglez-les et collez-les comme du texte.",
         imageEntryLabel: "Image",
-        fileCountFormat: "%d fichiers"
+        fileCountFormat: "%d fichiers",
+        previewLabel: "Aperçu",
+        edit: "Modifier",
+        cancel: "Annuler",
+        save: "Enregistrer"
     )
 
     static let it = ClipboardFeatureStrings(
@@ -744,7 +780,11 @@ struct ClipboardFeatureStrings {
         includeImagesFiles: "Salva anche immagini e file copiati",
         includeImagesFilesCaption: "Le immagini entrano nella cronologia e i file vengono ricordati come collegamenti alla loro posizione. Fissali e incollali come qualsiasi testo.",
         imageEntryLabel: "Immagine",
-        fileCountFormat: "%d file"
+        fileCountFormat: "%d file",
+        previewLabel: "Anteprima",
+        edit: "Modifica",
+        cancel: "Annulla",
+        save: "Salva"
     )
 
     static let ja = ClipboardFeatureStrings(
@@ -787,7 +827,11 @@ struct ClipboardFeatureStrings {
         includeImagesFiles: "コピーした画像やファイルも保存",
         includeImagesFilesCaption: "画像は履歴に入り、ファイルは場所へのリンクとして記憶されます。テキストと同じようにピン留めやペーストができます。",
         imageEntryLabel: "画像",
-        fileCountFormat: "%d個のファイル"
+        fileCountFormat: "%d個のファイル",
+        previewLabel: "プレビュー",
+        edit: "編集",
+        cancel: "キャンセル",
+        save: "保存"
     )
 
     static let zhHans = ClipboardFeatureStrings(
@@ -830,7 +874,11 @@ struct ClipboardFeatureStrings {
         includeImagesFiles: "同时保存复制的图片和文件",
         includeImagesFilesCaption: "图片会进入历史记录，文件会以其位置链接的形式被记住。可以像文本一样固定和粘贴。",
         imageEntryLabel: "图片",
-        fileCountFormat: "%d 个文件"
+        fileCountFormat: "%d 个文件",
+        previewLabel: "预览",
+        edit: "编辑",
+        cancel: "取消",
+        save: "保存"
     )
 
     static let zhTW = ClipboardFeatureStrings(
@@ -873,7 +921,11 @@ struct ClipboardFeatureStrings {
         includeImagesFiles: "同時保存拷貝的圖片和檔案",
         includeImagesFilesCaption: "圖片會進入歷史記錄，檔案會以其位置連結的形式被記住。可以像文字一樣固定和貼上。",
         imageEntryLabel: "圖片",
-        fileCountFormat: "%d 個檔案"
+        fileCountFormat: "%d 個檔案",
+        previewLabel: "預覽",
+        edit: "編輯",
+        cancel: "取消",
+        save: "儲存"
     )
 
     static let zhHK = ClipboardFeatureStrings(
@@ -916,7 +968,11 @@ struct ClipboardFeatureStrings {
         includeImagesFiles: "同時儲存拷貝的圖片和檔案",
         includeImagesFilesCaption: "圖片會加入歷史記錄，檔案會以其位置連結的形式被記住。可以像文字一樣固定和貼上。",
         imageEntryLabel: "圖片",
-        fileCountFormat: "%d 個檔案"
+        fileCountFormat: "%d 個檔案",
+        previewLabel: "預覽",
+        edit: "編輯",
+        cancel: "取消",
+        save: "儲存"
     )
 }
 

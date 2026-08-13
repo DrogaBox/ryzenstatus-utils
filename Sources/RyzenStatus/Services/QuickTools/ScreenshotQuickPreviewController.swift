@@ -43,6 +43,11 @@ final class ScreenshotQuickPreviewController {
     private var autoDismissDuration: TimeInterval = 12
     private var closed = false
 
+    var protectedWindowIDs: Set<CGWindowID> {
+        guard let panel, panel.isVisible, panel.windowNumber > 0 else { return [] }
+        return [CGWindowID(panel.windowNumber)]
+    }
+
     init(capture: ScreenshotSelectionController.Capture,
          strings: ScreenshotFeatureStrings,
          action: @escaping (Action) -> Set<Action>,
@@ -64,6 +69,12 @@ final class ScreenshotQuickPreviewController {
             strings: strings,
             model: model,
             perform: { [weak self] action in self?.perform(action) },
+            dragItem: { [weak self] in
+                guard let self else { return NSItemProvider() }
+                return ScreenshotService.dragItemProvider(image: self.capture.image,
+                                                          strings: self.strings)
+                    ?? NSItemProvider()
+            },
             share: { [weak self] duration in self?.performShare(duration) },
             copySharedLink: { [weak self] in self?.copySharedLink() },
             deleteSharedLink: { [weak self] in self?.deleteSharedLink() },
@@ -274,18 +285,30 @@ final class ScreenshotQuickPreviewController {
     }
 
     private func previewFrame(for size: CGSize) -> CGRect {
-        let visibleFrame = (NSScreen.screens.first { $0.frame.intersects(capture.anchorRect) }
-            ?? NSScreen.withMouse)?.visibleFrame ?? NSScreen.pointerVisibleFrame
+        let pointer = NSEvent.mouseLocation
+        let screens = NSScreen.screens.map { (frame: $0.frame, visibleFrame: $0.visibleFrame) }
+        let visibleFrame = ScreenshotSupport.quickPreviewVisibleFrame(
+            anchor: capture.anchorRect,
+            pointer: pointer,
+            screens: screens,
+            fallback: NSScreen.pointerVisibleFrame)
+        let storedPosition = UserDefaults.standard.string(
+            forKey: DefaultsKey.screenshotPreviewPosition) ?? ""
+        let position = ScreenshotSupport.QuickPreviewPosition(rawValue: storedPosition)
+            ?? .automatic
         // With an after-capture action the preview is just a confirmation,
         // so it sits quietly in the corner and leaves sooner, instead of
         // popping up next to the selection and waiting.
-        return ScreenshotDefaultAction.current == .none
-            ? ScreenshotSupport.quickPreviewFrame(
-                size: size,
-                anchor: capture.anchorRect,
-                pointer: NSEvent.mouseLocation,
-                visibleFrame: visibleFrame)
-            : ScreenshotSupport.quickPreviewCornerFrame(size: size, visibleFrame: visibleFrame)
+        let effectivePosition: ScreenshotSupport.QuickPreviewPosition =
+            position == .automatic && ScreenshotDefaultAction.current != .none
+                ? .bottomRight
+                : position
+        return ScreenshotSupport.quickPreviewFrame(
+            size: size,
+            anchor: capture.anchorRect,
+            pointer: pointer,
+            visibleFrame: visibleFrame,
+            position: effectivePosition)
     }
 
     private func resizePanel(showingLink: Bool) {
@@ -353,11 +376,13 @@ private struct ScreenshotQuickPreviewView: View {
     let strings: ScreenshotFeatureStrings
     @ObservedObject var model: ScreenshotQuickPreviewModel
     let perform: (ScreenshotQuickPreviewController.Action) -> Void
+    let dragItem: () -> NSItemProvider
     let share: (ScreenshotShareDuration) -> Void
     let copySharedLink: () -> Void
     let deleteSharedLink: () -> Void
     let showQR: () -> Void
     let hoverChanged: (Bool) -> Void
+    @AppStorage(DefaultsKey.screenshotSharingEnabled) private var sharingEnabled = true
 
     var body: some View {
         VStack(spacing: 10) {
@@ -378,6 +403,7 @@ private struct ScreenshotQuickPreviewView: View {
                     )
             }
             .buttonStyle(.plain)
+            .onDrag(dragItem)
             .screenshotSafeHelp(strings.editButton)
             .accessibilityLabel(strings.editButton)
 
@@ -413,7 +439,7 @@ private struct ScreenshotQuickPreviewView: View {
                              disabled: model.disabledActions.contains(.copy)) {
                     perform(.copy)
                 }
-                if model.sharedRecord == nil {
+                if sharingEnabled, model.sharedRecord == nil {
                     shareMenu
                 }
                 Spacer(minLength: 4)

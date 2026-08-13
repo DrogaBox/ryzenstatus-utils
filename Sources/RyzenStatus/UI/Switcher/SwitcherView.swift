@@ -24,6 +24,7 @@ struct SwitcherView: View {
     @AppStorage(DefaultsKey.switcherSimpleMode) private var simpleMode = false
     @AppStorage(DefaultsKey.switcherShortcut) private var switcherShortcutStorage = GlobalShortcut.switcherDefault.storageValue
     @AppStorage(DefaultsKey.switcherWindowShortcut) private var switcherWindowShortcutStorage = GlobalShortcut.switcherWindowDefault.storageValue
+    @AppStorage(DefaultsKey.switcherShowShortcutHints) private var showsShortcutHints = true
 
     var body: some View {
         if SwitcherSupport.usesIconRowLayout(iconRowMode: iconRowMode,
@@ -93,11 +94,11 @@ struct SwitcherView: View {
 
     @ViewBuilder
     private var searchChip: some View {
-        if !switcher.searchQuery.isEmpty {
+        if !switcher.searchQuery.isEmpty || switcher.isSearchPinned {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 10, weight: .bold))
-                Text(switcher.searchQuery)
+                Text(switcher.searchQuery.isEmpty ? l10n.s.switcherSearchPin : switcher.searchQuery)
                     .font(.system(size: 11, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -166,9 +167,11 @@ struct SwitcherView: View {
                     .frame(height: SwitcherIconRowLayout.previewGap)
             }
             iconRowSurface
-            Spacer()
-                .frame(height: SwitcherIconRowLayout.hintGap)
-            shortcutHintBar
+            if showsShortcutHints {
+                Spacer()
+                    .frame(height: SwitcherIconRowLayout.hintGap)
+                shortcutHintBar
+            }
         }
         .padding(SwitcherIconRowLayout.padding)
     }
@@ -589,45 +592,7 @@ private struct SwitcherWindowPreviewTile: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(SwitcherIconStyle.thumbnailBackground)
-
-                if let preview {
-                    Image(decorative: preview, scale: 2)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .padding(5)
-                } else if let icon = window.appIcon {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 72, height: 72)
-                }
-
-                if hasStatusBadges {
-                    VStack {
-                        Spacer()
-                        HStack(spacing: 5) {
-                            statusBadges
-                            Spacer()
-                        }
-                        .padding(7)
-                    }
-                }
-
-                VStack {
-                    HStack {
-                        closeButton
-                            .padding(5)
-                        Spacer()
-                    }
-                    Spacer()
-                }
-            }
-            .frame(width: SwitcherIconRowLayout.previewCardWidth - 16,
-                   height: SwitcherIconRowLayout.previewCardHeight - 38)
+            previewThumbnail
 
             Text(window.displayTitle)
                 .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
@@ -656,6 +621,62 @@ private struct SwitcherWindowPreviewTile: View {
         .onHover { isHovering = $0 }
         .animation(.easeOut(duration: 0.12), value: showsCloseButton)
         .accessibilityLabel(window.accessibilityTitle)
+    }
+
+    private var previewThumbnail: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(SwitcherIconStyle.thumbnailBackground)
+
+            if let preview {
+                Image(decorative: preview, scale: 2)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .padding(5)
+            } else if let icon = window.appIcon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 72, height: 72)
+            } else if window.isAppEntry {
+                VStack(spacing: SwitcherIconRowLayout.appEntrySpacing) {
+                    if let icon = window.appIcon {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: SwitcherIconRowLayout.appEntryIconSize,
+                                   height: SwitcherIconRowLayout.appEntryIconSize)
+                    }
+                    Text(l10n.s.switcherNoOpenWindow)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(SwitcherIconStyle.secondaryText)
+                        .lineLimit(1)
+                }
+            }
+
+            if hasStatusBadges {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 5) {
+                        statusBadges
+                        Spacer()
+                    }
+                    .padding(7)
+                }
+            }
+
+            VStack {
+                HStack {
+                    closeButton
+                        .padding(5)
+                    Spacer()
+                }
+                Spacer()
+            }
+        }
+        .frame(width: SwitcherIconRowLayout.previewCardWidth - 16,
+               height: SwitcherIconRowLayout.previewCardHeight - 38)
     }
 
     @ViewBuilder

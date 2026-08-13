@@ -42,6 +42,10 @@ extension DefaultsKey {
     static let switcherIconRowMode = "switcherIconRowMode"
     static let switcherSimpleMode = "switcherSimpleMode"  // app-only row without window captures
     static let switcherMergeTabs = "switcherMergeTabs"     // show one switcher entry per app (collapse all of an app's windows)
+    static let switcherWindowlessApps = "switcherWindowlessApps" // SwitcherWindowlessApps raw value
+    static let switcherAppRules = "switcherAppRules" // [bundle id: SwitcherAppRule raw value]
+    static let windowPreviewExcludedApps = "windowPreviewExcludedApps" // pause thumbnail capture while these apps are in front
+    static let switcherCurrentSpaceOnly = "switcherCurrentSpaceOnly" // list only windows on the desktop the user is in
     static let whatsAppDownloadsAutomaticEnabled = "whatsAppDownloadsAutomaticEnabled"
     static let whatsAppDownloadsCategories = "whatsAppDownloadsCategories"
     static let whatsAppDownloadsRetentionDays = "whatsAppDownloadsRetentionDays"
@@ -253,6 +257,7 @@ extension DefaultsKey {
     static let panelUtilityCameraPreview = "panelUtilityCameraPreview"
     static let panelUtilityScratchpad = "panelUtilityScratchpad"
     static let clipboardHistoryShortcutEnabled = "clipboardHistoryShortcutEnabled"
+    static let clipboardHistoryIgnoredApps = "clipboardHistoryIgnoredApps" // apps whose copies are never saved
     static let clipboardHistoryShortcut = "clipboardHistoryShortcut"
     // Screenshot capture and editor.
     static let screenshotShortcutEnabled = "screenshotShortcutEnabled"
@@ -391,6 +396,26 @@ extension DefaultsKey {
 #if DEBUG
     static let simulateUpdate = "simulateUpdate"
 #endif
+
+    // Upstream-sync keys (3.3.1+): keep these aligned with the upstream base.
+    static let keepAwakeRightClickToggle = "keepAwakeRightClickToggle"
+    static let keepAwakeAllowDisplaySleep = "keepAwakeAllowDisplaySleep"
+    static let scrollInverterHorizontalEnabled = "scrollInverterHorizontalEnabled"
+    static let switcherSearchPinEnabled = "switcherSearchPinEnabled"
+    static let switcherShowShortcutHints = "switcherShowShortcutHints"
+    static let dockClickHide = "dockClickHide"
+    static let urlCleanerCustomParameters = "urlCleanerCustomParameters"
+    static let panelControlDockClickHide = "panelControlDockClickHide"
+    static let screenshotClipboardShortcutEnabled = "screenshotClipboardShortcutEnabled"
+    static let screenshotClipboardShortcut = "screenshotClipboardShortcut"
+    // Renamed from the upstream screenshotHide…Windows key for the fork.
+    static let screenshotHideRyzenStatusWindows = "screenshotHideRyzenStatusWindows"
+    static let screenshotPreviewPosition = "screenshotPreviewPosition"
+    static let screenshotSharingEnabled = "screenshotSharingEnabled"
+    static let recorderMicrophone = "recorderMicrophone"
+    static let recorderSharingEnabled = "recorderSharingEnabled"
+    static let windowLayoutShortcutMarginMaximize = "windowLayoutShortcutMarginMaximize"
+    static let windowLayoutShortcutPreviousDisplay = "windowLayoutShortcutPreviousDisplay"
 
     /// Features hub availability layer, one key per AppFeature raw value.
     /// Registered true: unavailable features vanish from every surface and

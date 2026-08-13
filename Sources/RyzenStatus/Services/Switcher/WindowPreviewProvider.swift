@@ -57,6 +57,16 @@ final class WindowPreviewProvider {
         return cache[windowID]
     }
 
+    /// True while one of the excluded apps is frontmost: thumbnails stop
+    /// updating so sensitive apps never appear in the switcher previews.
+    private static var captureIsPaused: Bool {
+        let excluded = Defaults.sanitizedBundleIdentifierList(
+            UserDefaults.standard.stringArray(forKey: DefaultsKey.windowPreviewExcludedApps) ?? [])
+        return SwitcherSupport.shouldPausePreviewCapture(
+            frontmostBundleIdentifier: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+            excludedBundleIdentifiers: excluded)
+    }
+
     /// Refreshes thumbnails for the previewable `items`, invoking `onUpdate`
     /// on the main thread as each capture lands. Earlier entries are captured
     /// first, so pass items in display order. Tab entries share their host
@@ -64,7 +74,10 @@ final class WindowPreviewProvider {
     func refreshPreviews(for items: [SwitcherItem],
                          maxPixelSize: CGFloat = defaultMaxPixelSize,
                          onUpdate: @escaping (CGWindowID, CGImage) -> Void) {
-        guard Permissions.shared.screenRecording else { return }
+        guard Permissions.shared.screenRecording, !Self.captureIsPaused else {
+            cancel()
+            return
+        }
 
         var seen = Set<CGWindowID>()
         let targets: [PreviewTarget] = items.compactMap { item in
@@ -98,6 +111,8 @@ final class WindowPreviewProvider {
             var pending: [PreviewTarget] = []
             for target in targets {
                 guard !Task.isCancelled else { return }
+                let captureIsPaused = await MainActor.run { Self.captureIsPaused }
+                guard !captureIsPaused else { return }
                 guard let image = Self.captureViaWindowServer(target.id) else {
                     pending.append(target)
                     continue
@@ -126,6 +141,9 @@ final class WindowPreviewProvider {
             }
             guard !pending.isEmpty else { return }
 
+            let captureIsPaused = await MainActor.run { Self.captureIsPaused }
+            guard !captureIsPaused else { return }
+
             guard let content = try? await SCShareableContent.excludingDesktopWindows(false,
                                                                                       onScreenWindowsOnly: false)
             else { return }
@@ -133,6 +151,8 @@ final class WindowPreviewProvider {
 
             for target in pending {
                 guard !Task.isCancelled else { return }
+                let captureIsPaused = await MainActor.run { Self.captureIsPaused }
+                guard !captureIsPaused else { return }
                 guard let scWindow = scWindows[target.id]
                     ?? Self.bestWindowMatch(for: target, in: content.windows) else { continue }
 

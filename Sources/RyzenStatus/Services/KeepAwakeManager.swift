@@ -112,6 +112,7 @@ final class KeepAwakeManager: ObservableObject {
     }
 
     func syncWithPreferences() {
+        if isActive { applyAssertions() }
         syncMouseJiggleTimer()
         syncAutomationMonitoring()
     }
@@ -378,9 +379,13 @@ final class KeepAwakeManager: ObservableObject {
                 hasSystemAssertion = true
             }
         }
-        // The display always stays on during a session; a Mac kept awake with
-        // a dark screen reads as "not working" and invites a lid close.
-        if !hasDisplayAssertion {
+        let allowDisplaySleep = UserDefaults.standard.bool(
+            forKey: DefaultsKey.keepAwakeAllowDisplaySleep
+        )
+        if allowDisplaySleep, hasDisplayAssertion {
+            IOPMAssertionRelease(displayAssertion)
+            hasDisplayAssertion = false
+        } else if !allowDisplaySleep, !hasDisplayAssertion {
             var id = IOPMAssertionID(0)
             let ok = IOPMAssertionCreateWithName("PreventUserIdleDisplaySleep" as CFString,
                                                  IOPMAssertionLevel(kIOPMAssertionLevelOn),

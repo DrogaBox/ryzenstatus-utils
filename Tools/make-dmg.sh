@@ -14,6 +14,7 @@ VOLUME="$APP_NAME"
 STAGING=""
 WORK=""
 MOUNT=""
+KEXT_TEMP=""
 
 cleanup() {
     if [[ -n "$MOUNT" ]]; then
@@ -23,6 +24,7 @@ cleanup() {
     fi
     [[ -n "$STAGING" ]] && rm -rf "$STAGING"
     [[ -n "$WORK" ]] && rm -rf "$WORK"
+    [[ -n "$KEXT_TEMP" ]] && rm -rf "$KEXT_TEMP"
 }
 trap cleanup EXIT
 
@@ -48,10 +50,19 @@ ln -s /Applications "$STAGING/Applications"
 # Include our kexts for EFI/OC/Kexts/
 KEXT_DRIVER="SMCAMDProcessor_Source/build/dmg-kexts/AMDRyzenCPUPowerManagement.kext"
 KEXT_PLUGIN="SMCAMDProcessor_Source/build/dmg-kexts/SMCAMDProcessor.kext"
+if [[ ! -d "$KEXT_DRIVER" || ! -d "$KEXT_PLUGIN" ]] && [[ -f "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" ]]; then
+    KEXT_TEMP="$(mktemp -d)"
+    ditto -x -k "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" "$KEXT_TEMP"
+    KEXT_DRIVER="$KEXT_TEMP/AMDRyzenCPUPowerManagement.kext"
+    KEXT_PLUGIN="$KEXT_TEMP/SMCAMDProcessor.kext"
+    echo "  ✓ Prebuilt AMD kexts extracted from ReleaseAssets"
+fi
 if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
     mkdir -p "$STAGING/Kexts"
     ditto "$KEXT_DRIVER" "$STAGING/Kexts/AMDRyzenCPUPowerManagement.kext"
     ditto "$KEXT_PLUGIN" "$STAGING/Kexts/SMCAMDProcessor.kext"
+    rm -rf "$KEXT_TEMP"
+    KEXT_TEMP=""
     echo "  ✓ AMDRyzenCPUPowerManagement.kext added to DMG"
     echo "  ✓ SMCAMDProcessor.kext added to DMG"
 else
@@ -92,6 +103,10 @@ fi
 echo "▸ Arranging window (icons, arrow, background)…"
 # Finder automation lays out the window; best-effort so a headless hiccup never
 # fails the release (the DMG is still valid, just unstyled that once).
+KEXT_POSITION=""
+if [[ -d "$STAGING/Kexts" ]]; then
+    KEXT_POSITION='set position of item "Kexts" of container window to {150, 120}'
+fi
 osascript <<APPLESCRIPT &
 tell application "Finder"
     tell disk "$VOLUME"
@@ -105,7 +120,7 @@ tell application "Finder"
         set icon size of theOptions to 128
         set text size of theOptions to 13
         set background picture of theOptions to file ".background:background.png"
-        set position of item "Kexts" of container window to {150, 120}
+$KEXT_POSITION
         set position of item "$APP_NAME.app" of container window to {150, 275}
         set position of item "Applications" of container window to {450, 275}
 

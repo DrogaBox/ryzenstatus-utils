@@ -41,6 +41,26 @@ enum MetricFormat {
         return availableBytes.partialValue >= totalBytes ? 0 : totalBytes - availableBytes.partialValue
     }
 
+    /// Purgeable internal pages do not count because the system can reclaim
+    /// them on demand.
+    static func appMemory(totalBytes: UInt64,
+                          pageSize: UInt64,
+                          internalPages: UInt64,
+                          purgeablePages: UInt64) -> UInt64 {
+        guard totalBytes > 0, pageSize > 0 else { return 0 }
+        let activePages = internalPages.subtractingReportingOverflow(purgeablePages)
+        guard !activePages.overflow else { return 0 }
+        let activeBytes = activePages.partialValue.multipliedReportingOverflow(by: pageSize)
+        guard !activeBytes.overflow else { return 0 }
+        return min(activeBytes.partialValue, totalBytes)
+    }
+
+    /// Keeps every memory surface on the same persisted choice. Unknown
+    /// values intentionally fall back to total memory in use.
+    static func selectedMemory<Value>(used: Value, app: Value, metric: String) -> Value {
+        metric == "app" ? app : used
+    }
+
     /// Menu bar memory should keep its slot even while a transient sample is
     /// unavailable, so the status item does not disappear and reappear.
     static func menuBarMemoryPercent(used: UInt64?, total: UInt64?) -> String {
@@ -156,11 +176,21 @@ enum MetricFormat {
         "\(Int((max(0, min(1, fraction)) * 100).rounded()))%"
     }
 
+    static func normalizedGPUUtilization(rawValue: Double, key: String) -> Double? {
+        guard rawValue.isFinite, rawValue >= 0 else { return nil }
+        let isPercentageField = key.contains("%") || key == "GPU Activity" || key == "Utilization"
+        let fraction = isPercentageField || rawValue > 1.0 ? rawValue / 100.0 : rawValue
+        guard fraction.isFinite, fraction >= 0, fraction <= 1 else { return nil }
+        return fraction
+    }
+
     /// Smooths the GPU usage readout enough to hide one-sample compositor spikes
     /// from opening the menu panel, without hiding sustained load.
     static func stabilizedGPUUsage(previous: Double?, current: Double) -> Double {
         let value = current.isFinite ? max(0, min(1, current)) : 0
-        guard let previous, previous.isFinite else { return value }
+        guard let previous, previous.isFinite else {
+            return value >= 0.95 ? 0 : value
+        }
         let baseline = max(0, min(1, previous))
         if value > baseline {
             return min(value, baseline + 0.20)

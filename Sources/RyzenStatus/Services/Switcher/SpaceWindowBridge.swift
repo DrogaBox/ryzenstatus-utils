@@ -87,13 +87,36 @@ enum SpaceWindowBridge {
     /// Whether the window sits on at least one Space and none of them is
     /// visible. False when the Space queries are unavailable, so every caller
     /// falls back to the pre-existing behavior.
+    private typealias GetWindowTagsFunction =
+        @convention(c) (ConnectionID, CGWindowID, UnsafeMutablePointer<UInt32>, Int) -> CGError
+    private static let getWindowTags: GetWindowTagsFunction? = {
+        guard let symbol = symbol("CGSGetWindowTags") else { return nil }
+        return unsafeBitCast(symbol, to: GetWindowTagsFunction.self)
+    }()
+
     static func isParkedOnHiddenSpace(_ windowID: CGWindowID, visibleSpaces: Set<UInt64>? = nil) -> Bool {
         guard let visible = visibleSpaces ?? topology()?.visibleSpaces else { return false }
         return SpaceHopSupport.isParkedOnHiddenSpace(windowSpaces: spaces(of: windowID),
                                                      visibleSpaces: visible)
     }
 
-    // MARK: - Fronting a specific window
+    
+    /// Whether the window server tags this window as excluded from the window
+    /// cycle (e.g. a space-switcher or wallpaper window). False when the
+    /// private query is unavailable, preserving the existing cross-Space
+    /// behavior instead of hiding a legitimate window on a guess.
+    static func isExcludedFromWindowCycle(_ windowID: CGWindowID) -> Bool {
+        guard connection != 0, let getWindowTags else { return false }
+        var tags = [UInt32](repeating: 0, count: 2)
+        return tags.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress,
+                  getWindowTags(connection, windowID, base,
+                                MemoryLayout<UnsafeRawPointer>.size * 8) == .success
+            else { return false }
+            return SpaceHopSupport.isExcludedFromWindowCycle(windowTagsLow: buffer[0])
+        }
+    }
+// MARK: - Fronting a specific window
 
     private typealias SetFrontFunction =
         @convention(c) (UnsafeMutablePointer<ProcessSerialNumber>, CGWindowID, UInt32) -> CGError
