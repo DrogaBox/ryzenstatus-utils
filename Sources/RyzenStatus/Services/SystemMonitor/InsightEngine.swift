@@ -70,7 +70,8 @@ final class InsightEngine: @unchecked Sendable {
         }
 
         // 2. High CPU Runaway Process Insight (CPU > 90%)
-        if let topProc = processes.filter({ $0.value > 90.0 }).first {
+        // ⚡ Bolt: Use .first(where:) instead of .filter().first to avoid allocating an intermediate array and to short-circuit the search.
+        if let topProc = processes.first(where: { $0.value > 90.0 }) {
             cards.append(InsightCard(
                 id: "cpu-runaway-\(topProc.pid)",
                 title: "\(topProc.name) High CPU Load",
@@ -99,7 +100,8 @@ final class InsightEngine: @unchecked Sendable {
         #if arch(arm64)
         var rosettaProcesses: [String] = []
         for proc in processes {
-            if proc.name.contains("(x86_64)") || proc.name.lowercased().contains("rosetta") {
+            // ⚡ Bolt: Use .localizedCaseInsensitiveContains instead of .lowercased().contains to avoid allocating a new string on every tick.
+            if proc.name.contains("(x86_64)") || proc.name.localizedCaseInsensitiveContains("rosetta") {
                 rosettaProcesses.append(proc.name)
             }
         }
