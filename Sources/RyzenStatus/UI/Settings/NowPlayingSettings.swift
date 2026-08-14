@@ -16,6 +16,7 @@ struct NowPlayingSettings: View {
     @AppStorage(DefaultsKey.nowPlayingPreferredProvider) private var provider = NowPlayingProvider.auto.rawValue
     @AppStorage(DefaultsKey.nowPlayingOpenInApp) private var openInApp = true
     @AppStorage(DefaultsKey.nowPlayingShowArtwork) private var showArtwork = true
+    @AppStorage(DefaultsKey.nowPlayingArtworkAnimation) private var animateArtwork = true
 
     private var strings: NowPlayingStrings {
         FeatureStrings.nowPlaying(l10n.language)
@@ -58,6 +59,8 @@ struct NowPlayingSettings: View {
 
                 Section {
                     Toggle(strings.artworkToggle, isOn: $showArtwork)
+                    Toggle(strings.artworkAnimationToggle, isOn: $animateArtwork)
+                        .disabled(!showArtwork)
                 }
             }
         }

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 RyzenStatus
 
 import AppKit
+import ImageIO
 
 /// A snapshot of whatever is playing right now, gathered from the system's
 /// media session. A pure value type so views and tests can hold it freely.
@@ -39,6 +40,44 @@ struct NowPlayingSnapshot: Equatable {
         let minutes = total / 60
         let seconds = total % 60
         return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    /// Identity of a track's artwork: the pixel dimensions plus a hash of a
+    /// 12×12 downscale. Views key their change animations on it so the same
+    /// cover never fades in twice (e.g. when a popover reopens), while a
+    /// re-encoded image with identical pixels is not treated as new.
+    static func artworkFingerprint(of data: Data?) -> String {
+        guard let data, !data.isEmpty else { return "" }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int else {
+            return "raw:\(data.count)"
+        }
+        // Downscale straight from the source: no full-size decode for a
+        // 12×12 fingerprint, even with a 3000px cover.
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: 12,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ]
+        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return "dims:\(width)x\(height)"
+        }
+        let thumbnailWidth = thumbnail.width
+        let thumbnailHeight = thumbnail.height
+        var pixels = [UInt8](repeating: 0, count: thumbnailWidth * thumbnailHeight * 4)
+        let context = CGContext(data: &pixels,
+                                width: thumbnailWidth,
+                                height: thumbnailHeight,
+                                bitsPerComponent: 8,
+                                bytesPerRow: thumbnailWidth * 4,
+                                space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        context?.draw(thumbnail, in: CGRect(x: 0, y: 0, width: thumbnailWidth, height: thumbnailHeight))
+        var hasher = Hasher()
+        hasher.combine(pixels)
+        return "\(width)x\(height):\(UInt(bitPattern: hasher.finalize()))"
     }
 
     static let empty = NowPlayingSnapshot()

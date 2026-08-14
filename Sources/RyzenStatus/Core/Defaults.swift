@@ -287,6 +287,7 @@ enum Defaults {
         DefaultsKey.nowPlayingPreferredProvider: NowPlayingProvider.auto.rawValue,
         DefaultsKey.nowPlayingOpenInApp: true,
         DefaultsKey.nowPlayingShowArtwork: true,
+        DefaultsKey.nowPlayingArtworkAnimation: true,
         DefaultsKey.panelShowNowPlaying: true,
         DefaultsKey.cleanerScheduleFrequency: "off",
         DefaultsKey.cleanerScheduleHour: 9,

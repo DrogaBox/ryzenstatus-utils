@@ -117,6 +117,7 @@ extension DefaultsKey {
     static let nowPlayingPreferredProvider = "nowPlayingPreferredProvider" // NowPlayingProvider.rawValue (0 auto, 1 music, 2 spotify)
     static let nowPlayingOpenInApp = "nowPlayingOpenInApp" // click the track title to activate its app
     static let nowPlayingShowArtwork = "nowPlayingShowArtwork" // artwork in the menu panel section
+    static let nowPlayingArtworkAnimation = "nowPlayingArtworkAnimation" // crossfade when the artwork changes
     static let panelShowNowPlaying = "panelShowNowPlaying"
     static let cleanerScheduleFrequency = "cleanerScheduleFrequency"    // off | daily | weekly
     static let cleanerScheduleHour = "cleanerScheduleHour"

@@ -10,6 +10,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSWindowDelegate {
     private var statusController: StatusItemController!
     private let popover = NSPopover()
+    private let nowPlayingPopover = NSPopover()
     private var popoverClosedAt = Date.distantPast
     private var popoverDismissMonitor: Any?
     private var popoverLocalDismissMonitor: Any?
@@ -76,12 +77,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                   let window = self?.statusController.button?.window else { return nil }
             return window.frame
         }
-        // The now-playing menu bar item opens the panel on its section.
-        NowPlayingService.shared.onActivate = { [weak self] in
-            self?.showNowPlayingPanel()
+        // The now-playing menu bar item toggles its own detached popup
+        // anchored to its own status item — never the main panel.
+        NowPlayingService.shared.onActivate = { [weak self] button in
+            self?.captureStatusClick()
+            self?.showNowPlayingPopup(anchoredTo: button)
+        }
+        // Closing the feature (or quitting) takes its popup down with it.
+        NowPlayingService.shared.onDeactivate = { [weak self] in
+            self?.closeNowPlayingPopup()
         }
 
         setUpPopover()
+        setUpNowPlayingPopover()
         AppAppearanceController.shared.apply()
         bindManagers()
 
@@ -154,6 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
+        closeNowPlayingPopup()
         if AppFeature.brightness.isAvailable {
             BrightnessService.shared.restoreDisplaysBeforeTermination()
         }
@@ -289,17 +298,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         togglePopover()
     }
 
-    /// The now-playing menu bar item shows the panel with its section in
-    /// focus, mirroring the metric items: focus first, then open (or just
-    /// switch sections when the panel is already up).
-    private func showNowPlayingPanel() {
-        MenuPanelFocus.shared.focus(.nowPlaying)
-        if popover.isShown {
-            return
-        }
-        showPopover()
-    }
-
+    /// The now-playing item toggles its own popup; the main panel and the
+    /// popup are mutually exclusive, handled in showNowPlayingPopup/showPopover.
     private func showMetricPanel(for metric: MenuBarMetric, anchoredTo button: NSStatusBarButton) {
         let detailKind = metric.detailKind
         if popover.isShown {
@@ -486,6 +486,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // reopening would make the panel look impossible to close.
         guard allowRecentClose || Date().timeIntervalSince(popoverClosedAt) > 0.35 else { return }
         guard let button = button ?? statusController.button else { return }
+        // The main panel and the now-playing popup never show together.
+        closeNowPlayingPopup()
 
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         if let window = popover.contentViewController?.view.window {
@@ -715,9 +717,128 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         completions.forEach { $0() }
     }
 
+    // MARK: - Now Playing popup
+
+    private func setUpNowPlayingPopover() {
+        // .transient: the popup dismisses itself on any interaction outside
+        // it, so it needs no dismiss monitors of its own. The item toggles
+        // on mouseDown, which sidesteps the transient close-reopen race.
+        nowPlayingPopover.behavior = .transient
+        nowPlayingPopover.animates = false
+        nowPlayingPopover.delegate = self
+        let host = NSHostingController(rootView: NowPlayingPopupView())
+        // The popup manages its size explicitly (a fixed card, clamped to
+        // the space under the menu bar); automatic sizing would fight that.
+        host.sizingOptions = []
+        nowPlayingPopover.contentViewController = host
+        AppAppearanceController.shared.follow(panel: nowPlayingPopover)
+    }
+
+    /// The now-playing item toggles its own popup anchored to its own
+    /// button. The main panel and the popup never show together.
+    private func showNowPlayingPopup(anchoredTo button: NSStatusBarButton) {
+        if nowPlayingPopover.isShown {
+            closeNowPlayingPopup()
+            return
+        }
+        if popover.isShown {
+            closePopover { [weak self, weak button] in
+                guard let button else { return }
+                self?.presentNowPlayingPopup(anchoredTo: button)
+            }
+            return
+        }
+        presentNowPlayingPopup(anchoredTo: button)
+    }
+
+    private func presentNowPlayingPopup(anchoredTo button: NSStatusBarButton) {
+        guard !nowPlayingPopover.isShown else { return }
+        // contentSize is only trustworthy while hidden; visible resizes go
+        // through window.setFrame below.
+        sizeNowPlayingContent(under: button)
+        nowPlayingPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        guard let window = nowPlayingPopover.contentViewController?.view.window else { return }
+        // Keep the popup alive next to fullscreen apps and on any Space.
+        window.collectionBehavior.insert([.fullScreenAuxiliary, .canJoinAllSpaces])
+        window.makeKey()
+        NSApp.activate(ignoringOtherApps: false)
+        clampNowPlayingWindow(window, under: button)
+        if let targetMidX = correctedPopoverMidX(for: button) {
+            beginPopoverDriftCorrection(window: window, targetMidX: targetMidX)
+        }
+        animateNowPlayingPopupOpen(window)
+    }
+
+    /// Fits the fixed card into the space between the menu bar item and the
+    /// bottom of the screen; the width never changes.
+    private func sizeNowPlayingContent(under button: NSStatusBarButton) {
+        guard let view = nowPlayingPopover.contentViewController?.view else { return }
+        view.layoutSubtreeIfNeeded()
+        var size = view.fittingSize
+        if size.width < 1 || size.height < 1 {
+            size = NSSize(width: NowPlayingPopupView.cardWidth,
+                          height: NowPlayingPopupView.cardHeight)
+        }
+        if let maxHeight = availableHeight(under: button) {
+            size.height = min(size.height, maxHeight)
+        }
+        nowPlayingPopover.contentSize = size
+    }
+
+    /// The free vertical space under the status item, minus a 6pt margin.
+    private func availableHeight(under button: NSStatusBarButton) -> CGFloat? {
+        guard let buttonWindow = button.window else { return nil }
+        let onScreen = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+        let anchor = NSPoint(x: onScreen.midX, y: onScreen.minY)
+        let screen = NSScreen.screens.first { $0.frame.contains(anchor) } ?? NSScreen.main
+        guard let visible = screen?.visibleFrame else { return nil }
+        return max(140, onScreen.minY - visible.minY - 6)
+    }
+
+    /// Keeps a freshly shown popup inside the screen: never taller than the
+    /// space under the item, never closer than 6pt to the screen edges.
+    private func clampNowPlayingWindow(_ window: NSWindow, under button: NSStatusBarButton) {
+        guard let visible = (window.screen ?? NSScreen.main)?.visibleFrame else { return }
+        var frame = window.frame
+        let maxHeight = max(140, visible.maxY - visible.minY)
+        if frame.height > maxHeight {
+            frame.size.height = maxHeight
+            frame.origin.y = visible.minY + 6
+        }
+        if frame.minX < visible.minX + 6 {
+            frame.origin.x = visible.minX + 6
+        }
+        if frame.maxX > visible.maxX - 6 {
+            frame.origin.x = visible.maxX - 6 - frame.width
+        }
+        if frame != window.frame {
+            window.setFrame(frame, display: true)
+        }
+    }
+
+    private func animateNowPlayingPopupOpen(_ window: NSWindow) {
+        window.alphaValue = 0
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = popoverOpenDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            window.animator().alphaValue = 1
+        } completionHandler: { [weak self, weak window] in
+            guard let self,
+                  self.nowPlayingPopover.isShown,
+                  window === self.nowPlayingPopover.contentViewController?.view.window else { return }
+            window?.alphaValue = 1
+        }
+    }
+
+    private func closeNowPlayingPopup() {
+        guard nowPlayingPopover.isShown else { return }
+        nowPlayingPopover.performClose(nil)
+    }
+
     // The SwiftUI panel reports which monitor sections are actually visible; the
     // popover callback only handles update freshness.
     func popoverWillShow(_ notification: Notification) {
+        guard (notification.object as? NSPopover) !== nowPlayingPopover else { return }
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .menuPanelWillShow, object: nil)
         }
@@ -728,7 +849,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
-        popoverIsClosing || !PanelInteractionState.shared.keepsPopoverOpen
+        // The now-playing popup is .transient and always yields to outside
+        // clicks; only the main panel negotiates staying open.
+        if popover === nowPlayingPopover { return true }
+        return popoverIsClosing || !PanelInteractionState.shared.keepsPopoverOpen
     }
     
     // MARK: - Popover Detachment
@@ -799,10 +923,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     func popoverShouldDetach(_ popover: NSPopover) -> Bool {
+        if popover === nowPlayingPopover { return false }
         return true
     }
 
     func popoverDidClose(_ notification: Notification) {
+        if (notification.object as? NSPopover) === nowPlayingPopover {
+            endPopoverDriftCorrection()
+            return
+        }
         if !popoverIsSwitchingAnchor {
             SystemMonitor.shared.setMenuPanelNeeds(.none)
         }

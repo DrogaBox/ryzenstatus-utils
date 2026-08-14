@@ -15,12 +15,21 @@ import Combine
 final class NowPlayingService: ObservableObject {
     static let shared = NowPlayingService()
 
-    /// Fired when the menu bar item is clicked. AppDelegate wires this to
-    /// open the menu panel focused on the now-playing section.
-    var onActivate: (() -> Void)?
+    /// Fired when the menu bar item is clicked, with the status item button
+    /// so the panel can anchor its popup to it. AppDelegate wires this to
+    /// toggle the detached now-playing popup.
+    var onActivate: ((NSStatusBarButton) -> Void)?
+
+    /// Fired when the service stops (feature switched off, app quitting) so
+    /// any popup anchored to the item closes with its owner.
+    var onDeactivate: (() -> Void)?
 
     @Published private(set) var snapshot = NowPlayingSnapshot.empty
     @Published private(set) var artworkImage: NSImage?
+    /// Fingerprint of the current artwork (dimensions + 12×12 pixel hash).
+    /// Views key their change animations on it: identical pixels never
+    /// re-animate (e.g. when a popover reopens), a genuinely new cover does.
+    @Published private(set) var artworkIdentity = ""
 
     private let queue = DispatchQueue(label: "com.ryzenstatus.utils.now-playing", qos: .utility)
     private var timer: Timer?
@@ -29,6 +38,7 @@ final class NowPlayingService: ObservableObject {
     private var lastPollStartedAt: TimeInterval = 0
     private var pollGeneration = 0
     private var appNameCache: [String: String?] = [:]
+    private var artworkFingerprintCache = NSCache<NSImage, NSString>()
     private var cancellables = Set<AnyCancellable>()
 
     private init() {}
@@ -85,7 +95,9 @@ final class NowPlayingService: ObservableObject {
         lastRenderedKey = ""
         snapshot = .empty
         artworkImage = nil
+        artworkIdentity = ""
         NSWorkspace.shared.notificationCenter.removeObserver(self)
+        onDeactivate?()
     }
 
     @objc private func appLaunchedOrTerminated() {
@@ -115,6 +127,7 @@ final class NowPlayingService: ObservableObject {
                     if next != self.snapshot {
                         self.snapshot = next
                         self.artworkImage = next.artwork
+                        self.artworkIdentity = self.artworkIdentity(for: next.artwork)
                     }
                     self.renderMenuBar()
                 }
@@ -147,11 +160,24 @@ final class NowPlayingService: ObservableObject {
                     if next != self.snapshot {
                         self.snapshot = next
                         self.artworkImage = next.artwork
+                        self.artworkIdentity = self.artworkIdentity(for: next.artwork)
                     }
                     self.renderMenuBar()
                 }
             }
         }
+    }
+
+    /// The fingerprint for an artwork image, cached per image instance so
+    /// the 12×12 downscale is only computed once per real artwork change.
+    private func artworkIdentity(for image: NSImage?) -> String {
+        guard let image else { return "" }
+        if let cached = artworkFingerprintCache.object(forKey: image) {
+            return cached as String
+        }
+        let identity = NowPlayingSnapshot.artworkFingerprint(of: snapshot.artworkData)
+        artworkFingerprintCache.setObject(identity as NSString, forKey: image)
+        return identity
     }
 
     /// The friendliest known name for the app owning the media session;
@@ -208,6 +234,7 @@ final class NowPlayingService: ObservableObject {
         if !provider.accepts(snapshot.appBundleID) {
             snapshot = .empty
             artworkImage = nil
+            artworkIdentity = ""
         }
         lastRenderedKey = ""
         renderMenuBar()
@@ -235,7 +262,11 @@ final class NowPlayingService: ObservableObject {
         if let button = item.button {
             button.target = self
             button.action = #selector(statusItemClicked(_:))
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            // mouseDown on purpose: a .transient popup dismisses on the
+            // outside press, so toggling on the same mouseUp would race the
+            // dismissal and reopen instantly. Toggling on mouseDown sidesteps
+            // the close-reopen race for both left and right clicks.
+            button.sendAction(on: [.leftMouseDown, .rightMouseDown])
             button.imagePosition = .imageLeft
         }
         statusItem = item
@@ -243,7 +274,7 @@ final class NowPlayingService: ObservableObject {
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
-        onActivate?()
+        onActivate?(sender)
     }
 
     /// Composes the menu bar item into a single image: the note icon, the
