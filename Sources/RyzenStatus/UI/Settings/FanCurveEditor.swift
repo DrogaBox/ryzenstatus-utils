@@ -11,23 +11,22 @@ struct InteractiveFanCurveEditor: View {
     var hasDiscreteGPU: Bool = true
     @State private var selectedCurveIndex: Int = 0
     @State private var hoveredPointIndex: Int? = nil
+    @State private var draggingPoint: (index: Int, temp: Double, pwm: Double)? = nil
+    @ObservedObject private var l10n = L10n.shared
 
     private var visibleSensors: [FanSensor] {
         hasDiscreteGPU ? [.cpu, .gpu] : [.cpu]
     }
     
+    @ViewBuilder
     var body: some View {
-        guard selectedCurveIndex < controller.customCurves.count else {
-            return AnyView(Text("No curves configured.").foregroundColor(.secondary))
-        }
-        
-        let curve = controller.customCurves[selectedCurveIndex]
-        
-        return AnyView(
+        if selectedCurveIndex < controller.customCurves.count {
+            let curve = controller.customCurves[selectedCurveIndex]
+            
             VStack(alignment: .leading, spacing: 12) {
                 // Curve Selector and Controls
                 HStack(spacing: 8) {
-                    Text("Curve").font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary)
+                    Text(l10n.fanControl.curveNameLabel).font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary)
                     Picker("", selection: $selectedCurveIndex) {
                         ForEach(0..<controller.customCurves.count, id: \.self) { idx in
                             Text(controller.customCurves[idx].name).tag(idx)
@@ -71,10 +70,15 @@ struct InteractiveFanCurveEditor: View {
                     
                     if controller.customCurves.count > 1 {
                         Button("−") {
+                            let deletedIdx = selectedCurveIndex
                             var updated = controller.customCurves
-                            guard selectedCurveIndex < updated.count else { return }
-                            updated.remove(at: selectedCurveIndex)
+                            guard deletedIdx < updated.count else { return }
+                            updated.remove(at: deletedIdx)
                             controller.customCurves = updated
+                            controller.fanMappings = FanCurve.compactMappingsOnDeletion(
+                                mappings: controller.fanMappings,
+                                deletedIndex: deletedIdx
+                            )
                             if selectedCurveIndex >= updated.count {
                                 selectedCurveIndex = max(0, updated.count - 1)
                             }
@@ -90,13 +94,9 @@ struct InteractiveFanCurveEditor: View {
                 
                 HStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Temp Source").font(.system(size: 10)).foregroundColor(.secondary)
+                        Text(l10n.fanControl.sourceSensorLabel).font(.system(size: 10)).foregroundColor(.secondary)
                         Picker("", selection: Binding(
                             get: {
-                                // Display-only fallback: a stored .gpu curve on
-                                // a GPU-less machine shows as CPU Temp, but the
-                                // stored value is left untouched so the curve
-                                // keeps its intent if a GPU appears later.
                                 visibleSensors.contains(curve.sourceSensor) ? curve.sourceSensor : .cpu
                             },
                             set: { newVal in
@@ -116,9 +116,9 @@ struct InteractiveFanCurveEditor: View {
                     
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text("Hysteresis").font(.system(size: 10)).foregroundColor(.secondary)
+                            Text(l10n.fanControl.hysteresisLabel).font(.system(size: 10)).foregroundColor(.secondary)
                             Spacer()
-                            Text("\(Int(curve.hysteresis))°C").font(.system(size: 10, weight: .bold)).foregroundColor(.blue)
+                            Text(String(format: l10n.fanControl.hysteresisFormat, curve.hysteresis)).font(.system(size: 10, weight: .bold)).foregroundColor(.blue)
                         }
                         Slider(value: Binding(
                             get: { curve.hysteresis },
@@ -135,9 +135,9 @@ struct InteractiveFanCurveEditor: View {
                     
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text("Ramp Rate").font(.system(size: 10)).foregroundColor(.secondary)
+                            Text(l10n.fanControl.rampRateLabel).font(.system(size: 10)).foregroundColor(.secondary)
                             Spacer()
-                            Text("\(Int(curve.rampRate))%/s").font(.system(size: 10, weight: .bold)).foregroundColor(.blue)
+                            Text(String(format: l10n.fanControl.rampRateFormat, curve.rampRate)).font(.system(size: 10, weight: .bold)).foregroundColor(.blue)
                         }
                         Slider(value: Binding(
                             get: { curve.rampRate },
@@ -213,10 +213,19 @@ struct InteractiveFanCurveEditor: View {
                         }
                         .fill(LinearGradient(gradient: Gradient(colors: [Color.cyan.opacity(0.20), Color.orange.opacity(0.30)]),
                                              startPoint: .leading, endPoint: .trailing))
+                        
+                        // Points to render (incorporating draft drag state)
+                        let activePoints: [FanCurvePoint] = {
+                            var pts = curve.points
+                            if let drag = draggingPoint, drag.index < pts.count {
+                                pts[drag.index] = FanCurvePoint(temp: drag.temp, pwm: drag.pwm)
+                            }
+                            return pts
+                        }()
 
                         // Line Path connecting points
                         Path { path in
-                            let sorted = curve.points.sorted { $0.temp < $1.temp }
+                            let sorted = activePoints.sorted { $0.temp < $1.temp }
                             guard let firstPt = sorted.first else { return }
                             
                             path.move(to: CGPoint(x: CGFloat(firstPt.temp / 100.0) * w, y: h - CGFloat(firstPt.pwm / 100.0) * h))
@@ -229,45 +238,61 @@ struct InteractiveFanCurveEditor: View {
                         
                         // Interactive points
                         ForEach(curve.points.indices, id: \.self) { ptIdx in
-                            let pt = curve.points[ptIdx]
-                            let ptX = CGFloat(pt.temp / 100.0) * w
-                            let ptY = h - CGFloat(pt.pwm / 100.0) * h
+                            let displayPt = (draggingPoint?.index == ptIdx)
+                                ? FanCurvePoint(temp: draggingPoint!.temp, pwm: draggingPoint!.pwm)
+                                : curve.points[ptIdx]
+                            let ptX = CGFloat(displayPt.temp / 100.0) * w
+                            let ptY = h - CGFloat(displayPt.pwm / 100.0) * h
                             
-                            Circle()
-                                .fill(hoveredPointIndex == ptIdx ? Color.cyan : Color.blue)
-                                .frame(width: 10, height: 10)
-                                .position(x: ptX, y: ptY)
-                                .gesture(
-                                    DragGesture(minimumDistance: 0)
-                                        .onChanged { val in
-                                            let newX = max(0, min(w, val.location.x))
-                                            let newY = max(0, min(h, val.location.y))
-                                            
+                            ZStack {
+                                Circle()
+                                    .fill(Color.clear)
+                                    .frame(width: 24, height: 24)
+                                Circle()
+                                    .fill(hoveredPointIndex == ptIdx || draggingPoint?.index == ptIdx ? Color.cyan : Color.blue)
+                                    .frame(width: 12, height: 12)
+                                    .shadow(color: Color.black.opacity(0.3), radius: 2, x: 0, y: 1)
+                            }
+                            .position(x: ptX, y: ptY)
+                            .gesture(
+                                DragGesture(minimumDistance: 0)
+                                    .onChanged { val in
+                                        let newX = max(0, min(w, val.location.x))
+                                        let newY = max(0, min(h, val.location.y))
+                                        let snappedTemp = round(Double(newX / w) * 100.0)
+                                        let snappedPWM = round(Double((h - newY) / h) * 100.0)
+                                        draggingPoint = (index: ptIdx, temp: snappedTemp, pwm: snappedPWM)
+                                    }
+                                    .onEnded { val in
+                                        if let drag = draggingPoint {
                                             var updated = controller.customCurves
-                                            updated[selectedCurveIndex].points[ptIdx].temp = Double(newX / w) * 100.0
-                                            updated[selectedCurveIndex].points[ptIdx].pwm = Double((h - newY) / h) * 100.0
+                                            updated[selectedCurveIndex].points[drag.index].temp = drag.temp
+                                            updated[selectedCurveIndex].points[drag.index].pwm = drag.pwm
+                                            updated[selectedCurveIndex].points.sort { $0.temp < $1.temp }
                                             controller.customCurves = updated
+                                            draggingPoint = nil
                                         }
-                                )
-                                .onTapGesture(count: 2) {
+                                    }
+                            )
+                            .onTapGesture(count: 2) {
+                                if curve.points.count > 2 {
+                                    var updated = controller.customCurves
+                                    updated[selectedCurveIndex].points.remove(at: ptIdx)
+                                    controller.customCurves = updated
+                                }
+                            }
+                            .onHover { hovering in
+                                hoveredPointIndex = hovering ? ptIdx : nil
+                            }
+                            .contextMenu {
+                                Button("Delete Point") {
                                     if curve.points.count > 2 {
                                         var updated = controller.customCurves
                                         updated[selectedCurveIndex].points.remove(at: ptIdx)
                                         controller.customCurves = updated
                                     }
                                 }
-                                .onHover { hovering in
-                                    hoveredPointIndex = hovering ? ptIdx : nil
-                                }
-                                .contextMenu {
-                                    Button("Delete Point") {
-                                        if curve.points.count > 2 {
-                                            var updated = controller.customCurves
-                                            updated[selectedCurveIndex].points.remove(at: ptIdx)
-                                            controller.customCurves = updated
-                                        }
-                                    }
-                                }
+                            }
                         }
                     }
                     .background(Color.primary.opacity(0.02))
@@ -301,10 +326,11 @@ struct InteractiveFanCurveEditor: View {
                     )
                 }
                 .frame(height: 180)
-                
-                Text("Drag control points to edit curve. Double-click empty space to add (max 8). Double-click a point or right-click to delete.")
-                    .font(.system(size: 9)).foregroundColor(.secondary)
+                Text(l10n.fanControl.instructionsHint)
+                    .font(.system(size: 9.5)).foregroundColor(.secondary)
             }
-        )
+        } else {
+            Text(l10n.fanControl.noCurvesConfigured).foregroundColor(.secondary)
+        }
     }
 }

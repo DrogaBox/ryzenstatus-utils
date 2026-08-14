@@ -3,8 +3,8 @@
 
 import SwiftUI
 
-/// World-Class RyzenStatus Performance Suite Dashboard View porting the full rich UI
-/// suite from mac-performance-monitor into RyzenStatus's Modular Feature Catalog.
+/// RyzenStatus Performance Suite Dashboard View porting rich monitoring features
+/// into a native, unified Apple HIG design system matching Theme.swift.
 struct PerformanceSuiteView: View {
     @ObservedObject var monitor: SystemMonitor
 
@@ -16,6 +16,16 @@ struct PerformanceSuiteView: View {
         case network = "Network"
 
         var id: String { rawValue }
+
+        func localizedTitle(strings: PerformanceSuiteFeatureStrings) -> String {
+            switch self {
+            case .dashboard: return strings.dashboardTab
+            case .insights: return strings.insightsTab
+            case .analytics: return strings.analyticsTab
+            case .energy: return strings.energyTab
+            case .network: return strings.networkTab
+            }
+        }
 
         var iconName: String {
             switch self {
@@ -34,22 +44,18 @@ struct PerformanceSuiteView: View {
     @State private var energyRecords: [ProcessEnergyRecord] = []
     @State private var networkAdapters: [NetworkAdapterInfo] = []
     @State private var selectedInsightFilter: String = "All"
-    // BUG-17 fix: selectedProcess @State removed. Present is called directly in button actions
-    // to avoid the two-render round-trip: set proc -> onChange -> present -> set nil.
 
-    // The adapter list (getifaddrs walk) is expensive and barely changes, so it is
-    // rescanned at most every 10 s instead of on every 1 s refresh tick.
     @State private var cachedAdapters: [NetworkAdapterInfo] = []
     @State private var lastAdaptersRefresh = Date.distantPast
     @State private var refreshInFlight = false
 
     @ObservedObject var l10n = L10n.shared
+    @ObservedObject private var runtime = FeatureRuntime.shared
+    @Environment(\.colorScheme) private var colorScheme
 
     init(monitor: SystemMonitor) {
         self.monitor = monitor
     }
-
-    @ObservedObject private var runtime = FeatureRuntime.shared
 
     private var availableTabs: [Tab] {
         Tab.allCases.filter { tab in
@@ -70,123 +76,96 @@ struct PerformanceSuiteView: View {
 
     var body: some View {
         let strings = FeatureStrings.performanceSuite(l10n.language)
-        VStack(spacing: 0) {
+        VStack(spacing: 12) {
             // --- TOP NAVIGATION & HEADER BAR ---
             HStack {
-                HStack(spacing: 10) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(LinearGradient(colors: [.cyan, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
-                            .frame(width: 32, height: 32)
-                        Image(systemName: "cpu.fill")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.white)
-                    }
+                Text(strings.title)
+                    .font(.system(size: 15, weight: .bold))
 
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(strings.title)
-                            .font(.system(size: 15, weight: .bold))
-                        Text(Self.cpuBrandSubtitle)
-                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.secondary)
-                    }
-                }
-                
                 Spacer()
 
-                // Tab Selector Buttons
-                HStack(spacing: 4) {
-                    ForEach(availableTabs) { tab in
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedTab = tab
-                            }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: tab.iconName)
-                                    .font(.system(size: 11, weight: .bold))
-                                let title: String = {
-                                    switch tab {
-                                    case .dashboard: return strings.dashboardTab
-                                    case .insights: return strings.insightsTab
-                                    case .analytics: return strings.analyticsTab
-                                    case .energy: return strings.energyTab
-                                    case .network: return strings.networkTab
-                                    }
-                                }()
-                                Text(title)
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .lineLimit(1)
-                                    .fixedSize(horizontal: true, vertical: false)
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(selectedTab == tab ? Color.accentColor.opacity(0.2) : Color.clear)
-                            .foregroundColor(selectedTab == tab ? .accentColor : .secondary)
-                            .cornerRadius(6)
+                if availableTabs.count > 1 {
+                    Picker("", selection: $selectedTab) {
+                        ForEach(availableTabs) { tab in
+                            Text(tab.localizedTitle(strings: strings)).tag(tab)
                         }
-                        .buttonStyle(.plain)
                     }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 540)
                 }
-                .padding(4)
-                .background(Color.primary.opacity(0.04))
-                .cornerRadius(8)
-                .fixedSize(horizontal: true, vertical: false)
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(Color(NSColor.windowBackgroundColor))
-            
-            Divider()
+            .padding(.top, 14)
 
-            // --- MAIN CONTENT RAIL ---
-            ScrollView {
-                VStack(spacing: 16) {
+            // --- SCROLLABLE TAB CONTENT ---
+            ScrollView(.vertical, showsIndicators: true) {
+                Group {
                     switch selectedTab {
                     case .dashboard:
-                        dashboardTabContent
+                        dashboardTabContent(strings: strings)
                     case .insights:
-                        insightsTabContent
+                        insightsTabContent(strings: strings)
                     case .analytics:
-                        analyticsTabContent
+                        analyticsTabContent(strings: strings)
                     case .energy:
-                        energyTabContent
+                        energyTabContent(strings: strings)
                     case .network:
-                        networkTabContent
+                        networkTabContent(strings: strings)
                     }
                 }
-                .padding(16)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 20)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            // A full monitor surface: register as a panel client (a depth
-            // counter), not via setMenuPanelNeeds, so opening or closing the
-            // menu popover cannot wipe these needs and freeze the metrics.
             SystemMonitor.shared.panelDidAppear()
             refreshData()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .processUsageDidUpdate)) { _ in refreshData() }
-        .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in refreshData() }
         .onDisappear {
             SystemMonitor.shared.panelDidDisappear()
+        }
+        .onChange(of: selectedTab) { _, _ in
+            refreshData()
+        }
+        .onChange(of: runtime.revision) { _, _ in
+            if !availableTabs.contains(selectedTab) {
+                selectedTab = .dashboard
+            }
+            refreshData()
+        }
+        .onReceive(monitor.$snapshot) { _ in
+            refreshData()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .processUsageDidUpdate)) { _ in
+            refreshData()
         }
     }
 
     // MARK: - 1. Dashboard Tab Content
     @ViewBuilder
-    private var dashboardTabContent: some View {
-        VStack(spacing: 16) {
-            // Headline Metric Cards Row
-            headlineMetricCardsGrid
+    private func dashboardTabContent(strings: PerformanceSuiteFeatureStrings) -> some View {
+        VStack(spacing: 14) {
+            // CPU brand hardware caption
+            HStack {
+                Text(Self.cpuBrandSubtitle)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 2)
 
-            // BTop Cyberpunk Matrix & Process Manager
+            // Headline Metric Cards Row
+            headlineMetricCardsGrid(strings: strings)
+
+            // Activity Monitor Matrix & Process Manager
             BTopDashboardView(monitor: monitor)
         }
     }
 
     // Headline 4 Metric Cards Grid
-    private var headlineMetricCardsGrid: some View {
+    @ViewBuilder
+    private func headlineMetricCardsGrid(strings: PerformanceSuiteFeatureStrings) -> some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
             // Card 1: CPU Total
             let cpuVal = (monitor.snapshot.cpuUsage ?? 0.0) * 100.0
@@ -194,26 +173,32 @@ struct PerformanceSuiteView: View {
             let cpuPwr = monitor.snapshot.cpuPower
             let cpuThreads = ProcessInfo.processInfo.processorCount
             let cpuCores = max(1, cpuThreads / 2)
+            let tempUnit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
+            let cpuColor = PanelMetricColor.cyan(for: colorScheme)
             suiteMetricCard(
-                title: "CPU TOTAL",
+                title: strings.cpuTotal,
                 value: String(format: "%.1f%%", cpuVal),
-                subtitle: cpuTemp.map { String(format: "%.1f°C", $0) } ?? "—",
+                subtitle: cpuTemp.map { MetricFormat.temperatureCompact($0, unit: tempUnit) } ?? "—",
                 extraInfo: cpuPwr.map { String(format: "%.1f W", $0) } ?? "\(cpuCores)C / \(cpuThreads)T",
-                accentColor: .cyan,
+                accentColor: cpuColor,
                 history: monitor.snapshot.cpuHistory.map { Double($0) * 100.0 },
                 maxDomain: 100.0
             )
 
-            // Card 2: Memory Footprint
-            let usedRAM = Double(monitor.snapshot.memoryUsed ?? 0) / 1_073_741_824.0
-            let totalRAM = Double(monitor.snapshot.memoryTotal ?? 34_359_738_368) / 1_073_741_824.0
-            let ramPct = totalRAM > 0 ? (usedRAM / totalRAM * 100.0) : 0.0
+            // Card 2: Memory Footprint (RAM Used)
+            let usedRAM = monitor.snapshot.memoryUsed.map { Double($0) / 1_073_741_824.0 }
+            let totalRAM = monitor.snapshot.memoryTotal.map { Double($0) / 1_073_741_824.0 }
+            let ramPct = (usedRAM != nil && totalRAM != nil && totalRAM! > 0) ? (usedRAM! / totalRAM! * 100.0) : 0.0
+            let valStr = usedRAM.map { String(format: "%.1f GB", $0) } ?? "—"
+            let subStr = usedRAM != nil ? String(format: "%.0f%% Used", ramPct) : "—"
+            let extraStr = totalRAM.map { String(format: "%.1f GB Total", $0) } ?? "—"
+            let memColor = PanelMetricColor.purple(for: colorScheme)
             suiteMetricCard(
-                title: "RAM FOOTPRINT",
-                value: String(format: "%.1f GB", usedRAM),
-                subtitle: String(format: "%.0f%% Used", ramPct),
-                extraInfo: String(format: "%.1f GB Total", totalRAM),
-                accentColor: .purple,
+                title: strings.memoryFootprint,
+                value: valStr,
+                subtitle: subStr,
+                extraInfo: extraStr,
+                accentColor: memColor,
                 history: monitor.snapshot.memoryHistory.map { Double($0) * 100.0 },
                 maxDomain: 100.0
             )
@@ -223,14 +208,15 @@ struct PerformanceSuiteView: View {
             let gpuTemp = monitor.snapshot.gpuTemperature
             let gpuPwr = monitor.snapshot.gpuPower
             let gpuVRAMGB = monitor.snapshot.gpuMemoryTotal.map { Double($0) / 1_073_741_824.0 }
+            let gpuColor = PanelMetricColor.orange(for: colorScheme)
             suiteMetricCard(
                 title: "GPU",
                 value: gpuVal,
-                subtitle: gpuTemp.map { String(format: "%.1f°C", $0) } ?? "—",
+                subtitle: gpuTemp.map { MetricFormat.temperatureCompact($0, unit: tempUnit) } ?? "—",
                 extraInfo: gpuPwr.map { String(format: "%.1f W", $0) }
                     ?? gpuVRAMGB.map { String(format: "%.0f GB VRAM", $0) }
                     ?? "—",
-                accentColor: .orange,
+                accentColor: gpuColor,
                 history: monitor.snapshot.gpuHistory.map { Double($0) * 100.0 },
                 maxDomain: 100.0
             )
@@ -240,12 +226,13 @@ struct PerformanceSuiteView: View {
             let netUp = monitor.snapshot.netUpBytesPerSec
             let netHistory = monitor.snapshot.netDownHistory.map { Double($0) }
             let maxNet = networkChartMax(netHistory)
+            let netColor = PanelMetricColor.green(for: colorScheme)
             suiteMetricCard(
-                title: "NET BANDWIDTH",
+                title: strings.networkIO,
                 value: formatOptionalBytes(netDown),
                 subtitle: "↓ " + formatOptionalBytes(netDown),
                 extraInfo: "↑ " + formatOptionalBytes(netUp),
-                accentColor: .green,
+                accentColor: netColor,
                 history: netHistory,
                 maxDomain: maxNet
             )
@@ -257,20 +244,21 @@ struct PerformanceSuiteView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(title)
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.secondary)
                 Spacer()
                 Text(extraInfo)
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(accentColor)
             }
 
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(value)
-                    .font(.system(size: 18, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.primary)
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundColor(.primary)
                 Text(subtitle)
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.secondary)
             }
 
@@ -281,50 +269,53 @@ struct PerformanceSuiteView: View {
             }
 
             TrendChart(
-                series: [TrendSeries(points: points, color: accentColor, filled: true)],
-                yDomain: 0...maxDomain
+                series: [TrendSeries(points: points, color: accentColor, filled: true, lineWidth: 1.5)],
+                yDomain: 0...maxDomain,
+                showsYAxis: false
             )
-            .frame(height: 38)
+            .frame(height: 36)
         }
-        .padding(10)
-        .background(Color.primary.opacity(0.04))
-        .cornerRadius(8)
+        .suiteCard(padding: 10)
     }
 
     // MARK: - 2. Insights Tab Content
     @ViewBuilder
-    private var insightsTabContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
+    private func insightsTabContent(strings: PerformanceSuiteFeatureStrings) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
             // Header & Filter Capsules
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack {
+                    HStack(spacing: 6) {
                         Image(systemName: "lightbulb.fill")
-                            .foregroundColor(.yellow)
-                        Text("Automated Diagnostic Engine")
-                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(PanelMetricColor.yellow(for: colorScheme))
+                        Text(strings.insightsTitle)
+                            .font(.system(size: 13, weight: .semibold))
                     }
-                    Text("Ranked findings from LeakDetector, memory pressure events, and process telemetries.")
+                    Text(strings.insightsSubtitle)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
 
                 Spacer()
 
-                HStack(spacing: 4) {
-                    ForEach(["All", "Memory", "CPU", "Thermal", "Architecture"], id: \.self) { filter in
-                        Button {
-                            selectedInsightFilter = filter
-                        } label: {
-                            Text(filter)
-                                .font(.system(size: 10, weight: .semibold))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(selectedInsightFilter == filter ? Color.accentColor.opacity(0.2) : Color.clear)
-                                .foregroundColor(selectedInsightFilter == filter ? .accentColor : .secondary)
-                                .cornerRadius(4)
+                // D8: Dynamic categories based on active cards
+                let availableFilters = ["All"] + Set(insightCards.map(\.categoryName)).sorted()
+                if availableFilters.count > 1 {
+                    HStack(spacing: 4) {
+                        ForEach(availableFilters, id: \.self) { filter in
+                            Button {
+                                selectedInsightFilter = filter
+                            } label: {
+                                Text(filter == "All" ? strings.filterAll : filter)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(selectedInsightFilter == filter ? Color.accentColor.opacity(0.15) : Color.clear)
+                                    .foregroundColor(selectedInsightFilter == filter ? .accentColor : .secondary)
+                                    .cornerRadius(5)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -334,39 +325,38 @@ struct PerformanceSuiteView: View {
             }
 
             if filteredCards.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 42))
-                        .foregroundColor(.green)
-                    Text("System Operating at Peak Efficiency")
-                        .font(.system(size: 14, weight: .bold))
-                    Text("No continuous memory leaks, thermal throttling, or runaway CPU conditions detected.")
+                VStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 36))
+                        .foregroundColor(PanelMetricColor.green(for: colorScheme))
+                    Text(strings.noInsights)
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(strings.noInsightsSubtitle)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 36)
-                .background(Color.primary.opacity(0.02))
-                .cornerRadius(10)
+                .padding(.vertical, 32)
+                .suiteCard()
             } else {
                 ForEach(filteredCards) { card in
-                    HStack(alignment: .top, spacing: 14) {
+                    HStack(alignment: .top, spacing: 12) {
                         ZStack {
                             Circle()
                                 .fill(cardColor(for: card.severity).opacity(0.15))
-                                .frame(width: 36, height: 36)
+                                .frame(width: 32, height: 32)
                             Image(systemName: cardIcon(for: card.severity))
-                                .font(.system(size: 16, weight: .bold))
+                                .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(cardColor(for: card.severity))
                         }
 
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: 4) {
                             HStack {
                                 Text(card.title)
-                                    .font(.system(size: 13, weight: .bold))
+                                    .font(.system(size: 12, weight: .semibold))
                                 Spacer()
-                                Text(card.categoryName.uppercased())
-                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                Text(card.categoryName)
+                                    .font(.system(size: 9, weight: .semibold))
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
                                     .background(Color.primary.opacity(0.08))
@@ -378,57 +368,55 @@ struct PerformanceSuiteView: View {
                                 .foregroundColor(.secondary)
 
                             if let hint = card.actionHint {
-                                HStack(spacing: 8) {
-                                    Text("💡 \(hint)")
-                                        .font(.system(size: 10, weight: .semibold))
-                                        .foregroundColor(.accentColor)
-                                    
+                                HStack(spacing: 6) {
+                                    Image(systemName: "lightbulb")
+                                        .font(.system(size: 10))
+                                    Text(hint)
+                                        .font(.system(size: 10, weight: .medium))
                                     Spacer()
 
                                     if let pid = card.pid {
-                                        Button("Inspect Process") {
+                                        Button(strings.inspectButton) {
                                             let proc = topProcesses.first(where: { $0.pid == pid })
                                                 ?? ProcessUsage(pid: pid, name: card.title, value: 0.0)
                                             ProcessInspectorWindowController.shared.present(for: proc)
                                         }
-                                        .font(.system(size: 10, weight: .bold))
+                                        .font(.system(size: 10, weight: .semibold))
                                         .buttonStyle(.borderedProminent)
                                         .controlSize(.small)
                                     }
                                 }
-                                .padding(.top, 4)
+                                .foregroundColor(.accentColor)
+                                .padding(.top, 2)
                             }
                         }
                     }
-                    .padding(14)
-                    .background(Color.primary.opacity(0.03))
-                    .cornerRadius(10)
+                    .suiteCard(padding: 10)
                 }
             }
 
             // Top Active Processes Inspector Section
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("ACTIVE APPLICATIONS & PROCESS INSPECTOR")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(.secondary)
+                    Text(strings.processColumn)
+                        .font(.system(size: 12, weight: .semibold))
                     Spacer()
                     Text("\(topProcesses.count) Active")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
 
                 VStack(spacing: 4) {
                     HStack {
-                        Text("PID").lineLimit(1).truncationMode(.tail).frame(width: 55, alignment: .leading)
-                        Text("PROCESS / APP NAME").lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
-                        Text("CATEGORY").lineLimit(1).truncationMode(.tail).frame(width: 140, alignment: .leading)
-                        Text("CPU %").lineLimit(1).truncationMode(.tail).frame(width: 70, alignment: .trailing)
-                        Text("ACTION").lineLimit(1).truncationMode(.tail).frame(width: 80, alignment: .center)
+                        Text(strings.pidColumn).lineLimit(1).frame(width: 55, alignment: .leading)
+                        Text(strings.processColumn).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                        Text(strings.typeColumn).lineLimit(1).frame(width: 120, alignment: .leading)
+                        Text(strings.cpuColumn).lineLimit(1).frame(width: 70, alignment: .trailing)
+                        Text(strings.actionColumn).lineLimit(1).frame(width: 70, alignment: .center)
                     }
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.secondary)
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, 6)
 
                     Divider()
 
@@ -442,82 +430,81 @@ struct PerformanceSuiteView: View {
                                 .frame(width: 55, alignment: .leading)
 
                             Text(proc.name)
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(size: 11, weight: .medium))
                                 .lineLimit(1)
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
                             Text(catName)
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.system(size: 9, weight: .medium))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(Color.accentColor.opacity(0.12))
                                 .foregroundColor(.accentColor)
                                 .cornerRadius(4)
                                 .lineLimit(1)
-                                .frame(width: 140, alignment: .leading)
+                                .frame(width: 120, alignment: .leading)
 
                             Text(String(format: "%.1f%%", proc.value))
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(proc.value > 80.0 ? .red : (proc.value > 20.0 ? .orange : .primary))
+                                .font(.system(size: 11, weight: .semibold))
+                                .monospacedDigit()
+                                .foregroundColor(proc.value > 80.0 ? PanelMetricColor.red(for: colorScheme) : (proc.value > 20.0 ? PanelMetricColor.orange(for: colorScheme) : .primary))
                                 .frame(width: 70, alignment: .trailing)
 
-                            Button("Inspect") {
+                            Button(strings.inspectButton) {
                                 ProcessInspectorWindowController.shared.present(for: proc)
                             }
                             .font(.system(size: 10, weight: .semibold))
                             .buttonStyle(.plain)
                             .foregroundColor(.accentColor)
-                            .frame(width: 80, alignment: .center)
+                            .frame(width: 70, alignment: .center)
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
                         .background(Color.primary.opacity(0.02))
                         .cornerRadius(4)
                     }
                 }
             }
-            .padding(12)
-            .background(Color.primary.opacity(0.03))
-            .cornerRadius(10)
+            .suiteCard(padding: 12)
         }
     }
 
     // MARK: - 3. Analytics Tab Content
     @ViewBuilder
-    private var analyticsTabContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
+    private func analyticsTabContent(strings: PerformanceSuiteFeatureStrings) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Linear Regression & Long-Term Trend Analytics")
-                    .font(.system(size: 14, weight: .bold))
-                Text("R² confidence slope statistics and downsampled historical timeline curves.")
+                Text(strings.analyticsTitle)
+                    .font(.system(size: 13, weight: .semibold))
+                Text(strings.analyticsSubtitle)
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
 
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                // Chart 1: CPU Load History (scaled to 0...100%)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                // Chart 1: CPU Load History
                 analyticsChartCard(
-                    title: "CPU LOAD HISTORICAL TREND",
+                    title: strings.cpuUtilization,
                     data: monitor.snapshot.cpuHistory.map { Double($0) * 100.0 },
-                    lineColor: .cyan,
+                    lineColor: PanelMetricColor.cyan(for: colorScheme),
                     yUnit: "%",
                     maxDomain: 100.0
                 )
 
-                // Chart 2: RAM Footprint History (scaled to 0...100%)
+                // Chart 2: RAM Footprint History
                 analyticsChartCard(
-                    title: "RAM FOOTPRINT TREND",
+                    title: strings.memoryFootprint,
                     data: monitor.snapshot.memoryHistory.map { Double($0) * 100.0 },
-                    lineColor: .purple,
+                    lineColor: PanelMetricColor.purple(for: colorScheme),
                     yUnit: "%",
                     maxDomain: 100.0
                 )
 
-                // Chart 3: GPU Compute History (scaled to 0...100%)
+                // Chart 3: GPU Compute History
                 analyticsChartCard(
-                    title: "GPU COMPUTE TREND",
+                    title: "GPU Compute",
                     data: monitor.snapshot.gpuHistory.map { Double($0) * 100.0 },
-                    lineColor: .orange,
+                    lineColor: PanelMetricColor.orange(for: colorScheme),
                     yUnit: "%",
                     maxDomain: 100.0
                 )
@@ -526,9 +513,9 @@ struct PerformanceSuiteView: View {
                 let netHist = monitor.snapshot.netDownHistory.map { Double($0) }
                 let maxNet = networkChartMax(netHist)
                 analyticsChartCard(
-                    title: "NETWORK DOWNLOAD BANDWIDTH",
+                    title: strings.networkIO,
                     data: netHist,
-                    lineColor: .green,
+                    lineColor: PanelMetricColor.green(for: colorScheme),
                     yUnit: "B/s",
                     maxDomain: maxNet,
                     isBytes: true
@@ -542,13 +529,14 @@ struct PerformanceSuiteView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(title)
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.secondary)
                 Spacer()
                 let avg = data.isEmpty ? 0.0 : (data.reduce(0, +) / Double(data.count))
                 let avgText = isBytes ? (formatBytes(avg) + "/s") : String(format: "AVG: %.1f\(yUnit)", avg)
                 Text(avgText)
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.system(size: 10, weight: .semibold))
+                    .monospacedDigit()
                     .foregroundColor(lineColor)
             }
 
@@ -559,50 +547,47 @@ struct PerformanceSuiteView: View {
             }
 
             TrendChart(
-                series: [TrendSeries(points: points, color: lineColor, filled: true)],
+                series: [TrendSeries(points: points, color: lineColor, filled: true, lineWidth: 1.5)],
                 yDomain: 0...maxDomain,
                 showsTimeAxis: true
             )
-            .frame(height: 140)
+            .frame(height: 130)
         }
-        .padding(12)
-        .background(Color.primary.opacity(0.03))
-        .cornerRadius(8)
+        .suiteCard(padding: 12)
     }
 
     // MARK: - 4. Energy Tab Content
     @ViewBuilder
-    private var energyTabContent: some View {
+    private func energyTabContent(strings: PerformanceSuiteFeatureStrings) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack {
+                    HStack(spacing: 6) {
                         Image(systemName: "bolt.batteryblock.fill")
-                            .foregroundColor(.orange)
-                        Text("Process Energy Impact & Power Distribution")
-                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(PanelMetricColor.yellow(for: colorScheme))
+                        Text(strings.energyTitle)
+                            .font(.system(size: 13, weight: .semibold))
                     }
-                    Text("Calculated power draw impact (CPU, GPU, and disk wakeups) per process.")
+                    Text(strings.energySubtitle)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
-
                 Spacer()
             }
 
-            // Top Energy Impact Table
+            // Top Energy Impact Table in suiteCard
             VStack(spacing: 4) {
                 HStack {
-                    Text("PID").lineLimit(1).truncationMode(.tail).frame(width: 50, alignment: .leading)
-                    Text("APPLICATION / PROCESS").lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
-                    Text("TYPE").lineLimit(1).truncationMode(.tail).frame(width: 80, alignment: .center)
-                    Text("CPU %").lineLimit(1).truncationMode(.tail).frame(width: 70, alignment: .trailing)
-                    Text("ENERGY IMPACT").lineLimit(1).truncationMode(.tail).frame(width: 120, alignment: .trailing)
-                    Text("ACTION").lineLimit(1).truncationMode(.tail).frame(width: 70, alignment: .center)
+                    Text(strings.pidColumn).lineLimit(1).frame(width: 55, alignment: .leading)
+                    Text(strings.processColumn).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(strings.typeColumn).lineLimit(1).frame(width: 80, alignment: .center)
+                    Text(strings.cpuColumn).lineLimit(1).frame(width: 70, alignment: .trailing)
+                    Text(strings.energyScoreColumn).lineLimit(1).frame(width: 110, alignment: .trailing)
+                    Text(strings.actionColumn).lineLimit(1).frame(width: 70, alignment: .center)
                 }
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(.secondary)
-                .padding(.horizontal, 8)
+                .padding(.horizontal, 6)
 
                 Divider()
 
@@ -611,32 +596,34 @@ struct PerformanceSuiteView: View {
                         Text("\(record.pid)")
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundColor(.secondary)
-                            .frame(width: 50, alignment: .leading)
+                            .frame(width: 55, alignment: .leading)
 
                         Text(record.name)
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 11, weight: .medium))
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
                         Text(record.isApp ? "App" : "Daemon")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.system(size: 9, weight: .medium))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(record.isApp ? Color.blue.opacity(0.15) : Color.gray.opacity(0.15))
+                            .background(record.isApp ? Color.blue.opacity(0.12) : Color.gray.opacity(0.12))
                             .foregroundColor(record.isApp ? .blue : .secondary)
                             .cornerRadius(4)
                             .frame(width: 80, alignment: .center)
 
                         Text(String(format: "%.1f%%", record.cpuPct))
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.system(size: 11))
+                            .monospacedDigit()
                             .frame(width: 70, alignment: .trailing)
 
                         Text(String(format: "%.1f", record.energyScore))
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundColor(record.energyScore > 50.0 ? .red : (record.energyScore > 15.0 ? .orange : .green))
-                            .frame(width: 120, alignment: .trailing)
+                            .font(.system(size: 11, weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundColor(record.energyScore > 50.0 ? PanelMetricColor.red(for: colorScheme) : (record.energyScore > 15.0 ? PanelMetricColor.orange(for: colorScheme) : PanelMetricColor.green(for: colorScheme)))
+                            .frame(width: 110, alignment: .trailing)
 
-                        Button("Inspect") {
+                        Button(strings.inspectButton) {
                             let proc = ProcessUsage(pid: record.pid, name: record.name, value: record.cpuPct)
                             ProcessInspectorWindowController.shared.present(for: proc)
                         }
@@ -645,103 +632,167 @@ struct PerformanceSuiteView: View {
                         .foregroundColor(.accentColor)
                         .frame(width: 70, alignment: .center)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
                     .background(Color.primary.opacity(0.02))
                     .cornerRadius(4)
                 }
             }
+            .suiteCard(padding: 12)
         }
     }
 
     // MARK: - 5. Network Tab Content
     @ViewBuilder
-    private var networkTabContent: some View {
+    private func networkTabContent(strings: PerformanceSuiteFeatureStrings) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack {
+                    HStack(spacing: 6) {
                         Image(systemName: "network")
-                            .foregroundColor(.cyan)
-                        Text("Active Network Adapters & Device Scanner")
-                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(PanelMetricColor.green(for: colorScheme))
+                        Text(strings.networkTitle)
+                            .font(.system(size: 13, weight: .semibold))
                     }
-                    Text("Local network interfaces, assigned IP addresses, and active throughput.")
+                    Text(strings.networkSubtitle)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
                 Spacer()
             }
 
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                ForEach(networkAdapters) { adapter in
-                    HStack {
-                        ZStack {
-                            Circle()
-                                .fill(adapter.isUp ? Color.green.opacity(0.15) : Color.red.opacity(0.15))
-                                .frame(width: 32, height: 32)
-                            Image(systemName: "network")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(adapter.isUp ? .green : .red)
+            // Summary Card
+            let downRate = monitor.snapshot.netDownBytesPerSec
+            let upRate = monitor.snapshot.netUpBytesPerSec
+            HStack(spacing: 24) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(strings.rxColumn)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                    Text(formatOptionalBytes(downRate))
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundColor(PanelMetricColor.cyan(for: colorScheme))
+                }
+                Divider()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(strings.txColumn)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                    Text(formatOptionalBytes(upRate))
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundColor(PanelMetricColor.green(for: colorScheme))
+                }
+                Spacer()
+            }
+            .suiteCard(padding: 12)
+
+            if networkAdapters.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "network.slash")
+                        .font(.system(size: 32))
+                        .foregroundColor(.secondary)
+                    Text(strings.noNetworkAdapters)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 32)
+                .suiteCard()
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    ForEach(networkAdapters) { adapter in
+                        HStack(spacing: 12) {
+                            ZStack {
+                                Circle()
+                                    .fill(adapter.isUp ? PanelMetricColor.green(for: colorScheme).opacity(0.15) : PanelMetricColor.red(for: colorScheme).opacity(0.15))
+                                    .frame(width: 32, height: 32)
+                                Image(systemName: "network")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(adapter.isUp ? PanelMetricColor.green(for: colorScheme) : PanelMetricColor.red(for: colorScheme))
+                            }
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(adapter.name)
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text("IP: \(adapter.ipAddress)")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Spacer()
+
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text("↓ " + formatOptionalBytes(adapter.rxBytesPerSec))
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .monospacedDigit()
+                                    .foregroundColor(PanelMetricColor.cyan(for: colorScheme))
+                                Text("↑ " + formatOptionalBytes(adapter.txBytesPerSec))
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .monospacedDigit()
+                                    .foregroundColor(PanelMetricColor.green(for: colorScheme))
+                            }
                         }
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(adapter.name)
-                                .font(.system(size: 12, weight: .bold, design: .monospaced))
-                            Text("IP: \(adapter.ipAddress)")
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundColor(.secondary)
-                        }
-
-                        Spacer()
-
-                        let downRate = monitor.snapshot.netDownBytesPerSec
-                        let upRate = monitor.snapshot.netUpBytesPerSec
-
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("↓ " + formatOptionalBytes(downRate))
-                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                .foregroundColor(.cyan)
-                            Text("↑ " + formatOptionalBytes(upRate))
-                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                .foregroundColor(.green)
-                        }
+                        .suiteCard(padding: 10)
                     }
-                    .padding(12)
-                    .background(Color.primary.opacity(0.03))
-                    .cornerRadius(8)
                 }
             }
         }
     }
 
     private func refreshData() {
-        // BUG-09 fix: refreshData was called on the main thread and included
-        // NetworkScannerService.shared.activeAdapters() — a blocking network call.
-        // Now dispatched to a background Task; @State is updated via MainActor.
-        // The adapters list is only rescanned when stale (10 s) and a refresh
-        // already in flight is skipped so 1 Hz ticks never pile up tasks.
         guard !refreshInFlight else { return }
         refreshInFlight = true
+        let currentTab = selectedTab
         let adaptersStale = Date().timeIntervalSince(lastAdaptersRefresh) >= 10
         let cached = cachedAdapters
+
         Task.detached(priority: .userInitiated) {
-            let procs = ProcessUsageService.shared.topCPU(limit: 20)
+            var procs: [ProcessUsage] = []
+            var cards: [InsightCard] = []
+            var energy: [ProcessEnergyRecord] = []
+            var adapters: [NetworkAdapterInfo] = cached
+
             let snapshot = await MainActor.run { SystemMonitor.shared.snapshot }
-            let cards = InsightEngine.shared.evaluate(snapshot: snapshot, processes: procs)
-            let energy = EnergyImpactService.shared.calculateEnergyImpact(processes: procs)
-            let adapters = adaptersStale
-                ? NetworkScannerService.shared.activeAdapters()
-                : cached
-            await MainActor.run {
-                self.topProcesses = procs
-                self.insightCards = cards
-                self.energyRecords = energy
-                if self.networkAdapters != adapters {
-                    self.networkAdapters = adapters
-                }
+
+            // P2: Gate heavy work by active tab
+            switch currentTab {
+            case .dashboard:
+                procs = ProcessUsageService.shared.topCPU(limit: 20)
+                _ = ProcessUsageService.shared.topMemory(limit: 10) // D4: feed LeakDetector
+            case .insights:
+                procs = ProcessUsageService.shared.topCPU(limit: 20)
+                cards = InsightEngine.shared.evaluate(snapshot: snapshot, processes: procs)
+            case .analytics:
+                break
+            case .energy:
+                procs = ProcessUsageService.shared.topCPU(limit: 20)
+                energy = EnergyImpactService.shared.calculateEnergyImpact(processes: procs)
+            case .network:
                 if adaptersStale {
-                    self.cachedAdapters = adapters
+                    adapters = NetworkScannerService.shared.activeAdapters()
+                }
+            }
+
+            let outProcs = procs
+            let outCards = cards
+            let outEnergy = energy
+            let outAdapters = adapters
+
+            await MainActor.run {
+                if !outProcs.isEmpty && self.topProcesses != outProcs {
+                    self.topProcesses = outProcs
+                }
+                if self.insightCards != outCards {
+                    self.insightCards = outCards
+                }
+                if self.energyRecords != outEnergy {
+                    self.energyRecords = outEnergy
+                }
+                if adaptersStale && self.networkAdapters != outAdapters {
+                    self.networkAdapters = outAdapters
+                    self.cachedAdapters = outAdapters
                     self.lastAdaptersRefresh = Date()
                 }
                 self.refreshInFlight = false
@@ -766,8 +817,6 @@ struct PerformanceSuiteView: View {
         return max(1.0, peak * 1.15)
     }
 
-    // BUG-16 fix: cpuBrandSubtitle was a computed property that called sysctlbyname twice
-    // on every view redraw (at least 1Hz). Moved to a static let computed once at launch.
     private static let cpuBrandSubtitle: String = {
         var size = 0
         sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0)
@@ -787,9 +836,9 @@ struct PerformanceSuiteView: View {
 
     private func cardColor(for severity: InsightSeverity) -> Color {
         switch severity {
-        case .critical: return .red
-        case .warning: return .orange
-        case .info: return .blue
+        case .critical: return PanelMetricColor.red(for: colorScheme)
+        case .warning: return PanelMetricColor.orange(for: colorScheme)
+        case .info: return PanelMetricColor.cyan(for: colorScheme)
         }
     }
 
