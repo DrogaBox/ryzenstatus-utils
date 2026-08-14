@@ -241,7 +241,6 @@ final class FinderCutPaste: ObservableObject {
         // only for an actual ⌘X/C/V in Finder.
         guard Permissions.shared.accessibility else { return Unmanaged.passUnretained(event) }
 
-        let flags = event.flags
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
 
         guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Self.finderBundleID,

@@ -50,7 +50,8 @@ class ThreadGridViewModel: ObservableObject {
     func startMonitoring() {
         updateUsage()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.updateUsage()
+            guard let self else { return }
+            DispatchQueue.main.async { self.updateUsage() }
         }
     }
     

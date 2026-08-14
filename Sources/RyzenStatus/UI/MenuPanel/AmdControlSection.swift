@@ -6,48 +6,37 @@ import SwiftUI
 struct AmdControlSection: View {
     let collapsible: Bool
 
-    @State private var selectedEpp: UInt8 = 127
-    @State private var cppcSupported: Bool = false
-    @State private var cpbSupported: Bool = false
-    @AppStorage(DefaultsKey.amdCpbEnabled) private var corePerformanceBoost = true
-    @AppStorage(DefaultsKey.amdPpmEnabled) private var ppmEnabled = false
-    @AppStorage(DefaultsKey.amdLpmEnabled) private var lpmEnabled = false
-    @State private var legacyPstateAllowed: Bool = false
-    @State private var selectedPState: Int = 0
-    @State private var validPStateLabels: [String] = []
+    @ObservedObject private var controls = AmdPowerControlsModel.shared
     @ObservedObject private var autoEpp = AutoEppService.shared
     @ObservedObject private var gaming = GamingModeService.shared
     @ObservedObject private var presetCtrl = AmdPresetController.shared
     @State private var loadTimer: Timer?
     @State private var showThresholds: Bool = false
-    @State private var panelWarning: String = ""
     
     // Fan state
     @State private var availableFans: [(id: Int, name: String)] = []
     @State private var selectedFanId: Int = 0
     @State private var selectedFanRpm: Int = 0
 
-    @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 10
+    @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 25
     @AppStorage(DefaultsKey.autoEppLoadThreshold) private var loadThreshold: Int = 50
     @AppStorage(DefaultsKey.showFansInAmdPower) private var showFansInAmdPower = false
-
-    // snapEPP and presetColor are now on AMDPowerPreset — no local duplication.
 
     private var eppLabel: String {
         if autoEpp.isActive {
             return autoEpp.currentTarget.isEmpty ? "Monitor…" : autoEpp.currentTarget
         }
-        switch AMDPowerPreset.snapEPP(selectedEpp) {
-        case 0:   return "Rendimiento"
-        case 85:  return "Balanced Perf"
-        case 170: return "Balanced Power"
-        default:  return "Power Save"
+        switch AMDPowerPreset.snapEPP(controls.selectedEpp) {
+        case 0:   return L10n.shared.amdPower.perfMax
+        case 85:  return L10n.shared.amdPower.perfBalPlus
+        case 170: return L10n.shared.amdPower.perfBalMinus
+        default:  return L10n.shared.amdPower.perfEco
         }
     }
 
     private var eppColor: Color {
         if autoEpp.isActive { return .secondary }
-        switch AMDPowerPreset.snapEPP(selectedEpp) {
+        switch AMDPowerPreset.snapEPP(controls.selectedEpp) {
         case 0:   return .red
         case 85:  return .orange
         case 170: return .yellow
@@ -95,12 +84,12 @@ struct AmdControlSection: View {
                     Divider().padding(.top, -6).padding(.bottom, -6)
                 }
                 
-                if !cppcSupported && !legacyPstateAllowed && !cpbSupported {
+                if !controls.cppcSupported && !controls.legacyPstateAllowed && !controls.cpbSupported {
                     Text(L10n.shared.amdPower.amdPowerControlUnsupported)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 } else {
-                    if cppcSupported {
+                    if controls.cppcSupported {
                         Text(L10n.shared.amdPower.modeDetectedCPPC)
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
                             .foregroundColor(.green)
@@ -140,10 +129,10 @@ struct AmdControlSection: View {
                                     if autoEpp.isActive {
                                         return AMDPowerPreset.snapEPP(autoEpp.currentEPP)
                                     } else {
-                                        return AMDPowerPreset.snapEPP(selectedEpp)
+                                        return AMDPowerPreset.snapEPP(controls.selectedEpp)
                                     }
                                 },
-                                set: { selectedEpp = $0 }
+                                set: { controls.setEPP($0) }
                             )) {
                                 Text("Max").tag(UInt8(0))
                                 Text("Bal+").tag(UInt8(85))
@@ -151,12 +140,15 @@ struct AmdControlSection: View {
                                 Text("Eco").tag(UInt8(255))
                             }
                             .pickerStyle(.segmented)
-                            .disabled(autoEpp.isActive)
-                            .onChange(of: selectedEpp) { _, newValue in
-                                _ = ProcessorModel.shared.setCPPCEPPValue(epp: newValue)
-                            }
+                            .disabled(autoEpp.isActive || gaming.isActive)
                         }
-                        .opacity(autoEpp.isActive ? 0.4 : 1.0)
+                        .opacity(autoEpp.isActive || gaming.isActive ? 0.4 : 1.0)
+
+                        if gaming.isActive {
+                            Text("Managed by Gaming Mode")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(.orange)
+                        }
 
                         // One-tap power presets (EPP + CPB + PPM/LPM)
                         VStack(alignment: .leading, spacing: 6) {
@@ -168,8 +160,8 @@ struct AmdControlSection: View {
                                     presetButton(preset)
                                 }
                             }
-                            if !panelWarning.isEmpty {
-                                Text(panelWarning)
+                            if let warning = controls.privilegeWarning, !warning.isEmpty {
+                                Text(warning)
                                     .font(.system(size: 9))
                                     .foregroundColor(.red)
                             }
@@ -225,7 +217,7 @@ struct AmdControlSection: View {
                             .background(Color.secondary.opacity(0.05))
                             .cornerRadius(6)
                         }
-                    } else if legacyPstateAllowed {
+                    } else if controls.legacyPstateAllowed {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(L10n.shared.amdPower.modeDetectedPStates)
                                 .font(.system(size: 10, weight: .medium, design: .monospaced))
@@ -240,18 +232,16 @@ struct AmdControlSection: View {
                                 .font(.system(size: 10))
                                 .foregroundColor(.secondary)
                             
-                            if !validPStateLabels.isEmpty {
-                                Picker("", selection: $selectedPState) {
-                                    ForEach(0..<validPStateLabels.count, id: \.self) { idx in
-                                        Text(validPStateLabels[idx]).tag(idx)
+                            if !controls.validPStateLabels.isEmpty {
+                                Picker("", selection: Binding(
+                                    get: { controls.selectedPState },
+                                    set: { controls.setPState($0) }
+                                )) {
+                                    ForEach(0..<controls.validPStateLabels.count, id: \.self) { idx in
+                                        Text(controls.validPStateLabels[idx]).tag(idx)
                                     }
                                 }
                                 .pickerStyle(.segmented)
-                                .onChange(of: selectedPState) { _, newValue in
-                                    Task {
-                                        _ = await ProcessorModel.shared.setPState(state: newValue)
-                                    }
-                                }
                             }
                         }
                     }
@@ -263,7 +253,7 @@ struct AmdControlSection: View {
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundColor(.secondary)
 
-                        if cppcSupported {
+                        if controls.cppcSupported {
                             HStack {
                                 Image(systemName: "cpu").foregroundColor(.cyan).frame(width: 20)
                                 Toggle("Auto EPP (Zen 3)", isOn: Binding(
@@ -272,41 +262,43 @@ struct AmdControlSection: View {
                                 ))
                                     .font(.system(size: 12))
                                     .toggleStyle(SwitchToggleStyle(tint: .cyan))
+                                    .disabled(gaming.isActive)
                             }
                         }
 
-                        if cpbSupported {
+                        if controls.cpbSupported {
                             HStack {
                                 Image(systemName: "flame.fill").foregroundColor(.orange).frame(width: 20)
-                                Toggle("Core Performance Boost", isOn: $corePerformanceBoost)
+                                Toggle("Core Performance Boost", isOn: Binding(
+                                    get: { controls.corePerformanceBoost },
+                                    set: { controls.setCPB($0) }
+                                ))
                                     .font(.system(size: 12))
                                     .toggleStyle(SwitchToggleStyle(tint: .orange))
-                            }
-                            .onChange(of: corePerformanceBoost) { _, newValue in
-                                _ = ProcessorModel.shared.setCPB(enabled: newValue)
+                                    .disabled(gaming.isActive)
                             }
                         }
 
                         HStack {
                             Image(systemName: "speedometer").foregroundColor(.teal).frame(width: 20)
-                            Toggle("PPM Limit", isOn: $ppmEnabled)
+                            Toggle("PPM Limit", isOn: Binding(
+                                get: { controls.ppmEnabled },
+                                set: { controls.setPPM($0) }
+                            ))
                                 .font(.system(size: 12))
                                 .toggleStyle(SwitchToggleStyle(tint: .teal))
-                        }
-                        .onChange(of: ppmEnabled) { _, newValue in
-                            if newValue { lpmEnabled = false } // PPM and LPM are mutually exclusive
-                            _ = ProcessorModel.shared.setPPM(enabled: newValue)
+                                .disabled(gaming.isActive)
                         }
 
                         HStack {
                             Image(systemName: "moon.zzz.fill").foregroundColor(.purple).frame(width: 20)
-                            Toggle("LPM Limit", isOn: $lpmEnabled)
+                            Toggle("LPM Limit", isOn: Binding(
+                                get: { controls.lpmEnabled },
+                                set: { controls.setLPM($0) }
+                            ))
                                 .font(.system(size: 12))
                                 .toggleStyle(SwitchToggleStyle(tint: .purple))
-                        }
-                        .onChange(of: lpmEnabled) { _, newValue in
-                            if newValue { ppmEnabled = false } // PPM and LPM are mutually exclusive
-                            _ = ProcessorModel.shared.setLPM(enabled: newValue)
+                                .disabled(gaming.isActive)
                         }
                     }
                 }
@@ -315,38 +307,31 @@ struct AmdControlSection: View {
             .padding(.bottom, 4)
             .onAppear {
                 loadFanPicker()
-                checkCapabilities()
-                // One timer: updateFanRpm already no-ops when no fan is
-                // detected, so no separate branch is needed.
-                loadTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
-                    checkCapabilities()
+                Task { await controls.syncFromKext() }
+                loadTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
+                    Task { await controls.syncFromKext() }
                     updateFanRpm()
                 }
-                // Trigger initial read
                 updateFanRpm()
             }
             .onDisappear {
                 loadTimer?.invalidate()
                 loadTimer = nil
             }
-            // Gaming Mode applies the Extreme preset and restores the previous
-            // one on deactivation; AmdPresetController.shared syncs automatically
-            // via its GamingModeService Combine subscription.
         }
     }
     
-    /// The kext's fan-count query (selector 91) is a synchronous IOKit call, so
-    /// it runs on a background task; the picker only fills in on the main thread.
     private func loadFanPicker() {
         Task.detached(priority: .userInitiated) {
             let fansRes = ProcessorModel.shared.kernelGetUInt64(count: 1, selector: AMDKextSelector.fanCountRead.id)
-            var initFans: [(id: Int, name: String)] = []
+            var fans: [(id: Int, name: String)] = []
             if fansRes.count > 0 {
                 let numFans = Int(fansRes[0])
                 for i in 0..<numFans {
-                    initFans.append((id: i, name: "Fan \(i + 1)"))
+                    fans.append((id: i, name: "Fan \(i + 1)"))
                 }
             }
+            let initFans = fans          // immutable capture before await
             await MainActor.run {
                 guard !Task.isCancelled else { return }
                 self.availableFans = initFans
@@ -354,8 +339,6 @@ struct AmdControlSection: View {
         }
     }
 
-    /// RPM readout for the selected fan — a synchronous kext call (selector 93),
-    /// so it runs off the main thread and only the state write hops back.
     private func updateFanRpm() {
         guard !availableFans.isEmpty else { return }
         let fanCount = availableFans.count
@@ -370,97 +353,13 @@ struct AmdControlSection: View {
         }
     }
 
-    /// Immutable snapshot of the kext capability/state reads, built off the
-    /// main thread and applied to the view state in a single MainActor hop.
-    private struct CapabilitySnapshot {
-        var kernelAnswered = false
-        var cppcSupported = false
-        var legacyPstateAllowed = false
-        var epp: UInt8 = 0
-        var pState: Int = 0
-        var pStateLabels: [String] = []
-        var cpb: [Bool] = []
-        var ppm = false
-        var lpm = false
-    }
-
-    /// All kext reads (CPPC, CPB, PPM/LPM, P-State clocks) are synchronous IOKit
-    /// calls, so they run on a detached task; only the state writes touch main.
-    private func checkCapabilities() {
-        Task.detached(priority: .userInitiated) {
-            var state = CapabilitySnapshot()
-            state.kernelAnswered = ProcessorModel.shared.connect != 0
-            let profile = await ProcessorModel.shared.cpuProfile
-            state.cppcSupported = profile.supportsCPPC
-            state.legacyPstateAllowed = profile.legacyPstateAllowed
-
-            if state.kernelAnswered {
-                if state.cppcSupported {
-                    state.epp = ProcessorModel.shared.getCPPCActiveMode().epp
-                } else if state.legacyPstateAllowed {
-                    state.pState = await ProcessorModel.shared.getPState()
-                    let clocks = await ProcessorModel.shared.getValidPStateClocks()
-                    if !clocks.isEmpty {
-                        state.pStateLabels = clocks.enumerated().map { index, clock in
-                            if index == 0 { return String(format: "P%d (Max)", index) }
-                            if index == clocks.count - 1 { return String(format: "P%d (Low)", index) }
-                            return String(format: "P%d", index)
-                        }
-                    }
-                }
-            }
-
-            state.cpb = ProcessorModel.shared.getCPB()
-            if state.kernelAnswered {
-                state.ppm = ProcessorModel.shared.getPPM()
-                state.lpm = ProcessorModel.shared.getLPM()
-            }
-
-            await MainActor.run {
-                guard !Task.isCancelled else { return }
-                self.cppcSupported = state.cppcSupported
-                self.legacyPstateAllowed = state.legacyPstateAllowed
-                if state.kernelAnswered {
-                    if state.cppcSupported {
-                        // Snap to segmented value
-                        let target = AMDPowerPreset.snapEPP(state.epp)
-                        if self.selectedEpp != target {
-                            self.selectedEpp = target
-                        }
-                    } else if state.legacyPstateAllowed {
-                        if self.selectedPState != state.pState {
-                            self.selectedPState = state.pState
-                        }
-                        if self.validPStateLabels.isEmpty, !state.pStateLabels.isEmpty {
-                            self.validPStateLabels = state.pStateLabels
-                        }
-                    }
-                } else {
-                    self.cppcSupported = false
-                    self.legacyPstateAllowed = false
-                }
-
-                if state.cpb.count > 1 {
-                    self.cpbSupported = state.cpb[0]
-                    if self.corePerformanceBoost != state.cpb[1] {
-                        self.corePerformanceBoost = state.cpb[1]
-                    }
-                }
-
-                if state.kernelAnswered {
-                    if self.ppmEnabled != state.ppm { self.ppmEnabled = state.ppm }
-                    if self.lpmEnabled != state.lpm { self.lpmEnabled = state.lpm }
-                }
-            }
-        }
-    }
-
     // MARK: - Power Presets (menu panel)
 
     private func presetButton(_ preset: AMDPowerPreset) -> some View {
         let isSelected = presetCtrl.selectedPreset == preset
         return Button {
-            applyPreset(preset)
+            presetCtrl.apply(preset)
+            Task { await controls.syncFromKext() }
         } label: {
             VStack(spacing: 3) {
                 Image(systemName: preset.systemImage)
@@ -481,13 +380,6 @@ struct AmdControlSection: View {
             .contentShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
+        .disabled(gaming.isActive)
     }
-
-    private func applyPreset(_ preset: AMDPowerPreset) {
-        presetCtrl.apply(preset)
-        panelWarning = presetCtrl.privilegeMessage != nil ? "Requires admin privileges (-amdpnopchk)." : ""
-        checkCapabilities()
-    }
-
-    // presetColor(_:) removed — use preset.color directly (AMDPowerPreset.color).
 }

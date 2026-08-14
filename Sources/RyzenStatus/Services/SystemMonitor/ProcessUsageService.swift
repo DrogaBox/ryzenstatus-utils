@@ -545,9 +545,7 @@ final class ProcessUsageService {
 
             Task {
                 let totalGPUUtil = await Self.readTotalGPUUtilization()
-                self.gpuSampleLock.lock()
-                let prevSnapshot = previous
-                self.gpuSampleLock.unlock()
+                let prevSnapshot = self.gpuSampleLock.withLock { previous }
 
                 var rows: [ProcessUsage] = []
                 var computePercentSum: Double = 0
@@ -566,7 +564,8 @@ final class ProcessUsageService {
 
             // Always present WindowServer so GPU breakdown is never empty on macOS/AMD
             if let wsPID = Self.windowServerPID {
-                let wsShare = max(0.1, totalGPUUtil - computePercentSum)
+                let totalGPUPercent = totalGPUUtil <= 1.0 ? totalGPUUtil * 100.0 : totalGPUUtil
+                let wsShare = max(0.1, totalGPUPercent - computePercentSum)
                 let wsName = ResponsibleProcess.displayName(pid: wsPID, fallback: "WindowServer")
                 if !rows.contains(where: { $0.pid == wsPID }) {
                     rows.append(ProcessUsage(pid: wsPID, name: wsName, value: min(wsShare, 100)))
