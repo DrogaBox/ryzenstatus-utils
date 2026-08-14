@@ -1,0 +1,377 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 RyzenStatus
+
+import AppKit
+import Combine
+
+/// Reads the system media session (any app that publishes now-playing info:
+/// the music app, Spotify, browsers, video players) and surfaces it in the
+/// menu bar and the menu panel.
+///
+/// The service is a hub feature: `syncWithPreferences` starts it only while
+/// the feature is available AND its enable key is on, and stops it the moment
+/// either flips. While stopped there are no timers, no observers and no status
+/// item — zero idle cost, exactly like the other features.
+final class NowPlayingService: ObservableObject {
+    static let shared = NowPlayingService()
+
+    /// Fired when the menu bar item is clicked. AppDelegate wires this to
+    /// open the menu panel focused on the now-playing section.
+    var onActivate: (() -> Void)?
+
+    @Published private(set) var snapshot = NowPlayingSnapshot.empty
+    @Published private(set) var artworkImage: NSImage?
+
+    private let queue = DispatchQueue(label: "com.ryzenstatus.utils.now-playing", qos: .utility)
+    private var timer: Timer?
+    private var statusItem: NSStatusItem?
+    private var lastRenderedKey = ""
+    private var lastPollStartedAt: TimeInterval = 0
+    private var pollGeneration = 0
+    private var appNameCache: [String: String?] = [:]
+    private var cancellables = Set<AnyCancellable>()
+
+    private init() {}
+
+    // MARK: - Lifecycle
+
+    func syncWithPreferences() {
+        let defaults = UserDefaults.standard
+        let engaged = AppFeature.nowPlaying.isAvailable
+            && defaults.bool(forKey: DefaultsKey.nowPlayingEnabled)
+        if engaged {
+            start()
+        } else {
+            stop()
+        }
+    }
+
+    private func start() {
+        guard timer == nil else { return }
+        pollGeneration += 1
+        let provider = NowPlayingProvider(rawValue: UserDefaults.standard
+            .integer(forKey: DefaultsKey.nowPlayingPreferredProvider)) ?? .auto
+        if MediaRemoteBridge.readsBlockedBySystem {
+            if provider == .auto || provider == .music {
+                MediaRemoteBridge.triggerTCCPrompt(for: NowPlayingAutomation.musicBundleID)
+            }
+            if provider == .auto || provider == .spotify {
+                MediaRemoteBridge.triggerTCCPrompt(for: NowPlayingAutomation.spotifyBundleID)
+            }
+        } else {
+            MediaRemoteBridge.triggerTCCPrompt(for: NowPlayingAutomation.musicBundleID)
+        }
+        installStatusItem()
+        poll()
+        let t = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.poll()
+        }
+        t.tolerance = 0.5
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(appLaunchedOrTerminated), name: NSWorkspace.didLaunchApplicationNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(appLaunchedOrTerminated), name: NSWorkspace.didTerminateApplicationNotification, object: nil)
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        pollGeneration += 1
+        lastPollStartedAt = 0
+        if let statusItem {
+            NSStatusBar.system.removeStatusItem(statusItem)
+        }
+        statusItem = nil
+        lastRenderedKey = ""
+        snapshot = .empty
+        artworkImage = nil
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+    }
+
+    @objc private func appLaunchedOrTerminated() {
+        queue.async { [weak self] in
+            self?.appNameCache.removeAll()
+        }
+    }
+
+    // MARK: - Reading
+
+    private func poll() {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastPollStartedAt >= 2.0 else { return }
+        lastPollStartedAt = now
+        let gen = pollGeneration
+        let provider = NowPlayingProvider(rawValue: UserDefaults.standard
+            .integer(forKey: DefaultsKey.nowPlayingPreferredProvider)) ?? .auto
+
+        if MediaRemoteBridge.readsBlockedBySystem {
+            NowPlayingAutomation.fetchSnapshot(provider: provider, queue: queue) { [weak self] snapshot in
+                DispatchQueue.main.async {
+                    guard let self, self.timer != nil, gen == self.pollGeneration else { return }
+                    var next = snapshot
+                    if !provider.accepts(next.appBundleID) {
+                        next = .empty
+                    }
+                    if next != self.snapshot {
+                        self.snapshot = next
+                        self.artworkImage = next.artwork
+                    }
+                    self.renderMenuBar()
+                }
+            }
+            return
+        }
+
+        MediaRemoteBridge.fetchNowPlaying(queue: queue) { [weak self] snapshot in
+            MediaRemoteBridge.fetchPlayingApp(queue: self?.queue ?? .main) { [weak self] bundleID in
+                var resolvedAppName: String? = nil
+                if let bundleID = bundleID, let self = self {
+                    if let cached = self.appNameCache[bundleID] {
+                        resolvedAppName = cached
+                    } else {
+                        let name = self.appName(for: bundleID)
+                        self.appNameCache[bundleID] = name
+                        resolvedAppName = name
+                    }
+                }
+                DispatchQueue.main.async {
+                    guard let self, self.timer != nil, gen == self.pollGeneration else { return }
+                    var next = snapshot
+                    next.appBundleID = bundleID
+                    next.appName = resolvedAppName
+                    // A pinned provider filters the session out entirely:
+                    // nothing shows until that app is the one playing.
+                    if !provider.accepts(bundleID) {
+                        next = .empty
+                    }
+                    if next != self.snapshot {
+                        self.snapshot = next
+                        self.artworkImage = next.artwork
+                    }
+                    self.renderMenuBar()
+                }
+            }
+        }
+    }
+
+    /// The friendliest known name for the app owning the media session;
+    /// bundle identifiers alone are not user-facing.
+    private func appName(for bundleID: String?) -> String? {
+        guard let bundleID, !bundleID.isEmpty else { return nil }
+        if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
+            return app.localizedName
+        }
+        if let name = Bundle(identifier: bundleID)?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String {
+            return name
+        }
+        return bundleID
+    }
+
+    // MARK: - Transport
+
+    func togglePlayPause() {
+        if MediaRemoteBridge.sendCommand != nil {
+            MediaRemoteBridge.send(.togglePlayPause)
+        } else {
+            NowPlayingAutomation.togglePlayPause(bundleID: snapshot.appBundleID)
+        }
+    }
+
+    func nextTrack() {
+        if MediaRemoteBridge.sendCommand != nil {
+            MediaRemoteBridge.send(.nextTrack)
+        } else {
+            NowPlayingAutomation.nextTrack(bundleID: snapshot.appBundleID)
+        }
+    }
+
+    func previousTrack() {
+        if MediaRemoteBridge.sendCommand != nil {
+            MediaRemoteBridge.send(.previousTrack)
+        } else {
+            NowPlayingAutomation.previousTrack(bundleID: snapshot.appBundleID)
+        }
+    }
+
+    func seek(to seconds: TimeInterval) {
+        if MediaRemoteBridge.sendCommand != nil {
+            MediaRemoteBridge.seek(to: seconds)
+        } else {
+            NowPlayingAutomation.seek(to: seconds, bundleID: snapshot.appBundleID)
+        }
+    }
+
+    func applyPreferenceChanges() {
+        guard timer != nil else { return }
+        let provider = NowPlayingProvider(rawValue: UserDefaults.standard
+            .integer(forKey: DefaultsKey.nowPlayingPreferredProvider)) ?? .auto
+        if !provider.accepts(snapshot.appBundleID) {
+            snapshot = .empty
+            artworkImage = nil
+        }
+        lastRenderedKey = ""
+        renderMenuBar()
+        poll()
+    }
+
+    /// Brings the app that owns the current session to the front, so the
+    /// track title click acts like the original app's "open in source app".
+    func openSourceApp() {
+        guard let bundleID = snapshot.appBundleID, !bundleID.isEmpty else { return }
+        if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+            NSWorkspace.shared.openApplication(at: appURL,
+                                               configuration: NSWorkspace.OpenConfiguration(),
+                                               completionHandler: nil)
+        }
+    }
+
+    // MARK: - Menu bar item
+
+    private func installStatusItem() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.autosaveName = "RyzenStatusNowPlaying"
+        item.behavior = []
+        item.isVisible = true
+        if let button = item.button {
+            button.target = self
+            button.action = #selector(statusItemClicked(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.imagePosition = .imageLeft
+        }
+        statusItem = item
+        renderMenuBar()
+    }
+
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        onActivate?()
+    }
+
+    /// Composes the menu bar item into a single image: the note icon, the
+    /// track text according to the display mode, and (optionally) a thin
+    /// progress strip along the bottom. The item is always visible while the
+    /// feature is on — idle shows a dimmed icon, not a hole in the bar.
+    private func renderMenuBar() {
+        guard let button = statusItem?.button else { return }
+        let defaults = UserDefaults.standard
+        let mode = NowPlayingMenuBarMode(rawValue: defaults.integer(forKey: DefaultsKey.nowPlayingMenuBarMode)) ?? .artistSong
+        let showProgress = defaults.bool(forKey: DefaultsKey.nowPlayingMenuBarProgress)
+
+        var text = ""
+        let hasTrack = snapshot.hasTrack
+        if !hasTrack {
+            text = ""
+        } else {
+            switch mode {
+            case .iconOnly: text = ""
+            case .artist: text = snapshot.displayArtist
+            case .song: text = snapshot.displayTitle
+            case .artistSong:
+                text = snapshot.displayArtist == "—"
+                    ? snapshot.displayTitle
+                    : "\(snapshot.displayTitle) — \(snapshot.displayArtist)"
+            }
+        }
+
+        let progress: Double? = showProgress && hasTrack
+            ? progressFraction : nil
+
+        let progressStr = progress != nil ? String(Int(progress! * 100)) : "-"
+        let appearance = button.effectiveAppearance.name.rawValue
+        let key = "\(text)|\(hasTrack)|\(snapshot.isPlaying)|\(mode.rawValue)|\(progressStr)|\(appearance)"
+        guard key != lastRenderedKey else { return }
+        lastRenderedKey = key
+
+        let image = Self.composeMenuBarImage(text: text,
+                                             hasTrack: hasTrack,
+                                             isPlaying: snapshot.isPlaying,
+                                             progress: progress)
+        button.image = image
+        button.toolTip = hasTrack
+            ? "\(snapshot.displayTitle) — \(snapshot.displayArtist)"
+            : nil
+        button.setAccessibilityLabel(hasTrack 
+            ? "\(snapshot.displayTitle) — \(snapshot.displayArtist)" 
+            : FeatureStrings.nowPlaying(L10n.shared.language).emptyState)
+    }
+
+    private var progressFraction: Double? {
+        guard let elapsed = snapshot.elapsed, let duration = snapshot.duration,
+              duration > 0 else { return nil }
+        return max(0, min(1, elapsed / duration))
+    }
+
+    /// Draws the full status item in one pass so the icon, text and progress
+    /// strip stay aligned regardless of the menu bar's dark/light appearance.
+    private static func composeMenuBarImage(text: String,
+                                            hasTrack: Bool,
+                                            isPlaying: Bool,
+                                            progress: Double?) -> NSImage {
+        let icon = NSImage(systemSymbolName: "music.note",
+                           accessibilityDescription: nil)
+        let iconConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+        let iconImage = icon?.withSymbolConfiguration(iconConfig) ?? NSImage()
+
+        let font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        let dim = hasTrack && !isPlaying
+        let textColor: NSColor = hasTrack
+            ? (dim ? NSColor.secondaryLabelColor : NSColor.labelColor)
+            : NSColor.tertiaryLabelColor
+
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineBreakMode = .byTruncatingTail
+        let textAttrs: [NSAttributedString.Key: Any] = [
+            .font: font, 
+            .foregroundColor: textColor,
+            .paragraphStyle: paragraphStyle
+        ]
+        
+        var textSize = (text as NSString).size(withAttributes: textAttrs)
+        if textSize.width > 260 {
+            textSize.width = 260
+        }
+
+        let progressHeight: CGFloat = 2.5
+        let progressInset: CGFloat = 2
+        let totalHeight: CGFloat = 18 + (progress != nil ? progressHeight + 1 : 0)
+        let iconWidth: CGFloat = 14
+        let gap: CGFloat = text.isEmpty ? 0 : 4
+        let totalWidth = max(20, iconWidth + gap + textSize.width + 4)
+
+        let image = NSImage(size: NSSize(width: totalWidth, height: totalHeight), flipped: false) { rect in
+            // Icon, vertically centered on the text line.
+            let iconY = (totalHeight - 18) / 2 + (18 - 11) / 2
+            iconImage.draw(in: NSRect(x: 1, y: iconY, width: 14, height: 11),
+                           from: .zero, operation: .sourceOver, fraction: 1)
+
+            if !text.isEmpty {
+                let textRect = NSRect(x: 1 + iconWidth + gap, y: (totalHeight - 18) / 2 + 3, width: textSize.width, height: textSize.height)
+                (text as NSString).draw(in: textRect, withAttributes: textAttrs)
+            }
+
+            // Thin progress strip along the bottom, matching the menu bar accent.
+            if let progress {
+                let barWidth = totalWidth - progressInset * 2
+                let bar = NSBezierPath(roundedRect: NSRect(x: progressInset,
+                                                           y: 1,
+                                                           width: barWidth,
+                                                           height: progressHeight),
+                                       xRadius: progressHeight / 2,
+                                       yRadius: progressHeight / 2)
+                NSColor.quaternaryLabelColor.setFill()
+                bar.fill()
+
+                let fill = NSBezierPath(roundedRect: NSRect(x: progressInset,
+                                                            y: 1,
+                                                            width: max(progressHeight, barWidth * CGFloat(progress)),
+                                                            height: progressHeight),
+                                        xRadius: progressHeight / 2,
+                                        yRadius: progressHeight / 2)
+                NSColor.controlAccentColor.setFill()
+                fill.fill()
+            }
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+}
