@@ -42,6 +42,8 @@ walkthrough.md
 task.md
 .gemini/
 .agents/
+.Jules/
+.jules/
 .user_uploaded/
 .system_generated/
 
