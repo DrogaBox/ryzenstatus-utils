@@ -16,7 +16,7 @@ actor ProcessorModel {
 
     nonisolated let iokitLock = NSLock()
     nonisolated(unsafe) var connect: io_connect_t
-    private var kextWatchdogTask: Task<Void, Never>?
+    nonisolated(unsafe) private var kextWatchdogTask: Task<Void, Never>?
 
     nonisolated func safeIOConnectCallMethod(
         _ selector: UInt32,
@@ -80,12 +80,16 @@ actor ProcessorModel {
         private let lock = NSLock()
         private var _cpuWatts: Double = 0
         private var _gpuWatts: Double = 0
+        private var _cpuTemp: Double = 0
 
         var cpuWatts: Double {
             lock.lock(); defer { lock.unlock() }; return _cpuWatts
         }
         var gpuWatts: Double {
             lock.lock(); defer { lock.unlock() }; return _gpuWatts
+        }
+        var cpuTemp: Double {
+            lock.lock(); defer { lock.unlock() }; return _cpuTemp
         }
         func setCPU(_ w: Double) {
             lock.lock()
@@ -97,6 +101,11 @@ actor ProcessorModel {
             _gpuWatts = max(0, w)
             lock.unlock()
         }
+        func setCPUTemp(_ t: Double) {
+            lock.lock()
+            _cpuTemp = max(0, t)
+            lock.unlock()
+        }
     }
     nonisolated let powerCache = PowerCache()
 
@@ -104,6 +113,39 @@ actor ProcessorModel {
     nonisolated var lastCPUPowerWatts: Double { powerCache.cpuWatts }
     /// Latest GPU total power in Watts. Thread-safe, no await needed.
     nonisolated var lastGPUPowerWatts: Double { powerCache.gpuWatts }
+    /// Latest CPU package temperature in °C. Thread-safe, no await needed.
+    nonisolated var lastCPUTemperature: Double {
+        let cached = powerCache.cpuTemp
+        if cached > 0 { return cached }
+        if let packet = getTelemetry(), packet.packageTempC > 0 && packet.packageTempC <= 125.0 {
+            let t = Double(packet.packageTempC)
+            powerCache.setCPUTemp(t)
+            return t
+        }
+        let metricTemp = getCoreMetricTemperature()
+        if metricTemp > 0 { return metricTemp }
+        return 0
+    }
+
+    nonisolated func getCoreMetricTemperature() -> Double {
+        if isTerminating || Task.isCancelled || connect == 0 { return 0 }
+        var scalerOut: UInt64 = 0
+        var outputCount: UInt32 = 1
+        let maxStrLength = 64
+        var outputStr: [Float] = [Float](repeating: 0, count: maxStrLength)
+        var outputStrCount: Int = 4 * maxStrLength
+        let res = safeIOConnectCallMethod(AMDKextSelector.coreMetric.id, nil, 0, nil, 0,
+                                          &scalerOut, &outputCount,
+                                          &outputStr, &outputStrCount)
+        if res == KERN_SUCCESS && outputStr.count > 1 {
+            let temp = Double(outputStr[1])
+            if temp > 0 && temp <= 125.0 {
+                powerCache.setCPUTemp(temp)
+                return temp
+            }
+        }
+        return 0
+    }
 
     // Thread-safe GPU cache for kext readings (selectors 27-30)
     // Provides nonisolated access to GPU temperature and power from the kext.
@@ -158,9 +200,7 @@ actor ProcessorModel {
     var boardValid = false
     var boardName : String = "Unknown"
     var boardVendor : String = "Unknown"
-    var fetchRetry : Int = 10
-    var fetchRetry2 : Int = 10
-    var retryTimer : Timer?
+    private var lastLoadIndexTime: TimeInterval = 0
 
     var cpuFamily: Int {
         return cpuidBasic.count > 0 ? Int(cpuidBasic[0]) : 0
@@ -286,13 +326,14 @@ actor ProcessorModel {
                 guard let self = self else { break }
                 let serviceObject = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AMDRyzenCPUPowerManagement"))
                 if serviceObject == 0 {
-                    self.iokitLock.lock()
-                    let wasConnected = (self.connect != 0)
-                    if wasConnected {
-                        IOServiceClose(self.connect)
-                        self.connect = 0
+                    let wasConnected = self.iokitLock.withLock {
+                        let was = (self.connect != 0)
+                        if was {
+                            IOServiceClose(self.connect)
+                            self.connect = 0
+                        }
+                        return was
                     }
-                    self.iokitLock.unlock()
                     
                     if wasConnected {
                         self.terminationState.isTerminating = true
@@ -578,11 +619,24 @@ actor ProcessorModel {
         if outputStr.count > 0 {
             powerCache.setCPU(Double(outputStr[0]))
         }
+        // metric[1] = CPU Package Temperature (°C) — update the thread-safe cache
+        if outputStr.count > 1 {
+            let temp = Double(outputStr[1])
+            if temp > 0 && temp <= 125.0 {
+                powerCache.setCPUTemp(temp)
+            }
+        }
 
         lastMLoad = ProcessInfo.processInfo.systemUptime
     }
 
-    private func loadLoadIndex(){
+    private func loadLoadIndex() {
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - lastLoadIndexTime < 0.5 && !loadIndex.isEmpty {
+            return
+        }
+        lastLoadIndexTime = now
+
         var numCPUs: mach_msg_type_number_t = 0
         var infoArray: processor_info_array_t?
         var infoCount: mach_msg_type_number_t = 0
