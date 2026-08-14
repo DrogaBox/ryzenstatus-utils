@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.10.0] — 2026-08-14
+
+### Now Playing — Transport Fix
+- **Next / Previous Track**: fixed a critical bug where the Next Track button was sending command `kMRStop` (raw value 3) instead of `kMRNextTrack` (raw value 4), causing it to stop playback instead of skipping to the next song. Previous Track was similarly off by one. The fix affects both the Now Playing panel card and the Radial Menu media keys — skip and back now work correctly in Music, Spotify, and any other system media session.
+
+### Now Playing — New Feature
+- **Now Playing Panel**: new section in the menu panel showing the current track with artwork, artist, album, a seekable progress bar with time labels, and transport controls (previous, play/pause, next). Works with any app that publishes a system media session: Music, Spotify, browsers, video players.
+- **Now Playing Menu Bar Item**: dedicated status item that shows the track title and artist in the menu bar with an optional progress strip, configurable display modes (icon only, artist, song, or both), and a click to open the panel.
+- **Provider Picker**: pin the feature to Music or Spotify, or leave it on Auto to follow whichever app is playing.
+- **Open in App**: click the track title or use the button to bring the source app to the front.
+
+### Monitor — CPU Temperature
+- **Menu Bar Temperature from Cold Start**: the CPU temperature now appears in the menu bar immediately on launch without needing to open the Dashboard first. Added a dual-fallback: first tries the telemetry selector, then falls back to core-metric temperature.
+
+### Dashboard — Live Updates
+- **Process List Real-Time Refresh**: the process list in the Dashboard now updates automatically in real time even when the popover is closed, driven by the system monitor's snapshot tick (every ~1 s).
+- **Network Graph**: the network throughput chart in the Dashboard now activates as soon as the Dashboard window opens.
+- **Scroll**: the Dashboard tab content is now scrollable so multi-core grids and long process lists don't overflow.
+
+### Fan Curve Editor
+- **Canvas Height**: the fan curve editor canvas no longer collapses to zero height; it now renders at a proper fixed height so the curve is always fully visible.
+
+### Code Quality — Swift 6 Readiness
+- Replaced all `NSLock.lock()` / `.unlock()` calls inside `async` / `Task` contexts with `withLock {}` (ProcessorModel, ProcessUsageService).
+- Declared `kextWatchdogTask` as `nonisolated(unsafe)` to allow assignment from the actor's `init()`.
+- Fixed `@MainActor`-isolated `updateUsage()` called from a nonisolated `Timer` callback in `ThreadGridView`.
+- Captured `initFans` as an immutable `let` binding before `await` in `AmdControlSection` to satisfy Swift's sendability rules.
+- Updated two deprecated `onChange(of:perform:)` calls to the macOS 14+ two-parameter form.
+- Removed an unused `flags` binding in `FinderCutPaste`.
+
 ## [1.9.16] — 2026-08-09
 
 ### App Switcher — Rules & Windowless Apps

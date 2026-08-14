@@ -37,13 +37,13 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.9.16</string>
+	<string>1.10.0</string>
 	<key>CFBundleSupportedPlatforms</key>
 	<array>
 		<string>MacOSX</string>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>44</string>
+	<string>45</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>
@@ -52,12 +52,16 @@
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>RyzenStatus uses Automation to move files in Finder, send items to the Trash and open Terminal commands when you ask for Homebrew actions.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>RyzenStatus reads the current track to show it in the menu bar.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>RyzenStatus taps individual app audio only to adjust each app's volume in the mixer. Nothing is recorded or leaves your Mac.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>RyzenStatus shows your camera only in the preview window you open, so you can check how you look before a call. Nothing is recorded or leaves your Mac.</string>
 	<key>NSCameraUseContinuityCameraDeviceType</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>RyzenStatus uses your microphone to include your voice in screen recordings and monitor audio levels when enabled.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 RyzenStatus</string>
 	<key>NSPrincipalClass</key>
