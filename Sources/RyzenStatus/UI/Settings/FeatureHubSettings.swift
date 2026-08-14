@@ -207,8 +207,10 @@ private struct PresetCard: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.secondary.opacity(0.08))
         )
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(name). \(caption)")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onApply() }
     }
 }
 
@@ -299,9 +301,10 @@ private struct FeatureHubRow: View {
             }
         }
         .padding(.vertical, 1)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityTitle)
-        .accessibilityValue(installed ? "1" : "0")
+        .accessibilityAddTraits(installed ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { flip(to: !installed) }
     }
 
     /// A quick, honest beat of feedback: the spinner shows the action landed,
