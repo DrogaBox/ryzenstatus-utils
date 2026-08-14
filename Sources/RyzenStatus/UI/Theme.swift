@@ -44,6 +44,14 @@ enum PanelMetricColor {
     static func pink(for scheme: ColorScheme) -> Color {
         scheme == .light ? Color(red: 0.68, green: 0.06, blue: 0.34) : .pink
     }
+
+    static func purple(for scheme: ColorScheme) -> Color {
+        scheme == .light ? Color(red: 0.58, green: 0.15, blue: 0.76) : Color(red: 0.75, green: 0.35, blue: 0.95)
+    }
+
+    static func indigo(for scheme: ColorScheme) -> Color {
+        scheme == .light ? Color(red: 0.28, green: 0.22, blue: 0.68) : Color(red: 0.40, green: 0.38, blue: 0.92)
+    }
 }
 
 enum PanelSurface {
@@ -62,6 +70,10 @@ enum PanelSurface {
     static func border(for scheme: ColorScheme) -> Color {
         scheme == .light ? Color.black.opacity(0.09) : Color.white.opacity(0.11)
     }
+
+    static func suiteCardFill(for scheme: ColorScheme) -> Color {
+        scheme == .light ? Color(NSColor.controlBackgroundColor) : Color.white.opacity(0.06)
+    }
 }
 
 func sectionTitle(_ text: String) -> some View {
@@ -77,10 +89,33 @@ extension View {
         modifier(PanelCardModifier())
     }
 
+    /// The structured card container used by Performance Suite dashboard sections.
+    func suiteCard(padding: CGFloat = 12) -> some View {
+        modifier(SuiteCardModifier(padding: padding))
+    }
+
     /// A restrained glass base for the menu panel: still translucent, but with a
     /// stable tint so text and controls do not depend too much on the wallpaper.
     func panelGlassSurface(cornerRadius: CGFloat = 18) -> some View {
         background(PanelGlassSurface(cornerRadius: cornerRadius))
+    }
+}
+
+private struct SuiteCardModifier: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+    let padding: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .padding(padding)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(PanelSurface.suiteCardFill(for: colorScheme))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(PanelSurface.border(for: colorScheme), lineWidth: 0.7)
+            )
     }
 }
 

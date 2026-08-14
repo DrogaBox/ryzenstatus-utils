@@ -109,4 +109,45 @@ struct FanCurve: Codable, Identifiable, Hashable {
         }
         return lut
     }
+
+    // MARK: - Pure Math & Mapping Helpers
+
+    /// Computes the next PWM level stepped smoothly according to ramp rate (%/s) and elapsed time (seconds).
+    static func stepPWM(current: Double, target: Double, rampPerSec: Double, dt: Double) -> Double {
+        guard dt > 0, rampPerSec > 0 else { return target }
+        let maxStep = rampPerSec * dt
+        let diff = target - current
+        if abs(diff) <= maxStep {
+            return target
+        }
+        return current + (diff > 0 ? maxStep : -maxStep)
+    }
+
+    /// Evaluates temperature with hysteresis against a reference anchor.
+    /// Updates anchor only when temperature delta reaches or exceeds threshold.
+    static func applyHysteresis(anchor: Double, raw: Double, threshold: Double) -> (effective: Double, newAnchor: Double) {
+        if threshold <= 0 || abs(raw - anchor) >= threshold {
+            return (effective: raw, newAnchor: raw)
+        } else {
+            return (effective: anchor, newAnchor: anchor)
+        }
+    }
+
+    /// Compacts fan mapping indices when a curve at `deletedIndex` is removed:
+    /// - Fans mapped to `deletedIndex` are set to `-1` (Auto mode)
+    /// - Fans mapped to higher indices are shifted down by 1
+    /// - Other mappings remain intact
+    static func compactMappingsOnDeletion(mappings: [Int: Int], deletedIndex: Int) -> [Int: Int] {
+        var result: [Int: Int] = [:]
+        for (fanId, curveIdx) in mappings {
+            if curveIdx == deletedIndex {
+                result[fanId] = -1
+            } else if curveIdx > deletedIndex {
+                result[fanId] = curveIdx - 1
+            } else {
+                result[fanId] = curveIdx
+            }
+        }
+        return result
+    }
 }

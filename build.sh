@@ -36,7 +36,7 @@ else
     EXECUTABLE="RyzenStatus"
 fi
 TARGET="x86_64-apple-macosx14.0"
-ENTITLEMENTS="Resources/RyzenStatus.entitlements"
+ENTITLEMENTS="Resources/ZenStatus.entitlements"
 LEGACY_IDENTITY="RyzenStatus Utils Signing"
 
 developer_id_identity() {
@@ -59,7 +59,7 @@ finalize_installed_bundle_after_child() {
     elif security find-identity -p codesigning 2>/dev/null | grep -q "$LEGACY_IDENTITY"; then
         /usr/bin/codesign --force --strip-disallowed-xattrs --sign "$LEGACY_IDENTITY" "$bundle"
     else
-        /usr/bin/codesign --force --strip-disallowed-xattrs --sign - "$bundle"
+        /usr/bin/codesign --force --strip-disallowed-xattrs --entitlements "$ENTITLEMENTS" --sign - "$bundle"
     fi
     /usr/bin/codesign --verify --deep --strict "$bundle"
     echo "✓ Signature ready: $bundle"
@@ -96,6 +96,9 @@ if (( TEST )); then
         Sources/RyzenStatus/Core/Defaults.swift \
         Sources/RyzenStatus/Core/DefaultsKey+App.swift \
         Sources/RyzenStatus/Core/DefaultsKey+Monitor.swift \
+        Sources/RyzenStatus/Services/NowPlaying/NowPlayingSupport.swift \
+        Sources/RyzenStatus/Services/NowPlaying/NowPlayingAutomation.swift \
+        Sources/RyzenStatus/Core/NowPlayingStrings.swift \
         Sources/RyzenStatus/Core/FeatureCatalog.swift \
         Sources/RyzenStatus/Core/FeaturePresets.swift \
         Sources/RyzenStatus/Core/FeatureHubStrings.swift \
@@ -127,6 +130,8 @@ if (( TEST )); then
         Sources/RyzenStatus/Services/GeneralPasteboardAccess.swift \
         Sources/RyzenStatus/Services/Audio/MixerRoutingSupport.swift \
         Sources/RyzenStatus/Services/AMD/AMDPowerPresets.swift \
+        Sources/RyzenStatus/Services/AMD/FanCurveModels.swift \
+        Sources/RyzenStatus/Core/AmdPowerStrings.swift \
         Sources/RyzenStatus/Services/AMD/AmdSettingsStore.swift \
         Sources/RyzenStatus/Services/AMD/AMDCoreRanking.swift \
         Sources/RyzenStatus/Services/AMD/CPUSensorPacket.swift \
@@ -186,10 +191,10 @@ if (( TEST )); then
     exit $?
 fi
 
-echo "▸ Compiling (release) against $(basename "$SDK") using $(sysctl -n hw.ncpu) threads…"
+echo "▸ Compiling (release) against $(basename "$SDK") using 8 threads…"
 mkdir -p build
 rm -f "build/$EXECUTABLE"
-swiftc -O -num-threads "$(sysctl -n hw.ncpu)" -target "$TARGET" -sdk "$SDK" \
+swiftc -O -num-threads 8 -target "$TARGET" -sdk "$SDK" \
     Sources/RyzenStatus/**/*.swift \
     -o "build/$EXECUTABLE"
 
@@ -254,7 +259,7 @@ codesign_target() {
     elif security find-identity -p codesigning 2>/dev/null | grep -q "$LEGACY_IDENTITY"; then
         codesign --force --strip-disallowed-xattrs --sign "$LEGACY_IDENTITY" "$target"
     else
-        codesign --force --strip-disallowed-xattrs --sign - "$target"
+        codesign --force --strip-disallowed-xattrs --entitlements "$ENTITLEMENTS" --sign - "$target"
     fi
 }
 

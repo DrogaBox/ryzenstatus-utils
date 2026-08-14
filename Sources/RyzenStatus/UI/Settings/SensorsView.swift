@@ -366,7 +366,9 @@ struct SensorsView: View {
         }
         .formStyle(.grouped)
         .onAppear {
-            SystemMonitor.shared.setMenuPanelNeeds(SystemMonitorPanelNeeds(power: true, cpuTemperature: true, gpuTemperature: true))
+            // Full monitor surface: register as a panel client (depth counter)
+            // so opening/closing the menu popover cannot wipe these needs.
+            SystemMonitor.shared.panelDidAppear()
             smcDump.refresh()
             loadTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
                 Task { @MainActor in
@@ -375,7 +377,7 @@ struct SensorsView: View {
             }
         }
         .onDisappear {
-            SystemMonitor.shared.setMenuPanelNeeds(.none)
+            SystemMonitor.shared.panelDidDisappear()
             loadTimer?.invalidate()
             loadTimer = nil
         }

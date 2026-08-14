@@ -243,7 +243,69 @@ struct MetricsTests {
                          "\(language.rawValue) CPU temperature alert format")
             expectFormat(alertStrings.diskBodyFormat, ["@", "d"], "\(language.rawValue) disk alert format")
             expectFormat(alertStrings.batteryBodyFormat, ["d"], "\(language.rawValue) battery alert format")
+            
+            let npStrings = FeatureStrings.nowPlaying(language)
+            expect(!npStrings.pageTitle.isEmpty
+                   && !npStrings.emptyState.isEmpty
+                   && !npStrings.playLabel.isEmpty
+                   && !npStrings.pauseLabel.isEmpty
+                   && !npStrings.nextLabel.isEmpty
+                   && !npStrings.previousLabel.isEmpty
+                   && !npStrings.seekLabel.isEmpty
+                   && !npStrings.openInAppLabel.isEmpty
+                   && !npStrings.openInAppCaption.isEmpty
+                   && !npStrings.artworkToggle.isEmpty
+                   && !npStrings.menuBarModeLabel.isEmpty
+                   && !npStrings.menuBarModeIconOnly.isEmpty
+                   && !npStrings.menuBarModeArtist.isEmpty
+                   && !npStrings.menuBarModeSong.isEmpty
+                   && !npStrings.menuBarModeBoth.isEmpty
+                   && !npStrings.menuBarProgress.isEmpty
+                   && !npStrings.providerLabel.isEmpty
+                   && !npStrings.providerAuto.isEmpty
+                   && !npStrings.providerMusic.isEmpty
+                   && !npStrings.providerSpotify.isEmpty,
+                   "\(language.rawValue) Now Playing strings are localized")
+
+            let amdStrings = FeatureStrings.amdPower(language)
+            expect(!amdStrings.title.isEmpty
+                   && !amdStrings.modeDetectedCPPC.isEmpty
+                   && !amdStrings.modeDetectedPStates.isEmpty
+                   && !amdStrings.perfMax.isEmpty
+                   && !amdStrings.perfEco.isEmpty
+                   && !amdStrings.powerPresetsHeader.isEmpty
+                   && !amdStrings.deepCStatesTitle.isEmpty
+                   && !amdStrings.cppcTitle.isEmpty
+                   && !amdStrings.pnopchkTitle.isEmpty
+                   && !amdStrings.copyAmdArgsButton.isEmpty
+                   && !amdStrings.copiedToastText.isEmpty,
+                   "\(language.rawValue) AMD Power strings are localized")
         }
+
+        // Fan Curve math tests
+        expect(FanCurve.stepPWM(current: 50.0, target: 100.0, rampPerSec: 10.0, dt: 1.0) == 60.0,
+               "stepPWM ramps up by rampPerSec * dt")
+        expect(FanCurve.stepPWM(current: 50.0, target: 55.0, rampPerSec: 10.0, dt: 1.0) == 55.0,
+               "stepPWM clamps to target when delta < step")
+        expect(FanCurve.stepPWM(current: 80.0, target: 20.0, rampPerSec: 10.0, dt: 2.0) == 60.0,
+               "stepPWM ramps down correctly")
+        expect(FanCurve.stepPWM(current: 50.0, target: 100.0, rampPerSec: 0.0, dt: 1.0) == 100.0,
+               "stepPWM allows immediate target when rampPerSec <= 0")
+
+        // Hysteresis tests
+        let (eff1, anc1) = FanCurve.applyHysteresis(anchor: 50.0, raw: 51.5, threshold: 2.0)
+        expect(eff1 == 50.0 && anc1 == 50.0, "applyHysteresis holds anchor when within threshold")
+        let (eff2, anc2) = FanCurve.applyHysteresis(anchor: 50.0, raw: 52.5, threshold: 2.0)
+        expect(eff2 == 52.5 && anc2 == 52.5, "applyHysteresis updates anchor when above threshold")
+        let (eff3, anc3) = FanCurve.applyHysteresis(anchor: 50.0, raw: 47.0, threshold: 2.0)
+        expect(eff3 == 47.0 && anc3 == 47.0, "applyHysteresis updates anchor when below threshold")
+
+        // Mapping compaction tests
+        let compacted1 = FanCurve.compactMappingsOnDeletion(mappings: [0: 0, 1: 1, 2: 2], deletedIndex: 1)
+        expect(compacted1 == [0: 0, 1: -1, 2: 1], "compactMappingsOnDeletion resets deleted mapping to -1 and shifts higher curve indices")
+        let compacted2 = FanCurve.compactMappingsOnDeletion(mappings: [0: -1, 1: 0], deletedIndex: 0)
+        expect(compacted2 == [0: -1, 1: -1], "compactMappingsOnDeletion preserves unmapped and resets deleted to -1")
+
         expect(FeatureStrings.monitorAlerts(.enUS).cooldown == "Repeat the same alert after",
                "English monitor repeat control is explicit")
         expect(FeatureStrings.monitorAlerts(.ptBR).cooldown == "Repetir o mesmo alerta depois de",
@@ -4636,6 +4698,16 @@ struct MetricsTests {
             for value in rendered {
                 expect(!value.isEmpty && !value.contains("%"), "\(prefix) renders format strings")
             }
+
+            let psStrings = FeatureStrings.performanceSuite(language)
+            expect(!psStrings.title.isEmpty, "\(prefix) Performance Suite title is present")
+            expect(!psStrings.dashboardTab.isEmpty, "\(prefix) Performance Suite dashboard tab is present")
+            expect(!psStrings.insightsTab.isEmpty, "\(prefix) Performance Suite insights tab is present")
+            expect(!psStrings.analyticsTab.isEmpty, "\(prefix) Performance Suite analytics tab is present")
+            expect(!psStrings.energyTab.isEmpty, "\(prefix) Performance Suite energy tab is present")
+            expect(!psStrings.networkTab.isEmpty, "\(prefix) Performance Suite network tab is present")
+            expect(!psStrings.cpuUtilization.isEmpty, "\(prefix) Performance Suite CPU title is present")
+            expect(!psStrings.memoryFootprint.isEmpty, "\(prefix) Performance Suite RAM title is present")
         }
         let infoPlist = NSDictionary(contentsOfFile: "Resources/Info.plist") as? [String: Any]
         let bundleLocalizations = infoPlist?["CFBundleLocalizations"] as? [String] ?? []
@@ -4644,16 +4716,23 @@ struct MetricsTests {
         let baseAudioPrompt = infoPlist?["NSAudioCaptureUsageDescription"] as? String ?? ""
         expect(baseAudioPrompt.contains("RyzenStatus taps individual app audio"),
                "base audio permission prompt is an English fallback")
+        let baseMicPrompt = infoPlist?["NSMicrophoneUsageDescription"] as? String ?? ""
+        expect(baseMicPrompt.contains("microphone"),
+               "base microphone permission prompt is configured in Info.plist")
         let turkishInfoPlistStrings = (try? String(contentsOfFile: "Resources/tr.lproj/InfoPlist.strings",
                                                    encoding: .utf8)) ?? ""
         expect(turkishInfoPlistStrings.contains("NSAudioCaptureUsageDescription")
                && turkishInfoPlistStrings.contains("Hiçbir şey kaydedilmez"),
                "Turkish InfoPlist.strings localizes the audio permission prompt")
+        expect(turkishInfoPlistStrings.contains("NSMicrophoneUsageDescription"),
+               "Turkish InfoPlist.strings localizes the microphone permission prompt")
         let koreanInfoPlistStrings = (try? String(contentsOfFile: "Resources/ko.lproj/InfoPlist.strings",
-                                                  encoding: .utf8)) ?? ""
+                                                   encoding: .utf8)) ?? ""
         expect(koreanInfoPlistStrings.contains("NSAudioCaptureUsageDescription")
                && koreanInfoPlistStrings.contains("어떤 오디오도 녹음되거나"),
                "Korean InfoPlist.strings localizes the audio permission prompt")
+        expect(koreanInfoPlistStrings.contains("NSMicrophoneUsageDescription"),
+               "Korean InfoPlist.strings localizes the microphone permission prompt")
 
         // MARK: Network speed math
 
@@ -4902,7 +4981,7 @@ struct MetricsTests {
 
         // MARK: Features hub catalog
 
-        expect(AppFeature.allCases.count == 52, "feature catalog has 52 features")
+        expect(AppFeature.allCases.count == 53, "feature catalog has 53 features")
         expect(Set(AppFeature.allCases.map(\.rawValue)).count == AppFeature.allCases.count,
                "feature ids are unique")
         expect(AppFeature.allCases.map(\.rawValue) == [
@@ -4910,7 +4989,7 @@ struct MetricsTests {
             "scrollInverter", "smoothScroll", "mouseNavigation", "middleClick", "keyboardDebounce",
             "textSnippets", "mouseButtonShortcuts", "superKey",
             "clipboardHistory", "pastePlain", "finderCutPaste", "shelf", "urlCleaner",
-            "mixer", "soundOutputSwitcher", "micMute", "musicBlock",
+            "mixer", "soundOutputSwitcher", "micMute", "musicBlock", "nowPlaying",
             "keepAwake", "brightness", "extraBrightness",
             "quickLauncher", "quickToggles", "colorPicker", "screenOCR", "cleaningMode", "mediaTools",
             "cleaner", "uninstaller", "homebrew", "appUpdates", "whatsAppDownloads", "screenshot", "screenRecorder", "cameraPreview", "radialMenu",

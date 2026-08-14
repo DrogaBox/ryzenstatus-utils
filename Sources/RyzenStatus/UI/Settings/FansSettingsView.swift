@@ -11,6 +11,8 @@ struct FansSettingsView: View {
     @State private var isLoadingFans = false
     @AppStorage(DefaultsKey.fanCurvesEditorEnabled) private var autoFanCurveEnabled = false
     @State private var customFanNames: [Int: String] = [:]
+    @State private var showingMaxSpeedConfirmation = false
+    @ObservedObject private var l10n = L10n.shared
     @ObservedObject var controller = FanCurveController.shared
     @ObservedObject private var monitor = SystemMonitor.shared
     
@@ -85,13 +87,14 @@ struct FansSettingsView: View {
                                 for f in fans {
                                     _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: f.id)
                                     controller.fanMappings[f.id] = -1
+                                    controller.unregisterManualOverride(fanId: f.id)
                                 }
                             }
                         }) {
                             HStack(spacing: 7) {
                                 Image(systemName: "arrow.circlepath")
                                     .font(.system(size: 12, weight: .semibold))
-                                Text("All Auto")
+                                Text(l10n.fanControl.allAutoButton)
                                     .font(.system(size: 12, weight: .semibold))
                             }
                             .foregroundColor(.cyan)
@@ -104,17 +107,12 @@ struct FansSettingsView: View {
                         .buttonStyle(.plain)
                         
                         Button(action: {
-                            Task {
-                                for f in fans {
-                                    _ = ProcessorModel.shared.setFanSpeed(pwm: 255, fanIndex: f.id)
-                                    controller.fanMappings[f.id] = -1
-                                }
-                            }
+                            showingMaxSpeedConfirmation = true
                         }) {
                             HStack(spacing: 7) {
                                 Image(systemName: "wind")
                                     .font(.system(size: 12, weight: .semibold))
-                                Text("Max Speed")
+                                Text(l10n.fanControl.maxSpeedButton)
                                     .font(.system(size: 12, weight: .semibold))
                             }
                             .foregroundColor(.orange)
@@ -125,9 +123,28 @@ struct FansSettingsView: View {
                             .cornerRadius(10)
                         }
                         .buttonStyle(.plain)
+                        .confirmationDialog(
+                            l10n.fanControl.maxSpeedConfirmationTitle,
+                            isPresented: $showingMaxSpeedConfirmation,
+                            titleVisibility: .visible
+                        ) {
+                            Button(l10n.fanControl.confirmButton, role: .destructive) {
+                                Task {
+                                    for f in fans {
+                                        _ = ProcessorModel.shared.setFanMode(auto: false, fanIndex: f.id)
+                                        _ = ProcessorModel.shared.setFanSpeed(pwm: 255, fanIndex: f.id)
+                                        controller.fanMappings[f.id] = -1
+                                        controller.registerManualOverride(fanId: f.id)
+                                    }
+                                }
+                            }
+                            Button(l10n.fanControl.cancelButton, role: .cancel) {}
+                        } message: {
+                            Text(l10n.fanControl.maxSpeedConfirmationMessage)
+                        }
                     }
                 } header: {
-                    Text("Fans")
+                    Text(l10n.fanControl.fansHeader)
                         .font(.system(size: 11, weight: .semibold))
                         .textCase(nil)
                 }
@@ -207,31 +224,33 @@ struct FansSettingsView: View {
     private func setupFans() {
         setupTask?.cancel()
         setupTask = Task.detached(priority: .userInitiated) {
-            let conn = ProcessorModel.shared.connect
-            let hasAccess = conn != 0
-            let currentFans = ProcessorModel.shared.getFans(includeNames: false)
-            guard !Task.isCancelled else { return }
+            let kernelAnswered = ProcessorModel.shared.connect != 0
+            guard kernelAnswered else {
+                await MainActor.run {
+                    self.hasSMCWriteAccess = false
+                    self.isLoadingFans = false
+                }
+                return
+            }
+            
+            let initialFans = ProcessorModel.shared.getFans(includeNames: true)
+            
             await MainActor.run {
                 guard !Task.isCancelled else { return }
-                self.hasSMCWriteAccess = hasAccess
-                self.fans = currentFans.map { fan in
-                    var updated = fan
-                    if let savedName = UserDefaults.standard.string(forKey: "FanName_\(fan.id)"),
-                       !savedName.isEmpty {
-                        updated.name = savedName
-                    }
-                    return updated
-                }
+                self.fans = initialFans
+                self.hasSMCWriteAccess = true
                 self.isLoadingFans = false
-                // Load hidden fans state & custom names
+                
                 if let savedHidden = UserDefaults.standard.array(forKey: "HiddenFanIDs") as? [Int] {
                     self.hiddenFanIDs = Set(savedHidden)
                 }
-                for fan in currentFans {
-                    if let saved = UserDefaults.standard.string(forKey: "FanName_\(fan.id)") {
-                        self.customFanNames[fan.id] = saved
+                
+                for f in initialFans {
+                    if let savedName = UserDefaults.standard.string(forKey: "FanName_\(f.id)") {
+                        self.customFanNames[f.id] = savedName
                     }
                 }
+                
                 // The toggle may have been left on in a previous session; the
                 // persisted .onChange does not re-fire on appear, so retry the
                 // one-tap mapping now that fan detection has completed.
@@ -239,14 +258,15 @@ struct FansSettingsView: View {
                     autoMapFirstCurveIfNeeded()
                 }
                 self.fetchState()
-                self.loadTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
+                self.loadTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
                     self.fetchState()
                 }
             }
         }
     }
 
-    /// One tap should do something: map the first curve to the first fan so
+    /// When the user flips the "Dynamic Fan Curves" master switch ON,
+    /// automatically assign curve 0 to the first fan if no mappings exist, so
     /// the toggle visibly starts driving a header. The user can re-map or
     /// disable per fan in the cards. Safe to call repeatedly — no-ops when a
     /// mapping already exists, no curves exist, or no fan is detected yet.
@@ -287,6 +307,8 @@ struct FanControlCard: View {
     @Binding var customFanNames: [Int: String]
     let onHide: () -> Void
     @State private var sliderValue: Double = 0
+    @State private var isDraggingSlider = false
+    @State private var writeTask: Task<Void, Never>?
     /// Se setea true cuando el usuario empieza a arrastrar el slider.
     /// Mantiene visible el botón "Reset to Auto" hasta que el kext confirma.
     @State private var didDrag = false
@@ -409,6 +431,7 @@ struct FanControlCard: View {
                             var updated = controller.fanMappings
                             updated[fan.id] = -1
                             controller.fanMappings = updated
+                            controller.unregisterManualOverride(fanId: fan.id)
                             didDrag = false
                             Task {
                                 _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fan.id)
@@ -417,6 +440,7 @@ struct FanControlCard: View {
                             var updated = controller.fanMappings
                             updated[fan.id] = newVal
                             controller.fanMappings = updated
+                            controller.unregisterManualOverride(fanId: fan.id)
                         }
                     }
                 )) {
@@ -443,14 +467,26 @@ struct FanControlCard: View {
                         set: { newVal in
                             sliderValue = newVal
                             didDrag = true
-                            Task {
+                            controller.registerManualOverride(fanId: fan.id)
+                            writeTask?.cancel()
+                            writeTask = Task {
+                                try? await Task.sleep(nanoseconds: 60_000_000)
+                                guard !Task.isCancelled else { return }
                                 _ = ProcessorModel.shared.setFanMode(auto: false, fanIndex: fan.id)
                                 _ = ProcessorModel.shared.setFanSpeed(pwm: Int(newVal), fanIndex: fan.id)
                             }
                         }
                     ),
                     in: 0...255,
-                    step: 1
+                    step: 1,
+                    onEditingChanged: { editing in
+                        isDraggingSlider = editing
+                        if !editing {
+                            writeTask?.cancel()
+                            _ = ProcessorModel.shared.setFanMode(auto: false, fanIndex: fan.id)
+                            _ = ProcessorModel.shared.setFanSpeed(pwm: Int(sliderValue), fanIndex: fan.id)
+                        }
+                    }
                 )
                 .tint(.cyan)
                 Text(String(format: "%.0f%%", sliderValue / 255.0 * 100.0))
@@ -463,6 +499,10 @@ struct FanControlCard: View {
             if fan.isOverridden || didDrag {
                 Button("↩ Reset to Auto") {
                     didDrag = false
+                    controller.unregisterManualOverride(fanId: fan.id)
+                    var updated = controller.fanMappings
+                    updated[fan.id] = -1
+                    controller.fanMappings = updated
                     Task {
                         _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fan.id)
                     }
@@ -489,7 +529,7 @@ struct FanControlCard: View {
         }
         .onChange(of: fan.throttle) { _, newVal in
             // Sincronizar slider con telemetria SOLO en modo Auto para no pisar el valor manual fijado por el usuario
-            if !fan.isOverridden && !didDrag {
+            if !fan.isOverridden && !didDrag && !isDraggingSlider {
                 sliderValue = Double(newVal)
             }
         }

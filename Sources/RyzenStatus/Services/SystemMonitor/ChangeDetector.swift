@@ -17,6 +17,11 @@ final class ChangeDetector: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
+        // Periodic pruning if dictionary accumulates inactive process IDs
+        if previousFootprints.count > 200 {
+            pruneDeadProcesses()
+        }
+
         guard let prev = previousFootprints[pid] else {
             previousFootprints[pid] = currentBytes
             return false
@@ -31,5 +36,17 @@ final class ChangeDetector: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         previousFootprints.removeValue(forKey: pid)
+    }
+
+    private func pruneDeadProcesses() {
+        var deadPIDs: [pid_t] = []
+        for pid in previousFootprints.keys {
+            if kill(pid, 0) != 0 && errno == ESRCH {
+                deadPIDs.append(pid)
+            }
+        }
+        for pid in deadPIDs {
+            previousFootprints.removeValue(forKey: pid)
+        }
     }
 }

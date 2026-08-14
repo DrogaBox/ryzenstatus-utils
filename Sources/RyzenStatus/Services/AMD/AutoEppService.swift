@@ -77,6 +77,7 @@ final class AutoEppService: ObservableObject {
         pollTask?.cancel()
         pollTask = nil
         isSuspended = true
+        lastWrittenEPP = 0xFF // F7: reset sentinel so resume writes immediately
     }
 
     /// Resumes the poll loop if Auto EPP is still enabled in AmdSettingsStore.
@@ -85,7 +86,7 @@ final class AutoEppService: ObservableObject {
     func resume() {
         isSuspended = false
         guard AmdSettingsStore.shared.autoEppEnabled else { return }
-        start() // idempotent — guard timer == nil inside start()
+        start()
     }
 
     /// Toggles CPPC Active Mode in the kext and updates published state immediately.
@@ -94,7 +95,7 @@ final class AutoEppService: ObservableObject {
         AmdSettingsStore.shared.autoEppEnabled = active
         self.isActive = active
         Task {
-            let res = await ProcessorModel.shared.setCPPCActiveMode(active: active)
+            let res = ProcessorModel.shared.setCPPCActiveMode(active: active)
             if res == ProcessorModel.kIOReturnNotPrivilegedCode {
                 self.privilegeDenied = true
             } else {
@@ -108,41 +109,42 @@ final class AutoEppService: ObservableObject {
 
     func poll() async {
         guard !isSuspended else { return }
-        let isConnected = await ProcessorModel.shared.connect != 0
+        let isConnected = ProcessorModel.shared.connect != 0
         guard isConnected else {
             await MainActor.run {
-                currentCPULoad = 0
-                currentGPULoad = 0
-                currentTarget = ""
+                if self.currentCPULoad != 0 { self.currentCPULoad = 0 }
+                if self.currentGPULoad != 0 { self.currentGPULoad = 0 }
+                if !self.currentTarget.isEmpty { self.currentTarget = "" }
             }
             return
         }
 
-        let enabled = await MainActor.run { AmdSettingsStore.shared.autoEppEnabled }
-
-        let loads = await ProcessorModel.shared.getLoadIndex()
-        let cpuAvg: Float
-        if !loads.isEmpty {
-            cpuAvg = loads.reduce(0, +) * 100 / Float(loads.count)
-        } else {
-            cpuAvg = Float(await MainActor.run { SystemMonitor.shared.snapshot.cpuUsage ?? 0 } * 100)
+        // F12: Snapshot all MainActor settings at once
+        let (enabled, idleThreshold, loadThreshold, gpuUsage, cpuUsageFallback) = await MainActor.run {
+            (
+                AmdSettingsStore.shared.autoEppEnabled,
+                AmdSettingsStore.shared.autoEppIdleThreshold,
+                AmdSettingsStore.shared.autoEppLoadThreshold,
+                SystemMonitor.shared.snapshot.gpuUsage ?? 0,
+                Float((SystemMonitor.shared.snapshot.cpuUsage ?? 0) * 100)
+            )
         }
 
-        let gpuUtil = await MainActor.run { SystemMonitor.shared.snapshot.gpuUsage ?? 0 }
-        let gpuLoad = Float(gpuUtil * 100)
-
+        // F12: If Auto EPP is disabled, early return before reading Mach CPU load
         guard enabled else {
             await MainActor.run {
-                if self.isActive != enabled { self.isActive = enabled }
-                currentCPULoad = cpuAvg
-                currentGPULoad = gpuLoad
-                currentTarget = ""
+                if self.isActive != false { self.isActive = false }
+                if !self.currentTarget.isEmpty { self.currentTarget = "" }
             }
             return
         }
 
-        let idleThreshold = await MainActor.run { AmdSettingsStore.shared.autoEppIdleThreshold }
-        let loadThreshold = await MainActor.run { AmdSettingsStore.shared.autoEppLoadThreshold }
+        let loads = await ProcessorModel.shared.getLoadIndex()
+        let cpuAvg: Float = !loads.isEmpty
+            ? (loads.reduce(0, +) * 100 / Float(loads.count))
+            : cpuUsageFallback
+
+        let gpuLoad = Float(gpuUsage * 100)
 
         let gpuHeavyThreshold: Float = 60
         let gpuActiveThreshold: Float = 30
@@ -183,11 +185,11 @@ final class AutoEppService: ObservableObject {
 
         await MainActor.run {
             if self.isActive != enabled { self.isActive = enabled }
-            currentCPULoad = cpuAvg
-            currentGPULoad = gpuLoad
-            if currentTarget != targetName { currentTarget = targetName }
-            if currentEPP != finalEPP { currentEPP = finalEPP }
-            if privilegeDenied != finalPrivilegeDenied { privilegeDenied = finalPrivilegeDenied }
+            if self.currentCPULoad != cpuAvg { self.currentCPULoad = cpuAvg }
+            if self.currentGPULoad != gpuLoad { self.currentGPULoad = gpuLoad }
+            if self.currentTarget != targetName { self.currentTarget = targetName }
+            if self.currentEPP != finalEPP { self.currentEPP = finalEPP }
+            if self.privilegeDenied != finalPrivilegeDenied { self.privilegeDenied = finalPrivilegeDenied }
         }
     }
 }

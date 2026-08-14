@@ -21,7 +21,7 @@ enum AppFeature: String, CaseIterable {
     // Clipboard and files
     case clipboardHistory, pastePlain, finderCutPaste, shelf, urlCleaner
     // Sound
-    case mixer, soundOutputSwitcher, micMute, musicBlock
+    case mixer, soundOutputSwitcher, micMute, musicBlock, nowPlaying
     // Energy and display
     case keepAwake, brightness, extraBrightness
     // Tools
@@ -54,7 +54,7 @@ extension AppFeature {
             return .mouseKeyboard
         case .clipboardHistory, .pastePlain, .finderCutPaste, .shelf, .urlCleaner:
             return .clipboardFiles
-        case .mixer, .soundOutputSwitcher, .micMute, .musicBlock:
+        case .mixer, .soundOutputSwitcher, .micMute, .musicBlock, .nowPlaying:
             return .sound
         case .keepAwake, .brightness, .extraBrightness:
             return .energyDisplay
@@ -92,6 +92,7 @@ extension AppFeature {
         case .soundOutputSwitcher: return "hifispeaker"
         case .micMute: return "mic.slash"
         case .musicBlock: return "music.note"
+        case .nowPlaying: return "music.note"
         case .keepAwake: return "moon.zzz.fill"
         case .brightness: return "display.2"
         case .extraBrightness: return "sun.max.fill"
@@ -164,6 +165,7 @@ extension AppFeature {
         case .urlCleaner: return [DefaultsKey.urlCleanerEnabled]
         case .soundOutputSwitcher: return [DefaultsKey.soundOutputSwitcherEnabled]
         case .musicBlock: return [DefaultsKey.musicBlockEnabled]
+        case .nowPlaying: return [DefaultsKey.nowPlayingEnabled]
         case .brightness: return [DefaultsKey.brightnessControlEnabled]
         case .extraBrightness: return [DefaultsKey.extraBrightnessEnabled]
         case .windowLayout, .mixer, .micMute, .keepAwake,
@@ -206,7 +208,7 @@ extension AppFeature {
         case .whatsAppDownloads: return [.filesAndFolders, .notifications]
         case .mixer: return [.audioCapture]
         case .monitorCPU, .monitorMemory, .monitorDisk, .monitorPower: return [.notifications]
-        case .clipboardHistory, .shelf, .urlCleaner, .soundOutputSwitcher, .musicBlock,
+        case .clipboardHistory, .shelf, .urlCleaner, .soundOutputSwitcher, .musicBlock, .nowPlaying,
              .extraBrightness, .quickLauncher, .colorPicker, .micMute, .mediaTools,
              .scratchpad, .monitorGPU, .monitorNetwork,
              .monitorInsights, .monitorAnalytics, .monitorEnergy, .monitorNetworkDetails:

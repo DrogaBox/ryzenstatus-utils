@@ -33,8 +33,9 @@ struct TrendChart: View {
     var yFormat: @Sendable (Double) -> String = { String(Int($0)) }
     var rules: [TrendRule] = []
     var showsTimeAxis: Bool = false
+    var showsYAxis: Bool = true
 
-    private let leftGutter: CGFloat = 32
+    private var leftGutter: CGFloat { showsYAxis ? 32 : 2 }
     private let topPad: CGFloat = 6
     private let bottomPad: CGFloat = 4
 
@@ -50,7 +51,7 @@ struct TrendChart: View {
             let plot = CGRect(
                 x: leftGutter,
                 y: topPad,
-                width: max(1, size.width - leftGutter - 6),
+                width: max(1, size.width - leftGutter - (showsYAxis ? 6 : 2)),
                 height: max(1, size.height - topPad - bottomPad - xAxisHeight)
             )
 
@@ -60,22 +61,27 @@ struct TrendChart: View {
                 plot.maxY - CGFloat((min(max(v, domain.lowerBound), domain.upperBound) - domain.lowerBound) / span) * plot.height
             }
 
-            let (tMin, tMax) = timeBounds()
+            let (rawTMin, rawTMax) = timeBounds()
+            guard rawTMin > 0 || rawTMax > 0 else { return }
+            let tMin = (rawTMax == rawTMin) ? rawTMin - 1.0 : rawTMin
+            let tMax = (rawTMax == rawTMin) ? rawTMax + 1.0 : rawTMax
             let tSpan = max(tMax - tMin, 0.0001)
             func xPos(_ d: Date) -> CGFloat {
                 plot.minX + CGFloat((d.timeIntervalSinceReferenceDate - tMin) / tSpan) * plot.width
             }
 
             // Gridlines + Y labels
-            for tick in yTicks ?? defaultTicks(domain) {
-                let yy = yPos(tick)
-                var line = Path()
-                line.move(to: CGPoint(x: plot.minX, y: yy))
-                line.addLine(to: CGPoint(x: plot.maxX, y: yy))
-                ctx.stroke(line, with: .color(.secondary.opacity(0.18)), lineWidth: 0.5)
+            if showsYAxis {
+                for tick in yTicks ?? defaultTicks(domain) {
+                    let yy = yPos(tick)
+                    var line = Path()
+                    line.move(to: CGPoint(x: plot.minX, y: yy))
+                    line.addLine(to: CGPoint(x: plot.maxX, y: yy))
+                    ctx.stroke(line, with: .color(.secondary.opacity(0.18)), lineWidth: 0.5)
 
-                let label = ctx.resolve(Text(yFormat(tick)).font(.system(size: 8)).foregroundColor(.secondary))
-                ctx.draw(label, at: CGPoint(x: plot.minX - 4, y: yy), anchor: .trailing)
+                    let label = ctx.resolve(Text(yFormat(tick)).font(.system(size: 9)).foregroundColor(.secondary))
+                    ctx.draw(label, at: CGPoint(x: plot.minX - 4, y: yy), anchor: .trailing)
+                }
             }
 
             // Threshold rules

@@ -323,9 +323,9 @@ struct SystemSection: View {
                                 title: "CPU",
                                 icon: "cpu",
                                 usage: monitor.snapshot.cpuUsage ?? 0,
-                                temp: monitor.snapshot.cpuTemperature ?? 0,
+                                temp: monitor.snapshot.cpuTemperature,
                                 freq: String(format: "%.1f GHz", averageCPUFreq),
-                                power: monitor.snapshot.cpuPower ?? 0,
+                                power: monitor.snapshot.cpuPower,
                                 accentColor: .cyan,
                                 backgroundColor: colorScheme == .dark
                                     ? Color(red: 0.1, green: 0.2, blue: 0.2, opacity: 0.3)
@@ -345,9 +345,9 @@ struct SystemSection: View {
                                 title: "GPU",
                                 icon: "display",
                                 usage: monitor.snapshot.gpuUsage ?? 0,
-                                temp: monitor.snapshot.gpuTemperature ?? 0,
-                                freq: String(format: "%.0f MHz", gpuFreqVal),
-                                power: monitor.snapshot.gpuPower ?? 0,
+                                temp: monitor.snapshot.gpuTemperature,
+                                freq: gpuFreqVal > 0 ? String(format: "%.0f MHz", gpuFreqVal) : "--",
+                                power: monitor.snapshot.gpuPower,
                                 accentColor: .orange,
                                 backgroundColor: colorScheme == .dark
                                     ? Color(red: 0.2, green: 0.15, blue: 0.05, opacity: 0.3)
@@ -878,13 +878,23 @@ struct PanelSquareCard: View {
     let title: String
     let icon: String
     let usage: Double
-    let temp: Double
+    let temp: Double?
     let freq: String
-    let power: Double
+    let power: Double?
     let accentColor: Color
     let backgroundColor: Color
     
     var body: some View {
+        let tempStr: String = {
+            guard let temp, temp > 0 else { return "--" }
+            let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
+            return MetricFormat.temperature(temp, unit: unit)
+        }()
+        let powerStr: String = {
+            guard let power, power > 0 else { return "--" }
+            return String(format: "%.1f W", power)
+        }()
+
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Image(systemName: icon)
@@ -905,9 +915,9 @@ struct PanelSquareCard: View {
                 .padding(.vertical, 2)
             
             VStack(alignment: .leading, spacing: 6) {
-                PanelStatRow(icon: "thermometer", value: String(format: "%.1f °C", temp), color: .red)
+                PanelStatRow(icon: "thermometer", value: tempStr, color: .red)
                 PanelStatRow(icon: "waveform.path.ecg", value: freq.isEmpty ? "--" : freq, color: accentColor)
-                PanelStatRow(icon: "bolt.fill", value: String(format: "%.2f W", power), color: .yellow)
+                PanelStatRow(icon: "bolt.fill", value: powerStr, color: .yellow)
             }
         }
         .padding(12)
@@ -916,7 +926,7 @@ struct PanelSquareCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(
             RoundedRectangle(cornerRadius: 14)
-                .stroke(Color.white.opacity(0.05), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
         )
     }
 }

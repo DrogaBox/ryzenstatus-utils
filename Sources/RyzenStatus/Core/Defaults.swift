@@ -280,6 +280,14 @@ enum Defaults {
         DefaultsKey.brightnessOSDEnabled: false,
         DefaultsKey.musicBlockEnabled: false,
         DefaultsKey.musicBlockReplacementPath: "",
+        DefaultsKey.nowPlayingEnabled: false,
+        DefaultsKey.nowPlayingMenuBarText: true,
+        DefaultsKey.nowPlayingMenuBarMode: NowPlayingMenuBarMode.artistSong.rawValue,
+        DefaultsKey.nowPlayingMenuBarProgress: false,
+        DefaultsKey.nowPlayingPreferredProvider: NowPlayingProvider.auto.rawValue,
+        DefaultsKey.nowPlayingOpenInApp: true,
+        DefaultsKey.nowPlayingShowArtwork: true,
+        DefaultsKey.panelShowNowPlaying: true,
         DefaultsKey.cleanerScheduleFrequency: "off",
         DefaultsKey.cleanerScheduleHour: 9,
         DefaultsKey.cleanerScheduleMinute: 0,
@@ -572,26 +580,18 @@ enum Defaults {
         // AMD EPP thresholds
         DefaultsKey.autoEppIdleThreshold: 25,
         DefaultsKey.autoEppLoadThreshold: 50,
-        DefaultsKey.amdManualEppValue: 85.0,
-        DefaultsKey.amdCStateEnabled: false,
         // AMD control toggles default to the hardware-friendly state; the kext
         // echo overwrites them on first view appear. No default for
         // `amdPowerPreset`: nothing is highlighted until the user applies one.
         DefaultsKey.amdCpbEnabled: true,
         DefaultsKey.amdPpmEnabled: false,
         DefaultsKey.amdLpmEnabled: false,
-        // Kext fan curve editor — defaults to the balanced 256-point LUT.
-        DefaultsKey.amdFanCurvePreset: AMDFanCurvePreset.balanced.rawValue,
-        // FanSensor.cpu.rawValue (FanCurveModels is not in the test target).
-        DefaultsKey.amdFanCurveSensor: 0,
-        DefaultsKey.amdFanCurveFanIndex: 0,
         // Gaming Mode — off by default; hiding the icon is the default behavior.
         DefaultsKey.gamingModeActive: false,
         DefaultsKey.gamingModeHideMenuBar: true,
-        DefaultsKey.gamingModeRestoreAutoEpp: false,
     ]
 
-    private static let currentMigrationVersion = 5
+    private static let currentMigrationVersion = 6
 
     static func register() {
         let defaults = UserDefaults.standard
@@ -610,8 +610,18 @@ enum Defaults {
         if lastVersion < 3 { migrateLegacyKeyboardDebounceWindow(in: defaults) }
         if lastVersion < 4 { migrateUtilityOrderForScreenshot(in: defaults) }
         if lastVersion < 5 { migrateUtilityOrderForAppUpdates(in: defaults) }
+        if lastVersion < 6 { migrateLegacyNowPlayingMenuBarMode(in: defaults) }
 
         defaults.set(currentMigrationVersion, forKey: "_migrationVersion")
+    }
+
+    static func migrateLegacyNowPlayingMenuBarMode(in defaults: UserDefaults) {
+        if let legacy = defaults.object(forKey: DefaultsKey.nowPlayingMenuBarText) as? Bool {
+            if !legacy {
+                defaults.set(NowPlayingMenuBarMode.iconOnly.rawValue, forKey: DefaultsKey.nowPlayingMenuBarMode)
+            }
+            defaults.removeObject(forKey: DefaultsKey.nowPlayingMenuBarText)
+        }
     }
 
     static func migrateLegacySwitcherWindowShortcut(in defaults: UserDefaults) {

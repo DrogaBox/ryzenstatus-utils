@@ -363,163 +363,7 @@ enum MenuBarRenderer {
         return columns > 0 ? columns + statusTextGapColumns : 0
     }
 
-    private static func metricItems(for snapshot: SystemSnapshot,
-                                    metrics: [MenuBarMetric],
-                                    preset: MenuBarPreset) -> [MetricItem] {
-        var items: [MetricItem] = []
-        for metric in metrics {
-            switch metric {
-            case .cpu:
-                if let usage = snapshot.cpuUsage {
-                    let text = "CPU " + percent(usage)
-                    items.append(MetricItem(metric: metric,
-                                            segments: [.symbol(metric.symbolName), .text(" " + text)],
-                                            width: reservedWidth(for: metric, preset: preset)))
-                }
-            case .gpu:
-                if let usage = snapshot.gpuUsage {
-                    let text = "GPU " + percent(usage)
-                    items.append(MetricItem(metric: metric,
-                                            segments: [.symbol(metric.symbolName), .text(" " + text)],
-                                            width: reservedWidth(for: metric, preset: preset)))
-                }
-            case .cpuPower:
-                if let power = snapshot.cpuPower {
-                    let text = "CPU W " + String(format: "%.0f", power)
-                    items.append(MetricItem(metric: metric,
-                                            segments: [.symbol(metric.symbolName), .text(" " + text)],
-                                            width: reservedWidth(for: metric, preset: preset)))
-                }
-            case .gpuPower:
-                if let power = snapshot.gpuPower {
-                    let text = "GPU W " + String(format: "%.0f", power)
-                    items.append(MetricItem(metric: metric,
-                                            segments: [.symbol(metric.symbolName), .text(" " + text)],
-                                            width: reservedWidth(for: metric, preset: preset)))
-                }
-            case .cpuFrequency:
-                let cores = snapshot.cores
-                let freqs = cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
-                let avg = freqs.isEmpty ? 0 : (freqs.reduce(0, +) / Double(freqs.count))
-                let text = "CPU " + String(format: "%.1fGHz", avg / 1000.0)
-                items.append(MetricItem(metric: metric,
-                                        segments: [.symbol(metric.symbolName), .text(" " + text)],
-                                        width: reservedWidth(for: metric, preset: preset)))
-            case .cpuTempPower:
-                let temp = snapshot.cpuTemperature.map { String(format: "%.0f°", $0) } ?? "--°"
-                let pwr = snapshot.cpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
-                let text = "CPU \(temp) \(pwr)"
-                items.append(MetricItem(metric: metric,
-                                        segments: [.symbol(metric.symbolName), .text(" " + text)],
-                                        width: reservedWidth(for: metric, preset: preset)))
-            case .gpuTempPower:
-                let temp = snapshot.gpuTemperature.map { String(format: "%.0f°", $0) } ?? "--°"
-                let pwr = snapshot.gpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
-                let text = "GPU \(temp) \(pwr)"
-                items.append(MetricItem(metric: metric,
-                                        segments: [.symbol(metric.symbolName), .text(" " + text)],
-                                        width: reservedWidth(for: metric, preset: preset)))
-            case .memory:
-                let style = MemoryMenuBarStyle.current
-                let memoryValue = MonitorMemoryMetric.current.value(in: snapshot)
-                var segments: [MenuBarSegment] = []
-                segments.append(.symbol(metric.symbolName))
-                if style.showsDot {
-                    segments.append(.text(" "))
-                    segments.append(.dot(snapshot.memoryPressure))
-                }
-                if style.showsPercent {
-                    let text = " RAM " + MetricFormat.menuBarMemoryPercent(used: memoryValue,
-                                                                            total: snapshot.memoryTotal)
-                    segments.append(.text(text))
-                }
-                items.append(MetricItem(metric: metric,
-                                        segments: segments,
-                                        width: reservedWidth(for: metric, preset: preset)))
-            case .cpuTemperature:
-                if let temperature = snapshot.cpuTemperature {
-                    let text = "CPU " + temperatureCompact(temperature)
-                    items.append(MetricItem(metric: metric,
-                                            segments: [.symbol(metric.symbolName), .text(" " + text)],
-                                            width: reservedWidth(for: metric, preset: preset)))
-                }
-            case .gpuTemperature:
-                if let temperature = snapshot.gpuTemperature {
-                    let text = "GPU " + temperatureCompact(temperature)
-                    items.append(MetricItem(metric: metric,
-                                            segments: [.symbol(metric.symbolName), .text(" " + text)],
-                                            width: reservedWidth(for: metric, preset: preset)))
-                }
-            case .batteryTemperature:
-                if let temperature = snapshot.batteryTemperature {
-                    let text = "BAT " + temperatureCompact(temperature)
-                    items.append(MetricItem(metric: metric,
-                                            segments: [.symbol(metric.symbolName), .text(" " + text)],
-                                            width: reservedWidth(for: metric, preset: preset)))
-                }
-            case .network:
-                if let down = snapshot.netDownBytesPerSec, let up = snapshot.netUpBytesPerSec {
-                    let downText = MetricFormat.bytesPerSecCompact(down)
-                    let upText = MetricFormat.bytesPerSecCompact(up)
-                    items.append(MetricItem(metric: metric,
-                                            segments: [.symbol("arrow.down"), .text(" " + downText),
-                                                       .text(" "), .symbol("arrow.up"), .text(" " + upText)],
-                                            width: reservedWidth(for: metric, preset: preset)))
-                }
-            case .diskUsage:
-                if let disk = primaryDisk(from: snapshot.disk) {
-                    let text = "DSK " + percent(disk.usedFraction)
-                    items.append(MetricItem(metric: metric,
-                                            segments: [.symbol(metric.symbolName), .text(" " + text)],
-                                            width: reservedWidth(for: metric, preset: preset)))
-                }
-            case .diskActivity:
-                if let activity = diskActivity(from: snapshot.disk) {
-                    let total = activity.read + activity.write
-                    let text = "IO " + MetricFormat.bytesPerSecCompact(total)
-                    items.append(MetricItem(metric: metric,
-                                            segments: [.symbol(metric.symbolName), .text(" " + text)],
-                                            width: reservedWidth(for: metric, preset: preset)))
-                }
-            case .battery:
-                if let charge = snapshot.power?.chargePercent {
-                    let symbol = (snapshot.power?.isCharging ?? false) ? "battery.100.bolt" : metric.symbolName
-                    let text = "BAT " + percent(Double(charge) / 100.0)
-                    items.append(MetricItem(metric: metric,
-                                            segments: [.symbol(symbol), .text(" " + text)],
-                                            width: reservedWidth(for: metric, preset: preset)))
-                }
-            case .batteryTime:
-                if let power = snapshot.power,
-                   let seconds = power.timeRemainingSeconds,
-                   let value = BatteryTimeSupport.formatted(seconds: seconds) {
-                    items.append(MetricItem(metric: metric,
-                                            segments: [.symbol(metric.symbolName), .text(" " + value)],
-                                            width: reservedWidth(for: metric, preset: preset)))
-                } else if let power = snapshot.power,
-                          power.hasBattery, !power.externalConnected, !power.isCharging {
-                    items.append(MetricItem(metric: metric,
-                                            segments: [.symbol(metric.symbolName), .text(" ...")],
-                                            width: reservedWidth(for: metric, preset: preset)))
-                }
-            case .peripheralBattery:
-                if let metricValue = PeripheralBatterySupport.menuBarMetric(for: snapshot.peripheralBatteries) {
-                    let text = metricValue.label + " " + metricValue.value
-                    items.append(MetricItem(metric: metric,
-                                            segments: [.symbol(metric.symbolName), .text(" " + text)],
-                                            width: reservedWidth(for: metric, preset: preset)))
-                }
-            case .power:
-                if let watts = snapshot.power?.systemWatts {
-                    let text = "PWR " + MetricFormat.wattsCompact(watts)
-                    items.append(MetricItem(metric: metric,
-                                            segments: [.symbol(metric.symbolName), .text(" " + text)],
-                                            width: reservedWidth(for: metric, preset: preset)))
-                }
-            }
-        }
-        return items
-    }
+
 
     private static func blockSegments(for snapshot: SystemSnapshot,
                                       metrics: [MenuBarMetric],
@@ -530,7 +374,7 @@ enum MenuBarRenderer {
                 segments.append(.text(percent(usage)))
             }
             if let temp = snapshot.cpuTemperature {
-                segments.append(.text(String(format: " %.0f°C", temp)))
+                segments.append(.text(" " + temperatureCompact(temp)))
             }
             let avg = snapshot.avgCPUFreq ?? (snapshot.cores.isEmpty ? 0 : snapshot.cores.map { Double($0.freqMHz) }.reduce(0, +) / Double(snapshot.cores.count))
             if avg > 0 {
@@ -701,7 +545,7 @@ enum MenuBarRenderer {
                                              style: style)
                 groups.append([.customImage(image)])
             case .cpuTempPower:
-                let temp = snapshot.cpuTemperature.map { String(format: "%.0f°", $0) } ?? "--°"
+                let temp = snapshot.cpuTemperature.map(temperatureCompact) ?? "--°"
                 let pwr = snapshot.cpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
                 let image = stackedRatesImage(lines: [temp, pwr],
                                              reservedLines: ["000°", "000W"],
@@ -709,7 +553,7 @@ enum MenuBarRenderer {
                                              style: style)
                 groups.append([.customImage(image)])
             case .gpuTempPower:
-                let temp = snapshot.gpuTemperature.map { String(format: "%.0f°", $0) } ?? "--°"
+                let temp = snapshot.gpuTemperature.map(temperatureCompact) ?? "--°"
                 let pwr = snapshot.gpuPower.map { String(format: "%.0fW", $0) } ?? "--W"
                 let image = stackedRatesImage(lines: [temp, pwr],
                                              reservedLines: ["000°", "000W"],
@@ -945,16 +789,7 @@ enum MenuBarRenderer {
         return items.reduce(0) { $0 + $1.width } + separators
     }
 
-    private static func joined(_ items: [MetricItem], usesSeparators: Bool) -> [MenuBarSegment] {
-        var segments: [MenuBarSegment] = []
-        for item in items {
-            if !segments.isEmpty {
-                segments.append(usesSeparators ? .separator : .text(" "))
-            }
-            segments.append(contentsOf: item.segments)
-        }
-        return segments
-    }
+
 
     private static func blockJoined(_ groups: [[MenuBarSegment]], style: MenuBarBlockStyle) -> [MenuBarSegment] {
         let glue = MenuBarSpacingSupport.blockGlue(readableStyle: style == .readable,
@@ -1578,26 +1413,19 @@ enum MenuBarRenderer {
         guard !valueText.isEmpty else { return }
         let fontSize: CGFloat = (style == .readable ? 8.5 : 7.8) * fontScale
         let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .heavy)
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.windowBackgroundColor.withAlphaComponent(0.85)
+        shadow.shadowOffset = .zero
+        shadow.shadowBlurRadius = 1.0
         
         let mainAttrs: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor.labelColor
+            .foregroundColor: NSColor.labelColor,
+            .shadow: shadow
         ]
         let valSize = (valueText as NSString).size(withAttributes: mainAttrs)
         let vx = floor(rect.minX + (rect.width - valSize.width) / 2.0)
         let vy = floor(rect.minY + (rect.height - valSize.height) / 2.0)
-        
-        // Subtle contrast outline for sharpness without blocking graph bars behind it
-        let shadowAttrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: NSColor.windowBackgroundColor.withAlphaComponent(0.85)
-        ]
-        (valueText as NSString).draw(at: NSPoint(x: vx - 0.5, y: vy - 0.5), withAttributes: shadowAttrs)
-        (valueText as NSString).draw(at: NSPoint(x: vx + 0.5, y: vy - 0.5), withAttributes: shadowAttrs)
-        (valueText as NSString).draw(at: NSPoint(x: vx - 0.5, y: vy + 0.5), withAttributes: shadowAttrs)
-        (valueText as NSString).draw(at: NSPoint(x: vx + 0.5, y: vy + 0.5), withAttributes: shadowAttrs)
-
-        // Bold adaptive label text on top
         (valueText as NSString).draw(at: NSPoint(x: vx, y: vy), withAttributes: mainAttrs)
     }
 
@@ -1730,7 +1558,7 @@ enum MenuBarRenderer {
                                             colorHex: String = "#64D2FF",
                                             valueText: String? = nil,
                                             style: MenuBarBlockStyle) -> NSImage {
-        let sampleKey = history.suffix(12).map { String(format: "%.1f", $0) }.joined(separator: ",")
+        let sampleKey = history.suffix(15).map { String(format: "%.0f", $0 * 100.0) }.joined(separator: ",")
         let valKey = valueText ?? ""
         let cacheKey = "sparkline|\(label)|\(sampleKey)|\(valKey)|\(colorHex)|\(style)|\(appearanceSuffix)" as NSString
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }

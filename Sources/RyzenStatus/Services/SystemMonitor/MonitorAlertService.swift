@@ -127,7 +127,14 @@ final class MonitorAlertService {
             send(.battery, title: strings.batteryTitle, body: body)
         }
 
-        if let temp = snapshot.cpuTemperature, temp >= 92.0,
+        let tempThreshold = Defaults.sanitizedPercent(
+            defaults.integer(forKey: DefaultsKey.monitorAlertCPUTemperatureThreshold),
+            fallback: 90,
+            range: 70...105
+        )
+        let thermalLimit = max(85.0, Double(tempThreshold))
+
+        if let temp = snapshot.cpuTemperature, temp >= thermalLimit,
            let usage = snapshot.cpuUsage, usage >= 0.85 {
             let now = Date()
             if thermalThrottleSince == nil {
@@ -137,6 +144,7 @@ final class MonitorAlertService {
                 send(.thermalThrottle,
                      title: strings.thermalThrottleTitle,
                      body: String(format: strings.thermalThrottleBodyFormat, temp) + ccdInfo)
+                thermalThrottleSince = nil
             }
         } else {
             thermalThrottleSince = nil

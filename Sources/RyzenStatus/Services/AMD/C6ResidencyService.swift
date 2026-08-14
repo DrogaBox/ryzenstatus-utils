@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
+import AppKit
 import Combine
 import Foundation
 
@@ -9,14 +10,9 @@ import Foundation
 /// (selector 31 — `ProcessorModel.getPackageC6Residency()`).
 ///
 /// The kext returns a cumulative `uint64` of microseconds; the percentage is
-/// derived from the delta between two samples divided by the wall-clock
-/// delta:
+/// derived from the delta between two samples divided by the elapsed uptime:
 ///
 ///     Δµs / (Δseconds * 1_000_000) * 100
-///
-/// A single background poller keeps every observing view (dashboard, AMD
-/// settings) in sync, instead of each view running its own timer with its own
-/// last-value/last-timestamp bookkeeping.
 final class C6ResidencyService: ObservableObject {
     static let shared = C6ResidencyService()
 
@@ -24,61 +20,89 @@ final class C6ResidencyService: ObservableObject {
     @Published private(set) var percentage: Double = 0
 
     private var lastRaw: UInt64 = 0
-    private var lastTimestamp = Date.distantPast
-    private var timer: Timer?
+    private var lastTimestamp: TimeInterval = 0
+    private var pollTask: Task<Void, Never>?
+    private var wakeObserver: Any?
     private static let pollInterval: TimeInterval = 1.5
 
-    private init() {}
+    private init() {
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.resetBaseline()
+        }
+    }
+
+    deinit {
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
+    }
 
     /// Starts the background poller. Idempotent — call once at launch.
     func start() {
-        guard timer == nil else { return }
-        let t = Timer(timeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
-            self?.poll()
+        guard pollTask == nil else { return }
+        pollTask = Task.detached(priority: .background) { [weak self] in
+            await self?.poll()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(Self.pollInterval * 1_000_000_000))
+                await self?.poll()
+            }
         }
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
-        // Fire immediately so observers have a baseline on first observation.
-        poll()
     }
 
     /// Stops the poller. Called on termination.
     func stop() {
-        timer?.invalidate()
-        timer = nil
+        pollTask?.cancel()
+        pollTask = nil
     }
 
-    private func poll() {
+    private func resetBaseline() {
+        lastRaw = 0
+        lastTimestamp = 0
+    }
+
+    private func poll() async {
         let raw = ProcessorModel.shared.getPackageC6Residency()
-        let now = Date()
+        let now = ProcessInfo.processInfo.systemUptime
 
         // No counter (kext absent / not sampling) — report nothing.
         guard raw > 0 else {
-            percentage = 0
+            await MainActor.run {
+                if self.percentage != 0 { self.percentage = 0 }
+            }
             lastRaw = 0
-            lastTimestamp = .distantPast
+            lastTimestamp = 0
             return
         }
 
-        // Counter reset (kext reload / reboot mid-session): skip this sample
-        // so the fake huge delta never shows as 100%.
+        // Counter reset (kext reload / reboot / sleep mid-session): skip this sample
         if lastRaw > 0 && raw < lastRaw {
             lastRaw = raw
             lastTimestamp = now
             return
         }
 
-        if lastRaw > 0 {
-            // The reset guard above guarantees raw >= lastRaw here, so plain
-            // subtraction is safe (no counter rollover case to wrap around).
+        var newPercentage: Double? = nil
+        if lastRaw > 0 && lastTimestamp > 0 {
             let deltaUs = Double(raw - lastRaw)
-            let elapsedUs = now.timeIntervalSince(lastTimestamp) * 1_000_000
+            let elapsedUs = (now - lastTimestamp) * 1_000_000
             if elapsedUs > 0 {
-                percentage = min(100, max(0, (deltaUs / elapsedUs) * 100.0))
+                newPercentage = min(100, max(0, (deltaUs / elapsedUs) * 100.0))
             }
         }
 
         lastRaw = raw
         lastTimestamp = now
+
+        if let newPct = newPercentage {
+            await MainActor.run {
+                if abs(self.percentage - newPct) >= 0.1 {
+                    self.percentage = newPct
+                }
+            }
+        }
     }
 }

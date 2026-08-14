@@ -500,14 +500,17 @@ final class StatusItemController {
             guard let button = item.button else { continue }
 
             let full = NSMutableAttributedString(attributedString: title)
+            let font = MenuBarRenderer.statusFont(stacked: false)
             full.addAttribute(.font,
-                              value: MenuBarRenderer.statusFont(stacked: false),
+                              value: font,
                               range: NSRange(location: 0, length: full.length))
-            button.font = MenuBarRenderer.statusFont(stacked: false)
-            button.attributedTitle = full
-            button.image = nil
-            button.imagePosition = .noImage
-            button.toolTip = group.title
+            if !full.isEqual(to: button.attributedTitle) {
+                button.font = font
+                button.attributedTitle = full
+            }
+            if button.image != nil { button.image = nil }
+            if button.imagePosition != .noImage { button.imagePosition = .noImage }
+            if button.toolTip != group.title { button.toolTip = group.title }
         }
     }
 

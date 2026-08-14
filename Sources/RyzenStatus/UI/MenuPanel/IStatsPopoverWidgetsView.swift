@@ -136,9 +136,6 @@ struct IStatsPopoverWidgetsView: View {
         .onReceive(NotificationCenter.default.publisher(for: .processUsageDidUpdate)) { _ in
             updateProcesses()
         }
-        .onReceive(monitor.$snapshot) { _ in
-            updateProcesses()
-        }
     }
     
     private func updateProcesses() {
@@ -185,7 +182,7 @@ struct IStatsPopoverWidgetsView: View {
                     }
                 }
                 
-                // Per-Core Histogram Bars (Stacked User Cyan + System Purple Overlay)
+                // Per-Core Histogram Bars
                 let cores = monitor.snapshot.cores
                 if !cores.isEmpty {
                     HStack(alignment: .bottom, spacing: 2) {
@@ -194,32 +191,19 @@ struct IStatsPopoverWidgetsView: View {
                                 Spacer(minLength: 0)
                                 
                                 let totalHeight = max(2, CGFloat(core.loadPct / 100.0) * 45)
-                                let sysHeight = max(0, totalHeight * 0.18)
-                                let userHeight = max(1.5, totalHeight - sysHeight)
-                                
-                                if sysHeight >= 1.0 {
-                                    RoundedRectangle(cornerRadius: 1)
-                                        .fill(LinearGradient(
-                                            gradient: Gradient(colors: [Color.purple, Color(red: 0.85, green: 0.35, blue: 1.0)]),
-                                            startPoint: .bottom,
-                                            endPoint: .top
-                                        ))
-                                        .frame(height: sysHeight)
-                                }
-                                
                                 RoundedRectangle(cornerRadius: 1.5)
                                     .fill(LinearGradient(
                                         gradient: Gradient(colors: [Color.cyan, Color.blue]),
                                         startPoint: .bottom,
                                         endPoint: .top
                                     ))
-                                    .frame(height: userHeight)
+                                    .frame(height: totalHeight)
                             }
                         }
                     }
                     .frame(height: 48)
                     .padding(6)
-                    .background(Color.black.opacity(0.25))
+                    .background(Color.primary.opacity(0.06))
                     .cornerRadius(6)
                 }
                 
@@ -232,9 +216,9 @@ struct IStatsPopoverWidgetsView: View {
                     }
                     Spacer()
                     HStack(spacing: 4) {
-                        Circle().fill(Color.purple).frame(width: 6, height: 6)
-                        Text(l10n.s.istatsSystem).font(.caption2).foregroundColor(.secondary)
-                        Text(String(format: "%.0f%%", (monitor.snapshot.cpuUsage.map { $0 * 100 } ?? 0) * 0.15))
+                        Circle().fill(Color.blue).frame(width: 6, height: 6)
+                        Text("Cores").font(.caption2).foregroundColor(.secondary)
+                        Text("\(cores.count)")
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                     }
                 }
@@ -383,11 +367,11 @@ struct IStatsPopoverWidgetsView: View {
                 }
                 
                 let gpuPct = monitor.snapshot.gpuUsage ?? 0
-                let memPct: Double = {
+                let memPct: Double? = {
                     if let used = monitor.snapshot.gpuMemoryUsed, let total = monitor.snapshot.gpuMemoryTotal, total > 0 {
                         return Double(used) / Double(total)
                     }
-                    return monitor.snapshot.gpuMemoryHistory.last ?? (gpuPct * 0.75)
+                    return nil
                 }()
                 let gpuTemp = monitor.snapshot.gpuTemperature ?? 0
                 let rawFreq = monitor.snapshot.gpuFreq ?? 0
@@ -398,9 +382,9 @@ struct IStatsPopoverWidgetsView: View {
                     Spacer()
                     IStatsDonutMeter(title: "GPU", value: String(format: "%.0f%%", gpuPct * 100), fraction: gpuPct, color: .cyan)
                     Spacer()
-                    IStatsDonutMeter(title: "MEM", value: String(format: "%.0f%%", memPct * 100), fraction: memPct, color: .purple)
+                    IStatsDonutMeter(title: "MEM", value: memPct.map { String(format: "%.0f%%", $0 * 100) } ?? "--", fraction: memPct ?? 0, color: .purple)
                     Spacer()
-                    IStatsDonutMeter(title: "TMP", value: String(format: "%.0f°", gpuTemp), fraction: min(1.0, gpuTemp / 100.0), color: .orange)
+                    IStatsDonutMeter(title: "TMP", value: gpuTemp > 0 ? String(format: "%.0f°", gpuTemp) : "--", fraction: min(1.0, gpuTemp / 100.0), color: .orange)
                     Spacer()
                     IStatsDonutMeter(title: "GHZ", value: gpuFreqGHz > 0 ? String(format: "%.1f", gpuFreqGHz) : "--", fraction: min(1.0, gpuFreqGHz / maxFreqGHz), color: .green)
                     Spacer()

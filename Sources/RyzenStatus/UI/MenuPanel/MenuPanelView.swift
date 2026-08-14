@@ -73,6 +73,7 @@ struct MenuPanelView: View {
     @AppStorage(DefaultsKey.monitorShowFanControlBeta) private var showFanControlBeta = false
     @AppStorage(DefaultsKey.panelShowAmdPower) private var showAmdPower = true
     @AppStorage(DefaultsKey.panelShowKeepAwake) private var showKeepAwake = true
+    @AppStorage(DefaultsKey.panelShowNowPlaying) private var showNowPlaying = true
     @AppStorage(DefaultsKey.panelShowBrightness) private var showBrightness = true
     @AppStorage(DefaultsKey.brightnessControlEnabled) private var brightnessEnabled = false
     @AppStorage(DefaultsKey.panelShowUtilities) private var showUtilities = true
@@ -369,6 +370,7 @@ struct MenuPanelView: View {
     private var estimatedNavigableContentHeight: CGFloat {
         switch activeSection {
         case .keepAwake: return 250
+        case .nowPlaying: return 150
         case .brightness: return 140
         case .mixer: return 250
         case .system: return 460
@@ -399,6 +401,7 @@ struct MenuPanelView: View {
     private func section(for id: PanelSectionID, collapsible: Bool = true) -> some View {
         switch id {
         case .keepAwake: KeepAwakeCard(collapsible: collapsible)
+        case .nowPlaying: NowPlayingSection(collapsible: collapsible)
         case .brightness: if showBrightness { BrightnessSection(collapsible: collapsible) }
         case .mixer: if showMixer { MixerSection(collapsible: collapsible) }
         case .system: if showSystem { SystemSection(collapsible: collapsible) }
@@ -416,6 +419,7 @@ struct MenuPanelView: View {
         guard id.isAvailable else { return false }
         switch id {
         case .keepAwake: return showKeepAwake
+        case .nowPlaying: return showNowPlaying
         // The section only earns its navigation tab while the feature is on;
         // it is switched on in Settings, not from an empty panel screen.
         case .brightness: return showBrightness && brightnessEnabled

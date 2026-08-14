@@ -76,6 +76,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                   let window = self?.statusController.button?.window else { return nil }
             return window.frame
         }
+        // The now-playing menu bar item opens the panel on its section.
+        NowPlayingService.shared.onActivate = { [weak self] in
+            self?.showNowPlayingPanel()
+        }
 
         setUpPopover()
         AppAppearanceController.shared.apply()
@@ -283,6 +287,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             MenuPanelFocus.shared.showNormalPanel()
         }
         togglePopover()
+    }
+
+    /// The now-playing menu bar item shows the panel with its section in
+    /// focus, mirroring the metric items: focus first, then open (or just
+    /// switch sections when the panel is already up).
+    private func showNowPlayingPanel() {
+        MenuPanelFocus.shared.focus(.nowPlaying)
+        if popover.isShown {
+            return
+        }
+        showPopover()
     }
 
     private func showMetricPanel(for metric: MenuBarMetric, anchoredTo button: NSStatusBarButton) {
@@ -764,7 +779,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             
             NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
                 self?.detachedWindowController = nil
-                SystemMonitor.shared.setMenuPanelNeeds(.none)
+                // Full monitor surface: a panel client, so the popover
+                // lifecycle cannot wipe these needs while the window is open.
+                SystemMonitor.shared.panelDidDisappear()
             }
         }
         
@@ -776,8 +793,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             }
             self.detachedWindowController?.window?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
-            // Ensure monitor is active
-            SystemMonitor.shared.setMenuPanelNeeds(SystemMonitorPanelNeeds(system: true, power: true))
+            // Ensure monitor is active (panel client, immune to popover wipes)
+            SystemMonitor.shared.panelDidAppear()
         })
     }
 

@@ -512,7 +512,6 @@ private struct PermissionPortalRow: View {
         case .microphone: Permissions.shared.requestMicrophone()
         case .filesAndFolders, .automationFinder, .automationTerminal, .audioCapture:
             break
-            break
         }
     }
 
@@ -526,7 +525,6 @@ private struct PermissionPortalRow: View {
         case .audioCapture: Permissions.shared.openAudioCaptureSettings()
         case .filesAndFolders: Permissions.shared.openFullDiskAccessSettings()
         case .microphone: Permissions.shared.openMicrophoneSettings()
-        case .camera: Permissions.shared.openCameraSettings()
         case .camera: Permissions.shared.openCameraSettings()
         }
     }
@@ -562,6 +560,7 @@ extension AppFeature {
         case .soundOutputSwitcher: return s.soundOutputSwitcherTitle
         case .micMute: return s.micMuteName
         case .musicBlock: return hub.titleMusicBlock
+        case .nowPlaying: return hub.titleNowPlaying
         case .keepAwake: return s.keepAwakeTitle
         case .brightness: return FeatureStrings.brightness(L10n.shared.language).pageTitle
         case .extraBrightness: return s.extraBrightnessName
@@ -617,6 +616,7 @@ extension AppFeature {
         case .soundOutputSwitcher: return hub.descSoundOutputSwitcher
         case .micMute: return hub.descMicMute
         case .musicBlock: return hub.descMusicBlock
+        case .nowPlaying: return hub.descNowPlaying
         case .keepAwake: return hub.descKeepAwake
         case .brightness: return FeatureStrings.brightness(L10n.shared.language).hubDescription
         case .extraBrightness: return hub.descExtraBrightness

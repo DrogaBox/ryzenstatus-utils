@@ -135,7 +135,8 @@ private struct CoreCell: View {
                     
                     if showTemp {
                         if ccdTemperatures.count > ccdIdx {
-                            Text(String(format: "%.0f°C", ccdTemperatures[ccdIdx]))
+                            let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
+                            Text(MetricFormat.temperatureCompact(Double(ccdTemperatures[ccdIdx]), unit: unit))
                                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.6)

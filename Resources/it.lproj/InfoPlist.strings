@@ -1,8 +1,11 @@
 /* macOS Automation permission prompt. */
-"NSAppleEventsUsageDescription" = "RyzenStatus usa Automazione per spostare file nel Finder, spostare elementi nel Cestino e aprire comandi del Terminale quando richiedi azioni di Homebrew.";
+"NSAppleEventsUsageDescription" = "RyzenStatus usa l'automazione per spostare file nel Finder, spostare elementi nel Cestino ed eseguire comandi da Terminale per le azioni Homebrew.";
 
 /* macOS Screen & System Audio Recording permission prompt. */
 "NSAudioCaptureUsageDescription" = "RyzenStatus accede all'audio delle singole app solo per regolarne il volume nel mixer. Nulla viene registrato e nulla lascia il tuo Mac.";
 
 /* macOS Camera permission prompt. */
-"NSCameraUsageDescription" = "RyzenStatus mostra la fotocamera solo nella finestra di anteprima che apri, così puoi controllare il tuo aspetto prima di una chiamata. Nulla viene registrato e nulla lascia il tuo Mac.";
+"NSCameraUsageDescription" = "RyzenStatus mostra la fotocamera solo nella finestra di anteprima per controllare l'aspetto prima di una chiamata. Nulla viene registrato e nulla lascia il tuo Mac.";
+
+/* macOS Microphone permission prompt. */
+"NSMicrophoneUsageDescription" = "RyzenStatus utilizza il microfono per includere la tua voce nelle registrazioni dello schermo e monitorare i livelli audio quando abilitato.";

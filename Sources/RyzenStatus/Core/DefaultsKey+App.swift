@@ -110,6 +110,14 @@ extension DefaultsKey {
     static let brightnessOSDEnabled = "brightnessOSDEnabled" // brightness adjustment overlay
     static let musicBlockEnabled = "musicBlockEnabled"
     static let musicBlockReplacementPath = "musicBlockReplacementPath"  // app bundle path ("" = none)
+    static let nowPlayingEnabled = "nowPlayingEnabled"
+    static let nowPlayingMenuBarText = "nowPlayingMenuBarText" // legacy: show the track next to the menu bar icon
+    static let nowPlayingMenuBarMode = "nowPlayingMenuBarMode" // NowPlayingMenuBarMode.rawValue (0 icon, 1 artist, 2 song, 3 artist+song)
+    static let nowPlayingMenuBarProgress = "nowPlayingMenuBarProgress" // thin progress strip under the menu bar text
+    static let nowPlayingPreferredProvider = "nowPlayingPreferredProvider" // NowPlayingProvider.rawValue (0 auto, 1 music, 2 spotify)
+    static let nowPlayingOpenInApp = "nowPlayingOpenInApp" // click the track title to activate its app
+    static let nowPlayingShowArtwork = "nowPlayingShowArtwork" // artwork in the menu panel section
+    static let panelShowNowPlaying = "panelShowNowPlaying"
     static let cleanerScheduleFrequency = "cleanerScheduleFrequency"    // off | daily | weekly
     static let cleanerScheduleHour = "cleanerScheduleHour"
     static let cleanerScheduleMinute = "cleanerScheduleMinute"
@@ -372,25 +380,17 @@ extension DefaultsKey {
     static let autoEppEnabled = "autoEppEnabled"                 // Bool: whether software Auto EPP is active
     static let autoEppIdleThreshold = "autoEppIdleThreshold"     // 0-100, CPU load % below which → Power Save (255)
     static let autoEppLoadThreshold = "autoEppLoadThreshold"     // 0-100, CPU load % above which → Performance (0)
-    // Last manual EPP value set by the user via the slider, persisted across launches.
-    static let amdManualEppValue = "amdManualEppValue"
-    static let amdCStateEnabled = "amdCStateEnabled"
     // AMD Power Presets — one-tap EPP + CPB + PPM/LPM profiles.
     static let amdPowerPreset = "amdPowerPreset"                 // AMDPowerPreset.rawValue, written when applied
     // Per-toggle persistence for the Priority-1 control features.
     static let amdCpbEnabled = "amdCpbEnabled"                   // Bool, last Core Performance Boost state
     static let amdPpmEnabled = "amdPpmEnabled"                   // Bool, last PPM state
     static let amdLpmEnabled = "amdLpmEnabled"                   // Bool, last LPM state
-    // Kext fan curve editor (selectors 101/102) — last applied selection.
-    static let amdFanCurvePreset = "amdFanCurvePreset"           // AMDFanCurvePreset.rawValue
-    static let amdFanCurveSensor = "amdFanCurveSensor"           // FanSensor.rawValue (Int)
-    static let amdFanCurveFanIndex = "amdFanCurveFanIndex"       // Int, fan header for selector 102
     static let showFansInAmdPower = "showFansInAmdPower"         // Bool, fan picker DisclosureGroup expanded in the panel
     static let fanCurvesEditorEnabled = "fanCurvesEditorEnabled"   // Bool, Fans & Cooling curve editor toggle (persisted)
     // Gaming Mode — Extreme preset + Keep Awake + hidden menu bar icon.
     static let gamingModeActive = "gamingModeActive"             // Bool, persisted across launches
     static let gamingModeHideMenuBar = "gamingModeHideMenuBar"   // Bool, hide the status icon while active
-    static let gamingModeRestoreAutoEpp = "gamingModeRestoreAutoEpp" // Bool, Auto EPP state snapshotted before the mode
     static let gamingModeRestorePreset = "gamingModeRestorePreset"   // AMDPowerPreset.rawValue, preset before the mode
 
     // Dev-build only: force the "update available" UI for local testing.

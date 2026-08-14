@@ -45,6 +45,12 @@ struct SettingsView: View {
                 SidebarItem(page: .general, title: l10n.s.tabGeneral, icon: "gearshape",
                             keywords: [l10n.s.launchAtLogin, l10n.s.languageLabel, l10n.s.showMenuBarIcon,
                                        l10n.s.musicBlockTitle, l10n.s.musicBlockSection]),
+                SidebarItem(page: .nowPlaying,
+                            title: FeatureStrings.nowPlaying(l10n.language).pageTitle,
+                            icon: "music.note",
+                            keywords: [FeatureStrings.nowPlaying(l10n.language).menuBarModeLabel,
+                                       FeatureStrings.nowPlaying(l10n.language).providerLabel,
+                                       FeatureStrings.nowPlaying(l10n.language).artworkToggle]),
                 // Searching any feature name lands here even when the feature
                 // is hidden, so the hub is always the way back.
                 SidebarItem(page: .features, title: FeatureStrings.hub(l10n.language).pageTitle,
@@ -268,6 +274,7 @@ struct SettingsView: View {
         case .media: MediaSettings()
         case .clipboard: ClipboardSettings()
         case .quickTools: QuickToolsSettings()
+        case .nowPlaying: NowPlayingSettings()
         case .screenshot: ScreenshotSettings()
         case .screenRecorder: ScreenRecorderSettings()
         case .windowLayout: WindowLayoutSettings()

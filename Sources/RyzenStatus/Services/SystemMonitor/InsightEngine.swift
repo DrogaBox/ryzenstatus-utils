@@ -117,16 +117,19 @@ final class InsightEngine: @unchecked Sendable {
 
         // 5. High Temperature Insight (CPU > 85°C)
         if let cpuTemp = snapshot.cpuTemperature, cpuTemp > 85.0 {
+            let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
+            let tempStr = MetricFormat.temperatureCompact(cpuTemp, unit: unit)
             cards.append(InsightCard(
                 id: "cpu-temp-high",
-                title: String(format: "High CPU Temperature (%.1f°C)", cpuTemp),
-                detail: "Thermal throttling may occur if temperatures remain above 90°C.",
+                title: "High CPU Temperature (\(tempStr))",
+                detail: "Thermal throttling may occur if temperatures remain high under sustained load.",
                 severity: cpuTemp > 92.0 ? .critical : .warning,
                 categoryName: "Thermal",
                 actionHint: "Ensure proper airflow or reduce heavy workload"
             ))
         }
 
-        return cards
+        // D8: Rank cards by severity descending (critical first, then warning, then info)
+        return cards.sorted { $0.severity > $1.severity }
     }
 }

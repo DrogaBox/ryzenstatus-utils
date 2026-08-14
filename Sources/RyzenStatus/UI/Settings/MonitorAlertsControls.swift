@@ -122,6 +122,8 @@ struct MonitorAlertsControls: View {
         .onChange(of: alertBattery) { _, _ in MonitorAlertService.shared.syncWithPreferences(); refreshNotificationStatus() }
         .onChange(of: alertCPUThreshold) { _, _ in sanitizeAlertValues() }
         .onChange(of: alertCPUTemperatureThreshold) { _, _ in sanitizeAlertValues() }
+        .onChange(of: alertGPUTemperatureThreshold) { _, _ in sanitizeAlertValues() }
+        .onChange(of: alertGPUPowerThreshold) { _, _ in sanitizeAlertValues() }
         .onChange(of: alertDiskFreePercent) { _, _ in sanitizeAlertValues() }
         .onChange(of: alertBatteryPercent) { _, _ in sanitizeAlertValues() }
         .onChange(of: alertCooldown) { _, _ in sanitizeAlertValues() }
@@ -147,6 +149,8 @@ struct MonitorAlertsControls: View {
     private func sanitizeAlertValues() {
         alertCPUThreshold = Defaults.sanitizedPercent(alertCPUThreshold, fallback: 90, range: 50...100)
         alertCPUTemperatureThreshold = Defaults.sanitizedPercent(alertCPUTemperatureThreshold, fallback: 90, range: 70...105)
+        alertGPUTemperatureThreshold = Defaults.sanitizedPercent(alertGPUTemperatureThreshold, fallback: 90, range: 50...120)
+        alertGPUPowerThreshold = max(50, min(500, alertGPUPowerThreshold))
         alertDiskFreePercent = Defaults.sanitizedPercent(alertDiskFreePercent, fallback: 10, range: 5...30)
         alertBatteryPercent = Defaults.sanitizedPercent(alertBatteryPercent, fallback: 15, range: 5...50)
         alertCooldown = Defaults.sanitizedMonitorAlertCooldown(alertCooldown)

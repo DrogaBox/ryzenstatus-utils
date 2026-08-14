@@ -4,15 +4,7 @@
 import SwiftUI
 
 struct AmdPowerSettingsView: View {
-    @State private var selectedEpp: UInt8 = 127
-    @State private var cppcSupported: Bool = false
-    @State private var cpbSupported: Bool = false
-    @AppStorage(DefaultsKey.amdCpbEnabled) private var corePerformanceBoost = true
-    @AppStorage(DefaultsKey.amdPpmEnabled) private var ppmEnabled = false
-    @AppStorage(DefaultsKey.amdLpmEnabled) private var lpmEnabled = false
-    @State private var legacyPstateAllowed: Bool = false
-    @State private var selectedPState: Int = 0
-    @State private var validPStateLabels: [String] = []
+    @ObservedObject private var controls = AmdPowerControlsModel.shared
     @State private var cpuProfile = ProcessorModel.CPUProfile()
     @State private var cppcActiveMode: Bool = false
     @State private var cppcCurrentEPP: UInt8 = 0
@@ -28,26 +20,22 @@ struct AmdPowerSettingsView: View {
     @ObservedObject private var c6Service = C6ResidencyService.shared
     
     @State private var showCopiedToast: Bool = false
-    @State private var selectedPreset: AMDPowerPreset? = AMDPowerPreset.saved()
-    @State private var privilegeMessage: String?
     @ObservedObject private var autoEpp = AutoEppService.shared
     @ObservedObject private var presetCtrl = AmdPresetController.shared
     @ObservedObject private var monitor = SystemMonitor.shared
     @ObservedObject private var nvramCState = CStateNvramService.shared
     @ObservedObject private var l10n = L10n.shared
 
-    @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 10
+    @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 25
     @AppStorage(DefaultsKey.autoEppLoadThreshold) private var loadThreshold: Int = 50
     @AppStorage("coUnlocked") private var coUnlocked: Bool = false
 
-    // snapEPP is now AMDPowerPreset.snapEPP() — single definition, no duplication.
-
     private var eppLabel: String {
-        switch AMDPowerPreset.snapEPP(selectedEpp) {
-        case 0:   return "Rendimiento"
-        case 85:  return "Balanced Perf"
-        case 170: return "Balanced Power"
-        default:  return "Power Save"
+        switch AMDPowerPreset.snapEPP(controls.selectedEpp) {
+        case 0:   return l10n.amdPower.perfMax
+        case 85:  return l10n.amdPower.perfBalPlus
+        case 170: return l10n.amdPower.perfBalMinus
+        default:  return l10n.amdPower.perfEco
         }
     }
 
@@ -79,7 +67,9 @@ struct AmdPowerSettingsView: View {
                 HStack {
                     Text("Package Temp")
                     Spacer()
-                    Text(String(format: "%.1f °C", monitor.snapshot.cpuTemperature ?? 0))
+                    let tempVal = monitor.snapshot.cpuTemperature
+                    let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
+                    Text(tempVal.map { MetricFormat.temperature($0, unit: unit) } ?? "--")
                         .font(.system(.body, design: .monospaced))
                 }
                 
@@ -114,19 +104,19 @@ struct AmdPowerSettingsView: View {
                             .foregroundColor(.secondary)
                     }
                 }
-            } else if !cppcSupported && !cpbSupported {
+            } else if !controls.cppcSupported && !controls.cpbSupported {
                 Section {
                     Text(L10n.shared.amdPower.amdPowerControlUnsupported)
                         .foregroundColor(.red)
                 }
             } else {
-                if cppcSupported {
+                if controls.cppcSupported {
                     Section {
                         Text(L10n.shared.amdPower.modeDetectedCPPC)
                             .font(.system(size: 13, weight: .bold, design: .monospaced))
                             .foregroundColor(.green)
                     }
-                } else if legacyPstateAllowed {
+                } else if controls.legacyPstateAllowed {
                     Section {
                         Text(L10n.shared.amdPower.modeDetectedPStates)
                             .font(.system(size: 13, weight: .bold, design: .monospaced))
@@ -191,18 +181,20 @@ struct AmdPowerSettingsView: View {
                                 .font(.system(.body, design: .monospaced))
                         }
                         HStack {
-                            Text("Package Temp")
+                            Text("Package Temperature")
                             Spacer()
-                            Text(String(format: "%.1f °C", packet.packageTempC))
+                            let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
+                            Text(MetricFormat.temperature(Double(packet.packageTempC), unit: unit))
                                 .font(.system(.body, design: .monospaced))
                         }
                         if packet.ccdCount > 0 {
                             HStack {
                                 Text("CCDs (\(packet.ccdCount))")
                                 Spacer()
+                                let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
                                 Text(packet.ccdTemperatures.prefix(Int(packet.ccdCount))
-                                    .map { String(format: "%.0f°C", $0) }
-                                    .joined(separator: " · "))
+                                    .map { MetricFormat.temperatureCompact(Double($0), unit: unit) }
+                                    .joined(separator: "  "))
                                     .font(.system(.body, design: .monospaced))
                             }
                         }
@@ -247,9 +239,14 @@ struct AmdPowerSettingsView: View {
                                         .font(.system(.body, design: .monospaced))
                                         .foregroundColor(.secondary)
                                 }
-                                Text(gpu.temperature > 0 ? String(format: "%.1f °C", gpu.temperature) : "— °C")
-                                    .font(.system(.body, design: .monospaced))
-                                    .foregroundColor(.orange)
+                                HStack {
+                                    Text("Temperature")
+                                    Spacer()
+                                    let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
+                                    Text(gpu.temperature > 0 ? MetricFormat.temperature(gpu.temperature, unit: unit) : "--")
+                                        .font(.system(.body, design: .monospaced))
+                                }
+                                .foregroundColor(.orange)
                             }
                         }
                     } header: {
@@ -313,7 +310,7 @@ struct AmdPowerSettingsView: View {
                     Text("Per-core voltage offset −30..+30 applied via SMU command 0x3D. Writes require root or -amdpnopchk and are blocked above 75 °C package temperature.")
                 }
 
-                if cppcSupported {
+                if controls.cppcSupported {
                     Section {
                         Toggle("Auto EPP (Zen 3)", isOn: Binding(
                             get: { autoEpp.isActive },
@@ -432,13 +429,12 @@ struct AmdPowerSettingsView: View {
                             Picker("", selection: Binding(
                                 get: { 
                                     if autoEpp.isActive {
-                                        let e = autoEpp.currentEPP
-                                        return e < 42 ? UInt8(0) : (e < 127 ? UInt8(85) : (e < 212 ? UInt8(170) : UInt8(255)))
+                                        return AMDPowerPreset.snapEPP(autoEpp.currentEPP)
                                     } else {
-                                        return selectedEpp
+                                        return AMDPowerPreset.snapEPP(controls.selectedEpp)
                                     }
                                 },
-                                set: { selectedEpp = $0 }
+                                set: { controls.setEPP($0) }
                             )) {
                                 Text("Max").tag(UInt8(0))
                                 Text("Bal+").tag(UInt8(85))
@@ -447,13 +443,10 @@ struct AmdPowerSettingsView: View {
                             }
                             .pickerStyle(.segmented)
                             .labelsHidden()
-                            .onChange(of: selectedEpp) { _, newValue in
-                                _ = ProcessorModel.shared.setCPPCEPPValue(epp: newValue)
-                            }
-                            .disabled(autoEpp.isActive)
+                            .disabled(autoEpp.isActive || gaming.isActive)
                         }
                         .padding(.vertical, 8)
-                        .opacity(autoEpp.isActive ? 0.5 : 1.0)
+                        .opacity(autoEpp.isActive || gaming.isActive ? 0.5 : 1.0)
                     } header: {
                         Text("Collaborative Processor Performance Control")
                     } footer: {
@@ -527,21 +520,20 @@ struct AmdPowerSettingsView: View {
                     } footer: {
                         Text(l10n.amdPower.gamingModeFooter)
                     }
-                } else if legacyPstateAllowed {
+                } else if controls.legacyPstateAllowed {
                     Section {
-                        if !validPStateLabels.isEmpty {
-                            Picker("", selection: $selectedPState) {
-                                ForEach(0..<validPStateLabels.count, id: \.self) { idx in
-                                    Text(validPStateLabels[idx]).tag(idx)
+                        if !controls.validPStateLabels.isEmpty {
+                            Picker("", selection: Binding(
+                                get: { controls.selectedPState },
+                                set: { controls.setPState($0) }
+                            )) {
+                                ForEach(0..<controls.validPStateLabels.count, id: \.self) { idx in
+                                    Text(controls.validPStateLabels[idx]).tag(idx)
                                 }
                             }
                             .pickerStyle(.segmented)
                             .labelsHidden()
-                            .onChange(of: selectedPState) { _, newValue in
-                                Task {
-                                    _ = await ProcessorModel.shared.setPState(state: newValue)
-                                }
-                            }
+                            .disabled(gaming.isActive)
                         }
                     } header: {
                         Text("CPU Speed Profiles (Legacy P-States)")
@@ -551,24 +543,25 @@ struct AmdPowerSettingsView: View {
                 }
 
                 Section {
-                    if cpbSupported {
-                        Toggle("Core Performance Boost (CPB)", isOn: $corePerformanceBoost)
-                            .onChange(of: corePerformanceBoost) { _, newValue in
-                                _ = ProcessorModel.shared.setCPB(enabled: newValue)
-                            }
+                    if controls.cpbSupported {
+                        Toggle("Core Performance Boost (CPB)", isOn: Binding(
+                            get: { controls.corePerformanceBoost },
+                            set: { controls.setCPB($0) }
+                        ))
+                        .disabled(gaming.isActive)
                     }
 
-                    Toggle("Processor Power Manager (PPM)", isOn: $ppmEnabled)
-                        .onChange(of: ppmEnabled) { _, newValue in
-                            if newValue { lpmEnabled = false } // PPM and LPM are mutually exclusive
-                            _ = ProcessorModel.shared.setPPM(enabled: newValue)
-                        }
+                    Toggle("Processor Power Manager (PPM)", isOn: Binding(
+                        get: { controls.ppmEnabled },
+                        set: { controls.setPPM($0) }
+                    ))
+                    .disabled(gaming.isActive)
 
-                    Toggle("Low Power Mode (LPM)", isOn: $lpmEnabled)
-                        .onChange(of: lpmEnabled) { _, newValue in
-                            if newValue { ppmEnabled = false } // PPM and LPM are mutually exclusive
-                            _ = ProcessorModel.shared.setLPM(enabled: newValue)
-                        }
+                    Toggle("Low Power Mode (LPM)", isOn: Binding(
+                        get: { controls.lpmEnabled },
+                        set: { controls.setLPM($0) }
+                    ))
+                    .disabled(gaming.isActive)
 
                     // Deep C-States (C6) — read-only NVRAM status
                     VStack(alignment: .leading, spacing: 6) {
@@ -718,25 +711,30 @@ struct AmdPowerSettingsView: View {
         }
         .formStyle(.grouped)
         .task {
-            SystemMonitor.shared.setMenuPanelNeeds(SystemMonitorPanelNeeds(cpu: true))
+            // Full monitor surface: register as a panel client (depth counter)
+            // so opening/closing the menu popover cannot wipe these needs.
+            SystemMonitor.shared.panelDidAppear()
             await fetchState()
         }
         .onDisappear {
-            SystemMonitor.shared.setMenuPanelNeeds(.none)
+            SystemMonitor.shared.panelDidDisappear()
         }
         // Gaming Mode applies the Extreme preset and restores the previous one
         // on deactivation; re-read the applied preset so the cards highlight
         // what the kext is really running instead of a stale @State value.
         .onChange(of: gaming.isActive) { _, _ in
-            selectedPreset = AMDPowerPreset.saved() ?? selectedPreset
+            Task {
+                await controls.syncFromKext()
+                await fetchState()
+            }
         }
         .alert(
             L10n.shared.amdPower.title,
-            isPresented: .init(get: { privilegeMessage != nil }, set: { if !$0 { privilegeMessage = nil } })
+            isPresented: .init(get: { controls.privilegeWarning != nil }, set: { if !$0 { controls.clearPrivilegeWarning() } })
         ) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(privilegeMessage ?? "")
+            Text(controls.privilegeWarning ?? "")
         }
     }
 
@@ -939,14 +937,15 @@ struct AmdPowerSettingsView: View {
             .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
+        .disabled(gaming.isActive)
     }
 
     private func applyPreset(_ preset: AMDPowerPreset) {
         presetCtrl.apply(preset)
-        if let msg = presetCtrl.privilegeMessage {
-            privilegeMessage = msg
+        Task {
+            await controls.syncFromKext()
+            await fetchState()
         }
-        Task { await fetchState() }
     }
 
     private func presetSummary(_ preset: AMDPowerPreset) -> String {
@@ -1034,32 +1033,15 @@ struct AmdPowerSettingsView: View {
         })
         guard !Task.isCancelled else { return }
 
-        cppcSupported = state.kernelAnswered
+        await controls.syncFromKext()
         cppcActiveMode = state.cppcState.active
         cppcCurrentEPP = state.cppcState.epp
-        let target = AMDPowerPreset.snapEPP(state.cppcState.epp)
-        if selectedEpp != target { selectedEpp = target }
-        if state.kernelAnswered {
-            if ppmEnabled != state.ppm { ppmEnabled = state.ppm }
-            if lpmEnabled != state.lpm { lpmEnabled = state.lpm }
-        }
-        if state.cpb.count > 1 {
-            cpbSupported = state.cpb[0]
-            if corePerformanceBoost != state.cpb[1] { corePerformanceBoost = state.cpb[1] }
-        }
-        legacyPstateAllowed = state.profile.legacyPstateAllowed
         cpuProfile = state.profile
         telemetryPacket = state.packet
         coGeneration = state.generation
         coSupported = state.supportsCurveOptimizer
         coCoreCount = state.coreCount
         curveOffsets = state.offsets
-        if let currentPState = state.currentPState, selectedPState != currentPState {
-            selectedPState = currentPState
-        }
-        if validPStateLabels.isEmpty, !state.pStateLabels.isEmpty {
-            validPStateLabels = state.pStateLabels
-        }
         isLoading = false
     }
 }

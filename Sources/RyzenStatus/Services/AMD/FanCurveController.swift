@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Combine
 import os.log
 import os
@@ -10,16 +11,23 @@ class FanCurveController: ObservableObject {
     struct FanCurveState {
         var mappings: [Int: Int] = [:]
         var curves: [FanCurve] = []
+        var manualOverrideFanIds: Set<Int> = []
     }
     
     private let stateLock = OSAllocatedUnfairLock(initialState: FanCurveState())
+    private var persistTask: Task<Void, Never>?
     
     @Published var customCurves: [FanCurve] = [] {
         didSet {
             let curvesToSave = customCurves
             stateLock.withLock { $0.curves = curvesToSave }
-            if let data = try? JSONEncoder().encode(customCurves) {
-                UserDefaults.standard.set(data, forKey: "customCurves")
+            persistTask?.cancel()
+            persistTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                guard !Task.isCancelled else { return }
+                if let data = try? JSONEncoder().encode(curvesToSave) {
+                    UserDefaults.standard.set(data, forKey: "customCurves")
+                }
             }
         }
     }
@@ -38,6 +46,7 @@ class FanCurveController: ObservableObject {
     // PID state
     private var controlTask: Task<Void, Never>?
     private let logger = OSLog(subsystem: "com.ryzenstatus.fancurve", category: "Controller")
+    private var wakeObserver: Any?
     
     private init() {
         if let data = UserDefaults.standard.data(forKey: "customCurves"),
@@ -86,7 +95,39 @@ class FanCurveController: ObservableObject {
             $0.mappings = mappingsToSave
         }
         
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleWakeNotification()
+            }
+        }
+        
         updateControlLoopState()
+    }
+    
+    deinit {
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
+    }
+    
+    func registerManualOverride(fanId: Int) {
+        _ = stateLock.withLock { $0.manualOverrideFanIds.insert(fanId) }
+    }
+    
+    func unregisterManualOverride(fanId: Int) {
+        _ = stateLock.withLock { $0.manualOverrideFanIds.remove(fanId) }
+    }
+    
+    private func handleWakeNotification() {
+        // Restart loop to clear stale temperature anchors and timers
+        if fanMappings.values.contains(where: { $0 >= 0 }) {
+            stopControlLoop()
+            startControlLoop()
+        }
     }
     
     private func updateControlLoopState() {
@@ -97,14 +138,18 @@ class FanCurveController: ObservableObject {
             stopControlLoop()
         }
     }
+
+    // MARK: - Control Loop
     
     private func startControlLoop() {
-        if controlTask != nil { return }
+        guard controlTask == nil else { return }
         
-        controlTask = Task.detached(priority: .background) { [weak self] in
+        controlTask = Task.detached(priority: .utility) { [weak self] in
+            var lastSentSMCValue: [Int: Int] = [:]
+            var currentPWM: [Int: Double] = [:]
             var lastTemp: [FanSensor: Double] = [:]
-            var currentPWM: [Int: Double] = [:] // Fan ID -> PWM
-            var lastSentSMCValue: [Int: Int] = [:] // Fan ID -> last sent SMC PWM (0-255)
+            var hysteresisAnchor: [FanSensor: Double] = [:]
+            var lastTickTime = ProcessInfo.processInfo.systemUptime
             
             // Track which fans are already in manual mode to avoid redundant IOKit calls
             var manualFans: Set<Int> = []
@@ -114,21 +159,32 @@ class FanCurveController: ObservableObject {
                 
                 guard let self else { break }
                 
-                let telemetry = await ProcessorModel.shared.snapshotTelemetry(forceMetric: false)
-                // P1/P2-fix: If the kext times out, metric[1] comes back as 0.0.
+                let now = ProcessInfo.processInfo.systemUptime
+                let dt = max(0.1, min(10.0, now - lastTickTime))
+                lastTickTime = now
+                
+                // Optimized telemetry: try selector 100 directly first (F13)
+                var rawCPUTemp: Double = 0.0
+                if let packet = ProcessorModel.shared.getTelemetry(), packet.packageTempC > 0 {
+                    rawCPUTemp = Double(packet.packageTempC)
+                } else {
+                    let telemetry = await ProcessorModel.shared.snapshotTelemetry(forceMetric: false)
+                    rawCPUTemp = telemetry.metric.count > 1 ? Double(telemetry.metric[1]) : 0.0
+                }
+                
                 // Thermal safety guardrails: rawCPUTemp <= 0 or > 125.0 are considered sensor failures.
-                // Retain the last valid reading instead.
-                let rawCPUTemp = telemetry.metric.count > 1 ? Double(telemetry.metric[1]) : 0.0
-                if rawCPUTemp > 0 && rawCPUTemp <= 125.0 { lastTemp[.cpu] = rawCPUTemp }
-                let cpuTemp = lastTemp[.cpu] ?? rawCPUTemp  // falls back to bad value only on first read
-
+                if rawCPUTemp > 0 && rawCPUTemp <= 125.0 {
+                    lastTemp[.cpu] = rawCPUTemp
+                }
+                let cpuTemp = lastTemp[.cpu] ?? rawCPUTemp
+                
                 // Kext GPU temp (thread-safe, no actor hop)
                 let kextGPUTemp = ProcessorModel.shared.lastKextGPUTemperature
                 // Fallback: SystemMonitor snapshot GPU temp
                 let fallbackGPUTemp = await MainActor.run {
                     SystemMonitor.shared.snapshot.gpuTemperature ?? cpuTemp
                 }
-                var rawGPUTemp = kextGPUTemp > 0 ? kextGPUTemp : fallbackGPUTemp > 0 ? fallbackGPUTemp : cpuTemp
+                var rawGPUTemp = kextGPUTemp > 0 ? kextGPUTemp : (fallbackGPUTemp > 0 ? fallbackGPUTemp : cpuTemp)
                 if rawGPUTemp > 0 && rawGPUTemp <= 125.0 {
                     lastTemp[.gpu] = rawGPUTemp
                 } else {
@@ -139,43 +195,45 @@ class FanCurveController: ObservableObject {
                 let (mappings, curves) = self.stateLock.withLock { ($0.mappings, $0.curves) }
                 
                 for (fanId, curveIdx) in mappings {
+                    // F1 fix: If mapping is out of range or deactivated, return the fan to Auto mode
                     if curveIdx < 0 || curveIdx >= curves.count {
-                        // Do not interfere with manual slider overrides set by the user
-                        manualFans.remove(fanId)
+                        if manualFans.contains(fanId) {
+                            _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fanId)
+                            manualFans.remove(fanId)
+                        }
                         lastSentSMCValue.removeValue(forKey: fanId)
+                        currentPWM.removeValue(forKey: fanId)
                         continue
                     }
                     
                     var curve = curves[curveIdx]
                     let rawTemp = curve.sourceSensor == .cpu ? cpuTemp : gpuTemp
-                    let lastT = lastTemp[curve.sourceSensor] ?? rawTemp
-                    let effectiveTemp: Double
-                    if abs(rawTemp - lastT) >= curve.hysteresis {
-                        effectiveTemp = rawTemp
-                        lastTemp[curve.sourceSensor] = rawTemp
-                    } else {
-                        effectiveTemp = lastT
-                    }
+                    
+                    // F2 fix: Independent hysteresis anchor
+                    let currentAnchor = hysteresisAnchor[curve.sourceSensor] ?? rawTemp
+                    let (effectiveTemp, newAnchor) = FanCurve.applyHysteresis(
+                        anchor: currentAnchor,
+                        raw: rawTemp,
+                        threshold: curve.hysteresis
+                    )
+                    hysteresisAnchor[curve.sourceSensor] = newAnchor
                     
                     // LUT Evaluation (cached LUT)
-                    let lut = curve.getLUT() // Returns cached PWM table
+                    let lut = curve.getLUT()
                     let safeTemp = min(max(Int(effectiveTemp), 0), 255)
                     let targetPWM = lut[safeTemp]
                     
                     let current = currentPWM[fanId] ?? targetPWM
                     
-                    // Ramp rate limit towards targetPWM
-                    var newPWM = targetPWM
-                    let diff = targetPWM - current
-                    if abs(diff) > curve.rampRate {
-                        newPWM = current + (diff > 0 ? curve.rampRate : -curve.rampRate)
-                    }
+                    // F3 fix: Ramp rate per second with dt
+                    var newPWM = FanCurve.stepPWM(
+                        current: current,
+                        target: targetPWM,
+                        rampPerSec: curve.rampRate,
+                        dt: dt
+                    )
                     
-                    // Thermal safety guard — mirrors the kext's own fan-curve
-                    // guard (kTHERMAL_GUARD_TEMP_C 85°C / kTHERMAL_GUARD_PWM
-                    // 80%) so a user-drawn curve can never leave the CPU
-                    // without airflow near TjMax. Applies to every supported
-                    // family (Zen 1-5 all share the 90-95°C TjMax range).
+                    // Thermal safety guard — mirrors the kext's own fan-curve guard (85°C / 80% PWM)
                     if effectiveTemp >= 85.0 {
                         newPWM = max(newPWM, 80.0)
                     }
@@ -209,16 +267,17 @@ class FanCurveController: ObservableObject {
         resetFansToAutoSync()
     }
 
-    /// Resets all custom-mapped fans back to automatic mode asynchronously.
-    /// Safe to call on app termination or teardown.
-    ///
-    /// Reads the fan mapping from the thread-safe `stateLock` snapshot instead
-    /// of crossing to the MainActor to capture `FanCurveController.shared` —
-    /// on teardown the shared instance may already be deallocated, and the
-    /// lock snapshot needs no actor hop.
+    /// Resets all custom-mapped fans and manual overrides back to automatic mode.
     nonisolated func resetFansToAutoSync() {
-        let mappings = stateLock.withLock { $0.mappings }
+        let (mappings, overrides) = stateLock.withLock { ($0.mappings, $0.manualOverrideFanIds) }
+        var fansToReset = Set<Int>()
         for (fanId, curveIdx) in mappings where curveIdx >= 0 {
+            fansToReset.insert(fanId)
+        }
+        for fanId in overrides {
+            fansToReset.insert(fanId)
+        }
+        for fanId in fansToReset {
             _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fanId)
         }
     }

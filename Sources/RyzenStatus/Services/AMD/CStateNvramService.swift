@@ -26,15 +26,19 @@ final class CStateNvramService: ObservableObject {
     }
 
     func refresh() {
-        let args = Self.readBootArgs()
-        currentBootArgs = args
+        Task.detached(priority: .utility) {
+            let args = Self.readBootArgs()
+            let c6 = args.contains("amdcstate=0")
+            let cppc = args.contains("-amdcppcactive")
+            let pnopchk = args.contains("-amdpnopchk")
 
-        // amdcstate=0 explicitly enables C6 MSR polling in kext
-        isC6Enabled = args.contains("amdcstate=0")
-        // -amdcppcactive enables CPPC dynamic energy preference mode
-        isCppcActiveEnabled = args.contains("-amdcppcactive")
-        // -amdpnopchk enables user-space privilege bypass
-        isPnopchkEnabled = args.contains("-amdpnopchk")
+            await MainActor.run {
+                self.currentBootArgs = args
+                self.isC6Enabled = c6
+                self.isCppcActiveEnabled = cppc
+                self.isPnopchkEnabled = pnopchk
+            }
+        }
     }
 
     /// Constructs the recommended AMD boot-args string based on current NVRAM state.
