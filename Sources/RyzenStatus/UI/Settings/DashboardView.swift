@@ -335,6 +335,7 @@ struct GadgetCard: View {
                 Image(systemName: icon)
                     .foregroundColor(color)
                     .font(.system(size: 12))
+                    .accessibilityHidden(true)
                 Text(title)
                     .font(.system(size: 10, weight: .bold))
                     .foregroundColor(.secondary)
@@ -431,12 +432,15 @@ struct EditDashboardView: View {
                             .frame(width: 30)
                     }
                     .buttonStyle(PlainButtonStyle())
+                    .help(hidden.contains(module) ? "Show \(module.rawValue)" : "Hide \(module.rawValue)")
+                    .accessibilityLabel(hidden.contains(module) ? "Show \(module.rawValue)" : "Hide \(module.rawValue)")
                     
                     Text(module.rawValue)
                         .foregroundColor(hidden.contains(module) ? .secondary : .primary)
                     Spacer()
                     Image(systemName: "line.3.horizontal")
                         .foregroundColor(.secondary)
+                        .accessibilityHidden(true)
                 }
                 .padding(.vertical, 4)
             }
