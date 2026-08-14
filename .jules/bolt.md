@@ -1,3 +1,6 @@
 ## 2024-06-03 - Avoid expensive process name lookups
 **Learning:** `NSRunningApplication(processIdentifier: pid)?.localizedName` is an expensive cross-process RPC in macOS. Doing it on every refresh tick for hundreds of idle/background processes from `ps` output burns CPU heavily for a background status bar app.
 **Action:** When summarizing process metrics (like system or network usage), filter out inactive zero-usage apps and sort the data BEFORE constructing row objects. Use `enumerated()` to only call the expensive `displayName` lookup on the top N items that will actually be cached or shown, using a fast fallback string for the rest.
+## 2026-10-24 - Mach port leak on host_processor_info calls
+**Learning:** Calling `mach_host_self()` directly inline as an argument to kernel APIs (like `host_processor_info`) returns a send right that the caller owns. If it is not released, the port leaks. In a polling loop or refresh timer (like `updateUsage()` running every second), this quickly leads to kernel resource exhaustion and app crashes.
+**Action:** Always capture `mach_host_self()` in a local variable and use `defer { mach_port_deallocate(mach_task_self_, host) }` when calling mach APIs on a timer.
