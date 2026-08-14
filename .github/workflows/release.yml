@@ -21,6 +21,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Select Xcode 26
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.x'
+
       - name: Unit tests
         run: ./build.sh --test
 
@@ -41,6 +46,12 @@ jobs:
 
       - name: Build
         run: ./build.sh
+
+      - name: Install Rosetta
+        run: |
+          if [[ ! -f /Library/Apple/usr/share/rosetta/rosettaRuntimeVersions ]] && ! /usr/bin/pgrep -q oahd; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
 
       - name: Selftest
         run: ./build/RyzenStatus --selftest
