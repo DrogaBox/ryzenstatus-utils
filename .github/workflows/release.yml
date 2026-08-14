@@ -1,9 +1,9 @@
 name: Release
 
-# Push a tag (vX.Y.Z) and CI does the whole release: build, sign (Developer ID +
-# hardened runtime), notarize the app and the DMG, staple both, verify, and
-# publish the GitHub release with the styled DMG. Releases are NOT cut locally, so
-# nothing ever has to enable/disable a workflow. If a run hits a transient
+# Push a tag (vX.Y.Z) and CI does the whole release: build (ad-hoc signed —
+# permanent policy, no Developer ID or notarization), run the selftest, package
+# the styled DMG and publish the GitHub release. Releases are NOT cut locally,
+# so nothing ever has to enable/disable a workflow. If a run hits a transient
 # failure, re-run it with `gh run rerun <run-id>` (or from the Actions tab); no
 # need to retag.
 on:
@@ -29,12 +29,6 @@ jobs:
       - name: Unit tests
         run: ./build.sh --test
 
-      - name: Set up signing
-        env:
-          SIGNING_CERT_P12: ${{ secrets.SIGNING_CERT_P12 }}
-          SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
-        run: ./Tools/ci-setup-signing.sh
-
       - name: Verify release version
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
@@ -56,22 +50,8 @@ jobs:
       - name: Selftest
         run: ./build/RyzenStatus --selftest
 
-      - name: Notarize app
-        env:
-          NOTARY_API_KEY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
-          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
-          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
-        run: ./Tools/notarize.sh build/stage/RyzenStatus.app
-
       - name: Package DMG
         run: ./Tools/make-dmg.sh
-
-      - name: Notarize DMG
-        env:
-          NOTARY_API_KEY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
-          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
-          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
-        run: ./Tools/notarize.sh dist/*.dmg
 
       - name: Prepare release showcase media
         id: release_files
@@ -84,29 +64,6 @@ jobs:
             printf '%s\n' dist/*.dmg
             echo "__VRSS_FILES__"
           } >> "$GITHUB_OUTPUT"
-
-      - name: Verify notarization
-        env:
-          NOTARY_API_KEY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
-          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
-          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
-        run: |
-          if [[ -z "${NOTARY_API_KEY_P8:-}" || -z "${NOTARY_KEY_ID:-}" || -z "${NOTARY_ISSUER_ID:-}" ]]; then
-            echo "No notarization credentials — skipping validation."
-            exit 0
-          fi
-          DMG=$(ls dist/*.dmg | head -1)
-          xcrun stapler validate "$DMG"
-          MP=$(mktemp -d)
-          cleanup() {
-            hdiutil detach "$MP" >/dev/null 2>&1 || true
-            rmdir "$MP" >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-          hdiutil attach -nobrowse -readonly -mountpoint "$MP" "$DMG"
-          spctl -a -t exec -vv "$MP/RyzenStatus.app" 2>&1 | tee /tmp/spctl.txt
-          grep -q "source=Notarized Developer ID" /tmp/spctl.txt
-          xcrun stapler validate "$MP/RyzenStatus.app"
 
       - name: Release notes from CHANGELOG
         id: notes
@@ -125,7 +82,7 @@ jobs:
             echo "NOTES<<__VRSS_EOF__"
             printf '%s\n' "$NOTES"
             echo ""
-            echo "Open the .dmg below and drag RyzenStatus to Applications. You will need to bypass Gatekeeper on first launch."
+            echo "Open the .dmg below and drag RyzenStatus to Applications. This build is ad-hoc signed and not notarized (by design), so bypass Gatekeeper on first launch: right-click → Open, or run: xattr -d com.apple.quarantine /Applications/RyzenStatus.app"
             echo "__VRSS_EOF__"
           } >> "$GITHUB_OUTPUT"
 

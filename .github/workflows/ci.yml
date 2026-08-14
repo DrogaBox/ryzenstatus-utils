@@ -21,12 +21,6 @@ jobs:
       - name: Unit tests
         run: ./build.sh --test
 
-      - name: Set up signing
-        env:
-          SIGNING_CERT_P12: ${{ secrets.SIGNING_CERT_P12 }}
-          SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
-        run: ./Tools/ci-setup-signing.sh
-
       - name: Build
         run: ./build.sh
 
