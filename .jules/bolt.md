@@ -1,0 +1,3 @@
+## 2024-06-25 - Prevent Mach Port Leaks in Polling Loops
+**Learning:** `mach_host_self()` returns a send right that the caller owns. In this codebase, which heavily relies on macOS IOKit and mach ports for system monitoring, calling `mach_host_self()` directly within polling loops (like UI timers or sampling loops) without explicit deallocation causes a rapid and severe resource leak of mach ports.
+**Action:** Always capture the result of `mach_host_self()` in a local variable and explicitly deallocate it using `defer { mach_port_deallocate(mach_task_self_, host) }` to ensure proper resource management.

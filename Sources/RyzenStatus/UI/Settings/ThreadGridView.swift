@@ -70,7 +70,12 @@ class ThreadGridViewModel: ObservableObject {
         var cpuInfo: processor_info_array_t?
         var numCpus: natural_t = 0
         
-        let err = host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &numCpus, &cpuInfo, &numCpuInfo)
+        // mach_host_self() returns a send right the caller owns; release it or each
+        // call leaks a mach port (this runs on every sampling tick).
+        let host = mach_host_self()
+        defer { mach_port_deallocate(mach_task_self_, host) }
+
+        let err = host_processor_info(host, PROCESSOR_CPU_LOAD_INFO, &numCpus, &cpuInfo, &numCpuInfo)
         if err == KERN_SUCCESS, let cpuInfo = cpuInfo {
             var newThreads = self.threads
             let freq = SystemMonitor.shared.snapshot.avgCPUFreq ?? 0
