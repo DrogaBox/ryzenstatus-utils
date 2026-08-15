@@ -370,6 +370,7 @@ struct FanControlCard: View {
                     }
                     .buttonStyle(.plain)
                     .help("Hide this fan")
+                    .accessibilityLabel("Hide this fan")
                 }
             }
             
