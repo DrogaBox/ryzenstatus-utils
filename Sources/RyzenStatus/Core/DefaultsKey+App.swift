@@ -114,6 +114,10 @@ extension DefaultsKey {
     static let nowPlayingMenuBarText = "nowPlayingMenuBarText" // legacy: show the track next to the menu bar icon
     static let nowPlayingMenuBarMode = "nowPlayingMenuBarMode" // NowPlayingMenuBarMode.rawValue (0 icon, 1 artist, 2 song, 3 artist+song)
     static let nowPlayingMenuBarProgress = "nowPlayingMenuBarProgress" // thin progress strip under the menu bar text
+    static let nowPlayingMarquee = "nowPlayingMarquee" // scroll overflowing menu bar text (pause, scroll, loop)
+    static let nowPlayingMarqueeSlide = "nowPlayingMarqueeSlide" // slide the text in when the track changes
+    static let nowPlayingArtworkSize = "nowPlayingArtworkSize" // popup artwork tile size in pt (120–260)
+    static let nowPlayingUnloadWhenHidden = "nowPlayingUnloadWhenHidden" // drop the popup content while the popover is hidden
     static let nowPlayingPreferredProvider = "nowPlayingPreferredProvider" // NowPlayingProvider.rawValue (0 auto, 1 music, 2 spotify)
     static let nowPlayingOpenInApp = "nowPlayingOpenInApp" // click the track title to activate its app
     static let nowPlayingShowArtwork = "nowPlayingShowArtwork" // artwork in the menu panel section

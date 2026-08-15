@@ -17,9 +17,25 @@ final class NowPlayingPopupController: ObservableObject {
     static let shared = NowPlayingPopupController()
 
     /// Fixed popup card sizes per layout; the width never animates outside
-    /// the morph driver.
-    static let regularSize = NSSize(width: 420, height: 236)
+    /// the morph driver. The regular card adapts to the artwork size setting:
+    /// the width follows the tile (never narrower than 410pt), the height
+    /// keeps the 18pt chrome, the tile ring and the transport row constant.
+    static let minimumRegularWidth: CGFloat = 410
+    static let regularChrome: CGFloat = 96
     static let miniSize = NSSize(width: 380, height: 380)
+
+    /// The popup artwork tile size from settings, clamped to 120–260pt.
+    static var artworkTileSize: CGFloat {
+        let raw = UserDefaults.standard.double(forKey: DefaultsKey.nowPlayingArtworkSize)
+        let value = raw >= 1 ? raw : 140
+        return min(max(CGFloat(value), 120), 260)
+    }
+
+    static var regularSize: NSSize {
+        let tile = artworkTileSize
+        return NSSize(width: max(minimumRegularWidth, tile + 330),
+                      height: tile + regularChrome)
+    }
 
     /// Size presets of the detached window. The card is square: the artwork
     /// tile takes the width minus the chrome margin, the rest stacks below.
@@ -57,6 +73,15 @@ final class NowPlayingPopupController: ObservableObject {
     }
 
     var popoverContentSize: NSSize { isMini ? Self.miniSize : Self.regularSize }
+
+    /// The artwork size setting changed: while the popover is open in the
+    /// regular layout, glide its window to the new card size the same way
+    /// the mini morph does.
+    func applyArtworkSizeChange() {
+        guard let popover, popover.isShown, !isMini,
+              let window = popover.contentViewController?.view.window else { return }
+        animatePopoverFrame(of: popover, window: window, to: popoverContentSize)
+    }
 
     /// Set by AppDelegate when it builds the popup popover.
     weak var popover: NSPopover?

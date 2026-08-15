@@ -11,6 +11,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var statusController: StatusItemController!
     private let popover = NSPopover()
     private let nowPlayingPopover = NSPopover()
+    /// Whether the now-playing popup content is currently unloaded (memory
+    /// setting): the popover hosts an EmptyView until the next open.
+    private var nowPlayingPopupUnloaded = false
     private var popoverClosedAt = Date.distantPast
     private var popoverDismissMonitor: Any?
     private var popoverLocalDismissMonitor: Any?
@@ -728,7 +731,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         nowPlayingPopover.behavior = .transient
         nowPlayingPopover.animates = false
         nowPlayingPopover.delegate = self
-        let host = NSHostingController(rootView: NowPlayingPopupView())
+        let host = NSHostingController(rootView: AnyView(NowPlayingPopupView()))
         // The popup manages its size explicitly (a fixed card, clamped to
         // the space under the menu bar); automatic sizing would fight that.
         host.sizingOptions = []
@@ -757,9 +760,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private func presentNowPlayingPopup(anchoredTo button: NSStatusBarButton) {
         guard !nowPlayingPopover.isShown else { return }
         NowPlayingPopupController.shared.anchorButton = button
+        let rehosted = restoreNowPlayingPopupContent()
         // contentSize is only trustworthy while hidden; visible resizes go
         // through window.setFrame below.
-        sizeNowPlayingContent(under: button)
+        if rehosted {
+            // Freshly rehosted SwiftUI content has no trustworthy fitting
+            // size yet; take the known card size directly.
+            var size = NowPlayingPopupController.shared.popoverContentSize
+            if let maxHeight = availableHeight(under: button) {
+                size.height = min(size.height, maxHeight)
+            }
+            nowPlayingPopover.contentSize = size
+        } else {
+            sizeNowPlayingContent(under: button)
+        }
         nowPlayingPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         guard let window = nowPlayingPopover.contentViewController?.view.window else { return }
         // Keep the popup alive next to fullscreen apps and on any Space.
@@ -836,6 +850,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private func closeNowPlayingPopup() {
         guard nowPlayingPopover.isShown else { return }
         nowPlayingPopover.performClose(nil)
+    }
+
+    /// The popup content may have been dropped while hidden (memory setting);
+    /// rehost the real view before presenting. Returns whether the content
+    /// was just rehosted, so the caller can skip fitting-size measurement.
+    @discardableResult
+    private func restoreNowPlayingPopupContent() -> Bool {
+        guard nowPlayingPopupUnloaded else { return false }
+        if let host = nowPlayingPopover.contentViewController as? NSHostingController<AnyView> {
+            host.rootView = AnyView(NowPlayingPopupView())
+        }
+        nowPlayingPopupUnloaded = false
+        return true
+    }
+
+    /// Memory parity: optionally unload the popup content while the popover
+    /// is hidden, hosting an EmptyView until the next open.
+    private func unloadNowPlayingPopupIfPreferred() {
+        guard UserDefaults.standard.bool(forKey: DefaultsKey.nowPlayingUnloadWhenHidden),
+              let host = nowPlayingPopover.contentViewController as? NSHostingController<AnyView> else { return }
+        host.rootView = AnyView(EmptyView())
+        nowPlayingPopupUnloaded = true
     }
 
     // The SwiftUI panel reports which monitor sections are actually visible; the
@@ -933,6 +969,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     func popoverDidClose(_ notification: Notification) {
         if (notification.object as? NSPopover) === nowPlayingPopover {
             endPopoverDriftCorrection()
+            unloadNowPlayingPopupIfPreferred()
             return
         }
         if !popoverIsSwitchingAnchor {

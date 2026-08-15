@@ -35,6 +35,9 @@ final class NowPlayingService: ObservableObject {
     private var timer: Timer?
     private var statusItem: NSStatusItem?
     private var lastRenderedKey = ""
+    private var marqueeTimer: Timer?
+    private var marqueePhase = MarqueePhase.idle
+    private var lastMarqueeText = ""
     private var lastPollStartedAt: TimeInterval = 0
     private var pollGeneration = 0
     private var appNameCache: [String: String?] = [:]
@@ -86,6 +89,7 @@ final class NowPlayingService: ObservableObject {
     func stop() {
         timer?.invalidate()
         timer = nil
+        stopMarquee()
         pollGeneration += 1
         lastPollStartedAt = 0
         if let statusItem {
@@ -236,9 +240,17 @@ final class NowPlayingService: ObservableObject {
             artworkImage = nil
             artworkIdentity = ""
         }
+        // Display settings changed: restart the marquee from a clean slate.
+        stopMarquee()
         lastRenderedKey = ""
         renderMenuBar()
         poll()
+    }
+
+    /// Drops the cached artwork fingerprints so covers are re-hashed from
+    /// scratch on the next read. The action behind "Clear media cache".
+    func clearMediaCache() {
+        artworkFingerprintCache.removeAllObjects()
     }
 
     /// Brings the app that owns the current session to the front, so the
@@ -306,16 +318,23 @@ final class NowPlayingService: ObservableObject {
         let progress: Double? = showProgress && hasTrack
             ? progressFraction : nil
 
+        // The marquee advances its state machine here; the returned offset
+        // joins the render key so every scroll step repaints the item.
+        let marqueeOffset = updateMarquee(text: text,
+                                          enabled: defaults.bool(forKey: DefaultsKey.nowPlayingMarquee))
+
         let progressStr = progress != nil ? String(Int(progress! * 100)) : "-"
         let appearance = button.effectiveAppearance.name.rawValue
-        let key = "\(text)|\(hasTrack)|\(snapshot.isPlaying)|\(mode.rawValue)|\(progressStr)|\(appearance)"
+        let offsetKey = marqueeOffset.map { String(Int($0.rounded())) } ?? "-"
+        let key = "\(text)|\(hasTrack)|\(snapshot.isPlaying)|\(mode.rawValue)|\(progressStr)|\(offsetKey)|\(appearance)"
         guard key != lastRenderedKey else { return }
         lastRenderedKey = key
 
         let image = Self.composeMenuBarImage(text: text,
                                              hasTrack: hasTrack,
                                              isPlaying: snapshot.isPlaying,
-                                             progress: progress)
+                                             progress: progress,
+                                             marqueeOffset: marqueeOffset)
         button.image = image
         button.toolTip = hasTrack
             ? "\(snapshot.displayTitle) — \(snapshot.displayArtist)"
@@ -331,18 +350,109 @@ final class NowPlayingService: ObservableObject {
         return max(0, min(1, elapsed / duration))
     }
 
+    // MARK: - Marquee
+
+    /// The menu bar font of the composed item, shared by measurement and draw
+    /// so the marquee overflow check and the pixels always agree.
+    private static let menuBarTextFont = NSFont.systemFont(ofSize: 12, weight: .medium)
+    /// The text lane never grows past this; longer text scrolls instead.
+    private static let marqueeMaxTextWidth: CGFloat = 260
+    /// Pause before the first scroll and between loops.
+    private static let marqueeHoldDuration: TimeInterval = 1.6
+    private static let marqueeSpeed: CGFloat = 26 // pt per second
+    /// Breathing room between the tail of one pass and the head of the next.
+    private static let marqueeLoopGap: CGFloat = 48
+    private static let marqueeSlideDuration: TimeInterval = 0.45
+    private static let marqueeTickInterval: TimeInterval = 1.0 / 30.0
+
+    /// The marquee lifecycle: a new track slides in (optionally), holds, scrolls
+    /// left, and loops with a hold between passes.
+    private enum MarqueePhase {
+        case idle
+        case slideIn(startedAt: TimeInterval)
+        case hold(startedAt: TimeInterval)
+        case scroll(startedAt: TimeInterval)
+    }
+
+    /// Advances the marquee state machine and returns the horizontal offset
+    /// to draw the text at (nil = static render). The tick timer only exists
+    /// while text genuinely overflows the lane, so an idle bar costs nothing.
+    private func updateMarquee(text: String, enabled: Bool) -> CGFloat? {
+        let needsMarquee = enabled && !text.isEmpty
+            && Self.menuBarTextWidth(text) > Self.marqueeMaxTextWidth
+        guard needsMarquee else {
+            stopMarquee()
+            return nil
+        }
+        let now = CACurrentMediaTime()
+        if text != lastMarqueeText {
+            lastMarqueeText = text
+            let slide = UserDefaults.standard.bool(forKey: DefaultsKey.nowPlayingMarqueeSlide)
+            marqueePhase = slide ? .slideIn(startedAt: now) : .hold(startedAt: now)
+        }
+        startMarqueeTimer()
+        switch marqueePhase {
+        case .idle:
+            return 0
+        case .slideIn(let startedAt):
+            let progress = min(1, (now - startedAt) / Self.marqueeSlideDuration)
+            if progress >= 1 {
+                marqueePhase = .hold(startedAt: now)
+                return 0
+            }
+            // Ease-out cubic: the text arrives fast and settles into place.
+            let eased = CGFloat(1 - pow(1 - progress, 3))
+            return -Self.marqueeMaxTextWidth * (1 - eased)
+        case .hold(let startedAt):
+            if now - startedAt >= Self.marqueeHoldDuration {
+                marqueePhase = .scroll(startedAt: now)
+            }
+            return 0
+        case .scroll(let startedAt):
+            let distance = Self.menuBarTextWidth(text) + Self.marqueeLoopGap
+            let offset = CGFloat(now - startedAt) * Self.marqueeSpeed
+            if offset >= distance {
+                marqueePhase = .hold(startedAt: now)
+                return 0
+            }
+            return offset
+        }
+    }
+
+    private func startMarqueeTimer() {
+        guard marqueeTimer == nil else { return }
+        let timer = Timer(timeInterval: Self.marqueeTickInterval, repeats: true) { [weak self] _ in
+            self?.renderMenuBar()
+        }
+        timer.tolerance = Self.marqueeTickInterval * 0.3
+        RunLoop.main.add(timer, forMode: .common)
+        marqueeTimer = timer
+    }
+
+    private func stopMarquee() {
+        marqueeTimer?.invalidate()
+        marqueeTimer = nil
+        marqueePhase = .idle
+        lastMarqueeText = ""
+    }
+
+    private static func menuBarTextWidth(_ text: String) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: menuBarTextFont]).width)
+    }
+
     /// Draws the full status item in one pass so the icon, text and progress
     /// strip stay aligned regardless of the menu bar's dark/light appearance.
     private static func composeMenuBarImage(text: String,
                                             hasTrack: Bool,
                                             isPlaying: Bool,
-                                            progress: Double?) -> NSImage {
+                                            progress: Double?,
+                                            marqueeOffset: CGFloat?) -> NSImage {
         let icon = NSImage(systemSymbolName: "music.note",
                            accessibilityDescription: nil)
         let iconConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
         let iconImage = icon?.withSymbolConfiguration(iconConfig) ?? NSImage()
 
-        let font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        let font = menuBarTextFont
         let dim = hasTrack && !isPlaying
         let textColor: NSColor = hasTrack
             ? (dim ? NSColor.secondaryLabelColor : NSColor.labelColor)
@@ -375,8 +485,27 @@ final class NowPlayingService: ObservableObject {
                            from: .zero, operation: .sourceOver, fraction: 1)
 
             if !text.isEmpty {
-                let textRect = NSRect(x: 1 + iconWidth + gap, y: (totalHeight - 18) / 2 + 3, width: textSize.width, height: textSize.height)
-                (text as NSString).draw(in: textRect, withAttributes: textAttrs)
+                let textY = (totalHeight - 18) / 2 + 3
+                let laneX = 1 + iconWidth + gap
+                if let marqueeOffset {
+                    // Scrolling lane: clip to the fixed-width window and draw
+                    // the text twice — the live copy and the loop copy one
+                    // full pass ahead — so the wrap is seamless.
+                    NSGraphicsContext.saveGraphicsState()
+                    NSRect(x: laneX, y: 0, width: textSize.width, height: totalHeight).clip()
+                    let loopDistance = menuBarTextWidth(text) + marqueeLoopGap
+                    for shift in [marqueeOffset, marqueeOffset - loopDistance] {
+                        let x = laneX - shift
+                        if x < laneX + textSize.width, x + menuBarTextWidth(text) > laneX {
+                            (text as NSString).draw(at: NSPoint(x: x, y: textY),
+                                                    withAttributes: textAttrs)
+                        }
+                    }
+                    NSGraphicsContext.restoreGraphicsState()
+                } else {
+                    let textRect = NSRect(x: laneX, y: textY, width: textSize.width, height: textSize.height)
+                    (text as NSString).draw(in: textRect, withAttributes: textAttrs)
+                }
             }
 
             // Thin progress strip along the bottom, matching the menu bar accent.

@@ -17,7 +17,6 @@ enum NowPlayingPopupCluster {
 /// animation pipeline — the wide regular card and the square mini card — and
 /// the same view also fills the detached floating window.
 struct NowPlayingPopupView: View {
-    static let regularSize = NSSize(width: 420, height: 236)
     static let miniSize = NSSize(width: 380, height: 380)
     /// The mini card is square; the tile keeps a fixed chrome margin, so
     /// every size derives from the width alone.
@@ -73,12 +72,15 @@ struct NowPlayingPopupView: View {
         return controller.isMini ? .mini : .regular
     }
 
+    /// The regular card follows the artwork size setting; mini stays square.
+    private var regularSize: NSSize { NowPlayingPopupController.regularSize }
+
     private var cardSize: NSSize {
         if cluster == .detached {
             let width = controller.detachedSize.width
             return NSSize(width: width, height: width)
         }
-        return controller.isMini ? Self.miniSize : Self.regularSize
+        return controller.isMini ? Self.miniSize : regularSize
     }
 
     var body: some View {
@@ -161,12 +163,14 @@ struct NowPlayingPopupView: View {
     /// The wide card: artwork tile left, metadata and progress right,
     /// transport row underneath.
     private var regularBody: some View {
-        ZStack(alignment: .top) {
-            backdrop(width: Self.regularSize.width, height: Self.regularSize.height)
+        let size = regularSize
+        return ZStack(alignment: .top) {
+            backdrop(width: size.width, height: size.height)
             VStack(spacing: 12) {
                 HStack(spacing: 16) {
                     if showArtwork {
-                        artworkTile(size: 140, cornerRadius: 16, outerRadius: 22)
+                        artworkTile(size: NowPlayingPopupController.artworkTileSize,
+                                    cornerRadius: 16, outerRadius: 22)
                     }
                     VStack(alignment: .leading, spacing: 4) {
                         titleView(fontSize: 13, alignment: .leading)
@@ -184,7 +188,7 @@ struct NowPlayingPopupView: View {
             }
             .padding(18)
         }
-        .frame(width: Self.regularSize.width, height: Self.regularSize.height, alignment: .top)
+        .frame(width: size.width, height: size.height, alignment: .top)
     }
 
     /// The square artwork-first card used by mini mode and the detached
