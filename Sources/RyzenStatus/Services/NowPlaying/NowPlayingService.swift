@@ -263,6 +263,7 @@ final class NowPlayingService: ObservableObject {
     func clearMediaCache() {
         lastFingerprintedData = nil
         lastArtworkIdentity = ""
+        NowPlayingLyricsCenter.shared.clearCache()
     }
 
     /// Brings the app that owns the current session to the front, so the

@@ -127,6 +127,7 @@ extension DefaultsKey {
     static let nowPlayingDetachedSize = "nowPlayingDetachedSize" // NowPlayingDetachedSize.rawValue (0 small, 1 medium, 2 large)
     static let nowPlayingDetachedOriginX = "nowPlayingDetachedOriginX" // last dragged position of the detached window
     static let nowPlayingDetachedOriginY = "nowPlayingDetachedOriginY"
+    static let nowPlayingDetailsPane = "nowPlayingDetailsPane"
     static let panelShowNowPlaying = "panelShowNowPlaying"
     static let cleanerScheduleFrequency = "cleanerScheduleFrequency"    // off | daily | weekly
     static let cleanerScheduleHour = "cleanerScheduleHour"

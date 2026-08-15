@@ -295,6 +295,7 @@ enum Defaults {
         DefaultsKey.nowPlayingMiniMode: false,
         DefaultsKey.nowPlayingDetachedOnTop: true,
         DefaultsKey.nowPlayingDetachedSize: 1,
+        DefaultsKey.nowPlayingDetailsPane: false,
         DefaultsKey.panelShowNowPlaying: true,
         DefaultsKey.cleanerScheduleFrequency: "off",
         DefaultsKey.cleanerScheduleHour: 9,

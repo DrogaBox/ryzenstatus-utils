@@ -23,6 +23,9 @@ final class NowPlayingPopupController: ObservableObject {
     static let minimumRegularWidth: CGFloat = 410
     static let regularChrome: CGFloat = 96
     static let miniSize = NSSize(width: 380, height: 380)
+    /// The lyrics/credits details pane grows the regular card by this much;
+    /// the same value is the pane's fixed height inside the card.
+    static let detailsPaneHeight: CGFloat = 172
 
     /// The popup artwork tile size from settings, clamped to 120–260pt.
     static var artworkTileSize: CGFloat {
@@ -72,7 +75,25 @@ final class NowPlayingPopupController: ObservableObject {
         }
     }
 
-    var popoverContentSize: NSSize { isMini ? Self.miniSize : Self.regularSize }
+    /// The expandable lyrics/credits pane under the hero. Only the regular
+    /// popover layout hosts it; the expansion persists across popup opens
+    /// (and the unload-when-hidden rehost) through UserDefaults.
+    @Published var detailsExpanded: Bool {
+        didSet {
+            guard detailsExpanded != oldValue else { return }
+            UserDefaults.standard.set(detailsExpanded, forKey: DefaultsKey.nowPlayingDetailsPane)
+        }
+    }
+    @Published var detailsTab: NowPlayingDetailsTab
+
+    var popoverContentSize: NSSize {
+        if isMini { return Self.miniSize }
+        var size = Self.regularSize
+        if detailsExpanded {
+            size.height += Self.detailsPaneHeight
+        }
+        return size
+    }
 
     /// The artwork size setting changed: while the popover is open in the
     /// regular layout, glide its window to the new card size the same way
@@ -98,6 +119,34 @@ final class NowPlayingPopupController: ObservableObject {
         isMini = defaults.bool(forKey: DefaultsKey.nowPlayingMiniMode)
         detachedOnTop = defaults.bool(forKey: DefaultsKey.nowPlayingDetachedOnTop)
         detachedSize = DetachedSize(rawValue: defaults.integer(forKey: DefaultsKey.nowPlayingDetachedSize)) ?? .medium
+        detailsExpanded = defaults.bool(forKey: DefaultsKey.nowPlayingDetailsPane)
+        detailsTab = .lyrics
+    }
+
+    // MARK: - Details pane
+
+    /// Toggles the details pane to a tab: tapping the active tab's button
+    /// collapses it, any other tab switches or expands. While the popover is
+    /// visible the window frame glides to the new card size with the same
+    /// morph driver, clamped to the space under the status item.
+    func toggleDetailsPane(tab: NowPlayingDetailsTab) {
+        if detailsExpanded && detailsTab == tab {
+            detailsExpanded = false
+        } else {
+            detailsTab = tab
+            detailsExpanded = true
+        }
+        animateDetailsPaneChange()
+    }
+
+    private func animateDetailsPaneChange() {
+        guard let popover, popover.isShown, !isMini,
+              let window = popover.contentViewController?.view.window else { return }
+        var target = popoverContentSize
+        if let maxHeight = availableHeight(under: anchorButton) {
+            target.height = min(target.height, maxHeight)
+        }
+        animatePopoverFrame(of: popover, window: window, to: target)
     }
 
     // MARK: - Mini mode morph
@@ -107,6 +156,11 @@ final class NowPlayingPopupController: ObservableObject {
     /// side crossfades the layouts off the same `isMini` change.
     func toggleMini() {
         isMini.toggle()
+        // The details pane lives in the regular layout alone; entering mini
+        // folds it away so the two card sizes never disagree.
+        if isMini, detailsExpanded {
+            detailsExpanded = false
+        }
         guard let popover, popover.isShown,
               let window = popover.contentViewController?.view.window else { return }
         var target = popoverContentSize
@@ -289,6 +343,12 @@ final class NowPlayingPopupController: ObservableObject {
             panel.animator().setFrame(frame, display: true)
         }
     }
+}
+
+/// The two pages of the expandable details pane under the hero.
+enum NowPlayingDetailsTab: Int {
+    case lyrics = 0
+    case credits = 1
 }
 
 /// The detached window hosts interactive controls (sliders, menus), which a

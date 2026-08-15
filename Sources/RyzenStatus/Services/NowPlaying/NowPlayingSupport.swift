@@ -16,6 +16,14 @@ struct NowPlayingSnapshot: Equatable {
     var isPlaying = false
     var elapsed: TimeInterval?
     var duration: TimeInterval?
+    /// Extended track metadata for the credits pane. Only the AppleScript
+    /// providers can supply these; the MediaRemote session leaves them nil,
+    /// and the credits pane simply shows fewer rows.
+    var albumArtist: String?
+    var composer: String?
+    var genre: String?
+    var year: Int?
+    var trackNumber: Int?
 
     /// A title is the minimum requirement for a "now playing" moment; a
     /// paused track still counts, an idle session does not.

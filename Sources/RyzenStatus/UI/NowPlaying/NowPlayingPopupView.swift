@@ -28,6 +28,7 @@ struct NowPlayingPopupView: View {
     @ObservedObject private var controller = NowPlayingPopupController.shared
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var service = NowPlayingService.shared
+    @ObservedObject private var lyricsCenter = NowPlayingLyricsCenter.shared
     @AppStorage(DefaultsKey.nowPlayingOpenInApp) private var openInApp = true
     @AppStorage(DefaultsKey.nowPlayingShowArtwork) private var showArtwork = true
     @AppStorage(DefaultsKey.nowPlayingArtworkAnimation) private var animateArtwork = true
@@ -83,7 +84,18 @@ struct NowPlayingPopupView: View {
             let width = controller.detachedSize.width
             return NSSize(width: width, height: width)
         }
-        return controller.isMini ? Self.miniSize : regularSize
+        if controller.isMini { return Self.miniSize }
+        var size = regularSize
+        // The details pane stacks under the hero and stretches the card.
+        if controller.detailsExpanded {
+            size.height += NowPlayingPopupController.detailsPaneHeight
+        }
+        return size
+    }
+
+    /// The pane only exists in the anchored popover's regular layout.
+    private var detailsPaneVisible: Bool {
+        cluster == .popover && !controller.isMini && controller.detailsExpanded
     }
 
     var body: some View {
@@ -108,6 +120,8 @@ struct NowPlayingPopupView: View {
         }
         .onChange(of: currentTrackIdentityKey) { _, _ in
             isSeeking = false
+            NowPlayingLyricsCenter.shared.cancelInflight()
+            syncLyricsIfVisible()
         }
         .onChange(of: service.snapshot.elapsed) { _, newElapsed in
             if isSeeking {
@@ -121,6 +135,12 @@ struct NowPlayingPopupView: View {
             guard cluster == .popover, hasCrossfadedLayout else { return }
             crossfadeLayout(toMini: toMini)
         }
+        .onChange(of: controller.detailsExpanded) { _, _ in
+            syncLyricsIfVisible()
+        }
+        .onChange(of: controller.detailsTab) { _, _ in
+            syncLyricsIfVisible()
+        }
         .onAppear {
             displayedArtwork = service.artworkImage
             hasDisplayedArtwork = true
@@ -131,7 +151,23 @@ struct NowPlayingPopupView: View {
             regularOpacity = activeLayout == .regular ? 1 : 0
             miniOpacity = activeLayout == .mini ? 1 : 0
             hasCrossfadedLayout = true
+            syncLyricsIfVisible()
         }
+    }
+
+    /// Keeps the lyrics lookup live exactly while the pane shows them: on
+    /// open, on tab switch and on every track change. In-flight requests for
+    /// a previous track are cancelled first.
+    private func syncLyricsIfVisible() {
+        guard detailsPaneVisible,
+              controller.detailsTab == .lyrics,
+              service.snapshot.hasTrack else { return }
+        let snapshot = service.snapshot
+        lyricsCenter.ensureLyrics(title: snapshot.displayTitle,
+                                  artist: snapshot.artist ?? "",
+                                  album: snapshot.album ?? "",
+                                  duration: snapshot.duration,
+                                  bundleID: snapshot.appBundleID)
     }
 
     /// The detached window is borderless, so it paints its own card surface;
@@ -166,7 +202,8 @@ struct NowPlayingPopupView: View {
     /// The wide card: artwork tile left, metadata and progress right,
     /// transport row underneath.
     private var regularBody: some View {
-        let size = regularSize
+        // cardSize already includes the details pane when it is expanded.
+        let size = cardSize
         return ZStack(alignment: .top) {
             backdrop(width: size.width, height: size.height)
             VStack(spacing: 12) {
@@ -188,6 +225,19 @@ struct NowPlayingPopupView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 controlsRow
+                if detailsPaneVisible {
+                    NowPlayingDetailsPane(snapshot: service.snapshot,
+                                          strings: strings,
+                                          selectedTab: controller.detailsTab,
+                                          onSelectTab: { controller.detailsTab = $0 },
+                                          lyricsState: lyricsCenter.paneState,
+                                          lyricsPayload: lyricsCenter.payload,
+                                          onRetryLyrics: syncLyricsIfVisible)
+                        // Fill whatever vertical space the expanded card
+                        // leaves under the controls row.
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .transition(.opacity)
+                }
             }
             .padding(18)
         }
@@ -424,6 +474,23 @@ struct NowPlayingPopupView: View {
         if isHovering {
             HStack(spacing: 4) {
                 if cluster == .popover {
+                    if !controller.isMini {
+                        clusterButton(
+                            systemName: "text.quote",
+                            help: strings.lyricsTab,
+                            isHighlighted: controller.detailsExpanded && controller.detailsTab == .lyrics
+                        ) {
+                            controller.toggleDetailsPane(tab: .lyrics)
+                        }
+                        clusterButton(
+                            systemName: controller.detailsExpanded && controller.detailsTab == .credits
+                                ? "info.circle.fill" : "info.circle",
+                            help: strings.creditsTab,
+                            isHighlighted: controller.detailsExpanded && controller.detailsTab == .credits
+                        ) {
+                            controller.toggleDetailsPane(tab: .credits)
+                        }
+                    }
                     clusterButton(
                         systemName: controller.isMini
                             ? "arrow.up.left.and.arrow.down.right"
@@ -614,4 +681,240 @@ struct NowPlayingPopupView: View {
 enum NowPlayingPopupLayout: Hashable {
     case regular
     case mini
+}
+
+/// The expandable pane under the hero: a lyrics or credits page plus the
+/// provider-aware search lane. Its height is whatever the expanded card
+/// leaves under the transport row; the lyrics list scrolls inside.
+private struct NowPlayingDetailsPane: View {
+    let snapshot: NowPlayingSnapshot
+    let strings: NowPlayingStrings
+    let selectedTab: NowPlayingDetailsTab
+    let onSelectTab: (NowPlayingDetailsTab) -> Void
+    let lyricsState: NowPlayingLyricsPaneState
+    let lyricsPayload: NowPlayingLyricsPayload?
+    let onRetryLyrics: () -> Void
+
+    @State private var searchText = ""
+    @FocusState private var searchFocused: Bool
+
+    private var searchProvider: NowPlayingProvider {
+        NowPlayingSearch.resolvedProvider(snapshot: snapshot)
+    }
+
+    var body: some View {
+        VStack(spacing: 7) {
+            HStack(spacing: 4) {
+                tabChip(.lyrics, title: strings.lyricsTab)
+                tabChip(.credits, title: strings.creditsTab)
+                Spacer(minLength: 8)
+                if selectedTab == .lyrics,
+                   lyricsState == .available,
+                   let payload = lyricsPayload {
+                    Text(String(format: strings.sourceFormat, payload.sourceName))
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+            if selectedTab == .lyrics {
+                lyricsContent
+            } else {
+                creditsContent
+            }
+            searchLane
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.primary.opacity(0.045))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.07))
+        )
+    }
+
+    // MARK: - Tabs
+
+    private func tabChip(_ tab: NowPlayingDetailsTab, title: String) -> some View {
+        let isSelected = selectedTab == tab
+        return Button {
+            onSelectTab(tab)
+        } label: {
+            Text(title)
+                .font(.system(size: 10.5, weight: isSelected ? .semibold : .regular))
+                .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Capsule().fill(isSelected ? Color.accentColor.opacity(0.16) : .clear))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(title)
+    }
+
+    // MARK: - Lyrics
+
+    @ViewBuilder
+    private var lyricsContent: some View {
+        switch lyricsState {
+        case .idle, .loading:
+            statusRow(spinner: true, text: strings.lyricsLoading)
+        case .available:
+            if let payload = lyricsPayload {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(Array(payload.lines.enumerated()), id: \.offset) { _, line in
+                            Text(line.text)
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                statusRow(spinner: false, text: strings.lyricsUnavailable)
+            }
+        case .unavailable:
+            statusRow(spinner: false, text: strings.lyricsUnavailable)
+        case .failed:
+            VStack(spacing: 5) {
+                Text(strings.lyricsFailed)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Button(strings.retryLabel, action: onRetryLyrics)
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 10.5, weight: .semibold))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func statusRow(spinner: Bool, text: String) -> some View {
+        HStack(spacing: 7) {
+            if spinner {
+                ProgressView()
+                    .controlSize(.small)
+            }
+            Text(text)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Credits
+
+    private var creditsPayload: NowPlayingCreditsPayload? {
+        NowPlayingCreditsBuilder.build(title: snapshot.displayTitle,
+                                       artist: snapshot.artist ?? "",
+                                       albumArtist: snapshot.albumArtist,
+                                       album: snapshot.album ?? "",
+                                       composer: snapshot.composer,
+                                       genre: snapshot.genre,
+                                       year: snapshot.year,
+                                       trackNumber: snapshot.trackNumber,
+                                       sourceName: snapshot.appName ?? "")
+    }
+
+    @ViewBuilder
+    private var creditsContent: some View {
+        if let payload = creditsPayload, payload.hasContent {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(Array(payload.sections.enumerated()), id: \.offset) { _, entry in
+                        creditsSection(title: sectionTitle(entry.0), rows: entry.1)
+                    }
+                    Text(String(format: strings.sourceFormat, payload.sourceName))
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, 2)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            statusRow(spinner: false, text: strings.creditsUnavailable)
+        }
+    }
+
+    private func creditsSection(title: String, rows: [NowPlayingCreditsRow]) -> some View {
+        VStack(alignment: .leading, spacing: 2.5) {
+            Text(title.uppercased())
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.tertiary)
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(creditsLabel(row.label))
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 92, alignment: .leading)
+                    Text(row.value)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    private func sectionTitle(_ section: NowPlayingCreditsSection) -> String {
+        switch section {
+        case .contributors: return strings.creditsContributors
+        case .release: return strings.creditsRelease
+        case .catalog: return strings.creditsCatalog
+        }
+    }
+
+    private func creditsLabel(_ label: NowPlayingCreditsLabel) -> String {
+        switch label {
+        case .artist: return strings.creditsArtist
+        case .albumArtist: return strings.creditsAlbumArtist
+        case .composer: return strings.creditsComposer
+        case .album: return strings.creditsAlbum
+        case .genre: return strings.creditsGenre
+        case .year: return strings.creditsYear
+        case .trackNumber: return strings.creditsTrackNumber
+        }
+    }
+
+    // MARK: - Search lane
+
+    private var searchLane: some View {
+        let isSpotify = searchProvider == .spotify
+        let placeholder = isSpotify ? strings.searchSpotifyPlaceholder : strings.searchMusicPlaceholder
+        let actionTitle = isSpotify ? strings.searchOpenAction : strings.searchPlayAction
+        let hasQuery = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.tertiary)
+            TextField(placeholder, text: $searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 11))
+                .focused($searchFocused)
+                .onSubmit(runSearch)
+            Button(action: runSearch) {
+                Text(actionTitle)
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .buttonStyle(.borderless)
+            .disabled(!hasQuery)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(Capsule().fill(Color.primary.opacity(0.05)))
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.06)))
+    }
+
+    private func runSearch() {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        NowPlayingSearch.run(query: query, provider: searchProvider)
+        searchText = ""
+        searchFocused = false
+    }
 }

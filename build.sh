@@ -98,6 +98,7 @@ if (( TEST )); then
         Sources/RyzenStatus/Core/DefaultsKey+Monitor.swift \
         Sources/RyzenStatus/Services/NowPlaying/NowPlayingSupport.swift \
         Sources/RyzenStatus/Services/NowPlaying/NowPlayingAutomation.swift \
+        Sources/RyzenStatus/Services/NowPlaying/NowPlayingLyricsSupport.swift \
         Sources/RyzenStatus/Core/NowPlayingStrings.swift \
         Sources/RyzenStatus/Core/FeatureCatalog.swift \
         Sources/RyzenStatus/Core/FeaturePresets.swift \

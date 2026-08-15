@@ -23,7 +23,27 @@ enum NowPlayingAutomation {
                 set tPos to player position
                 set tDur to duration of current track
                 set tId to id of current track
-                return {tName, tArtist, tAlbum, tPos, tDur, pState, tId as string}
+                set tAlbumArtist to ""
+                try
+                    set tAlbumArtist to album artist of current track
+                end try
+                set tComposer to ""
+                try
+                    set tComposer to composer of current track
+                end try
+                set tGenre to ""
+                try
+                    set tGenre to genre of current track
+                end try
+                set tYear to 0
+                try
+                    set tYear to year of current track
+                end try
+                set tTrackNumber to 0
+                try
+                    set tTrackNumber to track number of current track
+                end try
+                return {tName, tArtist, tAlbum, tPos, tDur, pState, tId as string, tAlbumArtist, tComposer, tGenre, tYear as string, tTrackNumber as string}
             else
                 return {"stopped"}
             end if
@@ -55,7 +75,15 @@ enum NowPlayingAutomation {
                 set tDur to (duration of current track) / 1000.0
                 set tId to id of current track
                 set artUrl to artwork url of current track
-                return {tName, tArtist, tAlbum, tPos, tDur, pState, tId as string, artUrl}
+                set tAlbumArtist to ""
+                try
+                    set tAlbumArtist to album artist of current track
+                end try
+                set tTrackNumber to 0
+                try
+                    set tTrackNumber to track number of current track
+                end try
+                return {tName, tArtist, tAlbum, tPos, tDur, pState, tId as string, artUrl, tAlbumArtist, tTrackNumber as string}
             else
                 return {"stopped"}
             end if
@@ -136,6 +164,11 @@ enum NowPlayingAutomation {
         let duration = desc.atIndex(5)?.doubleValue ?? 0.0
         let stateStr = desc.atIndex(6)?.stringValue ?? ""
         let trackID = desc.atIndex(7)?.stringValue ?? ""
+        let albumArtist = desc.numberOfItems >= 8 ? desc.atIndex(8)?.stringValue : nil
+        let composer = desc.numberOfItems >= 9 ? desc.atIndex(9)?.stringValue : nil
+        let genre = desc.numberOfItems >= 10 ? desc.atIndex(10)?.stringValue : nil
+        let year = desc.numberOfItems >= 11 ? Int(desc.atIndex(11)?.stringValue ?? "") : nil
+        let trackNumber = desc.numberOfItems >= 12 ? Int(desc.atIndex(12)?.stringValue ?? "") : nil
         let isPlaying = (stateStr == "playing")
 
         var artworkData: Data? = nil
@@ -158,7 +191,12 @@ enum NowPlayingAutomation {
             artworkData: artworkData,
             isPlaying: isPlaying,
             elapsed: position > 0 ? position : nil,
-            duration: duration > 0 ? duration : nil
+            duration: duration > 0 ? duration : nil,
+            albumArtist: emptyToNil(albumArtist),
+            composer: emptyToNil(composer),
+            genre: emptyToNil(genre),
+            year: (year ?? 0) > 0 ? year : nil,
+            trackNumber: (trackNumber ?? 0) > 0 ? trackNumber : nil
         )
     }
 
@@ -197,6 +235,8 @@ enum NowPlayingAutomation {
         let stateStr = desc.atIndex(6)?.stringValue ?? ""
         let trackID = desc.atIndex(7)?.stringValue ?? ""
         let artUrlStr = desc.numberOfItems >= 8 ? desc.atIndex(8)?.stringValue : nil
+        let albumArtist = desc.numberOfItems >= 9 ? desc.atIndex(9)?.stringValue : nil
+        let trackNumber = desc.numberOfItems >= 10 ? Int(desc.atIndex(10)?.stringValue ?? "") : nil
         let isPlaying = (stateStr == "playing")
 
         var artworkData: Data? = nil
@@ -225,8 +265,82 @@ enum NowPlayingAutomation {
             artworkData: artworkData,
             isPlaying: isPlaying,
             elapsed: position > 0 ? position : nil,
-            duration: duration > 0 ? duration : nil
+            duration: duration > 0 ? duration : nil,
+            albumArtist: emptyToNil(albumArtist),
+            composer: nil,
+            genre: nil,
+            year: nil,
+            trackNumber: (trackNumber ?? 0) > 0 ? trackNumber : nil
         )
+    }
+
+    private static func emptyToNil(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return nil }
+        return value
+    }
+
+    // MARK: - Lyrics and search
+
+    /// The Music app keeps lyrics on the track itself; the details pane uses
+    /// them as the local fallback when lrclib has nothing (PlayStatus does
+    /// the same). Returns nil when there are none or automation fails.
+    static func fetchMusicLyrics() -> String? {
+        guard isRunning(bundleID: musicBundleID) else { return nil }
+        let src = """
+        tell application "Music"
+            if it is running then
+                set pState to (player state as string)
+                if pState is "playing" or pState is "paused" then
+                    try
+                        set lyricsText to lyrics of current track
+                        if lyricsText is missing value then
+                            return ""
+                        end if
+                        return lyricsText
+                    on error
+                        return ""
+                    end if
+                end if
+            end if
+            return ""
+        end tell
+        """
+        guard let script = NSAppleScript(source: src) else { return nil }
+        var error: NSDictionary?
+        let desc = script.executeAndReturnError(&error)
+        guard error == nil else { return nil }
+        let raw = desc.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return raw.isEmpty ? nil : raw
+    }
+
+    /// Searches the Music library and plays the results, PlayStatus-style.
+    /// Runs off the main thread: AppleScript blocks until the app answers.
+    static func searchMusicLibrary(query: String) {
+        let escaped = query
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let src = """
+        tell application "Music"
+            if it is not running then
+                activate
+                delay 1
+            end if
+            set search_results to (search library playlist 1 for "\(escaped)")
+            if (count of search_results) > 0 then
+                try
+                    play search_results
+                on error
+                    play item 1 of search_results
+                end try
+            end if
+        end tell
+        """
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let script = NSAppleScript(source: src) else { return }
+            var error: NSDictionary?
+            script.executeAndReturnError(&error)
+        }
     }
 
     // MARK: - Transport Fallback

@@ -44,6 +44,29 @@ struct NowPlayingStrings {
     let sizeMedium: String
     let sizeLarge: String
     let closeLabel: String
+    // Details pane: lyrics, credits and the provider-aware search lane.
+    let lyricsTab: String
+    let creditsTab: String
+    let lyricsLoading: String
+    let lyricsUnavailable: String
+    let lyricsFailed: String
+    let retryLabel: String
+    let creditsUnavailable: String
+    let sourceFormat: String
+    let searchMusicPlaceholder: String
+    let searchSpotifyPlaceholder: String
+    let searchPlayAction: String
+    let searchOpenAction: String
+    let creditsContributors: String
+    let creditsRelease: String
+    let creditsCatalog: String
+    let creditsArtist: String
+    let creditsAlbumArtist: String
+    let creditsComposer: String
+    let creditsAlbum: String
+    let creditsGenre: String
+    let creditsYear: String
+    let creditsTrackNumber: String
 }
 
 extension FeatureStrings {
@@ -104,7 +127,29 @@ extension NowPlayingStrings {
         sizeSmall: "Small",
         sizeMedium: "Medium",
         sizeLarge: "Large",
-        closeLabel: "Close"
+        closeLabel: "Close",
+        lyricsTab: "Lyrics",
+        creditsTab: "Credits",
+        lyricsLoading: "Fetching lyrics…",
+        lyricsUnavailable: "Lyrics unavailable for this track",
+        lyricsFailed: "Lyrics couldn't be loaded",
+        retryLabel: "Retry",
+        creditsUnavailable: "Credits unavailable for this track",
+        sourceFormat: "Source: %@",
+        searchMusicPlaceholder: "Search Music library",
+        searchSpotifyPlaceholder: "Search Spotify",
+        searchPlayAction: "Play",
+        searchOpenAction: "Open",
+        creditsContributors: "Contributors",
+        creditsRelease: "Release",
+        creditsCatalog: "Catalog",
+        creditsArtist: "Artist",
+        creditsAlbumArtist: "Album Artist",
+        creditsComposer: "Composer",
+        creditsAlbum: "Album",
+        creditsGenre: "Genre",
+        creditsYear: "Year",
+        creditsTrackNumber: "Track"
     )
 
     static let ptBR = NowPlayingStrings(
@@ -144,7 +189,29 @@ extension NowPlayingStrings {
         sizeSmall: "Pequeno",
         sizeMedium: "Médio",
         sizeLarge: "Grande",
-        closeLabel: "Fechar"
+        closeLabel: "Fechar",
+        lyricsTab: "Letras",
+        creditsTab: "Créditos",
+        lyricsLoading: "Buscando letra…",
+        lyricsUnavailable: "Letra indisponível para esta faixa",
+        lyricsFailed: "Não foi possível carregar a letra",
+        retryLabel: "Tentar novamente",
+        creditsUnavailable: "Créditos indisponíveis para esta faixa",
+        sourceFormat: "Fonte: %@",
+        searchMusicPlaceholder: "Buscar na biblioteca do Music",
+        searchSpotifyPlaceholder: "Buscar no Spotify",
+        searchPlayAction: "Reproduzir",
+        searchOpenAction: "Abrir",
+        creditsContributors: "Colaboradores",
+        creditsRelease: "Lançamento",
+        creditsCatalog: "Catálogo",
+        creditsArtist: "Artista",
+        creditsAlbumArtist: "Artista do álbum",
+        creditsComposer: "Compositor",
+        creditsAlbum: "Álbum",
+        creditsGenre: "Gênero",
+        creditsYear: "Ano",
+        creditsTrackNumber: "Faixa"
     )
 
     static let tr = NowPlayingStrings(
@@ -184,7 +251,29 @@ extension NowPlayingStrings {
         sizeSmall: "Küçük",
         sizeMedium: "Orta",
         sizeLarge: "Büyük",
-        closeLabel: "Kapat"
+        closeLabel: "Kapat",
+        lyricsTab: "Şarkı sözleri",
+        creditsTab: "Künye",
+        lyricsLoading: "Şarkı sözleri alınıyor…",
+        lyricsUnavailable: "Bu parça için şarkı sözleri yok",
+        lyricsFailed: "Şarkı sözleri yüklenemedi",
+        retryLabel: "Tekrar dene",
+        creditsUnavailable: "Bu parça için künye yok",
+        sourceFormat: "Kaynak: %@",
+        searchMusicPlaceholder: "Music kitaplığında ara",
+        searchSpotifyPlaceholder: "Spotify'da ara",
+        searchPlayAction: "Çal",
+        searchOpenAction: "Aç",
+        creditsContributors: "Katkıda bulunanlar",
+        creditsRelease: "Yayın",
+        creditsCatalog: "Katalog",
+        creditsArtist: "Sanatçı",
+        creditsAlbumArtist: "Albüm Sanatçısı",
+        creditsComposer: "Besteci",
+        creditsAlbum: "Albüm",
+        creditsGenre: "Tür",
+        creditsYear: "Yıl",
+        creditsTrackNumber: "Parça"
     )
 
     static let ru = NowPlayingStrings(
@@ -224,7 +313,29 @@ extension NowPlayingStrings {
         sizeSmall: "Маленький",
         sizeMedium: "Средний",
         sizeLarge: "Большой",
-        closeLabel: "Закрыть"
+        closeLabel: "Закрыть",
+        lyricsTab: "Текст песни",
+        creditsTab: "Авторы",
+        lyricsLoading: "Загрузка текста…",
+        lyricsUnavailable: "Текст этого трека недоступен",
+        lyricsFailed: "Не удалось загрузить текст",
+        retryLabel: "Повторить",
+        creditsUnavailable: "Авторы этого трека недоступны",
+        sourceFormat: "Источник: %@",
+        searchMusicPlaceholder: "Поиск в медиатеке Music",
+        searchSpotifyPlaceholder: "Поиск в Spotify",
+        searchPlayAction: "Играть",
+        searchOpenAction: "Открыть",
+        creditsContributors: "Участники",
+        creditsRelease: "Релиз",
+        creditsCatalog: "Каталог",
+        creditsArtist: "Исполнитель",
+        creditsAlbumArtist: "Исполнитель альбома",
+        creditsComposer: "Композитор",
+        creditsAlbum: "Альбом",
+        creditsGenre: "Жанр",
+        creditsYear: "Год",
+        creditsTrackNumber: "Трек"
     )
 
     static let es = NowPlayingStrings(
@@ -264,7 +375,29 @@ extension NowPlayingStrings {
         sizeSmall: "Pequeño",
         sizeMedium: "Mediano",
         sizeLarge: "Grande",
-        closeLabel: "Cerrar"
+        closeLabel: "Cerrar",
+        lyricsTab: "Letra",
+        creditsTab: "Créditos",
+        lyricsLoading: "Buscando la letra…",
+        lyricsUnavailable: "Letra no disponible para esta canción",
+        lyricsFailed: "No se pudo cargar la letra",
+        retryLabel: "Reintentar",
+        creditsUnavailable: "Créditos no disponibles para esta canción",
+        sourceFormat: "Fuente: %@",
+        searchMusicPlaceholder: "Buscar en la biblioteca de Music",
+        searchSpotifyPlaceholder: "Buscar en Spotify",
+        searchPlayAction: "Reproducir",
+        searchOpenAction: "Abrir",
+        creditsContributors: "Colaboradores",
+        creditsRelease: "Lanzamiento",
+        creditsCatalog: "Catálogo",
+        creditsArtist: "Artista",
+        creditsAlbumArtist: "Artista del álbum",
+        creditsComposer: "Compositor",
+        creditsAlbum: "Álbum",
+        creditsGenre: "Género",
+        creditsYear: "Año",
+        creditsTrackNumber: "Pista"
     )
 
     static let de = NowPlayingStrings(
@@ -304,7 +437,29 @@ extension NowPlayingStrings {
         sizeSmall: "Klein",
         sizeMedium: "Mittel",
         sizeLarge: "Groß",
-        closeLabel: "Schließen"
+        closeLabel: "Schließen",
+        lyricsTab: "Liedtext",
+        creditsTab: "Mitwirkende",
+        lyricsLoading: "Liedtext wird geladen…",
+        lyricsUnavailable: "Für diesen Titel ist kein Liedtext verfügbar",
+        lyricsFailed: "Liedtext konnte nicht geladen werden",
+        retryLabel: "Erneut versuchen",
+        creditsUnavailable: "Für diesen Titel sind keine Mitwirkenden verfügbar",
+        sourceFormat: "Quelle: %@",
+        searchMusicPlaceholder: "Music-Mediathek durchsuchen",
+        searchSpotifyPlaceholder: "Spotify durchsuchen",
+        searchPlayAction: "Abspielen",
+        searchOpenAction: "Öffnen",
+        creditsContributors: "Beteiligte",
+        creditsRelease: "Veröffentlichung",
+        creditsCatalog: "Katalog",
+        creditsArtist: "Künstler",
+        creditsAlbumArtist: "Albumkünstler",
+        creditsComposer: "Komponist",
+        creditsAlbum: "Album",
+        creditsGenre: "Genre",
+        creditsYear: "Jahr",
+        creditsTrackNumber: "Titel"
     )
 
     static let fr = NowPlayingStrings(
@@ -344,7 +499,29 @@ extension NowPlayingStrings {
         sizeSmall: "Petit",
         sizeMedium: "Moyen",
         sizeLarge: "Grand",
-        closeLabel: "Fermer"
+        closeLabel: "Fermer",
+        lyricsTab: "Paroles",
+        creditsTab: "Crédits",
+        lyricsLoading: "Récupération des paroles…",
+        lyricsUnavailable: "Paroles indisponibles pour ce morceau",
+        lyricsFailed: "Impossible de charger les paroles",
+        retryLabel: "Réessayer",
+        creditsUnavailable: "Crédits indisponibles pour ce morceau",
+        sourceFormat: "Source : %@",
+        searchMusicPlaceholder: "Rechercher dans Music",
+        searchSpotifyPlaceholder: "Rechercher sur Spotify",
+        searchPlayAction: "Lire",
+        searchOpenAction: "Ouvrir",
+        creditsContributors: "Contributeurs",
+        creditsRelease: "Sortie",
+        creditsCatalog: "Catalogue",
+        creditsArtist: "Artiste",
+        creditsAlbumArtist: "Artiste de l'album",
+        creditsComposer: "Compositeur",
+        creditsAlbum: "Album",
+        creditsGenre: "Genre",
+        creditsYear: "Année",
+        creditsTrackNumber: "Piste"
     )
 
     static let it = NowPlayingStrings(
@@ -384,7 +561,29 @@ extension NowPlayingStrings {
         sizeSmall: "Piccolo",
         sizeMedium: "Medio",
         sizeLarge: "Grande",
-        closeLabel: "Chiudi"
+        closeLabel: "Chiudi",
+        lyricsTab: "Testo",
+        creditsTab: "Crediti",
+        lyricsLoading: "Recupero del testo…",
+        lyricsUnavailable: "Testo non disponibile per questo brano",
+        lyricsFailed: "Impossibile caricare il testo",
+        retryLabel: "Riprova",
+        creditsUnavailable: "Crediti non disponibili per questo brano",
+        sourceFormat: "Fonte: %@",
+        searchMusicPlaceholder: "Cerca nella libreria di Music",
+        searchSpotifyPlaceholder: "Cerca su Spotify",
+        searchPlayAction: "Riproduci",
+        searchOpenAction: "Apri",
+        creditsContributors: "Collaboratori",
+        creditsRelease: "Pubblicazione",
+        creditsCatalog: "Catalogo",
+        creditsArtist: "Artista",
+        creditsAlbumArtist: "Artista album",
+        creditsComposer: "Compositore",
+        creditsAlbum: "Album",
+        creditsGenre: "Genere",
+        creditsYear: "Anno",
+        creditsTrackNumber: "Traccia"
     )
 
     static let ja = NowPlayingStrings(
@@ -424,7 +623,29 @@ extension NowPlayingStrings {
         sizeSmall: "小",
         sizeMedium: "中",
         sizeLarge: "大",
-        closeLabel: "閉じる"
+        closeLabel: "閉じる",
+        lyricsTab: "歌詞",
+        creditsTab: "クレジット",
+        lyricsLoading: "歌詞を取得中…",
+        lyricsUnavailable: "この曲の歌詞はありません",
+        lyricsFailed: "歌詞を読み込めませんでした",
+        retryLabel: "再試行",
+        creditsUnavailable: "この曲のクレジットはありません",
+        sourceFormat: "ソース: %@",
+        searchMusicPlaceholder: "ミュージックライブラリを検索",
+        searchSpotifyPlaceholder: "Spotifyで検索",
+        searchPlayAction: "再生",
+        searchOpenAction: "開く",
+        creditsContributors: "参加者",
+        creditsRelease: "リリース",
+        creditsCatalog: "カタログ",
+        creditsArtist: "アーティスト",
+        creditsAlbumArtist: "アルバムアーティスト",
+        creditsComposer: "作曲家",
+        creditsAlbum: "アルバム",
+        creditsGenre: "ジャンル",
+        creditsYear: "年",
+        creditsTrackNumber: "トラック"
     )
 
     static let ko = NowPlayingStrings(
@@ -464,7 +685,29 @@ extension NowPlayingStrings {
         sizeSmall: "작게",
         sizeMedium: "보통",
         sizeLarge: "크게",
-        closeLabel: "닫기"
+        closeLabel: "닫기",
+        lyricsTab: "가사",
+        creditsTab: "크레딧",
+        lyricsLoading: "가사 가져오는 중…",
+        lyricsUnavailable: "이 곡의 가사를 사용할 수 없습니다",
+        lyricsFailed: "가사를 불러올 수 없습니다",
+        retryLabel: "다시 시도",
+        creditsUnavailable: "이 곡의 크레딧을 사용할 수 없습니다",
+        sourceFormat: "출처: %@",
+        searchMusicPlaceholder: "Music 보관함 검색",
+        searchSpotifyPlaceholder: "Spotify 검색",
+        searchPlayAction: "재생",
+        searchOpenAction: "열기",
+        creditsContributors: "참여자",
+        creditsRelease: "발매",
+        creditsCatalog: "카탈로그",
+        creditsArtist: "아티스트",
+        creditsAlbumArtist: "앨범 아티스트",
+        creditsComposer: "작곡가",
+        creditsAlbum: "앨범",
+        creditsGenre: "장르",
+        creditsYear: "연도",
+        creditsTrackNumber: "트랙"
     )
 
     static let zhHans = NowPlayingStrings(
@@ -504,7 +747,29 @@ extension NowPlayingStrings {
         sizeSmall: "小",
         sizeMedium: "中",
         sizeLarge: "大",
-        closeLabel: "关闭"
+        closeLabel: "关闭",
+        lyricsTab: "歌词",
+        creditsTab: "制作名单",
+        lyricsLoading: "正在获取歌词…",
+        lyricsUnavailable: "此歌曲没有歌词",
+        lyricsFailed: "无法加载歌词",
+        retryLabel: "重试",
+        creditsUnavailable: "此歌曲没有制作信息",
+        sourceFormat: "来源：%@",
+        searchMusicPlaceholder: "搜索 Music 资料库",
+        searchSpotifyPlaceholder: "搜索 Spotify",
+        searchPlayAction: "播放",
+        searchOpenAction: "打开",
+        creditsContributors: "创作者",
+        creditsRelease: "发行",
+        creditsCatalog: "目录",
+        creditsArtist: "艺术家",
+        creditsAlbumArtist: "专辑艺术家",
+        creditsComposer: "作曲",
+        creditsAlbum: "专辑",
+        creditsGenre: "流派",
+        creditsYear: "年份",
+        creditsTrackNumber: "曲目"
     )
 
     static let zhTW = NowPlayingStrings(
@@ -544,7 +809,29 @@ extension NowPlayingStrings {
         sizeSmall: "小",
         sizeMedium: "中",
         sizeLarge: "大",
-        closeLabel: "關閉"
+        closeLabel: "關閉",
+        lyricsTab: "歌詞",
+        creditsTab: "製作名單",
+        lyricsLoading: "正在取得歌詞…",
+        lyricsUnavailable: "此歌曲沒有歌詞",
+        lyricsFailed: "無法載入歌詞",
+        retryLabel: "重試",
+        creditsUnavailable: "此歌曲沒有製作資訊",
+        sourceFormat: "來源：%@",
+        searchMusicPlaceholder: "搜尋 Music 資料庫",
+        searchSpotifyPlaceholder: "搜尋 Spotify",
+        searchPlayAction: "播放",
+        searchOpenAction: "開啟",
+        creditsContributors: "創作者",
+        creditsRelease: "發行",
+        creditsCatalog: "目錄",
+        creditsArtist: "藝人",
+        creditsAlbumArtist: "專輯藝人",
+        creditsComposer: "作曲",
+        creditsAlbum: "專輯",
+        creditsGenre: "類型",
+        creditsYear: "年份",
+        creditsTrackNumber: "曲目"
     )
 
     static let zhHK = NowPlayingStrings(
@@ -584,6 +871,28 @@ extension NowPlayingStrings {
         sizeSmall: "細",
         sizeMedium: "中",
         sizeLarge: "大",
-        closeLabel: "關閉"
+        closeLabel: "關閉",
+        lyricsTab: "歌詞",
+        creditsTab: "製作名單",
+        lyricsLoading: "攞緊歌詞…",
+        lyricsUnavailable: "呢首歌冇歌詞",
+        lyricsFailed: "載入唔到歌詞",
+        retryLabel: "再試",
+        creditsUnavailable: "呢首歌冇製作資訊",
+        sourceFormat: "來源：%@",
+        searchMusicPlaceholder: "搜尋 Music 媒體庫",
+        searchSpotifyPlaceholder: "搜尋 Spotify",
+        searchPlayAction: "播放",
+        searchOpenAction: "開啟",
+        creditsContributors: "創作者",
+        creditsRelease: "發行",
+        creditsCatalog: "目錄",
+        creditsArtist: "藝人",
+        creditsAlbumArtist: "專輯藝人",
+        creditsComposer: "作曲",
+        creditsAlbum: "專輯",
+        creditsGenre: "類型",
+        creditsYear: "年份",
+        creditsTrackNumber: "曲目"
     )
 }
