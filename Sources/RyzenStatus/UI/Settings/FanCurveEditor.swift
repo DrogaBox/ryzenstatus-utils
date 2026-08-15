@@ -67,6 +67,7 @@ struct InteractiveFanCurveEditor: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .help("Add new curve")
+                    .accessibilityLabel("Add new curve")
                     
                     if controller.customCurves.count > 1 {
                         Button("−") {
@@ -87,6 +88,7 @@ struct InteractiveFanCurveEditor: View {
                         .controlSize(.small)
                         .foregroundColor(.red)
                         .help("Delete this curve")
+                        .accessibilityLabel("Delete this curve")
                     }
                     
                     Spacer()

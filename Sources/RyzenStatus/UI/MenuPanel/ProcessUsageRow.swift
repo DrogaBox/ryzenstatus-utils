@@ -41,6 +41,7 @@ struct ProcessUsageRow: View {
                         Text("⚠️")
                             .font(.system(size: 9))
                             .help("Continuous memory growth detected (potential memory leak)")
+                            .accessibilityLabel("Continuous memory growth detected (potential memory leak)")
                     }
                 }
             }
