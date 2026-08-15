@@ -413,14 +413,64 @@ struct NowPlayingPopupView: View {
     }
 
     private var controlsRow: some View {
-        HStack(spacing: 34) {
+        HStack(spacing: 22) {
+            if service.supportsPlaybackModes {
+                shuffleButton
+            }
             transportButton("backward.fill", action: service.previousTrack,
                             help: strings.previousLabel)
             playPauseButton
             transportButton("forward.fill", action: service.nextTrack,
                             help: strings.nextLabel)
+            if service.supportsPlaybackModes {
+                repeatButton
+            }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// Scriptable providers (Music, Spotify) expose shuffle; the button
+    /// mirrors the snapshot state the service confirms after each toggle.
+    private var shuffleButton: some View {
+        Button {
+            service.toggleShuffle()
+        } label: {
+            Image(systemName: "shuffle")
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 34, height: 34)
+                .foregroundStyle(service.snapshot.isShuffleEnabled
+                                 ? Color.accentColor : Color.secondary)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(strings.shuffleLabel)
+        .accessibilityLabel(strings.shuffleLabel)
+    }
+
+    /// Music cycles off → all → one; Spotify only knows off ↔ all. The
+    /// help text always names the state currently on screen.
+    private var repeatButton: some View {
+        Button {
+            service.cycleRepeatMode()
+        } label: {
+            Image(systemName: service.snapshot.repeatMode.symbolName)
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 34, height: 34)
+                .foregroundStyle(service.snapshot.repeatMode.isEnabled
+                                 ? Color.accentColor : Color.secondary)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(repeatHelp)
+        .accessibilityLabel(strings.repeatLabel)
+    }
+
+    private var repeatHelp: String {
+        switch service.snapshot.repeatMode {
+        case .off: return strings.repeatOffLabel
+        case .all: return strings.repeatAllLabel
+        case .one: return strings.repeatOneLabel
+        }
     }
 
     private var playPauseButton: some View {

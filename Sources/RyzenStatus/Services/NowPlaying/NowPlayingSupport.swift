@@ -24,6 +24,12 @@ struct NowPlayingSnapshot: Equatable {
     var genre: String?
     var year: Int?
     var trackNumber: Int?
+    /// Playback modes the AppleScript providers expose (Music's `shuffle
+    /// enabled`/`song repeat`, Spotify's `shuffling`/`repeating`). Sessions
+    /// read through MediaRemote alone cannot report them, so the transport
+    /// hides the shuffle/repeat buttons for every other provider.
+    var isShuffleEnabled = false
+    var repeatMode = NowPlayingRepeatMode.off
 
     /// A title is the minimum requirement for a "now playing" moment; a
     /// paused track still counts, an idle session does not.
@@ -98,7 +104,9 @@ struct NowPlayingSnapshot: Equatable {
               lhs.appBundleID == rhs.appBundleID,
               lhs.isPlaying == rhs.isPlaying,
               lhs.elapsed == rhs.elapsed,
-              lhs.duration == rhs.duration else { return false }
+              lhs.duration == rhs.duration,
+              lhs.isShuffleEnabled == rhs.isShuffleEnabled,
+              lhs.repeatMode == rhs.repeatMode else { return false }
         
         switch (lhs.artworkData, rhs.artworkData) {
         case (nil, nil): return true
@@ -116,6 +124,54 @@ enum NowPlayingMenuBarMode: Int, CaseIterable {
     case artist = 1
     case song = 2
     case artistSong = 3
+}
+
+/// The repeat mode the transport cycles through. Music supports all three
+/// steps; Spotify's AppleScript dictionary only exposes a boolean, so its
+/// cycle skips the single-track step (parity with PlayStatus, MIT).
+enum NowPlayingRepeatMode: Int, CaseIterable, Equatable {
+    case off = 0
+    case all = 1
+    case one = 2
+
+    /// SF Symbol the transport button shows for this mode.
+    var symbolName: String {
+        switch self {
+        case .off, .all: return "repeat"
+        case .one: return "repeat.1"
+        }
+    }
+
+    var isEnabled: Bool { self != .off }
+
+    /// The next mode in the cycle for the given provider session.
+    func next(for bundleID: String?) -> NowPlayingRepeatMode {
+        if bundleID == NowPlayingAutomation.spotifyBundleID {
+            return self == .off ? .all : .off
+        }
+        switch self {
+        case .off: return .all
+        case .all: return .one
+        case .one: return .off
+        }
+    }
+
+    /// Music's AppleScript speaks the modes as plain words.
+    static func musicAppleScriptMode(from rawValue: String) -> NowPlayingRepeatMode {
+        switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "all": return .all
+        case "one": return .one
+        default: return .off
+        }
+    }
+
+    var musicAppleScriptLiteral: String {
+        switch self {
+        case .off: return "off"
+        case .all: return "all"
+        case .one: return "one"
+        }
+    }
 }
 
 /// Which app's media session the feature listens to. Auto accepts any app

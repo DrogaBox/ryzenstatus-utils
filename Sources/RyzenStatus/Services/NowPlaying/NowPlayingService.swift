@@ -158,11 +158,19 @@ final class NowPlayingService: ObservableObject {
                         resolvedAppName = name
                     }
                 }
+                var next = snapshot
+                next.appBundleID = bundleID
+                next.appName = resolvedAppName
+                // MediaRemote never reports shuffle/repeat; the scriptable
+                // providers answer for themselves on the same queue.
+                if bundleID == NowPlayingAutomation.musicBundleID
+                    || bundleID == NowPlayingAutomation.spotifyBundleID,
+                   let modes = NowPlayingAutomation.fetchPlaybackModes(bundleID: bundleID) {
+                    next.isShuffleEnabled = modes.shuffle
+                    next.repeatMode = modes.repeatMode
+                }
                 DispatchQueue.main.async {
                     guard let self, self.timer != nil, gen == self.pollGeneration else { return }
-                    var next = snapshot
-                    next.appBundleID = bundleID
-                    next.appName = resolvedAppName
                     // A pinned provider filters the session out entirely:
                     // nothing shows until that app is the one playing.
                     if !provider.accepts(bundleID) {
@@ -239,6 +247,46 @@ final class NowPlayingService: ObservableObject {
             MediaRemoteBridge.seek(to: seconds)
         } else {
             NowPlayingAutomation.seek(to: seconds, bundleID: snapshot.appBundleID)
+        }
+    }
+
+    /// Only the AppleScript providers expose playback modes; every other
+    /// session gets no shuffle/repeat buttons at all.
+    var supportsPlaybackModes: Bool {
+        snapshot.appBundleID == NowPlayingAutomation.musicBundleID
+            || snapshot.appBundleID == NowPlayingAutomation.spotifyBundleID
+    }
+
+    /// Toggles shuffle through the provider's AppleScript, flipping the
+    /// published state immediately so the button reacts before the next poll
+    /// confirms it (PlayStatus-style AppleScript toggles, MIT).
+    func toggleShuffle() {
+        let bundleID = snapshot.appBundleID
+        let target = !snapshot.isShuffleEnabled
+        snapshot.isShuffleEnabled = target
+        queue.async { [weak self] in
+            let confirmed = NowPlayingAutomation.setShuffleEnabled(target, bundleID: bundleID)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                // The provider's own answer wins; a failed command keeps the
+                // optimistic flip, the next poll will correct it.
+                self.snapshot.isShuffleEnabled = confirmed ?? target
+            }
+        }
+    }
+
+    /// Cycles the repeat mode: off → all → one → off for Music, off → all →
+    /// off for Spotify (its dictionary has no single-track step).
+    func cycleRepeatMode() {
+        let bundleID = snapshot.appBundleID
+        let target = snapshot.repeatMode.next(for: bundleID)
+        snapshot.repeatMode = target
+        queue.async { [weak self] in
+            let confirmed = NowPlayingAutomation.setRepeatMode(target, bundleID: bundleID)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.snapshot.repeatMode = confirmed ?? target
+            }
         }
     }
 

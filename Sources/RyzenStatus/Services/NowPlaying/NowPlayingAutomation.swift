@@ -43,7 +43,15 @@ enum NowPlayingAutomation {
                 try
                     set tTrackNumber to track number of current track
                 end try
-                return {tName, tArtist, tAlbum, tPos, tDur, pState, tId as string, tAlbumArtist, tComposer, tGenre, tYear as string, tTrackNumber as string}
+                set tShuffle to false
+                try
+                    set tShuffle to (shuffle enabled as boolean)
+                end try
+                set tRepeat to "off"
+                try
+                    set tRepeat to (song repeat as string)
+                end try
+                return {tName, tArtist, tAlbum, tPos, tDur, pState, tId as string, tAlbumArtist, tComposer, tGenre, tYear as string, tTrackNumber as string, tShuffle as string, tRepeat}
             else
                 return {"stopped"}
             end if
@@ -83,7 +91,15 @@ enum NowPlayingAutomation {
                 try
                     set tTrackNumber to track number of current track
                 end try
-                return {tName, tArtist, tAlbum, tPos, tDur, pState, tId as string, artUrl, tAlbumArtist, tTrackNumber as string}
+                set tShuffle to false
+                try
+                    set tShuffle to (shuffling as boolean)
+                end try
+                set tRepeat to false
+                try
+                    set tRepeat to (repeating as boolean)
+                end try
+                return {tName, tArtist, tAlbum, tPos, tDur, pState, tId as string, artUrl, tAlbumArtist, tTrackNumber as string, tShuffle as string, tRepeat as string}
             else
                 return {"stopped"}
             end if
@@ -169,6 +185,8 @@ enum NowPlayingAutomation {
         let genre = desc.numberOfItems >= 10 ? desc.atIndex(10)?.stringValue : nil
         let year = desc.numberOfItems >= 11 ? Int(desc.atIndex(11)?.stringValue ?? "") : nil
         let trackNumber = desc.numberOfItems >= 12 ? Int(desc.atIndex(12)?.stringValue ?? "") : nil
+        let isShuffleEnabled = parseAppleScriptBoolean(desc.numberOfItems >= 13 ? desc.atIndex(13)?.stringValue : nil) ?? false
+        let repeatMode = NowPlayingRepeatMode.musicAppleScriptMode(from: desc.numberOfItems >= 14 ? desc.atIndex(14)?.stringValue ?? "" : "")
         let isPlaying = (stateStr == "playing")
 
         var artworkData: Data? = nil
@@ -196,7 +214,9 @@ enum NowPlayingAutomation {
             composer: emptyToNil(composer),
             genre: emptyToNil(genre),
             year: (year ?? 0) > 0 ? year : nil,
-            trackNumber: (trackNumber ?? 0) > 0 ? trackNumber : nil
+            trackNumber: (trackNumber ?? 0) > 0 ? trackNumber : nil,
+            isShuffleEnabled: isShuffleEnabled,
+            repeatMode: repeatMode
         )
     }
 
@@ -237,6 +257,9 @@ enum NowPlayingAutomation {
         let artUrlStr = desc.numberOfItems >= 8 ? desc.atIndex(8)?.stringValue : nil
         let albumArtist = desc.numberOfItems >= 9 ? desc.atIndex(9)?.stringValue : nil
         let trackNumber = desc.numberOfItems >= 10 ? Int(desc.atIndex(10)?.stringValue ?? "") : nil
+        let isShuffleEnabled = parseAppleScriptBoolean(desc.numberOfItems >= 11 ? desc.atIndex(11)?.stringValue : nil) ?? false
+        // Spotify's dictionary only knows repeat on/off; on maps to "all".
+        let repeatMode: NowPlayingRepeatMode = (parseAppleScriptBoolean(desc.numberOfItems >= 12 ? desc.atIndex(12)?.stringValue : nil) ?? false) ? .all : .off
         let isPlaying = (stateStr == "playing")
 
         var artworkData: Data? = nil
@@ -270,7 +293,9 @@ enum NowPlayingAutomation {
             composer: nil,
             genre: nil,
             year: nil,
-            trackNumber: (trackNumber ?? 0) > 0 ? trackNumber : nil
+            trackNumber: (trackNumber ?? 0) > 0 ? trackNumber : nil,
+            isShuffleEnabled: isShuffleEnabled,
+            repeatMode: repeatMode
         )
     }
 
@@ -369,6 +394,145 @@ enum NowPlayingAutomation {
 
     static func seek(to seconds: TimeInterval, bundleID: String?) {
         sendTransportCommand("set player position to \(seconds)", bundleID: bundleID)
+    }
+
+    // MARK: - Shuffle / repeat
+    //
+    // Both providers go through AppleScript, the way PlayStatus (MIT) does
+    // it: MediaRemote exposes no dependable shuffle/repeat state or toggle,
+    // while Music's `shuffle enabled`/`song repeat` and Spotify's
+    // `shuffling`/`repeating` are scriptable and report the resulting state.
+
+    /// "true"/"false"/"yes"/"no"/"1"/"0" from an AppleScript result.
+    private static func parseAppleScriptBoolean(_ raw: String?) -> Bool? {
+        guard let raw else { return nil }
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "true", "1", "yes":
+            return true
+        case "false", "0", "no":
+            return false
+        default:
+            return nil
+        }
+    }
+
+    /// Reads the live shuffle/repeat state of a provider session; nil when
+    /// the app is not running or automation fails.
+    static func fetchPlaybackModes(bundleID: String?) -> (shuffle: Bool, repeatMode: NowPlayingRepeatMode)? {
+        guard let bundleID, isRunning(bundleID: bundleID) else { return nil }
+        let src: String
+        if bundleID == spotifyBundleID {
+            src = """
+            tell application "Spotify"
+                try
+                    return {(shuffling as string), (repeating as string)}
+                on error
+                    return {"__error__"}
+                end try
+            end tell
+            """
+        } else {
+            src = """
+            tell application "Music"
+                try
+                    return {(shuffle enabled as string), (song repeat as string)}
+                on error
+                    return {"__error__"}
+                end try
+            end tell
+            """
+        }
+        guard let script = NSAppleScript(source: src) else { return nil }
+        var error: NSDictionary?
+        let desc = script.executeAndReturnError(&error)
+        guard error == nil, desc.numberOfItems >= 2 else { return nil }
+        let shuffle = parseAppleScriptBoolean(desc.atIndex(1)?.stringValue) ?? false
+        let repeatMode: NowPlayingRepeatMode
+        if bundleID == spotifyBundleID {
+            repeatMode = (parseAppleScriptBoolean(desc.atIndex(2)?.stringValue) ?? false) ? .all : .off
+        } else {
+            repeatMode = NowPlayingRepeatMode.musicAppleScriptMode(from: desc.atIndex(2)?.stringValue ?? "")
+        }
+        return (shuffle, repeatMode)
+    }
+
+    /// Sets shuffle on/off and returns the state the provider reports back;
+    /// nil when the app is not running or the command failed.
+    @discardableResult
+    static func setShuffleEnabled(_ isEnabled: Bool, bundleID: String?) -> Bool? {
+        guard let bundleID, isRunning(bundleID: bundleID) else { return nil }
+        let targetValue = isEnabled ? "true" : "false"
+        let appName = (bundleID == spotifyBundleID) ? "Spotify" : "Music"
+        let property = (bundleID == spotifyBundleID) ? "shuffling" : "shuffle enabled"
+        let src = """
+        tell application "\(appName)"
+            if it is running then
+                try
+                    set \(property) to \(targetValue)
+                    return (\(property) as string)
+                on error
+                    return "__error__"
+                end try
+            else
+                return "__error__"
+            end if
+        end tell
+        """
+        guard let script = NSAppleScript(source: src) else { return nil }
+        var error: NSDictionary?
+        let desc = script.executeAndReturnError(&error)
+        guard error == nil else { return nil }
+        return parseAppleScriptBoolean(desc.stringValue)
+    }
+
+    /// Sets the repeat mode and returns what the provider reports back.
+    /// Spotify only understands on/off, so any enabled mode lands on `.all`.
+    @discardableResult
+    static func setRepeatMode(_ mode: NowPlayingRepeatMode, bundleID: String?) -> NowPlayingRepeatMode? {
+        guard let bundleID, isRunning(bundleID: bundleID) else { return nil }
+        let appName = (bundleID == spotifyBundleID) ? "Spotify" : "Music"
+        let src: String
+        if bundleID == spotifyBundleID {
+            let targetValue = mode == .off ? "false" : "true"
+            src = """
+            tell application "\(appName)"
+                if it is running then
+                    try
+                        set repeating to \(targetValue)
+                        return (repeating as string)
+                    on error
+                        return "__error__"
+                    end try
+                else
+                    return "__error__"
+                end if
+            end tell
+            """
+        } else {
+            src = """
+            tell application "\(appName)"
+                if it is running then
+                    try
+                        set song repeat to \(mode.musicAppleScriptLiteral)
+                        return (song repeat as string)
+                    on error
+                        return "__error__"
+                    end try
+                else
+                    return "__error__"
+                end if
+            end tell
+            """
+        }
+        guard let script = NSAppleScript(source: src) else { return nil }
+        var error: NSDictionary?
+        let desc = script.executeAndReturnError(&error)
+        guard error == nil else { return nil }
+        if bundleID == spotifyBundleID {
+            guard let enabled = parseAppleScriptBoolean(desc.stringValue) else { return nil }
+            return enabled ? .all : .off
+        }
+        return NowPlayingRepeatMode.musicAppleScriptMode(from: desc.stringValue ?? "")
     }
 
     // MARK: - Permission Check

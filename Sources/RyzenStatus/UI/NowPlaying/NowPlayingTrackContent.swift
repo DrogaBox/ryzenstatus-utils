@@ -62,11 +62,17 @@ struct NowPlayingTrackContent: View {
 
             HStack(spacing: 14) {
                 Spacer()
+                if service.supportsPlaybackModes {
+                    shuffleButton
+                }
                 transportButton("backward.fill", action: service.previousTrack,
                                 help: strings.previousLabel)
                 playPauseButton
                 transportButton("forward.fill", action: service.nextTrack,
                                 help: strings.nextLabel)
+                if service.supportsPlaybackModes {
+                    repeatButton
+                }
                 Spacer()
             }
             .padding(.vertical, 2)
@@ -211,6 +217,50 @@ struct NowPlayingTrackContent: View {
         .buttonStyle(.plain)
         .help(service.snapshot.isPlaying ? strings.pauseLabel : strings.playLabel)
         .accessibilityLabel(service.snapshot.isPlaying ? strings.pauseLabel : strings.playLabel)
+    }
+
+    /// Shuffle mirrors the provider state the service confirms after each
+    /// toggle; the accent tint marks it on.
+    private var shuffleButton: some View {
+        Button {
+            service.toggleShuffle()
+        } label: {
+            Image(systemName: "shuffle")
+                .font(.system(size: 11, weight: .medium))
+                .frame(width: 26, height: 26)
+                .foregroundStyle(service.snapshot.isShuffleEnabled
+                                 ? Color.accentColor : Color.secondary)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(strings.shuffleLabel)
+        .accessibilityLabel(strings.shuffleLabel)
+    }
+
+    /// Music cycles off → all → one, Spotify off ↔ all; the help text
+    /// names the state currently on screen.
+    private var repeatButton: some View {
+        Button {
+            service.cycleRepeatMode()
+        } label: {
+            Image(systemName: service.snapshot.repeatMode.symbolName)
+                .font(.system(size: 11, weight: .medium))
+                .frame(width: 26, height: 26)
+                .foregroundStyle(service.snapshot.repeatMode.isEnabled
+                                 ? Color.accentColor : Color.secondary)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(repeatHelp)
+        .accessibilityLabel(strings.repeatLabel)
+    }
+
+    private var repeatHelp: String {
+        switch service.snapshot.repeatMode {
+        case .off: return strings.repeatOffLabel
+        case .all: return strings.repeatAllLabel
+        case .one: return strings.repeatOneLabel
+        }
     }
 
     private func transportButton(_ symbol: String,
