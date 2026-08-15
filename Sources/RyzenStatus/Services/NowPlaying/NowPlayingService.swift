@@ -41,7 +41,12 @@ final class NowPlayingService: ObservableObject {
     private var lastPollStartedAt: TimeInterval = 0
     private var pollGeneration = 0
     private var appNameCache: [String: String?] = [:]
-    private var artworkFingerprintCache = NSCache<NSImage, NSString>()
+    /// Data-keyed fingerprint memoization: the artwork bytes repeat on
+    /// every poll of the same track, so comparing them skips the 12×12
+    /// re-hash. Keying by data (not NSImage) matters — `snapshot.artwork`
+    /// builds a fresh image per access, so an image-keyed cache never hits.
+    private var lastFingerprintedData: Data?
+    private var lastArtworkIdentity = ""
     private var cancellables = Set<AnyCancellable>()
 
     private init() {}
@@ -100,6 +105,8 @@ final class NowPlayingService: ObservableObject {
         snapshot = .empty
         artworkImage = nil
         artworkIdentity = ""
+        lastFingerprintedData = nil
+        lastArtworkIdentity = ""
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         onDeactivate?()
     }
@@ -131,7 +138,7 @@ final class NowPlayingService: ObservableObject {
                     if next != self.snapshot {
                         self.snapshot = next
                         self.artworkImage = next.artwork
-                        self.artworkIdentity = self.artworkIdentity(for: next.artwork)
+                        self.artworkIdentity = self.artworkIdentity(for: next.artworkData)
                     }
                     self.renderMenuBar()
                 }
@@ -164,7 +171,7 @@ final class NowPlayingService: ObservableObject {
                     if next != self.snapshot {
                         self.snapshot = next
                         self.artworkImage = next.artwork
-                        self.artworkIdentity = self.artworkIdentity(for: next.artwork)
+                        self.artworkIdentity = self.artworkIdentity(for: next.artworkData)
                     }
                     self.renderMenuBar()
                 }
@@ -172,15 +179,19 @@ final class NowPlayingService: ObservableObject {
         }
     }
 
-    /// The fingerprint for an artwork image, cached per image instance so
-    /// the 12×12 downscale is only computed once per real artwork change.
-    private func artworkIdentity(for image: NSImage?) -> String {
-        guard let image else { return "" }
-        if let cached = artworkFingerprintCache.object(forKey: image) {
-            return cached as String
+    /// The fingerprint for the current artwork data, memoized on the bytes
+    /// themselves (count + first 64B match the last hashed buffer) so the
+    /// 12×12 downscale is only computed once per real artwork change.
+    private func artworkIdentity(for data: Data?) -> String {
+        guard let data, !data.isEmpty else { return "" }
+        if let last = lastFingerprintedData,
+           last.count == data.count,
+           last.prefix(64) == data.prefix(64) {
+            return lastArtworkIdentity
         }
-        let identity = NowPlayingSnapshot.artworkFingerprint(of: snapshot.artworkData)
-        artworkFingerprintCache.setObject(identity as NSString, forKey: image)
+        let identity = NowPlayingSnapshot.artworkFingerprint(of: data)
+        lastFingerprintedData = data
+        lastArtworkIdentity = identity
         return identity
     }
 
@@ -250,7 +261,8 @@ final class NowPlayingService: ObservableObject {
     /// Drops the cached artwork fingerprints so covers are re-hashed from
     /// scratch on the next read. The action behind "Clear media cache".
     func clearMediaCache() {
-        artworkFingerprintCache.removeAllObjects()
+        lastFingerprintedData = nil
+        lastArtworkIdentity = ""
     }
 
     /// Brings the app that owns the current session to the front, so the

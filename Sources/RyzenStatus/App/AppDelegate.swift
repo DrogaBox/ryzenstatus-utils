@@ -348,7 +348,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         popover.contentViewController?.view.window?.makeKey()
         if let window = popover.contentViewController?.view.window,
            let targetMidX = correctedPopoverMidX(for: button) {
-            beginPopoverDriftCorrection(window: window, targetMidX: targetMidX)
+            beginPopoverDriftCorrection(window: window, targetMidX: targetMidX, owner: popover)
         } else {
             endPopoverDriftCorrection()
         }
@@ -387,6 +387,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var lastStatusClick: (x: CGFloat, at: Date)?
     private var popoverDriftTargetMidX: CGFloat?
     private var popoverDriftObservers: [NSObjectProtocol] = []
+    /// Which popover currently owns the drift correction. Both popovers
+    /// share the correction state, and a closing popover's deferred
+    /// popoverDidClose must not uninstall the correction the incoming
+    /// popover just installed.
+    private weak var popoverDriftOwner: NSPopover?
 
     private func captureStatusClick() {
         guard let event = NSApp.currentEvent,
@@ -421,8 +426,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// there: NSPopover re-derives the window frame from the stale button
     /// frame on every content resize (switching panel tabs), which would
     /// fling the panel back to the phantom slot.
-    private func beginPopoverDriftCorrection(window: NSWindow, targetMidX: CGFloat) {
+    private func beginPopoverDriftCorrection(window: NSWindow, targetMidX: CGFloat,
+                                             owner: NSPopover) {
         endPopoverDriftCorrection()
+        popoverDriftOwner = owner
         popoverDriftTargetMidX = targetMidX
         applyPopoverDriftFrame(window)
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
@@ -454,6 +461,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         popoverDriftObservers.forEach { NotificationCenter.default.removeObserver($0) }
         popoverDriftObservers.removeAll()
         popoverDriftTargetMidX = nil
+        popoverDriftOwner = nil
     }
 
     private func switchMetricPopover(to detailKind: MetricDetailKind, anchoredTo button: NSStatusBarButton) {
@@ -505,7 +513,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             window.contentView?.layoutSubtreeIfNeeded()
             window.makeKey()
             if let targetMidX = correctedPopoverMidX(for: button) {
-                beginPopoverDriftCorrection(window: window, targetMidX: targetMidX)
+                beginPopoverDriftCorrection(window: window, targetMidX: targetMidX, owner: popover)
             } else {
                 endPopoverDriftCorrection()
             }
@@ -741,8 +749,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     /// The now-playing item toggles its own popup anchored to its own
-    /// button. The main panel and the popup never show together.
+    /// button. The main panel and the popup never show together; the
+    /// detached floating window is the same surface as the anchored popup,
+    /// so the item toggles whichever one is live — never two at once.
     private func showNowPlayingPopup(anchoredTo button: NSStatusBarButton) {
+        let popupController = NowPlayingPopupController.shared
+        if popupController.isDetachedVisible {
+            popupController.closeDetached()
+            return
+        }
         if nowPlayingPopover.isShown {
             closeNowPlayingPopup()
             return
@@ -782,7 +797,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         NSApp.activate(ignoringOtherApps: false)
         clampNowPlayingWindow(window, under: button)
         if let targetMidX = correctedPopoverMidX(for: button) {
-            beginPopoverDriftCorrection(window: window, targetMidX: targetMidX)
+            beginPopoverDriftCorrection(window: window, targetMidX: targetMidX,
+                                        owner: nowPlayingPopover)
         }
         animateNowPlayingPopupOpen(window)
     }
@@ -967,8 +983,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     func popoverDidClose(_ notification: Notification) {
-        if (notification.object as? NSPopover) === nowPlayingPopover {
-            endPopoverDriftCorrection()
+        let closingPopover = notification.object as? NSPopover
+        if closingPopover === nowPlayingPopover {
+            // Owner-aware: the outgoing popover's deferred close must not
+            // tear down the correction the incoming popover just installed.
+            if popoverDriftOwner === closingPopover {
+                endPopoverDriftCorrection()
+            }
             unloadNowPlayingPopupIfPreferred()
             return
         }
@@ -985,7 +1006,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             ResponsibleProcess.clearIconCache()
         }
         removePopoverDismissMonitor()
-        endPopoverDriftCorrection()
+        if popoverDriftOwner === closingPopover {
+            endPopoverDriftCorrection()
+        }
         PanelInteractionState.shared.keepsPopoverOpen = false
         popoverClosedAt = popoverIsSwitchingAnchor ? .distantPast : Date()
         popoverIsClosing = false

@@ -52,9 +52,12 @@ struct NowPlayingPopupView: View {
     @State private var mountedLayouts: Set<NowPlayingPopupLayout> = []
     @State private var layoutTeardown: DispatchWorkItem?
     @State private var hasCrossfadedLayout = false
+    // Invalidates in-flight crossfade delays when a new morph starts.
+    @State private var crossfadeGeneration = 0
 
     @State private var isSeeking = false
     @State private var seekPosition: TimeInterval = 0
+    @State private var seekResetWork: DispatchWorkItem?
     @State private var isHovering = false
 
     private var strings: NowPlayingStrings {
@@ -333,13 +336,16 @@ struct NowPlayingPopupView: View {
                 Text(strings.seekLabel)
             } onEditingChanged: { editing in
                 if editing {
+                    seekResetWork?.cancel()
+                    seekResetWork = nil
                     isSeeking = true
                 } else {
                     service.seek(to: seekPosition)
                     // Clear after a timeout in case the elapsed update never matches.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
-                        isSeeking = false
-                    }
+                    let reset = DispatchWorkItem { isSeeking = false }
+                    seekResetWork?.cancel()
+                    seekResetWork = reset
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: reset)
                 }
             }
             .disabled(duration <= 0)
@@ -494,6 +500,11 @@ struct NowPlayingPopupView: View {
     /// frame driver runs: the outgoing layout leaves quickly, the incoming
     /// one arrives slightly delayed so the swap reads as one motion.
     private func crossfadeLayout(toMini: Bool) {
+        // Generation guard: the delayed arrival/teardown blocks below cannot
+        // be cancelled once queued; a quick double-toggle would otherwise
+        // write stale opacity and unmount the wrong layout.
+        crossfadeGeneration &+= 1
+        let generation = crossfadeGeneration
         layoutTeardown?.cancel()
         let incoming: NowPlayingPopupLayout = toMini ? .mini : .regular
         let outgoing: NowPlayingPopupLayout = toMini ? .regular : .mini
@@ -511,6 +522,7 @@ struct NowPlayingPopupView: View {
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+            guard generation == crossfadeGeneration else { return }
             withAnimation(.easeOut(duration: 0.16)) {
                 if incoming == .mini {
                     miniOpacity = 1
@@ -519,7 +531,10 @@ struct NowPlayingPopupView: View {
                 }
             }
         }
-        let teardown = DispatchWorkItem { mountedLayouts.remove(outgoing) }
+        let teardown = DispatchWorkItem {
+            guard generation == crossfadeGeneration else { return }
+            mountedLayouts.remove(outgoing)
+        }
         layoutTeardown = teardown
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.26, execute: teardown)
     }

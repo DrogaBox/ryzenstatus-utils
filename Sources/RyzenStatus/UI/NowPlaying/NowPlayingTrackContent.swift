@@ -4,8 +4,9 @@
 import SwiftUI
 
 /// The shared now-playing body — artwork, track/artist/album, a seekable
-/// progress bar, transport controls and the jump-to-app button — used by both
-/// the menu panel section and the detached menu bar popup.
+/// progress bar, transport controls and the jump-to-app button — used by
+/// the menu panel section. (The menu bar popup renders its own card:
+/// backdrop, glow tile and the regular↔mini morph need a bespoke layout.)
 struct NowPlayingTrackContent: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var service = NowPlayingService.shared
@@ -14,10 +15,10 @@ struct NowPlayingTrackContent: View {
     @AppStorage(DefaultsKey.nowPlayingArtworkAnimation) private var animateArtwork = true
     @State private var isSeeking = false
     @State private var seekPosition: TimeInterval = 0
+    @State private var seekResetWork: DispatchWorkItem?
 
-    /// Edge of the artwork square; the popup shows a larger cover than the
-    /// panel section.
-    var artworkSize: CGFloat = 46
+    /// Edge of the artwork square in the panel section.
+    private static let artworkSize: CGFloat = 46
 
     private var currentTrackIdentityKey: String {
         "\(service.snapshot.displayTitle)|\(service.snapshot.displayArtist)|\(service.snapshot.duration ?? 0)"
@@ -133,13 +134,16 @@ struct NowPlayingTrackContent: View {
                 Text(strings.seekLabel)
             } onEditingChanged: { editing in
                 if editing {
+                    seekResetWork?.cancel()
+                    seekResetWork = nil
                     isSeeking = true
                 } else {
                     service.seek(to: seekPosition)
                     // Clear after a timeout in case the elapsed update never matches
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
-                        isSeeking = false
-                    }
+                    let reset = DispatchWorkItem { isSeeking = false }
+                    seekResetWork?.cancel()
+                    seekResetWork = reset
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: reset)
                 }
             }
             .disabled(duration <= 0)
@@ -166,28 +170,28 @@ struct NowPlayingTrackContent: View {
                 .id(service.artworkIdentity)
                 .transition(.opacity)
         }
-        .frame(width: artworkSize, height: artworkSize)
+        .frame(width: Self.artworkSize, height: Self.artworkSize)
         .animation(animateArtwork ? .easeInOut(duration: 0.25) : nil,
                    value: service.artworkIdentity)
     }
 
     @ViewBuilder
     private var artworkImage: some View {
-        let cornerRadius = artworkSize >= 80 ? CGFloat(10) : 6
+        let cornerRadius: CGFloat = 6
         if let artwork = service.artworkImage {
             Image(nsImage: artwork)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
-                .frame(width: artworkSize, height: artworkSize)
+                .frame(width: Self.artworkSize, height: Self.artworkSize)
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .accessibilityLabel("\(service.snapshot.displayTitle) — \(service.snapshot.displayArtist)")
         } else {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(Color.secondary.opacity(0.15))
-                .frame(width: artworkSize, height: artworkSize)
+                .frame(width: Self.artworkSize, height: Self.artworkSize)
                 .overlay {
                     Image(systemName: "music.note")
-                        .font(.system(size: artworkSize >= 80 ? 24 : 14, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityLabel(strings.pageTitle)

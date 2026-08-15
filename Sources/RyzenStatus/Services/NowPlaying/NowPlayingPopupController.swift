@@ -109,7 +109,24 @@ final class NowPlayingPopupController: ObservableObject {
         isMini.toggle()
         guard let popover, popover.isShown,
               let window = popover.contentViewController?.view.window else { return }
-        animatePopoverFrame(of: popover, window: window, to: popoverContentSize)
+        var target = popoverContentSize
+        // The same vertical clamp presentation applies: the morph must never
+        // drive the card past the space under the item.
+        if let maxHeight = availableHeight(under: anchorButton) {
+            target.height = min(target.height, maxHeight)
+        }
+        animatePopoverFrame(of: popover, window: window, to: target)
+    }
+
+    /// The free vertical space under the status item, minus a 6pt margin —
+    /// mirrors AppDelegate.availableHeight(under:) used at presentation.
+    private func availableHeight(under button: NSStatusBarButton?) -> CGFloat? {
+        guard let button, let buttonWindow = button.window else { return nil }
+        let onScreen = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+        let anchor = NSPoint(x: onScreen.midX, y: onScreen.minY)
+        let screen = NSScreen.screens.first { $0.frame.contains(anchor) } ?? NSScreen.main
+        guard let visible = screen?.visibleFrame else { return nil }
+        return max(140, onScreen.minY - visible.minY - 6)
     }
 
     /// The morph curve: fast lift, long settle (cubic-bezier 0.30, 0.90,
@@ -199,6 +216,10 @@ final class NowPlayingPopupController: ObservableObject {
         panel.makeKeyAndOrderFront(nil)
     }
 
+    /// Whether the detached floating window is currently live; the anchored
+    /// popup and this window are the same surface and never show together.
+    var isDetachedVisible: Bool { detachedPanel?.isVisible == true }
+
     /// Detach from the popover: the popup closes and the floating window
     /// takes over with the same track state.
     func detachPopover() {
@@ -258,7 +279,10 @@ final class NowPlayingPopupController: ObservableObject {
         let midX = frame.midX
         let maxY = frame.maxY
         frame.size = NSSize(width: width, height: width)
-        frame.origin = NSPoint(x: midX - width / 2, y: maxY - width)
+        // Growing downward with a fixed maxY can push the card off-screen;
+        // clamp the new frame before animating.
+        frame.origin = clampToScreen(NSPoint(x: midX - width / 2, y: maxY - width),
+                                     size: frame.size)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.2
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
