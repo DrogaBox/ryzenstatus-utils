@@ -70,7 +70,12 @@ class ThreadGridViewModel: ObservableObject {
         var cpuInfo: processor_info_array_t?
         var numCpus: natural_t = 0
         
-        let err = host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &numCpus, &cpuInfo, &numCpuInfo)
+        // mach_host_self() returns a send right the caller owns; release it or
+        // each call leaks a mach port (this runs on every sampling tick).
+        let host = mach_host_self()
+        defer { mach_port_deallocate(mach_task_self_, host) }
+
+        let err = host_processor_info(host, PROCESSOR_CPU_LOAD_INFO, &numCpus, &cpuInfo, &numCpuInfo)
         if err == KERN_SUCCESS, let cpuInfo = cpuInfo {
             var newThreads = self.threads
             let freq = SystemMonitor.shared.snapshot.avgCPUFreq ?? 0
@@ -165,6 +170,10 @@ struct ThreadGridView: View {
 private struct ThreadCell: View {
     let thread: ThreadGridViewModel.ThreadData
     
+    // Cache colors to prevent repeated string parsing via Color(hex:) on every 1-second render tick
+    private static let physicalCoreColor = Color(hex: "#1E3A5F")
+    private static let logicalCoreColor = Color(hex: "#4A90D9")
+
     private var loadColor: Color {
         if thread.usage > 80 { return Color.red }
         if thread.usage > 50 { return Color.yellow } // user said: green (0-50%), yellow (50-80%), red (80-100%)
@@ -174,7 +183,7 @@ private struct ThreadCell: View {
     private var backgroundColor: Color {
         // Threads 0..<physicalcpu: fondo #1E3A5F (azul oscuro, core físico)
         // Threads physicalcpu..<logicalcpu: fondo #4A90D9 (celeste, SMT)
-        thread.isLogical ? Color(hex: "#4A90D9") : Color(hex: "#1E3A5F")
+        thread.isLogical ? Self.logicalCoreColor : Self.physicalCoreColor
     }
     
     var body: some View {
