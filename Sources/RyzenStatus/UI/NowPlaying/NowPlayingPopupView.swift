@@ -29,9 +29,14 @@ struct NowPlayingPopupView: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var service = NowPlayingService.shared
     @ObservedObject private var lyricsCenter = NowPlayingLyricsCenter.shared
+    @ObservedObject private var animatedArtworkCenter = NowPlayingAnimatedArtworkCenter.shared
     @AppStorage(DefaultsKey.nowPlayingOpenInApp) private var openInApp = true
     @AppStorage(DefaultsKey.nowPlayingShowArtwork) private var showArtwork = true
     @AppStorage(DefaultsKey.nowPlayingArtworkAnimation) private var animateArtwork = true
+    @AppStorage(DefaultsKey.nowPlayingAnimatedArtwork) private var animatedArtwork = true
+    @AppStorage(DefaultsKey.nowPlayingTheme) private var themeStyle = NowPlayingThemeStyle.artworkAdaptive.rawValue
+    @AppStorage(DefaultsKey.nowPlayingArtworkColorIntensity) private var colorIntensity: Double = 1.0
+    @AppStorage(DefaultsKey.nowPlayingArtworkBlend) private var artworkBlend: Double = 0.28
 
     // The artwork currently on screen; kept in view state so the outgoing
     // cover can be crossfaded underneath the incoming one.
@@ -67,6 +72,12 @@ struct NowPlayingPopupView: View {
 
     private var currentTrackIdentityKey: String {
         "\(service.snapshot.displayTitle)|\(service.snapshot.displayArtist)|\(service.snapshot.duration ?? 0)"
+    }
+
+    /// The editorial animated artwork stream for the current track; nil
+    /// keeps the static cover. Only live while the setting is on.
+    private var animatedStreamURL: URL? {
+        animatedArtwork ? animatedArtworkCenter.streamURL : nil
     }
 
     /// The layout currently on top: the popover morphs between both, the
@@ -282,6 +293,7 @@ struct NowPlayingPopupView: View {
                 backdropLayer(current, width: width, height: height)
                     .opacity(currentBackdropOpacity)
             }
+            themeWash
         }
         .frame(width: width, height: height)
         .blur(radius: 26)
@@ -300,6 +312,24 @@ struct NowPlayingPopupView: View {
             .opacity(Self.backdropMaxOpacity)
     }
 
+    /// The theme wash over the backdrop: the resolved theme's palette
+    /// gradient (artwork-adaptive or preset, blended per settings), tinting
+    /// the card the way PlayStatus tints its surfaces.
+    private var themeWash: some View {
+        let spec = NowPlayingThemeEngine.resolveTheme(
+            style: NowPlayingThemeStyle(rawValue: themeStyle) ?? .artworkAdaptive,
+            image: displayedArtwork,
+            artworkColorIntensity: colorIntensity,
+            artworkBlend: artworkBlend,
+            cacheKey: "\(service.artworkIdentity)|\(themeStyle)|\(Int(colorIntensity * 100))|\(Int(artworkBlend * 100))"
+        )
+        let gradientColors = Array(spec.palette.prefix(3)).map { Color(nsColor: $0) }
+        return LinearGradient(colors: gradientColors + [.clear],
+                              startPoint: .topLeading,
+                              endPoint: .bottomTrailing)
+            .opacity(0.55)
+    }
+
     /// The large cover: outer chrome ring, the image inset 6pt, a diffused
     /// glow bleeding past the edges and a deep shadow.
     private func artworkTile(size: CGFloat, cornerRadius: CGFloat, outerRadius: CGFloat) -> some View {
@@ -313,11 +343,15 @@ struct NowPlayingPopupView: View {
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     .blur(radius: 18)
                     .opacity(0.55)
-                Image(nsImage: artwork)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: size, height: size)
-                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                // The editorial animated artwork, when the album has one,
+                // crossfades in over the static cover once render-ready.
+                NowPlayingArtworkStreamSurface(streamURL: animatedStreamURL) {
+                    Image(nsImage: artwork)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: size, height: size)
+                        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                }
             } else {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(Color.secondary.opacity(0.15))

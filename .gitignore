@@ -47,6 +47,7 @@ docs/superpowers/
 .jules/
 .user_uploaded/
 .system_generated/
+.research/
 
 # Upstream sync tooling (local-only: holds the upstream repo URL; never pushed)
 .upstream-sync/

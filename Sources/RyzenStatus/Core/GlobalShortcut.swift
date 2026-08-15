@@ -228,6 +228,15 @@ struct GlobalShortcut: Equatable, Hashable {
     static let scratchpadDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_N),
                                                   modifiers: [.control, .option, .command])
 
+    // Now Playing popup surfaces, following PlayStatus's defaults (MIT):
+    // O toggles the anchored popover, D the detached window. The D layer is
+    // shared with the shelf's default; the recorder's conflict check and the
+    // registration failure report surface the collision if both are on.
+    static let nowPlayingPopupDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_O),
+                                                       modifiers: [.control, .option, .command])
+    static let nowPlayingDetachedDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_D),
+                                                          modifiers: [.control, .option, .command])
+
     static func saved(for key: String, fallback: GlobalShortcut) -> GlobalShortcut {
         if let raw = UserDefaults.standard.string(forKey: key),
            let shortcut = GlobalShortcut(storageValue: raw) {
@@ -509,6 +518,8 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     case radialMenu
     case snippetLibrary
     case scratchpad
+    case nowPlayingPopup
+    case nowPlayingDetached
 
     var id: String { storageKey }
 
@@ -534,6 +545,8 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .radialMenu: return DefaultsKey.radialMenuShortcut
         case .snippetLibrary: return DefaultsKey.snippetLibraryShortcut
         case .scratchpad: return DefaultsKey.scratchpadShortcut
+        case .nowPlayingPopup: return DefaultsKey.nowPlayingPopupShortcut
+        case .nowPlayingDetached: return DefaultsKey.nowPlayingDetachedShortcut
         }
     }
 
@@ -559,6 +572,8 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .radialMenu: return .radialMenuDefault
         case .snippetLibrary: return .snippetLibraryDefault
         case .scratchpad: return .scratchpadDefault
+        case .nowPlayingPopup: return .nowPlayingPopupDefault
+        case .nowPlayingDetached: return .nowPlayingDetachedDefault
         }
     }
 
@@ -585,6 +600,8 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .radialMenu: return FeatureStrings.radialMenu(L10n.shared.language).pageTitle
         case .snippetLibrary: return FeatureStrings.snippets(L10n.shared.language).pageTitle
         case .scratchpad: return FeatureStrings.scratchpad(L10n.shared.language).pageTitle
+        case .nowPlayingPopup: return FeatureStrings.nowPlaying(L10n.shared.language).popupShortcutLabel
+        case .nowPlayingDetached: return FeatureStrings.nowPlaying(L10n.shared.language).detachedShortcutLabel
         }
     }
 
@@ -620,6 +637,10 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .radialMenu: return [DefaultsKey.radialMenuEnabled]
         case .snippetLibrary: return [DefaultsKey.snippetLibraryEnabled]
         case .scratchpad: return [DefaultsKey.scratchpadShortcutEnabled]
+        case .nowPlayingPopup: return [DefaultsKey.nowPlayingEnabled,
+                                       DefaultsKey.nowPlayingPopupShortcutEnabled]
+        case .nowPlayingDetached: return [DefaultsKey.nowPlayingEnabled,
+                                          DefaultsKey.nowPlayingDetachedShortcutEnabled]
         }
     }
 
@@ -644,6 +665,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .radialMenu: return .radialMenu
         case .snippetLibrary: return .textSnippets
         case .scratchpad: return .scratchpad
+        case .nowPlayingPopup, .nowPlayingDetached: return .nowPlaying
         }
     }
 
@@ -653,7 +675,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     static var featuresToSilenceWhileRecording: [AppFeature] {
         [.switcher, .windowLayout, .shelf, .clipboardHistory, .soundOutputSwitcher,
          .quickLauncher, .colorPicker, .screenOCR, .screenshot, .cameraPreview,
-         .radialMenu, .scratchpad]
+         .radialMenu, .scratchpad, .nowPlaying]
     }
 
     /// Roles whose shortcut is live given a defaults reader, for the keyboard

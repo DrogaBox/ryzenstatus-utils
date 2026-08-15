@@ -99,6 +99,8 @@ if (( TEST )); then
         Sources/RyzenStatus/Services/NowPlaying/NowPlayingSupport.swift \
         Sources/RyzenStatus/Services/NowPlaying/NowPlayingAutomation.swift \
         Sources/RyzenStatus/Services/NowPlaying/NowPlayingLyricsSupport.swift \
+        Sources/RyzenStatus/Services/NowPlaying/NowPlayingTheme.swift \
+        Sources/RyzenStatus/Services/NowPlaying/NowPlayingAnimatedArtwork.swift \
         Sources/RyzenStatus/Core/NowPlayingStrings.swift \
         Sources/RyzenStatus/Core/FeatureCatalog.swift \
         Sources/RyzenStatus/Core/FeaturePresets.swift \

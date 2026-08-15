@@ -128,6 +128,15 @@ extension DefaultsKey {
     static let nowPlayingDetachedOriginX = "nowPlayingDetachedOriginX" // last dragged position of the detached window
     static let nowPlayingDetachedOriginY = "nowPlayingDetachedOriginY"
     static let nowPlayingDetailsPane = "nowPlayingDetailsPane"
+    static let nowPlayingAnimatedArtwork = "nowPlayingAnimatedArtwork" // stream Apple Music editorial animated artwork over the cover
+    static let nowPlayingAnimatedArtworkQuality = "nowPlayingAnimatedArtworkQuality" // NowPlayingAnimatedArtworkQuality.rawValue (0 adaptive, 1 max, 2 data saver)
+    static let nowPlayingTheme = "nowPlayingTheme" // NowPlayingThemeStyle.rawValue (artworkAdaptive | frosted | midnight | warmStudio | highContrast | graphite)
+    static let nowPlayingArtworkColorIntensity = "nowPlayingArtworkColorIntensity" // how strongly theme colors tint the popup (0.5–1.8)
+    static let nowPlayingArtworkBlend = "nowPlayingArtworkBlend" // how much artwork colors blend into preset themes (0–1)
+    static let nowPlayingPopupShortcut = "nowPlayingPopupShortcut" // GlobalShortcut storage value: toggle the popup popover
+    static let nowPlayingPopupShortcutEnabled = "nowPlayingPopupShortcutEnabled"
+    static let nowPlayingDetachedShortcut = "nowPlayingDetachedShortcut" // GlobalShortcut storage value: toggle the detached window
+    static let nowPlayingDetachedShortcutEnabled = "nowPlayingDetachedShortcutEnabled"
     static let panelShowNowPlaying = "panelShowNowPlaying"
     static let cleanerScheduleFrequency = "cleanerScheduleFrequency"    // off | daily | weekly
     static let cleanerScheduleHour = "cleanerScheduleHour"

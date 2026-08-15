@@ -24,6 +24,20 @@ final class NowPlayingService: ObservableObject {
     /// any popup anchored to the item closes with its owner.
     var onDeactivate: (() -> Void)?
 
+    /// Fired by the global hotkeys (PlayStatus parity, MIT): O toggles the
+    /// anchored popover, D the detached window. AppDelegate wires both to
+    /// the same surfaces the menu bar item toggles.
+    var onTogglePopupHotkey: (() -> Void)?
+    var onToggleDetachedHotkey: (() -> Void)?
+
+    /// True when macOS refused the registration (combination taken); the
+    /// settings row reports it so a dead shortcut is never silent.
+    @Published private(set) var popupShortcutRegistrationFailed = false
+    @Published private(set) var detachedShortcutRegistrationFailed = false
+
+    /// The menu bar button the popup anchors to; the hotkeys need it too.
+    var statusItemButton: NSStatusBarButton? { statusItem?.button }
+
     @Published private(set) var snapshot = NowPlayingSnapshot.empty
     @Published private(set) var artworkImage: NSImage?
     /// Fingerprint of the current artwork (dimensions + 12×12 pixel hash).
@@ -49,7 +63,15 @@ final class NowPlayingService: ObservableObject {
     private var lastArtworkIdentity = ""
     private var cancellables = Set<AnyCancellable>()
 
-    private init() {}
+    /// Free ids in the app's shared Carbon hotkey table: 25 popover,
+    /// 26 detached window.
+    private let popupHotkey = QuickToolHotkey(id: 25)
+    private let detachedHotkey = QuickToolHotkey(id: 26)
+
+    private init() {
+        popupHotkey.onPress = { [weak self] in self?.onTogglePopupHotkey?() }
+        detachedHotkey.onPress = { [weak self] in self?.onToggleDetachedHotkey?() }
+    }
 
     // MARK: - Lifecycle
 
@@ -80,6 +102,7 @@ final class NowPlayingService: ObservableObject {
             MediaRemoteBridge.triggerTCCPrompt(for: NowPlayingAutomation.musicBundleID)
         }
         installStatusItem()
+        syncShortcuts()
         poll()
         let t = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.poll()
@@ -107,6 +130,11 @@ final class NowPlayingService: ObservableObject {
         artworkIdentity = ""
         lastFingerprintedData = nil
         lastArtworkIdentity = ""
+        NowPlayingAnimatedArtworkCenter.shared.sync(with: .empty)
+        popupHotkey.unregister()
+        detachedHotkey.unregister()
+        popupShortcutRegistrationFailed = false
+        detachedShortcutRegistrationFailed = false
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         onDeactivate?()
     }
@@ -139,6 +167,7 @@ final class NowPlayingService: ObservableObject {
                         self.snapshot = next
                         self.artworkImage = next.artwork
                         self.artworkIdentity = self.artworkIdentity(for: next.artworkData)
+                        NowPlayingAnimatedArtworkCenter.shared.sync(with: next)
                     }
                     self.renderMenuBar()
                 }
@@ -180,6 +209,7 @@ final class NowPlayingService: ObservableObject {
                         self.snapshot = next
                         self.artworkImage = next.artwork
                         self.artworkIdentity = self.artworkIdentity(for: next.artworkData)
+                        NowPlayingAnimatedArtworkCenter.shared.sync(with: next)
                     }
                     self.renderMenuBar()
                 }
@@ -302,8 +332,26 @@ final class NowPlayingService: ObservableObject {
         // Display settings changed: restart the marquee from a clean slate.
         stopMarquee()
         lastRenderedKey = ""
+        syncShortcuts()
         renderMenuBar()
         poll()
+    }
+
+    /// Applies the two hotkey preferences: register, re-register on change,
+    /// or release. The enable toggles gate on the feature key too through
+    /// the shortcut's required-enable keys.
+    private func syncShortcuts() {
+        let defaults = UserDefaults.standard
+        let popupShortcut = GlobalShortcut.saved(for: DefaultsKey.nowPlayingPopupShortcut,
+                                                 fallback: .nowPlayingPopupDefault)
+        let detachedShortcut = GlobalShortcut.saved(for: DefaultsKey.nowPlayingDetachedShortcut,
+                                                    fallback: .nowPlayingDetachedDefault)
+        popupShortcutRegistrationFailed = !popupHotkey.sync(
+            enabled: defaults.bool(forKey: DefaultsKey.nowPlayingPopupShortcutEnabled),
+            shortcut: popupShortcut)
+        detachedShortcutRegistrationFailed = !detachedHotkey.sync(
+            enabled: defaults.bool(forKey: DefaultsKey.nowPlayingDetachedShortcutEnabled),
+            shortcut: detachedShortcut)
     }
 
     /// Drops the cached artwork fingerprints so covers are re-hashed from
@@ -312,6 +360,8 @@ final class NowPlayingService: ObservableObject {
         lastFingerprintedData = nil
         lastArtworkIdentity = ""
         NowPlayingLyricsCenter.shared.clearCache()
+        NowPlayingAnimatedArtworkCenter.shared.clearCache()
+        NowPlayingThemeEngine.clearCache()
     }
 
     /// Brings the app that owns the current session to the front, so the

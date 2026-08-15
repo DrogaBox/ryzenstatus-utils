@@ -72,6 +72,23 @@ struct NowPlayingStrings {
     let creditsGenre: String
     let creditsYear: String
     let creditsTrackNumber: String
+    // Phase 5: animated artwork streams, global hotkeys and themes.
+    let animatedArtworkToggle: String
+    let animatedArtworkQualityLabel: String
+    let animatedArtworkQualityAdaptive: String
+    let animatedArtworkQualityMax: String
+    let animatedArtworkQualityDataSaver: String
+    let popupShortcutLabel: String
+    let detachedShortcutLabel: String
+    let themeLabel: String
+    let themeArtworkAdaptive: String
+    let themeFrosted: String
+    let themeMidnight: String
+    let themeWarmStudio: String
+    let themeHighContrast: String
+    let themeGraphite: String
+    let artworkColorIntensityLabel: String
+    let artworkBlendLabel: String
 }
 
 extension FeatureStrings {
@@ -159,7 +176,23 @@ extension NowPlayingStrings {
         creditsAlbum: "Album",
         creditsGenre: "Genre",
         creditsYear: "Year",
-        creditsTrackNumber: "Track"
+        creditsTrackNumber: "Track",
+        animatedArtworkToggle: "Animated artwork",
+        animatedArtworkQualityLabel: "Stream quality",
+        animatedArtworkQualityAdaptive: "Adaptive (1080p)",
+        animatedArtworkQualityMax: "Maximum quality",
+        animatedArtworkQualityDataSaver: "Data saver",
+        popupShortcutLabel: "Toggle Now Playing",
+        detachedShortcutLabel: "Toggle detached window",
+        themeLabel: "Theme",
+        themeArtworkAdaptive: "Artwork adaptive",
+        themeFrosted: "Frosted",
+        themeMidnight: "Midnight",
+        themeWarmStudio: "Warm Studio",
+        themeHighContrast: "High Contrast",
+        themeGraphite: "Graphite",
+        artworkColorIntensityLabel: "Artwork color intensity",
+        artworkBlendLabel: "Album color blend"
     )
 
     static let ptBR = NowPlayingStrings(
@@ -226,7 +259,23 @@ extension NowPlayingStrings {
         creditsAlbum: "Álbum",
         creditsGenre: "Gênero",
         creditsYear: "Ano",
-        creditsTrackNumber: "Faixa"
+        creditsTrackNumber: "Faixa",
+        animatedArtworkToggle: "Capa animada",
+        animatedArtworkQualityLabel: "Qualidade do stream",
+        animatedArtworkQualityAdaptive: "Adaptativa (1080p)",
+        animatedArtworkQualityMax: "Qualidade máxima",
+        animatedArtworkQualityDataSaver: "Economia de dados",
+        popupShortcutLabel: "Alternar Em reprodução",
+        detachedShortcutLabel: "Alternar janela destacada",
+        themeLabel: "Tema",
+        themeArtworkAdaptive: "Adaptativo à capa",
+        themeFrosted: "Fosco",
+        themeMidnight: "Meia-noite",
+        themeWarmStudio: "Estúdio quente",
+        themeHighContrast: "Alto contraste",
+        themeGraphite: "Grafite",
+        artworkColorIntensityLabel: "Intensidade de cor da capa",
+        artworkBlendLabel: "Mistura de cor do álbum"
     )
 
     static let tr = NowPlayingStrings(
@@ -293,7 +342,23 @@ extension NowPlayingStrings {
         creditsAlbum: "Albüm",
         creditsGenre: "Tür",
         creditsYear: "Yıl",
-        creditsTrackNumber: "Parça"
+        creditsTrackNumber: "Parça",
+        animatedArtworkToggle: "Animasyonlu kapak",
+        animatedArtworkQualityLabel: "Yayın kalitesi",
+        animatedArtworkQualityAdaptive: "Uyarlanabilir (1080p)",
+        animatedArtworkQualityMax: "En yüksek kalite",
+        animatedArtworkQualityDataSaver: "Veri tasarrufu",
+        popupShortcutLabel: "Çalınan'ı aç/kapat",
+        detachedShortcutLabel: "Ayrı pencereyi aç/kapat",
+        themeLabel: "Tema",
+        themeArtworkAdaptive: "Kapağa uyumlu",
+        themeFrosted: "Buzlu",
+        themeMidnight: "Gece yarısı",
+        themeWarmStudio: "Sıcak stüdyo",
+        themeHighContrast: "Yüksek kontrast",
+        themeGraphite: "Grafit",
+        artworkColorIntensityLabel: "Kapak renk yoğunluğu",
+        artworkBlendLabel: "Albüm renk karışımı"
     )
 
     static let ru = NowPlayingStrings(
@@ -360,7 +425,23 @@ extension NowPlayingStrings {
         creditsAlbum: "Альбом",
         creditsGenre: "Жанр",
         creditsYear: "Год",
-        creditsTrackNumber: "Трек"
+        creditsTrackNumber: "Трек",
+        animatedArtworkToggle: "Анимированная обложка",
+        animatedArtworkQualityLabel: "Качество потока",
+        animatedArtworkQualityAdaptive: "Адаптивное (1080p)",
+        animatedArtworkQualityMax: "Максимальное качество",
+        animatedArtworkQualityDataSaver: "Экономия трафика",
+        popupShortcutLabel: "Показать/скрыть «Сейчас играет»",
+        detachedShortcutLabel: "Показать/скрыть отдельное окно",
+        themeLabel: "Тема",
+        themeArtworkAdaptive: "Адаптивная к обложке",
+        themeFrosted: "Матовая",
+        themeMidnight: "Полночь",
+        themeWarmStudio: "Тёплая студия",
+        themeHighContrast: "Высокий контраст",
+        themeGraphite: "Графит",
+        artworkColorIntensityLabel: "Интенсивность цвета обложки",
+        artworkBlendLabel: "Смешение цвета альбома"
     )
 
     static let es = NowPlayingStrings(
@@ -427,7 +508,23 @@ extension NowPlayingStrings {
         creditsAlbum: "Álbum",
         creditsGenre: "Género",
         creditsYear: "Año",
-        creditsTrackNumber: "Pista"
+        creditsTrackNumber: "Pista",
+        animatedArtworkToggle: "Carátula animada",
+        animatedArtworkQualityLabel: "Calidad del stream",
+        animatedArtworkQualityAdaptive: "Adaptativa (1080p)",
+        animatedArtworkQualityMax: "Calidad máxima",
+        animatedArtworkQualityDataSaver: "Ahorro de datos",
+        popupShortcutLabel: "Mostrar/ocultar En reproducción",
+        detachedShortcutLabel: "Mostrar/ocultar ventana separada",
+        themeLabel: "Tema",
+        themeArtworkAdaptive: "Adaptado a la carátula",
+        themeFrosted: "Escarchado",
+        themeMidnight: "Medianoche",
+        themeWarmStudio: "Estudio cálido",
+        themeHighContrast: "Alto contraste",
+        themeGraphite: "Grafito",
+        artworkColorIntensityLabel: "Intensidad de color de la carátula",
+        artworkBlendLabel: "Mezcla de color del álbum"
     )
 
     static let de = NowPlayingStrings(
@@ -494,7 +591,23 @@ extension NowPlayingStrings {
         creditsAlbum: "Album",
         creditsGenre: "Genre",
         creditsYear: "Jahr",
-        creditsTrackNumber: "Titel"
+        creditsTrackNumber: "Titel",
+        animatedArtworkToggle: "Animiertes Cover",
+        animatedArtworkQualityLabel: "Stream-Qualität",
+        animatedArtworkQualityAdaptive: "Adaptiv (1080p)",
+        animatedArtworkQualityMax: "Maximale Qualität",
+        animatedArtworkQualityDataSaver: "Datensparer",
+        popupShortcutLabel: "Aktueller Titel ein-/ausblenden",
+        detachedShortcutLabel: "Gelöstes Fenster ein-/ausblenden",
+        themeLabel: "Design",
+        themeArtworkAdaptive: "An Cover anpassen",
+        themeFrosted: "Matt",
+        themeMidnight: "Mitternacht",
+        themeWarmStudio: "Warmes Studio",
+        themeHighContrast: "Hoher Kontrast",
+        themeGraphite: "Graphit",
+        artworkColorIntensityLabel: "Farbintensität des Covers",
+        artworkBlendLabel: "Album-Farbmischung"
     )
 
     static let fr = NowPlayingStrings(
@@ -561,7 +674,23 @@ extension NowPlayingStrings {
         creditsAlbum: "Album",
         creditsGenre: "Genre",
         creditsYear: "Année",
-        creditsTrackNumber: "Piste"
+        creditsTrackNumber: "Piste",
+        animatedArtworkToggle: "Pochette animée",
+        animatedArtworkQualityLabel: "Qualité du flux",
+        animatedArtworkQualityAdaptive: "Adaptative (1080p)",
+        animatedArtworkQualityMax: "Qualité maximale",
+        animatedArtworkQualityDataSaver: "Économie de données",
+        popupShortcutLabel: "Afficher/masquer En cours de lecture",
+        detachedShortcutLabel: "Afficher/masquer la fenêtre détachée",
+        themeLabel: "Thème",
+        themeArtworkAdaptive: "Adapté à la pochette",
+        themeFrosted: "Givré",
+        themeMidnight: "Minuit",
+        themeWarmStudio: "Studio chaud",
+        themeHighContrast: "Contraste élevé",
+        themeGraphite: "Graphite",
+        artworkColorIntensityLabel: "Intensité des couleurs de la pochette",
+        artworkBlendLabel: "Mélange des couleurs de l'album"
     )
 
     static let it = NowPlayingStrings(
@@ -628,7 +757,23 @@ extension NowPlayingStrings {
         creditsAlbum: "Album",
         creditsGenre: "Genere",
         creditsYear: "Anno",
-        creditsTrackNumber: "Traccia"
+        creditsTrackNumber: "Traccia",
+        animatedArtworkToggle: "Copertina animata",
+        animatedArtworkQualityLabel: "Qualità dello stream",
+        animatedArtworkQualityAdaptive: "Adattiva (1080p)",
+        animatedArtworkQualityMax: "Qualità massima",
+        animatedArtworkQualityDataSaver: "Risparmio dati",
+        popupShortcutLabel: "Mostra/nascondi In riproduzione",
+        detachedShortcutLabel: "Mostra/nascondi finestra separata",
+        themeLabel: "Tema",
+        themeArtworkAdaptive: "Adattivo alla copertina",
+        themeFrosted: "Brinato",
+        themeMidnight: "Mezzanotte",
+        themeWarmStudio: "Studio caldo",
+        themeHighContrast: "Alto contrasto",
+        themeGraphite: "Grafite",
+        artworkColorIntensityLabel: "Intensità colore copertina",
+        artworkBlendLabel: "Miscela colore album"
     )
 
     static let ja = NowPlayingStrings(
@@ -695,7 +840,23 @@ extension NowPlayingStrings {
         creditsAlbum: "アルバム",
         creditsGenre: "ジャンル",
         creditsYear: "年",
-        creditsTrackNumber: "トラック"
+        creditsTrackNumber: "トラック",
+        animatedArtworkToggle: "アニメーションアートワーク",
+        animatedArtworkQualityLabel: "ストリームの品質",
+        animatedArtworkQualityAdaptive: "アダプティブ（1080p）",
+        animatedArtworkQualityMax: "最高品質",
+        animatedArtworkQualityDataSaver: "データ節約",
+        popupShortcutLabel: "再生中パネルを表示/非表示",
+        detachedShortcutLabel: "分離ウィンドウを表示/非表示",
+        themeLabel: "テーマ",
+        themeArtworkAdaptive: "アートワークに適応",
+        themeFrosted: "フロスト",
+        themeMidnight: "ミッドナイト",
+        themeWarmStudio: "ウォームスタジオ",
+        themeHighContrast: "ハイコントラスト",
+        themeGraphite: "グラファイト",
+        artworkColorIntensityLabel: "アートワークの色の強さ",
+        artworkBlendLabel: "アルバムカラーのブレンド"
     )
 
     static let ko = NowPlayingStrings(
@@ -762,7 +923,23 @@ extension NowPlayingStrings {
         creditsAlbum: "앨범",
         creditsGenre: "장르",
         creditsYear: "연도",
-        creditsTrackNumber: "트랙"
+        creditsTrackNumber: "트랙",
+        animatedArtworkToggle: "움직이는 아트워크",
+        animatedArtworkQualityLabel: "스트림 품질",
+        animatedArtworkQualityAdaptive: "적응형 (1080p)",
+        animatedArtworkQualityMax: "최고 품질",
+        animatedArtworkQualityDataSaver: "데이터 절약",
+        popupShortcutLabel: "재생 중 패널 전환",
+        detachedShortcutLabel: "분리된 창 전환",
+        themeLabel: "테마",
+        themeArtworkAdaptive: "아트워크 적응형",
+        themeFrosted: "프로스트",
+        themeMidnight: "미드나이트",
+        themeWarmStudio: "웜 스튜디오",
+        themeHighContrast: "높은 대비",
+        themeGraphite: "흑연",
+        artworkColorIntensityLabel: "아트워크 색 강도",
+        artworkBlendLabel: "앨범 색 혼합"
     )
 
     static let zhHans = NowPlayingStrings(
@@ -829,7 +1006,23 @@ extension NowPlayingStrings {
         creditsAlbum: "专辑",
         creditsGenre: "流派",
         creditsYear: "年份",
-        creditsTrackNumber: "曲目"
+        creditsTrackNumber: "曲目",
+        animatedArtworkToggle: "动态封面",
+        animatedArtworkQualityLabel: "流媒体画质",
+        animatedArtworkQualityAdaptive: "自适应（1080p）",
+        animatedArtworkQualityMax: "最高画质",
+        animatedArtworkQualityDataSaver: "省流量",
+        popupShortcutLabel: "切换“正在播放”",
+        detachedShortcutLabel: "切换分离窗口",
+        themeLabel: "主题",
+        themeArtworkAdaptive: "随封面自适应",
+        themeFrosted: "磨砂",
+        themeMidnight: "午夜",
+        themeWarmStudio: "暖调工作室",
+        themeHighContrast: "高对比度",
+        themeGraphite: "石墨灰",
+        artworkColorIntensityLabel: "封面色彩强度",
+        artworkBlendLabel: "专辑色彩混合"
     )
 
     static let zhTW = NowPlayingStrings(
@@ -896,7 +1089,23 @@ extension NowPlayingStrings {
         creditsAlbum: "專輯",
         creditsGenre: "類型",
         creditsYear: "年份",
-        creditsTrackNumber: "曲目"
+        creditsTrackNumber: "曲目",
+        animatedArtworkToggle: "動態封面",
+        animatedArtworkQualityLabel: "串流畫質",
+        animatedArtworkQualityAdaptive: "自動調整（1080p）",
+        animatedArtworkQualityMax: "最高畫質",
+        animatedArtworkQualityDataSaver: "節省數據",
+        popupShortcutLabel: "切換「正在播放」",
+        detachedShortcutLabel: "切換分離視窗",
+        themeLabel: "主題",
+        themeArtworkAdaptive: "隨封面自動調整",
+        themeFrosted: "霧面",
+        themeMidnight: "午夜",
+        themeWarmStudio: "暖調工作室",
+        themeHighContrast: "高對比",
+        themeGraphite: "石墨灰",
+        artworkColorIntensityLabel: "封面色彩強度",
+        artworkBlendLabel: "專輯色彩混合"
     )
 
     static let zhHK = NowPlayingStrings(
@@ -963,6 +1172,22 @@ extension NowPlayingStrings {
         creditsAlbum: "專輯",
         creditsGenre: "類型",
         creditsYear: "年份",
-        creditsTrackNumber: "曲目"
+        creditsTrackNumber: "曲目",
+        animatedArtworkToggle: "動態封面",
+        animatedArtworkQualityLabel: "串流畫質",
+        animatedArtworkQualityAdaptive: "自動調整（1080p）",
+        animatedArtworkQualityMax: "最高畫質",
+        animatedArtworkQualityDataSaver: "慳數據",
+        popupShortcutLabel: "切換「正在播放」",
+        detachedShortcutLabel: "切換分離視窗",
+        themeLabel: "主題",
+        themeArtworkAdaptive: "隨封面自動調整",
+        themeFrosted: "霧面",
+        themeMidnight: "午夜",
+        themeWarmStudio: "暖調工作室",
+        themeHighContrast: "高對比",
+        themeGraphite: "石墨灰",
+        artworkColorIntensityLabel: "封面色彩強度",
+        artworkBlendLabel: "專輯色彩混合"
     )
 }

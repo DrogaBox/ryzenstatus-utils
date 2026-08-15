@@ -91,6 +91,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             self?.closeNowPlayingPopup()
             NowPlayingPopupController.shared.tearDown()
         }
+        // The global hotkeys toggle the same surfaces the menu bar item
+        // toggles (PlayStatus parity: ⌃⌥⌘O popover, ⌃⌥⌘D detached).
+        NowPlayingService.shared.onTogglePopupHotkey = { [weak self] in
+            self?.captureStatusClick()
+            self?.toggleNowPlayingPopupFromHotkey()
+        }
+        NowPlayingService.shared.onToggleDetachedHotkey = { [weak self] in
+            self?.captureStatusClick()
+            self?.toggleNowPlayingDetachedFromHotkey()
+        }
 
         setUpPopover()
         setUpNowPlayingPopover()
@@ -866,6 +876,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private func closeNowPlayingPopup() {
         guard nowPlayingPopover.isShown else { return }
         nowPlayingPopover.performClose(nil)
+    }
+
+    /// The popover hotkey behaves exactly like clicking the menu bar item:
+    /// anchor to the status item button, honoring the same mutual exclusion.
+    private func toggleNowPlayingPopupFromHotkey() {
+        guard let button = NowPlayingService.shared.statusItemButton else { return }
+        showNowPlayingPopup(anchoredTo: button)
+    }
+
+    /// The detached hotkey toggles the floating window; the anchored
+    /// popover is the same surface, so it makes way first.
+    private func toggleNowPlayingDetachedFromHotkey() {
+        let popupController = NowPlayingPopupController.shared
+        if popupController.isDetachedVisible {
+            popupController.closeDetached()
+            return
+        }
+        if nowPlayingPopover.isShown {
+            closeNowPlayingPopup()
+        }
+        popupController.showDetached()
     }
 
     /// The popup content may have been dropped while hidden (memory setting);
