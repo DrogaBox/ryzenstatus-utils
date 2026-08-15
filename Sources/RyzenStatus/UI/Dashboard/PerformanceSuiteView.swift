@@ -137,9 +137,6 @@ struct PerformanceSuiteView: View {
         .onReceive(monitor.$snapshot) { _ in
             refreshData()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .processUsageDidUpdate)) { _ in
-            refreshData()
-        }
     }
 
     // MARK: - 1. Dashboard Tab Content

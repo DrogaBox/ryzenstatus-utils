@@ -22,7 +22,7 @@ final class NowPlayingPopupController: ObservableObject {
     /// keeps the 18pt chrome, the tile ring and the transport row constant.
     static let minimumRegularWidth: CGFloat = 410
     static let regularChrome: CGFloat = 96
-    static let miniSize = NSSize(width: 380, height: 380)
+    static let miniSize = NSSize(width: 380, height: 470)
     /// The lyrics/credits details pane grows the regular card by this much;
     /// the same value is the pane's fixed height inside the card.
     static let detailsPaneHeight: CGFloat = 172
@@ -40,8 +40,8 @@ final class NowPlayingPopupController: ObservableObject {
                       height: tile + regularChrome)
     }
 
-    /// Size presets of the detached window. The card is square: the artwork
-    /// tile takes the width minus the chrome margin, the rest stacks below.
+    /// Size presets of the detached window: proportional cards where the
+    /// artwork, metadata, progress slider, and transport controls fit completely.
     enum DetachedSize: Int, CaseIterable {
         case small = 0, medium = 1, large = 2
 
@@ -49,8 +49,20 @@ final class NowPlayingPopupController: ObservableObject {
             switch self {
             case .small: return 320
             case .medium: return 380
-            case .large: return 460
+            case .large: return 440
             }
+        }
+
+        var height: CGFloat {
+            switch self {
+            case .small: return 410
+            case .medium: return 470
+            case .large: return 530
+            }
+        }
+
+        var size: NSSize {
+            NSSize(width: width, height: height)
         }
     }
 
@@ -201,7 +213,7 @@ final class NowPlayingPopupController: ObservableObject {
         let deltaH = target.height - startContent.height
         let startTime = CACurrentMediaTime()
 
-        let timer = Timer(timeInterval: 1.0 / 120.0, repeats: true) { [weak self, weak popover, weak window] timer in
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self, weak popover, weak window] timer in
             guard let popover, let window else {
                 timer.invalidate()
                 self?.morphTimer = nil
@@ -237,8 +249,8 @@ final class NowPlayingPopupController: ObservableObject {
     private func ensureDetachedPanel() -> NSPanel {
         if let detachedPanel { return detachedPanel }
 
-        let size = detachedSize.width
-        let panel = NowPlayingDetachedPanel(contentRect: NSRect(x: 0, y: 0, width: size, height: size))
+        let size = detachedSize.size
+        let panel = NowPlayingDetachedPanel(contentRect: NSRect(x: 0, y: 0, width: size.width, height: size.height))
         panel.level = detachedOnTop ? .floating : .normal
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -328,14 +340,14 @@ final class NowPlayingPopupController: ObservableObject {
     /// content follows through the published `detachedSize`.
     private func resizeDetachedPanel() {
         guard let panel = detachedPanel, panel.isVisible else { return }
-        let width = detachedSize.width
+        let size = detachedSize.size
         var frame = panel.frame
         let midX = frame.midX
         let maxY = frame.maxY
-        frame.size = NSSize(width: width, height: width)
+        frame.size = size
         // Growing downward with a fixed maxY can push the card off-screen;
         // clamp the new frame before animating.
-        frame.origin = clampToScreen(NSPoint(x: midX - width / 2, y: maxY - width),
+        frame.origin = clampToScreen(NSPoint(x: midX - size.width / 2, y: maxY - size.height),
                                      size: frame.size)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.2

@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.11.1] — 2026-08-15
+
+### CPU & Performance Optimizations
+- **Process Loop Elimination**: Resolved an event loop in BTopDashboardView and PerformanceSuiteView where process updates triggered continuous re-sampling.
+- **Menu Bar Marquee Optimization**: Set marquee scrolling off by default with idle timer teardown during hold phases to eliminate background WindowServer rendering load.
+- **Morph Animation Cadence**: Adjusted popover transition timer to 60Hz.
+
+### Now Playing & UI Improvements
+- **Universal Transport Controls**: Fixed play/pause and track skipping by implementing smart single dispatch for Apple Music and Spotify via AppleScript alongside MediaRemote and system media keys, eliminating double-toggle behavior.
+- **Menu Bar Icon Redesign**: Converted the Now Playing status item to a native template symbol with clean typography and a refined 1.5pt progress indicator.
+- **Detached Window & Mini Mode Framing**: Fixed layout headroom across all sizes (Small, Medium, Large) so artwork, title, progress bar, and all playback controls remain fully visible without clipping. Added right-click context menu for quick resizing and pin-on-top toggles.
+- **Radial Menu Synchronization**: Unified radial menu media keys with NowPlayingService routing.
+
 ## [1.11.0] — 2026-08-15
 
 ### Now Playing — Adaptive Themes & Animated Artwork

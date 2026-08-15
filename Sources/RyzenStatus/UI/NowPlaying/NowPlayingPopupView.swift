@@ -17,10 +17,9 @@ enum NowPlayingPopupCluster {
 /// animation pipeline — the wide regular card and the square mini card — and
 /// the same view also fills the detached floating window.
 struct NowPlayingPopupView: View {
-    static let miniSize = NSSize(width: 380, height: 380)
-    /// The mini card is square; the tile keeps a fixed chrome margin, so
-    /// every size derives from the width alone.
-    static let miniChromeMargin: CGFloat = 144
+    static let miniSize = NSSize(width: 380, height: 470)
+    /// The mini card is square-proportioned with full controls headroom.
+    static let miniChromeMargin: CGFloat = 160
     private static let backdropMaxOpacity: Double = 0.24
 
     var cluster: NowPlayingPopupCluster = .popover
@@ -92,8 +91,7 @@ struct NowPlayingPopupView: View {
 
     private var cardSize: NSSize {
         if cluster == .detached {
-            let width = controller.detachedSize.width
-            return NSSize(width: width, height: width)
+            return controller.detachedSize.size
         }
         if controller.isMini { return Self.miniSize }
         var size = regularSize
@@ -122,6 +120,33 @@ struct NowPlayingPopupView: View {
         .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay(alignment: .topTrailing) { hoverCluster }
         .onHover { isHovering = $0 }
+        .contextMenu {
+            if cluster == .detached {
+                Picker(strings.sizeLabel, selection: $controller.detachedSize) {
+                    Text(strings.sizeSmall).tag(NowPlayingPopupController.DetachedSize.small)
+                    Text(strings.sizeMedium).tag(NowPlayingPopupController.DetachedSize.medium)
+                    Text(strings.sizeLarge).tag(NowPlayingPopupController.DetachedSize.large)
+                }
+                Toggle(strings.alwaysOnTopLabel, isOn: $controller.detachedOnTop)
+                Divider()
+                Button(strings.closeLabel) {
+                    controller.closeDetached()
+                }
+            } else {
+                Button(controller.isMini ? strings.regularModeLabel : strings.miniModeLabel) {
+                    controller.toggleMini()
+                }
+                Button(strings.detachLabel) {
+                    controller.detachPopover()
+                }
+            }
+            if service.snapshot.appBundleID != nil {
+                Divider()
+                Button(strings.openInAppLabel) {
+                    service.openSourceApp()
+                }
+            }
+        }
         .onChange(of: service.artworkIdentity) { oldIdentity, _ in
             guard hasDisplayedArtwork else {
                 displayedArtwork = service.artworkImage
@@ -195,14 +220,14 @@ struct NowPlayingPopupView: View {
     private var trackBody: some View {
         ZStack(alignment: .top) {
             if cluster == .detached {
-                miniBody(width: cardSize.width)
+                miniBody(width: cardSize.width, height: cardSize.height)
             } else {
                 if mountedLayouts.contains(.regular) {
                     regularBody
                         .opacity(regularOpacity)
                 }
                 if mountedLayouts.contains(.mini) {
-                    miniBody(width: Self.miniSize.width)
+                    miniBody(width: Self.miniSize.width, height: Self.miniSize.height)
                         .opacity(miniOpacity)
                 }
             }
@@ -255,13 +280,13 @@ struct NowPlayingPopupView: View {
         .frame(width: size.width, height: size.height, alignment: .top)
     }
 
-    /// The square artwork-first card used by mini mode and the detached
-    /// window: dominant centered cover, metadata and transport below.
-    private func miniBody(width: CGFloat) -> some View {
-        let tileSize = width - Self.miniChromeMargin
+    /// The artwork-first card used by mini mode and the detached
+    /// window: dominant centered cover, metadata and transport below with generous headroom.
+    private func miniBody(width: CGFloat, height: CGFloat) -> some View {
+        let tileSize = max(110, width - Self.miniChromeMargin)
         return ZStack(alignment: .top) {
-            backdrop(width: width, height: width)
-            VStack(spacing: 10) {
+            backdrop(width: width, height: height)
+            VStack(spacing: 8) {
                 if showArtwork {
                     artworkTile(size: tileSize, cornerRadius: 18, outerRadius: 24)
                 }
@@ -273,12 +298,14 @@ struct NowPlayingPopupView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .center)
+                Spacer(minLength: 2)
                 progressView
+                Spacer(minLength: 2)
                 controlsRow
             }
             .padding(18)
         }
-        .frame(width: width, height: width, alignment: .top)
+        .frame(width: width, height: height, alignment: .top)
     }
 
     /// Ambient wash of the cover behind everything: the outgoing and the

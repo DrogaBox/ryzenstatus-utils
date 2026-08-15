@@ -249,35 +249,79 @@ final class NowPlayingService: ObservableObject {
     // MARK: - Transport
 
     func togglePlayPause() {
-        if MediaRemoteBridge.sendCommand != nil {
-            MediaRemoteBridge.send(.togglePlayPause)
+        let bundleID = snapshot.appBundleID
+        if bundleID == NowPlayingAutomation.spotifyBundleID || bundleID == NowPlayingAutomation.musicBundleID ||
+           NowPlayingAutomation.isRunning(bundleID: NowPlayingAutomation.spotifyBundleID) ||
+           NowPlayingAutomation.isRunning(bundleID: NowPlayingAutomation.musicBundleID) {
+            NowPlayingAutomation.togglePlayPause(bundleID: bundleID)
         } else {
-            NowPlayingAutomation.togglePlayPause(bundleID: snapshot.appBundleID)
+            MediaRemoteBridge.send(.togglePlayPause)
+            Self.postAuxKey(16)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            self?.poll()
         }
     }
 
     func nextTrack() {
-        if MediaRemoteBridge.sendCommand != nil {
-            MediaRemoteBridge.send(.nextTrack)
+        let bundleID = snapshot.appBundleID
+        if bundleID == NowPlayingAutomation.spotifyBundleID || bundleID == NowPlayingAutomation.musicBundleID ||
+           NowPlayingAutomation.isRunning(bundleID: NowPlayingAutomation.spotifyBundleID) ||
+           NowPlayingAutomation.isRunning(bundleID: NowPlayingAutomation.musicBundleID) {
+            NowPlayingAutomation.nextTrack(bundleID: bundleID)
         } else {
-            NowPlayingAutomation.nextTrack(bundleID: snapshot.appBundleID)
+            MediaRemoteBridge.send(.nextTrack)
+            Self.postAuxKey(19)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            self?.poll()
         }
     }
 
     func previousTrack() {
-        if MediaRemoteBridge.sendCommand != nil {
-            MediaRemoteBridge.send(.previousTrack)
+        let bundleID = snapshot.appBundleID
+        if bundleID == NowPlayingAutomation.spotifyBundleID || bundleID == NowPlayingAutomation.musicBundleID ||
+           NowPlayingAutomation.isRunning(bundleID: NowPlayingAutomation.spotifyBundleID) ||
+           NowPlayingAutomation.isRunning(bundleID: NowPlayingAutomation.musicBundleID) {
+            NowPlayingAutomation.previousTrack(bundleID: bundleID)
         } else {
-            NowPlayingAutomation.previousTrack(bundleID: snapshot.appBundleID)
+            MediaRemoteBridge.send(.previousTrack)
+            Self.postAuxKey(20)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            self?.poll()
         }
     }
 
     func seek(to seconds: TimeInterval) {
-        if MediaRemoteBridge.sendCommand != nil {
-            MediaRemoteBridge.seek(to: seconds)
+        let bundleID = snapshot.appBundleID
+        if bundleID == NowPlayingAutomation.spotifyBundleID || bundleID == NowPlayingAutomation.musicBundleID {
+            NowPlayingAutomation.seek(to: seconds, bundleID: bundleID)
         } else {
-            NowPlayingAutomation.seek(to: seconds, bundleID: snapshot.appBundleID)
+            MediaRemoteBridge.seek(to: seconds)
         }
+    }
+
+    private static func postAuxKey(_ type: Int32) {
+        func post(down: Bool) {
+            let stateFlags: NSEvent.ModifierFlags = down
+                ? NSEvent.ModifierFlags(rawValue: 0xA00)
+                : NSEvent.ModifierFlags(rawValue: 0xB00)
+            let data1 = (Int(type) << 16) | ((down ? 0xA : 0xB) << 8)
+            guard let event = NSEvent.otherEvent(with: .systemDefined,
+                                                 location: .zero,
+                                                 modifierFlags: stateFlags,
+                                                 timestamp: ProcessInfo.processInfo.systemUptime,
+                                                 windowNumber: 0,
+                                                 context: nil,
+                                                 subtype: 8,
+                                                 data1: data1,
+                                                 data2: -1)
+            else { return }
+            event.cgEvent?.post(tap: .cghidEventTap)
+        }
+        post(down: true)
+        post(down: false)
     }
 
     /// Only the AppleScript providers expose playback modes; every other
@@ -474,7 +518,7 @@ final class NowPlayingService: ObservableObject {
     /// Breathing room between the tail of one pass and the head of the next.
     private static let marqueeLoopGap: CGFloat = 48
     private static let marqueeSlideDuration: TimeInterval = 0.45
-    private static let marqueeTickInterval: TimeInterval = 1.0 / 30.0
+    private static let marqueeTickInterval: TimeInterval = 1.0 / 20.0
 
     /// The marquee lifecycle: a new track slides in (optionally), holds, scrolls
     /// left, and loops with a hold between passes.
@@ -501,29 +545,53 @@ final class NowPlayingService: ObservableObject {
             let slide = UserDefaults.standard.bool(forKey: DefaultsKey.nowPlayingMarqueeSlide)
             marqueePhase = slide ? .slideIn(startedAt: now) : .hold(startedAt: now)
         }
-        startMarqueeTimer()
         switch marqueePhase {
         case .idle:
+            stopMarquee()
             return 0
         case .slideIn(let startedAt):
+            startMarqueeTimer()
             let progress = min(1, (now - startedAt) / Self.marqueeSlideDuration)
             if progress >= 1 {
                 marqueePhase = .hold(startedAt: now)
+                stopMarquee()
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.marqueeHoldDuration) { [weak self] in
+                    guard let self, case .hold = self.marqueePhase else { return }
+                    self.marqueePhase = .scroll(startedAt: CACurrentMediaTime())
+                    self.startMarqueeTimer()
+                    self.renderMenuBar()
+                }
                 return 0
             }
-            // Ease-out cubic: the text arrives fast and settles into place.
             let eased = CGFloat(1 - pow(1 - progress, 3))
             return -Self.marqueeMaxTextWidth * (1 - eased)
         case .hold(let startedAt):
             if now - startedAt >= Self.marqueeHoldDuration {
                 marqueePhase = .scroll(startedAt: now)
+                startMarqueeTimer()
+            } else {
+                stopMarquee()
+                DispatchQueue.main.asyncAfter(deadline: .now() + (Self.marqueeHoldDuration - (now - startedAt))) { [weak self] in
+                    guard let self, case .hold = self.marqueePhase else { return }
+                    self.marqueePhase = .scroll(startedAt: CACurrentMediaTime())
+                    self.startMarqueeTimer()
+                    self.renderMenuBar()
+                }
             }
             return 0
         case .scroll(let startedAt):
+            startMarqueeTimer()
             let distance = Self.menuBarTextWidth(text) + Self.marqueeLoopGap
             let offset = CGFloat(now - startedAt) * Self.marqueeSpeed
             if offset >= distance {
                 marqueePhase = .hold(startedAt: now)
+                stopMarquee()
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.marqueeHoldDuration) { [weak self] in
+                    guard let self, case .hold = self.marqueePhase else { return }
+                    self.marqueePhase = .scroll(startedAt: CACurrentMediaTime())
+                    self.startMarqueeTimer()
+                    self.renderMenuBar()
+                }
                 return 0
             }
             return offset
@@ -552,56 +620,60 @@ final class NowPlayingService: ObservableObject {
     }
 
     /// Draws the full status item in one pass so the icon, text and progress
-    /// strip stay aligned regardless of the menu bar's dark/light appearance.
+    /// strip stay aligned regardless of the menu ba    /// Draws the full status item with native template rendering so the icon,
+    /// text and progress strip adapt cleanly to dark/light menu bars and custom wallpapers.
     private static func composeMenuBarImage(text: String,
                                             hasTrack: Bool,
                                             isPlaying: Bool,
                                             progress: Double?,
                                             marqueeOffset: CGFloat?) -> NSImage {
-        let icon = NSImage(systemSymbolName: "music.note",
-                           accessibilityDescription: nil)
-        let iconConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
-        let iconImage = icon?.withSymbolConfiguration(iconConfig) ?? NSImage()
+        let symbolName = isPlaying ? "waveform" : "music.note"
+        let iconConfig = NSImage.SymbolConfiguration(pointSize: 11.5, weight: isPlaying ? .semibold : .medium)
+        let baseSymbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+            ?? NSImage(systemSymbolName: "music.note", accessibilityDescription: nil)
+        let iconImage = baseSymbol?.withSymbolConfiguration(iconConfig) ?? NSImage()
+
+        // Pure template icon-only when there is no text and no progress bar.
+        if text.isEmpty && progress == nil {
+            let symbol = iconImage
+            symbol.isTemplate = true
+            return symbol
+        }
 
         let font = menuBarTextFont
-        let dim = hasTrack && !isPlaying
-        let textColor: NSColor = hasTrack
-            ? (dim ? NSColor.secondaryLabelColor : NSColor.labelColor)
-            : NSColor.tertiaryLabelColor
+        let alpha: CGFloat = hasTrack ? (isPlaying ? 1.0 : 0.65) : 0.40
+        let textColor = NSColor.black.withAlphaComponent(alpha)
 
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineBreakMode = .byTruncatingTail
         let textAttrs: [NSAttributedString.Key: Any] = [
-            .font: font, 
+            .font: font,
             .foregroundColor: textColor,
             .paragraphStyle: paragraphStyle
         ]
-        
+
         var textSize = (text as NSString).size(withAttributes: textAttrs)
         if textSize.width > 260 {
             textSize.width = 260
         }
 
-        let progressHeight: CGFloat = 2.5
-        let progressInset: CGFloat = 2
+        let progressHeight: CGFloat = 1.5
+        let progressInset: CGFloat = 1
         let totalHeight: CGFloat = 18 + (progress != nil ? progressHeight + 1 : 0)
         let iconWidth: CGFloat = 14
-        let gap: CGFloat = text.isEmpty ? 0 : 4
-        let totalWidth = max(20, iconWidth + gap + textSize.width + 4)
+        let gap: CGFloat = text.isEmpty ? 0 : 5
+        let totalWidth = max(18, iconWidth + gap + textSize.width + (text.isEmpty ? 0 : 3))
 
         let image = NSImage(size: NSSize(width: totalWidth, height: totalHeight), flipped: false) { rect in
-            // Icon, vertically centered on the text line.
-            let iconY = (totalHeight - 18) / 2 + (18 - 11) / 2
-            iconImage.draw(in: NSRect(x: 1, y: iconY, width: 14, height: 11),
-                           from: .zero, operation: .sourceOver, fraction: 1)
+            // Icon vertically centered
+            let iconY = (totalHeight - 18) / 2 + (18 - 12) / 2
+            iconImage.draw(in: NSRect(x: 0, y: iconY, width: 14, height: 12),
+                           from: .zero, operation: .sourceOver, fraction: alpha)
 
             if !text.isEmpty {
-                let textY = (totalHeight - 18) / 2 + 3
-                let laneX = 1 + iconWidth + gap
+                let textY = (totalHeight - 18) / 2 + 2.5
+                let laneX = iconWidth + gap
                 if let marqueeOffset {
-                    // Scrolling lane: clip to the fixed-width window and draw
-                    // the text twice — the live copy and the loop copy one
-                    // full pass ahead — so the wrap is seamless.
                     NSGraphicsContext.saveGraphicsState()
                     NSRect(x: laneX, y: 0, width: textSize.width, height: totalHeight).clip()
                     let loopDistance = menuBarTextWidth(text) + marqueeLoopGap
@@ -619,30 +691,31 @@ final class NowPlayingService: ObservableObject {
                 }
             }
 
-            // Thin progress strip along the bottom, matching the menu bar accent.
+            // Sleek hairline progress strip along the bottom
             if let progress {
                 let barWidth = totalWidth - progressInset * 2
                 let bar = NSBezierPath(roundedRect: NSRect(x: progressInset,
-                                                           y: 1,
+                                                           y: 0.5,
                                                            width: barWidth,
                                                            height: progressHeight),
                                        xRadius: progressHeight / 2,
                                        yRadius: progressHeight / 2)
-                NSColor.quaternaryLabelColor.setFill()
+                NSColor.black.withAlphaComponent(0.20).setFill()
                 bar.fill()
 
+                let fillWidth = max(progressHeight, barWidth * CGFloat(progress))
                 let fill = NSBezierPath(roundedRect: NSRect(x: progressInset,
-                                                            y: 1,
-                                                            width: max(progressHeight, barWidth * CGFloat(progress)),
-                                                            height: progressHeight),
+                                                             y: 0.5,
+                                                             width: fillWidth,
+                                                             height: progressHeight),
                                         xRadius: progressHeight / 2,
                                         yRadius: progressHeight / 2)
-                NSColor.controlAccentColor.setFill()
+                NSColor.black.withAlphaComponent(0.85).setFill()
                 fill.fill()
             }
             return true
         }
-        image.isTemplate = false
+        image.isTemplate = true
         return image
     }
 }

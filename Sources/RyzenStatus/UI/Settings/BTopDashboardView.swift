@@ -250,13 +250,7 @@ struct BTopDashboardView: View {
         .onReceive(monitor.$snapshot) { _ in
             refreshProcesses()
         }
-        .onReceive(Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()) { _ in
-            refreshProcesses()
-        }
         .onChange(of: procSortMode) { _, _ in
-            refreshProcesses()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .processUsageDidUpdate)) { _ in
             refreshProcesses()
         }
     }

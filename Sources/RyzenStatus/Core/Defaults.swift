@@ -284,7 +284,7 @@ enum Defaults {
         DefaultsKey.nowPlayingMenuBarText: true,
         DefaultsKey.nowPlayingMenuBarMode: NowPlayingMenuBarMode.artistSong.rawValue,
         DefaultsKey.nowPlayingMenuBarProgress: false,
-        DefaultsKey.nowPlayingMarquee: true,
+        DefaultsKey.nowPlayingMarquee: false,
         DefaultsKey.nowPlayingMarqueeSlide: true,
         DefaultsKey.nowPlayingArtworkSize: 140.0,
         DefaultsKey.nowPlayingUnloadWhenHidden: true,

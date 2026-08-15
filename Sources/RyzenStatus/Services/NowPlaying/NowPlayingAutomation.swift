@@ -371,12 +371,22 @@ enum NowPlayingAutomation {
     // MARK: - Transport Fallback
 
     static func sendTransportCommand(_ command: String, bundleID: String?) {
-        guard let bundleID = bundleID, isRunning(bundleID: bundleID) else { return }
-        let appName = (bundleID == spotifyBundleID) ? "Spotify" : "Music"
+        var targetID = bundleID
+        if targetID == nil || !isRunning(bundleID: targetID ?? "") {
+            if isRunning(bundleID: spotifyBundleID) {
+                targetID = spotifyBundleID
+            } else if isRunning(bundleID: musicBundleID) {
+                targetID = musicBundleID
+            }
+        }
+        guard let finalID = targetID, isRunning(bundleID: finalID) else { return }
+        let appName = (finalID == spotifyBundleID) ? "Spotify" : "Music"
         let scriptSource = "tell application \"\(appName)\" to \(command)"
-        if let script = NSAppleScript(source: scriptSource) {
-            var error: NSDictionary?
-            script.executeAndReturnError(&error)
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let script = NSAppleScript(source: scriptSource) {
+                var error: NSDictionary?
+                script.executeAndReturnError(&error)
+            }
         }
     }
 

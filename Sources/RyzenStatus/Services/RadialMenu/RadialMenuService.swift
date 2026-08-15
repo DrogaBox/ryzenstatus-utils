@@ -560,11 +560,16 @@ final class RadialMenuService: ObservableObject {
         }
     }
 
-    /// Posts the aux-button pair the physical media keys produce, so whatever
-    /// player owns the media keys reacts exactly as if F8 was pressed.
+    /// Posts the media command using NowPlayingService smart provider routing.
     private static func postMediaKey(_ key: RadialMenuMediaKey) {
-        postAuxKey(key.auxKeyType, down: true)
-        postAuxKey(key.auxKeyType, down: false)
+        switch key {
+        case .playPause:
+            NowPlayingService.shared.togglePlayPause()
+        case .nextTrack:
+            NowPlayingService.shared.nextTrack()
+        case .previousTrack:
+            NowPlayingService.shared.previousTrack()
+        }
     }
 
     private static func postAuxKey(_ type: Int32, down: Bool) {
