@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.11.0] — 2026-08-15
+
+### Now Playing — Adaptive Themes & Animated Artwork
+- **Theme Engine**: Added dynamic background theming with 6 palette styles (Artwork Adaptive, Frosted, Midnight, Warm Studio, High Contrast, Graphite) and real-time color blending from album artwork.
+- **Animated Artwork Surface**: Support for Apple Music / animated cover streams with seamless crossfading between static cover art and live video streams.
+
+### Now Playing — Detached Floating Popup & Mini Card
+- **Detachable Floating Window**: Ability to tear off the Now Playing popover into a persistent floating desk widget.
+- **Mini & Regular Display Modes**: Compact mini card mode for minimal desktop presence alongside the full-featured player card.
+- **Marquee & Size Settings**: Configurable title marquee scrolling speeds and artwork sizing options.
+
+### Now Playing — Lyrics, Credits & Search
+- **Synchronized & Plain Lyrics**: Integrated lyrics center with auto-fetching, line-by-line synced playback scrolling, and manual search fallback.
+- **Song Credits & Metadata**: Display detailed track information including composer, release year, genre, and bitrate.
+- **Provider Search**: Search and jump directly to tracks across configured media providers.
+
+### Now Playing — Transport Controls & Shortcuts
+- **Shuffle & Repeat**: Full toggle support for shuffle and repeat modes across system media sessions and player backends.
+- **Global Hotkeys**: Added configurable keyboard shortcut actions for previous, next, play/pause, and shuffle/repeat toggles.
+
 ## [1.10.0] — 2026-08-14
 
 ### Now Playing — Transport Fix
