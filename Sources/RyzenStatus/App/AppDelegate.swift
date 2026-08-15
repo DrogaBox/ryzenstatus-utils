@@ -86,6 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // Closing the feature (or quitting) takes its popup down with it.
         NowPlayingService.shared.onDeactivate = { [weak self] in
             self?.closeNowPlayingPopup()
+            NowPlayingPopupController.shared.tearDown()
         }
 
         setUpPopover()
@@ -163,6 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
         closeNowPlayingPopup()
+        NowPlayingPopupController.shared.tearDown()
         if AppFeature.brightness.isAvailable {
             BrightnessService.shared.restoreDisplaysBeforeTermination()
         }
@@ -731,6 +733,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // the space under the menu bar); automatic sizing would fight that.
         host.sizingOptions = []
         nowPlayingPopover.contentViewController = host
+        NowPlayingPopupController.shared.popover = nowPlayingPopover
         AppAppearanceController.shared.follow(panel: nowPlayingPopover)
     }
 
@@ -753,6 +756,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     private func presentNowPlayingPopup(anchoredTo button: NSStatusBarButton) {
         guard !nowPlayingPopover.isShown else { return }
+        NowPlayingPopupController.shared.anchorButton = button
         // contentSize is only trustworthy while hidden; visible resizes go
         // through window.setFrame below.
         sizeNowPlayingContent(under: button)
@@ -776,8 +780,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         view.layoutSubtreeIfNeeded()
         var size = view.fittingSize
         if size.width < 1 || size.height < 1 {
-            size = NSSize(width: NowPlayingPopupView.cardWidth,
-                          height: NowPlayingPopupView.cardHeight)
+            size = NowPlayingPopupController.shared.popoverContentSize
         }
         if let maxHeight = availableHeight(under: button) {
             size.height = min(size.height, maxHeight)

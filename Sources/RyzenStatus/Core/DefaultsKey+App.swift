@@ -118,6 +118,11 @@ extension DefaultsKey {
     static let nowPlayingOpenInApp = "nowPlayingOpenInApp" // click the track title to activate its app
     static let nowPlayingShowArtwork = "nowPlayingShowArtwork" // artwork in the menu panel section
     static let nowPlayingArtworkAnimation = "nowPlayingArtworkAnimation" // crossfade when the artwork changes
+    static let nowPlayingMiniMode = "nowPlayingMiniMode" // popup shows the compact artwork-first layout
+    static let nowPlayingDetachedOnTop = "nowPlayingDetachedOnTop" // detached window floats above other apps
+    static let nowPlayingDetachedSize = "nowPlayingDetachedSize" // NowPlayingDetachedSize.rawValue (0 small, 1 medium, 2 large)
+    static let nowPlayingDetachedOriginX = "nowPlayingDetachedOriginX" // last dragged position of the detached window
+    static let nowPlayingDetachedOriginY = "nowPlayingDetachedOriginY"
     static let panelShowNowPlaying = "panelShowNowPlaying"
     static let cleanerScheduleFrequency = "cleanerScheduleFrequency"    // off | daily | weekly
     static let cleanerScheduleHour = "cleanerScheduleHour"

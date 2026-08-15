@@ -30,6 +30,15 @@ struct NowPlayingStrings {
     let nextLabel: String
     let openInAppLabel: String
     let seekLabel: String
+    let miniModeLabel: String
+    let regularModeLabel: String
+    let detachLabel: String
+    let alwaysOnTopLabel: String
+    let sizeLabel: String
+    let sizeSmall: String
+    let sizeMedium: String
+    let sizeLarge: String
+    let closeLabel: String
 }
 
 extension FeatureStrings {
@@ -76,7 +85,16 @@ extension NowPlayingStrings {
         previousLabel: "Previous track",
         nextLabel: "Next track",
         openInAppLabel: "Open in App",
-        seekLabel: "Seek"
+        seekLabel: "Seek",
+        miniModeLabel: "Mini mode",
+        regularModeLabel: "Regular mode",
+        detachLabel: "Detach to window",
+        alwaysOnTopLabel: "Always on top",
+        sizeLabel: "Size",
+        sizeSmall: "Small",
+        sizeMedium: "Medium",
+        sizeLarge: "Large",
+        closeLabel: "Close"
     )
 
     static let ptBR = NowPlayingStrings(
@@ -102,7 +120,16 @@ extension NowPlayingStrings {
         previousLabel: "Faixa anterior",
         nextLabel: "Próxima faixa",
         openInAppLabel: "Abrir no app",
-        seekLabel: "Buscar"
+        seekLabel: "Buscar",
+        miniModeLabel: "Modo mini",
+        regularModeLabel: "Modo normal",
+        detachLabel: "Destacar em janela",
+        alwaysOnTopLabel: "Sempre no topo",
+        sizeLabel: "Tamanho",
+        sizeSmall: "Pequeno",
+        sizeMedium: "Médio",
+        sizeLarge: "Grande",
+        closeLabel: "Fechar"
     )
 
     static let tr = NowPlayingStrings(
@@ -128,7 +155,16 @@ extension NowPlayingStrings {
         previousLabel: "Önceki parça",
         nextLabel: "Sonraki parça",
         openInAppLabel: "Uygulamada aç",
-        seekLabel: "İlerlet"
+        seekLabel: "İlerlet",
+        miniModeLabel: "Mini mod",
+        regularModeLabel: "Normal mod",
+        detachLabel: "Pencereye ayır",
+        alwaysOnTopLabel: "Her zaman üstte",
+        sizeLabel: "Boyut",
+        sizeSmall: "Küçük",
+        sizeMedium: "Orta",
+        sizeLarge: "Büyük",
+        closeLabel: "Kapat"
     )
 
     static let ru = NowPlayingStrings(
@@ -154,7 +190,16 @@ extension NowPlayingStrings {
         previousLabel: "Предыдущий трек",
         nextLabel: "Следующий трек",
         openInAppLabel: "Открыть в приложении",
-        seekLabel: "Перемотка"
+        seekLabel: "Перемотка",
+        miniModeLabel: "Мини-режим",
+        regularModeLabel: "Обычный режим",
+        detachLabel: "Открепить в окно",
+        alwaysOnTopLabel: "Поверх всех окон",
+        sizeLabel: "Размер",
+        sizeSmall: "Маленький",
+        sizeMedium: "Средний",
+        sizeLarge: "Большой",
+        closeLabel: "Закрыть"
     )
 
     static let es = NowPlayingStrings(
@@ -180,7 +225,16 @@ extension NowPlayingStrings {
         previousLabel: "Canción anterior",
         nextLabel: "Canción siguiente",
         openInAppLabel: "Abrir en la app",
-        seekLabel: "Buscar"
+        seekLabel: "Buscar",
+        miniModeLabel: "Modo mini",
+        regularModeLabel: "Modo normal",
+        detachLabel: "Separar en ventana",
+        alwaysOnTopLabel: "Siempre encima",
+        sizeLabel: "Tamaño",
+        sizeSmall: "Pequeño",
+        sizeMedium: "Mediano",
+        sizeLarge: "Grande",
+        closeLabel: "Cerrar"
     )
 
     static let de = NowPlayingStrings(
@@ -206,7 +260,16 @@ extension NowPlayingStrings {
         previousLabel: "Vorheriger Titel",
         nextLabel: "Nächster Titel",
         openInAppLabel: "In App öffnen",
-        seekLabel: "Springen"
+        seekLabel: "Springen",
+        miniModeLabel: "Mini-Modus",
+        regularModeLabel: "Normaler Modus",
+        detachLabel: "In Fenster lösen",
+        alwaysOnTopLabel: "Immer im Vordergrund",
+        sizeLabel: "Größe",
+        sizeSmall: "Klein",
+        sizeMedium: "Mittel",
+        sizeLarge: "Groß",
+        closeLabel: "Schließen"
     )
 
     static let fr = NowPlayingStrings(
@@ -232,7 +295,16 @@ extension NowPlayingStrings {
         previousLabel: "Morceau précédent",
         nextLabel: "Morceau suivant",
         openInAppLabel: "Ouvrir dans l'app",
-        seekLabel: "Rechercher"
+        seekLabel: "Rechercher",
+        miniModeLabel: "Mode mini",
+        regularModeLabel: "Mode normal",
+        detachLabel: "Détacher dans une fenêtre",
+        alwaysOnTopLabel: "Toujours au premier plan",
+        sizeLabel: "Taille",
+        sizeSmall: "Petit",
+        sizeMedium: "Moyen",
+        sizeLarge: "Grand",
+        closeLabel: "Fermer"
     )
 
     static let it = NowPlayingStrings(
@@ -258,7 +330,16 @@ extension NowPlayingStrings {
         previousLabel: "Brano precedente",
         nextLabel: "Brano successivo",
         openInAppLabel: "Apri nell'app",
-        seekLabel: "Cerca"
+        seekLabel: "Cerca",
+        miniModeLabel: "Modalità mini",
+        regularModeLabel: "Modalità normale",
+        detachLabel: "Separa in finestra",
+        alwaysOnTopLabel: "Sempre in primo piano",
+        sizeLabel: "Dimensione",
+        sizeSmall: "Piccolo",
+        sizeMedium: "Medio",
+        sizeLarge: "Grande",
+        closeLabel: "Chiudi"
     )
 
     static let ja = NowPlayingStrings(
@@ -284,7 +365,16 @@ extension NowPlayingStrings {
         previousLabel: "前の曲",
         nextLabel: "次の曲",
         openInAppLabel: "アプリで開く",
-        seekLabel: "シーク"
+        seekLabel: "シーク",
+        miniModeLabel: "ミニモード",
+        regularModeLabel: "通常モード",
+        detachLabel: "ウィンドウとして切り離す",
+        alwaysOnTopLabel: "常に手前に表示",
+        sizeLabel: "サイズ",
+        sizeSmall: "小",
+        sizeMedium: "中",
+        sizeLarge: "大",
+        closeLabel: "閉じる"
     )
 
     static let ko = NowPlayingStrings(
@@ -310,7 +400,16 @@ extension NowPlayingStrings {
         previousLabel: "이전 곡",
         nextLabel: "다음 곡",
         openInAppLabel: "앱에서 열기",
-        seekLabel: "탐색"
+        seekLabel: "탐색",
+        miniModeLabel: "미니 모드",
+        regularModeLabel: "일반 모드",
+        detachLabel: "창으로 분리",
+        alwaysOnTopLabel: "항상 위에",
+        sizeLabel: "크기",
+        sizeSmall: "작게",
+        sizeMedium: "보통",
+        sizeLarge: "크게",
+        closeLabel: "닫기"
     )
 
     static let zhHans = NowPlayingStrings(
@@ -336,7 +435,16 @@ extension NowPlayingStrings {
         previousLabel: "上一首",
         nextLabel: "下一首",
         openInAppLabel: "在应用中打开",
-        seekLabel: "跳转"
+        seekLabel: "跳转",
+        miniModeLabel: "迷你模式",
+        regularModeLabel: "常规模式",
+        detachLabel: "分离为窗口",
+        alwaysOnTopLabel: "始终置顶",
+        sizeLabel: "大小",
+        sizeSmall: "小",
+        sizeMedium: "中",
+        sizeLarge: "大",
+        closeLabel: "关闭"
     )
 
     static let zhTW = NowPlayingStrings(
@@ -362,7 +470,16 @@ extension NowPlayingStrings {
         previousLabel: "上一首",
         nextLabel: "下一首",
         openInAppLabel: "在 App 中開啟",
-        seekLabel: "跳轉"
+        seekLabel: "跳轉",
+        miniModeLabel: "迷你模式",
+        regularModeLabel: "一般模式",
+        detachLabel: "分離為視窗",
+        alwaysOnTopLabel: "永遠置頂",
+        sizeLabel: "大小",
+        sizeSmall: "小",
+        sizeMedium: "中",
+        sizeLarge: "大",
+        closeLabel: "關閉"
     )
 
     static let zhHK = NowPlayingStrings(
@@ -388,6 +505,15 @@ extension NowPlayingStrings {
         previousLabel: "上一首",
         nextLabel: "下一首",
         openInAppLabel: "喺 App 度開啟",
-        seekLabel: "跳轉"
+        seekLabel: "跳轉",
+        miniModeLabel: "迷你模式",
+        regularModeLabel: "一般模式",
+        detachLabel: "分離做視窗",
+        alwaysOnTopLabel: "永遠置頂",
+        sizeLabel: "大細",
+        sizeSmall: "細",
+        sizeMedium: "中",
+        sizeLarge: "大",
+        closeLabel: "關閉"
     )
 }

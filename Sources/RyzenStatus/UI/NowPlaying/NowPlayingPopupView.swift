@@ -3,19 +3,30 @@
 
 import SwiftUI
 
-/// The detached popup anchored to the now-playing menu bar item: an ambient
-/// blurred backdrop of the cover, a large artwork tile that reveals each new
-/// track, the track metadata with a seekable progress bar, and transport
-/// controls. The track body of the menu panel section is its smaller sibling
-/// (NowPlayingTrackContent); this view is the full presentation.
+/// Where the popup body lives: inside the anchored popover (regular ↔ mini
+/// morph) or inside the detached floating window (always the artwork-first
+/// layout, scaled by the size preset).
+enum NowPlayingPopupCluster {
+    case popover
+    case detached
+}
+
+/// The now-playing popup body: an ambient blurred backdrop of the cover, a
+/// large artwork tile that reveals each new track, the track metadata with a
+/// seekable progress bar, and transport controls. Two layouts share one
+/// animation pipeline — the wide regular card and the square mini card — and
+/// the same view also fills the detached floating window.
 struct NowPlayingPopupView: View {
-    /// Fixed card dimensions; the presenter clamps the height to the space
-    /// below the menu bar item but the width never changes.
-    static let cardWidth: CGFloat = 420
-    static let cardHeight: CGFloat = 236
-    private static let tileSize: CGFloat = 140
+    static let regularSize = NSSize(width: 420, height: 236)
+    static let miniSize = NSSize(width: 380, height: 380)
+    /// The mini card is square; the tile keeps a fixed chrome margin, so
+    /// every size derives from the width alone.
+    static let miniChromeMargin: CGFloat = 144
     private static let backdropMaxOpacity: Double = 0.24
 
+    var cluster: NowPlayingPopupCluster = .popover
+
+    @ObservedObject private var controller = NowPlayingPopupController.shared
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var service = NowPlayingService.shared
     @AppStorage(DefaultsKey.nowPlayingOpenInApp) private var openInApp = true
@@ -36,8 +47,16 @@ struct NowPlayingPopupView: View {
     // Suppress the transition for the very first display of a popup open.
     @State private var hasDisplayedArtwork = false
 
+    // Layout crossfade between the regular and the mini card.
+    @State private var regularOpacity: Double = 1
+    @State private var miniOpacity: Double = 0
+    @State private var mountedLayouts: Set<NowPlayingPopupLayout> = []
+    @State private var layoutTeardown: DispatchWorkItem?
+    @State private var hasCrossfadedLayout = false
+
     @State private var isSeeking = false
     @State private var seekPosition: TimeInterval = 0
+    @State private var isHovering = false
 
     private var strings: NowPlayingStrings {
         FeatureStrings.nowPlaying(l10n.language)
@@ -45,6 +64,21 @@ struct NowPlayingPopupView: View {
 
     private var currentTrackIdentityKey: String {
         "\(service.snapshot.displayTitle)|\(service.snapshot.displayArtist)|\(service.snapshot.duration ?? 0)"
+    }
+
+    /// The layout currently on top: the popover morphs between both, the
+    /// detached window is always artwork-first.
+    private var activeLayout: NowPlayingPopupLayout {
+        if cluster == .detached { return .mini }
+        return controller.isMini ? .mini : .regular
+    }
+
+    private var cardSize: NSSize {
+        if cluster == .detached {
+            let width = controller.detachedSize.width
+            return NSSize(width: width, height: width)
+        }
+        return controller.isMini ? Self.miniSize : Self.regularSize
     }
 
     var body: some View {
@@ -55,8 +89,11 @@ struct NowPlayingPopupView: View {
                 emptyState
             }
         }
-        .frame(width: Self.cardWidth)
+        .frame(width: cardSize.width, height: cardSize.height)
+        .background(cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay(alignment: .topTrailing) { hoverCluster }
+        .onHover { isHovering = $0 }
         .onChange(of: service.artworkIdentity) { oldIdentity, _ in
             guard hasDisplayedArtwork else {
                 displayedArtwork = service.artworkImage
@@ -75,43 +112,121 @@ struct NowPlayingPopupView: View {
                 }
             }
         }
+        .onChange(of: controller.isMini) { _, toMini in
+            guard cluster == .popover, hasCrossfadedLayout else { return }
+            crossfadeLayout(toMini: toMini)
+        }
         .onAppear {
             displayedArtwork = service.artworkImage
             hasDisplayedArtwork = true
             outgoingArtwork = nil
             currentBackdropOpacity = 1
             settleReveal()
+            mountedLayouts = [activeLayout]
+            regularOpacity = activeLayout == .regular ? 1 : 0
+            miniOpacity = activeLayout == .mini ? 1 : 0
+            hasCrossfadedLayout = true
         }
     }
 
-    // MARK: - Layout
+    /// The detached window is borderless, so it paints its own card surface;
+    /// the popover brings its own chrome.
+    @ViewBuilder
+    private var cardBackground: some View {
+        if cluster == .detached {
+            Rectangle().fill(.regularMaterial)
+        }
+    }
+
+    // MARK: - Layouts
 
     private var trackBody: some View {
         ZStack(alignment: .top) {
-            backdrop
+            if cluster == .detached {
+                miniBody(width: cardSize.width)
+            } else {
+                if mountedLayouts.contains(.regular) {
+                    regularBody
+                        .opacity(regularOpacity)
+                }
+                if mountedLayouts.contains(.mini) {
+                    miniBody(width: Self.miniSize.width)
+                        .opacity(miniOpacity)
+                }
+            }
+        }
+        .frame(width: cardSize.width, height: cardSize.height, alignment: .top)
+    }
+
+    /// The wide card: artwork tile left, metadata and progress right,
+    /// transport row underneath.
+    private var regularBody: some View {
+        ZStack(alignment: .top) {
+            backdrop(width: Self.regularSize.width, height: Self.regularSize.height)
             VStack(spacing: 12) {
-                heroRow
+                HStack(spacing: 16) {
+                    if showArtwork {
+                        artworkTile(size: 140, cornerRadius: 16, outerRadius: 22)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        titleView(fontSize: 13, alignment: .leading)
+                        Text(artistAlbumLine)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 6)
+                        progressView
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 controlsRow
             }
             .padding(18)
         }
-        .frame(width: Self.cardWidth, height: Self.cardHeight, alignment: .top)
+        .frame(width: Self.regularSize.width, height: Self.regularSize.height, alignment: .top)
+    }
+
+    /// The square artwork-first card used by mini mode and the detached
+    /// window: dominant centered cover, metadata and transport below.
+    private func miniBody(width: CGFloat) -> some View {
+        let tileSize = width - Self.miniChromeMargin
+        return ZStack(alignment: .top) {
+            backdrop(width: width, height: width)
+            VStack(spacing: 10) {
+                if showArtwork {
+                    artworkTile(size: tileSize, cornerRadius: 18, outerRadius: 24)
+                }
+                titleView(fontSize: 14, alignment: .center)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                Text(artistAlbumLine)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                progressView
+                controlsRow
+            }
+            .padding(18)
+        }
+        .frame(width: width, height: width, alignment: .top)
     }
 
     /// Ambient wash of the cover behind everything: the outgoing and the
-    /// current image crossfade independently underneath the hero row.
-    private var backdrop: some View {
+    /// current image crossfade independently underneath the content.
+    private func backdrop(width: CGFloat, height: CGFloat) -> some View {
         ZStack {
             if let outgoing = outgoingArtwork {
-                backdropLayer(outgoing)
+                backdropLayer(outgoing, width: width, height: height)
                     .opacity(outgoingOpacity)
             }
             if let current = displayedArtwork {
-                backdropLayer(current)
+                backdropLayer(current, width: width, height: height)
                     .opacity(currentBackdropOpacity)
             }
         }
-        .frame(width: Self.cardWidth, height: Self.cardHeight)
+        .frame(width: width, height: height)
         .blur(radius: 26)
         .scaleEffect(1.12)
         .saturation(1.06)
@@ -119,66 +234,47 @@ struct NowPlayingPopupView: View {
         .accessibilityHidden(true)
     }
 
-    private func backdropLayer(_ image: NSImage) -> some View {
+    private func backdropLayer(_ image: NSImage, width: CGFloat, height: CGFloat) -> some View {
         Image(nsImage: image)
             .resizable()
             .aspectRatio(contentMode: .fill)
-            .frame(width: Self.cardWidth, height: Self.cardHeight)
+            .frame(width: width, height: height)
             .clipped()
             .opacity(Self.backdropMaxOpacity)
     }
 
-    private var heroRow: some View {
-        HStack(spacing: 16) {
-            if showArtwork {
-                artworkTile
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                titleView
-                Text(artistAlbumLine)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 6)
-                progressView
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    /// The large cover: outer chrome at radius 22, the image inset 6pt at
-    /// radius 16, a diffused glow bleeding past the edges and a deep shadow.
-    private var artworkTile: some View {
+    /// The large cover: outer chrome ring, the image inset 6pt, a diffused
+    /// glow bleeding past the edges and a deep shadow.
+    private func artworkTile(size: CGFloat, cornerRadius: CGFloat, outerRadius: CGFloat) -> some View {
         ZStack {
             if let artwork = displayedArtwork {
                 // Diffused glow just outside the tile.
                 Image(nsImage: artwork)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(width: Self.tileSize, height: Self.tileSize)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .frame(width: size, height: size)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     .blur(radius: 18)
                     .opacity(0.55)
                 Image(nsImage: artwork)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(width: Self.tileSize, height: Self.tileSize)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .frame(width: size, height: size)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             } else {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(Color.secondary.opacity(0.15))
-                    .frame(width: Self.tileSize, height: Self.tileSize)
+                    .frame(width: size, height: size)
                     .overlay {
                         Image(systemName: "music.note")
-                            .font(.system(size: 28, weight: .medium))
+                            .font(.system(size: size / 5, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
             }
         }
         .padding(6)
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: outerRadius, style: .continuous)
                 .fill(Color.primary.opacity(0.05))
         )
         .shadow(color: .black.opacity(0.28), radius: 16, x: 0, y: 10)
@@ -190,14 +286,14 @@ struct NowPlayingPopupView: View {
 
     /// The title is the affordance to jump into the app owning the session
     /// when that app can be resolved.
-    private var titleView: some View {
+    private func titleView(fontSize: CGFloat, alignment: Alignment) -> some View {
         Group {
             if openInApp, service.snapshot.appBundleID != nil {
                 Button {
                     service.openSourceApp()
                 } label: {
                     Text(service.snapshot.displayTitle)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: fontSize, weight: .semibold))
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .contentShape(Rectangle())
@@ -206,7 +302,7 @@ struct NowPlayingPopupView: View {
                 .help(strings.openInAppCaption)
             } else {
                 Text(service.snapshot.displayTitle)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: fontSize, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -305,8 +401,123 @@ struct NowPlayingPopupView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
         }
-        .frame(width: Self.cardWidth)
+        .frame(maxWidth: .infinity)
         .padding(.vertical, 36)
+    }
+
+    // MARK: - Hover cluster
+
+    /// The controls that appear when the pointer rests on the card: mini
+    /// toggle and detach in the popover, pin/size/close in the window.
+    @ViewBuilder
+    private var hoverCluster: some View {
+        if isHovering {
+            HStack(spacing: 4) {
+                if cluster == .popover {
+                    clusterButton(
+                        systemName: controller.isMini
+                            ? "arrow.up.left.and.arrow.down.right"
+                            : "arrow.down.right.and.arrow.up.left",
+                        help: controller.isMini ? strings.regularModeLabel : strings.miniModeLabel
+                    ) {
+                        controller.toggleMini()
+                    }
+                    clusterButton(systemName: "macwindow", help: strings.detachLabel) {
+                        controller.detachPopover()
+                    }
+                } else {
+                    clusterButton(
+                        systemName: controller.detachedOnTop ? "pin.fill" : "pin",
+                        help: strings.alwaysOnTopLabel,
+                        isHighlighted: controller.detachedOnTop
+                    ) {
+                        controller.detachedOnTop.toggle()
+                    }
+                    sizeMenu
+                    clusterButton(systemName: "xmark", help: strings.closeLabel) {
+                        controller.closeDetached()
+                    }
+                }
+            }
+            .padding(6)
+            .background(Capsule().fill(.thinMaterial))
+            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
+            .padding(8)
+            .transition(.opacity)
+        }
+    }
+
+    private func clusterButton(systemName: String,
+                               help: String,
+                               isHighlighted: Bool = false,
+                               action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 24, height: 24)
+                .foregroundStyle(isHighlighted ? Color.accentColor : Color.secondary)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+
+    private var sizeMenu: some View {
+        Menu {
+            Picker(strings.sizeLabel, selection: $controller.detachedSize) {
+                Text(strings.sizeSmall).tag(NowPlayingPopupController.DetachedSize.small)
+                Text(strings.sizeMedium).tag(NowPlayingPopupController.DetachedSize.medium)
+                Text(strings.sizeLarge).tag(NowPlayingPopupController.DetachedSize.large)
+            }
+        } label: {
+            Image(systemName: "rectangle.3.group")
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 24, height: 24)
+                .foregroundStyle(Color.secondary)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(strings.sizeLabel)
+        .accessibilityLabel(strings.sizeLabel)
+    }
+
+    // MARK: - Layout crossfade
+
+    /// The regular↔mini morph crossfades the two layouts while the window
+    /// frame driver runs: the outgoing layout leaves quickly, the incoming
+    /// one arrives slightly delayed so the swap reads as one motion.
+    private func crossfadeLayout(toMini: Bool) {
+        layoutTeardown?.cancel()
+        let incoming: NowPlayingPopupLayout = toMini ? .mini : .regular
+        let outgoing: NowPlayingPopupLayout = toMini ? .regular : .mini
+        mountedLayouts.insert(incoming)
+        if toMini {
+            miniOpacity = 0
+        } else {
+            regularOpacity = 0
+        }
+        withAnimation(.easeOut(duration: 0.14)) {
+            if outgoing == .regular {
+                regularOpacity = 0
+            } else {
+                miniOpacity = 0
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+            withAnimation(.easeOut(duration: 0.16)) {
+                if incoming == .mini {
+                    miniOpacity = 1
+                } else {
+                    regularOpacity = 1
+                }
+            }
+        }
+        let teardown = DispatchWorkItem { mountedLayouts.remove(outgoing) }
+        layoutTeardown = teardown
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.26, execute: teardown)
     }
 
     // MARK: - Artwork animation
@@ -378,4 +589,10 @@ struct NowPlayingPopupView: View {
         revealScale = 1
         revealBlur = 0
     }
+}
+
+/// The two popup card layouts the popover morphs between.
+enum NowPlayingPopupLayout: Hashable {
+    case regular
+    case mini
 }
