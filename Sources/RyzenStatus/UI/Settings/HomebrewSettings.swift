@@ -109,7 +109,11 @@ struct HomebrewSettings: View {
                 Button {
                     search()
                 } label: {
-                    Label(l10n.s.homebrewSearchButton, systemImage: "magnifyingglass")
+                    if homebrew.isBusy && !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Label(l10n.s.homebrewSearchButton, systemImage: "magnifyingglass")
+                    }
                 }
                 .disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || homebrew.isBusy)
                 Button {
