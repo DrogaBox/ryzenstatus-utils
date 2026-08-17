@@ -148,6 +148,7 @@ struct MediaWorkspaceView: View {
                 }
                 .buttonStyle(.plain)
                 .help(l10n.s.uninstallerCancel)
+                .accessibilityLabel(l10n.s.uninstallerCancel)
             }
         }
     }
@@ -212,6 +213,7 @@ struct MediaWorkspaceView: View {
                     }
                     .buttonStyle(.plain)
                     .help(l10n.s.mediaCancel)
+                    .accessibilityLabel(l10n.s.mediaCancel)
                     .padding(.trailing, compact ? 8 : 10)
                 }
             }

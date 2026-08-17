@@ -167,6 +167,7 @@ struct ShelfView: View {
         .foregroundStyle(.secondary)
         .onHover { closeButtonHovered = $0 }
         .help(dismissHelp ?? l10n.s.menuClose)
+        .accessibilityLabel(dismissHelp ?? l10n.s.menuClose)
     }
 
     private var bottomBar: some View {
@@ -200,6 +201,7 @@ struct ShelfView: View {
         .foregroundStyle(clearButtonHovered ? Color.red.opacity(0.82) : Color.secondary)
         .onHover { clearButtonHovered = $0 }
         .help(shelf.selection.isEmpty ? l10n.s.shelfClearAll : l10n.s.shelfRemoveSelected)
+        .accessibilityLabel(shelf.selection.isEmpty ? l10n.s.shelfClearAll : l10n.s.shelfRemoveSelected)
     }
 
     private var title: String {

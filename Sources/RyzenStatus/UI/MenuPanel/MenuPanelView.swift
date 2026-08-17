@@ -454,6 +454,7 @@ struct MenuPanelView: View {
                         .fill(isActive ? navigationActiveFill : Color.clear)
                 )
                 .help(id.title(l10n.s))
+                .accessibilityLabel(id.title(l10n.s))
             }
         }
         .padding(4)
@@ -528,6 +529,7 @@ struct MenuPanelView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .help(l10n.s.panelDetachHelp)
+                .accessibilityLabel(l10n.s.panelDetachHelp)
             }
         }
         .padding(.horizontal, 4)

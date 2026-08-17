@@ -577,6 +577,7 @@ private struct SectionVisibilityEye: View {
         // Keep at least one section visible.
         .disabled(shown && !canHide)
         .help(shown ? l10n.s.panelHideItem : l10n.s.panelShowItem)
+        .accessibilityLabel(shown ? l10n.s.panelHideItem : l10n.s.panelShowItem)
     }
 }
 

@@ -122,6 +122,7 @@ struct HomebrewSettings: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .help(l10n.s.homebrewRefresh)
+                .accessibilityLabel(l10n.s.homebrewRefresh)
                 .disabled(homebrew.isBusy)
                 Button {
                     pendingAction = HomebrewPendingAction(action: .updateHomebrew)
@@ -199,6 +200,7 @@ struct HomebrewSettings: View {
             }
             .controlSize(.small)
             .help(l10n.s.homebrewRefresh)
+            .accessibilityLabel(l10n.s.homebrewRefresh)
         }
     }
 

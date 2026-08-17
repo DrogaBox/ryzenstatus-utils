@@ -131,6 +131,7 @@ private struct PermissionGuideCard: View {
                 }
                 .buttonStyle(.plain)
                 .help(guide.closeHelp)
+                .accessibilityLabel(guide.closeHelp)
             }
 
             VStack(alignment: .leading, spacing: 6) {

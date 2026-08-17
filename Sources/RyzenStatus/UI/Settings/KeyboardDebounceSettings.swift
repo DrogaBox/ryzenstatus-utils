@@ -97,6 +97,7 @@ struct KeyboardDebounceSettings: View {
                             }
                             .buttonStyle(.borderless)
                             .help(l10n.s.keyDebounceRemoveKey)
+                            .accessibilityLabel(l10n.s.keyDebounceRemoveKey)
                         }
                     }
                 }

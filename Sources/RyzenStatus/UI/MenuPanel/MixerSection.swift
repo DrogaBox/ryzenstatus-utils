@@ -529,6 +529,7 @@ private struct MixerRow: View {
                         }
                         .buttonStyle(.plain)
                         .help(l10n.s.mixerResetTooltip)
+                        .accessibilityLabel(l10n.s.mixerResetTooltip)
                         .opacity(isAtUnity ? 0 : 1)
                         .disabled(isAtUnity)
 

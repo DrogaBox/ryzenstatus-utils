@@ -254,6 +254,7 @@ private struct RadialItemRow: View {
                 }
                 .buttonStyle(.borderless)
                 .help(text.editActionsButton)
+                .accessibilityLabel(text.editActionsButton)
             }
         }
         .opacity(dragging == item ? 0.45 : 1)
@@ -561,5 +562,6 @@ private struct RadialSymbolPicker: View {
         }
         .buttonStyle(.plain)
         .help(symbol ?? text.automaticLabel)
+        .accessibilityLabel(symbol ?? text.automaticLabel)
     }
 }

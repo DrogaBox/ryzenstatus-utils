@@ -59,6 +59,7 @@ struct PanelUninstallerView: View {
             }
             .buttonStyle(.plain)
             .help(l10n.s.uninstallerCancel)
+            .accessibilityLabel(l10n.s.uninstallerCancel)
         }
     }
 

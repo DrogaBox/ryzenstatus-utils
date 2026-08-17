@@ -620,8 +620,8 @@ final class NowPlayingService: ObservableObject {
     }
 
     /// Draws the full status item in one pass so the icon, text and progress
-    /// strip stay aligned regardless of the menu ba    /// Draws the full status item with native template rendering so the icon,
-    /// text and progress strip adapt cleanly to dark/light menu bars and custom wallpapers.
+    /// strip stay aligned. Native template rendering lets the menu bar recolor
+    /// it for dark/light appearances and custom wallpapers.
     private static func composeMenuBarImage(text: String,
                                             hasTrack: Bool,
                                             isPlaying: Bool,
