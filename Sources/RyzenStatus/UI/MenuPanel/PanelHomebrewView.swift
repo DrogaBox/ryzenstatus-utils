@@ -190,8 +190,13 @@ struct PanelHomebrewView: View {
                 Button {
                     search()
                 } label: {
-                    Image(systemName: "magnifyingglass")
-                        .frame(width: 20, height: 18)
+                    if homebrew.isBusy && !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        ProgressView().controlSize(.mini)
+                            .frame(width: 20, height: 18)
+                    } else {
+                        Image(systemName: "magnifyingglass")
+                            .frame(width: 20, height: 18)
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
