@@ -215,6 +215,7 @@ struct ClipboardQuickPanelView: View {
             }
             .buttonStyle(.plain)
             .help(isBatchSelected ? text.unselectMultiple : text.selectMultiple)
+            .accessibilityLabel(isBatchSelected ? text.unselectMultiple : text.selectMultiple)
 
             VStack(alignment: .leading, spacing: 5) {
                 entryContent(entry)
@@ -233,6 +234,7 @@ struct ClipboardQuickPanelView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.mini)
                     .help(text.moveUp)
+                    .accessibilityLabel(text.moveUp)
                     .disabled(!canReorderEntries || !history.canMove(entry, .up))
                     Button {
                         history.move(entry, .down)
@@ -244,6 +246,7 @@ struct ClipboardQuickPanelView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.mini)
                     .help(text.moveDown)
+                    .accessibilityLabel(text.moveDown)
                     .disabled(!canReorderEntries || !history.canMove(entry, .down))
                     Button {
                         history.togglePin(entry)
@@ -255,6 +258,7 @@ struct ClipboardQuickPanelView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.mini)
                     .help(entry.isPinned ? text.unpin : text.pin)
+                    .accessibilityLabel(entry.isPinned ? text.unpin : text.pin)
                     Button {
                         history.remove(entry)
                     } label: {
@@ -265,6 +269,7 @@ struct ClipboardQuickPanelView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.mini)
                     .help(text.delete)
+                    .accessibilityLabel(text.delete)
                     Button {
                         history.copyOnlyQuickEntry(entry)
                     } label: {
@@ -275,6 +280,7 @@ struct ClipboardQuickPanelView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.mini)
                     .help(text.copy)
+                    .accessibilityLabel(text.copy)
                 }
             }
         }
@@ -343,6 +349,7 @@ struct ClipboardQuickPanelView: View {
                     .foregroundStyle(.secondary)
             }
             .help("\(text.imageEntryLabel) · \(entry.imageDimensionsLabel)")
+            .accessibilityLabel("\(text.imageEntryLabel) · \(entry.imageDimensionsLabel)")
         case .files:
             HStack(alignment: .center, spacing: 8) {
                 fileIcon(entry)
@@ -361,6 +368,7 @@ struct ClipboardQuickPanelView: View {
                 }
             }
             .help(entry.filePaths.joined(separator: "\n"))
+            .accessibilityLabel(entry.filePaths.joined(separator: "\n"))
         }
     }
 

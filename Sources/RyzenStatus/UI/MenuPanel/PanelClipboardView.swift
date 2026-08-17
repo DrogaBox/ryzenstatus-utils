@@ -48,6 +48,7 @@ struct PanelClipboardView: View {
             }
             .buttonStyle(.plain)
             .help(l10n.s.uninstallerCancel)
+            .accessibilityLabel(l10n.s.uninstallerCancel)
         }
     }
 
@@ -84,6 +85,7 @@ struct PanelClipboardView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
                 .help(text.clearRecent)
+                .accessibilityLabel(text.clearRecent)
                 .disabled(history.recentEntries.isEmpty)
                 Button {
                     history.showHistoryWindow()
@@ -95,6 +97,7 @@ struct PanelClipboardView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
                 .help(text.shortcut)
+                .accessibilityLabel(text.shortcut)
             }
         }
         .panelCard()
@@ -170,6 +173,7 @@ struct PanelClipboardView: View {
                     .truncationMode(.middle)
             }
             .help(entry.filePaths.joined(separator: "\n"))
+            .accessibilityLabel(entry.filePaths.joined(separator: "\n"))
         }
     }
 
@@ -191,6 +195,7 @@ struct PanelClipboardView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
                 .help(text.moveUp)
+                .accessibilityLabel(text.moveUp)
                 .disabled(!canReorderEntries || !history.canMove(entry, .up))
                 Button {
                     history.move(entry, .down)
@@ -201,6 +206,7 @@ struct PanelClipboardView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
                 .help(text.moveDown)
+                .accessibilityLabel(text.moveDown)
                 .disabled(!canReorderEntries || !history.canMove(entry, .down))
                 Button {
                     history.togglePin(entry)
@@ -211,6 +217,7 @@ struct PanelClipboardView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
                 .help(entry.isPinned ? text.unpin : text.pin)
+                .accessibilityLabel(entry.isPinned ? text.unpin : text.pin)
                 Button {
                     history.copy(entry)
                     copiedID = entry.id
@@ -230,6 +237,7 @@ struct PanelClipboardView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
                 .help(text.delete)
+                .accessibilityLabel(text.delete)
                 Spacer()
                 Text(entry.copiedAt, style: .time)
                     .font(.system(size: 9.5))
