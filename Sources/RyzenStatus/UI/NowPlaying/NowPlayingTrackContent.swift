@@ -252,7 +252,7 @@ struct NowPlayingTrackContent: View {
         }
         .buttonStyle(.plain)
         .help(repeatHelp)
-        .accessibilityLabel(strings.repeatLabel)
+        .accessibilityLabel(repeatHelp)
     }
 
     private var repeatHelp: String {
