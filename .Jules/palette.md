@@ -1,3 +1,6 @@
 ## 2024-05-24 - Accessibility labels on SwiftUI Icon Buttons
 **Learning:** In SwiftUI (macOS 11+ / iOS 14+), the `.help(...)` modifier automatically generates and acts as the accessibility label for VoiceOver if an explicit `.accessibilityLabel(...)` is not provided. Duplicating the string into an explicit accessibility label modifier provides zero actual accessibility benefit and is entirely redundant.
 **Action:** Avoid blindly pairing `.help` with `.accessibilityLabel` in modern SwiftUI apps unless the screen reader needs a distinctly different explanation than the visual tooltip.
+## 2024-05-18 - Redundant Accessibility Labels on Icon-only Buttons
+**Learning:** In SwiftUI, the `.help()` modifier automatically generates and acts as the accessibility label for VoiceOver. Adding an explicit `.accessibilityLabel()` with a static string on a button that has a dynamic `.help()` tooltip (like a repeat button switching between "Repeat All" and "Repeat One") actually masks the dynamic state and forces VoiceOver to announce the static label instead.
+**Action:** Avoid pairing `.help()` with `.accessibilityLabel()` on icon-only buttons unless they need different phrasing. Trust `.help()` to provide the VoiceOver label, which allows dynamic tooltips to function correctly as dynamic VoiceOver labels.

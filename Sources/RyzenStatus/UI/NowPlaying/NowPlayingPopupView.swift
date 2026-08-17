@@ -505,7 +505,6 @@ struct NowPlayingPopupView: View {
         }
         .buttonStyle(.plain)
         .help(strings.shuffleLabel)
-        .accessibilityLabel(strings.shuffleLabel)
     }
 
     /// Music cycles off → all → one; Spotify only knows off ↔ all. The
@@ -523,7 +522,6 @@ struct NowPlayingPopupView: View {
         }
         .buttonStyle(.plain)
         .help(repeatHelp)
-        .accessibilityLabel(strings.repeatLabel)
     }
 
     private var repeatHelp: String {
@@ -546,7 +544,6 @@ struct NowPlayingPopupView: View {
         }
         .buttonStyle(.plain)
         .help(service.snapshot.isPlaying ? strings.pauseLabel : strings.playLabel)
-        .accessibilityLabel(service.snapshot.isPlaying ? strings.pauseLabel : strings.playLabel)
     }
 
     private func transportButton(_ symbol: String,
@@ -560,7 +557,6 @@ struct NowPlayingPopupView: View {
         }
         .buttonStyle(.plain)
         .help(help)
-        .accessibilityLabel(help)
     }
 
     private var emptyState: some View {
@@ -648,7 +644,6 @@ struct NowPlayingPopupView: View {
         }
         .buttonStyle(.plain)
         .help(help)
-        .accessibilityLabel(help)
     }
 
     private var sizeMenu: some View {
@@ -669,7 +664,6 @@ struct NowPlayingPopupView: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help(strings.sizeLabel)
-        .accessibilityLabel(strings.sizeLabel)
     }
 
     // MARK: - Layout crossfade

@@ -216,7 +216,6 @@ struct NowPlayingTrackContent: View {
         }
         .buttonStyle(.plain)
         .help(service.snapshot.isPlaying ? strings.pauseLabel : strings.playLabel)
-        .accessibilityLabel(service.snapshot.isPlaying ? strings.pauseLabel : strings.playLabel)
     }
 
     /// Shuffle mirrors the provider state the service confirms after each
@@ -234,7 +233,6 @@ struct NowPlayingTrackContent: View {
         }
         .buttonStyle(.plain)
         .help(strings.shuffleLabel)
-        .accessibilityLabel(strings.shuffleLabel)
     }
 
     /// Music cycles off → all → one, Spotify off ↔ all; the help text
@@ -252,7 +250,6 @@ struct NowPlayingTrackContent: View {
         }
         .buttonStyle(.plain)
         .help(repeatHelp)
-        .accessibilityLabel(strings.repeatLabel)
     }
 
     private var repeatHelp: String {
@@ -274,6 +271,5 @@ struct NowPlayingTrackContent: View {
         }
         .buttonStyle(.plain)
         .help(help)
-        .accessibilityLabel(help)
     }
 }
