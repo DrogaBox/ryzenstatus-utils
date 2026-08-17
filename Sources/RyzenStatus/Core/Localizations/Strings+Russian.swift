@@ -531,6 +531,7 @@ extension Strings {
         detachedNoticeSubtitle: "Монитор системы активен в плавающем окне.",
         detachedNoticeReattach: "Вернуть в строку меню",
         panelDetachHelp: "Отсоединить панель в плавающее окно",
+        panelBackTooltip: "Назад",
 
         panelAccordionMode: "Режим гармошки (показывать всё списком)",
         graphShowsNumericValue: "Показывать числовое значение внутри графика",
@@ -546,6 +547,8 @@ extension Strings {
         mixerEmpty: "Здесь появятся приложения, которые воспроизводят звук",
         mixerUnavailable: "Доступно в macOS 14.4 и новее",
         mixerPermissionBody: "Чтобы регулировать громкость по приложениям, разрешите «Запись экрана и системного аудио» в Системных настройках. Аудио никогда не записывается.",
+        mixerMuteTooltip: "Выключить звук",
+        mixerUnmuteTooltip: "Включить звук",
         mixerResetTooltip: "Сбросить на 100%",
         mixerOutputDefault: "По умолчанию",
         mixerOutputCurrent: "текущий",

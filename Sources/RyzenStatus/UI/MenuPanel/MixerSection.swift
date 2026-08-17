@@ -119,6 +119,8 @@ struct MixerSection: View {
                             .frame(width: 16)
                     }
                     .buttonStyle(.plain)
+                    .help(mixer.systemOutputMuted == true || volume <= 0.001 ? l10n.s.mixerUnmuteTooltip : l10n.s.mixerMuteTooltip)
+                    .accessibilityLabel(mixer.systemOutputMuted == true || volume <= 0.001 ? l10n.s.mixerUnmuteTooltip : l10n.s.mixerMuteTooltip)
 
                     MixerVolumeSlider(value: systemOutputVolumeBinding,
                                       normalTint: normalSliderTint,
@@ -544,6 +546,8 @@ private struct MixerRow: View {
                                 .frame(width: 16)
                         }
                         .buttonStyle(.plain)
+                        .help(app.volume <= 0.001 ? l10n.s.mixerUnmuteTooltip : l10n.s.mixerMuteTooltip)
+                        .accessibilityLabel(app.volume <= 0.001 ? l10n.s.mixerUnmuteTooltip : l10n.s.mixerMuteTooltip)
                     }
 
                     if app.outputDeviceUnavailable {

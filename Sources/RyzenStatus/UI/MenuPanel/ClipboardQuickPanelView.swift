@@ -94,6 +94,8 @@ struct ClipboardQuickPanelView: View {
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)
+            .help(l10n.s.menuClose)
+            .accessibilityLabel(l10n.s.menuClose)
         }
     }
 

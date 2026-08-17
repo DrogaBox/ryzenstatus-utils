@@ -530,6 +530,7 @@ extension Strings {
         detachedNoticeSubtitle: "Der System-Monitor ist im schwebenden Fenster aktiv.",
         detachedNoticeReattach: "Wieder an Menüleiste anheften",
         panelDetachHelp: "Panel in schwebendes Fenster abkoppeln",
+        panelBackTooltip: "Zurück",
 
         panelAccordionMode: "Akkordeon-Modus (alles als Liste anzeigen)",
         graphShowsNumericValue: "Numerischen Wert im Diagramm anzeigen",
@@ -545,6 +546,8 @@ extension Strings {
         mixerEmpty: "Apps, die Audio nutzen, erscheinen hier",
         mixerUnavailable: "Verfügbar ab macOS 14.4",
         mixerPermissionBody: "Um die Lautstärke je App anzupassen, erlaube „Aufnahme von Bildschirm und Systemaudio“ in den Systemeinstellungen. Audio wird nie aufgenommen.",
+        mixerMuteTooltip: "Stummschalten",
+        mixerUnmuteTooltip: "Stummschaltung aufheben",
         mixerResetTooltip: "Auf 100 % zurücksetzen",
         mixerOutputDefault: "Standard",
         mixerOutputCurrent: "aktuell",

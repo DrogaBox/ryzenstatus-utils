@@ -530,6 +530,7 @@ extension Strings {
         detachedNoticeSubtitle: "Il monitor di sistema è attivo nella sua finestra fluttuante.",
         detachedNoticeReattach: "Riconnetti alla Barra dei Menu",
         panelDetachHelp: "Stacca pannello in una finestra fluttuante",
+        panelBackTooltip: "Indietro",
 
         panelAccordionMode: "Modalità fisarmonica (mostra tutto in formato elenco)",
         graphShowsNumericValue: "Mostra valore numerico all'interno del grafico",
@@ -545,6 +546,8 @@ extension Strings {
         mixerEmpty: "Le app che usano l'audio compaiono qui",
         mixerUnavailable: "Disponibile su macOS 14.4 e successivi",
         mixerPermissionBody: "Per regolare il volume per ogni app, consenti «Registrazione schermo e audio di sistema» in Impostazioni di Sistema. L'audio non viene mai registrato.",
+        mixerMuteTooltip: "Disattiva audio",
+        mixerUnmuteTooltip: "Riattiva audio",
         mixerResetTooltip: "Ripristina al 100%",
         mixerOutputDefault: "Predefinita",
         mixerOutputCurrent: "attuale",

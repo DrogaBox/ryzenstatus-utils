@@ -531,6 +531,7 @@ extension Strings {
         detachedNoticeSubtitle: "系統監視器正在浮動視窗中運行。",
         detachedNoticeReattach: "重新固定到選單列",
         panelDetachHelp: "將面板分離為浮動視窗",
+        panelBackTooltip: "返回",
 
         panelAccordionMode: "手風琴模式（以清單形式顯示所有內容）",
         graphShowsNumericValue: "在圖表內顯示數值",
@@ -546,6 +547,8 @@ extension Strings {
         mixerEmpty: "正在使用音訊的 App 會顯示在這裡",
         mixerUnavailable: "需要 macOS 14.4 及更高版本",
         mixerPermissionBody: "若要調整各 App 的音量，請在「系統設定」中允許「螢幕與系統音訊錄製」。絕不會錄製音訊。",
+        mixerMuteTooltip: "靜音",
+        mixerUnmuteTooltip: "取消靜音",
         mixerResetTooltip: "重設為 100%",
         mixerOutputDefault: "預設",
         mixerOutputCurrent: "目前",

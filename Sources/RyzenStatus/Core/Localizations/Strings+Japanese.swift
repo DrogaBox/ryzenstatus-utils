@@ -530,6 +530,7 @@ extension Strings {
         detachedNoticeSubtitle: "システムモニターはフローティングウィンドウでアクティブです。",
         detachedNoticeReattach: "メニューバーに再固定",
         panelDetachHelp: "パネルをフローティングウィンドウに切り離す",
+        panelBackTooltip: "戻る",
 
         panelAccordionMode: "アコーディオンモード（すべてをリスト形式で表示）",
         graphShowsNumericValue: "グラフ内に数値の値を表示",
@@ -545,6 +546,8 @@ extension Strings {
         mixerEmpty: "オーディオを使用するアプリがここに表示されます",
         mixerUnavailable: "macOS 14.4 以降で利用できます",
         mixerPermissionBody: "アプリごとの音量を調整するには、システム設定で「画面とシステムオーディオ収録」を許可してください。オーディオが記録されることはありません。",
+        mixerMuteTooltip: "消音",
+        mixerUnmuteTooltip: "消音解除",
         mixerResetTooltip: "100% にリセット",
         mixerOutputDefault: "デフォルト",
         mixerOutputCurrent: "現在",

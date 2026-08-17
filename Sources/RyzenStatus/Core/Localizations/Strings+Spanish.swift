@@ -530,6 +530,7 @@ extension Strings {
         detachedNoticeSubtitle: "El panel de monitoreo se encuentra activo en su ventana flotante.",
         detachedNoticeReattach: "Reacoplar a la Barra de Menús",
         panelDetachHelp: "Separar panel en ventana flotante",
+        panelBackTooltip: "Volver",
 
         panelAccordionMode: "Modo acordeón (mostrar todo en formato lista)",
         graphShowsNumericValue: "Mostrar valor numérico dentro de la gráfica",
@@ -545,6 +546,8 @@ extension Strings {
         mixerEmpty: "Las apps que usan audio aparecen aquí",
         mixerUnavailable: "Disponible en macOS 14.4 y posteriores",
         mixerPermissionBody: "Para ajustar el volumen por app, permite «Grabación de pantalla y audio del sistema» en Ajustes del Sistema. El audio nunca se graba.",
+        mixerMuteTooltip: "Silenciar",
+        mixerUnmuteTooltip: "Reactivar sonido",
         mixerResetTooltip: "Restablecer al 100 %",
         mixerOutputDefault: "Predeterminado",
         mixerOutputCurrent: "actual",

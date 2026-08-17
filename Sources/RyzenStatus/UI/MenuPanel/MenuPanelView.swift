@@ -494,6 +494,8 @@ struct MenuPanelView: View {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .strokeBorder(PanelSurface.border(for: colorScheme), lineWidth: 0.7)
             )
+            .help(l10n.s.panelBackTooltip)
+            .accessibilityLabel(l10n.s.panelBackTooltip)
 
             Label(kind.title(l10n.s), systemImage: kind.symbolName)
                 .font(.system(size: 12.5, weight: .semibold))

@@ -531,6 +531,7 @@ extension Strings {
         detachedNoticeSubtitle: "시스템 모니터가 플로팅 창에서 활성화되어 있습니다.",
         detachedNoticeReattach: "메뉴 막대에 다시 고정",
         panelDetachHelp: "패널을 플로팅 창으로 분리",
+        panelBackTooltip: "뒤로",
 
         panelAccordionMode: "아코디언 모드 (목록 형식으로 모두 표시)",
         graphShowsNumericValue: "그래프 내에 수치 값 표시",
@@ -546,6 +547,8 @@ extension Strings {
         mixerEmpty: "오디오를 사용하는 앱이 여기에 표시됩니다",
         mixerUnavailable: "macOS 14.4 이상에서 사용할 수 있습니다",
         mixerPermissionBody: "앱별 볼륨을 조절하려면 시스템 설정에서 ‘화면 및 시스템 오디오 녹음’을 허용하세요. 오디오는 기록되지 않습니다.",
+        mixerMuteTooltip: "음소거",
+        mixerUnmuteTooltip: "음소거 해제",
         mixerResetTooltip: "100%로 재설정",
         mixerOutputDefault: "기본값",
         mixerOutputCurrent: "현재",

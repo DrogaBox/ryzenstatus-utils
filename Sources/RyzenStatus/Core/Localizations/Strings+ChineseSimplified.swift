@@ -530,6 +530,7 @@ extension Strings {
         detachedNoticeSubtitle: "系统监视器正在浮动窗口中运行。",
         detachedNoticeReattach: "重新固定到菜单栏",
         panelDetachHelp: "将面板分离为浮动窗口",
+        panelBackTooltip: "返回",
 
         panelAccordionMode: "手风琴模式（以列表形式显示所有内容）",
         graphShowsNumericValue: "在图表内显示数值",
@@ -545,6 +546,8 @@ extension Strings {
         mixerEmpty: "使用音频的 App 会显示在这里",
         mixerUnavailable: "需 macOS 14.4 及更高版本",
         mixerPermissionBody: "若要调整各 App 的音量，请在“系统设置”中允许“屏幕与系统音频录制”。绝不会录制音频。",
+        mixerMuteTooltip: "静音",
+        mixerUnmuteTooltip: "取消静音",
         mixerResetTooltip: "重置为 100%",
         mixerOutputDefault: "默认",
         mixerOutputCurrent: "当前",

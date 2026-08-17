@@ -9,6 +9,7 @@ import SwiftUI
 /// memory regions, live CPU/RAM/Network telemetry (updating live at 1Hz), and system actions.
 struct ProcessDetailSheet: View {
     let row: ProcessUsage
+    @ObservedObject private var l10n = L10n.shared
     @Environment(\.dismiss) private var dismiss
     @State private var showingTerminateAlert = false
     @State private var pathCopied = false
@@ -75,6 +76,8 @@ struct ProcessDetailSheet: View {
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
+                .help(l10n.s.menuClose)
+                .accessibilityLabel(l10n.s.menuClose)
             }
 
             Divider()

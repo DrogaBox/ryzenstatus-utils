@@ -654,6 +654,7 @@ struct Strings {
     let detachedNoticeSubtitle: String
     let detachedNoticeReattach: String
     let panelDetachHelp: String
+    let panelBackTooltip: String
 
     // MARK: Hardcoded string fixes
     let panelAccordionMode: String
@@ -672,6 +673,8 @@ struct Strings {
     let mixerEmpty: String
     let mixerUnavailable: String
     let mixerPermissionBody: String
+    let mixerMuteTooltip: String
+    let mixerUnmuteTooltip: String
     let mixerResetTooltip: String
     let mixerOutputDefault: String
     let mixerOutputCurrent: String
@@ -1594,6 +1597,7 @@ extension Strings {
         detachedNoticeSubtitle: "O monitor do sistema está ativo na sua janela flutuante.",
         detachedNoticeReattach: "Reanexar à Barra de Menus",
         panelDetachHelp: "Destacar painel em janela flutuante",
+        panelBackTooltip: "Voltar",
 
         panelAccordionMode: "Modo sanfona (mostrar tudo em formato de lista)",
         graphShowsNumericValue: "Mostrar valor numérico dentro do gráfico",
@@ -1609,6 +1613,8 @@ extension Strings {
         mixerEmpty: "Apps que usam áudio aparecem aqui",
         mixerUnavailable: "Disponível a partir do macOS 14.4",
         mixerPermissionBody: "Para ajustar o volume por app, permita “Gravação de Tela e Áudio do Sistema” nos Ajustes do Sistema. O áudio nunca é gravado.",
+        mixerMuteTooltip: "Silenciar",
+        mixerUnmuteTooltip: "Ativar som",
         mixerResetTooltip: "Voltar para 100%",
         mixerOutputDefault: "Padrão",
         mixerOutputCurrent: "atual",
@@ -2514,6 +2520,7 @@ extension Strings {
         detachedNoticeSubtitle: "The system monitor is active in its floating window.",
         detachedNoticeReattach: "Reattach to Menu Bar",
         panelDetachHelp: "Detach panel into floating window",
+        panelBackTooltip: "Back",
 
         panelAccordionMode: "Accordion mode (show everything in list format)",
         graphShowsNumericValue: "Show numeric value inside graph",
@@ -2529,6 +2536,8 @@ extension Strings {
         mixerEmpty: "Apps that use audio show up here",
         mixerUnavailable: "Available on macOS 14.4 and later",
         mixerPermissionBody: "To adjust per-app volume, allow “Screen & System Audio Recording” in System Settings. Audio is never recorded.",
+        mixerMuteTooltip: "Mute",
+        mixerUnmuteTooltip: "Unmute",
         mixerResetTooltip: "Reset to 100%",
         mixerOutputDefault: "Default",
         mixerOutputCurrent: "current",

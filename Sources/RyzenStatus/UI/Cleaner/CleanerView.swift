@@ -548,6 +548,8 @@ struct CleanerView: View {
                 Image(systemName: "xmark.circle.fill").font(.system(size: 16)).foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .help(l10n.s.uninstallerCancel)
+            .accessibilityLabel(l10n.s.uninstallerCancel)
         }
         .padding(compact ? 12 : 16)
     }

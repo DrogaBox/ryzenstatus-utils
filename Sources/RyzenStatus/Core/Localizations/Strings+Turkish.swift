@@ -530,6 +530,7 @@ extension Strings {
         detachedNoticeSubtitle: "Sistem izleyici yüzen penceresinde aktif.",
         detachedNoticeReattach: "Menü Çubuğuna Yeniden Bağla",
         panelDetachHelp: "Paneli yüzen pencereye ayır",
+        panelBackTooltip: "Geri",
 
         panelAccordionMode: "Akordeon modu (her şeyi liste biçiminde göster)",
         graphShowsNumericValue: "Grafik içinde sayısal değeri göster",
@@ -545,6 +546,8 @@ extension Strings {
         mixerEmpty: "Ses kullanan uygulamalar burada görünür",
         mixerUnavailable: "macOS 14.4 ve sonrasında kullanılabilir",
         mixerPermissionBody: "Uygulama başına ses düzeyini ayarlamak için Sistem Ayarları'nda “Ekran ve Sistem Sesi Kaydı”na izin ver. Ses hiçbir zaman kaydedilmez.",
+        mixerMuteTooltip: "Sesi kapat",
+        mixerUnmuteTooltip: "Sesi aç",
         mixerResetTooltip: "%100'e sıfırla",
         mixerOutputDefault: "Varsayılan",
         mixerOutputCurrent: "geçerli",

@@ -530,6 +530,7 @@ extension Strings {
         detachedNoticeSubtitle: "Le moniteur système est actif dans sa fenêtre flottante.",
         detachedNoticeReattach: "Rattacher à la barre des menus",
         panelDetachHelp: "Détacher le panneau dans une fenêtre flottante",
+        panelBackTooltip: "Retour",
 
         panelAccordionMode: "Mode accordéon (tout afficher sous forme de liste)",
         graphShowsNumericValue: "Afficher la valeur numérique dans le graphique",
@@ -545,6 +546,8 @@ extension Strings {
         mixerEmpty: "Les apps qui utilisent l’audio apparaissent ici",
         mixerUnavailable: "Disponible à partir de macOS 14.4",
         mixerPermissionBody: "Pour régler le volume par app, autorisez « Enregistrement de l’écran et de l’audio du système » dans les Réglages Système. L’audio n’est jamais enregistré.",
+        mixerMuteTooltip: "Couper le son",
+        mixerUnmuteTooltip: "Réactiver le son",
         mixerResetTooltip: "Rétablir à 100 %",
         mixerOutputDefault: "Par défaut",
         mixerOutputCurrent: "actuelle",
