@@ -604,12 +604,13 @@ enum Defaults {
         DefaultsKey.amdCpbEnabled: true,
         DefaultsKey.amdPpmEnabled: false,
         DefaultsKey.amdLpmEnabled: false,
+        DefaultsKey.showFansInAmdPower: true,
         // Gaming Mode — off by default; hiding the icon is the default behavior.
         DefaultsKey.gamingModeActive: false,
         DefaultsKey.gamingModeHideMenuBar: true,
     ]
 
-    private static let currentMigrationVersion = 6
+    private static let currentMigrationVersion = 7
 
     static func register() {
         let defaults = UserDefaults.standard
@@ -629,8 +630,68 @@ enum Defaults {
         if lastVersion < 4 { migrateUtilityOrderForScreenshot(in: defaults) }
         if lastVersion < 5 { migrateUtilityOrderForAppUpdates(in: defaults) }
         if lastVersion < 6 { migrateLegacyNowPlayingMenuBarMode(in: defaults) }
+        if lastVersion < 7 { migrateLegacyFanSubsystem(in: defaults) }
 
         defaults.set(currentMigrationVersion, forKey: "_migrationVersion")
+    }
+
+    static func migrateLegacyFanSubsystem(in defaults: UserDefaults) {
+        // 1. Migrate customCurves -> customCurves_v2
+        if let oldData = defaults.data(forKey: "customCurves") {
+            struct LegacyCurvePoint: Decodable {
+                let id: UUID?
+                let temp: Double
+                let pwm: Double
+            }
+            struct LegacyCurve: Decodable {
+                let id: UUID?
+                let name: String
+                let points: [LegacyCurvePoint]
+                let sourceSensor: Int?
+                let hysteresis: Double?
+                let rampRate: Double?
+            }
+
+            if let decoded = try? JSONDecoder().decode([LegacyCurve].self, from: oldData) {
+                let newCurves: [FanCurveDefinition] = decoded.prefix(4).enumerated().map { idx, old in
+                    let pts = old.points.map { FanCurvePoint(id: $0.id ?? UUID(), temp: $0.temp, pwm: $0.pwm) }
+                    let sensor = (old.sourceSensor == 1) ? FanSensor.gpu : FanSensor.cpu
+                    let hyst = UInt8(min(5, max(1, Int(old.hysteresis ?? 2.0))))
+                    let ramp = UInt8(min(20, max(1, Int(old.rampRate ?? 5.0))))
+                    return FanCurveDefinition(
+                        id: old.id ?? UUID(),
+                        name: old.name,
+                        kextSlot: idx,
+                        points: pts,
+                        sourceSensor: sensor,
+                        hysteresis: hyst,
+                        rampRate: ramp
+                    )
+                }
+                if let encoded = try? JSONEncoder().encode(newCurves) {
+                    defaults.set(encoded, forKey: DefaultsKey.customCurvesV2)
+                }
+            }
+            defaults.removeObject(forKey: "customCurves")
+        }
+
+        // 2. Migrate fanMappings -> fanMappings_v2
+        if let oldMapData = defaults.data(forKey: "fanMappings") {
+            if let decoded = try? JSONDecoder().decode([Int: Int].self, from: oldMapData) {
+                var sanitized: [Int: Int] = [:]
+                for (fanId, curveIdx) in decoded {
+                    if curveIdx >= -1 && curveIdx < 4 {
+                        sanitized[fanId] = curveIdx
+                    } else {
+                        sanitized[fanId] = -1
+                    }
+                }
+                if let encoded = try? JSONEncoder().encode(sanitized) {
+                    defaults.set(encoded, forKey: DefaultsKey.fanMappingsV2)
+                }
+            }
+            defaults.removeObject(forKey: "fanMappings")
+        }
     }
 
     static func migrateLegacyNowPlayingMenuBarMode(in defaults: UserDefaults) {

@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.12.0] — 2026-08-17
+
+### Fan & Cooling Control Rewrite
+- **Kernel-Native Dynamic Fan Curves**: Complete ground-up rewrite of the fan and cooling control subsystem. Dynamic curves are now evaluated directly inside the kernel (`AMDRyzenCPUPowerManagement.kext`) at a 500 ms cadence with 256-point LUT interpolation, exponential moving average smoothing ($\alpha = 0.2$), hardware hysteresis, ramp rate limiting, and an emergency thermal guard ($\ge 85$ °C $\to$ PWM $\ge 200$), completely eliminating userspace PID polling loops and CPU overhead.
+- **Hardware Telemetry Read-Back**: Accurate fan speed (RPM) and duty cycle (PWM %) are derived directly from the physical SuperIO chip (NCT6775, IT86xx, etc.) via SMC read-back (selector 94).
+- **GPU Temperature Bridge (Selector 103)**: Added native GPU temperature forwarding to the kernel power management client, enabling fan curves driven by discrete GPU thermal loads.
+- **Interactive Curve Editor & Staged Drafts**: Redesigned curve editor featuring 256-point visual preview, live sensor tracking markers, 4-curve slot management, a safe 1% minimum duty cycle floor, and explicit "Apply Curve" and "Revert" actions to prevent unintended fan spin-ups during editing.
+- **13-Language Native Localization**: Full native translations for all fan control labels, alerts, and guide dialogues across all 13 supported languages.
+- **Wake & State Synchronization**: Automatic re-upload of active curve LUTs and fan mappings upon system wake (`didWakeNotification`).
+
+### Accessibility
+- **Complete VoiceOver Coverage**: every icon-only button in the app (menu panel, mixer, shelf, settings, Now Playing, clipboard, uninstaller/cleaner) now announces a proper accessibility label — 44 buttons across two passes — with new localized tooltips and labels for mixer mute/unmute and the panel back button in all 13 languages.
+- **Keyboard Controls in Now Playing**: Space toggles play/pause and Escape closes the floating window from anywhere inside it.
+
+### Now Playing Fixes
+- **Marquee Scrolling Fixed**: long titles now scroll continuously (slide-in → hold → scroll → loop) instead of stalling after the first pass.
+- **Animated Artwork Switching**: moving between two albums with motion artwork now reloads and crossfades the new video stream.
+- **Detached Window & Network Cleanup**: the floating window deregisters its move observer on close, and cancelled lyrics requests are pruned from the in-flight set.
+
+### Performance & Stability
+- **Mach Port Leak Fixed**: the thread-grid view no longer leaks its host port handle.
+- **Faster Renders**: reduced SwiftUI redraws in ThreadGridView and added a visual loading state to Homebrew search buttons.
+
+### Internal
+- **Unit Tests**: 3,628 automated checks (+386 new checks covering LUT math, 272-byte packing, ramp rate scaling, compaction, and localization).
+
+## [1.11.2] — 2026-08-17
+
+### Accessibility
+- **Complete VoiceOver Coverage**: every icon-only button in the app (menu panel, mixer, shelf, settings, Now Playing, clipboard, uninstaller/cleaner) now announces a proper accessibility label — 44 buttons across two passes — with new localized tooltips and labels for mixer mute/unmute and the panel back button in all 13 languages.
+- **Keyboard Controls in Now Playing**: Space toggles play/pause and Escape closes the floating window from anywhere inside it.
+
+### Now Playing Fixes
+- **Marquee Scrolling Fixed**: long titles now scroll continuously (slide-in → hold → scroll → loop) instead of stalling after the first pass.
+- **Animated Artwork Switching**: moving between two albums with motion artwork now reloads and crossfades the new video stream.
+- **Detached Window & Network Cleanup**: the floating window deregisters its move observer on close, and cancelled lyrics requests are pruned from the in-flight set.
+
+### Performance & Stability
+- **Mach Port Leak Fixed**: the thread-grid view no longer leaks its host port handle.
+- **Faster Renders**: reduced SwiftUI redraws in ThreadGridView and added a visual loading state to Homebrew search buttons.
+
+### Internal
+- **77 new unit checks** (marquee engine, LRC parser, artwork fingerprint, defaults migration v6) — 3,242 total.
+
 ## [1.11.1] — 2026-08-15
 
 ### CPU & Performance Optimizations

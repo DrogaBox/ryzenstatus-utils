@@ -134,6 +134,8 @@ if (( TEST )); then
         Sources/RyzenStatus/Services/Audio/MixerRoutingSupport.swift \
         Sources/RyzenStatus/Services/AMD/AMDPowerPresets.swift \
         Sources/RyzenStatus/Services/AMD/FanCurveModels.swift \
+        Sources/RyzenStatus/Core/AMDKextSelectors.swift \
+        Sources/RyzenStatus/Core/FanControlStrings.swift \
         Sources/RyzenStatus/Core/AmdPowerStrings.swift \
         Sources/RyzenStatus/Services/AMD/AmdSettingsStore.swift \
         Sources/RyzenStatus/Services/AMD/AMDCoreRanking.swift \

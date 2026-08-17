@@ -85,6 +85,8 @@ enum AMDKextSelector: UInt32 {
     case fanCurveLUTWrite  = 101
     /// Map a physical fan header to a curve slot; -1 restores automatic control.
     case fanToCurveMap     = 102
+    /// Write current GPU temperature into kext for GPU-sourced fan curves.
+    case gpuTempWrite      = 103
 
     // MARK: — Curve Optimizer
 

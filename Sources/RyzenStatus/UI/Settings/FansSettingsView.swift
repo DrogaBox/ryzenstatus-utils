@@ -1,206 +1,218 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 RyzenStatus
+
 import SwiftUI
 
-// MARK: - Fans Settings View (AMD Power Gadget exact replica)
+// MARK: - Fans Settings View
+
 struct FansSettingsView: View {
-    @State private var fans: [FanSnapshot] = []
-    @State private var hasSMCWriteAccess: Bool = true
-    @State private var loadTimer: Timer?
-    @State private var hiddenFanIDs: Set<Int> = []
-    @State private var setupTask: Task<Void, Never>?
-    @State private var refreshTask: Task<Void, Never>?
-    @State private var isLoadingFans = false
-    @AppStorage(DefaultsKey.fanCurvesEditorEnabled) private var autoFanCurveEnabled = false
-    @State private var customFanNames: [Int: String] = [:]
-    @State private var showingMaxSpeedConfirmation = false
-    @ObservedObject private var l10n = L10n.shared
     @ObservedObject var controller = FanCurveController.shared
+    @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var monitor = SystemMonitor.shared
-    
+    @AppStorage(DefaultsKey.fanCurvesEditorEnabled) private var autoFanCurveEnabled = false
+    @State private var showingMaxSpeedConfirmation = false
+
     var body: some View {
         Form {
-            if !hasSMCWriteAccess {
+            // MARK: - Privilege / Driver Warning
+            if controller.kextMissing {
                 Section {
                     SMCNotAvailableView()
                 }
-            } else if fans.isEmpty {
-                Section {
-                    Group {
-                        if isLoadingFans {
-                            HStack(spacing: 8) {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("Loading fan sensors…")
-                                    .foregroundColor(.secondary)
-                            }
-                        } else {
-                            Text("No fans detected.")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(32)
-                }
             } else {
-                Section {
-                    HStack {
-                        Text("SMC Fan Control")
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .textCase(.uppercase)
-                        Spacer()
-                        if !hiddenFanIDs.isEmpty {
-                            Button(action: {
-                                hiddenFanIDs.removeAll()
-                                UserDefaults.standard.set([], forKey: "HiddenFanIDs")
-                            }) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "eye.fill")
-                                    Text(String(format: "Show All (%d hidden)", hiddenFanIDs.count))
-                                }
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.cyan)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-
-                    HStack(spacing: 6) {
-                        Image(systemName: "info.circle.fill")
-                            .font(.system(size: 11))
-                            .foregroundColor(.cyan)
-                        Text("Note: Manual fan speed control requires boot-arg -amdpnopchk in OpenCore config.plist and AMDRyzenCPUPowerManagement.kext v1.0.0+.")
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.vertical, 2)
-                    
-                    ForEach(fans.filter { !hiddenFanIDs.contains($0.id) }) { fan in
-                        FanControlCard(fan: fan, customFanNames: $customFanNames, onHide: {
-                            hiddenFanIDs.insert(fan.id)
-                            UserDefaults.standard.set(Array(hiddenFanIDs), forKey: "HiddenFanIDs")
-                        })
-                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
-                    }
-                    
-                    HStack(spacing: 10) {
-                        Button(action: {
-                            Task {
-                                for f in fans {
-                                    _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: f.id)
-                                    controller.fanMappings[f.id] = -1
-                                    controller.unregisterManualOverride(fanId: f.id)
-                                }
-                            }
-                        }) {
-                            HStack(spacing: 7) {
-                                Image(systemName: "arrow.circlepath")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text(l10n.fanControl.allAutoButton)
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(.cyan)
-                            .padding(.vertical, 9)
-                            .frame(maxWidth: .infinity)
-                            .background(Color.cyan.opacity(0.12))
-                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.cyan.opacity(0.35)))
-                            .cornerRadius(10)
-                        }
-                        .buttonStyle(.plain)
-                        
-                        Button(action: {
-                            showingMaxSpeedConfirmation = true
-                        }) {
-                            HStack(spacing: 7) {
-                                Image(systemName: "wind")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text(l10n.fanControl.maxSpeedButton)
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(.orange)
-                            .padding(.vertical, 9)
-                            .frame(maxWidth: .infinity)
-                            .background(Color.orange.opacity(0.12))
-                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.orange.opacity(0.35)))
-                            .cornerRadius(10)
-                        }
-                        .buttonStyle(.plain)
-                        .confirmationDialog(
-                            l10n.fanControl.maxSpeedConfirmationTitle,
-                            isPresented: $showingMaxSpeedConfirmation,
-                            titleVisibility: .visible
-                        ) {
-                            Button(l10n.fanControl.confirmButton, role: .destructive) {
-                                Task {
-                                    for f in fans {
-                                        _ = ProcessorModel.shared.setFanMode(auto: false, fanIndex: f.id)
-                                        _ = ProcessorModel.shared.setFanSpeed(pwm: 255, fanIndex: f.id)
-                                        controller.fanMappings[f.id] = -1
-                                        controller.registerManualOverride(fanId: f.id)
-                                    }
-                                }
-                            }
-                            Button(l10n.fanControl.cancelButton, role: .cancel) {}
-                        } message: {
-                            Text(l10n.fanControl.maxSpeedConfirmationMessage)
-                        }
-                    }
-                } header: {
-                    Text(l10n.fanControl.fansHeader)
-                        .font(.system(size: 11, weight: .semibold))
-                        .textCase(nil)
-                }
-                
-                Section {
-                    VStack(alignment: .leading, spacing: 12) {
+                if let errorMsg = controller.privilegeError {
+                    Section {
                         HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.shield.fill")
+                                .foregroundColor(.orange)
+                                .font(.system(size: 14))
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Dynamic Next-Gen Fan Curves")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Evaluated in the kernel with 256-step LUT interpolation, hysteresis, and smooth ramping.")
+                                Text(l10n.fanControl.privilegeRequiredBanner)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(.primary)
+                                Text(errorMsg)
                                     .font(.system(size: 10))
                                     .foregroundColor(.secondary)
                             }
                             Spacer()
-                            Toggle("", isOn: $autoFanCurveEnabled)
-                                .toggleStyle(.switch)
-                                .tint(.orange)
-                                .labelsHidden()
+                            Button(action: {
+                                controller.privilegeError = nil
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        
-                        if autoFanCurveEnabled {
-                            Divider()
-                            InteractiveFanCurveEditor(
-                                hasDiscreteGPU: !monitor.snapshot.gpuDevices.isEmpty
-                            )
-                        }
-                    }
-                    .padding(.vertical, 4)
-                } header: {
-                    Text("Curves")
-                        .font(.system(size: 11, weight: .semibold))
-                        .textCase(nil)
-                }                footer: {
-                    Text("Turning this on evaluates your custom curves in the app and drives the first fan with the first curve — pick a different curve per fan in the dropdown below each card. Turning it off restores every mapped fan to automatic control. The GPU fan is managed by the GPU itself and cannot be controlled here.")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
-                }
-                .onChange(of: autoFanCurveEnabled) { _, enabled in
-                    if enabled {
-                        autoMapFirstCurveIfNeeded()
-                    } else {
-                        // Master switch: restore every curve-mapped fan to
-                        // automatic control and stop the userspace loop.
-                        controller.resetFansToAutoSync()
-                        controller.fanMappings = [:]
-                    }
-                }
-                
-                Section {
-                    GPUFanControlGuideView()
                         .padding(.vertical, 4)
-                } header: {
-                    Text("GPU")
-                        .font(.system(size: 11, weight: .semibold))
-                        .textCase(nil)
+                    }
+                }
+
+                // MARK: - Fan Cards Section
+                if controller.fans.isEmpty {
+                    Section {
+                        Group {
+                            if controller.isLoadingFans {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text(l10n.fanControl.loadingSensors)
+                                        .foregroundColor(.secondary)
+                                }
+                            } else {
+                                Text(l10n.fanControl.noFansDetected)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(32)
+                    }
+                } else {
+                    Section {
+                        HStack {
+                            Text(l10n.fanControl.smcTitle)
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .textCase(.uppercase)
+                            Spacer()
+                            let hiddenCount = controller.fans.filter { $0.isHidden }.count
+                            if hiddenCount > 0 {
+                                Button(action: {
+                                    for f in controller.fans {
+                                        controller.setHidden(fanId: f.id, hidden: false)
+                                    }
+                                }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "eye.fill")
+                                        Text(String(format: l10n.fanControl.showAllHiddenFormat, hiddenCount))
+                                    }
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.cyan)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+
+                        HStack(spacing: 6) {
+                            Image(systemName: "info.circle.fill")
+                                .font(.system(size: 11))
+                                .foregroundColor(.cyan)
+                            Text(l10n.fanControl.bootArgNote)
+                                .font(.system(size: 11, weight: .regular))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 2)
+
+                        ForEach(controller.fans.filter { !$0.isHidden }) { fan in
+                            FanControlCard(fan: fan)
+                                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                        }
+
+                        // Bulk Actions Bar
+                        HStack(spacing: 10) {
+                            Button(action: {
+                                controller.setAllAuto()
+                            }) {
+                                HStack(spacing: 7) {
+                                    Image(systemName: "arrow.circlepath")
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Text(l10n.fanControl.allAutoButton)
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
+                                .foregroundColor(.cyan)
+                                .padding(.vertical, 9)
+                                .frame(maxWidth: .infinity)
+                                .background(Color.cyan.opacity(0.12))
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.cyan.opacity(0.35)))
+                                .cornerRadius(10)
+                            }
+                            .buttonStyle(.plain)
+
+                            Button(action: {
+                                showingMaxSpeedConfirmation = true
+                            }) {
+                                HStack(spacing: 7) {
+                                    Image(systemName: "wind")
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Text(l10n.fanControl.maxSpeedButton)
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
+                                .foregroundColor(.orange)
+                                .padding(.vertical, 9)
+                                .frame(maxWidth: .infinity)
+                                .background(Color.orange.opacity(0.12))
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.orange.opacity(0.35)))
+                                .cornerRadius(10)
+                            }
+                            .buttonStyle(.plain)
+                            .confirmationDialog(
+                                l10n.fanControl.maxSpeedConfirmationTitle,
+                                isPresented: $showingMaxSpeedConfirmation,
+                                titleVisibility: .visible
+                            ) {
+                                Button(l10n.fanControl.confirmButton, role: .destructive) {
+                                    controller.setAllMaxSpeed()
+                                }
+                                Button(l10n.fanControl.cancelButton, role: .cancel) {}
+                            } message: {
+                                Text(l10n.fanControl.maxSpeedConfirmationMessage)
+                            }
+                        }
+                    } header: {
+                        Text(l10n.fanControl.fansHeader)
+                            .font(.system(size: 11, weight: .semibold))
+                            .textCase(nil)
+                    }
+
+                    // MARK: - Dynamic Curves Section
+                    Section {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(spacing: 8) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(l10n.fanControl.dynamicCurvesTitle)
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Text(l10n.fanControl.dynamicCurvesSubtitle)
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                Toggle("", isOn: $autoFanCurveEnabled)
+                                    .toggleStyle(.switch)
+                                    .tint(.orange)
+                                    .labelsHidden()
+                            }
+
+                            if autoFanCurveEnabled {
+                                Divider()
+                                InteractiveFanCurveEditor(
+                                    hasDiscreteGPU: !monitor.snapshot.gpuDevices.isEmpty
+                                )
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    } header: {
+                        Text(l10n.fanControl.fanCurvesSection)
+                            .font(.system(size: 11, weight: .semibold))
+                            .textCase(nil)
+                    } footer: {
+                        Text(l10n.fanControl.dynamicCurvesFooter)
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                    .onChange(of: autoFanCurveEnabled) { _, enabled in
+                        if !enabled {
+                            controller.resetFansToAutoSync()
+                            controller.fanMappings = [:]
+                        }
+                    }
+
+                    // MARK: - GPU Hardware Guide
+                    Section {
+                        GPUFanControlGuideView()
+                            .padding(.vertical, 4)
+                    } header: {
+                        Text(l10n.fanControl.gpuHeader)
+                            .font(.system(size: 11, weight: .semibold))
+                            .textCase(nil)
+                    }
                 }
             }
         }
@@ -208,203 +220,103 @@ struct FansSettingsView: View {
         .environment(\.defaultMinListRowHeight, 4)
         .onAppear {
             SystemMonitor.shared.setMenuPanelNeeds(.none)
-            isLoadingFans = true
-            setupFans()
+            controller.startPolling()
         }
         .onDisappear {
-            loadTimer?.invalidate()
-            loadTimer = nil
-            setupTask?.cancel()
-            setupTask = nil
-            refreshTask?.cancel()
-            refreshTask = nil
-        }
-    }
-    
-    private func setupFans() {
-        setupTask?.cancel()
-        setupTask = Task.detached(priority: .userInitiated) {
-            let kernelAnswered = ProcessorModel.shared.connect != 0
-            guard kernelAnswered else {
-                await MainActor.run {
-                    self.hasSMCWriteAccess = false
-                    self.isLoadingFans = false
-                }
-                return
-            }
-            
-            let initialFans = ProcessorModel.shared.getFans(includeNames: true)
-            
-            await MainActor.run {
-                guard !Task.isCancelled else { return }
-                self.fans = initialFans
-                self.hasSMCWriteAccess = true
-                self.isLoadingFans = false
-                
-                if let savedHidden = UserDefaults.standard.array(forKey: "HiddenFanIDs") as? [Int] {
-                    self.hiddenFanIDs = Set(savedHidden)
-                }
-                
-                for f in initialFans {
-                    if let savedName = UserDefaults.standard.string(forKey: "FanName_\(f.id)") {
-                        self.customFanNames[f.id] = savedName
-                    }
-                }
-                
-                // The toggle may have been left on in a previous session; the
-                // persisted .onChange does not re-fire on appear, so retry the
-                // one-tap mapping now that fan detection has completed.
-                if autoFanCurveEnabled {
-                    autoMapFirstCurveIfNeeded()
-                }
-                self.fetchState()
-                self.loadTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
-                    self.fetchState()
-                }
-            }
-        }
-    }
-
-    /// When the user flips the "Dynamic Fan Curves" master switch ON,
-    /// automatically assign curve 0 to the first fan if no mappings exist, so
-    /// the toggle visibly starts driving a header. The user can re-map or
-    /// disable per fan in the cards. Safe to call repeatedly — no-ops when a
-    /// mapping already exists, no curves exist, or no fan is detected yet.
-    private func autoMapFirstCurveIfNeeded() {
-        let mappings = controller.fanMappings
-        let hasAnyMapping = mappings.values.contains { $0 >= 0 }
-        guard !hasAnyMapping, !controller.customCurves.isEmpty else { return }
-        guard let firstFan = fans.first else { return }
-        var updated = controller.fanMappings
-        updated[firstFan.id] = 0
-        controller.fanMappings = updated
-    }
-    
-    private func fetchState() {
-        refreshTask?.cancel()
-        refreshTask = Task.detached(priority: .utility) {
-            let currentFans = ProcessorModel.shared.getFans(includeNames: false)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard !Task.isCancelled else { return }
-                if self.fans.count != currentFans.count {
-                    self.fans = currentFans
-                } else {
-                    for i in 0..<currentFans.count {
-                        self.fans[i].rpm = currentFans[i].rpm
-                        self.fans[i].throttle = currentFans[i].throttle
-                        self.fans[i].isOverridden = currentFans[i].isOverridden
-                    }
-                }
-            }
+            controller.stopPolling()
         }
     }
 }
 
-// MARK: - Fan Control Card (exact replica of AMD Power Gadget's FanControlCard)
+// MARK: - Fan Card Selection Helper
+
+private enum FanCardModeSelection: Hashable {
+    case auto
+    case curve(Int)
+    case manual
+}
+
+// MARK: - Fan Control Card
+
 struct FanControlCard: View {
-    let fan: FanSnapshot
-    @Binding var customFanNames: [Int: String]
-    let onHide: () -> Void
+    let fan: FanState
+    @ObservedObject var controller = FanCurveController.shared
+    @ObservedObject private var l10n = L10n.shared
     @State private var sliderValue: Double = 0
     @State private var isDraggingSlider = false
     @State private var writeTask: Task<Void, Never>?
-    /// Se setea true cuando el usuario empieza a arrastrar el slider.
-    /// Mantiene visible el botón "Reset to Auto" hasta que el kext confirma.
-    @State private var didDrag = false
-    @ObservedObject var controller = FanCurveController.shared
-    
-    private var isMappedToCurve: Bool {
-        (controller.fanMappings[fan.id] ?? -1) != -1
-    }
-    
-    private var mappedCurveIdx: Int {
-        controller.fanMappings[fan.id] ?? -1
-    }
-    
-    private var curveName: String {
-        let idx = mappedCurveIdx
-        if idx >= 0, idx < controller.customCurves.count {
+
+    private var currentCurveName: String {
+        if let idx = fan.mappedCurveIndex, idx >= 0 && idx < controller.customCurves.count {
             return controller.customCurves[idx].name
         }
         return "Unknown"
     }
-    
+
+    private var currentModeSelection: FanCardModeSelection {
+        switch fan.controlMode {
+        case .auto:
+            return .auto
+        case .curve:
+            return .curve(fan.mappedCurveIndex ?? 0)
+        case .manual:
+            return .manual
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // --- Top row: icon, name, RPM · % · hide ---
+            // --- Top row: Icon, Editable Name, Live RPM · % · Hide Button ---
             HStack {
                 Image(systemName: "fan")
                     .foregroundColor(.cyan)
                     .font(.system(size: 14))
-                
+
                 TextField("", text: Binding(
-                    get: { customFanNames[fan.id] ?? (fan.name.isEmpty ? "Fan \(fan.id + 1)" : fan.name) },
+                    get: { fan.effectiveDisplayName },
                     set: { newVal in
-                        customFanNames[fan.id] = newVal
-                        UserDefaults.standard.set(newVal, forKey: "FanName_\(fan.id)")
+                        controller.setCustomName(fanId: fan.id, name: newVal)
                     }
                 ))
                 .textFieldStyle(.plain)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.primary)
                 .frame(width: 150)
-                
+
                 Spacer()
-                
+
                 HStack(spacing: 6) {
                     Text("\(fan.rpm) RPM")
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(.cyan)
                     Text("·")
                         .foregroundColor(.secondary)
-                    Text(String(format: "%.0f%%", sliderValue / 255.0 * 100.0))
+                    Text(String(format: "%.0f%%", fan.pwmPercentage))
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(fan.isOverridden ? .orange : .secondary)
+                        .foregroundColor(fan.controlMode == .manual ? .orange : .secondary)
                     Text("·")
                         .foregroundColor(.secondary)
-                    Button(action: onHide) {
+                    Button(action: {
+                        controller.setHidden(fanId: fan.id, hidden: true)
+                    }) {
                         Image(systemName: "eye.slash")
                             .foregroundColor(.secondary)
                             .font(.system(size: 11))
                     }
                     .buttonStyle(.plain)
-                    .help("Hide this fan")
-                    .accessibilityLabel("Hide this fan")
+                    .help(l10n.fanControl.hideFanTooltip)
+                    .accessibilityLabel(l10n.fanControl.hideFanTooltip)
                 }
             }
-            
-            // --- Control Mode & Status Badge ---
+
+            // --- Control Mode Status Badge & Mode Picker ---
             HStack {
-                if isMappedToCurve {
-                    HStack(spacing: 5) {
-                        Image(systemName: "waveform.path.ecg")
-                            .font(.system(size: 10, weight: .bold))
-                        Text("Curve: \(curveName)")
-                            .font(.system(size: 10, weight: .semibold))
-                    }
-                    .foregroundColor(.orange)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color.orange.opacity(0.15))
-                    .clipShape(Capsule())
-                } else if fan.isOverridden {
-                    HStack(spacing: 5) {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 10, weight: .bold))
-                        Text("Manual: \(String(format: "%.0f%%", sliderValue / 255.0 * 100.0))")
-                            .font(.system(size: 10, weight: .semibold))
-                    }
-                    .foregroundColor(.cyan)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color.cyan.opacity(0.15))
-                    .clipShape(Capsule())
-                } else {
+                switch fan.controlMode {
+                case .auto:
                     HStack(spacing: 5) {
                         Image(systemName: "leaf.fill")
                             .font(.system(size: 10, weight: .bold))
-                        Text("BIOS / Auto")
+                        Text(l10n.fanControl.biosAutoBadge)
                             .font(.system(size: 10, weight: .semibold))
                     }
                     .foregroundColor(.teal)
@@ -412,104 +324,108 @@ struct FanControlCard: View {
                     .padding(.vertical, 3)
                     .background(Color.teal.opacity(0.15))
                     .clipShape(Capsule())
+
+                case .curve:
+                    HStack(spacing: 5) {
+                        Image(systemName: "waveform.path.ecg")
+                            .font(.system(size: 10, weight: .bold))
+                        Text(String(format: l10n.fanControl.curveBadgeFormat, currentCurveName))
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundColor(.orange)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.orange.opacity(0.15))
+                    .clipShape(Capsule())
+
+                case .manual:
+                    HStack(spacing: 5) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 10, weight: .bold))
+                        Text(String(format: l10n.fanControl.manualBadgeFormat, "\(Int(fan.pwmPercentage))%"))
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundColor(.cyan)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.cyan.opacity(0.15))
+                    .clipShape(Capsule())
                 }
-                
+
                 Spacer()
-                
+
+                // Unified Mode Picker
                 Picker("", selection: Binding(
-                    get: {
-                        if isMappedToCurve {
-                            return mappedCurveIdx
-                        } else if fan.isOverridden {
-                            return -2 // Manual Override
-                        } else {
-                            return -1 // BIOS / Auto
-                        }
-                    },
-                    set: { newVal in
-                        if newVal == -1 {
-                            // Revert to BIOS / Auto control in kernel
-                            var updated = controller.fanMappings
-                            updated[fan.id] = -1
-                            controller.fanMappings = updated
-                            controller.unregisterManualOverride(fanId: fan.id)
-                            didDrag = false
-                            Task {
-                                _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fan.id)
-                            }
-                        } else if newVal >= 0 {
-                            var updated = controller.fanMappings
-                            updated[fan.id] = newVal
-                            controller.fanMappings = updated
-                            controller.unregisterManualOverride(fanId: fan.id)
+                    get: { currentModeSelection },
+                    set: { newSelection in
+                        switch newSelection {
+                        case .auto:
+                            controller.setFanMode(fanId: fan.id, mode: .auto)
+                        case .curve(let idx):
+                            controller.setFanMode(fanId: fan.id, mode: .curve, curveIndex: idx)
+                        case .manual:
+                            controller.setFanMode(fanId: fan.id, mode: .manual, manualPWM: fan.throttlePWM)
                         }
                     }
                 )) {
-                    Text("BIOS / Auto").tag(-1)
-                    if fan.isOverridden && !isMappedToCurve {
-                        Text("Manual Override").tag(-2)
-                    }
+                    Text(l10n.fanControl.autoMode).tag(FanCardModeSelection.auto)
                     ForEach(0..<controller.customCurves.count, id: \.self) { idx in
-                        Text(controller.customCurves[idx].name).tag(idx)
+                        Text(String(format: l10n.fanControl.curveBadgeFormat, controller.customCurves[idx].name))
+                            .tag(FanCardModeSelection.curve(idx))
                     }
+                    Text(l10n.fanControl.manualMode).tag(FanCardModeSelection.manual)
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
             }
-            
-            // --- Slider (igual que AMD Power Gadget) ---
-            HStack(spacing: 12) {
-                Text("Override")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                Slider(
-                    value: Binding(
-                        get: { sliderValue },
-                        set: { newVal in
-                            sliderValue = newVal
-                            didDrag = true
-                            controller.registerManualOverride(fanId: fan.id)
-                            writeTask?.cancel()
-                            writeTask = Task {
-                                try? await Task.sleep(nanoseconds: 60_000_000)
-                                guard !Task.isCancelled else { return }
-                                _ = ProcessorModel.shared.setFanMode(auto: false, fanIndex: fan.id)
-                                _ = ProcessorModel.shared.setFanSpeed(pwm: Int(newVal), fanIndex: fan.id)
+
+            // --- Manual Override Slider & Reset Button (Visible ONLY in Manual Mode) ---
+            if fan.controlMode == .manual {
+                Divider()
+
+                HStack(spacing: 12) {
+                    Text(l10n.fanControl.manualSliderLabel)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+
+                    Slider(
+                        value: Binding(
+                            get: { sliderValue },
+                            set: { newVal in
+                                sliderValue = newVal
+                                writeTask?.cancel()
+                                writeTask = Task {
+                                    try? await Task.sleep(nanoseconds: 60_000_000)
+                                    guard !Task.isCancelled else { return }
+                                    controller.setManualPWM(fanId: fan.id, pwm: UInt8(newVal))
+                                }
+                            }
+                        ),
+                        in: 0...255,
+                        step: 1,
+                        onEditingChanged: { editing in
+                            isDraggingSlider = editing
+                            if !editing {
+                                writeTask?.cancel()
+                                controller.setManualPWM(fanId: fan.id, pwm: UInt8(sliderValue))
                             }
                         }
-                    ),
-                    in: 0...255,
-                    step: 1,
-                    onEditingChanged: { editing in
-                        isDraggingSlider = editing
-                        if !editing {
-                            writeTask?.cancel()
-                            _ = ProcessorModel.shared.setFanMode(auto: false, fanIndex: fan.id)
-                            _ = ProcessorModel.shared.setFanSpeed(pwm: Int(sliderValue), fanIndex: fan.id)
-                        }
-                    }
-                )
-                .tint(.cyan)
-                Text(String(format: "%.0f%%", sliderValue / 255.0 * 100.0))
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundColor(.cyan)
-                    .frame(width: 36, alignment: .trailing)
-            }
-            
-            // --- Reset to Auto ---
-            if fan.isOverridden || didDrag {
-                Button("↩ Reset to Auto") {
-                    didDrag = false
-                    controller.unregisterManualOverride(fanId: fan.id)
-                    var updated = controller.fanMappings
-                    updated[fan.id] = -1
-                    controller.fanMappings = updated
-                    Task {
-                        _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fan.id)
-                    }
+                    )
+                    .tint(.cyan)
+
+                    Text(String(format: "%.0f%%", sliderValue / 255.0 * 100.0))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundColor(.cyan)
+                        .frame(width: 38, alignment: .trailing)
                 }
-                .font(.system(size: 11))
-                .foregroundColor(.orange)
+
+                Button(action: {
+                    controller.setFanMode(fanId: fan.id, mode: .auto)
+                }) {
+                    Text(l10n.fanControl.resetToAutoButton)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.orange)
+                }
                 .buttonStyle(.plain)
             }
         }
@@ -521,37 +437,32 @@ struct FanControlCard: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14)
-                .stroke(fan.isOverridden ? Color.orange.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: 1)
+                .stroke(fan.controlMode == .manual ? Color.orange.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: 1)
         )
         .onAppear {
-            if !fan.isOverridden && !didDrag {
-                sliderValue = Double(fan.throttle)
-            }
+            sliderValue = Double(fan.throttlePWM)
         }
-        .onChange(of: fan.throttle) { _, newVal in
-            // Sincronizar slider con telemetria SOLO en modo Auto para no pisar el valor manual fijado por el usuario
-            if !fan.isOverridden && !didDrag && !isDraggingSlider {
+        .onChange(of: fan.throttlePWM) { _, newVal in
+            if !isDraggingSlider && fan.controlMode != .manual {
                 sliderValue = Double(newVal)
-            }
-        }
-        .onChange(of: fan.isOverridden) { _, newVal in
-            if !newVal {
-                didDrag = false
             }
         }
     }
 }
 
 // MARK: - SMC Not Available View
+
 struct SMCNotAvailableView: View {
+    @ObservedObject private var l10n = L10n.shared
+
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 32))
                 .foregroundColor(.orange)
-            Text("SMC driver not available")
+            Text(l10n.fanControl.smcUnavailableTitle)
                 .font(.system(size: 14, weight: .semibold))
-            Text("Your SMC chip may not be supported.")
+            Text(l10n.fanControl.smcUnavailableBody)
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
         }
@@ -561,28 +472,32 @@ struct SMCNotAvailableView: View {
 }
 
 // MARK: - GPU Fan Control Guide View
+
 struct GPUFanControlGuideView: View {
+    @ObservedObject private var l10n = L10n.shared
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "info.circle.fill")
                     .foregroundColor(.cyan)
                     .font(.system(size: 16))
-                Text("macOS Hardware Limitation")
+                Text(l10n.fanControl.gpuLimitationTitle)
                     .font(.system(size: 13, weight: .bold))
             }
-            Text("Direct software-based GPU fan speed overrides (such as zero-rpm toggle or drawing fan curves in macOS) are not supported by the macOS kernel/IOKit driver for AMD GPUs. The GPU's onboard firmware (vBIOS) manages the fans.")
+            Text(l10n.fanControl.gpuLimitationBody)
                 .font(.system(size: 11.5))
                 .foregroundColor(.secondary)
                 .lineSpacing(4)
-            
-            Text("Standard Hackintosh Solution:")
+
+            Text(l10n.fanControl.gpuSpptTitle)
                 .font(.system(size: 12, weight: .semibold))
                 .padding(.top, 4)
-            Text("The only way to modify this behavior (like forcing fans to spin at lower temperatures or disabling Zero RPM) is by exporting the vBIOS, creating a Soft PowerPlay Table (SPPT), and injecting it via OpenCore's config.plist under DeviceProperties.")
+            Text(l10n.fanControl.gpuSpptBody)
                 .font(.system(size: 11.5))
                 .foregroundColor(.secondary)
                 .lineSpacing(4)
         }
     }
 }
+

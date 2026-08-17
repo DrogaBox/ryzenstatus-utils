@@ -31,6 +31,36 @@ struct FanControlFeatureStrings {
     let noCurvesConfigured: String
     let instructionsHint: String
     let userspaceWarning: String
+    let smcTitle: String
+    let showAllHiddenFormat: String
+    let hideFanTooltip: String
+    let bootArgNote: String
+    let privilegeRequiredBanner: String
+    let dynamicCurvesTitle: String
+    let dynamicCurvesSubtitle: String
+    let dynamicCurvesFooter: String
+    let gpuHeader: String
+    let gpuLimitationTitle: String
+    let gpuLimitationBody: String
+    let gpuSpptTitle: String
+    let gpuSpptBody: String
+    let loadingSensors: String
+    let noFansDetected: String
+    let smcUnavailableTitle: String
+    let smcUnavailableBody: String
+    let resetToAutoButton: String
+    let curveBadgeFormat: String
+    let manualBadgeFormat: String
+    let biosAutoBadge: String
+    let manualSliderLabel: String
+    let maxCurvesReached: String
+    let cpuTempSource: String
+    let gpuTempSource: String
+    let currentTempIndicatorFormat: String
+    let deletePointTooltip: String
+    let applyCurveButton: String
+    let appliedCurveBadge: String
+    let revertChangesButton: String
 }
 
 extension FeatureStrings {
@@ -87,7 +117,37 @@ extension FanControlFeatureStrings {
         deleteCurveButton: "Delete Curve",
         noCurvesConfigured: "No custom curves configured.",
         instructionsHint: "Click empty space to add a point (max 8). Double-click or right-click a point to delete.",
-        userspaceWarning: "Userspace fan curves require RyzenStatus to remain running."
+        userspaceWarning: "Userspace fan curves require RyzenStatus to remain running.",
+        smcTitle: "SMC Fan Control",
+        showAllHiddenFormat: "Show All (%d hidden)",
+        hideFanTooltip: "Hide this fan",
+        bootArgNote: "Note: Fan control requires boot-arg -amdpnopchk in OpenCore config.plist and AMDRyzenCPUPowerManagement.kext v1.0.0+.",
+        privilegeRequiredBanner: "Administrator privileges required. Run as root or add boot-arg -amdpnopchk.",
+        dynamicCurvesTitle: "Dynamic Fan Curves",
+        dynamicCurvesSubtitle: "Evaluated natively in kernel with 256-point LUT, hysteresis, and smooth ramping.",
+        dynamicCurvesFooter: "Turning this on allows creating and assigning custom curves to fans. Fans only change control mode when explicitly assigned.",
+        gpuHeader: "GPU",
+        gpuLimitationTitle: "macOS Hardware Limitation",
+        gpuLimitationBody: "Direct software-based GPU fan speed overrides are not supported by the macOS kernel driver for AMD GPUs. The GPU's onboard firmware (vBIOS) manages GPU fans.",
+        gpuSpptTitle: "Soft PowerPlay Table (SPPT):",
+        gpuSpptBody: "The only way to modify GPU fan curves is by exporting the vBIOS and injecting a Soft PowerPlay Table (SPPT) via OpenCore config.plist.",
+        loadingSensors: "Loading fan sensors…",
+        noFansDetected: "No fans detected.",
+        smcUnavailableTitle: "SMC driver not available",
+        smcUnavailableBody: "Your SMC chip may not be supported or AMDRyzenCPUPowerManagement.kext is not loaded.",
+        resetToAutoButton: "↩ Reset to Auto",
+        curveBadgeFormat: "Curve: %@",
+        manualBadgeFormat: "Manual: %@",
+        biosAutoBadge: "BIOS / Auto",
+        manualSliderLabel: "Override",
+        maxCurvesReached: "Maximum 4 curves supported by kernel.",
+        cpuTempSource: "CPU Temp",
+        gpuTempSource: "GPU Temp",
+        currentTempIndicatorFormat: "Current: %.1f °C",
+        deletePointTooltip: "Delete Point",
+        applyCurveButton: "Apply Curve",
+        appliedCurveBadge: "Applied",
+        revertChangesButton: "Revert"
     )
 
     static let es = FanControlFeatureStrings(
@@ -117,7 +177,37 @@ extension FanControlFeatureStrings {
         deleteCurveButton: "Eliminar Curva",
         noCurvesConfigured: "No hay curvas personalizadas configuradas.",
         instructionsHint: "Haz clic en el espacio vacío para añadir un punto (máx 8). Doble clic o clic derecho para eliminar.",
-        userspaceWarning: "Las curvas en espacio de usuario requieren que RyzenStatus permanezca en ejecución."
+        userspaceWarning: "Las curvas en espacio de usuario requieren que RyzenStatus permanezca en ejecución.",
+        smcTitle: "Control de Ventiladores SMC",
+        showAllHiddenFormat: "Mostrar todos (%d ocultos)",
+        hideFanTooltip: "Ocultar este ventilador",
+        bootArgNote: "Nota: El control de ventiladores requiere el boot-arg -amdpnopchk en config.plist de OpenCore y AMDRyzenCPUPowerManagement.kext v1.0.0+.",
+        privilegeRequiredBanner: "Se requieren privilegios de administrador. Ejecute como root o añada el boot-arg -amdpnopchk.",
+        dynamicCurvesTitle: "Curvas Dinámicas de Ventilador",
+        dynamicCurvesSubtitle: "Evaluadas nativamente en el kernel con LUT de 256 puntos, histéresis y aceleración suave.",
+        dynamicCurvesFooter: "Activar esto permite crear y asignar curvas a ventiladores. Los ventiladores solo cambiarán de velocidad al asignarles una curva.",
+        gpuHeader: "GPU",
+        gpuLimitationTitle: "Limitación de Hardware de macOS",
+        gpuLimitationBody: "El control directo por software de los ventiladores de GPU no es compatible con el controlador de kernel de macOS para GPUs AMD. El vBIOS gestiona los ventiladores.",
+        gpuSpptTitle: "Solución Hackintosh (SPPT):",
+        gpuSpptBody: "La única forma de modificar los ventiladores de GPU es exportar la vBIOS e inyectar una Soft PowerPlay Table (SPPT) mediante OpenCore.",
+        loadingSensors: "Cargando sensores de ventilador…",
+        noFansDetected: "No se detectaron ventiladores.",
+        smcUnavailableTitle: "Controlador SMC no disponible",
+        smcUnavailableBody: "Es posible que su chip SMC no sea compatible o que AMDRyzenCPUPowerManagement.kext no esté cargado.",
+        resetToAutoButton: "↩ Restablecer a Automático",
+        curveBadgeFormat: "Curva: %@",
+        manualBadgeFormat: "Manual: %@",
+        biosAutoBadge: "BIOS / Automático",
+        manualSliderLabel: "Ajuste Manual",
+        maxCurvesReached: "Máximo de 4 curvas admitidas por el kernel.",
+        cpuTempSource: "Temp CPU",
+        gpuTempSource: "Temp GPU",
+        currentTempIndicatorFormat: "Actual: %.1f °C",
+        deletePointTooltip: "Eliminar Punto",
+        applyCurveButton: "Aplicar curva",
+        appliedCurveBadge: "Aplicada",
+        revertChangesButton: "Revertir"
     )
 
     static let ptBR = FanControlFeatureStrings(
@@ -147,7 +237,37 @@ extension FanControlFeatureStrings {
         deleteCurveButton: "Excluir Curva",
         noCurvesConfigured: "Nenhuma curva personalizada configurada.",
         instructionsHint: "Clique no espaço vazio para adicionar um ponto (máx 8). Clique duplo ou botão direito para remover.",
-        userspaceWarning: "Curvas em espaço de usuário exigem que o RyzenStatus continue em execução."
+        userspaceWarning: "Curvas em espaço de usuário exigem que o RyzenStatus continue em execução.",
+        smcTitle: "Controle de Ventoinhas SMC",
+        showAllHiddenFormat: "Mostrar todas (%d ocultas)",
+        hideFanTooltip: "Ocultar esta ventoinha",
+        bootArgNote: "Nota: O controle de ventoinhas requer o boot-arg -amdpnopchk no config.plist do OpenCore e AMDRyzenCPUPowerManagement.kext v1.0.0+.",
+        privilegeRequiredBanner: "Privilégios de administrador necessários. Execute como root ou adicione o boot-arg -amdpnopchk.",
+        dynamicCurvesTitle: "Curvas Dinâmicas de Ventoinha",
+        dynamicCurvesSubtitle: "Avaliadas nativamente no kernel com LUT de 256 pontos, histerese e aceleração suave.",
+        dynamicCurvesFooter: "Ativar isso permite criar e associar curvas personalizadas. As ventoinhas só mudam quando atribuídas.",
+        gpuHeader: "GPU",
+        gpuLimitationTitle: "Limitação de Hardware do macOS",
+        gpuLimitationBody: "Controle direto de velocidade de ventoinha de GPU via software não é suportado pelo driver de kernel do macOS para GPUs AMD. O firmware da GPU (vBIOS) gerencia as ventoinhas.",
+        gpuSpptTitle: "Solução Hackintosh (SPPT):",
+        gpuSpptBody: "A única maneira de modificar o comportamento da ventoinha da GPU é exportando a vBIOS e injetando uma Soft PowerPlay Table (SPPT) pelo OpenCore.",
+        loadingSensors: "Carregando sensores de ventoinha…",
+        noFansDetected: "Nenhuma ventoinha detectada.",
+        smcUnavailableTitle: "Driver SMC indisponível",
+        smcUnavailableBody: "Seu chip SMC pode não ser compatível ou o AMDRyzenCPUPowerManagement.kext não está carregado.",
+        resetToAutoButton: "↩ Voltar ao Automático",
+        curveBadgeFormat: "Curva: %@",
+        manualBadgeFormat: "Manual: %@",
+        biosAutoBadge: "BIOS / Automático",
+        manualSliderLabel: "Ajuste Manual",
+        maxCurvesReached: "Máximo de 4 curvas suportadas pelo kernel.",
+        cpuTempSource: "Temp CPU",
+        gpuTempSource: "Temp GPU",
+        currentTempIndicatorFormat: "Atual: %.1f °C",
+        deletePointTooltip: "Excluir Ponto",
+        applyCurveButton: "Aplicar curva",
+        appliedCurveBadge: "Aplicada",
+        revertChangesButton: "Reverter"
     )
 
     static let de = FanControlFeatureStrings(
@@ -177,7 +297,37 @@ extension FanControlFeatureStrings {
         deleteCurveButton: "Kurve löschen",
         noCurvesConfigured: "Keine Lüfterkurven konfiguriert.",
         instructionsHint: "Klicken Sie in den leeren Bereich, um einen Punkt hinzuzufügen (max. 8). Doppelklick oder Rechtsklick zum Löschen.",
-        userspaceWarning: "Lüfterkurven im Userspace erfordern, dass RyzenStatus geöffnet bleibt."
+        userspaceWarning: "Lüfterkurven im Userspace erfordern, dass RyzenStatus geöffnet bleibt.",
+        smcTitle: "SMC-Lüftersteuerung",
+        showAllHiddenFormat: "Alle anzeigen (%d ausgeblendet)",
+        hideFanTooltip: "Diesen Lüfter ausblenden",
+        bootArgNote: "Hinweis: Die Lüftersteuerung erfordert das Boot-Argument -amdpnopchk in OpenCore config.plist und AMDRyzenCPUPowerManagement.kext v1.0.0+.",
+        privilegeRequiredBanner: "Administratorrechte erforderlich. Als Root ausführen oder Boot-Arg -amdpnopchk hinzufügen.",
+        dynamicCurvesTitle: "Dynamische Lüfterkurven",
+        dynamicCurvesSubtitle: "Nativ im Kernel ausgewertet mit 256-Punkte-LUT, Hysterese und sanfter Rampe.",
+        dynamicCurvesFooter: "Ermöglicht das Erstellen und Zuweisen benutzerdefinierter Kurven zu Lüftern.",
+        gpuHeader: "GPU",
+        gpuLimitationTitle: "macOS-Hardwarebeschränkung",
+        gpuLimitationBody: "Direkte softwarebasierte Steuerung der GPU-Lüfter wird vom macOS-Kerneltreiber für AMD-Grafikkarten nicht unterstützt. Das vBIOS steuert die Lüfter.",
+        gpuSpptTitle: "Hackintosh-Lösung (SPPT):",
+        gpuSpptBody: "GPU-Lüfterkurven können nur über das Exportieren des vBIOS und Einfügen einer Soft PowerPlay Table (SPPT) in OpenCore angepasst werden.",
+        loadingSensors: "Lüftersensoren werden geladen…",
+        noFansDetected: "Keine Lüfter erkannt.",
+        smcUnavailableTitle: "SMC-Treiber nicht verfügbar",
+        smcUnavailableBody: "Ihr SMC-Chip wird möglicherweise nicht unterstützt oder AMDRyzenCPUPowerManagement.kext ist nicht geladen.",
+        resetToAutoButton: "↩ Auf Automatisch zurücksetzen",
+        curveBadgeFormat: "Kurve: %@",
+        manualBadgeFormat: "Manuell: %@",
+        biosAutoBadge: "BIOS / Automatisch",
+        manualSliderLabel: "Manuell",
+        maxCurvesReached: "Maximal 4 Kurven vom Kernel unterstützt.",
+        cpuTempSource: "CPU-Temp",
+        gpuTempSource: "GPU-Temp",
+        currentTempIndicatorFormat: "Aktuell: %.1f °C",
+        deletePointTooltip: "Punkt löschen",
+        applyCurveButton: "Kurve anwenden",
+        appliedCurveBadge: "Angewendet",
+        revertChangesButton: "Zurücksetzen"
     )
 
     static let fr = FanControlFeatureStrings(
@@ -207,7 +357,37 @@ extension FanControlFeatureStrings {
         deleteCurveButton: "Supprimer la courbe",
         noCurvesConfigured: "Aucune courbe personnalisée configurée.",
         instructionsHint: "Cliquez sur un espace vide pour ajouter un point (max 8). Double-clic ou clic droit pour supprimer.",
-        userspaceWarning: "Les courbes en espace utilisateur nécessitent que RyzenStatus reste ouvert."
+        userspaceWarning: "Les courbes en espace utilisateur nécessitent que RyzenStatus reste ouvert.",
+        smcTitle: "Contrôle des Ventilateurs SMC",
+        showAllHiddenFormat: "Tout afficher (%d masqués)",
+        hideFanTooltip: "Masquer ce ventilateur",
+        bootArgNote: "Remarque : Le contrôle des ventilateurs nécessite l'argument -amdpnopchk dans le config.plist d'OpenCore et AMDRyzenCPUPowerManagement.kext v1.0.0+.",
+        privilegeRequiredBanner: "Privilèges administrateur requis. Exécutez en root ou ajoutez le boot-arg -amdpnopchk.",
+        dynamicCurvesTitle: "Courbes de Ventilation Dynamiques",
+        dynamicCurvesSubtitle: "Évaluées nativement dans le noyau avec table LUT 256 points, hystérésis et rampe fluide.",
+        dynamicCurvesFooter: "Permet de créer et d'assigner des courbes aux ventilateurs.",
+        gpuHeader: "GPU",
+        gpuLimitationTitle: "Limitation Matérielle macOS",
+        gpuLimitationBody: "Le contrôle direct des ventilateurs GPU par logiciel n'est pas pris en charge par le pilote macOS pour les GPU AMD. Le vBIOS gère les ventilateurs.",
+        gpuSpptTitle: "Solution Hackintosh (SPPT) :",
+        gpuSpptBody: "Le seul moyen de modifier la courbe du GPU est d'exporter le vBIOS et d'injecter une Soft PowerPlay Table (SPPT) via OpenCore.",
+        loadingSensors: "Chargement des capteurs…",
+        noFansDetected: "Aucun ventilateur détecté.",
+        smcUnavailableTitle: "Pilote SMC non disponible",
+        smcUnavailableBody: "Votre puce SMC peut ne pas être prise en charge ou AMDRyzenCPUPowerManagement.kext n'est pas chargé.",
+        resetToAutoButton: "↩ Revenir en Automatique",
+        curveBadgeFormat: "Courbe : %@",
+        manualBadgeFormat: "Manuel : %@",
+        biosAutoBadge: "BIOS / Automatique",
+        manualSliderLabel: "Manuel",
+        maxCurvesReached: "Maximum 4 courbes prises en charge par le noyau.",
+        cpuTempSource: "T° CPU",
+        gpuTempSource: "T° GPU",
+        currentTempIndicatorFormat: "Actuel : %.1f °C",
+        deletePointTooltip: "Supprimer le point",
+        applyCurveButton: "Appliquer la courbe",
+        appliedCurveBadge: "Appliquée",
+        revertChangesButton: "Rétablir"
     )
 
     static let it = FanControlFeatureStrings(
@@ -237,7 +417,37 @@ extension FanControlFeatureStrings {
         deleteCurveButton: "Elimina curva",
         noCurvesConfigured: "Nessuna curva personalizzata configurata.",
         instructionsHint: "Fai clic su uno spazio vuoto per aggiungere un punto (max 8). Doppio clic o clic destro per eliminare.",
-        userspaceWarning: "Le curve in userspace richiedono che RyzenStatus rimanga in esecuzione."
+        userspaceWarning: "Le curve in userspace richiedono che RyzenStatus rimanga in esecuzione.",
+        smcTitle: "Controllo Ventole SMC",
+        showAllHiddenFormat: "Mostra tutte (%d nascoste)",
+        hideFanTooltip: "Nascondi questa ventola",
+        bootArgNote: "Nota: Il controllo delle ventole richiede il boot-arg -amdpnopchk nel config.plist di OpenCore e AMDRyzenCPUPowerManagement.kext v1.0.0+.",
+        privilegeRequiredBanner: "Privilegi di amministratore richiesti. Esegui come root o aggiungi il boot-arg -amdpnopchk.",
+        dynamicCurvesTitle: "Curve Dinamiche delle Ventole",
+        dynamicCurvesSubtitle: "Valutate nativamente nel kernel con LUT a 256 punti, isteresi e rampa fluida.",
+        dynamicCurvesFooter: "Consente di creare e assegnare curve personalizzate alle ventole.",
+        gpuHeader: "GPU",
+        gpuLimitationTitle: "Limitazione Hardware di macOS",
+        gpuLimitationBody: "Il controllo software diretto delle ventole GPU non è supportato dal driver kernel di macOS per GPU AMD. Il vBIOS gestisce le ventole.",
+        gpuSpptTitle: "Soluzione Hackintosh (SPPT):",
+        gpuSpptBody: "L'unico modo per modificare le ventole della GPU è esportare il vBIOS e iniettare una Soft PowerPlay Table (SPPT) tramite OpenCore.",
+        loadingSensors: "Caricamento sensori ventole…",
+        noFansDetected: "Nessuna ventola rilevata.",
+        smcUnavailableTitle: "Driver SMC non disponibile",
+        smcUnavailableBody: "Il chip SMC potrebbe non essere supportato o AMDRyzenCPUPowerManagement.kext non è caricato.",
+        resetToAutoButton: "↩ Ripristina Automatico",
+        curveBadgeFormat: "Curva: %@",
+        manualBadgeFormat: "Manuale: %@",
+        biosAutoBadge: "BIOS / Automatico",
+        manualSliderLabel: "Manuale",
+        maxCurvesReached: "Massimo 4 curve supportate dal kernel.",
+        cpuTempSource: "Temp CPU",
+        gpuTempSource: "Temp GPU",
+        currentTempIndicatorFormat: "Attuale: %.1f °C",
+        deletePointTooltip: "Elimina punto",
+        applyCurveButton: "Applica curva",
+        appliedCurveBadge: "Applicata",
+        revertChangesButton: "Ripristina"
     )
 
     static let ru = FanControlFeatureStrings(
@@ -267,7 +477,37 @@ extension FanControlFeatureStrings {
         deleteCurveButton: "Удалить кривую",
         noCurvesConfigured: "Пользовательские кривые не настроены.",
         instructionsHint: "Нажмите на пустое место, чтобы добавить точку (макс. 8). Двойной клик или правая кнопка для удаления.",
-        userspaceWarning: "Кривые вентиляторов требуют, чтобы приложение RyzenStatus оставалось запущенным."
+        userspaceWarning: "Кривые вентиляторов требуют, чтобы приложение RyzenStatus оставалось запущенным.",
+        smcTitle: "Управление вентиляторами SMC",
+        showAllHiddenFormat: "Показать все (%d скрыто)",
+        hideFanTooltip: "Скрыть этот вентилятор",
+        bootArgNote: "Примечание: Управление вентиляторами требует boot-arg -amdpnopchk в config.plist OpenCore и AMDRyzenCPUPowerManagement.kext v1.0.0+.",
+        privilegeRequiredBanner: "Требуются права администратора. Запустите от root или добавьте boot-arg -amdpnopchk.",
+        dynamicCurvesTitle: "Динамические кривые вентиляторов",
+        dynamicCurvesSubtitle: "Вычисляются нативно в ядре с таблицей LUT на 256 точек, гистерезисом и плавной рампой.",
+        dynamicCurvesFooter: "Позволяет создавать и назначать кривые вентиляторам.",
+        gpuHeader: "GPU",
+        gpuLimitationTitle: "Аппаратное ограничение macOS",
+        gpuLimitationBody: "Прямое управление вентиляторами GPU не поддерживается драйвером ядра macOS для AMD GPU. Вентиляторами управляет vBIOS.",
+        gpuSpptTitle: "Решение для Hackintosh (SPPT):",
+        gpuSpptBody: "Единственный способ настроить кривые GPU — экспортировать vBIOS и внедрить Soft PowerPlay Table (SPPT) через OpenCore.",
+        loadingSensors: "Загрузка датчиков вентиляторов…",
+        noFansDetected: "Вентиляторы не обнаружены.",
+        smcUnavailableTitle: "Драйвер SMC недоступен",
+        smcUnavailableBody: "Ваш чип SMC может не поддерживаться или AMDRyzenCPUPowerManagement.kext не загружен.",
+        resetToAutoButton: "↩ Вернуть в Авто",
+        curveBadgeFormat: "Кривая: %@",
+        manualBadgeFormat: "Вручную: %@",
+        biosAutoBadge: "BIOS / Авто",
+        manualSliderLabel: "Вручную",
+        maxCurvesReached: "Максимум 4 кривые поддерживаются ядром.",
+        cpuTempSource: "Темп. CPU",
+        gpuTempSource: "Темп. GPU",
+        currentTempIndicatorFormat: "Текущая: %.1f °C",
+        deletePointTooltip: "Удалить точку",
+        applyCurveButton: "Применить кривую",
+        appliedCurveBadge: "Применено",
+        revertChangesButton: "Сбросить"
     )
 
     static let tr = FanControlFeatureStrings(
@@ -297,7 +537,37 @@ extension FanControlFeatureStrings {
         deleteCurveButton: "Eğriyi Sil",
         noCurvesConfigured: "Yapılandırılmış özel eğri yok.",
         instructionsHint: "Nokta eklemek için boş alana tıklayın (maks 8). Silmek için çift tıklayın veya sağ tıklayın.",
-        userspaceWarning: "Kullanıcı alanı fan eğrileri, RyzenStatus'un çalışır durumda kalmasını gerektirir."
+        userspaceWarning: "Kullanıcı alanı fan eğrileri, RyzenStatus'un çalışır durumda kalmasını gerektirir.",
+        smcTitle: "SMC Fan Kontrolü",
+        showAllHiddenFormat: "Tümünü Göster (%d gizli)",
+        hideFanTooltip: "Bu fanı gizle",
+        bootArgNote: "Not: Fan kontrolü OpenCore config.plist içinde -amdpnopchk boot-arg ve AMDRyzenCPUPowerManagement.kext v1.0.0+ gerektirir.",
+        privilegeRequiredBanner: "Yönetici yetkileri gerekli. Root olarak çalıştırın veya -amdpnopchk boot-arg ekleyin.",
+        dynamicCurvesTitle: "Dinamik Fan Eğrileri",
+        dynamicCurvesSubtitle: "256 noktalı LUT, histerezis ve yumuşak geçiş ile doğrudan çekirdekte işlenir.",
+        dynamicCurvesFooter: "Özel eğriler oluşturmanıza ve fanlara atamanıza olanak tanır.",
+        gpuHeader: "GPU",
+        gpuLimitationTitle: "macOS Donanım Kısıtlaması",
+        gpuLimitationBody: "Doğrudan yazılım tabanlı GPU fan kontrolü AMD GPU'lar için macOS çekirdek sürücüsü tarafından desteklenmez. Fanları vBIOS yönetir.",
+        gpuSpptTitle: "Hackintosh Çözümü (SPPT):",
+        gpuSpptBody: "GPU fan eğrilerini özelleştirmenin tek yolu vBIOS'u dışa aktarıp OpenCore üzerinden Soft PowerPlay Table (SPPT) enjekte etmektir.",
+        loadingSensors: "Fan sensörleri yükleniyor…",
+        noFansDetected: "Fan algılanmadı.",
+        smcUnavailableTitle: "SMC sürücüsü kullanılamıyor",
+        smcUnavailableBody: "SMC yonganız desteklenmiyor olabilir veya AMDRyzenCPUPowerManagement.kext yüklenmemiş.",
+        resetToAutoButton: "↩ Otomatiğe Sıfırla",
+        curveBadgeFormat: "Eğri: %@",
+        manualBadgeFormat: "Manuel: %@",
+        biosAutoBadge: "BIOS / Otomatik",
+        manualSliderLabel: "Manuel",
+        maxCurvesReached: "Çekirdek tarafından en fazla 4 eğri desteklenir.",
+        cpuTempSource: "CPU Sıcaklığı",
+        gpuTempSource: "GPU Sıcaklığı",
+        currentTempIndicatorFormat: "Mevcut: %.1f °C",
+        deletePointTooltip: "Noktayı Sil",
+        applyCurveButton: "Eğriyi Uygula",
+        appliedCurveBadge: "Uygulandı",
+        revertChangesButton: "Geri Al"
     )
 
     static let ja = FanControlFeatureStrings(
@@ -327,7 +597,37 @@ extension FanControlFeatureStrings {
         deleteCurveButton: "カーブを削除",
         noCurvesConfigured: "カスタムカーブが設定されていません。",
         instructionsHint: "空白をクリックしてポイントを追加（最大8個）。ダブルクリックまたは右クリックで削除。",
-        userspaceWarning: "ユーザー空間のファンカーブはRyzenStatusが起動中のみ有効です。"
+        userspaceWarning: "ユーザー空間のファンカーブはRyzenStatusが起動中のみ有効です。",
+        smcTitle: "SMCファン制御",
+        showAllHiddenFormat: "すべて表示 (%d個非表示)",
+        hideFanTooltip: "このファンを非表示",
+        bootArgNote: "注意: ファン制御にはOpenCoreのconfig.plistにboot-arg -amdpnopchkとAMDRyzenCPUPowerManagement.kext v1.0.0+が必要です。",
+        privilegeRequiredBanner: "管理者権限が必要です。rootで実行するかboot-arg -amdpnopchkを追加してください。",
+        dynamicCurvesTitle: "ダイナミックファンカーブ",
+        dynamicCurvesSubtitle: "256点LUT、ヒステリシス、スムーズランプによりカーネル内でネイティブに処理されます。",
+        dynamicCurvesFooter: "カスタムカーブを作成してファンに割り当てることができます。",
+        gpuHeader: "GPU",
+        gpuLimitationTitle: "macOSのハードウェア制限",
+        gpuLimitationBody: "AMD GPU用のmacOSカーネルドライバーはソフトウェアによる直接のGPUファン制御をサポートしていません。ファンはvBIOSが管理します。",
+        gpuSpptTitle: "Hackintosh標準の解決策 (SPPT):",
+        gpuSpptBody: "GPUファンを調整する唯一の方法は、vBIOSをエクスポートしOpenCore経由でSoft PowerPlay Table (SPPT) を挿入することです。",
+        loadingSensors: "ファンセンサーを読み込み中…",
+        noFansDetected: "ファンが検出されませんでした。",
+        smcUnavailableTitle: "SMCドライバーが利用できません",
+        smcUnavailableBody: "SMCチップがサポートされていないか、AMDRyzenCPUPowerManagement.kextが読み込まれていません。",
+        resetToAutoButton: "↩ 自動に戻す",
+        curveBadgeFormat: "カーブ: %@",
+        manualBadgeFormat: "手動: %@",
+        biosAutoBadge: "BIOS / 自動",
+        manualSliderLabel: "手動設定",
+        maxCurvesReached: "カーネルがサポートするカーブは最大4個です。",
+        cpuTempSource: "CPU温度",
+        gpuTempSource: "GPU温度",
+        currentTempIndicatorFormat: "現在: %.1f °C",
+        deletePointTooltip: "ポイントを削除",
+        applyCurveButton: "カーブを適用",
+        appliedCurveBadge: "適用済み",
+        revertChangesButton: "元に戻す"
     )
 
     static let ko = FanControlFeatureStrings(
@@ -357,7 +657,37 @@ extension FanControlFeatureStrings {
         deleteCurveButton: "곡선 삭제",
         noCurvesConfigured: "설정된 사용자 정의 곡선이 없습니다.",
         instructionsHint: "빈 공간을 클릭하여 포인트를 추가하세요 (최대 8개). 더블 클릭 또는 우클릭으로 삭제합니다.",
-        userspaceWarning: "사용자 공간 팬 곡선은 RyzenStatus가 실행 중일 때만 동작합니다."
+        userspaceWarning: "사용자 공간 팬 곡선은 RyzenStatus가 실행 중일 때만 동작합니다.",
+        smcTitle: "SMC 팬 제어",
+        showAllHiddenFormat: "모두 보기 (%d개 숨김)",
+        hideFanTooltip: "이 팬 숨기기",
+        bootArgNote: "참고: 팬 제어는 OpenCore config.plist의 boot-arg -amdpnopchk 및 AMDRyzenCPUPowerManagement.kext v1.0.0+이 필요합니다.",
+        privilegeRequiredBanner: "관리자 권한이 필요합니다. root로 실행하거나 boot-arg -amdpnopchk를 추가하세요.",
+        dynamicCurvesTitle: "동적 팬 곡선",
+        dynamicCurvesSubtitle: "256포인트 LUT, 히스테리시스, 부드러운 램프로 커널에서 직접 연산됩니다.",
+        dynamicCurvesFooter: "사용자 지정 곡선을 생성하고 팬에 할당할 수 있습니다.",
+        gpuHeader: "GPU",
+        gpuLimitationTitle: "macOS 하드웨어 제한사항",
+        gpuLimitationBody: "macOS 커널 드라이버는 AMD GPU의 소프트웨어 팬 직접 제어를 지원하지 않습니다. 팬은 vBIOS가 관리합니다.",
+        gpuSpptTitle: "해킨토시 표준 해결법 (SPPT):",
+        gpuSpptBody: "GPU 팬 동작을 수정하는 유일한 방법은 vBIOS를 추출하고 OpenCore를 통해 Soft PowerPlay Table (SPPT)을 주입하는 것입니다.",
+        loadingSensors: "팬 센서 로드 중…",
+        noFansDetected: "감지된 팬이 없습니다.",
+        smcUnavailableTitle: "SMC 드라이버 사용 불가",
+        smcUnavailableBody: "SMC 칩이 지원되지 않거나 AMDRyzenCPUPowerManagement.kext가 로드되지 않았습니다.",
+        resetToAutoButton: "↩ 자동 모드로 복원",
+        curveBadgeFormat: "곡선: %@",
+        manualBadgeFormat: "수동: %@",
+        biosAutoBadge: "BIOS / 자동",
+        manualSliderLabel: "수동 조절",
+        maxCurvesReached: "커널에서 최대 4개의 곡선을 지원합니다.",
+        cpuTempSource: "CPU 온도",
+        gpuTempSource: "GPU 온도",
+        currentTempIndicatorFormat: "현재: %.1f °C",
+        deletePointTooltip: "포인트 삭제",
+        applyCurveButton: "곡선 적용",
+        appliedCurveBadge: "적용됨",
+        revertChangesButton: "되돌리기"
     )
 
     static let zhHans = FanControlFeatureStrings(
@@ -387,7 +717,37 @@ extension FanControlFeatureStrings {
         deleteCurveButton: "删除曲线",
         noCurvesConfigured: "尚未配置自定义曲线。",
         instructionsHint: "点击空白处添加控制点（最多 8 个）。双击或右键点击以删除控制点。",
-        userspaceWarning: "用户态风扇曲线需要保持 RyzenStatus 后台运行。"
+        userspaceWarning: "用户态风扇曲线需要保持 RyzenStatus 后台运行。",
+        smcTitle: "SMC 风扇控制",
+        showAllHiddenFormat: "显示全部 (已隐藏 %d 个)",
+        hideFanTooltip: "隐藏此风扇",
+        bootArgNote: "注意：风扇控制需要在 OpenCore config.plist 中添加 boot-arg -amdpnopchk 并加载 AMDRyzenCPUPowerManagement.kext v1.0.0+。",
+        privilegeRequiredBanner: "需要管理员权限。请以 root 身份运行或添加 boot-arg -amdpnopchk。",
+        dynamicCurvesTitle: "动态风扇曲线",
+        dynamicCurvesSubtitle: "在内核中以 256 点 LUT、回差温度和平滑过渡原生运行。",
+        dynamicCurvesFooter: "允许创建自定义风扇曲线并分配给风扇。仅在主动分配后生效。",
+        gpuHeader: "GPU",
+        gpuLimitationTitle: "macOS 硬件限制",
+        gpuLimitationBody: "macOS 内核驱动不支持对 AMD GPU 进行直接软件风扇调速。GPU 风扇由 vBIOS 固件管理。",
+        gpuSpptTitle: "黑苹果常规方案 (SPPT)：",
+        gpuSpptBody: "修改 GPU 风扇策略的唯一方法是提取 vBIOS 并通过 OpenCore 注入 Soft PowerPlay Table (SPPT)。",
+        loadingSensors: "正在读取风扇传感器…",
+        noFansDetected: "未检测到风扇。",
+        smcUnavailableTitle: "SMC 驱动不可用",
+        smcUnavailableBody: "您的 SMC 芯片可能不受支持，或 AMDRyzenCPUPowerManagement.kext 未加载。",
+        resetToAutoButton: "↩ 恢复自动",
+        curveBadgeFormat: "曲线：%@",
+        manualBadgeFormat: "手动：%@",
+        biosAutoBadge: "BIOS / 自动",
+        manualSliderLabel: "手动调节",
+        maxCurvesReached: "内核最多支持 4 条风扇曲线。",
+        cpuTempSource: "CPU 温度",
+        gpuTempSource: "GPU 温度",
+        currentTempIndicatorFormat: "当前：%.1f °C",
+        deletePointTooltip: "删除控制点",
+        applyCurveButton: "应用曲线",
+        appliedCurveBadge: "已应用",
+        revertChangesButton: "还原"
     )
 
     static let zhTW = FanControlFeatureStrings(
@@ -417,8 +777,40 @@ extension FanControlFeatureStrings {
         deleteCurveButton: "刪除曲線",
         noCurvesConfigured: "尚未設定自訂曲線。",
         instructionsHint: "點擊空白處新增控制點（最多 8 個）。連按兩下或右鍵點擊以刪除控制點。",
-        userspaceWarning: "使用者空間風扇曲線需要保持 RyzenStatus 背景執行。"
+        userspaceWarning: "使用者空間風扇曲線需要保持 RyzenStatus 背景執行。",
+        smcTitle: "SMC 風扇控制",
+        showAllHiddenFormat: "顯示全部 (已隱藏 %d 個)",
+        hideFanTooltip: "隱藏此風扇",
+        bootArgNote: "注意：風扇控制需要在 OpenCore config.plist 中加入 boot-arg -amdpnopchk 並載入 AMDRyzenCPUPowerManagement.kext v1.0.0+。",
+        privilegeRequiredBanner: "需要管理者權限。請以 root 身分執行或加入 boot-arg -amdpnopchk。",
+        dynamicCurvesTitle: "動態風扇曲線",
+        dynamicCurvesSubtitle: "在核心中以 256 點 LUT、遲滯溫度與平滑過渡原生運作。",
+        dynamicCurvesFooter: "允許建立自訂風扇曲線並指派給風扇。僅在主動指派後生效。",
+        gpuHeader: "GPU",
+        gpuLimitationTitle: "macOS 硬體限制",
+        gpuLimitationBody: "macOS 核心驅動不支援對 AMD GPU 進行直接軟體風扇調速。GPU 風扇由 vBIOS 韌體管理。",
+        gpuSpptTitle: "黑蘋果常規方案 (SPPT)：",
+        gpuSpptBody: "修改 GPU 風扇策略的唯一方法是擷取 vBIOS 並透過 OpenCore 注入 Soft PowerPlay Table (SPPT)。",
+        loadingSensors: "正在讀取風扇感測器…",
+        noFansDetected: "未偵測到風扇。",
+        smcUnavailableTitle: "SMC 驅動程式不可用",
+        smcUnavailableBody: "您的 SMC 晶片可能不支援，或 AMDRyzenCPUPowerManagement.kext 未載入。",
+        resetToAutoButton: "↩ 恢復自動",
+        curveBadgeFormat: "曲線：%@",
+        manualBadgeFormat: "手動：%@",
+        biosAutoBadge: "BIOS / 自動",
+        manualSliderLabel: "手動調節",
+        maxCurvesReached: "核心最多支援 4 條風扇曲線。",
+        cpuTempSource: "CPU 溫度",
+        gpuTempSource: "GPU 溫度",
+        currentTempIndicatorFormat: "目前：%.1f °C",
+        deletePointTooltip: "刪除控制點",
+        applyCurveButton: "套用曲線",
+        appliedCurveBadge: "已套用",
+        revertChangesButton: "復原"
     )
 
     static let zhHK = zhTW
 }
+
+

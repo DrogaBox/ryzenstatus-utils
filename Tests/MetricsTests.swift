@@ -6352,7 +6352,98 @@ struct MetricsTests {
         expect(packed[16] == silentLUT[0], "LUT starts at offset 16")
         expect(packed[271] == silentLUT[255], "LUT ends at offset 271")
 
-        // MARK: CPU Generation + Curve Optimizer gate (selectors 110/111)
+        // MARK: Total Rewrite Fan Subsystem Tests (kext-native primary path)
+
+        // 1. Selector 103 registration
+        expect(AMDKextSelector.gpuTempWrite.rawValue == 103, "gpuTempWrite selector is 103")
+
+        // 2. FanControlMode raw values
+        expect(FanControlMode.auto.rawValue == 0, "FanControlMode.auto is 0")
+        expect(FanControlMode.curve.rawValue == 1, "FanControlMode.curve is 1")
+        expect(FanControlMode.manual.rawValue == 2, "FanControlMode.manual is 2")
+
+        // 3. FanState telemetry derivation and display names
+        let autoFan = FanState(id: 0, name: "FAN1", rpm: 1200, throttlePWM: 128, isKextAuto: true, controlMode: .auto)
+        expect(abs(autoFan.pwmPercentage - (128.0 / 255.0 * 100.0)) < 0.01, "FanState calculates correct PWM percentage")
+        expect(autoFan.effectiveDisplayName == "FAN1", "FanState uses hardware name when no custom name")
+        let customNamedFan = FanState(id: 1, name: "FAN2", rpm: 800, throttlePWM: 64, isKextAuto: false, controlMode: .manual, customName: "Front Intake")
+        expect(customNamedFan.effectiveDisplayName == "Front Intake", "FanState uses custom name when present")
+        let fallbackNamedFan = FanState(id: 2, name: "", rpm: 0, throttlePWM: 0, isKextAuto: true, controlMode: .auto)
+        expect(fallbackNamedFan.effectiveDisplayName == "Fan 3", "FanState falls back to 1-indexed generic name")
+
+        // 4. Anchor-Convert-First LUT Generation
+        let testDef = FanCurveDefinition(
+            name: "TestCurve",
+            kextSlot: 2,
+            points: [
+                FanCurvePoint(temp: 40, pwm: 20),
+                FanCurvePoint(temp: 85, pwm: 80)
+            ],
+            sourceSensor: .gpu,
+            hysteresis: 3,
+            rampRate: 10
+        )
+        let generatedSMC = testDef.makeSMC_LUT()
+        expect(generatedSMC.count == 256, "makeSMC_LUT returns exactly 256 entries")
+        // Anchor at 40°C -> round(20 * 2.55) = 51
+        expect(generatedSMC[0] == 51 && generatedSMC[40] == 51, "LUT clamps to first anchor below 40°C")
+        // Anchor at 85°C -> round(80 * 2.55) = 204
+        expect(generatedSMC[85] == 204 && generatedSMC[100] == 204 && generatedSMC[255] == 204, "LUT clamps to last anchor above 85°C")
+        let isMonotonic = (0..<255).allSatisfy { generatedSMC[$0] <= generatedSMC[$0 + 1] }
+        expect(isMonotonic, "converted-first SMC LUT is monotonically non-decreasing")
+
+        // 5. Ramp rate conversion to SMC scale
+        let inputPacked = testDef.makeKextInput(slot: 2)
+        expect(inputPacked.curveIndex == 2, "makeKextInput sets slot index")
+        expect(inputPacked.sourceSensor == 1, "makeKextInput maps .gpu to sensor 1")
+        expect(inputPacked.hysteresis == 3, "makeKextInput sets hysteresis")
+        expect(inputPacked.rampRate == 26, "makeKextInput scales ramp rate 10 %/s to 26 SMC units/s")
+        expect(inputPacked.packedData().count == 272, "makeKextInput packs to 272 bytes")
+
+        // Ramp rate conversion scaling check
+        expect(UInt8(min(255, max(1, Int((1.0 * 2.55).rounded())))) == 3, "1 %/s converts to 3 SMC units/s")
+        expect(UInt8(min(255, max(1, Int((5.0 * 2.55).rounded())))) == 13, "5 %/s converts to 13 SMC units/s")
+        expect(UInt8(min(255, max(1, Int((20.0 * 2.55).rounded())))) == 51, "20 %/s converts to 51 SMC units/s")
+
+        // 6. Mapping compaction on deletion
+        let comp1 = FanCurveDefinition.compactMappingsOnDeletion(mappings: [0: 0, 1: 1, 2: 2, 3: 3], deletedIndex: 1)
+        expect(comp1 == [0: 0, 1: -1, 2: 1, 3: 2], "compactMappingsOnDeletion unmaps deleted slot and shifts higher slots down")
+        let comp2 = FanCurveDefinition.compactMappingsOnDeletion(mappings: [0: -1, 1: 0, 2: 3], deletedIndex: 0)
+        expect(comp2 == [0: -1, 1: -1, 2: 2], "compactMappingsOnDeletion preserves unmapped -1 and decrements slot 3 to 2")
+
+        // 7. Full 13-language localization validation for FanControlFeatureStrings
+        for lang in AppLanguage.allCases {
+            let s = FeatureStrings.fanControl(lang)
+            expect(!s.smcTitle.isEmpty, "\(lang.rawValue) smcTitle is non-empty")
+            expect(!s.bootArgNote.isEmpty, "\(lang.rawValue) bootArgNote is non-empty")
+            expect(!s.privilegeRequiredBanner.isEmpty, "\(lang.rawValue) privilegeRequiredBanner is non-empty")
+            expect(!s.dynamicCurvesTitle.isEmpty, "\(lang.rawValue) dynamicCurvesTitle is non-empty")
+            expect(!s.dynamicCurvesSubtitle.isEmpty, "\(lang.rawValue) dynamicCurvesSubtitle is non-empty")
+            expect(!s.dynamicCurvesFooter.isEmpty, "\(lang.rawValue) dynamicCurvesFooter is non-empty")
+            expect(!s.gpuHeader.isEmpty, "\(lang.rawValue) gpuHeader is non-empty")
+            expect(!s.gpuLimitationTitle.isEmpty, "\(lang.rawValue) gpuLimitationTitle is non-empty")
+            expect(!s.gpuLimitationBody.isEmpty, "\(lang.rawValue) gpuLimitationBody is non-empty")
+            expect(!s.gpuSpptTitle.isEmpty, "\(lang.rawValue) gpuSpptTitle is non-empty")
+            expect(!s.gpuSpptBody.isEmpty, "\(lang.rawValue) gpuSpptBody is non-empty")
+            expect(!s.loadingSensors.isEmpty, "\(lang.rawValue) loadingSensors is non-empty")
+            expect(!s.noFansDetected.isEmpty, "\(lang.rawValue) noFansDetected is non-empty")
+            expect(!s.smcUnavailableTitle.isEmpty, "\(lang.rawValue) smcUnavailableTitle is non-empty")
+            expect(!s.smcUnavailableBody.isEmpty, "\(lang.rawValue) smcUnavailableBody is non-empty")
+            expect(!s.resetToAutoButton.isEmpty, "\(lang.rawValue) resetToAutoButton is non-empty")
+            expect(!s.curveBadgeFormat.isEmpty, "\(lang.rawValue) curveBadgeFormat is non-empty")
+            expect(!s.manualBadgeFormat.isEmpty, "\(lang.rawValue) manualBadgeFormat is non-empty")
+            expect(!s.biosAutoBadge.isEmpty, "\(lang.rawValue) biosAutoBadge is non-empty")
+            expect(!s.manualSliderLabel.isEmpty, "\(lang.rawValue) manualSliderLabel is non-empty")
+            expect(!s.maxCurvesReached.isEmpty, "\(lang.rawValue) maxCurvesReached is non-empty")
+            expect(!s.cpuTempSource.isEmpty, "\(lang.rawValue) cpuTempSource is non-empty")
+            expect(!s.gpuTempSource.isEmpty, "\(lang.rawValue) gpuTempSource is non-empty")
+            expect(!s.currentTempIndicatorFormat.isEmpty, "\(lang.rawValue) currentTempIndicatorFormat is non-empty")
+            expect(!s.deletePointTooltip.isEmpty, "\(lang.rawValue) deletePointTooltip is non-empty")
+            expect(!s.applyCurveButton.isEmpty, "\(lang.rawValue) applyCurveButton is non-empty")
+            expect(!s.appliedCurveBadge.isEmpty, "\(lang.rawValue) appliedCurveBadge is non-empty")
+            expect(!s.revertChangesButton.isEmpty, "\(lang.rawValue) revertChangesButton is non-empty")
+        }
+
 
         // Classification ranges (family 0x19: Zen 3 < 0x60, Zen 4 0x60–0x7F,
         // Zen 5 ≥ 0x90; family 0x1A = Zen 5 mobile).

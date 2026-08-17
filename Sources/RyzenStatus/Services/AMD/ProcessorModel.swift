@@ -1439,6 +1439,15 @@ actor ProcessorModel {
         return kernelSetUInt64Status(selector: AMDKextSelector.fanToCurveMap.id, args: [UInt64(fanIndex), rawCurve])
     }
 
+    /// Injects the latest GPU temperature into the kext (selector 103) for GPU-sourced fan curves.
+    /// Clamped to [0.0, 120.0] °C. Requires privilege (-amdpnopchk or root).
+    @discardableResult
+    nonisolated func setKextGPUTemp(_ tempC: Float) -> kern_return_t {
+        let clamped = max(0.0, min(120.0, tempC))
+        var rawBitPattern = UInt64(clamped.bitPattern)
+        return safeIOConnectCallMethod(AMDKextSelector.gpuTempWrite.id, &rawBitPattern, 1, nil, 0, nil, nil, nil, nil)
+    }
+
     @discardableResult
     nonisolated func setCurveOptimizerOffset(core: UInt8, offset: Int8) -> kern_return_t {
         // cast offset to raw bit representation for transfer over 64-bit parameter
