@@ -50,8 +50,7 @@ final class NowPlayingService: ObservableObject {
     private var statusItem: NSStatusItem?
     private var lastRenderedKey = ""
     private var marqueeTimer: Timer?
-    private var marqueePhase = MarqueePhase.idle
-    private var lastMarqueeText = ""
+    private var marqueeEngine = NowPlayingMarqueeEngine()
     private var lastPollStartedAt: TimeInterval = 0
     private var pollGeneration = 0
     private var appNameCache: [String: String?] = [:]
@@ -71,6 +70,10 @@ final class NowPlayingService: ObservableObject {
     private init() {
         popupHotkey.onPress = { [weak self] in self?.onTogglePopupHotkey?() }
         detachedHotkey.onPress = { [weak self] in self?.onToggleDetachedHotkey?() }
+    }
+
+    deinit {
+        stop()
     }
 
     // MARK: - Lifecycle
@@ -510,92 +513,32 @@ final class NowPlayingService: ObservableObject {
     /// The menu bar font of the composed item, shared by measurement and draw
     /// so the marquee overflow check and the pixels always agree.
     private static let menuBarTextFont = NSFont.systemFont(ofSize: 12, weight: .medium)
-    /// The text lane never grows past this; longer text scrolls instead.
-    private static let marqueeMaxTextWidth: CGFloat = 260
-    /// Pause before the first scroll and between loops.
-    private static let marqueeHoldDuration: TimeInterval = 1.6
-    private static let marqueeSpeed: CGFloat = 26 // pt per second
-    /// Breathing room between the tail of one pass and the head of the next.
-    private static let marqueeLoopGap: CGFloat = 48
-    private static let marqueeSlideDuration: TimeInterval = 0.45
     private static let marqueeTickInterval: TimeInterval = 1.0 / 20.0
-
-    /// The marquee lifecycle: a new track slides in (optionally), holds, scrolls
-    /// left, and loops with a hold between passes.
-    private enum MarqueePhase {
-        case idle
-        case slideIn(startedAt: TimeInterval)
-        case hold(startedAt: TimeInterval)
-        case scroll(startedAt: TimeInterval)
-    }
 
     /// Advances the marquee state machine and returns the horizontal offset
     /// to draw the text at (nil = static render). The tick timer only exists
     /// while text genuinely overflows the lane, so an idle bar costs nothing.
     private func updateMarquee(text: String, enabled: Bool) -> CGFloat? {
-        let needsMarquee = enabled && !text.isEmpty
-            && Self.menuBarTextWidth(text) > Self.marqueeMaxTextWidth
-        guard needsMarquee else {
-            stopMarquee()
-            return nil
-        }
+        let textWidth = Self.menuBarTextWidth(text)
+        let slide = UserDefaults.standard.bool(forKey: DefaultsKey.nowPlayingMarqueeSlide)
         let now = CACurrentMediaTime()
-        if text != lastMarqueeText {
-            lastMarqueeText = text
-            let slide = UserDefaults.standard.bool(forKey: DefaultsKey.nowPlayingMarqueeSlide)
-            marqueePhase = slide ? .slideIn(startedAt: now) : .hold(startedAt: now)
-        }
-        switch marqueePhase {
-        case .idle:
-            stopMarquee()
-            return 0
-        case .slideIn(let startedAt):
+        let result = marqueeEngine.update(text: text,
+                                          textWidth: textWidth,
+                                          enabled: enabled,
+                                          slide: slide,
+                                          now: now)
+        if result.shouldTick {
             startMarqueeTimer()
-            let progress = min(1, (now - startedAt) / Self.marqueeSlideDuration)
-            if progress >= 1 {
-                marqueePhase = .hold(startedAt: now)
-                stopMarquee()
-                DispatchQueue.main.asyncAfter(deadline: .now() + Self.marqueeHoldDuration) { [weak self] in
-                    guard let self, case .hold = self.marqueePhase else { return }
-                    self.marqueePhase = .scroll(startedAt: CACurrentMediaTime())
-                    self.startMarqueeTimer()
-                    self.renderMenuBar()
-                }
-                return 0
-            }
-            let eased = CGFloat(1 - pow(1 - progress, 3))
-            return -Self.marqueeMaxTextWidth * (1 - eased)
-        case .hold(let startedAt):
-            if now - startedAt >= Self.marqueeHoldDuration {
-                marqueePhase = .scroll(startedAt: now)
-                startMarqueeTimer()
-            } else {
-                stopMarquee()
-                DispatchQueue.main.asyncAfter(deadline: .now() + (Self.marqueeHoldDuration - (now - startedAt))) { [weak self] in
-                    guard let self, case .hold = self.marqueePhase else { return }
-                    self.marqueePhase = .scroll(startedAt: CACurrentMediaTime())
-                    self.startMarqueeTimer()
+        } else {
+            stopMarqueeTimer()
+            if let delay = result.nextHoldDelay {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    guard let self else { return }
                     self.renderMenuBar()
                 }
             }
-            return 0
-        case .scroll(let startedAt):
-            startMarqueeTimer()
-            let distance = Self.menuBarTextWidth(text) + Self.marqueeLoopGap
-            let offset = CGFloat(now - startedAt) * Self.marqueeSpeed
-            if offset >= distance {
-                marqueePhase = .hold(startedAt: now)
-                stopMarquee()
-                DispatchQueue.main.asyncAfter(deadline: .now() + Self.marqueeHoldDuration) { [weak self] in
-                    guard let self, case .hold = self.marqueePhase else { return }
-                    self.marqueePhase = .scroll(startedAt: CACurrentMediaTime())
-                    self.startMarqueeTimer()
-                    self.renderMenuBar()
-                }
-                return 0
-            }
-            return offset
         }
+        return result.offset
     }
 
     private func startMarqueeTimer() {
@@ -608,11 +551,14 @@ final class NowPlayingService: ObservableObject {
         marqueeTimer = timer
     }
 
-    private func stopMarquee() {
+    private func stopMarqueeTimer() {
         marqueeTimer?.invalidate()
         marqueeTimer = nil
-        marqueePhase = .idle
-        lastMarqueeText = ""
+    }
+
+    private func stopMarquee() {
+        stopMarqueeTimer()
+        marqueeEngine.reset()
     }
 
     private static func menuBarTextWidth(_ text: String) -> CGFloat {
@@ -676,7 +622,7 @@ final class NowPlayingService: ObservableObject {
                 if let marqueeOffset {
                     NSGraphicsContext.saveGraphicsState()
                     NSRect(x: laneX, y: 0, width: textSize.width, height: totalHeight).clip()
-                    let loopDistance = menuBarTextWidth(text) + marqueeLoopGap
+                    let loopDistance = menuBarTextWidth(text) + NowPlayingMarqueeEngine.loopGap
                     for shift in [marqueeOffset, marqueeOffset - loopDistance] {
                         let x = laneX - shift
                         if x < laneX + textSize.width, x + menuBarTextWidth(text) > laneX {

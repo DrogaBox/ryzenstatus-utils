@@ -317,3 +317,86 @@ enum MediaRemoteBridge {
                      ["kMRMediaRemoteOptionSeekToPlaybackPosition": seconds])
     }
 }
+
+/// Pure Foundation-only state machine for menu bar marquee text animation:
+/// slide-in (optional) → hold → scroll → loop with hold pauses between passes.
+struct NowPlayingMarqueeEngine {
+    static let maxTextWidth: CGFloat = 260
+    static let holdDuration: TimeInterval = 1.6
+    static let speed: CGFloat = 26 // pt per second
+    static let loopGap: CGFloat = 48
+    static let slideDuration: TimeInterval = 0.45
+
+    enum Phase: Equatable {
+        case idle
+        case slideIn(startedAt: TimeInterval)
+        case hold(startedAt: TimeInterval)
+        case scroll(startedAt: TimeInterval)
+    }
+
+    struct StepResult: Equatable {
+        let offset: CGFloat?
+        let shouldTick: Bool
+        let nextHoldDelay: TimeInterval?
+    }
+
+    private(set) var phase = Phase.idle
+    private(set) var lastText = ""
+
+    mutating func reset() {
+        phase = .idle
+        lastText = ""
+    }
+
+    mutating func update(text: String,
+                         textWidth: CGFloat,
+                         enabled: Bool,
+                         slide: Bool,
+                         now: TimeInterval) -> StepResult {
+        let needsMarquee = enabled && !text.isEmpty && textWidth > Self.maxTextWidth
+        guard needsMarquee else {
+            reset()
+            return StepResult(offset: nil, shouldTick: false, nextHoldDelay: nil)
+        }
+
+        if text != lastText {
+            lastText = text
+            phase = slide ? .slideIn(startedAt: now) : .hold(startedAt: now)
+        }
+
+        switch phase {
+        case .idle:
+            return StepResult(offset: 0, shouldTick: false, nextHoldDelay: nil)
+
+        case .slideIn(let startedAt):
+            let elapsed = now - startedAt
+            if elapsed >= Self.slideDuration - 1e-5 {
+                phase = .hold(startedAt: now)
+                return StepResult(offset: 0, shouldTick: false, nextHoldDelay: Self.holdDuration)
+            }
+            let progress = min(1, max(0, elapsed / Self.slideDuration))
+            let eased = CGFloat(1 - pow(1 - progress, 3))
+            let offset = -Self.maxTextWidth * (1 - eased)
+            return StepResult(offset: offset, shouldTick: true, nextHoldDelay: nil)
+
+        case .hold(let startedAt):
+            let elapsed = now - startedAt
+            if elapsed >= Self.holdDuration - 1e-5 {
+                phase = .scroll(startedAt: now)
+                return StepResult(offset: 0, shouldTick: true, nextHoldDelay: nil)
+            } else {
+                let remaining = max(0, Self.holdDuration - elapsed)
+                return StepResult(offset: 0, shouldTick: false, nextHoldDelay: remaining)
+            }
+
+        case .scroll(let startedAt):
+            let distance = textWidth + Self.loopGap
+            let offset = CGFloat(max(0, now - startedAt)) * Self.speed
+            if offset >= distance - 1e-5 {
+                phase = .hold(startedAt: now)
+                return StepResult(offset: 0, shouldTick: false, nextHoldDelay: Self.holdDuration)
+            }
+            return StepResult(offset: offset, shouldTick: true, nextHoldDelay: nil)
+        }
+    }
+}

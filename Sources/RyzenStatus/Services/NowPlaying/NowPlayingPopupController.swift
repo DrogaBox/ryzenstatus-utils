@@ -301,7 +301,15 @@ final class NowPlayingPopupController: ObservableObject {
     func tearDown() {
         morphTimer?.invalidate()
         morphTimer = nil
+        if let moveObserver {
+            NotificationCenter.default.removeObserver(moveObserver)
+        }
+        moveObserver = nil
         closeDetached()
+    }
+
+    deinit {
+        tearDown()
     }
 
     /// Where the detached window appears: the persisted origin once the user

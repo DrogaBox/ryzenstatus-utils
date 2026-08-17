@@ -263,7 +263,7 @@ final class NowPlayingLyricsCenter: ObservableObject {
         let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self else { return }
             self.queue.async {
-                self.inflightTasks.removeAll { $0.state == .completed }
+                self.inflightTasks.removeAll { $0.state == .completed || $0.state == .canceling }
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             guard error == nil, (200...299).contains(status), let data,

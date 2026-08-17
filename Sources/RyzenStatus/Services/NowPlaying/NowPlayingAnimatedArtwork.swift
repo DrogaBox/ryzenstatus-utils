@@ -482,6 +482,7 @@ final class NowPlayingAnimatedArtworkCenter: ObservableObject {
 private final class NowPlayingAnimatedArtworkPlayerView: NSView {
     private let playerLayer = AVPlayerLayer()
     private var player: AVPlayer?
+    private var currentStreamURL: URL?
     private var endObserver: NSObjectProtocol?
     private var itemStatusObservation: NSKeyValueObservation?
     private var layerReadinessObservation: NSKeyValueObservation?
@@ -509,7 +510,8 @@ private final class NowPlayingAnimatedArtworkPlayerView: NSView {
     }
 
     func configure(streamURL: URL) {
-        guard player == nil || playerLayer.player == nil else { return }
+        guard currentStreamURL != streamURL || player == nil || playerLayer.player == nil else { return }
+        currentStreamURL = streamURL
         setupPlayer(streamURL: streamURL)
     }
 
@@ -520,6 +522,7 @@ private final class NowPlayingAnimatedArtworkPlayerView: NSView {
 
     private func setupPlayer(streamURL: URL) {
         teardownPlayer(shouldNotify: false)
+        currentStreamURL = streamURL
         hasReportedReady = false
 
         let item = AVPlayerItem(url: streamURL)
@@ -557,6 +560,7 @@ private final class NowPlayingAnimatedArtworkPlayerView: NSView {
     }
 
     private func teardownPlayer(shouldNotify: Bool) {
+        currentStreamURL = nil
         itemStatusObservation = nil
         layerReadinessObservation = nil
         if let endObserver {

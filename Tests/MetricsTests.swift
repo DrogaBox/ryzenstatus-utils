@@ -6401,6 +6401,218 @@ struct MetricsTests {
         expect(!AMDCurveOptimizer.validOffsets([1, 2], coreCount: 3), "short offsets are invalid")
         expect(!AMDCurveOptimizer.validOffsets([], coreCount: 4), "empty offsets are invalid")
 
+        // MARK: Now Playing tests
+
+        // 1. LRC Synced & Plain Lyrics Parsing
+        let sampleLRC = """
+        [ar:Test Artist]
+        [ti:Test Track]
+        [offset:500]
+        [01:23.45]First lyric line
+        [02:10.500]Second lyric line with 3 digits
+        [00:45]Integer seconds line
+        """
+        let parsedLRC = NowPlayingLyricsText.parseLRC(sampleLRC)
+        expect(parsedLRC != nil, "LRC parser accepts valid timestamp formats and offset")
+        if let parsedLRC {
+            expect(parsedLRC.count == 3, "LRC metadata header lines are stripped, keeping 3 lyric lines")
+            // 00:45 + 0.5s offset = 45.5s
+            expectClose(parsedLRC[0].startTime ?? 0, 45.5, "LRC sorts lines chronologically (line 1 at 45.5s)")
+            expectEqual(parsedLRC[0].text, "Integer seconds line", "Line 1 text matches")
+            // 01:23.45 = 83.45 + 0.5s offset = 83.95s
+            expectClose(parsedLRC[1].startTime ?? 0, 83.95, "Line 2 startTime is 83.95s")
+            expectEqual(parsedLRC[1].text, "First lyric line", "Line 2 text matches")
+            // 02:10.500 = 130.5 + 0.5s offset = 131.0s
+            expectClose(parsedLRC[2].startTime ?? 0, 131.0, "Line 3 startTime is 131.0s")
+            expectEqual(parsedLRC[2].text, "Second lyric line with 3 digits", "Line 3 text matches")
+        }
+
+        let multiTimestampLRC = "[00:10.00][00:20.00]Chorus line"
+        let parsedMulti = NowPlayingLyricsText.parseLRC(multiTimestampLRC)
+        expect(parsedMulti?.count == 2, "LRC parser handles multiple timestamps on a single line")
+        if let parsedMulti, parsedMulti.count == 2 {
+            expectClose(parsedMulti[0].startTime ?? 0, 10.0, "First timestamp is 10.0s")
+            expectClose(parsedMulti[1].startTime ?? 0, 20.0, "Second timestamp is 20.0s")
+            expectEqual(parsedMulti[0].text, "Chorus line", "First line text")
+            expectEqual(parsedMulti[1].text, "Chorus line", "Second line text")
+        }
+
+        let negativeOffsetLRC = "[offset:-250]\n[01:00.00]Negative offset line"
+        let parsedNegOffset = NowPlayingLyricsText.parseLRC(negativeOffsetLRC)
+        if let parsedNegOffset, parsedNegOffset.count == 1 {
+            expectClose(parsedNegOffset[0].startTime ?? 0, 59.75, "Negative offset subtracts from start time")
+        }
+
+        expect(NowPlayingLyricsText.parseLRC("") == nil, "Empty string yields nil LRC")
+        expect(NowPlayingLyricsText.parseLRC("[ar:Artist]\n[ti:Title]") == nil, "Metadata-only LRC yields nil")
+        expect(NowPlayingLyricsText.parseLRC("Plain text without brackets") == nil, "Plain text yields nil from parseLRC")
+
+        let plainText = "  First plain line \r\n\r\n Second plain line  \n"
+        let normalizedPlain = NowPlayingLyricsText.normalizePlain(plainText)
+        expect(normalizedPlain.count == 2, "normalizePlain removes blank lines and carriage returns")
+        expect(normalizedPlain[0].text == "First plain line" && normalizedPlain[0].startTime == nil,
+               "Plain lines preserve content with nil startTime")
+        expect(normalizedPlain[1].text == "Second plain line", "Second plain line matches")
+
+        let normalizedMatch = NowPlayingLyricsText.normalizeForMatch("Song Title (Remix) [feat. Artist] (Deluxe Version)")
+        expectEqual(normalizedMatch, "song title", "normalizeForMatch strips parentheticals, punctuation, and drop tokens")
+
+        expectClose(NowPlayingLyricsText.similarityScore(lhs: "hello world", rhs: "hello world"), 1.0, "exact similarity is 1.0")
+        expectClose(NowPlayingLyricsText.similarityScore(lhs: "hello world", rhs: "hello"), 0.92, "containment similarity is 0.92")
+        expectClose(NowPlayingLyricsText.similarityScore(lhs: "hello world", rhs: "foo bar"), 0.0, "disjoint similarity is 0.0")
+
+        let candidateDict: [String: Any] = [
+            "track_name": "Test Track",
+            "artist_name": "Test Artist",
+            "duration": 210.0,
+            "synced_lyrics": "[00:10.00]Synced lyric",
+            "plain_lyrics": "Plain lyric"
+        ]
+        let candidate = NowPlayingLyricsCandidate.from(dictionary: candidateDict)
+        expect(candidate != nil, "Candidate decodes from snake_case dictionary")
+        expect(candidate?.hasSyncedLyrics == true, "Candidate detects synced lyrics")
+        if let candidate {
+            let score = candidate.matchScore(queryTitle: "Test Track", queryArtist: "Test Artist", queryDuration: 210.0)
+            expect(score > 0.9, "Candidate matching score is above 0.9 for exact match")
+            let payload = NowPlayingLyricsCandidate.payload(from: candidate)
+            expect(payload?.isTimed == true, "Payload prefers timed synced lyrics")
+            expectEqual(payload?.sourceName ?? "", "lrclib.net", "Payload source is lrclib.net")
+        }
+
+        let credits = NowPlayingCreditsBuilder.build(
+            title: "Song", artist: "Main Artist", albumArtist: "Album Artist",
+            album: "Album", composer: "Composer", genre: "Rock",
+            year: 2024, trackNumber: 3, sourceName: "Music"
+        )
+        expect(credits != nil, "Credits builder produces payload with distinct album artist")
+        expect(credits?.hasContent == true, "Credits payload has content")
+        expect(credits?.sections.count == 3, "Credits payload includes Contributors, Release, Catalog")
+
+        // 2. Artwork Identity Proxy & Snapshot Equality
+        var snapA = NowPlayingSnapshot()
+        snapA.title = "Song A"
+        snapA.artist = "Artist A"
+        snapA.isPlaying = true
+        snapA.artworkData = Data(repeating: 0x42, count: 128)
+
+        var snapB = snapA
+        expect(snapA == snapB, "Snapshots with identical metadata and artwork are equal")
+
+        snapB.artworkData = Data(repeating: 0x42, count: 128)
+        expect(snapA == snapB, "Snapshots with identical artwork buffers are equal")
+
+        // Same length and first 64 bytes identical -> equal by identity proxy rule
+        var proxyData = Data(repeating: 0x42, count: 64)
+        proxyData.append(Data(repeating: 0x99, count: 64))
+        snapB.artworkData = proxyData
+        expect(snapA == snapB, "Artwork proxy matches equal count and identical first 64 bytes")
+
+        // Different count -> not equal
+        snapB.artworkData = Data(repeating: 0x42, count: 130)
+        expect(snapA != snapB, "Different artwork byte count results in inequality")
+
+        // Different first 64 bytes -> not equal
+        var diffPrefix = Data(repeating: 0x11, count: 64)
+        diffPrefix.append(Data(repeating: 0x42, count: 64))
+        snapB.artworkData = diffPrefix
+        expect(snapA != snapB, "Different artwork prefix results in inequality")
+
+        // nil vs non-nil artwork
+        snapB = snapA
+        snapB.artworkData = nil
+        expect(snapA != snapB, "nil vs non-nil artwork results in inequality")
+
+        expectEqual(NowPlayingSnapshot.artworkFingerprint(of: nil), "", "nil artwork fingerprint is empty string")
+        expectEqual(NowPlayingSnapshot.artworkFingerprint(of: Data()), "", "empty artwork fingerprint is empty string")
+
+        // 3. Progress Quantization
+        func quantizeProgress(_ progress: Double?) -> String {
+            progress != nil ? String(Int(progress! * 100)) : "-"
+        }
+        expectEqual(quantizeProgress(0.0), "0", "progress 0.0 quantizes to 0")
+        expectEqual(quantizeProgress(0.009), "0", "progress 0.009 quantizes to 0")
+        expectEqual(quantizeProgress(0.01), "1", "progress 0.01 quantizes to 1")
+        expectEqual(quantizeProgress(0.50), "50", "progress 0.50 quantizes to 50")
+        expectEqual(quantizeProgress(0.999), "99", "progress 0.999 quantizes to 99")
+        expectEqual(quantizeProgress(1.0), "100", "progress 1.0 quantizes to 100")
+        expectEqual(quantizeProgress(nil), "-", "nil progress quantizes to -")
+
+        // 4. Marquee State Machine Engine
+        var marquee = NowPlayingMarqueeEngine()
+        expect(marquee.phase == .idle, "Initial marquee phase is idle")
+
+        // Short text (no overflow)
+        let shortRes = marquee.update(text: "Short text", textWidth: 150, enabled: true, slide: true, now: 10.0)
+        expect(shortRes.offset == nil, "Short text does not scroll (offset is nil)")
+        expect(!shortRes.shouldTick, "Short text does not tick timer")
+        expect(shortRes.nextHoldDelay == nil, "Short text has no hold delay")
+        expect(marquee.phase == .idle, "Short text stays in idle phase")
+
+        // Long text with slide
+        let startSlide = marquee.update(text: "A very long title that definitely overflows", textWidth: 320, enabled: true, slide: true, now: 100.0)
+        expect(startSlide.shouldTick, "Long text with slide starts ticking")
+        expect(startSlide.offset != nil && startSlide.offset! <= 0, "Slide in begins with negative offset")
+        expect(marquee.phase == .slideIn(startedAt: 100.0), "Phase transitions to slideIn")
+
+        // Mid slide
+        let midSlide = marquee.update(text: "A very long title that definitely overflows", textWidth: 320, enabled: true, slide: true, now: 100.225)
+        expect(midSlide.shouldTick, "Mid slide continues ticking")
+        expect(midSlide.offset != nil && midSlide.offset! < 0, "Mid slide offset is negative and advancing")
+
+        // Slide completion (0.45s later -> t = 100.45)
+        let endSlide = marquee.update(text: "A very long title that definitely overflows", textWidth: 320, enabled: true, slide: true, now: 100.45)
+        expect(endSlide.offset == 0, "Slide completion lands at offset 0")
+        expect(!endSlide.shouldTick, "Slide completion stops continuous ticking during hold")
+        expectClose(endSlide.nextHoldDelay ?? 0, 1.6, "Hold duration of 1.6s requested")
+        expect(marquee.phase == .hold(startedAt: 100.45), "Phase transitions to hold")
+
+        // During hold (t = 101.0, elapsed 0.55s of hold)
+        let duringHold = marquee.update(text: "A very long title that definitely overflows", textWidth: 320, enabled: true, slide: true, now: 101.0)
+        expect(duringHold.offset == 0, "During hold offset is 0")
+        expect(!duringHold.shouldTick, "During hold does not tick")
+        expectClose(duringHold.nextHoldDelay ?? 0, 1.05, "Remaining hold delay is 1.05s", tol: 0.01)
+
+        // Hold completed (t = 102.05) -> transition to scroll
+        let startScroll = marquee.update(text: "A very long title that definitely overflows", textWidth: 320, enabled: true, slide: true, now: 102.05)
+        expect(startScroll.shouldTick, "Hold expiry starts scroll ticking")
+        expect(startScroll.offset == 0, "Initial scroll offset is 0")
+        expect(marquee.phase == .scroll(startedAt: 102.05), "Phase transitions to scroll")
+
+        // Mid scroll (1.0s elapsed in scroll at 26pt/s -> offset 26.0)
+        let midScroll = marquee.update(text: "A very long title that definitely overflows", textWidth: 320, enabled: true, slide: true, now: 103.05)
+        expect(midScroll.shouldTick, "Mid scroll ticks timer")
+        expectClose(midScroll.offset ?? 0, 26.0, "Scroll offset advances at 26pt/s")
+
+        // Loop boundary: distance = 320 + 48 = 368pt. Time = 368 / 26 = 14.1538s.
+        // t = 102.05 + 14.1538 = 116.2038
+        let loopBoundary = marquee.update(text: "A very long title that definitely overflows", textWidth: 320, enabled: true, slide: true, now: 116.21)
+        expect(loopBoundary.offset == 0, "Loop boundary resets offset to 0")
+        expect(!loopBoundary.shouldTick, "Loop boundary pauses ticking for hold phase")
+        expectClose(loopBoundary.nextHoldDelay ?? 0, 1.6, "Loop hold requests 1.6s delay")
+        expect(marquee.phase == .hold(startedAt: 116.21), "Phase transitions to hold after loop")
+
+        // Reset
+        marquee.reset()
+        expect(marquee.phase == .idle, "Marquee reset sets phase back to idle")
+
+        // 5. Defaults Migration v6
+        let testSuiteName = "com.ryzenstatus.test.nowplaying.defaults.\(UUID().uuidString)"
+        if let testDefaults = UserDefaults(suiteName: testSuiteName) {
+            testDefaults.set(false, forKey: DefaultsKey.nowPlayingMenuBarText)
+            Defaults.migrateLegacyNowPlayingMenuBarMode(in: testDefaults)
+            expect(testDefaults.object(forKey: DefaultsKey.nowPlayingMenuBarText) == nil,
+                   "migrateLegacyNowPlayingMenuBarMode removes legacy nowPlayingMenuBarText key")
+            expect(testDefaults.integer(forKey: DefaultsKey.nowPlayingMenuBarMode) == NowPlayingMenuBarMode.iconOnly.rawValue,
+                   "migrateLegacyNowPlayingMenuBarMode migrates false to iconOnly mode (0)")
+
+            // Idempotency
+            Defaults.migrateLegacyNowPlayingMenuBarMode(in: testDefaults)
+            expect(testDefaults.integer(forKey: DefaultsKey.nowPlayingMenuBarMode) == NowPlayingMenuBarMode.iconOnly.rawValue,
+                   "migrateLegacyNowPlayingMenuBarMode is idempotent")
+
+            testDefaults.removePersistentDomain(forName: testSuiteName)
+        }
+
         // MARK: Result
 
         if failures.isEmpty {

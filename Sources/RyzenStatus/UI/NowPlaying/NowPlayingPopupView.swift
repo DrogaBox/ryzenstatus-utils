@@ -545,6 +545,7 @@ struct NowPlayingPopupView: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .keyboardShortcut(.space, modifiers: [])
         .help(service.snapshot.isPlaying ? strings.pauseLabel : strings.playLabel)
         .accessibilityLabel(service.snapshot.isPlaying ? strings.pauseLabel : strings.playLabel)
     }
@@ -622,7 +623,7 @@ struct NowPlayingPopupView: View {
                         controller.detachedOnTop.toggle()
                     }
                     sizeMenu
-                    clusterButton(systemName: "xmark", help: strings.closeLabel) {
+                    clusterButton(systemName: "xmark", help: strings.closeLabel, shortcut: .escape) {
                         controller.closeDetached()
                     }
                 }
@@ -635,11 +636,13 @@ struct NowPlayingPopupView: View {
         }
     }
 
+    @ViewBuilder
     private func clusterButton(systemName: String,
                                help: String,
                                isHighlighted: Bool = false,
+                               shortcut: KeyEquivalent? = nil,
                                action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        let btn = Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 11, weight: .semibold))
                 .frame(width: 24, height: 24)
@@ -649,6 +652,12 @@ struct NowPlayingPopupView: View {
         .buttonStyle(.plain)
         .help(help)
         .accessibilityLabel(help)
+
+        if let shortcut {
+            btn.keyboardShortcut(shortcut, modifiers: [])
+        } else {
+            btn
+        }
     }
 
     private var sizeMenu: some View {
