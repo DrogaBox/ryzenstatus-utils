@@ -248,6 +248,9 @@ enum MenuBarRenderer {
         return cache
     }()
 
+    // Cache colors to prevent repeated string parsing and hex-to-rgb conversion on every render tick
+    private static let colorCache = NSCache<NSString, NSColor>()
+
     /// SF symbols resolved for the menu bar, keyed by symbol + traits. These
     /// are pure and expensive to mint, so a small cache beats re-asking the
     /// system for them on every snapshot tick.
@@ -1119,12 +1122,15 @@ enum MenuBarRenderer {
     }
 
     private static func usageBarColor(hex: String) -> NSColor {
+        if let cached = colorCache.object(forKey: hex as NSString) { return cached }
         let rgb = MenuBarUsageBarSupport.rgb(for: hex,
                                              fallback: MenuBarUsageBarSupport.defaultNormalColor)
-        return NSColor(srgbRed: CGFloat(rgb.red),
-                       green: CGFloat(rgb.green),
-                       blue: CGFloat(rgb.blue),
-                       alpha: 1)
+        let color = NSColor(srgbRed: CGFloat(rgb.red),
+                            green: CGFloat(rgb.green),
+                            blue: CGFloat(rgb.blue),
+                            alpha: 1)
+        colorCache.setObject(color, forKey: hex as NSString)
+        return color
     }
 
     private static func networkBlockImage(down: String, up: String, style: MenuBarBlockStyle) -> NSImage {
