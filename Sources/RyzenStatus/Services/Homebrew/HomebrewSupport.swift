@@ -155,6 +155,9 @@ struct HomebrewPendingAction {
 }
 
 enum HomebrewCommandBuilder {
+    // Cache CharacterSets to avoid allocations on hot paths
+    private static let untrustedTapCharacterSet = CharacterSet(charactersIn: ".")
+
     static let candidatePaths = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
     static let installerCommand = #"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#
 
@@ -244,7 +247,7 @@ enum HomebrewCommandBuilder {
         let name = String(output[range])
             .replacingOccurrences(of: "from untrusted tap ", with: "")
             // The refusal ends the sentence right after the name.
-            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .trimmingCharacters(in: untrustedTapCharacterSet)
         return isValidToken(name) ? name : nil
     }
 
@@ -427,6 +430,9 @@ enum HomebrewAnalytics {
 }
 
 enum HomebrewProgressParser {
+    // Cache CharacterSets to avoid allocations on hot paths
+    private static let progressAllowedCharacterSet = CharacterSet(charactersIn: "#=-> .:%0123456789")
+
     static func progressFraction(in output: String) -> Double? {
         var latest: Double?
         let pattern = #"([0-9]{1,3}(?:\.[0-9]+)?)%"#
@@ -540,10 +546,9 @@ enum HomebrewProgressParser {
     }
 
     private static func isMostlyProgressSymbols(_ value: String) -> Bool {
-        let allowed = CharacterSet(charactersIn: "#=-> .:%0123456789")
         let scalars = value.unicodeScalars.filter { !$0.properties.isWhitespace }
         guard !scalars.isEmpty else { return true }
-        let progressCount = scalars.filter { allowed.contains($0) }.count
+        let progressCount = scalars.filter { Self.progressAllowedCharacterSet.contains($0) }.count
         return Double(progressCount) / Double(scalars.count) > 0.85
     }
 }
