@@ -26,6 +26,10 @@ struct RecorderEditorView: View {
         FeatureStrings.screenshot(l10n.language)
     }
 
+    private var nowPlayingStrings: NowPlayingStrings {
+        FeatureStrings.nowPlaying(l10n.language)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             topBand
@@ -304,7 +308,8 @@ struct RecorderEditorView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.regular)
-            .screenshotSafeHelp("Space")
+            .screenshotSafeHelp("\(model.isPlaying ? nowPlayingStrings.pauseLabel : nowPlayingStrings.playLabel)  (Space)")
+            .accessibilityLabel(model.isPlaying ? nowPlayingStrings.pauseLabel : nowPlayingStrings.playLabel)
 
             Text(timeLabel)
                 .font(.system(size: 12, weight: .medium))
