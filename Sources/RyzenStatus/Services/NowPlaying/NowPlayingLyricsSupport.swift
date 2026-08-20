@@ -127,19 +127,19 @@ enum NowPlayingLyricsText {
             .map { NowPlayingLyricsLine(text: $0, startTime: nil) }
     }
 
+    // Cache NSRegularExpression to prevent repeated string parsing overhead.
+    private static let lrcRegex = try! NSRegularExpression(pattern: #"\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]"#)
+    private static let lrcOffsetRegex = try! NSRegularExpression(pattern: #"\[offset:\s*([+-]?\d+)\]"#, options: [.caseInsensitive])
+
     /// LRC synced lyrics into timed lines; supports multiple stamps per line
     /// and the [offset:±ms] tag. Returns nil when nothing parses.
     static func parseLRC(_ raw: String) -> [NowPlayingLyricsLine]? {
         let text = raw.replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
-        guard let regex = try? NSRegularExpression(pattern: #"\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]"#) else {
-            return nil
-        }
+
         let fullRange = NSRange(text.startIndex..<text.endIndex, in: text)
         let offsetSeconds: TimeInterval = {
-            guard let offsetRegex = try? NSRegularExpression(pattern: #"\[offset:\s*([+-]?\d+)\]"#,
-                                                             options: [.caseInsensitive]),
-                  let match = offsetRegex.matches(in: text, range: fullRange).last,
+            guard let match = lrcOffsetRegex.matches(in: text, range: fullRange).last,
                   let range = Range(match.range(at: 1), in: text),
                   let milliseconds = Double(text[range]) else {
                 return 0
@@ -150,9 +150,9 @@ enum NowPlayingLyricsText {
         var parsed: [NowPlayingLyricsLine] = []
         for line in text.components(separatedBy: "\n") {
             let ns = line as NSString
-            let matches = regex.matches(in: line, range: NSRange(location: 0, length: ns.length))
+            let matches = lrcRegex.matches(in: line, range: NSRange(location: 0, length: ns.length))
             guard !matches.isEmpty else { continue }
-            let lyricText = regex.stringByReplacingMatches(in: line,
+            let lyricText = lrcRegex.stringByReplacingMatches(in: line,
                                                            range: NSRange(location: 0, length: ns.length),
                                                            withTemplate: "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
