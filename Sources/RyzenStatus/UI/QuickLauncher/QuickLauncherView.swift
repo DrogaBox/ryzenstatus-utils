@@ -134,7 +134,7 @@ struct QuickLauncherView: View {
                                 .frame(width: 26, height: 26)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(l10n.s.menuClose)
+                        .help(l10n.s.panelBackTooltip)
                     } else {
                         Button {
                             withAnimation(.easeOut(duration: 0.15)) {
