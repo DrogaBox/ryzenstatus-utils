@@ -427,10 +427,16 @@ enum HomebrewAnalytics {
 }
 
 enum HomebrewProgressParser {
+    // Cache static regular expressions and character sets for performance.
+    // Hoisting these prevents expensive re-allocation and re-compilation
+    // of patterns during high-frequency parsing of stdout text output.
+    private static let progressFractionRegex = try? NSRegularExpression(pattern: #"([0-9]{1,3}(?:\.[0-9]+)?)%"#)
+    private static let stripANSIRegex = try? NSRegularExpression(pattern: #"\u001B\[[0-9;?]*[ -/]*[@-~]"#)
+    private static let mostlyProgressSymbolsAllowed = CharacterSet(charactersIn: "#=-> .:%0123456789")
+
     static func progressFraction(in output: String) -> Double? {
         var latest: Double?
-        let pattern = #"([0-9]{1,3}(?:\.[0-9]+)?)%"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        guard let regex = progressFractionRegex else { return nil }
         let range = NSRange(output.startIndex..<output.endIndex, in: output)
         regex.enumerateMatches(in: output, range: range) { match, _, _ in
             guard let match,
@@ -532,7 +538,7 @@ enum HomebrewProgressParser {
     }
 
     private static func stripANSI(_ value: String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: #"\u001B\[[0-9;?]*[ -/]*[@-~]"#) else {
+        guard let regex = stripANSIRegex else {
             return value
         }
         let range = NSRange(value.startIndex..<value.endIndex, in: value)
@@ -540,10 +546,9 @@ enum HomebrewProgressParser {
     }
 
     private static func isMostlyProgressSymbols(_ value: String) -> Bool {
-        let allowed = CharacterSet(charactersIn: "#=-> .:%0123456789")
         let scalars = value.unicodeScalars.filter { !$0.properties.isWhitespace }
         guard !scalars.isEmpty else { return true }
-        let progressCount = scalars.filter { allowed.contains($0) }.count
+        let progressCount = scalars.filter { mostlyProgressSymbolsAllowed.contains($0) }.count
         return Double(progressCount) / Double(scalars.count) > 0.85
     }
 }
