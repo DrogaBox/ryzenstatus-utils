@@ -427,10 +427,13 @@ enum HomebrewAnalytics {
 }
 
 enum HomebrewProgressParser {
+    private static let fractionRegex = try? NSRegularExpression(pattern: #"([0-9]{1,3}(?:\.[0-9]+)?)%"#)
+    private static let ansiRegex = try? NSRegularExpression(pattern: #"\u001B\[[0-9;?]*[ -/]*[@-~]"#)
+    private static let progressSymbols = CharacterSet(charactersIn: "#=-> .:%0123456789")
+
     static func progressFraction(in output: String) -> Double? {
         var latest: Double?
-        let pattern = #"([0-9]{1,3}(?:\.[0-9]+)?)%"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        guard let regex = fractionRegex else { return nil }
         let range = NSRange(output.startIndex..<output.endIndex, in: output)
         regex.enumerateMatches(in: output, range: range) { match, _, _ in
             guard let match,
@@ -532,18 +535,15 @@ enum HomebrewProgressParser {
     }
 
     private static func stripANSI(_ value: String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: #"\u001B\[[0-9;?]*[ -/]*[@-~]"#) else {
-            return value
-        }
+        guard let regex = ansiRegex else { return value }
         let range = NSRange(value.startIndex..<value.endIndex, in: value)
         return regex.stringByReplacingMatches(in: value, range: range, withTemplate: "")
     }
 
     private static func isMostlyProgressSymbols(_ value: String) -> Bool {
-        let allowed = CharacterSet(charactersIn: "#=-> .:%0123456789")
         let scalars = value.unicodeScalars.filter { !$0.properties.isWhitespace }
         guard !scalars.isEmpty else { return true }
-        let progressCount = scalars.filter { allowed.contains($0) }.count
+        let progressCount = scalars.filter { progressSymbols.contains($0) }.count
         return Double(progressCount) / Double(scalars.count) > 0.85
     }
 }
