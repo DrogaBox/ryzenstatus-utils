@@ -304,7 +304,8 @@ struct RecorderEditorView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.regular)
-            .screenshotSafeHelp("Space")
+            .screenshotSafeHelp("\(model.isPlaying ? strings.pauseLabel : strings.playLabel)  (Space)")
+            .accessibilityLabel(model.isPlaying ? strings.pauseLabel : strings.playLabel)
 
             Text(timeLabel)
                 .font(.system(size: 12, weight: .medium))
