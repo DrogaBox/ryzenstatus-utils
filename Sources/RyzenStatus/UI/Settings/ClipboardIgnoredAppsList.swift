@@ -37,7 +37,7 @@ struct ClipboardIgnoredAppsList: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(text.removeButton)
+                    .help(text.removeButton)
                 }
             }
 
