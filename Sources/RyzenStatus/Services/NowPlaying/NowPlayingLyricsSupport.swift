@@ -117,6 +117,9 @@ enum NowPlayingCreditsBuilder {
 /// Parsing and matching helpers for lyrics documents. Pure functions so the
 /// test target can exercise them without networking.
 enum NowPlayingLyricsText {
+    private static let lrcRegex = try? NSRegularExpression(pattern: #"\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]"#)
+    private static let offsetRegex = try? NSRegularExpression(pattern: #"\[offset:\s*([+-]?\d+)\]"#, options: [.caseInsensitive])
+
     /// Plain lyrics into non-empty trimmed lines.
     static func normalizePlain(_ raw: String) -> [NowPlayingLyricsLine] {
         raw.replacingOccurrences(of: "\r\n", with: "\n")
@@ -132,13 +135,12 @@ enum NowPlayingLyricsText {
     static func parseLRC(_ raw: String) -> [NowPlayingLyricsLine]? {
         let text = raw.replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
-        guard let regex = try? NSRegularExpression(pattern: #"\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]"#) else {
+        guard let regex = lrcRegex else {
             return nil
         }
         let fullRange = NSRange(text.startIndex..<text.endIndex, in: text)
         let offsetSeconds: TimeInterval = {
-            guard let offsetRegex = try? NSRegularExpression(pattern: #"\[offset:\s*([+-]?\d+)\]"#,
-                                                             options: [.caseInsensitive]),
+            guard let offsetRegex = offsetRegex,
                   let match = offsetRegex.matches(in: text, range: fullRange).last,
                   let range = Range(match.range(at: 1), in: text),
                   let milliseconds = Double(text[range]) else {
