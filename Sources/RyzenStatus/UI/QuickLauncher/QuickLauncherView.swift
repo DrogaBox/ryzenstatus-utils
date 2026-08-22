@@ -122,7 +122,6 @@ struct QuickLauncherView: View {
                     }
                     .buttonStyle(.plain)
                     .help(l10n.s.menuClose)
-                    .accessibilityLabel(l10n.s.menuClose)
                     Spacer()
                     if launcher.activeUtility != nil {
                         Button {
@@ -134,7 +133,7 @@ struct QuickLauncherView: View {
                                 .frame(width: 26, height: 26)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(l10n.s.menuClose)
+                        .help(l10n.s.panelBackTooltip)
                     } else {
                         Button {
                             withAnimation(.easeOut(duration: 0.15)) {
@@ -219,7 +218,6 @@ struct QuickLauncherView: View {
                         .buttonStyle(.plain)
                         .offset(x: 7, y: -7)
                         .help(l10n.s.panelHideItem)
-                        .accessibilityLabel(l10n.s.panelHideItem)
                         if hasQuickOptions(item) {
                             Image(systemName: "gearshape.circle.fill")
                                 .font(.system(size: 14))
@@ -363,7 +361,7 @@ struct QuickLauncherView: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(l10n.s.menuClose)
+                .help(l10n.s.menuClose)
             }
             switch item {
             case .keepAwake:
