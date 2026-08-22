@@ -26,6 +26,10 @@ struct RecorderEditorView: View {
         FeatureStrings.screenshot(l10n.language)
     }
 
+    private var nowPlayingStrings: NowPlayingStrings {
+        NowPlayingStrings.nowPlaying(l10n.language)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             topBand
@@ -297,6 +301,7 @@ struct RecorderEditorView: View {
 
     private var transportRow: some View {
         HStack(spacing: 12) {
+            let actionLabel = model.isPlaying ? nowPlayingStrings.pauseLabel : nowPlayingStrings.playLabel
             Button(action: model.togglePlay) {
                 Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 13, weight: .semibold))
@@ -304,7 +309,8 @@ struct RecorderEditorView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.regular)
-            .screenshotSafeHelp("Space")
+            .screenshotSafeHelp("\(actionLabel)  (Space)")
+            .accessibilityLabel(actionLabel)
 
             Text(timeLabel)
                 .font(.system(size: 12, weight: .medium))
