@@ -27,7 +27,7 @@ struct RecorderEditorView: View {
     }
 
     private var nowPlayingStrings: NowPlayingStrings {
-        NowPlayingStrings.nowPlaying(l10n.language)
+        FeatureStrings.nowPlaying(l10n.language)
     }
 
     var body: some View {
