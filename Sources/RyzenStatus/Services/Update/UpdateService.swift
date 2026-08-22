@@ -148,13 +148,15 @@ final class UpdateService: ObservableObject {
         }.resume()
     }
 
+    private static let versionTrimSet = CharacterSet(charactersIn: "vV ")
+
     private func evaluateLatestRelease(data: Data) {
         guard let release = try? JSONDecoder().decode(GitHubRelease.self, from: data) else {
             availableNotes = nil
             state = .failed("Invalid release data")
             return
         }
-        let latest = release.tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV "))
+        let latest = release.tagName.trimmingCharacters(in: Self.versionTrimSet)
         let asset = release.assets.first { $0.name.hasSuffix(".dmg") }
         downloadURL = asset?.browserDownloadURL
         applyRelease(version: latest, notes: release.body, manual: false)
@@ -169,10 +171,10 @@ final class UpdateService: ObservableObject {
         // Find the newest release (including pre-releases) with a DMG asset
         // newer than the current installed version.
         for release in releases {
-            let tag = release.tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV "))
+            let tag = release.tagName.trimmingCharacters(in: Self.versionTrimSet)
             guard let asset = release.assets.first(where: { $0.name.hasSuffix(".dmg") }) else { continue }
             guard Self.isNewer(tag, than: AppInfo.version) else { continue }
-            let latest = release.tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV "))
+            let latest = release.tagName.trimmingCharacters(in: Self.versionTrimSet)
             downloadURL = asset.browserDownloadURL
             applyRelease(version: latest, notes: release.body, manual: false)
             return
