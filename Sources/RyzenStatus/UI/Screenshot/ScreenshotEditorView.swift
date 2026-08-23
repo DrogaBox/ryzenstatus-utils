@@ -682,6 +682,7 @@ struct ScreenshotEditorView: View {
             }
             .buttonStyle(.borderless)
             .disabled(!model.canUndo)
+            .screenshotSafeHelp(l10n.s.menuUndo + "  (⌘Z)")
             .accessibilityLabel(l10n.s.menuUndo)
             Button {
                 commitEditingTextIfNeeded()
@@ -692,6 +693,7 @@ struct ScreenshotEditorView: View {
             }
             .buttonStyle(.borderless)
             .disabled(!model.canRedo)
+            .screenshotSafeHelp(l10n.s.menuRedo + "  (⇧⌘Z)")
             .accessibilityLabel(l10n.s.menuRedo)
 
             if model.qrReading != nil {
