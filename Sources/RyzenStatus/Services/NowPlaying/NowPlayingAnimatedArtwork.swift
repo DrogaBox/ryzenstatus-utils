@@ -303,6 +303,11 @@ final class NowPlayingAnimatedArtworkCenter: ObservableObject {
     /// The album page embeds the editorial motion artwork as a JSON blob;
     /// the square-role video URL is preferred, with scored m3u8/mp4
     /// fallbacks. Regexes mirror PlayStatus's candidate extractor.
+    // Cache regexes to prevent repetitive compiling during playback
+    private static let squareCandidateRegex = try? NSRegularExpression(pattern: #""motionDetailSquare"\s*:\s*\{[\s\S]{0,4000}?"video"\s*:\s*"(https://[^"]+\.(?:m3u8|mp4)[^"]*)"#)
+    private static let m3u8Regex = try? NSRegularExpression(pattern: #"https://[^\"'\s<>]+\.m3u8[^\"'\s<>]*"#)
+    private static let mp4Regex = try? NSRegularExpression(pattern: #"https://[^\"'\s<>]+\.mp4[^\"'\s<>]*"#)
+
     static func extractCandidateURLs(from html: String) -> [URL] {
         let normalized = html
             .replacingOccurrences(of: "\\u002F", with: "/")
@@ -312,17 +317,12 @@ final class NowPlayingAnimatedArtworkCenter: ObservableObject {
 
         let preferredSquareCandidates = capturedMatches(
             in: normalized,
-            pattern: #""motionDetailSquare"\s*:\s*\{[\s\S]{0,4000}?"video"\s*:\s*"(https://[^"]+\.(?:m3u8|mp4)[^"]*)"#
+            regex: squareCandidateRegex
         )
 
         var rawCandidates: [String] = []
-        let fallbackPatterns = [
-            #"https://[^\"'\s<>]+\.m3u8[^\"'\s<>]*"#,
-            #"https://[^\"'\s<>]+\.mp4[^\"'\s<>]*"#,
-        ]
-        for pattern in fallbackPatterns {
-            rawCandidates.append(contentsOf: regexMatches(in: normalized, pattern: pattern))
-        }
+        rawCandidates.append(contentsOf: regexMatches(in: normalized, regex: m3u8Regex))
+        rawCandidates.append(contentsOf: regexMatches(in: normalized, regex: mp4Regex))
 
         let scoredFallbacks = deduplicated(rawCandidates).sorted { lhs, rhs in
             let lhsScore = candidateScore(lhs)
@@ -345,8 +345,8 @@ final class NowPlayingAnimatedArtworkCenter: ObservableObject {
         return score
     }
 
-    private static func regexMatches(in input: String, pattern: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+    private static func regexMatches(in input: String, regex: NSRegularExpression?) -> [String] {
+        guard let regex = regex else { return [] }
         let range = NSRange(input.startIndex..<input.endIndex, in: input)
         return regex.matches(in: input, range: range).compactMap { match in
             guard let range = Range(match.range, in: input) else { return nil }
@@ -354,8 +354,8 @@ final class NowPlayingAnimatedArtworkCenter: ObservableObject {
         }
     }
 
-    private static func capturedMatches(in input: String, pattern: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+    private static func capturedMatches(in input: String, regex: NSRegularExpression?) -> [String] {
+        guard let regex = regex else { return [] }
         let range = NSRange(input.startIndex..<input.endIndex, in: input)
         return regex.matches(in: input, range: range).compactMap { match in
             guard match.numberOfRanges > 1,
@@ -435,6 +435,9 @@ final class NowPlayingAnimatedArtworkCenter: ObservableObject {
         }
     }
 
+    private static let resolutionRegex = try? NSRegularExpression(pattern: #"RESOLUTION=(\d+)x(\d+)"#)
+    private static let bandwidthRegex = try? NSRegularExpression(pattern: #"BANDWIDTH=(\d+)"#)
+
     private static func parseVariants(fromMasterPlaylist playlist: String, baseURL: URL) -> [HLSVariant] {
         let lines = playlist
             .components(separatedBy: .newlines)
@@ -447,13 +450,13 @@ final class NowPlayingAnimatedArtworkCenter: ObservableObject {
                   let variantURL = URL(string: lines[index + 1], relativeTo: baseURL)?.absoluteURL
             else { continue }
             let attributes = line.dropFirst("#EXT-X-STREAM-INF:".count)
-            let resolution = firstMatch(in: String(attributes), pattern: #"RESOLUTION=(\d+)x(\d+)"#)
+            let resolution = firstMatch(in: String(attributes), regex: resolutionRegex)
             let parts = resolution?.split(separator: "x") ?? []
             variants.append(HLSVariant(
                 url: variantURL,
                 width: parts.count == 2 ? Int(parts[0]) ?? 0 : 0,
                 height: parts.count == 2 ? Int(parts[1]) ?? 0 : 0,
-                bandwidth: firstMatch(in: String(attributes), pattern: #"BANDWIDTH=(\d+)"#).flatMap(Int.init) ?? 0
+                bandwidth: firstMatch(in: String(attributes), regex: bandwidthRegex).flatMap(Int.init) ?? 0
             ))
         }
         return variants
@@ -464,8 +467,8 @@ final class NowPlayingAnimatedArtworkCenter: ObservableObject {
         return pixels > 0 ? pixels : variant.bandwidth
     }
 
-    private static func firstMatch(in input: String, pattern: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+    private static func firstMatch(in input: String, regex: NSRegularExpression?) -> String? {
+        guard let regex = regex else { return nil }
         let range = NSRange(input.startIndex..<input.endIndex, in: input)
         guard let match = regex.firstMatch(in: input, range: range),
               match.numberOfRanges > 1,
