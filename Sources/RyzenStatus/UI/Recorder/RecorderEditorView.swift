@@ -65,14 +65,14 @@ struct RecorderEditorView: View {
             }
             .buttonStyle(RecorderToolbarButtonStyle(compact: true))
             .disabled(!model.canUndo)
-            .screenshotSafeHelp("⌘Z")
+            .screenshotSafeHelp(l10n.s.menuUndo + "  (⌘Z)")
             .accessibilityLabel(l10n.s.menuUndo)
             Button(action: model.redo) {
                 Image(systemName: "arrow.uturn.forward")
             }
             .buttonStyle(RecorderToolbarButtonStyle(compact: true))
             .disabled(!model.canRedo)
-            .screenshotSafeHelp("⇧⌘Z")
+            .screenshotSafeHelp(l10n.s.menuRedo + "  (⇧⌘Z)")
             .accessibilityLabel(l10n.s.menuRedo)
             presetsMenu
 
