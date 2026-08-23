@@ -47,17 +47,22 @@ Three one click bundles, Essentials, Windows, and Battery and quiet, shape the w
   <img src="docs/assets/readme/features-hub.png" width="720" alt="The Features hub in Settings, installing and uninstalling whole features">
 </p>
 
-The rest bends the same way: panel sections reorder and hide, the compact layout trades sections for tabs, settings export to a file and import on a new Mac, and the whole app speaks thirteen languages.
+The rest bends the same way: panel sections reorder and hide, the compact layout trades sections for tabs, settings export to a file and import on a new Mac, and the whole app speaks thirteen languages: English (US), Português (Brasil), Español, Deutsch, Français, Italiano, 日本語, 한국어, Русский, Türkçe, 简体中文, 繁體中文 (香港), and 繁體中文 (台灣).
 
 ## Everything it does
 
-### Sound
+### Sound, Media & Now Playing
 
 - **Volume mixer.** Slide any single app up or down while the rest of the Mac stays put, and push a quiet one past 100 percent when a video is just too low. No audio driver, no setup.
 - **Per app output.** Send your music to the speakers and a call to your headset at the same time.
 - **Output switcher.** Cycle between chosen outputs with one shortcut, and drop the volume automatically when headphones disconnect.
 - **Microphone tools.** Pin your favorite input so the Mac stops guessing, and mute the mic everywhere with a click or shortcut.
 - **Music app blocker.** Stops the Music app from bursting in when headphones connect.
+- **Now Playing floating player.** A detachable floating desktop widget with compact Mini Card and regular view modes, right-click quick resize, pin-on-top, and adaptive background theming (6 palette styles) extracted live from album artwork.
+- **Live animated artwork.** Streams Apple Music motion album covers in real time with seamless crossfades between video and static cover art.
+- **Synced lyrics & song credits.** Synchronized LRC line-by-line scrolling lyrics, plain lyrics view, detailed track credits (composer, release year, genre, bitrate), and manual provider search.
+- **Universal transport controls.** Seamless Play/Pause, Next/Previous, Shuffle, Repeat state toggles, seekable progress bar, and configurable global media hotkeys with smart single dispatch for Apple Music, Spotify, and browser media sessions.
+- **Now Playing menu bar item.** Dedicated menu bar status item displaying the track title, artist, and compact progress bar with configurable display modes.
 
 ### Know what your Mac is doing
 
@@ -68,10 +73,13 @@ The rest bends the same way: panel sections reorder and hide, the compact layout
 
 ### AMD Processors & Power Management
 
-- **AMD Telemetry:** Real-time monitoring of AMD CPU and discrete GPU temperatures, power draw, and frequencies.
-- **Fan Curve Control:** Dynamically control your CPU and GPU fans via SuperIO chips (Nuvoton/ITE) using custom curves.
+- **AMD Telemetry:** Real-time monitoring of AMD CPU package/core temperatures, power draw, and frequencies per core.
+- **Kernel-Native Dynamic Fan Curves:** Hardware fan control evaluated directly inside `AMDRyzenCPUPowerManagement.kext` at a 500 ms cadence with 256-point LUT interpolation, exponential moving average smoothing ($\alpha = 0.2$), hardware hysteresis, ramp rate limiting, and an emergency thermal guard ($\ge 85$ °C $\to$ PWM $\ge 200$), eliminating userspace polling overhead.
+- **GPU Temperature Bridge:** Native discrete GPU temperature forwarding (selector 103) allowing fan curves driven directly by GPU thermal loads.
+- **Interactive Staged Curve Editor:** Curve editor featuring 256-point visual preview, live sensor tracking markers, 4-curve slot management, 1% minimum duty cycle floor, and explicit Apply / Revert actions to prevent unintended fan spin-ups while editing.
+- **SuperIO Hardware Read-Back:** Accurate fan speed (RPM) and duty cycle (PWM %) derived directly from physical SuperIO chips (Nuvoton NCT668X / NCT67XX, ITE IT86XXE).
 - **Gaming Mode:** A one-click toggle to apply the Extreme power preset (EPP 0) and prevent display sleep during intense workloads.
-- **EPP & C-State Management:** Manage Energy Performance Preference (EPP) and toggle Deep C-States (C6) directly from the settings for latency and power optimization.
+- **EPP & C-State Management:** Manage Energy Performance Preference (EPP), CPPC Active Mode, and toggle Deep C-States (C6) directly from settings for latency and power optimization.
 
 ### Windows and the Dock
 
@@ -97,26 +105,27 @@ The rest bends the same way: panel sections reorder and hide, the compact layout
 
 ### Clipboard, files and links
 
-- **Clipboard history.** Local history of text, images and files with pinned favorites, search and quick paste shortcuts.
+- **Clipboard history.** Local history of text, images and files with pinned favorites, search, skipped apps list, in-sidebar text editing, and quick paste shortcuts.
 - **Paste as plain text.** One shortcut pastes without fonts, colors or links, and the original stays on the clipboard.
 - **Shelf.** Park files, text and links near your cursor mid drag, then drop them where they belong later.
 - **Finder cut and paste.** ⌘X and ⌘V move files the way you always expected them to.
-- **Clean URL.** Strips tracking parameters from copied links, on demand or automatically.
+- **Clean URL.** Strips tracking and custom parameters from copied links, on demand or automatically.
 
 ### Everyday tools
 
 - **Quick panel.** ⌃⌘V opens a small floating palette with your favorite tools one key away.
 - **Quick toggles.** One-click system actions in their own panel tab: switch light and dark mode, empty the Trash, eject every disk, show hidden files, hide desktop icons, lock the screen and more.
 - **Radial menu.** Hold a shortcut, or a spare side mouse button, and a wheel of your favorite actions opens around the pointer: apps, files, links, key combos, media controls and RyzenStatus tools, with submenus for more. Point and release to run one.
-- **Screenshot.** Capture an area, a window or the whole screen on a frozen picture. A quick preview can copy, save, delete or open the editor, which adds stickers, annotations, precise crop, redaction, backgrounds and pinned captures. A QR code in the shot shows its content to copy or open, from the preview and the editor. Optional timer, save folder and 1x export included, plus an option to skip the preview and open the editor right away.
+- **Screen Recorder.** Record the screen, a single window, or a custom area with optional microphone audio input, dynamic play/pause controls, and a built-in video editor featuring text annotations, trimming, undo/redo with localized shortcut tooltips, HUD overlays, and instant export or clipboard copy.
+- **Screenshot & Annotation Suite.** Capture an area, a window or the whole screen on a frozen picture. Quick preview or direct-to-editor mode with stickers, arrows, annotations, precise crop, redaction/blur, background styling, and pinned captures. Built-in QR code detection shows decoded text to copy or open directly.
+- **Copy text from screen.** Select any area and its text is recognized offline via Apple's Vision framework, straight onto the clipboard. When the area holds a QR code, its content is shown so you can copy it or open the link.
 - **Camera preview.** A floating mirror to check how you look before joining a call, one click or shortcut away. Pick the camera when several are connected; it closes as soon as you click away.
 - **Scratchpad.** A floating pad for short-lived text: meeting notes, numbers, fragments on their way somewhere else. It saves as you type, floats over your work, and can copy everything, export to a file or clear itself after a quiet period.
-- **Copy text from screen.** Select any area and its text is recognized offline, straight onto the clipboard. When the area holds a QR code, its content is shown so you can copy it or open the link.
 - **Color picker.** Grab any pixel with the system loupe as HEX, RGB, HSL or SwiftUI code.
 - **Cleaner.** Sweeps app leftovers, caches and logs, by hand or on a schedule.
 - **Uninstaller.** Drop an app in and take its caches, preferences and logs to the Trash with it.
 - **Media tools.** Compress videos and images, make GIFs and extract text, all locally.
-- **Homebrew manager.** Search, install and remove formulae and casks without opening a terminal.
+- **Homebrew manager.** Search, install, update and remove formulae and casks without opening a terminal, with visual loading states.
 - **Cleaning Mode.** Locks the keyboard and blacks out every display while you clean.
 
 ### Energy and display
@@ -139,7 +148,7 @@ To remove RyzenStatus completely, including its settings and permissions:
 
 ## Private by default
 
-RyzenStatus has no backend, no account, no analytics and no tracking. The network is touched only by things you can see: update checks, the speed test, and Homebrew searches and installs you start. The full story is in the [privacy notes](docs/PRIVACY.md).
+RyzenStatus has no backend, no account, no analytics and no tracking. The network is touched only by things you can see: update checks, the speed test, Now Playing lyrics/animated artwork streams, and Homebrew searches and installs you start. The full story is in the [privacy notes](docs/PRIVACY.md).
 
 Permissions get the same treatment. Every one is optional, the app explains each in plain words, shows which features actually use it, and even tells you when a permission you granted is no longer needed by anything, with a shortcut to revoke it.
 
@@ -150,8 +159,10 @@ Permissions get the same treatment. Every one is optional, the app explains each
 | Permission | Used by | Without it |
 |---|---|---|
 | Accessibility | Switcher, Dock features, window controls, mouse and keyboard features, snippets, cut and paste | Those features stay off |
-| Screen Recording | Switcher and Dock Preview thumbnails, copy text from screen | Previews fall back or stay off |
+| Screen Recording | Switcher and Dock Preview thumbnails, copy text from screen, screen recordings | Previews fall back or stay off |
 | System Audio Recording | Per app volume and output routing | Apps stay on normal system audio |
+| Microphone, optional | Screen recordings with microphone audio | Recordings are video only without voice |
+| Camera, optional | Camera preview mirror | The preview window stays off |
 | Notifications | Keep awake, battery, monitor and update alerts | The app stays silent |
 | Full Disk Access, optional | Deeper cleaner and uninstaller scans | Only reachable places are scanned |
 | Administrator, once, optional | Password free closed lid toggling | A password prompt per toggle |
@@ -162,7 +173,7 @@ The shelf and almost every quick toggle need no permission at all. Finder cut an
 
 - A Hackintosh with an **AMD Ryzen CPU** (Zen architecture or newer)
 - macOS 13 Ventura up to macOS 15 Sequoia
-- **Kernel Extensions (For AMD CPU telemetry):** You must have `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` injected via OpenCore in your EFI folder. The source code for these is bundled in the `SMCAMDProcessor_Source` folder for reference.
+- **Kernel Extensions (For AMD CPU telemetry & fan curves):** You must have `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` injected via OpenCore in your EFI folder. The source code for these is bundled in the `SMCAMDProcessor_Source` folder for reference.
 
 ### Kernel Extension Boot Arguments & Features
 

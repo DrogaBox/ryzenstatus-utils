@@ -7,8 +7,9 @@ You can review or change every grant in System Settings, under Privacy and Secur
 | Permission | Optional | Powers |
 |---|---|---|
 | Accessibility | Yes | Scroll direction, Window Layout, the app and window switcher, Dock Preview, Dock click to minimize, middle click, paste as plain text, Finder cut and paste, quit on close, radial menu key actions |
-| Screen Recording | Yes | Window titles and thumbnails in the switcher and Dock Preview, copy text from screen |
+| Screen Recording | Yes | Window titles and thumbnails in the switcher and Dock Preview, copy text from screen, screen recordings |
 | System Audio Recording | Yes | Per app volume and output routing in the mixer |
+| Microphone | Yes | Screen recordings with microphone audio |
 | Camera | Yes | The camera preview mirror |
 | Notifications | Yes | Keep awake, battery, Monitor and update alerts |
 | Full Disk Access | Yes | A deeper uninstaller scan |
@@ -40,11 +41,11 @@ You can review or change every grant in System Settings, under Privacy and Secur
 
 ## Screen Recording
 
-**Why it comes up.** On macOS, reading other windows' titles and grabbing their thumbnails counts as screen recording.
+**Why it comes up.** On macOS, reading other windows' titles and grabbing their thumbnails counts as screen recording, as does capturing video of the screen.
 
-**What uses it.** The window switcher and Dock Preview, for live thumbnails and window titles, and copy text from screen, to capture the area you select.
+**What uses it.** The window switcher and Dock Preview, for live thumbnails and window titles; copy text from screen, to capture the area you select; and the Screen Recorder.
 
-**If you say no.** The switcher still works and falls back to app icons instead of live thumbnails and titles. Dock Preview and copy text from screen stay unavailable. Nothing on your screen is ever written to disk or sent anywhere, since the access only feeds local previews and the text recognition runs offline.
+**If you say no.** The switcher still works and falls back to app icons instead of live thumbnails and titles. Dock Preview, copy text from screen, and screen recordings stay unavailable. Nothing on your screen is ever written to disk or sent anywhere, since the access only feeds local previews and the text recognition runs offline.
 
 **Optional.** Yes.
 
@@ -57,6 +58,16 @@ You can review or change every grant in System Settings, under Privacy and Secur
 **If you say no.** Apps keep using normal system audio. The mixer cannot apply per app volume or output routing until the permission is granted.
 
 **Optional.** Yes. Audio is processed in memory for the mixer and is never recorded to disk or sent anywhere.
+
+## Microphone
+
+**Why it comes up.** macOS asks for permission before any app can access the microphone.
+
+**What uses it.** The Screen Recorder, when you choose to record microphone audio along with your screen.
+
+**If you say no.** Screen recordings will be captured as video-only without microphone audio. You can enable it anytime from System Settings under Privacy and Security, Microphone.
+
+**Optional.** Yes. Microphone audio is saved directly into the local recording file and is never uploaded or sent anywhere.
 
 ## Camera
 

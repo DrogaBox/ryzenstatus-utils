@@ -29,6 +29,8 @@ RyzenStatus opens only a few kinds of connection, and each one belongs to a visi
 
 3. **Homebrew actions, only when you use the Homebrew manager.** Search, install and uninstall actions run the local `brew` command, which may contact Homebrew, GitHub and package vendor hosts to search metadata or download files. Popularity badges use Homebrew's public aggregate analytics JSON from `formulae.brew.sh`. RyzenStatus does not send its own analytics, capture passwords or run `brew` as root.
 
+4. **Now Playing lyrics & animated artwork, only when enabled.** When viewing the Now Playing details pane, synced and plain lyrics may be looked up via the public keyless `lrclib.net` API or from local Apple Music AppleScript. When live motion artwork is turned on, animated cover video streams are loaded from public Apple Music media CDNs. These requests include only the track metadata needed to locate the lyrics or artwork; no personal identifiers, account tokens, or telemetry are ever sent, and results are cached locally in memory.
+
 That is the entire list. There are no RyzenStatus servers, no hidden beacons and no background uploads.
 
 ## Changes to this document
@@ -37,4 +39,4 @@ This page describes how the current version of RyzenStatus behaves. If the app's
 
 ## Questions
 
-If anything here is unclear, open a question in [GitHub issues](https://github.com/ryzenstatus/ryzenstatus-utils/issues), or have a look at [support](../SUPPORT.md).
+If anything here is unclear, open a question in [GitHub issues](https://github.com/DrogaBox/ryzenstatus-utils/issues), or have a look at [support](../SUPPORT.md).

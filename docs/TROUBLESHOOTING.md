@@ -35,6 +35,14 @@ This one feeds window titles and thumbnails in the switcher and Dock Preview. If
 
 This one powers per app volume and output routing in the mixer. If the mixer says it needs permission, open System Settings, Privacy and Security, Screen and System Audio Recording, and switch RyzenStatus on. Audio is processed only for the local mixer.
 
+### Microphone
+
+This one powers microphone audio recording in Screen Recorder. If a screen recording has no voice track after enabling the microphone toggle, open System Settings, Privacy and Security, Microphone, and confirm RyzenStatus is switched on.
+
+### Camera
+
+This one powers the floating Camera Preview mirror. If the preview window shows a permission prompt, open System Settings, Privacy and Security, Camera, and allow RyzenStatus.
+
 ### Automation
 
 Finder cut and paste, the uninstaller and Homebrew's Terminal handoff may ask for Automation. If a Finder move or Terminal handoff does nothing after a denial, open System Settings, Privacy and Security, Automation, and allow RyzenStatus for the app it needs to control.
@@ -86,4 +94,4 @@ If you have a build from source, the self test prints a quick health summary tha
 ./build/RyzenStatus --selftest
 ```
 
-Open a report from the [new issue](https://github.com/ryzenstatus/ryzenstatus-utils/issues/new/choose) page, and see [support](../SUPPORT.md) for every way to get help.
+Open a report from the [new issue](https://github.com/DrogaBox/ryzenstatus-utils/issues/new/choose) page, and see [support](../SUPPORT.md) for every way to get help.

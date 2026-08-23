@@ -10,7 +10,7 @@ under GPL-3.0-or-later.
 ## Getting started
 
 ```sh
-git clone https://github.com/ryzenstatus/ryzenstatus-utils.git
+git clone https://github.com/DrogaBox/ryzenstatus-utils.git
 cd ryzenstatus-utils
 ./build.sh                         # build and assemble the bundle
 ./build/RyzenStatus --selftest       # quick health check (SELFTEST OK)
@@ -69,8 +69,9 @@ Every user facing string lives in `Core/Localization.swift` as a field of the
 it, and the compiler is the completeness check, so a translation can never
 silently fall out of sync.
 
-RyzenStatus ships eight languages today, namely English, Português (Brasil),
-Español, Deutsch, Français, Italiano, 日本語 and 简体中文. The non base
+RyzenStatus ships thirteen languages today, namely English (US), Português (Brasil),
+Türkçe, Русский, Español, Deutsch, Français, Italiano, 日本語, 한국어,
+简体中文, 繁體中文（香港）, and 繁體中文（台灣）. The non base
 translations live in `Core/Localizations/`. To add a language, add a case to
 `AppLanguage` and a `static let` extension of `Strings` with every field
 translated.
@@ -88,7 +89,7 @@ and open a PR with the dump and the adjusted prefixes.
 ## Reporting bugs and requesting features
 
 You do not need to write code to help. Use the issue forms on the
-[new issue](https://github.com/ryzenstatus/ryzenstatus-utils/issues/new/choose) page.
+[new issue](https://github.com/DrogaBox/ryzenstatus-utils/issues/new/choose) page.
 
 - **Bug report.** Include your RyzenStatus version from Settings under About and
   your macOS version, plus clear steps to reproduce. The
