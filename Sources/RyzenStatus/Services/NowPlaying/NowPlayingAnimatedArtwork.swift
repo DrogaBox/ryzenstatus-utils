@@ -345,8 +345,18 @@ final class NowPlayingAnimatedArtworkCenter: ObservableObject {
         return score
     }
 
+    private static let regexCache = NSCache<NSString, NSRegularExpression>()
+
+    private static func cachedRegex(for pattern: String) -> NSRegularExpression? {
+        let key = pattern as NSString
+        if let cached = regexCache.object(forKey: key) { return cached }
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        regexCache.setObject(regex, forKey: key)
+        return regex
+    }
+
     private static func regexMatches(in input: String, pattern: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        guard let regex = cachedRegex(for: pattern) else { return [] }
         let range = NSRange(input.startIndex..<input.endIndex, in: input)
         return regex.matches(in: input, range: range).compactMap { match in
             guard let range = Range(match.range, in: input) else { return nil }
@@ -355,7 +365,7 @@ final class NowPlayingAnimatedArtworkCenter: ObservableObject {
     }
 
     private static func capturedMatches(in input: String, pattern: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        guard let regex = cachedRegex(for: pattern) else { return [] }
         let range = NSRange(input.startIndex..<input.endIndex, in: input)
         return regex.matches(in: input, range: range).compactMap { match in
             guard match.numberOfRanges > 1,
@@ -465,7 +475,7 @@ final class NowPlayingAnimatedArtworkCenter: ObservableObject {
     }
 
     private static func firstMatch(in input: String, pattern: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        guard let regex = cachedRegex(for: pattern) else { return nil }
         let range = NSRange(input.startIndex..<input.endIndex, in: input)
         guard let match = regex.firstMatch(in: input, range: range),
               match.numberOfRanges > 1,
