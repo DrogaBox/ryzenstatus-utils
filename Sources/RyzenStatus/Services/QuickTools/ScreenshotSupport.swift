@@ -580,11 +580,13 @@ enum ScreenshotSupport {
         }
         return result
     }
+    private static let numberTokensRegex = try? NSRegularExpression(pattern: "%#+")
+
     /// Replaces runs like "%#", "%##", "%###" with `number`, zero-padded to
     /// the run's length (minus the leading "%"). Matches are expanded from
     /// the end of the string backwards so earlier ranges stay valid.
     private static func applyingNumberTokens(_ pattern: String, number: Int) -> String {
-        guard let regex = try? NSRegularExpression(pattern: "%#+") else { return pattern }
+        guard let regex = numberTokensRegex else { return pattern }
         let fullRange = NSRange(pattern.startIndex..<pattern.endIndex, in: pattern)
         var result = pattern
         let matches = regex.matches(in: pattern, range: fullRange)
