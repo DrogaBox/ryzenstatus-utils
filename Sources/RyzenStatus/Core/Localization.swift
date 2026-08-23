@@ -184,6 +184,9 @@ struct Strings {
     let usageSection: String
     let memorySection: String
     let memoryPressure: String
+    let memorySwapUsed: String
+    let memoryCompressed: String
+    let memoryCachedFiles: String
     let pressureNormal: String
     let pressureWarning: String
     let pressureCritical: String
@@ -339,6 +342,10 @@ struct Strings {
     let dockPreviewName: String
     let dockPreviewEnable: String
     let dockPreviewEnableCaption: String
+    let dockPreviewBackgroundOpacity: String
+    let dockPreviewBackgroundOpacityCaption: String
+    let dockPreviewOpenDelay: String
+    let dockPreviewOpenDelayCaption: String
     let dockClickMinimize: String
     let dockClickMinimizeCaption: String
     let dockClickCycleWindows: String
@@ -1144,6 +1151,9 @@ extension Strings {
         usageSection: "Uso de hardware",
         memorySection: "Memória",
         memoryPressure: "Pressão",
+        memorySwapUsed: "Swap em uso",
+        memoryCompressed: "Comprimida",
+        memoryCachedFiles: "Arquivos em cache",
         pressureNormal: "Normal",
         pressureWarning: "Atenção",
         pressureCritical: "Crítico",
@@ -1289,6 +1299,10 @@ extension Strings {
         dockPreviewName: "Dock Preview",
         dockPreviewEnable: "Pré-visualizar janelas no Dock",
         dockPreviewEnableCaption: "Passe o mouse em um app aberto no Dock para ver e espiar suas janelas.",
+        dockPreviewBackgroundOpacity: "Fundo do painel",
+        dockPreviewBackgroundOpacityCaption: "Diminua para ver mais do que está atrás do painel.",
+        dockPreviewOpenDelay: "Atraso para abrir",
+        dockPreviewOpenDelayCaption: "Quanto tempo o ponteiro precisa repousar sobre um ícone antes do painel abrir.",
         dockClickMinimize: "Clicar no Dock minimiza",
         dockClickMinimizeCaption: "As janelas do app ativo são minimizadas ao clicar no ícone dele no Dock. Clique de novo para trazê-las de volta.",
         dockClickCycleWindows: "Clicar no Dock alterna janelas",
@@ -2066,6 +2080,9 @@ extension Strings {
         usageSection: "Hardware usage",
         memorySection: "Memory",
         memoryPressure: "Pressure",
+        memorySwapUsed: "Swap used",
+        memoryCompressed: "Compressed",
+        memoryCachedFiles: "Cached files",
         pressureNormal: "Normal",
         pressureWarning: "Caution",
         pressureCritical: "Critical",
@@ -2211,6 +2228,10 @@ extension Strings {
         dockPreviewName: "Dock Preview",
         dockPreviewEnable: "Preview windows from the Dock",
         dockPreviewEnableCaption: "Hover over an open app in the Dock to preview and peek at its windows.",
+        dockPreviewBackgroundOpacity: "Panel background",
+        dockPreviewBackgroundOpacityCaption: "Lower it to see more of what lies behind the panel.",
+        dockPreviewOpenDelay: "Open delay",
+        dockPreviewOpenDelayCaption: "How long the pointer must rest on an icon before the panel opens.",
         dockClickMinimize: "Click the Dock icon to minimize",
         dockClickMinimizeCaption: "The active app's windows minimize when you click its Dock icon. Click again to bring them back.",
         dockClickCycleWindows: "Click the Dock icon to cycle windows",

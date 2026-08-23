@@ -241,6 +241,7 @@ enum Defaults {
         DefaultsKey.switcherSearchPinEnabled: false, // S pins the search field open, off by default
         DefaultsKey.dockPreviewEnabled: false,
         DefaultsKey.dockPreviewBackgroundOpacity: 0.85,
+        DefaultsKey.dockPreviewOpenDelay: 200,
         DefaultsKey.dockClickMinimize: false,
         DefaultsKey.dockClickHide: false,
         DefaultsKey.dockClickCycleWindows: false,

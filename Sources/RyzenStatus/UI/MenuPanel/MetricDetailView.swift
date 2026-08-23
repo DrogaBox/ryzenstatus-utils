@@ -334,10 +334,21 @@ struct MetricDetailView: View {
         case .memory:
             let used = snapshot.memoryUsed.map(formatMemory) ?? l10n.s.networkMeasuring
             let total = snapshot.memoryTotal.map(formatMemory) ?? "-"
-            return [
+            var rows = [
                 row(l10n.s.memorySection, "\(used) / \(total)"),
                 row(l10n.s.memoryPressure, pressureText(snapshot.memoryPressure), showsPressure: true),
             ]
+            if let compressed = snapshot.memoryCompressed {
+                rows.append(row(l10n.s.memoryCompressed, formatMemory(compressed)))
+            }
+            if let cached = snapshot.memoryCached {
+                rows.append(row(l10n.s.memoryCachedFiles, formatMemory(cached)))
+            }
+            if let swapUsed = snapshot.memorySwapUsed {
+                rows.append(row(l10n.s.memorySwapUsed, formatMemory(swapUsed)))
+            }
+            return rows
+
         case .network:
             return [
                 row(l10n.s.networkDownload,

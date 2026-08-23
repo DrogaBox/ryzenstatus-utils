@@ -3,6 +3,7 @@
 
 import AppKit
 import ApplicationServices
+import Carbon
 import Combine
 import CoreGraphics
 import IOKit
@@ -440,9 +441,22 @@ final class SuperKeyService: ObservableObject {
         case .none:
             return
         case .escape:
-            postEscape()
+            runOnMainIfNeeded { self.postEscape() }
         case .capsLock:
-            setCapsLock(!capsLockIsOn())
+            runOnMainIfNeeded { self.setCapsLock(!self.capsLockIsOn()) }
+        case .inputSource:
+            // Must finish before this tap returns: the next keystroke is already
+            // in flight, and hopping to main (or waiting on Accessibility) left
+            // that character in the old source.
+            Self.selectNextInputSource()
+        }
+    }
+
+    private func runOnMainIfNeeded(_ work: @escaping () -> Void) {
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
         }
     }
 
@@ -453,6 +467,56 @@ final class SuperKeyService: ObservableObject {
         down.post(tap: .cgSessionEventTap)
         up.post(tap: .cgSessionEventTap)
     }
+
+    /// Cycle enabled keyboard sources through TIS before the tap lets the next
+    /// key through. Selecting the next source directly lets the input method
+    /// commit or cancel on its own, the same way the Input menu does.
+    private static func selectNextInputSource() {
+        let apply = {
+            let sources = selectableInputSources()
+            let ids = sources.compactMap { inputSourceString($0, property: kTISPropertyInputSourceID) }
+            guard let current = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else { return }
+            let currentID = inputSourceString(current, property: kTISPropertyInputSourceID)
+            guard let nextID = SuperKeySupport.nextInputSourceID(currentID: currentID,
+                                                                 enabledIDs: ids),
+                  let next = sources.first(where: {
+                      inputSourceString($0, property: kTISPropertyInputSourceID) == nextID
+                  })
+            else { return }
+            _ = TISSelectInputSource(next)
+        }
+        // TIS talks to the text-input server from the main thread. sync (not
+        // async) keeps the switch ahead of the next keystroke this tap is
+        // about to let through.
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.sync(execute: apply)
+        }
+    }
+
+    private static func selectableInputSources() -> [TISInputSource] {
+        guard let list = TISCreateInputSourceList(nil, false) else { return [] }
+        let values = list.takeRetainedValue() as NSArray
+        return (values as! [TISInputSource]).filter {
+            inputSourceString($0, property: kTISPropertyInputSourceCategory)
+                == kTISCategoryKeyboardInputSource as String
+                && inputSourceBool($0, property: kTISPropertyInputSourceIsSelectCapable)
+        }
+    }
+
+    private static func inputSourceString(_ source: TISInputSource,
+                                          property: CFString) -> String? {
+        guard let pointer = TISGetInputSourceProperty(source, property) else { return nil }
+        return Unmanaged<CFString>.fromOpaque(pointer).takeUnretainedValue() as String
+    }
+
+    private static func inputSourceBool(_ source: TISInputSource,
+                                        property: CFString) -> Bool {
+        guard let pointer = TISGetInputSourceProperty(source, property) else { return false }
+        return CFBooleanGetValue(Unmanaged<CFBoolean>.fromOpaque(pointer).takeUnretainedValue())
+    }
+
 
     // MARK: - Caps Lock itself
 

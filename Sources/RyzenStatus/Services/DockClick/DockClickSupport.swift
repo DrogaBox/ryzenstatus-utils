@@ -114,7 +114,8 @@ enum DockClickSupport {
                        minimizeEnabled: Bool = true,
                        hideEnabled: Bool = false,
                        cycleWindowsEnabled: Bool = false,
-                       unminimizedWindowCount: Int = 0) -> DockClickAction {
+                       unminimizedWindowCount: Int = 0,
+                       ownsMinimize: Bool = true) -> DockClickAction {
         guard !hasModifiers else { return .passThrough }
         if cycleWindowsEnabled, appIsFrontmost, !hasFullscreenWindows, unminimizedWindowCount > 1 {
             return .cycleWindows
@@ -122,9 +123,10 @@ enum DockClickSupport {
         if hideEnabled, appIsFrontmost { return .hide }
         guard !hasFullscreenWindows else { return .passThrough }
         if minimizeEnabled, appIsFrontmost, hasUnminimizedWindows { return .minimize }
-        if minimizeEnabled, !hasUnminimizedWindows, hasMinimizedWindows { return .restore }
+        if minimizeEnabled, ownsMinimize, !hasUnminimizedWindows, hasMinimizedWindows { return .restore }
         return .passThrough
     }
+
 
     /// Cheap geometric gate that runs before any Accessibility hit-test, in the
     /// event's top-left-origin coordinates. When the Dock reserves screen space

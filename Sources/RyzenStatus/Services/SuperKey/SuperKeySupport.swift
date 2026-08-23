@@ -6,7 +6,7 @@ import Foundation
 /// What a tap of the super key on its own does, when no other key was pressed
 /// while it was held.
 enum SuperKeySoloAction: String, CaseIterable, Identifiable {
-    case none, capsLock, escape
+    case none, capsLock, inputSource, escape
 
     var id: String { rawValue }
 
@@ -15,6 +15,7 @@ enum SuperKeySoloAction: String, CaseIterable, Identifiable {
         return action
     }
 }
+
 
 /// One entry of the keyboard's key mapping table: a source key that arrives as
 /// a destination key, both written as HID usage values.
@@ -110,6 +111,14 @@ enum SuperKeySupport {
     }
 
     // MARK: - What each event means
+
+    static func nextInputSourceID(currentID: String?, enabledIDs: [String]) -> String? {
+        guard enabledIDs.count > 1 else { return nil }
+        guard let currentID, let index = enabledIDs.firstIndex(of: currentID) else {
+            return enabledIDs.first
+        }
+        return enabledIDs[(index + 1) % enabledIDs.count]
+    }
 
     /// A key event, reduced to the only distinctions the decision needs.
     enum Event: Equatable {

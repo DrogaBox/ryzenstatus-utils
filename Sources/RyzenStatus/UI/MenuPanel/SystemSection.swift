@@ -719,6 +719,10 @@ struct SystemSection: View {
                     .buttonStyle(.plain)
                 }
                 
+                memorySecondaryRow(l10n.s.memoryCompressed, monitor.snapshot.memoryCompressed)
+                memorySecondaryRow(l10n.s.memoryCachedFiles, monitor.snapshot.memoryCached)
+                memorySecondaryRow(l10n.s.memorySwapUsed, monitor.snapshot.memorySwapUsed)
+
                 if let gpuUsed = monitor.snapshot.gpuMemoryUsed, let gpuTotal = monitor.snapshot.gpuMemoryTotal {
                     HStack(spacing: 8) {
                         // Aligning with the chevron in the main memory row (or just indent)
@@ -737,6 +741,24 @@ struct SystemSection: View {
             }
         }
     }
+
+    @ViewBuilder
+    private func memorySecondaryRow(_ title: String, _ bytes: UInt64?) -> some View {
+        if let bytes {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(formatMemory(bytes))
+                    .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.leading, 16)
+        }
+    }
+
 
     private func memoryRowContent(isInteractive: Bool) -> some View {
         HStack(spacing: 8) {

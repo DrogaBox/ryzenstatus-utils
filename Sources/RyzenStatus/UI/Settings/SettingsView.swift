@@ -897,6 +897,7 @@ struct SwitcherSettings: View {
     @AppStorage(DefaultsKey.switcherSearchPinEnabled) private var switcherSearchPinEnabled = false
     @AppStorage(DefaultsKey.switcherWindowlessApps) private var switcherWindowlessApps = SwitcherWindowlessApps.fallback.rawValue
     @AppStorage(DefaultsKey.dockPreviewEnabled) private var dockPreviewEnabled = false
+    @AppStorage(DefaultsKey.dockPreviewOpenDelay) private var dockPreviewOpenDelay = DockPreviewSupport.defaultOpenDelayMilliseconds
     @AppStorage(DefaultsKey.dockClickMinimize) private var dockClickMinimize = false
     @AppStorage(DefaultsKey.dockClickCycleWindows) private var dockClickCycleWindows = false
     @AppStorage(DefaultsKey.previewSize) private var previewSize = "normal"
@@ -989,7 +990,28 @@ struct SwitcherSettings: View {
                         Text(dockPreviewCaption)
                             .font(.caption)
                             .foregroundStyle(dockPreviewWarning ? .orange : .secondary)
+                        if dockPreviewEnabled {
+                            HStack {
+                                Text(l10n.s.dockPreviewOpenDelay)
+                                Spacer()
+                                TextField("", value: dockPreviewOpenDelayBinding,
+                                          formatter: Self.dockPreviewOpenDelayFormatter)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 64)
+                                Stepper("", value: dockPreviewOpenDelayBinding,
+                                        in: DockPreviewSupport.openDelayMillisecondsRange,
+                                        step: 50)
+                                    .labelsHidden()
+                                Text(verbatim: "ms")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .fixedSize(horizontal: false, vertical: true)
+                            Text(l10n.s.dockPreviewOpenDelayCaption)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
+
                     if AppFeature.dockClick.isAvailable {
                         Toggle(l10n.s.dockClickMinimize, isOn: $dockClickMinimize)
                             .onChange(of: dockClickMinimize) { _, _ in
@@ -1059,7 +1081,24 @@ struct SwitcherSettings: View {
     private var dockPreviewWarning: Bool {
         dockPreviewEnabled && dockPreview.blockedReason != nil
     }
+
+    private var dockPreviewOpenDelayBinding: Binding<Int> {
+        Binding(
+            get: { DockPreviewSupport.sanitizedOpenDelay(milliseconds: dockPreviewOpenDelay) },
+            set: { dockPreviewOpenDelay = DockPreviewSupport.sanitizedOpenDelay(milliseconds: $0) }
+        )
+    }
+
+    private static let dockPreviewOpenDelayFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .none
+        formatter.minimum = NSNumber(value: DockPreviewSupport.openDelayMillisecondsRange.lowerBound)
+        formatter.maximum = NSNumber(value: DockPreviewSupport.openDelayMillisecondsRange.upperBound)
+        formatter.usesGroupingSeparator = false
+        return formatter
+    }()
 }
+
 
 // MARK: - About
 

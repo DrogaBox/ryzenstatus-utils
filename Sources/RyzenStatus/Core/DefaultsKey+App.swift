@@ -75,6 +75,7 @@ extension DefaultsKey {
     static let switcherShowWindowlessFinder = "switcherShowWindowlessFinder"
     static let dockPreviewEnabled = "dockPreviewEnabled"
     static let dockPreviewBackgroundOpacity = "dockPreviewBackgroundOpacity"
+    static let dockPreviewOpenDelay = "dockPreviewOpenDelay"
     static let dockClickMinimize = "dockClickMinimize"    // click the active app's Dock icon to minimize its windows
     static let dockClickCycleWindows = "dockClickCycleWindows" // click the active app's Dock icon to cycle through its windows
     static let middleClickEnabled = "middleClickEnabled"  // three-finger PHYSICAL click on the trackpad acts as a middle click

@@ -372,7 +372,17 @@ final class AppSwitcher: ObservableObject {
                 }
             }
             return Unmanaged.passUnretained(event)
-        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+        case .leftMouseDown, .rightMouseDown:
+            dismissForClickOutsidePanel()
+            return Unmanaged.passUnretained(event)
+        case .otherMouseDown:
+            // Button 2 (middle-click) on the selected row closes its window
+            // without dismissing the panel; any other button dismisses as usual.
+            let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
+            if buttonNumber == 2, sessionActive {
+                DispatchQueue.main.async { [weak self] in self?.closeSelectedWindow() }
+                return nil  // swallow; do not forward to other apps
+            }
             dismissForClickOutsidePanel()
             return Unmanaged.passUnretained(event)
         default:
@@ -1122,7 +1132,7 @@ struct SwitcherGrid: Equatable {
         let usableHeight = screen.visibleFrame.height * 0.85
 
         let maxColumns = max(1, Int((usableWidth - padding * 2 + spacing) / (cardWidth + spacing)))
-        let columns = min(count, maxColumns)
+        let columns = SwitcherSupport.gridColumnCount(itemCount: count, maxColumns: maxColumns)
         let rows = Int(ceil(Double(count) / Double(columns)))
 
         let maxRows = max(1, Int((usableHeight - padding * 2 + spacing) / (cardHeight + spacing)))

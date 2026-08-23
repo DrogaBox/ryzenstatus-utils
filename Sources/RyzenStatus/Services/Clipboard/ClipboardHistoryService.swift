@@ -762,14 +762,10 @@ final class ClipboardHistoryService: ObservableObject {
     /// pushes back past a few megabytes, which a large history of long texts
     /// can reach. Without a resolvable home the blob stays in UserDefaults.
     private static var storeURL: URL? {
-        guard let base = FileManager.default.urls(for: .applicationSupportDirectory,
-                                                  in: .userDomainMask).first,
-              let bundleID = Bundle.main.bundleIdentifier
-        else { return nil }
-        return base
-            .appendingPathComponent(bundleID, isDirectory: true)
+        PrivateFileStore.containerURL?
             .appendingPathComponent("ClipboardHistory.json")
     }
+
 
     private func load() {
         let fileData = Self.storeURL.flatMap { try? Data(contentsOf: $0) }

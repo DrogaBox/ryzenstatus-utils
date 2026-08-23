@@ -132,6 +132,8 @@ if (( TEST )); then
         Sources/RyzenStatus/Core/URLCleaning.swift \
         Sources/RyzenStatus/Services/GeneralPasteboardAccess.swift \
         Sources/RyzenStatus/Services/Audio/MixerRoutingSupport.swift \
+        Sources/RyzenStatus/Services/Audio/MusicLaunchSupport.swift \
+        Sources/RyzenStatus/Services/PrivateFileStore.swift \
         Sources/RyzenStatus/Services/AMD/AMDPowerPresets.swift \
         Sources/RyzenStatus/Services/AMD/FanCurveModels.swift \
         Sources/RyzenStatus/Core/AMDKextSelectors.swift \

@@ -37,6 +37,9 @@ struct SystemSnapshot {
     var memoryUsed: UInt64?
     var memoryAppUsed: UInt64?
     var memoryTotal: UInt64?
+    var memoryCompressed: UInt64?
+    var memoryCached: UInt64?
+    var memorySwapUsed: UInt64?
     var memoryPressure: MemoryPressure = .unknown
     
     // GPU VRAM
@@ -488,10 +491,14 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         var used: UInt64
         var appUsed: UInt64
         var total: UInt64
+        var compressed: UInt64
+        var cached: UInt64
+        var swapUsed: UInt64?
         var pressure: MemoryPressure
         var updatedAt: TimeInterval
         var missedSamples: Int
     }
+
 
     private func currentPlan(defaults: UserDefaults) -> SamplingPlan {
         var plan = SamplingPlan()
@@ -777,14 +784,17 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
 
             if plan.needMemory {
                 if take(.memory) {
-                    if let memory = self.stabilizedMemoryReading(now: now) {
+                    if let (memory, isFresh) = self.stabilizedMemoryReading(now: now) {
                         next.memoryUsed = memory.used
                         next.memoryAppUsed = memory.appUsed
                         next.memoryTotal = memory.total
+                        next.memoryCompressed = memory.compressed
+                        next.memoryCached = memory.cached
+                        next.memorySwapUsed = memory.swapUsed
                         next.memoryPressure = memory.pressure
-                        if memory.isFresh {
-                            let fraction = Double(memory.used) / Double(max(1, memory.total))
-                            let appFraction = Double(memory.appUsed) / Double(max(1, memory.total))
+                        if isFresh, memory.total > 0 {
+                            let fraction = Double(memory.used) / Double(memory.total)
+                            let appFraction = Double(memory.appUsed) / Double(memory.total)
                             self.memoryHistory.push(fraction)
                             self.memoryAppHistory.push(appFraction)
                         }
@@ -793,9 +803,13 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     next.memoryUsed = cached.used
                     next.memoryAppUsed = cached.appUsed
                     next.memoryTotal = cached.total
+                    next.memoryCompressed = cached.compressed
+                    next.memoryCached = cached.cached
+                    next.memorySwapUsed = cached.swapUsed
                     next.memoryPressure = cached.pressure
                 }
             }
+
 
             if plan.needMemory || plan.needGPUUsage {
                 if take(.memory) {
@@ -1071,9 +1085,10 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         }
     }
 
-    private func stabilizedMemoryReading(now: TimeInterval) -> (used: UInt64, appUsed: UInt64, total: UInt64, pressure: MemoryPressure, isFresh: Bool)? {
+    private func stabilizedMemoryReading(now: TimeInterval) -> (CachedMemoryReading, isFresh: Bool)? {
         let pressure = Self.readMemoryPressure()
         if let memory = SystemInfo.memoryUsage(), memory.total > 0 {
+            let swapUsed = memory.swapUsed ?? memoryCache?.swapUsed
             let stablePressure: MemoryPressure
             switch pressure {
             case .unknown:
@@ -1081,31 +1096,36 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             case .normal, .warning, .critical:
                 stablePressure = pressure
             }
-            memoryCache = CachedMemoryReading(used: memory.used,
+            let reading = CachedMemoryReading(used: memory.used,
                                               appUsed: memory.appUsed,
                                               total: memory.total,
+                                              compressed: memory.compressed,
+                                              cached: memory.cached,
+                                              swapUsed: swapUsed,
                                               pressure: stablePressure,
                                               updatedAt: now,
                                               missedSamples: 0)
-            return (memory.used, memory.appUsed, memory.total, stablePressure, true)
+            memoryCache = reading
+            return (reading, true)
         }
 
-        guard var cached = memoryCache else { return nil }
-        cached.missedSamples += 1
-        guard cached.missedSamples <= 4, now - cached.updatedAt <= 12 else {
+        guard var held = memoryCache else { return nil }
+        held.missedSamples += 1
+        guard held.missedSamples <= 4, now - held.updatedAt <= 12 else {
             memoryCache = nil
             return nil
         }
 
         switch pressure {
         case .normal, .warning, .critical:
-            cached.pressure = pressure
+            held.pressure = pressure
         case .unknown:
             break
         }
-        memoryCache = cached
-        return (cached.used, cached.appUsed, cached.total, cached.pressure, false)
+        memoryCache = held
+        return (held, false)
     }
+
 
     // MARK: - Sensor preparation
 

@@ -310,7 +310,17 @@ final class DockClickService {
                           delay: DockClickSupport.restoreSweepDelay)
             DispatchQueue.main.async {
                 DockPreviewService.shared.dockClickWasHandled()
-                pending.app.activate()
+                // A bare activate() is not enough on macOS 14+: this tap swallowed
+                // the click so the Dock would not act, which means nobody else will
+                // raise the app. Yielding our activation first makes the request
+                // cooperative (same sequence the Switcher and Space hop use).
+                // Options stay empty on purpose: restoreBackToFront earns stacking
+                // one window at a time, and .activateAllWindows would re-raise
+                // the whole app over it.
+                NSApp.yieldActivation(to: pending.app)
+                if !pending.app.activate(from: NSRunningApplication.current, options: []) {
+                    pending.app.activate(options: [])
+                }
             }
         case .hide:
             lastAction[pid] = ActionRecord(kind: .hide, time: now, targets: [])
