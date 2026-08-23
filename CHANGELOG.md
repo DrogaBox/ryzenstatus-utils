@@ -1,6 +1,31 @@
 # Changelog
 
+## [1.13.0] — 2026-08-23
+
+### Stability & Security Improvements
+- **ScreenCaptureKit Window Indexing**: Fixed a fatal `SIGTRAP` crash caused by duplicate `windowID`s returned by ScreenCaptureKit during Space switching and multi-monitor reconfiguration.
+- **POSIX Sandbox Hardening**: Implemented `PrivateFileStore` to enforce secure POSIX `0o700` directories and `0o600` file permissions across Shelf storage, Screen Recorder temporary shares, and Clipboard history databases.
+- **macOS 14+ Cooperative Window Activation**: Updated Dock Click window cycling to use `NSApp.yieldActivation(to:)` and `activate(from: NSRunningApplication.current, options: [])`, preventing activation warnings on macOS Sonoma and later.
+- **Filmstrip Trim Handle Stabilization**: Isolated Recorder filmstrip coordinate spaces (`"recorderFilmstrip"`) with absolute positioning to eliminate drag gesture jitter during video trimming.
+
+### Features & Usability Enhancements
+- **Intelligent Music Launch Interception**: Replaced blanket app launching blocks with temporal media-key event taps, distinguishing between unintended playback key presses and intentional user launches from the Dock or Spotlight.
+- **Advanced URL Tracking Cleaner**: Added platform-tailored query parameter stripping rules for YouTube, X/Twitter, Instagram, Spotify, Reddit, TikTok, Bilibili, and Xiaohongshu.
+- **Sticky Footer Deduplication in Scrolling Screenshots**: Integrated tiled column pattern matching to automatically identify and eliminate fixed headers/footers during vertical screenshot stitching.
+- **Middle-Click Window Close**: Middle-clicking (scroll wheel click) any window tile in App Switcher now directly closes that window.
+- **Synchronous Input Source Switching**: Added Carbon TIS-based keyboard layout switching action for SuperKey solo triggers.
+
+### Memory Telemetry & Dock Preview
+- **Comprehensive Memory Breakdown**: System monitor and menu panel now report physical Compressed Memory, Cached Files, and Swap usage alongside active application memory and memory pressure.
+- **Configurable Dock Preview Open Delay**: Added customizable hover latency setting (200 ms to 900 ms) with proactive window list prefetching for responsive, jitter-free dock previewing.
+- **13-Language Native Localization**: Complete native translations for all new memory telemetry, dock preview settings, and controls across all 13 supported languages (EN, PT-BR, ES, DE, FR, IT, JA, KO, RU, TR, ZH-Hans, ZH-Hant-HK, ZH-Hant-TW).
+
+### Internal & Testing
+- **3,628 Automated Unit Checks**: Verified complete regression test suite with 100% pass rate.
+- **Zero-Telemetry Assurance**: All telemetry, tracking, and external analytic hooks remain completely stripped.
+
 ## [1.12.0] — 2026-08-17
+
 
 ### Fan & Cooling Control Rewrite
 - **Kernel-Native Dynamic Fan Curves**: Complete ground-up rewrite of the fan and cooling control subsystem. Dynamic curves are now evaluated directly inside the kernel (`AMDRyzenCPUPowerManagement.kext`) at a 500 ms cadence with 256-point LUT interpolation, exponential moving average smoothing ($\alpha = 0.2$), hardware hysteresis, ramp rate limiting, and an emergency thermal guard ($\ge 85$ °C $\to$ PWM $\ge 200$), completely eliminating userspace PID polling loops and CPU overhead.
