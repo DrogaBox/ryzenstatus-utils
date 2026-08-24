@@ -38,6 +38,7 @@ struct ClipboardIgnoredAppsList: View {
                     }
                     .buttonStyle(.plain)
                     .help(text.removeButton)
+                    .accessibilityLabel(text.removeButton)
                 }
             }
 
