@@ -368,7 +368,9 @@ struct ScreenshotEditorView: View {
         if let point = model.cropLoupePoint {
             let sourceRect = ScreenshotSupport.cropLoupeSampleRect(
                 around: point,
-                imageSize: model.imageSize)
+                imageSize: model.imageSize,
+                sideLength: 14,
+                centredOnPixel: false)
             if let sample = model.baseImage.cropping(to: sourceRect) {
                 let size = Self.cropLoupeSize
                 let crossX = min(max((point.x - sourceRect.minX) / sourceRect.width * size, 0.5),

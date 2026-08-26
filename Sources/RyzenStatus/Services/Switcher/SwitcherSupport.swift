@@ -223,6 +223,19 @@ enum SwitcherSupport {
         iconRowMode || simpleMode
     }
 
+    /// The simple switcher follows the existing one-entry-per-app choice.
+    /// With grouping off or a window-scoped session, its row represents windows directly.
+    static func usesWindowRow(simpleMode: Bool,
+                              mergeWindowsByApp: Bool,
+                              sessionScope: SwitcherSessionScope) -> Bool {
+        simpleMode && (!mergeWindowsByApp || sessionScope == .frontmostApp)
+    }
+
+    /// A Tab this close behind a Shift-press step is the same physical chord
+    /// and must not step again; later Tabs during the Shift hold keep walking
+    /// the list (issue #784).
+    static let shiftBackChordWindow: TimeInterval = 0.35
+
     static func capturesPreviews(simpleMode: Bool) -> Bool {
         !simpleMode
     }

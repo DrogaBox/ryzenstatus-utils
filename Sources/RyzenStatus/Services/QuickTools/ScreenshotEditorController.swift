@@ -118,6 +118,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     private var activeHandle: ScreenshotSupport.Handle?
     private var cropResizeOrigin: CGRect?
     private var cropMoveOrigin: CGRect?
+    private var cropSelectionOrigin: CGRect?
     private var dragRegistered = false
     private var editingSelectedAnnotation = false
     private var newTextID: UUID?
@@ -478,12 +479,17 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         case .select:
             beginSelectDrag(at: point)
         case .crop:
+            let bounds = CGRect(origin: .zero, size: imageSize)
             if let draft = cropDraft,
                let handle = ScreenshotSupport.handle(at: point, rect: draft,
                                                      tolerance: 14 * scale) {
                 activeHandle = handle
                 cropResizeOrigin = draft
                 cropLoupePoint = handle.position(in: draft)
+            } else if let draft = cropDraft,
+                      ScreenshotSupport.startsNewCropSelection(
+                        at: point, draft: draft, within: bounds) {
+                cropSelectionOrigin = draft
             } else if let draft = cropDraft, draft.contains(point) {
                 cropMoveOrigin = draft
             }
@@ -568,12 +574,18 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             let bounds = CGRect(origin: .zero, size: imageSize)
             if let handle = activeHandle, let origin = cropResizeOrigin {
                 let rect = ScreenshotSupport.resizedRect(origin, dragging: handle, to: point)
-                let clamped = ScreenshotSupport.clamp(rect, to: bounds)
-                cropDraft = clamped
-                cropLoupePoint = handle.position(in: clamped)
+                let snapped = ScreenshotSupport.pixelSnappedCropRect(rect, within: bounds)
+                cropDraft = snapped
+                cropLoupePoint = handle.position(in: snapped)
+            } else if cropSelectionOrigin != nil {
+                cropDraft = ScreenshotSupport.pixelSnappedCropRect(
+                    ScreenshotSupport.selectionRect(from: dragStart, to: point),
+                    within: bounds)
             } else if let origin = cropMoveOrigin {
                 let delta = CGPoint(x: point.x - dragStart.x, y: point.y - dragStart.y)
-                cropDraft = ScreenshotSupport.movedRect(origin, by: delta, within: bounds)
+                cropDraft = ScreenshotSupport.pixelSnappedCropRect(
+                    ScreenshotSupport.movedRect(origin, by: delta, within: bounds),
+                    within: bounds)
             }
         case .arrow, .line:
             updateDraft { $0.points = [dragStart, point] }
@@ -629,6 +641,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             activeHandle = nil
             cropResizeOrigin = nil
             cropMoveOrigin = nil
+            cropSelectionOrigin = nil
             cropLoupePoint = nil
             dragRegistered = false
             editingSelectedAnnotation = false
@@ -691,7 +704,9 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         case .select:
             finishSelectDrag(at: point, isTap: isTap)
         case .crop:
-            break
+            if isTap, let origin = cropSelectionOrigin {
+                cropDraft = origin
+            }
         }
     }
 
@@ -879,9 +894,9 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             tool = .select
             return
         }
-        let cropRect = ScreenshotSupport.clamp(
-            draft.integral,
-            to: CGRect(origin: .zero, size: imageSize))
+        let cropRect = ScreenshotSupport.pixelSnappedCropRect(
+            draft,
+            within: CGRect(origin: .zero, size: imageSize))
         guard cropRect.width >= 8, cropRect.height >= 8,
               let cropped = baseImage.cropping(to: cropRect)
         else {

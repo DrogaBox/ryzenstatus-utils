@@ -353,24 +353,50 @@ struct ClipboardQuickPanelView: View {
             .help("\(text.imageEntryLabel) · \(entry.imageDimensionsLabel)")
             .accessibilityLabel("\(text.imageEntryLabel) · \(entry.imageDimensionsLabel)")
         case .files:
-            HStack(alignment: .center, spacing: 8) {
-                fileIcon(entry)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(fileTitle(entry))
-                        .font(.system(size: 11.5))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    if entry.filePaths.count > 1 {
-                        Text(entry.preview)
-                            .font(.system(size: 9.5))
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(2)
-                            .truncationMode(.tail)
+            if entry.filePaths.count == 1,
+               let path = entry.filePaths.first,
+               ClipboardImageStore.isImageFile(atPath: path),
+               let thumbnail = ClipboardImageStore.fileThumbnail(atPath: path) {
+                HStack(alignment: .center, spacing: 8) {
+                    Image(nsImage: thumbnail)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: 150, maxHeight: 54)
+                        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(entry.fileNames.first ?? entry.preview)
+                            .font(.system(size: 11.5))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if let dim = ClipboardImageStore.imageDimensionsLabel(atPath: path) {
+                            Text("\(text.imageEntryLabel) · \(dim)")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
+                .help(path)
+                .accessibilityLabel(path)
+            } else {
+                HStack(alignment: .center, spacing: 8) {
+                    fileIcon(entry)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(fileTitle(entry))
+                            .font(.system(size: 11.5))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if entry.filePaths.count > 1 {
+                            Text(entry.preview)
+                                .font(.system(size: 9.5))
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(2)
+                                .truncationMode(.tail)
+                        }
+                    }
+                }
+                .help(entry.filePaths.joined(separator: "\n"))
+                .accessibilityLabel(entry.filePaths.joined(separator: "\n"))
             }
-            .help(entry.filePaths.joined(separator: "\n"))
-            .accessibilityLabel(entry.filePaths.joined(separator: "\n"))
         }
     }
 
@@ -437,12 +463,22 @@ struct ClipboardQuickPanelView: View {
                         .fill(Color.primary.opacity(0.07))
                 )
         } else {
-            Image(systemName: entry.isPinned ? "pin.fill" : kindSymbol(entry.kind))
+            Image(systemName: entry.isPinned ? "pin.fill" : kindSymbol(for: entry))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(entry.isPinned ? Color.accentColor : Color.secondary)
                 .opacity(entry.isPinned ? 1 : 0.65)
                 .frame(width: 32, height: 24)
         }
+    }
+
+    private func kindSymbol(for entry: ClipboardHistoryEntry) -> String {
+        if entry.kind == .files,
+           entry.filePaths.count == 1,
+           let path = entry.filePaths.first,
+           ClipboardImageStore.isImageFile(atPath: path) {
+            return "photo"
+        }
+        return kindSymbol(entry.kind)
     }
 
     private func kindSymbol(_ kind: ClipboardHistoryEntryKind) -> String {

@@ -216,6 +216,7 @@ struct ShelfView: View {
             emptyState
         } else {
             ShelfTilesView(items: shelf.visibleItems,
+                           contentRevision: shelf.contentRevision,
                            selection: shelf.selection,
                            expandedBatches: shelf.expandedBatches)
                 .frame(height: Self.tileAreaHeight)

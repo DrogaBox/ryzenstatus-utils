@@ -1125,6 +1125,29 @@ enum ScreenshotSupport {
         return CGRect(x: x, y: y, width: rect.width, height: rect.height)
     }
 
+    /// A full-image crop cannot move, so an interior drag must start a new
+    /// selection. Dragging outside an existing crop replaces it as well.
+    static func startsNewCropSelection(at point: CGPoint,
+                                       draft: CGRect,
+                                       within bounds: CGRect) -> Bool {
+        bounds.contains(point)
+            && (draft.standardized == bounds.standardized || !draft.contains(point))
+    }
+
+    /// The pixel rectangle a crop draft stands for. A crop cuts on pixel
+    /// boundaries, so the chrome, the loupe cross and `applyCrop` all read the
+    /// draft through here and mark the same edge. Rounding both edges to the
+    /// nearest boundary leaves an already snapped rectangle the same size under
+    /// a move, because the two edges carry the same fraction.
+    static func pixelSnappedCropRect(_ rect: CGRect, within bounds: CGRect) -> CGRect {
+        let minX = (rect.minX).rounded()
+        let minY = (rect.minY).rounded()
+        let maxX = (rect.maxX).rounded()
+        let maxY = (rect.maxY).rounded()
+        return clamp(CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY),
+                     to: bounds)
+    }
+
     /// A stable square of source pixels for the crop loupe. Near an image
     /// edge the sample slides inward instead of shrinking, while the loupe's
     /// crosshair still points at the exact adjusted pixel.
@@ -1145,14 +1168,31 @@ enum ScreenshotSupport {
         return captureLoupeBaseSampleSide / clamped
     }
 
+    /// The editor's crop loupe marks a crop *edge*, which runs between pixels.
+    /// An edge lands in the middle of the frame only when the side is even and
+    /// the coordinate is whole, so that caller passes `centredOnPixel: false`
+    /// and reads a draft `pixelSnappedCropRect` has put on a boundary.
     static func cropLoupeSampleRect(around point: CGPoint,
                                     imageSize: CGSize,
-                                    sideLength: CGFloat = 14) -> CGRect {
-        let width = min(max(1, floor(sideLength)), max(1, floor(imageSize.width)))
-        let height = min(max(1, floor(sideLength)), max(1, floor(imageSize.height)))
-        let x = min(max(floor(point.x - width / 2), 0), max(0, floor(imageSize.width) - width))
-        let y = min(max(floor(point.y - height / 2), 0), max(0, floor(imageSize.height) - height))
-        return CGRect(x: x, y: y, width: width, height: height)
+                                    sideLength: CGFloat = 13,
+                                    centredOnPixel: Bool = true) -> CGRect {
+        let imageWidth = max(1, floor(imageSize.width))
+        let imageHeight = max(1, floor(imageSize.height))
+        var side = max(1, floor(sideLength))
+        let isEven = side.truncatingRemainder(dividingBy: 2) == 0
+        if centredOnPixel, isEven {
+            side = max(1, side - 1)
+        } else if !centredOnPixel, !isEven {
+            side += 1
+        }
+        let width = min(side, imageWidth)
+        let height = min(side, imageHeight)
+        let x = centredOnPixel ? floor(point.x) - floor(width / 2) : floor(point.x - width / 2)
+        let y = centredOnPixel ? floor(point.y) - floor(height / 2) : floor(point.y - height / 2)
+        return CGRect(x: min(max(x, 0), imageWidth - width),
+                      y: min(max(y, 0), imageHeight - height),
+                      width: width,
+                      height: height)
     }
 
     // MARK: - Shape geometry

@@ -99,8 +99,14 @@ final class AppSwitcher: ObservableObject {
     private var sessionStartWindowID: CGWindowID?
     private var sessionSourceContext: SwitcherSourceContext?
     private var sessionShortcut: GlobalShortcut?
-    private var sessionScope: SwitcherSessionScope = .allApps
+    @Published private(set) var sessionScope: SwitcherSessionScope = .allApps
     private var shiftBackNavigationHeld = false
+    /// Pressing Shift mid-session already steps back once, so the Tab landing
+    /// in that same physical chord must not step again — but later Tabs during
+    /// the same Shift hold must keep walking the list (issue #784). The chord
+    /// is recognized by time: anything after this deadline is a deliberate
+    /// separate press.
+    private var shiftBackChordDeadline: TimeInterval = 0
 
     /// Windows already asked to close, still listed until they are really
     /// gone. Releasing the shortcut skips them, so they are never raised on
@@ -442,7 +448,7 @@ final class AppSwitcher: ObservableObject {
         let shortcut = sessionShortcut ?? appsShortcut
         switch keyCode {
         case _ where keyCode == shortcut.keyCode && shortcut.matches(event: event, allowingExtraShift: true):
-            if shortcut.shiftIsNavigationModifier, flags.contains(.maskShift), shiftBackNavigationHeld {
+            if shortcut.shiftIsNavigationModifier, flags.contains(.maskShift), consumesShiftBackChordTab() {
                 break
             }
             let delta = shortcut.shiftIsNavigationModifier && flags.contains(.maskShift) ? -1 : 1
@@ -457,7 +463,7 @@ final class AppSwitcher: ObservableObject {
                                     tolerating: shortcut.modifiers):
             // A window-scoped session keeps its list when the Apps shortcut is
             // pressed with overlapping modifiers instead of expanding to all apps.
-            if appsShortcut.shiftIsNavigationModifier, flags.contains(.maskShift), shiftBackNavigationHeld {
+            if appsShortcut.shiftIsNavigationModifier, flags.contains(.maskShift), consumesShiftBackChordTab() {
                 break
             }
             let delta = appsShortcut.shiftIsNavigationModifier && flags.contains(.maskShift) ? -1 : 1
@@ -578,6 +584,11 @@ final class AppSwitcher: ObservableObject {
                                   isFullscreen: source.isFullscreen)
         }
         sessionStartWindowID = source?.windowID
+        // The layout pass below reads usesWindowRow, which depends on the
+        // session scope; teardown resets it to .allApps, so assigning it after
+        // recomputeLayouts would size a window-scoped panel for the grouped
+        // layout on its first frame.
+        sessionScope = scope
         recomputeLayouts(for: list)
         if !capturesPreviews {
             previews = [:]
@@ -604,7 +615,6 @@ final class AppSwitcher: ObservableObject {
                                                                          items: list))
         sessionActive = true
         sessionShortcut = shortcut
-        sessionScope = scope
         shiftBackNavigationHeld = reversed && shortcut.shiftIsNavigationModifier
 
         if capturesPreviews {
@@ -628,6 +638,16 @@ final class AppSwitcher: ObservableObject {
                                                                   isShiftHeld: shiftHeld)
         else { return false }
         advanceSelection(by: -1)
+        shiftBackChordDeadline = ProcessInfo.processInfo.systemUptime
+            + SwitcherSupport.shiftBackChordWindow
+        return true
+    }
+
+    /// True exactly once for the Tab that belongs to the Shift press that just
+    /// stepped back; consuming it keeps a Shift+Tab chord at one step.
+    private func consumesShiftBackChordTab() -> Bool {
+        guard ProcessInfo.processInfo.systemUptime < shiftBackChordDeadline else { return false }
+        shiftBackChordDeadline = 0
         return true
     }
 
@@ -968,6 +988,7 @@ final class AppSwitcher: ObservableObject {
         sessionShortcut = nil
         sessionScope = .allApps
         shiftBackNavigationHeld = false
+        shiftBackChordDeadline = 0
         closingItemIDs = []
     }
 

@@ -88,6 +88,9 @@ class ShelfPanelMoveView: NSView {
 /// shelf once the drop is accepted somewhere.
 struct ShelfTilesView: NSViewRepresentable {
     var items: [ShelfService.Item]
+    /// Only here to make this view compare unequal after an in-place item
+    /// swap; see ShelfService.contentRevision. Never read.
+    var contentRevision: Int = 0
     var selection: Set<UUID>
     var expandedBatches: Set<UUID>
 
@@ -207,8 +210,9 @@ final class ShelfTileView: NSView, NSDraggingSource {
         iconWellView = iconWell
         addSubview(iconWell)
 
-        let imageView = NSImageView(frame: iconWell.bounds.insetBy(dx: item.isImage ? 4 : 13,
-                                                                   dy: item.isImage ? 4 : 8))
+        let hasThumbnail = item.hasContentThumbnail
+        let imageView = NSImageView(frame: iconWell.bounds.insetBy(dx: hasThumbnail ? 4 : 13,
+                                                                   dy: hasThumbnail ? 4 : 8))
         imageView.image = item.icon
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.autoresizingMask = [.width, .height]

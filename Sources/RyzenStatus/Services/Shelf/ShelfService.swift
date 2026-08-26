@@ -31,13 +31,20 @@ final class ShelfService: ObservableObject {
         let title: String
         let icon: NSImage
         let isImage: Bool
+        /// Whether `icon` is a real decoded thumbnail of the content (image or
+        /// video frame) rather than a generic system icon. Sizing uses this:
+        /// an item whose thumbnail could not be decoded (or is still decoding)
+        /// wears the generic icon at its usual size.
+        let hasContentThumbnail: Bool
 
-        init(id: UUID = UUID(), payload: Payload, title: String, icon: NSImage, isImage: Bool) {
+        init(id: UUID = UUID(), payload: Payload, title: String, icon: NSImage,
+             isImage: Bool, hasContentThumbnail: Bool = false) {
             self.id = id
             self.payload = payload
             self.title = title
             self.icon = icon
             self.isImage = isImage
+            self.hasContentThumbnail = hasContentThumbnail
         }
 
         static func == (lhs: Item, rhs: Item) -> Bool { lhs.id == rhs.id }
@@ -59,6 +66,11 @@ final class ShelfService: ObservableObject {
             }
         }
     }
+
+    /// Bumped whenever `items` changes in place (a thumbnail decoded, an
+    /// item swapped). `Item` compares by ID alone, so SwiftUI's View update
+    /// does not notice an in-place icon replacement without this changing.
+    @Published private(set) var contentRevision = 0
 
     @Published private(set) var items: [Item] = [] {
         didSet {
@@ -924,6 +936,7 @@ final class ShelfService: ObservableObject {
         let additions = items(from: pasteboard)
         guard !additions.isEmpty else { return false }
         items.append(contentsOf: additions)
+        startContentThumbnails(for: additions)
         noteInteraction()
         return true
     }
@@ -968,33 +981,121 @@ final class ShelfService: ObservableObject {
         append(linkItem(for: url))
     }
 
-    private func fileItem(for url: URL, id: UUID = UUID(), title: String? = nil) -> Item {
-        let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "heic", "heif", "tiff", "bmp", "webp"]
-        let isImage = imageExtensions.contains(url.pathExtension.lowercased())
-        let fallbackIcon = NSWorkspace.shared.icon(forFile: url.path)
-        let icon = (isImage ? ImageThumbnailer.thumbnail(for: url) : nil)
-            ?? ImageThumbnailer.thumbnail(for: fallbackIcon)
-            ?? fallbackIcon
+    static let contentThumbnailPointSize: CGFloat = 36
+
+    private enum ContentThumbnailKind {
+        case image
+        case video
+    }
+
+    private static func isImageFile(_ url: URL) -> Bool {
+        guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else { return false }
+        return type.conforms(to: .image)
+    }
+
+    private static func contentThumbnailKind(for url: URL) -> ContentThumbnailKind? {
+        guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else { return nil }
+        if type.conforms(to: .image) { return .image }
+        if type.conforms(to: .movie) { return .video }
+        return nil
+    }
+
+    private static func decodesCheaplyInline(_ url: URL) -> Bool {
+        guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else { return false }
+        return !type.conforms(to: .rawImage)
+    }
+
+    private func fileItem(for url: URL, id: UUID = UUID(), title: String? = nil,
+                          deferImageThumbnail: Bool = false) -> Item {
+        let isImage = Self.isImageFile(url)
+        let inlineThumbnail: NSImage?
+        if isImage, !deferImageThumbnail, Self.decodesCheaplyInline(url) {
+            inlineThumbnail = ImageThumbnailer.thumbnail(for: url, pointSize: Self.contentThumbnailPointSize)
+        } else {
+            inlineThumbnail = nil
+        }
+        let icon = inlineThumbnail ?? NSWorkspace.shared.icon(forFile: url.path)
         return Item(id: id, payload: .file(url), title: title ?? url.lastPathComponent,
-                    icon: icon, isImage: isImage)
+                    icon: icon, isImage: isImage, hasContentThumbnail: inlineThumbnail != nil)
+    }
+
+    private func startContentThumbnails(for newItems: [Item]) {
+        for item in newItems {
+            switch item.payload {
+            case let .batch(children):
+                startContentThumbnails(for: children)
+            case let .file(url):
+                guard !item.hasContentThumbnail,
+                      let kind = Self.contentThumbnailKind(for: url) else { continue }
+                patchContentThumbnail(for: url, id: item.id, kind: kind)
+            default:
+                continue
+            }
+        }
+    }
+
+    private func patchContentThumbnail(for url: URL, id: UUID, kind: ContentThumbnailKind) {
+        Task { @MainActor [weak self] in
+            let size = Self.contentThumbnailPointSize
+            let decoded: NSImage?
+            switch kind {
+            case .image: decoded = await ImageThumbnailer.thumbnail(for: url, pointSize: size)
+            case .video: decoded = await VideoThumbnailer.thumbnail(for: url, pointSize: size)
+            }
+            guard let decoded, let self, let current = self.item(withID: id) else { return }
+            self.replaceItem(Item(id: current.id, payload: current.payload,
+                                  title: current.title, icon: decoded,
+                                  isImage: current.isImage, hasContentThumbnail: true))
+        }
+    }
+
+    private func replaceItem(_ updated: Item) {
+        func update(in list: [Item]) -> [Item]? {
+            var modified = false
+            let result = list.map { current -> Item in
+                if current.id == updated.id {
+                    modified = true
+                    return updated
+                }
+                if case let .batch(children) = current.payload,
+                   let newChildren = update(in: children) {
+                    modified = true
+                    let face = Self.batchFace(of: newChildren)
+                    return Item(id: current.id, payload: .batch(newChildren),
+                                title: current.title,
+                                icon: face.icon ?? current.icon,
+                                isImage: false,
+                                hasContentThumbnail: face.hasContentThumbnail)
+                }
+                return current
+            }
+            return modified ? result : nil
+        }
+        if let newItems = update(in: items) {
+            items = newItems
+            contentRevision &+= 1
+        }
     }
 
     private func imageItem(for image: NSImage) -> Item? {
-        let icon = ImageThumbnailer.thumbnail(for: image) ?? symbol("photo")
+        let icon = ImageThumbnailer.thumbnail(for: image, pointSize: Self.contentThumbnailPointSize)
+            ?? symbol("photo")
         if let png = autoreleasepool(invoking: { () -> Data? in
             guard let tiff = image.tiffRepresentation,
                   let rep = NSBitmapImageRep(data: tiff) else { return nil }
             return rep.representation(using: .png, properties: [:])
         }), let url = storePayloadData(png, fileExtension: "png") {
-            return Item(payload: .file(url), title: L10n.shared.s.shelfItemImage, icon: icon, isImage: true)
+            return Item(payload: .file(url), title: L10n.shared.s.shelfItemImage, icon: icon,
+                        isImage: true, hasContentThumbnail: true)
         }
         return nil
     }
 
     private func gifItem(for data: Data) -> Item? {
         guard let url = storePayloadData(data, fileExtension: "gif") else { return nil }
-        let icon = ImageThumbnailer.thumbnail(for: url) ?? symbol("photo")
-        return Item(payload: .file(url), title: "GIF", icon: icon, isImage: true)
+        let icon = ImageThumbnailer.thumbnail(for: url, pointSize: Self.contentThumbnailPointSize)
+            ?? symbol("photo")
+        return Item(payload: .file(url), title: "GIF", icon: icon, isImage: true, hasContentThumbnail: true)
     }
 
     /// Writes a pasted payload where it can outlive this run; only if the
@@ -1028,14 +1129,21 @@ final class ShelfService: ObservableObject {
 
     private func append(_ item: Item) {
         items.append(item)
+        startContentThumbnails(for: [item])
         noteInteraction()
+    }
+
+    private static func batchFace(of children: [Item]) -> (icon: NSImage?, hasContentThumbnail: Bool) {
+        (children.first?.icon, children.first?.hasContentThumbnail ?? false)
     }
 
     private func batchItem(id: UUID = UUID(), children: [Item]) -> Item {
         let total = children.reduce(0) { $0 + $1.leafCount }
         let title = children.first.map { "\($0.title) +\(max(0, total - 1))" } ?? ""
-        let icon = children.first?.icon ?? symbol("doc.on.doc")
-        return Item(id: id, payload: .batch(children), title: title, icon: icon, isImage: false)
+        let face = Self.batchFace(of: children)
+        return Item(id: id, payload: .batch(children), title: title,
+                    icon: face.icon ?? symbol("doc.on.doc"), isImage: false,
+                    hasContentThumbnail: face.hasContentThumbnail)
     }
 
     private func items(from pasteboard: NSPasteboard) -> [Item] {
@@ -1413,6 +1521,7 @@ final class ShelfService: ObservableObject {
                     self.schedulePersist()
                 } else {
                     self.items = restored + self.items
+                    self.startContentThumbnails(for: restored)
                 }
                 let keptPaths = Set(self.items.flatMap { self.ownedPayloadURLs(in: $0) }
                     .map(\.standardizedFileURL.path))
@@ -1444,7 +1553,8 @@ final class ShelfService: ObservableObject {
         case .file:
             guard let path = persisted.path else { return nil }
             return fileItem(for: URL(fileURLWithPath: path), id: persisted.id,
-                            title: persisted.title.isEmpty ? nil : persisted.title)
+                            title: persisted.title.isEmpty ? nil : persisted.title,
+                            deferImageThumbnail: true)
         case .text:
             guard let text = persisted.text else { return nil }
             let firstLine = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? text

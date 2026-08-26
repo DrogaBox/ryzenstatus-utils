@@ -17,7 +17,7 @@ final class AppUninstaller: ObservableObject {
         case scanning
         case results
         case removing
-        case done(freed: Int64, failed: Int)
+        case done(freed: Int64, failed: [Leftover])
     }
 
     struct Target: Equatable {
@@ -132,12 +132,12 @@ final class AppUninstaller: ObservableObject {
             let fm = FileManager.default
             var freed: Int64 = 0
             var stubborn: [Leftover] = []
-            var failed = 0
+            var failed: [Leftover] = []
             for item in chosen {
                 guard Self.removalIsStillSafe(item.url,
                                               allowedPaths: allowedPaths,
                                               targetURL: targetURL) else {
-                    failed += 1
+                    failed.append(item)
                     continue
                 }
                 do {
@@ -156,7 +156,7 @@ final class AppUninstaller: ObservableObject {
                 Self.trashViaFinder(stubborn.map(\.url))
                 for item in stubborn {
                     if fm.fileExists(atPath: item.url.path) {
-                        failed += 1
+                        failed.append(item)
                     } else {
                         freed += item.size
                     }

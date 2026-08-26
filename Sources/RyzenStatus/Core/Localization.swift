@@ -429,6 +429,8 @@ struct Strings {
     let uninstallerDoneTitle: String
     let uninstallerFreedFormat: String      // + size string
     let uninstallerSomeFailed: String
+    let uninstallerFailedNeedsFDA: String
+    let uninstallerFailedMoreFormat: String
     let uninstallerAnother: String
     let uninstallerCatApp: String
     let uninstallerCatSupport: String
@@ -586,6 +588,12 @@ struct Strings {
     let mediaCompressionMedium: String
     let mediaCompressionHigh: String
     let mediaMaxSize: String
+    let mediaSizingResolution: String
+    let mediaSizingFileSize: String
+    let mediaTargetSize: String
+    let mediaTargetSizeHint: String
+    let mediaErrorTargetTooSmall: String
+    let mediaMegabytesSuffix: String
     let mediaWidth: String
     let mediaFPS: String
     let mediaKeepAudio: String
@@ -1383,6 +1391,8 @@ extension Strings {
         uninstallerDoneTitle: "Pronto!",
         uninstallerFreedFormat: "%@ recuperados",
         uninstallerSomeFailed: "Alguns itens não puderam ser movidos para a Lixeira.",
+        uninstallerFailedNeedsFDA: "Os dados de apps em área restrita só podem ser movidos com Acesso Total ao Disco. A senha de administrador não substitui essa permissão.",
+        uninstallerFailedMoreFormat: "e mais %d",
         uninstallerAnother: "Desinstalar outro",
         uninstallerCatApp: "Aplicativo",
         uninstallerCatSupport: "Suporte",
@@ -1538,6 +1548,12 @@ extension Strings {
         mediaCompressionMedium: "Média",
         mediaCompressionHigh: "Alta",
         mediaMaxSize: "Tamanho",
+        mediaSizingResolution: "Resolução",
+        mediaSizingFileSize: "Tamanho do arquivo",
+        mediaTargetSize: "Tamanho alvo",
+        mediaTargetSizeHint: "A resolução se ajusta para ficar abaixo do limite.",
+        mediaErrorTargetTooSmall: "Tamanho alvo pequeno demais para este clipe. Encurte-o ou aumente o limite.",
+        mediaMegabytesSuffix: " MB",
         mediaWidth: "Largura",
         mediaFPS: "FPS",
         mediaKeepAudio: "Manter áudio",
@@ -2312,6 +2328,8 @@ extension Strings {
         uninstallerDoneTitle: "Done!",
         uninstallerFreedFormat: "%@ recovered",
         uninstallerSomeFailed: "Some items couldn't be moved to the Trash.",
+        uninstallerFailedNeedsFDA: "Sandboxed app data can only be moved with Full Disk Access. The administrator password does not stand in for it.",
+        uninstallerFailedMoreFormat: "and %d more",
         uninstallerAnother: "Uninstall another",
         uninstallerCatApp: "Application",
         uninstallerCatSupport: "Support",
@@ -2468,6 +2486,12 @@ extension Strings {
         mediaCompressionMedium: "Medium",
         mediaCompressionHigh: "High",
         mediaMaxSize: "Size",
+        mediaSizingResolution: "Resolution",
+        mediaSizingFileSize: "File size",
+        mediaTargetSize: "Target size",
+        mediaTargetSizeHint: "Resolution adapts to stay under the limit.",
+        mediaErrorTargetTooSmall: "Target size too small for this clip. Trim it or raise the limit.",
+        mediaMegabytesSuffix: " MB",
         mediaWidth: "Width",
         mediaFPS: "FPS",
         mediaKeepAudio: "Keep audio",
