@@ -131,8 +131,12 @@ struct PanelURLCleanerView: View {
     }
 
     private func paste() {
-        input = NSPasteboard.general.string(forType: .string) ?? ""
-        clean()
+        GeneralPasteboardAccess.shared.async({
+            NSPasteboard.general.string(forType: .string) ?? ""
+        }, then: { pasted in
+            self.input = pasted
+            self.clean()
+        })
     }
 
     private func clean() {
