@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.14.0] — 2026-08-26
+
+### Stability & Anti-Freeze (GCD)
+- **BoundedProcessRunner**: Added per-read byte cap and a process termination timeout using `terminationHandler` instead of a blocking `waitUntilExit` call, eliminating GCD thread-pool exhaustion from runaway subprocesses.
+- **WindowEnumerator**: Replaced `waitUntilAllOperationsAreFinished()` with `NSCondition` + 5 s timeout (`accessibilityBatchBudget`), ending indefinite stalls on locked accessibility APIs during Space switches (#971).
+- **Pasteboard API fully asynchronous**: `GeneralPasteboardAccess` gains an `async<T>(_:then:)` overload; every call site (`URLCleanerService`, `PanelURLCleanerView`, `URLCleanerSettings`, `ClipboardHistoryService`, `PanelClipboardView`) migrated to the async lane — eliminates the last main-thread pasteboard blocks.
+
+### Performance & System Fixes
+- **Chromium CPU protection**: `AutoQuitService` and `WindowMaximizer` query `kAXWindowsAttribute` / `isApplicationElement` before traversing Chromium accessibility trees, removing multi-second CPU spikes during page loads.
+- **Gamma Dim correctness**: `BrightnessSupport` and `BrightnessService` track `dimmedDisplays` separately from display brightness, preventing gamma-curve overwrites that caused permanent screen dimming on some monitors.
+- **Sudoers rule scoped to UID**: `SudoersSupport` / `ShellSupport` write `#<uid> ALL=(root) NOPASSWD:…` instead of `ALL`, enforcing least-privilege even on multi-user machines.
+
+### UI, Thumbnails & HUD
+- **Menu-bar battery icon aspect ratio**: Fixed pixel-rounding error in `MenuBarRenderer` that caused the battery icon to appear squashed on retina displays (`31a0fc33`).
+- **Real video thumbnails on Shelf**: `VideoThumbnailer` uses `AVAssetImageGenerator` to grab a frame 10 % into the clip (never the raw first frame, which is typically black or a title card). Decode is fully async — drop lands instantly with the fallback icon and the real frame patches in. Restore of a saved shelf also decodes all thumbnails off the main thread, eliminating startup hold for large shelves (`cd2d781a`).
+- **Image thumbnail timing fix**: `startContentThumbnails` now fires after the item is appended to `items` rather than during `fileItem` construction, removing the 50 ms race-condition timer that silently discarded frames in mixed-provider drops (`23e9c5b3`).
+- **Tile inset follows `hasContentThumbnail`**: Tiles use the thumbnail inset only once a real frame exists; generic-icon items keep the padded inset regardless of `isImage` flag.
+- **Clipboard rich Finder preview & persistent Inspector**: `ClipboardHistoryImageSupport` / `ClipboardHistoryEscape` added; `ClipboardImageStore` extended with Finder preview support; async completions threaded through all `copyQuickEntry`/`copyQuickEntries`/`copyOnly*` methods.
+- **App Switcher navigation & session scope**: `usesWindowRow` and `shiftBackChordWindow = 0.35` added to `SwitcherSupport`; `sessionScope` is assigned before `recomputeLayouts` to avoid a first-render with wrong scope.
+- **SuperKey mouse click modifiers preserved** (`20e77ea5`): `SuperKeyService` installs an HID mouse tap that injects the active SuperKey modifiers into every click and drag event, preventing modifier-strip on mouse input.
+- **Pixel-snapped crop rect & new crop selection** (`890dd0be`, `449f5f62`): `ScreenshotSupport` gains `startsNewCropSelection(at:draft:within:)` and `pixelSnappedCropRect`; `ScreenshotEditorController` snaps to device-pixel boundaries and supports starting a fresh crop without an overlap drag; crop loupe uses a 14 × 14 sample centred on an edge.
+- **QuickTool HUD width cap & multi-line** (`1a9f6cd7`): `QuickToolHUD` clamps width to 360 pt and wraps at 2 lines, preventing oversized popups for verbose tool output.
+- **Status item anchor reliability** (`ce44088a`, `e6485ec8`): Coordinate conversion in `StatusItemAnchorSupport` / `StatusItemController` corrected for edge cases with multiple screens at different backing scales.
+- **Uninstall failure note & sandboxed FDA explanation** (`7b59532f`): `UninstallerSupport`, `AppUninstaller`, `SharedUI`, `UninstallerView`, `PanelUninstallerView`, and all 12 non-English localisations updated with clear guidance when full-disk access is missing.
+
+### New Features
+- **Media compression to target file size** (`83fc0626`): Images, GIFs, and videos can now be compressed to a user-specified MB target. `MediaVideoTargetEncoder` performs multi-pass bitrate scaling with per-format reduction plans (GIF frame-drop → palette reduction → scale; video bitrate budget → scale). UI in `MediaWorkspaceView` switches between resolution mode and target-size mode.
+- **Visual Date/Time variable builder for snippets** (`1ac63dc8`, `b4e7930c`): New `DateVariableBuilder` popover in Snippet Settings lets users construct `{date:…}` tokens with IANA timezone search, format previews and one-click insertion. `TextSnippetSupport` gains `-tz(…)` override syntax and ranked timezone lookup. `PlainTextEditor` extracted as a shared AppKit/SwiftUI component with undo, configurable insets, and safe selection binding — replaces the private duplicate in Scratchpad.
+
+### Internal & Testing
+- **3,742 automated unit checks** — 100 % pass rate, +114 new assertions covering pasteboard async, `startsNewCropSelection`, `pixelSnappedCropRect`, `cropLoupeSampleRect`, `DateVariableBuilder` format tokens, and IANA timezone ranking.
+- **Zero external telemetry** — all network hooks remain stripped.
+
 ## [1.13.0] — 2026-08-23
 
 ### Stability & Security Improvements
