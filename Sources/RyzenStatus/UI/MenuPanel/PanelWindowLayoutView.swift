@@ -73,8 +73,7 @@ struct PanelWindowLayoutView: View {
                     .frame(width: 22, height: 22)
             }
             .buttonStyle(.plain)
-            .help(l10n.s.uninstallerCancel)
-            .accessibilityLabel(l10n.s.menuClose)
+            .help(l10n.s.menuClose)
         }
     }
 

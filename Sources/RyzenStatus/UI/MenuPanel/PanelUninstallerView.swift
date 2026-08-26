@@ -58,8 +58,7 @@ struct PanelUninstallerView: View {
                     .frame(width: 22, height: 22)
             }
             .buttonStyle(.plain)
-            .help(l10n.s.uninstallerCancel)
-            .accessibilityLabel(l10n.s.uninstallerCancel)
+            .help(l10n.s.menuClose)
         }
     }
 
@@ -191,8 +190,7 @@ struct PanelUninstallerView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .help(l10n.s.uninstallerCancel)
-            .accessibilityLabel(l10n.s.uninstallerCancel)
+            .help(l10n.s.menuClose)
         }
     }
 
