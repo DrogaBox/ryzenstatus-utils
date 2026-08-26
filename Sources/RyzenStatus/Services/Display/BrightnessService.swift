@@ -109,6 +109,11 @@ final class BrightnessService: ObservableObject {
     /// before the first change so restoring is exact. Touched only on the
     /// work queue.
     private var gammaBaselines: [CGDirectDisplayID: GammaTable] = [:]
+    /// Displays whose picture is currently scaled by this app. While a display
+    /// is in here its live curve is ours, not its own, so it is never read
+    /// back as a baseline. Touched only on the work queue.
+    private var dimmedDisplays = Set<CGDirectDisplayID>()
+
 
     private struct GammaTable {
         var red: [CGGammaValue]
@@ -229,6 +234,7 @@ final class BrightnessService: ObservableObject {
                                             baseline.green, baseline.blue)
             }
             self.gammaBaselines = [:]
+            self.dimmedDisplays = []
         }
     }
 
@@ -785,7 +791,9 @@ final class BrightnessService: ObservableObject {
         for index in softwareIndices.sorted() {
             let id = built[index].id
             stateLock.lock()
-            let value = lastApplied[id] ?? 1.0
+            let value = BrightnessSupport.softwareDimToRestore(
+                remembered: lastApplied[id],
+                appliedByApp: dimmedDisplays.contains(id))
             stateLock.unlock()
             captureGammaBaselineIfNeeded(id, currentValue: value)
             guard gammaBaselines[id] != nil else { continue }
@@ -928,14 +936,18 @@ final class BrightnessService: ObservableObject {
     private func applySoftwareDim(_ id: CGDirectDisplayID, value: Double) -> Bool {
         guard let baseline = gammaBaselines[id] else { return false }
         if value >= 0.999 {
-            return CGSetDisplayTransferByTable(id, baseline.count, baseline.red,
-                                               baseline.green, baseline.blue) == .success
+            let restored = CGSetDisplayTransferByTable(id, baseline.count, baseline.red,
+                                                       baseline.green, baseline.blue) == .success
+            if restored { dimmedDisplays.remove(id) }
+            return restored
         }
         let factor = BrightnessSupport.softwareDimFactor(for: value)
         let red = BrightnessSupport.scaledGammaTable(baseline.red, factor: factor)
         let green = BrightnessSupport.scaledGammaTable(baseline.green, factor: factor)
         let blue = BrightnessSupport.scaledGammaTable(baseline.blue, factor: factor)
-        return CGSetDisplayTransferByTable(id, baseline.count, red, green, blue) == .success
+        let applied = CGSetDisplayTransferByTable(id, baseline.count, red, green, blue) == .success
+        if applied { dimmedDisplays.insert(id) }
+        return applied
     }
 
     // MARK: - DDC transactions (work queue)
