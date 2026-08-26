@@ -130,6 +130,13 @@ enum NowPlayingLyricsText {
     private static let lrcRegex = try? NSRegularExpression(pattern: #"\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]"#)
     private static let offsetRegex = try? NSRegularExpression(pattern: #"\[offset:\s*([+-]?\d+)\]"#, options: [.caseInsensitive])
 
+    // Performance optimization: Pre-compile and cache regexes used for matching instead of compiling them
+    // on every invocation of `replacingOccurrences(of:with:options: .regularExpression)`
+    private static let parentheticalRegex = try? NSRegularExpression(pattern: #"\([^)]*\)"#)
+    private static let bracketRegex = try? NSRegularExpression(pattern: #"\[[^\]]*\]"#)
+    private static let nonAlphanumericRegex = try? NSRegularExpression(pattern: #"[^a-z0-9\s]"#)
+    private static let whitespaceRegex = try? NSRegularExpression(pattern: #"\s+"#)
+
     /// LRC synced lyrics into timed lines; supports multiple stamps per line
     /// and the [offset:±ms] tag. Returns nil when nothing parses.
     static func parseLRC(_ raw: String) -> [NowPlayingLyricsLine]? {
@@ -181,13 +188,22 @@ enum NowPlayingLyricsText {
     /// Lowercases, strips parentheticals/brackets/punctuation and version
     /// tokens ("remix", "edit"…) so candidate matching ignores packaging.
     static func normalizeForMatch(_ text: String) -> String {
-        let lower = text.lowercased()
-        let cleaned = lower
-            .replacingOccurrences(of: #"\([^)]*\)"#, with: " ", options: .regularExpression)
-            .replacingOccurrences(of: #"\[[^\]]*\]"#, with: " ", options: .regularExpression)
-            .replacingOccurrences(of: #"[^a-z0-9\s]"#, with: " ", options: .regularExpression)
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var cleaned = text.lowercased()
+        if let parentheticalRegex = parentheticalRegex,
+           let bracketRegex = bracketRegex,
+           let nonAlphanumericRegex = nonAlphanumericRegex,
+           let whitespaceRegex = whitespaceRegex {
+            let fullRange = NSRange(cleaned.startIndex..., in: cleaned)
+            cleaned = parentheticalRegex.stringByReplacingMatches(in: cleaned, range: fullRange, withTemplate: " ")
+            let bracketRange = NSRange(cleaned.startIndex..., in: cleaned)
+            cleaned = bracketRegex.stringByReplacingMatches(in: cleaned, range: bracketRange, withTemplate: " ")
+            let alphaRange = NSRange(cleaned.startIndex..., in: cleaned)
+            cleaned = nonAlphanumericRegex.stringByReplacingMatches(in: cleaned, range: alphaRange, withTemplate: " ")
+            let whiteRange = NSRange(cleaned.startIndex..., in: cleaned)
+            cleaned = whitespaceRegex.stringByReplacingMatches(in: cleaned, range: whiteRange, withTemplate: " ")
+        }
+
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
         let dropTokens: Set<String> = [
             "feat", "featuring", "ft", "remix", "mix", "radio", "edit", "extended",
             "version", "original", "deluxe",
