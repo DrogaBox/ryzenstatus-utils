@@ -436,7 +436,7 @@ struct MetricsTests {
         for _ in 0..<16 {
             pasteboardGroup.enter()
             DispatchQueue.global(qos: .userInitiated).async {
-                pasteboardAccess.sync {
+                pasteboardAccess.async {
                     pasteboardStateLock.lock()
                     activePasteboardOperations += 1
                     maximumPasteboardOperations = max(maximumPasteboardOperations,
@@ -446,19 +446,45 @@ struct MetricsTests {
                     pasteboardStateLock.lock()
                     activePasteboardOperations -= 1
                     pasteboardStateLock.unlock()
+                    pasteboardGroup.leave()
                 }
-                pasteboardGroup.leave()
             }
         }
-        expect(pasteboardGroup.wait(timeout: .now() + 2) == .success,
+        expect(pasteboardGroup.wait(timeout: .now() + 5) == .success,
                "pasteboard access operations finish without deadlock")
         expect(maximumPasteboardOperations == 1,
                "pasteboard access serializes concurrent service work")
-        let nestedPasteboardValue = pasteboardAccess.sync {
-            pasteboardAccess.sync { 230 }
+
+        // The freeze this lane exists to prevent (issue #887): a read stuck
+        // behind an app that promised pasteboard content and stopped answering
+        // holds the lane, and any caller that waited for it would be frozen
+        // with it. Wedge the lane, then ask for work from the main thread: the
+        // ask must return at once and the answer must arrive later, on main.
+        let wedgeReleased = DispatchSemaphore(value: 0)
+        pasteboardAccess.async { wedgeReleased.wait() }
+        // Released on its own, so a caller that waited for the lane comes out
+        // measurably late instead of hanging the whole test run.
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.3) {
+            wedgeReleased.signal()
         }
-        expect(nestedPasteboardValue == 230,
-               "pasteboard access permits nested work without deadlock")
+        var laneAnswer: Int?
+        var laneAnsweredOnMain = false
+        let askedAt = Date()
+        pasteboardAccess.async({ 887 }, then: { value in
+            laneAnswer = value
+            laneAnsweredOnMain = Thread.isMainThread
+        })
+        let askDuration = Date().timeIntervalSince(askedAt)
+        expect(askDuration < 0.1,
+               "asking the wedged pasteboard lane for work returns without waiting "
+                   + "(took \(askDuration)s)")
+        expect(laneAnswer == nil, "the wedged lane has not answered yet")
+        let laneDeadline = Date().addingTimeInterval(5)
+        while laneAnswer == nil, Date() < laneDeadline {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        expect(laneAnswer == 887, "the queued work runs once the lane comes free")
+        expect(laneAnsweredOnMain, "the pasteboard lane answers on the main queue")
 
         let maxCapacityStringJSON = Data(#"{"SPPowerDataType":[{"sppower_battery_health_info":{"sppower_battery_health_maximum_capacity":"93%"}}]}"#.utf8)
         expect(MaxCapacityProbe.percent(fromSystemProfilerJSON: maxCapacityStringJSON) == 93,
@@ -3005,6 +3031,122 @@ struct MetricsTests {
         expect(!MediaSupport.outputGrew(originalBytes: 0, outputBytes: 12_000),
                "an unknown original size never triggers the grew caption")
 
+        expect(MediaSizingMode.sanitized(MediaSizingMode.targetSize.rawValue) == .targetSize
+                && MediaSizingMode.sanitized("nonsense") == .resolution,
+               "A stored sizing mode falls back to the historical resolution mode")
+        expect(MediaSupport.targetBytes(megabytes: 20) == 20_000_000
+                && MediaSupport.targetBytes(megabytes: 0) == 1_000_000
+                && MediaSupport.targetBytes(megabytes: 99_999)
+                    == Int64(MediaSupport.maximumTargetMegabytes) * 1_000_000,
+               "Target megabytes are 1000 based and clamped to a usable range")
+
+        // The case the mode exists for: a minute of 1080p that has to fit the
+        // 20 MB a chat service accepts without paid tiers.
+        let sharePlan = MediaSupport.videoSizePlan(targetBytes: 20_000_000,
+                                                   duration: 60,
+                                                   sourceSize: CGSize(width: 1920, height: 1080),
+                                                   frameRate: 30,
+                                                   hasAudio: true)
+        expect(sharePlan != nil, "A minute of 1080p can be planned into 20 MB")
+        if let plan = sharePlan {
+            let projectedBytes = Double(plan.videoBitRate + plan.audioBitRate) * 60 / 8
+            expect(projectedBytes <= 20_000_000,
+                   "The planned bitrate cannot overrun the target it was derived from")
+            expect(projectedBytes >= 18_000_000,
+                   "The plan spends the budget instead of undershooting it")
+            expect(plan.size.width <= 1920 && plan.size.height <= 1080,
+                   "A size target never upscales the source")
+            expect(Int(plan.size.width).isMultiple(of: 2) && Int(plan.size.height).isMultiple(of: 2),
+                   "Planned dimensions stay even, which H.264 requires")
+        }
+
+        // Short clips have bitrate to spare, so nothing is thrown away.
+        expect(MediaSupport.videoSizePlan(targetBytes: 20_000_000,
+                                          duration: 5,
+                                          sourceSize: CGSize(width: 1280, height: 720),
+                                          frameRate: 30,
+                                          hasAudio: true)?.size == CGSize(width: 1280, height: 720),
+               "A budget larger than the source needs keeps the full resolution")
+        // A budget too thin to be watchable is refused rather than encoded.
+        expect(MediaSupport.videoSizePlan(targetBytes: 1_000_000,
+                                          duration: 120,
+                                          sourceSize: CGSize(width: 1920, height: 1080),
+                                          frameRate: 30,
+                                          hasAudio: true) == nil,
+               "An unreachable target fails planning instead of producing mush")
+        expect(MediaSupport.videoSizePlan(targetBytes: 2_000_000,
+                                          duration: 60,
+                                          sourceSize: CGSize(width: 1920, height: 1080),
+                                          frameRate: 30,
+                                          hasAudio: false)?.size == CGSize(width: 480, height: 270),
+               "Scaling stops at 480 on the long edge even when the budget would buy less")
+        expect(MediaSupport.videoSizePlan(targetBytes: 20_000_000,
+                                          duration: 0,
+                                          sourceSize: CGSize(width: 1920, height: 1080),
+                                          frameRate: 30,
+                                          hasAudio: true) == nil
+                && MediaSupport.videoSizePlan(targetBytes: 20_000_000,
+                                              duration: 60,
+                                              sourceSize: .zero,
+                                              frameRate: 30,
+                                              hasAudio: true) == nil,
+               "Planning rejects a clip with no duration or no size")
+        expect(MediaSupport.targetAudioBitRate(targetBytes: 20_000_000, duration: 60) == 128_000
+                && MediaSupport.targetAudioBitRate(targetBytes: 2_000_000, duration: 60) == 64_000,
+               "Audio gives up half its bitrate when the whole budget is thin")
+
+        // Rate control lands near the budget, so an overshoot is measured and
+        // scaled down rather than retried at the same setting.
+        expectClose(MediaSupport.targetRetryScale(current: 1,
+                                                  actualBytes: 24_000_000,
+                                                  targetBytes: 20_000_000) ?? 0,
+                    0.7833, "overshoot retry scale", tol: 0.001)
+        expect(MediaSupport.targetRetryScale(current: 1,
+                                             actualBytes: 19_000_000,
+                                             targetBytes: 20_000_000) == nil,
+               "A pass that already fits is never retried")
+        expect((MediaSupport.targetRetryScale(current: 1,
+                                              actualBytes: 20_000_001,
+                                              targetBytes: 20_000_000) ?? 1) <= 0.9,
+               "Every retry gives up at least a tenth so the passes converge")
+
+        // A GIF has no bitrate, so overshoot is corrected on frames first.
+        let gifRetry = MediaSupport.gifSizePlan(width: 720, fps: 15,
+                                                actualBytes: 12_000_000, targetBytes: 8_000_000)
+        expect(gifRetry?.fps == 9 && gifRetry?.width == 720,
+               "A GIF over its target drops frames before it drops pixels")
+        let gifDeepRetry = MediaSupport.gifSizePlan(width: 720, fps: 9,
+                                                    actualBytes: 9_000_000, targetBytes: 2_000_000)
+        expect((gifDeepRetry?.width ?? 720) < 720 && gifDeepRetry?.fps == MediaSupport.minimumTargetGIFFPS,
+               "Once the frame rate hits its floor the frame itself shrinks")
+        expect(MediaSupport.gifSizePlan(width: 160, fps: 6,
+                                        actualBytes: 5_000_000, targetBytes: 1_000_000) == nil
+                && MediaSupport.gifSizePlan(width: 720, fps: 15,
+                                            actualBytes: 1_000_000, targetBytes: 8_000_000) == nil,
+               "A GIF already at its floor, or already fitting, has nothing left to plan")
+        expect(MediaSupport.targetGIFStartFPS(duration: 10) == 15
+                && MediaSupport.targetGIFStartFPS(duration: 60) == MediaSupport.minimumTargetGIFFPS,
+               "A size targeted GIF starts at the highest rate its frame ceiling allows")
+        expect(MediaSupport.targetGIFStartWidth(sourceWidth: 1_920) == 1_600
+                && MediaSupport.targetGIFStartWidth(sourceWidth: 640) == 640
+                && MediaSupport.targetGIFStartWidth(sourceWidth: 0) == 1_600,
+               "A size targeted GIF starts from the source width, capped at the tool maximum")
+
+        let sizeTargetStrings: [(String, Strings)] = [
+            ("en-US", .enUS), ("pt-BR", .ptBR), ("tr", .tr), ("ru", .ru), ("es", .es),
+            ("de", .de), ("fr", .fr), ("it", .it), ("ja", .ja), ("ko", .ko),
+            ("zh-Hans", .zhHans), ("zh-HK", .zhHK), ("zh-TW", .zhTW),
+        ]
+        for (name, strings) in sizeTargetStrings {
+            expect(!strings.mediaSizingResolution.isEmpty
+                    && !strings.mediaSizingFileSize.isEmpty
+                    && !strings.mediaTargetSize.isEmpty
+                    && !strings.mediaTargetSizeHint.isEmpty
+                    && !strings.mediaErrorTargetTooSmall.isEmpty
+                    && !strings.mediaMegabytesSuffix.isEmpty,
+                   "\(name) names the size target controls")
+        }
+
         expect(UpdateInstallerSupport.shellSingleQuoted("/Applications/My App.app")
                    == "'/Applications/My App.app'",
                "shell quoting wraps paths with spaces")
@@ -5515,6 +5657,242 @@ struct MetricsTests {
         expect(TextSnippetSupport.expand("plain", date: fixedDate, clipboard: nil) == "plain",
                "text without variables passes through untouched")
 
+        // Only a replacement that names the clipboard pays for reading it: the
+        // pasteboard can hang on content nobody renders any more, and that read
+        // sits on the keystroke path (issue #887).
+        expect(TextSnippetSupport.needsClipboard("clip: {{clipboard}}"),
+               "a replacement naming the clipboard needs it read")
+        expect(!TextSnippetSupport.needsClipboard("Report on {{date}} at {{time}}."),
+               "a replacement with only date variables never reads the clipboard")
+        expect(!TextSnippetSupport.needsClipboard("plain"),
+               "a replacement without variables never reads the clipboard")
+        expect(!TextSnippetSupport.needsClipboard("keep {{unknown}}"),
+               "an unknown variable is not the clipboard one")
+
+        let enUS = Locale(identifier: "en_US")
+        // Timezone-qualified date variables
+        var tzTestCalendar = Calendar(identifier: .gregorian)
+        tzTestCalendar.timeZone = TimeZone(identifier: "UTC")!
+        let zonedDate = tzTestCalendar.date(from: DateComponents(year: 2025, month: 7, day: 1,
+                                                                 hour: 12, minute: 30, second: 15))!
+        expect(TextSnippetSupport.expand("{{datetime-tz(UTC):yyyy-MM-dd'T'HH:mm:ss}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS)
+                == "2025-07-01T12:30:15",
+               "a UTC-tagged datetime token formats in UTC regardless of the device's zone")
+        expect(TextSnippetSupport.expand("{{date-tz(UTC):yyyy-MM-dd}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS) == "2025-07-01",
+               "a UTC-tagged date token formats in UTC")
+        expect(TextSnippetSupport.expand("{{time-tz(UTC):HH:mm:ss}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS) == "12:30:15",
+               "a UTC-tagged time token formats in UTC")
+        expect(TextSnippetSupport.expand("{{datetime-tz(Asia/Tokyo):yyyy-MM-dd HH:mm}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS)
+                == "2025-07-01 21:30",
+               "a token tagged with a specific zone shifts the clock by that zone's offset")
+        // Asserted against a fixed non-UTC zone rather than the device's:
+        // CI runners are UTC, where a leak and no leak look identical.
+        expect(TextSnippetSupport.expand("{{time-tz(Asia/Tokyo):HH:mm}} then {{time-tz(UTC):HH:mm}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS)
+                == "21:30 then 12:30",
+               "a time zone on one token does not leak into a later token with its own")
+        // The likelier leak: one shared DateFormatter has to be reset back
+        // to the device zone for a plain token following a zoned one.
+        // Compared against the plain token's own output so it holds on
+        // CI's UTC runners as well as a machine in any other zone.
+        expect(TextSnippetSupport.expand("{{time-tz(Asia/Tokyo):HH:mm}}|{{time:HH:mm}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS)
+                == "21:30|" + TextSnippetSupport.expand("{{time:HH:mm}}", date: zonedDate,
+                                                        clipboard: nil, locale: enUS),
+               "a zoned token does not leak into a later plain one")
+        expect(TextSnippetSupport.expand("{{datetime-tz(Not/ARealZone):yyyy-MM-dd HH:mm}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS)
+                == "{{datetime-tz(Not/ARealZone):yyyy-MM-dd HH:mm}}",
+               "an unrecognized time zone stays a literal tag instead of quietly using the device zone")
+        expect(TextSnippetSupport.expand("{{datetime-tz(America/New York):yyyy-MM-dd HH:mm}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS)
+                == "{{datetime-tz(America/New York):yyyy-MM-dd HH:mm}}",
+               "a space where the identifier needs an underscore is visibly wrong, not silently local")
+
+        // Date variable builder logic
+        expect(TextSnippetSupport.resolvedDatePattern(kind: .date, style: .iso8601,
+                                                       customPattern: "", locale: enUS) == "yyyy-MM-dd",
+               "ISO 8601 date style resolves to the fixed ISO date pattern")
+        expect(TextSnippetSupport.resolvedDatePattern(kind: .time, style: .iso8601,
+                                                       customPattern: "", locale: enUS) == "HH:mm:ssXXX",
+               "ISO 8601 time style resolves to the fixed ISO time pattern with an offset token")
+        expect(TextSnippetSupport.resolvedDatePattern(kind: .datetime, style: .iso8601,
+                                                       customPattern: "", locale: enUS)
+                == "yyyy-MM-dd'T'HH:mm:ssXXX",
+               "ISO 8601 datetime style resolves to the fixed ISO datetime pattern")
+        expect(TextSnippetSupport.resolvedDatePattern(kind: .date, style: .custom,
+                                                       customPattern: "dd/MM/yyyy", locale: enUS)
+                == "dd/MM/yyyy",
+               "custom style passes the raw pattern through untouched")
+        expect(!TextSnippetSupport.resolvedDatePattern(kind: .date, style: .medium,
+                                                        customPattern: "", locale: enUS).isEmpty,
+               "a system style resolves to some non-empty pattern (exact text is OS/locale dependent)")
+
+        expect(TextSnippetSupport.dateVariableText(kind: .date, style: .iso8601, customPattern: "",
+                                                    timeZoneIdentifier: nil, locale: enUS)
+                == "{{date:yyyy-MM-dd}}",
+               "building a token with no timezone omits the -tz(...) suffix")
+        expect(TextSnippetSupport.dateVariableText(kind: .datetime, style: .iso8601, customPattern: "",
+                                                    timeZoneIdentifier: "UTC", locale: enUS)
+                == "{{datetime-tz(UTC):yyyy-MM-dd'T'HH:mm:ssXXX}}",
+               "building a token with a timezone adds the -tz(...) suffix")
+        expect(TextSnippetSupport.dateVariableText(kind: .time, style: .custom, customPattern: "HH:mm",
+                                                    timeZoneIdentifier: "Asia/Tokyo", locale: enUS)
+                == "{{time-tz(Asia/Tokyo):HH:mm}}",
+               "a custom pattern with a timezone builds the same tagged token shape")
+
+        expect(TextSnippetSupport.dateVariablePreview(kind: .datetime, style: .iso8601, customPattern: "",
+                                                       timeZoneIdentifier: "UTC", date: zonedDate,
+                                                       locale: enUS) == "2025-07-01T12:30:15Z",
+               "the preview matches what expansion would produce for the same settings")
+        expect(TextSnippetSupport.dateVariablePreview(kind: .date, style: .custom, customPattern: "",
+                                                       timeZoneIdentifier: nil, date: zonedDate,
+                                                       locale: enUS).isEmpty,
+               "an empty custom pattern previews as empty rather than crashing on an empty date format")
+
+        // Date variable token detection
+        let tokenSample = "Hi {{date:MMM d}} and {{datetime-tz(UTC):yyyy}} end"
+        let insideDate = tokenSample.index(tokenSample.startIndex, offsetBy: 6)
+        let detectedDate = TextSnippetSupport.dateToken(in: tokenSample, at: insideDate)
+        expect(detectedDate?.kind == .date && detectedDate?.pattern == "MMM d"
+                && detectedDate?.timeZoneIdentifier == nil,
+               "the cursor inside a plain date token detects its kind and pattern")
+
+        let insideZoned = tokenSample.range(of: "UTC")!.lowerBound
+        let detectedZoned = TextSnippetSupport.dateToken(in: tokenSample, at: insideZoned)
+        expect(detectedZoned?.kind == .datetime && detectedZoned?.pattern == "yyyy"
+                && detectedZoned?.timeZoneIdentifier == "UTC",
+               "the cursor inside a timezone-qualified token detects its kind, pattern and zone")
+
+        expect(TextSnippetSupport.dateToken(in: tokenSample, at: tokenSample.startIndex) == nil,
+               "a cursor outside any tag detects nothing")
+
+        // The detected range is what the editor later splices over, and it
+        // reaches that splice as offsets so it cannot be read against a
+        // string it was not measured from.
+        expect(detectedDate.map {
+            String(tokenSample[TextSnippetSupport.selectionRange(in: tokenSample, offsets: $0.offsets)])
+        } == "{{date:MMM d}}",
+               "a detected token's offsets span exactly the token, braces included")
+        expect(detectedZoned.map {
+            String(tokenSample[TextSnippetSupport.selectionRange(in: tokenSample, offsets: $0.offsets)])
+        } == "{{datetime-tz(UTC):yyyy}}",
+               "a timezone-qualified token's offsets span the whole tag")
+
+        // Selection mapping with character offsets: an edit that shortened text
+        // leaves them past the end. They must clamp, never trap.
+        let selectionText = "abcdef"
+        expect(TextSnippetSupport.selectionRange(in: selectionText, offsets: 2..<4)
+                == selectionText.index(selectionText.startIndex, offsetBy: 2)
+                    ..< selectionText.index(selectionText.startIndex, offsetBy: 4),
+               "an in-range selection maps to exactly those characters")
+        expect(TextSnippetSupport.selectionRange(in: selectionText, offsets: nil)
+                == selectionText.endIndex..<selectionText.endIndex,
+               "no tracked selection puts the caret at the end")
+        expect(TextSnippetSupport.selectionRange(in: "ab", offsets: 5..<9)
+                == "ab".endIndex..<"ab".endIndex,
+               "offsets left over from longer text clamp to the end instead of trapping")
+        expect(TextSnippetSupport.selectionRange(in: "abcd", offsets: 2..<99)
+                == "abcd".index("abcd".startIndex, offsetBy: 2)..<"abcd".endIndex,
+               "a selection running past the end clamps only its upper bound")
+        expect(TextSnippetSupport.selectionRange(in: "", offsets: 3..<7)
+                == "".startIndex..<"".startIndex,
+               "empty text clamps every offset to the start")
+        expect(TextSnippetSupport.selectionRange(in: "e\u{301}fg", offsets: 1..<2)
+                == "e\u{301}fg".index("e\u{301}fg".startIndex, offsetBy: 1)
+                    ..< "e\u{301}fg".index("e\u{301}fg".startIndex, offsetBy: 2),
+               "offsets count characters, so a combining mark stays with its base")
+
+        let unknownTagText = "see {{clipboard}} here"
+        let insideUnknown = unknownTagText.index(unknownTagText.startIndex, offsetBy: 6)
+        expect(TextSnippetSupport.dateToken(in: unknownTagText, at: insideUnknown) == nil,
+               "a cursor inside a non-date tag like clipboard detects nothing")
+
+        let unclosedText = "start {{date:yyyy no close"
+        let insideUnclosed = unclosedText.index(unclosedText.startIndex, offsetBy: 10)
+        expect(TextSnippetSupport.dateToken(in: unclosedText, at: insideUnclosed) == nil,
+               "a cursor inside an unclosed tag detects nothing")
+
+        expect(TextSnippetSupport.dateToken(in: "", at: "".startIndex) == nil,
+               "empty text detects nothing")
+
+        let afterFirstTag = tokenSample.range(of: "{{date:MMM d}}")!.upperBound
+        expect(TextSnippetSupport.dateToken(in: tokenSample, at: afterFirstTag) == nil,
+               "a cursor immediately after a token's closing braces is not inside that token")
+        let beforeFirstTag = tokenSample.range(of: "{{date:MMM d}}")!.lowerBound
+        expect(TextSnippetSupport.dateToken(in: tokenSample, at: beforeFirstTag) == nil,
+               "a cursor immediately before a token's opening braces is not inside that token")
+
+        // Date variable builder support (timezone search and style matching)
+        expect(TextSnippetSupport.matchingDateStyle(pattern: "yyyy-MM-dd", kind: .date, locale: enUS) == .iso8601,
+               "the ISO 8601 date pattern is recognized as that style")
+        expect(TextSnippetSupport.matchingDateStyle(pattern: "not a real pattern", kind: .date, locale: enUS) == .custom,
+               "an unrecognized pattern falls back to Custom")
+
+        expect(TextSnippetSupport.matchingTimeZoneIdentifiers(for: "").isEmpty,
+               "an empty query matches nothing")
+        // Asserted as containment, not equality: the set of identifiers
+        // comes from the OS timezone database, so a future release adding
+        // another "New York" zone must not fail this.
+        expect(TextSnippetSupport.matchingTimeZoneIdentifiers(for: "new york").contains("America/New_York"),
+               "a city name with a space matches the underscored identifier")
+        // A broad query matches well over a hundred zones. The obvious
+        // answer has to be reachable, and near the top: an alphabetical
+        // list capped for the picker used to drop it entirely.
+        let americaMatches = TextSnippetSupport.matchingTimeZoneIdentifiers(for: "america")
+        expect(americaMatches.contains("America/New_York"),
+               "a broad region query still lists the major city zones")
+        // "york" and the full identifier both narrow to a single match, so
+        // neither can observe the ordering. "st" matches dozens, most of
+        // which merely contain the letters, so only ranking puts a city
+        // beginning with them at the head.
+        expect(TextSnippetSupport.matchingTimeZoneIdentifiers(for: "st").first?
+                .split(separator: "/").last?.lowercased().hasPrefix("st") == true,
+               "a city starting with the query outranks zones that merely contain it")
+        expect(TextSnippetSupport.matchingTimeZoneIdentifiers(for: "america/new_york").first
+                == "America/New_York",
+               "an exactly typed identifier resolves to itself")
+        expect(TextSnippetSupport.matchingTimeZoneIdentifiers(for: "xyz-nonsense").isEmpty,
+               "a query matching nothing returns an empty list")
+
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "America/New_York") == "America/New_York",
+               "a full identifier resolves to itself")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "america/new york") == "America/New_York",
+               "the full identifier resolves case- and separator-insensitively")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "new york", matches: ["America/New_York"])
+                == "America/New_York",
+               "a city name that narrows the suggestion list to exactly one result resolves to it")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(
+                for: "new", matches: ["America/New_York", "Europe/Newtown"]) == nil,
+               "a query still matching several identifiers stays unresolved")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "pst") == "America/Los_Angeles",
+               "a common abbreviation resolves to its canonical identifier")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "utc") == "UTC",
+               "UTC resolves even though it is not itself in TimeZone.knownTimeZoneIdentifiers")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "budapest")?.hasSuffix("Budapest") == true,
+               "a query with no exact match but exactly one substring match resolves to it")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "america") == nil,
+               "a query matching many identifiers with no exact hit stays unresolved")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "xyz-nonsense") == nil,
+               "a query matching nothing is unresolved")
+
+        // A built token round-trips back through detection unchanged: this is
+        // exactly the path the Insert/Edit button depends on.
+        for kind in TextSnippetSupport.DateVariableKind.allCases {
+            for timeZoneIdentifier in [nil, "UTC", "Asia/Tokyo"] as [String?] {
+                let built = TextSnippetSupport.dateVariableText(kind: kind, style: .iso8601, customPattern: "",
+                                                                 timeZoneIdentifier: timeZoneIdentifier, locale: enUS)
+                let midpoint = built.index(built.startIndex, offsetBy: built.count / 2)
+                let detected = TextSnippetSupport.dateToken(in: built, at: midpoint)
+                expect(detected?.kind == kind && detected?.timeZoneIdentifier == timeZoneIdentifier,
+                       "a built \(kind.rawValue) token with timezone \(timeZoneIdentifier ?? "nil") round-trips through dateToken unchanged")
+            }
+        }
+
         let storedSnippets = [email, dateSnippet]
         expect(TextSnippetSupport.decode(TextSnippetSupport.encode(storedSnippets)) == storedSnippets,
                "snippets round-trip through persistence")
@@ -5716,6 +6094,68 @@ struct MetricsTests {
                                                        fromCenter: true)
         expect(centered == CGRect(x: 30, y: 40, width: 40, height: 20),
                "option grows the selection from the center")
+        let cropBounds = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let cropDraft = CGRect(x: 120, y: 90, width: 400, height: 300)
+        expect(ScreenshotSupport.startsNewCropSelection(
+                    at: CGPoint(x: 300, y: 250), draft: cropBounds, within: cropBounds),
+               "dragging inside the initial full-image crop starts a new selection")
+        expect(!ScreenshotSupport.startsNewCropSelection(
+                    at: CGPoint(x: 300, y: 250), draft: cropDraft, within: cropBounds),
+               "dragging inside an adjusted crop keeps moving it")
+        expect(ScreenshotSupport.startsNewCropSelection(
+                    at: CGPoint(x: 700, y: 500), draft: cropDraft, within: cropBounds),
+               "dragging elsewhere in the image replaces an adjusted crop")
+        expect(!ScreenshotSupport.startsNewCropSelection(
+                    at: CGPoint(x: 900, y: 700), draft: cropDraft, within: cropBounds),
+               "a drag outside the image cannot start a crop")
+
+        // The crop chrome, the loupe cross and the image applyCrop produces are
+        // three drawings of one edge. They agree only while pixelSnappedCropRect
+        // is the single thing deciding where that edge is.
+        let snapBounds = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let looseDraft = CGRect(x: 100.4, y: 60.4, width: 100, height: 100)
+        let snappedDraft = ScreenshotSupport.pixelSnappedCropRect(looseDraft, within: snapBounds)
+        expect(snappedDraft == CGRect(x: 100, y: 60, width: 100, height: 100),
+               "a crop draft rounds each edge to the nearest pixel boundary")
+        expect(snappedDraft.maxX == 200,
+               "a crop draft does not grow outward the way CGRect.integral would")
+        expect(ScreenshotSupport.pixelSnappedCropRect(snappedDraft, within: snapBounds)
+                == snappedDraft,
+               "snapping a crop draft that already sits on pixels changes nothing")
+        expect(ScreenshotSupport.pixelSnappedCropRect(
+                    CGRect(x: 100.4, y: 60.4, width: 100.2, height: 100.2), within: snapBounds)
+                == CGRect(x: 100, y: 60, width: 101, height: 101),
+               "a crop edge past the halfway mark rounds to the next boundary")
+        let movedDraft = ScreenshotSupport.pixelSnappedCropRect(
+            ScreenshotSupport.movedRect(snappedDraft,
+                                        by: CGPoint(x: 12.6, y: -4.3),
+                                        within: snapBounds),
+            within: snapBounds)
+        expect(movedDraft.size == snappedDraft.size,
+               "moving a crop draft never changes its size")
+        expect(ScreenshotSupport.pixelSnappedCropRect(
+                    CGRect(x: -40, y: -30, width: 100, height: 100), within: snapBounds)
+                == CGRect(x: 0, y: 0, width: 60, height: 70),
+               "a snapped crop draft stays inside the image")
+
+        // An even sample side centres the edge only once the edge is whole,
+        // which is what the snapping above guarantees.
+        let snapImageSize = CGSize(width: 800, height: 600)
+        let snappedEdge = ScreenshotSupport.Handle.left.position(in: snappedDraft)
+        let snappedSample = ScreenshotSupport.cropLoupeSampleRect(around: snappedEdge,
+                                                                  imageSize: snapImageSize,
+                                                                  sideLength: 14,
+                                                                  centredOnPixel: false)
+        expect(snappedSample.midX == snappedEdge.x && snappedSample.midY == snappedEdge.y,
+               "the crop loupe centres on the edge it marks once the draft sits on pixels")
+        let looseEdge = ScreenshotSupport.Handle.left.position(in: looseDraft)
+        let looseSample = ScreenshotSupport.cropLoupeSampleRect(around: looseEdge,
+                                                                imageSize: snapImageSize,
+                                                                sideLength: 14,
+                                                                centredOnPixel: false)
+        expect(looseSample.midX != looseEdge.x,
+               "an even sample side alone does not centre a fractional crop edge")
+
         expect(ScreenshotSupport.isClick(from: CGPoint(x: 5, y: 5), to: CGPoint(x: 7, y: 8))
                 && !ScreenshotSupport.isClick(from: .zero, to: CGPoint(x: 12, y: 0)),
                "a tiny drag is a click, a real drag is not")
@@ -6022,13 +6462,31 @@ struct MetricsTests {
         expect(ScreenshotSupport.cropLoupeSampleRect(
             around: CGPoint(x: 50, y: 40),
             imageSize: CGSize(width: 100, height: 80))
-            == CGRect(x: 43, y: 33, width: 14, height: 14),
+            == CGRect(x: 44, y: 34, width: 13, height: 13),
                "the crop loupe centers its source pixels around an inner grip")
         expect(ScreenshotSupport.cropLoupeSampleRect(
             around: CGPoint(x: 100, y: 80),
             imageSize: CGSize(width: 100, height: 80))
-            == CGRect(x: 86, y: 66, width: 14, height: 14),
+            == CGRect(x: 87, y: 67, width: 13, height: 13),
                "the crop loupe keeps a full sample at the bottom right edge")
+        // The editor's crop loupe marks an edge between pixels, so it needs the
+        // opposite parity: an even side puts that edge in the middle of the
+        // frame, where an odd one leaves it half a cell short of centre.
+        let cropEdgeSample = ScreenshotSupport.cropLoupeSampleRect(
+            around: CGPoint(x: 100, y: 60),
+            imageSize: CGSize(width: 400, height: 300),
+            sideLength: 14,
+            centredOnPixel: false)
+        expect(cropEdgeSample == CGRect(x: 93, y: 53, width: 14, height: 14)
+                && cropEdgeSample.midX == 100 && cropEdgeSample.midY == 60,
+               "the crop loupe centres its sample on the handle's edge, not on a pixel cell")
+        expect(ScreenshotSupport.cropLoupeSampleRect(
+            around: CGPoint(x: 100, y: 60),
+            imageSize: CGSize(width: 400, height: 300),
+            sideLength: 13,
+            centredOnPixel: false).width == 14,
+               "an odd side grows to the next even one when the loupe centres on an edge")
+
         expect(ScreenshotSupport.cropLoupeSampleRect(
             around: .zero,
             imageSize: CGSize(width: 8, height: 5))
