@@ -178,16 +178,24 @@ enum NowPlayingLyricsText {
         return parsed.sorted { ($0.startTime ?? 0) < ($1.startTime ?? 0) }
     }
 
+    private static let parenRegex = try! NSRegularExpression(pattern: #"\([^)]*\)"#)
+    private static let bracketRegex = try! NSRegularExpression(pattern: #"\[[^\]]*\]"#)
+    private static let punctuationRegex = try! NSRegularExpression(pattern: #"[^a-z0-9\s]"#)
+    private static let whitespaceRegex = try! NSRegularExpression(pattern: #"\s+"#)
+
     /// Lowercases, strips parentheticals/brackets/punctuation and version
     /// tokens ("remix", "edit"…) so candidate matching ignores packaging.
     static func normalizeForMatch(_ text: String) -> String {
         let lower = text.lowercased()
-        let cleaned = lower
-            .replacingOccurrences(of: #"\([^)]*\)"#, with: " ", options: .regularExpression)
-            .replacingOccurrences(of: #"\[[^\]]*\]"#, with: " ", options: .regularExpression)
-            .replacingOccurrences(of: #"[^a-z0-9\s]"#, with: " ", options: .regularExpression)
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var cleaned = lower
+
+        let range = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
+        cleaned = parenRegex.stringByReplacingMatches(in: cleaned, range: range, withTemplate: " ")
+        cleaned = bracketRegex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned), withTemplate: " ")
+        cleaned = punctuationRegex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned), withTemplate: " ")
+        cleaned = whitespaceRegex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned), withTemplate: " ")
+
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
         let dropTokens: Set<String> = [
             "feat", "featuring", "ft", "remix", "mix", "radio", "edit", "extended",
             "version", "original", "deluxe",
