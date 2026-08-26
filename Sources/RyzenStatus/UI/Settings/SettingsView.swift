@@ -399,6 +399,7 @@ struct GeneralSettings: View {
                                 }
                                 .buttonStyle(.plain)
                                 .foregroundStyle(.secondary)
+                                .help(l10n.s.urlCleanerClearButton)
                             }
                         }
                     }
