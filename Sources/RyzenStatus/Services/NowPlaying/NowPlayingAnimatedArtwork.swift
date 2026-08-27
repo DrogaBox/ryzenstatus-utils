@@ -256,16 +256,29 @@ final class NowPlayingAnimatedArtworkCenter: ObservableObject {
         Set(normalized.split(separator: " ").map(String.init).filter { $0.count >= 2 })
     }
 
+    // Cache regexes to prevent repeated compilation overhead via replacingOccurrences on hot paths
+    private static let nonAlphanumericRegex = try? NSRegularExpression(pattern: "[^a-z0-9]+")
+    private static let whitespaceRegex = try? NSRegularExpression(pattern: "\\s+")
+
     private static func normalizeText(_ input: String) -> String {
         let folded = input
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current)
             .lowercased()
-        let alphanumeric = folded.replacingOccurrences(of: "[^a-z0-9]+", with: " ",
-                                                       options: .regularExpression)
-        return alphanumeric.replacingOccurrences(of: "\\s+", with: " ",
-                                                 options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let alphanumeric = nonAlphanumericRegex?.stringByReplacingMatches(
+            in: folded,
+            range: NSRange(folded.startIndex..., in: folded),
+            withTemplate: " "
+        ) ?? folded
+
+        let normalized = whitespaceRegex?.stringByReplacingMatches(
+            in: alphanumeric,
+            range: NSRange(alphanumeric.startIndex..., in: alphanumeric),
+            withTemplate: " "
+        ) ?? alphanumeric
+
+        return normalized.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func currentStorefrontCode() -> String {
