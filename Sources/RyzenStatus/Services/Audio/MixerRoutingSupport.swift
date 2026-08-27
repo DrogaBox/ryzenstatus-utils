@@ -87,6 +87,8 @@ enum MixerRoutingSupport {
         return candidates[(index + 1) % candidates.count]
     }
 
+    private static let nonAlphanumericRegex = try? NSRegularExpression(pattern: #"[^a-z0-9]+"#)
+
     static func outputLooksLikeHeadphones(name: String,
                                           uid: String,
                                           dataSourceName: String?) -> Bool {
@@ -94,9 +96,19 @@ enum MixerRoutingSupport {
             .joined(separator: " ")
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
             .lowercased()
-        let normalized = haystack.replacingOccurrences(of: #"[^a-z0-9]+"#,
+
+        let normalized: String
+        if let regex = nonAlphanumericRegex {
+            let nsString = haystack as NSString
+            normalized = regex.stringByReplacingMatches(in: haystack,
+                                                        range: NSRange(location: 0, length: nsString.length),
+                                                        withTemplate: " ")
+        } else {
+            normalized = haystack.replacingOccurrences(of: #"[^a-z0-9]+"#,
                                                        with: " ",
                                                        options: .regularExpression)
+        }
+
         let directTerms = [
             "headphone", "headphones", "headset",
             "earphone", "earphones", "earbud", "earbuds",
