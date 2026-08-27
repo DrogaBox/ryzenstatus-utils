@@ -1497,7 +1497,7 @@ private struct SidebarSearchField: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(l10n.s.urlCleanerClearButton)
+                .help(l10n.s.urlCleanerClearButton)
             }
         }
         .padding(.vertical, 5)
