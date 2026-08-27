@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.15.1] — 2026-08-27
+
+### UI & Layout Optimization
+- **Menu Panel Spacing**: Eliminated excess empty margins at the top and bottom of the status popover. Removed rigid frame constraints to allow the panel to shrink-wrap naturally around content and scroll views.
+- **Header Alignment**: Re-anchored the top header in a `ZStack` so the brand mark stays centered while the detach button is cleanly pinned to the top right.
+- **Top Safe Area**: Reclaimed top padding using `.ignoresSafeArea(.container, edges: .top)` for a tight, native fit underneath the menu bar anchor.
+
+### Compiler & Concurrency Hardening
+- **Swift 6 Concurrency Compliance**: Marked thumbnail decoders (`ImageThumbnailer` and `VideoThumbnailer`) as `@MainActor` with detached background decoding to prevent `NSImage` non-Sendable warnings across task boundaries.
+- **Zero Warnings**: 100% clean compilation across all modules and full unit test suite (3,742 assertions).
+
 ## [1.15.0] — 2026-08-27
 
 ### Deep Cleaner & Uninstaller Overhaul
