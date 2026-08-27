@@ -217,6 +217,8 @@ extension Strings {
         switcherShortcutHintApps: "앱",
         switcherShortcutHintWindows: "윈도우",
         switcherWindowShortcutCaption: "전환기가 열린 동안 선택한 앱의 윈도우를 차례로 전환합니다.",
+        switcherAppearanceDelay: "표시 지연",
+        switcherAppearanceDelayCaption: "전환기가 나타나기 전에 단축키를 누르고 있어야 하는 시간입니다.",
         switcherMergeTabs: "앱별로 하나로 묶어 표시",
         switcherMergeTabsCaption: "전환기에서 앱의 모든 윈도우를 각각이 아닌 하나의 항목으로 묶습니다.",
         switcherWindowlessApps: "열린 윈도우가 없는 앱",

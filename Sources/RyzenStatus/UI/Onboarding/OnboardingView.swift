@@ -10,13 +10,12 @@ enum OnboardingMode {
     case full
 
     var steps: [OnboardingStep] {
-        // Ten pages on purpose: setup and permissions first, the quick panel
-        // right after the panel pages (it is the app's fastest entry point),
+        // Ten pages on purpose: setup and permissions first,
         // and one single page that turns the optional features on. The old
         // per-feature showcase pages moved into that page as plain toggles;
         // each feature's Settings page still teaches the details.
         [.welcome, .accessibility, .screenRecording, .monitor, .menuBarSetup,
-         .panelSetup, .quickPanel, .optionalFeatures, .purpose,
+         .panelSetup, .optionalFeatures, .purpose,
          .status, .done]
     }
 
@@ -27,7 +26,6 @@ enum OnboardingMode {
 
 enum OnboardingStep {
     case welcome, accessibility, screenRecording, monitor, menuBarSetup, panelSetup, optionalFeatures
-    case quickPanel
     case purpose
     case status, done
 }
@@ -88,7 +86,6 @@ struct OnboardingView: View {
         case .monitor: MonitorStep()
         case .menuBarSetup: MenuBarSetupStep()
         case .panelSetup: PanelSetupStep()
-        case .quickPanel: QuickPanelShowcaseStep()
         case .optionalFeatures: OptionalFeaturesStep()
         case .purpose: PurposeStep()
         case .status: StatusStep()

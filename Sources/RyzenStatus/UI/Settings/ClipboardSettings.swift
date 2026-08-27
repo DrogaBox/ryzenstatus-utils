@@ -59,7 +59,7 @@ struct ClipboardSettings: View {
                         .disabled(!enabled)
                     Picker(text.limit, selection: $limit) {
                         ForEach(Defaults.allowedClipboardHistoryLimits, id: \.self) { value in
-                            Text("\(value)").tag(value)
+                            Text(value == 0 ? text.limitUnlimited : "\(value)").tag(value)
                         }
                     }
                     .disabled(!enabled)
@@ -102,7 +102,9 @@ struct ClipboardSettings: View {
             limit = Defaults.sanitizedClipboardHistoryLimit(limit)
         }
         .onChange(of: limit) { _, value in
-            limit = Defaults.sanitizedClipboardHistoryLimit(value)
+            let sanitized = Defaults.sanitizedClipboardHistoryLimit(value)
+            if sanitized != value { limit = sanitized }
+            ClipboardHistoryService.shared.trimToLimit()
         }
     }
 

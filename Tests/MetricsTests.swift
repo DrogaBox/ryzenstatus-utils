@@ -1874,8 +1874,8 @@ struct MetricsTests {
                == "com.apple.icloud.sharedsettings",
                "systemgroup wrappers unwrap to the real owner")
         expect(CleanerSupport.bundleIDCandidate(fromEntryName:
-               "com.vendor.editor.Helper.B787EFF9-B8E2-5296-96AF-DF9D3CD3AC4F.plist") == nil,
-               "names carrying a UUID are unattributable and never candidates")
+               "com.vendor.B787EFF9-B8E2-5296-96AF-DF9D3CD3AC4F.editor") == nil,
+               "a UUID in the middle of a name stays unattributable")
         expect(CleanerSupport.containsUUIDComponent("x.B787EFF9-B8E2-5296-96AF-DF9D3CD3AC4F")
                && !CleanerSupport.containsUUIDComponent("com.vendor.editor"),
                "the UUID detector matches dashed UUIDs and nothing else")

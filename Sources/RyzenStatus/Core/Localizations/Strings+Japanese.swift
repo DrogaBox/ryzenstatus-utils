@@ -216,6 +216,8 @@ extension Strings {
         switcherShortcutHintApps: "アプリ",
         switcherShortcutHintWindows: "ウインドウ",
         switcherWindowShortcutCaption: "スイッチャーを開いている間、選択中のアプリのウインドウを順に切り替えます。",
+        switcherAppearanceDelay: "表示までの待ち時間",
+        switcherAppearanceDelayCaption: "スイッチャーが表示されるまでショートカットを押し続ける時間です。",
         switcherMergeTabs: "アプリごとに1つにまとめて表示",
         switcherMergeTabsCaption: "スイッチャーで、アプリのすべてのウインドウをウインドウごとではなく1つの項目にまとめます。",
         switcherWindowlessApps: "ウインドウなしのアプリ",

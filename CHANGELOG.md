@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.15.0] — 2026-08-27
+
+### Deep Cleaner & Uninstaller Overhaul
+- **Enhanced Leftover Matching Engine**: Complete rewrite of candidate scanning with `FileIdentity`, `stripKnownSuffix`, and multi-depth directory traversal. Accurately identifies app leftovers in Library, Preferences, Caches, Application Support, Containers, and receipt databases.
+- **Safety & Symlink Protection**: Strict boundary checks prevent deletion outside scanned roots; symlink escapes and path replacement attacks are detected and rejected.
+- **Confidence Badges & Reveal in Finder**: Leftover items display clear confidence indicators (`Exact` vs `Related`) and include direct Finder reveal buttons to inspect files before removal.
+
+### SuperKey & Keyboard Customization
+- **Multi-Source SuperKey**: Support for multiple trigger keys (Caps Lock, Right Option, and dedicated keys) with configurable modifier output combinations (`superKeyModifiers`).
+- **Dynamic Key Descriptions & Modifiers**: Customizable modifier toggles (Command, Option, Control, Shift) with instant live preview and support in Menu Panel and Settings.
+
+### Clipboard History Expansion
+- **Extended Capacity**: Added support for 10,000 items and Unlimited history storage.
+- **Automatic History Trimming**: Dynamic database trimming on limit changes ensures instant cleanup and fast sqlite search responsiveness.
+
+### Media & Playback Fixes
+- **NowPlaying Radial Menu Fix**: Fixed double-click toggle bug in the mouse radial menu where clicking Play/Pause caused immediate conflicting state toggles, ensuring seamless play/pause behavior for Apple Music, Spotify, and system media.
+
+### App Switcher Enhancements
+- **Adjustable Appearance Delay**: Added slider setting (0 to 500 ms, 100 ms default) in App Switcher settings to customize delay before the switcher overlay appears on hotkey press.
+
+### Localization & Quality of Life
+- **Complete 13-Language Updates**: All new strings, captions, and settings translated natively across English, Spanish, Brazilian Portuguese, German, French, Italian, Japanese, Korean, Russian, Turkish, Simplified Chinese, Traditional Chinese (HK), and Traditional Chinese (TW).
+- **3,742 Unit Checks**: 100% test pass rate across the full standalone test suite.
+
 ## [1.14.0] — 2026-08-26
 
 ### Stability & Anti-Freeze (GCD)

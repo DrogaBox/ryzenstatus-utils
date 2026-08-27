@@ -216,6 +216,8 @@ extension Strings {
         switcherShortcutHintApps: "Apps",
         switcherShortcutHintWindows: "Ventanas",
         switcherWindowShortcutCaption: "Con el selector abierto, salta entre las ventanas de la app seleccionada.",
+        switcherAppearanceDelay: "Retardo de aparición",
+        switcherAppearanceDelayCaption: "Cuánto tiempo debe mantenerse pulsado el atajo antes de que aparezca el selector.",
         switcherMergeTabs: "Mostrar una entrada por app",
         switcherMergeTabsCaption: "Agrupa todas las ventanas de una app en una sola entrada del selector, en vez de una por ventana.",
         switcherWindowlessApps: "Apps sin ventanas abiertas",

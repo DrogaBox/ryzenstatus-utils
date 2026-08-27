@@ -216,6 +216,8 @@ extension Strings {
         switcherShortcutHintApps: "Apps",
         switcherShortcutHintWindows: "Fenêtres",
         switcherWindowShortcutCaption: "Sélecteur ouvert, passe d’une fenêtre à l’autre de l’app sélectionnée.",
+        switcherAppearanceDelay: "Délai d’affichage",
+        switcherAppearanceDelayCaption: "Durée pendant laquelle le raccourci doit rester enfoncé avant l’affichage du sélecteur.",
         switcherMergeTabs: "Afficher une seule entrée par app",
         switcherMergeTabsCaption: "Regroupe toutes les fenêtres d’une app en une seule entrée dans le sélecteur, au lieu d’une entrée par fenêtre.",
         switcherWindowlessApps: "Apps sans fenêtre ouverte",

@@ -46,7 +46,7 @@ struct QuickLauncherView: View {
         }
         .padding(16)
         .frame(width: 420)
-        .background(HUDBackdrop(cornerRadius: 22))
+        .background(HUDBackdrop(cornerRadius: 22, contrast: .high))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .onChange(of: launcher.presentationID) { _, _ in
             hoveredItem = nil
@@ -391,8 +391,13 @@ struct QuickLauncherView: View {
                 if clipboardEnabled {
                     Picker(FeatureStrings.clipboard(l10n.language).limit, selection: $clipboardLimit) {
                         ForEach(Defaults.allowedClipboardHistoryLimits, id: \.self) { value in
-                            Text("\(value)").tag(value)
+                            Text(value == 0 ? FeatureStrings.clipboard(l10n.language).limitUnlimited : "\(value)").tag(value)
                         }
+                    }
+                    .onChange(of: clipboardLimit) { _, value in
+                        let sanitized = Defaults.sanitizedClipboardHistoryLimit(value)
+                        if sanitized != value { clipboardLimit = sanitized }
+                        ClipboardHistoryService.shared.trimToLimit()
                     }
                 }
             case .colorPicker:

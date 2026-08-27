@@ -91,7 +91,7 @@ if (( TEST )); then
     echo "▸ Building & running unit tests against $(basename "$SDK")…"
     rm -rf build
     mkdir -p build
-    swiftc -O -target "$TARGET" -sdk "$SDK" \
+    swiftc -O -num-threads 8 -target "$TARGET" -sdk "$SDK" \
         Sources/RyzenStatus/Services/Media/MediaSupport.swift \
         Sources/RyzenStatus/Core/Defaults.swift \
         Sources/RyzenStatus/Core/DefaultsKey+App.swift \
@@ -128,6 +128,7 @@ if (( TEST )); then
         Sources/RyzenStatus/Core/Localization.swift \
         Sources/RyzenStatus/Core/Localizations/Strings+*.swift \
         Sources/RyzenStatus/Core/FeatureStrings.swift \
+        Sources/RyzenStatus/Core/SuperKeyStrings.swift \
         Sources/RyzenStatus/Core/ReleaseNotes.swift \
         Sources/RyzenStatus/Core/URLCleaning.swift \
         Sources/RyzenStatus/Services/GeneralPasteboardAccess.swift \
@@ -163,6 +164,7 @@ if (( TEST )); then
         Sources/RyzenStatus/Services/Finder/CutPasteProgressSupport.swift \
         Sources/RyzenStatus/Services/MiddleClick/MiddleClickSupport.swift \
         Sources/RyzenStatus/Services/MouseNavigation/MouseNavigationSupport.swift \
+        Sources/RyzenStatus/Services/MouseExceptions/MouseAppExceptionSupport.swift \
         Sources/RyzenStatus/Services/SuperKey/SuperKeySupport.swift \
         Sources/RyzenStatus/Services/QuickTools/QuickToolsSupport.swift \
         Sources/RyzenStatus/Services/QuickTools/QuickTogglesSupport.swift \
@@ -192,6 +194,7 @@ if (( TEST )); then
         Sources/RyzenStatus/Services/Cleaner/CleanerSupport.swift \
         Sources/RyzenStatus/Services/Cleaner/CleanerPolicy.swift \
         Sources/RyzenStatus/Services/Cleaner/CleanerSchedule.swift \
+        Sources/RyzenStatus/Services/Uninstall/UninstallerSupport.swift \
         Tests/MetricsTests.swift \
         -o build/metrics-tests
     ./build/metrics-tests

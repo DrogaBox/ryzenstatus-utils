@@ -382,10 +382,13 @@ extension DefaultsKey {
     static let mouseButtonShortcutsEnabled = "mouseButtonShortcutsEnabled"
     static let mouseButtonShortcuts = "mouseButtonShortcuts"  // Data: [String: String] JSON
 
-    // Super Key: Caps Lock remapping.
+    // Super Key: keyboard source remapping.
     static let superKeyEnabled = "superKeyEnabled"
-    static let superKeySoloAction = "superKeySoloAction"      // SuperKeySoloAction.rawValue
+    static let superKeySource = "superKeySource"                // SuperKeySource.rawValue
+    static let superKeyModifiers = "superKeyModifiers"          // storage format for modifier combinations
+    static let superKeySoloAction = "superKeySoloAction"        // SuperKeySoloAction.rawValue
     static let superKeyMappingApplied = "superKeyMappingApplied"  // internal guard
+    static let superKeyMappedSource = "superKeyMappedSource"    // source key of currently applied mapping
 
     // Snippet library: text expansion library.
     static let snippetLibraryEnabled = "snippetLibraryEnabled"
@@ -432,6 +435,7 @@ extension DefaultsKey {
     static let scrollInverterHorizontalEnabled = "scrollInverterHorizontalEnabled"
     static let switcherSearchPinEnabled = "switcherSearchPinEnabled"
     static let switcherShowShortcutHints = "switcherShowShortcutHints"
+    static let switcherAppearanceDelay = "switcherAppearanceDelay"
     static let dockClickHide = "dockClickHide"
     static let urlCleanerCustomParameters = "urlCleanerCustomParameters"
     static let panelControlDockClickHide = "panelControlDockClickHide"

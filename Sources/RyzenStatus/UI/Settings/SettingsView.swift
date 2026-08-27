@@ -896,6 +896,7 @@ struct SwitcherSettings: View {
     @AppStorage(DefaultsKey.switcherSimpleMode) private var switcherSimpleMode = false
     @AppStorage(DefaultsKey.switcherMergeTabs) private var switcherMergeTabs = false
     @AppStorage(DefaultsKey.switcherSearchPinEnabled) private var switcherSearchPinEnabled = false
+    @AppStorage(DefaultsKey.switcherAppearanceDelay) private var switcherAppearanceDelay = SwitcherSupport.defaultAppearanceDelayMilliseconds
     @AppStorage(DefaultsKey.switcherWindowlessApps) private var switcherWindowlessApps = SwitcherWindowlessApps.fallback.rawValue
     @AppStorage(DefaultsKey.dockPreviewEnabled) private var dockPreviewEnabled = false
     @AppStorage(DefaultsKey.dockPreviewOpenDelay) private var dockPreviewOpenDelay = DockPreviewSupport.defaultOpenDelayMilliseconds
@@ -912,73 +913,10 @@ struct SwitcherSettings: View {
     var body: some View {
         Form {
             if AppFeature.switcher.isAvailable {
-                Section(l10n.s.switcherSection) {
-                    Toggle(l10n.s.switcherEnable, isOn: $switcherEnabled)
-                        .onChange(of: switcherEnabled) { _, _ in
-                            AppSwitcher.shared.syncWithPreferences()
-                        }
-                    Text(l10n.s.switcherEnableCaption)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    ShortcutPreferenceRow(role: .switcher,
-                                          isEnabled: switcherEnabled,
-                                          label: l10n.s.switcherShortcutHintApps) {
-                        AppSwitcher.shared.syncWithPreferences()
-                    }
-                    ShortcutPreferenceRow(role: .switcherWindow,
-                                          isEnabled: switcherEnabled,
-                                          label: l10n.s.switcherShortcutHintWindows) {
-                        AppSwitcher.shared.syncWithPreferences()
-                    }
-                    Text(l10n.s.switcherWindowShortcutCaption)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(String(format: l10n.s.switcherUsageHintFormat,
-                                GlobalShortcutRole.switcher.savedShortcut.displayString))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Toggle(l10n.s.switcherSearchPin, isOn: $switcherSearchPinEnabled)
-                        .disabled(!switcherEnabled)
-                    Text(l10n.s.switcherSearchPinCaption)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Toggle(l10n.s.switcherSimpleMode, isOn: $switcherSimpleMode)
-                        .disabled(!switcherEnabled)
-                        .onChange(of: switcherSimpleMode) { _, _ in
-                            AppSwitcher.shared.syncWithPreferences()
-                        }
-                    Text(l10n.s.switcherSimpleModeCaption)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Toggle(String(format: l10n.s.switcherIconRowMode, switcherShortcutDisplayString),
-                           isOn: $switcherIconRowMode)
-                        .disabled(!switcherEnabled || switcherSimpleMode)
-                        .onChange(of: switcherIconRowMode) { _, _ in
-                            AppSwitcher.shared.syncWithPreferences()
-                        }
-                    Text(l10n.s.switcherIconRowModeCaption)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Toggle(l10n.s.switcherMergeTabs, isOn: $switcherMergeTabs)
-                        .disabled(!switcherEnabled)
-                    Text(l10n.s.switcherMergeTabsCaption)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Picker(l10n.s.switcherWindowlessApps, selection: $switcherWindowlessApps) {
-                        Text(l10n.s.switcherWindowlessAppsOff).tag(SwitcherWindowlessApps.off.rawValue)
-                        Text(l10n.s.switcherWindowlessAppsFinder).tag(SwitcherWindowlessApps.finder.rawValue)
-                        Text(l10n.s.switcherWindowlessAppsAll).tag(SwitcherWindowlessApps.all.rawValue)
-                    }
-                    .disabled(!switcherEnabled)
-                    Text(l10n.s.switcherWindowlessAppsCaption)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    SwitcherAppRulesList()
+                Section {
+                    switcherContent
+                } header: {
+                    Text(l10n.s.switcherSection)
                 }
             }
             if AppFeature.dockPreview.isAvailable || AppFeature.dockClick.isAvailable {
@@ -1068,6 +1006,98 @@ struct SwitcherSettings: View {
         .formStyle(.grouped)
     }
 
+    @ViewBuilder
+    private var switcherContent: some View {
+        Group {
+            Toggle(l10n.s.switcherEnable, isOn: $switcherEnabled)
+                .onChange(of: switcherEnabled) { _, _ in
+                    AppSwitcher.shared.syncWithPreferences()
+                }
+            Text(l10n.s.switcherEnableCaption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ShortcutPreferenceRow(role: .switcher,
+                                  isEnabled: switcherEnabled,
+                                  label: l10n.s.switcherShortcutHintApps) {
+                AppSwitcher.shared.syncWithPreferences()
+            }
+            ShortcutPreferenceRow(role: .switcherWindow,
+                                  isEnabled: switcherEnabled,
+                                  label: l10n.s.switcherShortcutHintWindows) {
+                AppSwitcher.shared.syncWithPreferences()
+            }
+            Text(l10n.s.switcherWindowShortcutCaption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(String(format: l10n.s.switcherUsageHintFormat,
+                        GlobalShortcutRole.switcher.savedShortcut.displayString))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+
+        Group {
+            HStack {
+                Text(l10n.s.switcherAppearanceDelay)
+                Slider(value: switcherAppearanceDelayBinding,
+                       in: Double(SwitcherSupport.appearanceDelayMillisecondsRange.lowerBound)
+                           ... Double(SwitcherSupport.appearanceDelayMillisecondsRange.upperBound),
+                       step: 25)
+                    .disabled(!switcherEnabled)
+                Text("\(sanitizedSwitcherAppearanceDelay) ms")
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 72, alignment: .trailing)
+            }
+            Text(l10n.s.switcherAppearanceDelayCaption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Toggle(l10n.s.switcherSearchPin, isOn: $switcherSearchPinEnabled)
+                .disabled(!switcherEnabled)
+            Text(l10n.s.switcherSearchPinCaption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Toggle(l10n.s.switcherSimpleMode, isOn: $switcherSimpleMode)
+                .disabled(!switcherEnabled)
+                .onChange(of: switcherSimpleMode) { _, _ in
+                    AppSwitcher.shared.syncWithPreferences()
+                }
+            Text(l10n.s.switcherSimpleModeCaption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Toggle(String(format: l10n.s.switcherIconRowMode, switcherShortcutDisplayString),
+                   isOn: $switcherIconRowMode)
+                .disabled(!switcherEnabled || switcherSimpleMode)
+                .onChange(of: switcherIconRowMode) { _, _ in
+                    AppSwitcher.shared.syncWithPreferences()
+                }
+            Text(l10n.s.switcherIconRowModeCaption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+
+        Group {
+            Toggle(l10n.s.switcherMergeTabs, isOn: $switcherMergeTabs)
+                .disabled(!switcherEnabled)
+            Text(l10n.s.switcherMergeTabsCaption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Picker(l10n.s.switcherWindowlessApps, selection: $switcherWindowlessApps) {
+                Text(l10n.s.switcherWindowlessAppsOff).tag(SwitcherWindowlessApps.off.rawValue)
+                Text(l10n.s.switcherWindowlessAppsFinder).tag(SwitcherWindowlessApps.finder.rawValue)
+                Text(l10n.s.switcherWindowlessAppsAll).tag(SwitcherWindowlessApps.all.rawValue)
+            }
+            .disabled(!switcherEnabled)
+            Text(l10n.s.switcherWindowlessAppsCaption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            SwitcherAppRulesList()
+        }
+    }
+
     private var dockPreviewCaption: String {
         guard dockPreviewEnabled else { return l10n.s.dockPreviewEnableCaption }
         if !permissions.accessibility { return "\(l10n.s.permissionRequired): \(l10n.s.permissionAccessibility)" }
@@ -1077,6 +1107,20 @@ struct SwitcherSettings: View {
         default:
             return l10n.s.dockPreviewEnableCaption
         }
+    }
+
+    private var sanitizedSwitcherAppearanceDelay: Int {
+        SwitcherSupport.sanitizedAppearanceDelay(milliseconds: switcherAppearanceDelay)
+    }
+
+    private var switcherAppearanceDelayBinding: Binding<Double> {
+        Binding(
+            get: { Double(sanitizedSwitcherAppearanceDelay) },
+            set: {
+                switcherAppearanceDelay = SwitcherSupport.sanitizedAppearanceDelay(
+                    milliseconds: Int($0.rounded()))
+            }
+        )
     }
 
     private var dockPreviewWarning: Bool {

@@ -725,16 +725,21 @@ final class ClipboardHistoryService: ObservableObject {
         save()
     }
 
-    private func trimToLimit() {
+    func trimToLimit() {
         let limit = Defaults.sanitizedClipboardHistoryLimit(
             UserDefaults.standard.integer(forKey: DefaultsKey.clipboardHistoryLimit)
         )
+        guard limit > 0 else { return }
         let pinned = entries.filter(\.isPinned)
         var recent = entries.filter { !$0.isPinned }
         if recent.count > limit {
             recent.removeSubrange(limit..<recent.count)
         }
-        entries = pinned + recent
+        let updated = pinned + recent
+        if updated != entries {
+            entries = updated
+            save()
+        }
     }
 
     private var firstRecentIndex: Int {

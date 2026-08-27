@@ -253,12 +253,11 @@ final class NowPlayingService: ObservableObject {
 
     func togglePlayPause() {
         let bundleID = snapshot.appBundleID
-        if bundleID == NowPlayingAutomation.spotifyBundleID || bundleID == NowPlayingAutomation.musicBundleID ||
-           NowPlayingAutomation.isRunning(bundleID: NowPlayingAutomation.spotifyBundleID) ||
-           NowPlayingAutomation.isRunning(bundleID: NowPlayingAutomation.musicBundleID) {
+        if bundleID == NowPlayingAutomation.spotifyBundleID || bundleID == NowPlayingAutomation.musicBundleID {
             NowPlayingAutomation.togglePlayPause(bundleID: bundleID)
-        } else {
+        } else if MediaRemoteBridge.sendCommand != nil {
             MediaRemoteBridge.send(.togglePlayPause)
+        } else {
             Self.postAuxKey(16)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
@@ -268,12 +267,11 @@ final class NowPlayingService: ObservableObject {
 
     func nextTrack() {
         let bundleID = snapshot.appBundleID
-        if bundleID == NowPlayingAutomation.spotifyBundleID || bundleID == NowPlayingAutomation.musicBundleID ||
-           NowPlayingAutomation.isRunning(bundleID: NowPlayingAutomation.spotifyBundleID) ||
-           NowPlayingAutomation.isRunning(bundleID: NowPlayingAutomation.musicBundleID) {
+        if bundleID == NowPlayingAutomation.spotifyBundleID || bundleID == NowPlayingAutomation.musicBundleID {
             NowPlayingAutomation.nextTrack(bundleID: bundleID)
-        } else {
+        } else if MediaRemoteBridge.sendCommand != nil {
             MediaRemoteBridge.send(.nextTrack)
+        } else {
             Self.postAuxKey(19)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
@@ -283,12 +281,11 @@ final class NowPlayingService: ObservableObject {
 
     func previousTrack() {
         let bundleID = snapshot.appBundleID
-        if bundleID == NowPlayingAutomation.spotifyBundleID || bundleID == NowPlayingAutomation.musicBundleID ||
-           NowPlayingAutomation.isRunning(bundleID: NowPlayingAutomation.spotifyBundleID) ||
-           NowPlayingAutomation.isRunning(bundleID: NowPlayingAutomation.musicBundleID) {
+        if bundleID == NowPlayingAutomation.spotifyBundleID || bundleID == NowPlayingAutomation.musicBundleID {
             NowPlayingAutomation.previousTrack(bundleID: bundleID)
-        } else {
+        } else if MediaRemoteBridge.sendCommand != nil {
             MediaRemoteBridge.send(.previousTrack)
+        } else {
             Self.postAuxKey(20)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
