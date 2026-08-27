@@ -108,6 +108,7 @@ struct MenuPanelView: View {
                 navigablePanel
             }
         }
+        .ignoresSafeArea(.container, edges: .top)
         .onAppear {
             applyFocus(panelFocus.request)
             KeepAwakeManager.shared.refreshPasswordlessStatus()
@@ -218,16 +219,15 @@ struct MenuPanelView: View {
 
             footer
         }
-        .padding(.top, 0)
+        .padding(.top, 4)
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
         .frame(width: 332)
-        .frame(height: isDetached ? nil : navigablePanelHeight)
         .frame(maxHeight: isDetached ? .infinity : nil)
     }
 
     private var metricPanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             if updates.state.showsMenuPanelBanner {
                 UpdateBanner()
                     .reportHeight($updateBannerHeight)
@@ -254,11 +254,10 @@ struct MenuPanelView: View {
 
             footer
         }
-        .padding(.top, 0)
+        .padding(.top, 4)
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
         .frame(width: 332)
-        .frame(height: isDetached ? nil : metricPanelHeight)
         .frame(maxHeight: isDetached ? .infinity : nil)
     }
 
@@ -319,7 +318,7 @@ struct MenuPanelView: View {
             
             footer
         }
-        .padding(.top, 0)
+        .padding(.top, 4)
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
         .frame(width: 332)
@@ -347,24 +346,24 @@ struct MenuPanelView: View {
         return min(measured, max(80, maxHeight - navigableChromeHeight))
     }
 
-    private var navigablePanelHeight: CGFloat {
-        min(maxHeight, max(220, navigableScrollHeight + navigableChromeHeight))
-    }
-
     private var metricScrollHeight: CGFloat {
         let measured = metricContentHeight == 0 ? estimatedMetricContentHeight : metricContentHeight
-        return min(measured, max(80, maxHeight - navigableChromeHeight))
-    }
-
-    private var metricPanelHeight: CGFloat {
-        min(maxHeight, max(220, metricScrollHeight + navigableChromeHeight))
+        return min(measured, max(80, maxHeight - metricChromeHeight))
     }
 
     private var navigableChromeHeight: CGFloat {
         let bannerHeight = updates.state.showsMenuPanelBanner
-            ? (max(updateBannerHeight, 48) + 12)
+            ? (max(updateBannerHeight, 48) + 6)
             : 0
-        return 180 + bannerHeight
+        let navHeight: CGFloat = accordionMode ? 0 : 38
+        return 74 + navHeight + bannerHeight
+    }
+
+    private var metricChromeHeight: CGFloat {
+        let bannerHeight = updates.state.showsMenuPanelBanner
+            ? (max(updateBannerHeight, 48) + 6)
+            : 0
+        return 116 + bannerHeight
     }
 
     private var estimatedNavigableContentHeight: CGFloat {
@@ -514,29 +513,31 @@ struct MenuPanelView: View {
     }
 
     private var header: some View {
-        HStack {
+        ZStack {
             MenuPanelHeader()
-            Spacer()
-            // Detach button: only visible when the panel is inside the popover
-            // (not when already detached to a standalone window)
-            if (NSApp.delegate as? AppDelegate)?.isPanelInPopover ?? true {
-                Button(action: {
-                    appDelegate()?.detachPanel()
-                }) {
-                    Image(systemName: "macwindow.badge.plus")
-                        .font(.system(size: 11, weight: .medium))
-                        .frame(width: 20, height: 20)
-                        .contentShape(Rectangle())
+
+            HStack {
+                Spacer()
+                // Detach button: only visible when the panel is inside the popover
+                // (not when already detached to a standalone window)
+                if (NSApp.delegate as? AppDelegate)?.isPanelInPopover ?? true {
+                    Button(action: {
+                        appDelegate()?.detachPanel()
+                    }) {
+                        Image(systemName: "macwindow.badge.plus")
+                            .font(.system(size: 11, weight: .medium))
+                            .frame(width: 20, height: 20)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help(l10n.s.panelDetachHelp)
+                    .accessibilityLabel(l10n.s.panelDetachHelp)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help(l10n.s.panelDetachHelp)
-                .accessibilityLabel(l10n.s.panelDetachHelp)
             }
         }
         .padding(.horizontal, 4)
-        .padding(.top, -2)
-        .frame(height: 14)
+        .frame(height: 18)
     }
 
     private var footer: some View {

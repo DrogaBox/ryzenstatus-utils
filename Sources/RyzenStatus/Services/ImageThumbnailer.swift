@@ -17,9 +17,24 @@ enum ImageThumbnailer {
     /// main thread for the sum of all of them. NSScreen is main-thread-only,
     /// so the scale is read there and the decode runs off the main actor,
     /// the same split VideoThumbnailer uses.
+    @MainActor
     static func thumbnail(for url: URL, pointSize: CGFloat = defaultPointSize) async -> NSImage? {
-        let scale = await MainActor.run { backingScale }
-        return thumbnail(for: url, pointSize: pointSize, scale: scale)
+        let scale = backingScale
+        guard let cgImage = await Task.detached(priority: .userInitiated, operation: { () -> CGImage? in
+            let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else { return nil }
+            let maxPixelSize = pixelSize(for: pointSize, scale: scale)
+            let options = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+            ] as CFDictionary
+            return CGImageSourceCreateThumbnailAtIndex(source, 0, options)
+        }).value else { return nil }
+        let size = NSSize(width: CGFloat(cgImage.width) / scale,
+                          height: CGFloat(cgImage.height) / scale)
+        return NSImage(cgImage: cgImage, size: size)
     }
 
     private static func thumbnail(for url: URL, pointSize: CGFloat, scale: CGFloat) -> NSImage? {

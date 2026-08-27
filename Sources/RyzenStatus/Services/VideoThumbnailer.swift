@@ -11,6 +11,7 @@ enum VideoThumbnailer {
     /// frame is often black or a title card, unlike this app's own screen
     /// recordings (see RecentCaptureService, which uses .zero because it
     /// controls what's at the start of the file).
+    @MainActor
     static func thumbnail(for url: URL, pointSize: CGFloat = ImageThumbnailer.defaultPointSize) async -> NSImage? {
         let asset = AVURLAsset(url: url)
         guard let duration = try? await asset.load(.duration),
@@ -22,14 +23,11 @@ enum VideoThumbnailer {
         return await frame(from: asset, at: time, pointSize: pointSize)
     }
 
+    @MainActor
     private static func frame(from asset: AVURLAsset, at time: CMTime, pointSize: CGFloat) async -> NSImage? {
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
-        // NSScreen is AppKit UI API and must only be read on the main thread;
-        // this function runs off the main actor when awaited from a
-        // nonisolated context, so the read is hopped back explicitly rather
-        // than done inline here.
-        let scale = await MainActor.run { ImageThumbnailer.backingScale }
+        let scale = ImageThumbnailer.backingScale
         let maxPixels = pointSize * scale
         generator.maximumSize = CGSize(width: maxPixels, height: maxPixels)
         // Both default to infinite, which lets the generator snap to the
