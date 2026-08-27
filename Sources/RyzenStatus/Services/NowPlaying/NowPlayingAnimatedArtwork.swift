@@ -256,16 +256,31 @@ final class NowPlayingAnimatedArtworkCenter: ObservableObject {
         Set(normalized.split(separator: " ").map(String.init).filter { $0.count >= 2 })
     }
 
+    private static let nonAlphanumericRegex = try? NSRegularExpression(pattern: "[^a-z0-9]+")
+    private static let whitespaceRegex = try? NSRegularExpression(pattern: "\\s+")
+
     private static func normalizeText(_ input: String) -> String {
         let folded = input
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current)
             .lowercased()
-        let alphanumeric = folded.replacingOccurrences(of: "[^a-z0-9]+", with: " ",
-                                                       options: .regularExpression)
-        return alphanumeric.replacingOccurrences(of: "\\s+", with: " ",
-                                                 options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var cleaned = folded
+        if let alphaRegex = nonAlphanumericRegex, let whiteRegex = whitespaceRegex {
+            let nsFolded = folded as NSString
+            cleaned = alphaRegex.stringByReplacingMatches(in: cleaned,
+                                                          range: NSRange(location: 0, length: nsFolded.length),
+                                                          withTemplate: " ")
+            let nsCleaned = cleaned as NSString
+            cleaned = whiteRegex.stringByReplacingMatches(in: cleaned,
+                                                          range: NSRange(location: 0, length: nsCleaned.length),
+                                                          withTemplate: " ")
+        } else {
+            cleaned = folded.replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression)
+                            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        }
+
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func currentStorefrontCode() -> String {
