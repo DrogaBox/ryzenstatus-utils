@@ -82,7 +82,6 @@ struct PanelURLCleanerView: View {
                 }
                 .buttonStyle(.plain)
                 .help(l10n.s.urlCleanerClearButton)
-                .accessibilityLabel(l10n.s.urlCleanerClearButton)
                 .disabled(!canClearInput)
             }
             HStack(spacing: 7) {
