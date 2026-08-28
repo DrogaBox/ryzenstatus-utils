@@ -186,10 +186,21 @@ struct FanCurveDefinition: Codable, Identifiable, Hashable, Sendable {
         return lut
     }
 
+    /// Validates that points form a coherent fan curve (>=2 points, temps in 0-100, pwms in 0-100).
+    static func isValid(points: [FanCurvePoint]) -> Bool {
+        guard points.count >= 2 else { return false }
+        for pt in points {
+            guard pt.temp >= 0 && pt.temp <= 100 && pt.pwm >= 0 && pt.pwm <= 100 else {
+                return false
+            }
+        }
+        return true
+    }
+
     /// Packs this curve into the 272-byte `AMDFanCurveInput` struct for selector 101.
     func makeKextInput(slot: Int) -> AMDFanCurveInput {
-        let convertedRampRate = UInt32(min(255, max(1, Int((Double(rampRate) * 2.55).rounded()))))
-        let convertedHysteresis = UInt32(min(255, max(1, hysteresis)))
+        let convertedRampRate = UInt32(min(100, max(1, Int((Double(rampRate) * 2.55).rounded()))))
+        let convertedHysteresis = UInt32(min(10, max(0, Int(hysteresis))))
         return AMDFanCurveInput(
             curveIndex: UInt32(slot),
             sourceSensor: UInt32(sourceSensor.rawValue),

@@ -60,10 +60,13 @@ enum AMDKextSelector: UInt32 {
 
     // MARK: — GPU Telemetry (Read-only)
 
-    /// GPU clock / utilization stats — range 27-30 (mapped individually below).
+    /// GPU count query — returns number of detected AMD GPUs (selector 27).
     case gpuStats0         = 27
+    /// GPU temperatures array in integer degrees Celsius, one per GPU (selector 28).
     case gpuStats1         = 28
+    /// GPU powers array in Watts, one per GPU (selector 29).
     case gpuStats2         = 29
+    /// GPU capability flags (bit 0 = power supported) per GPU (selector 30).
     case gpuStats3         = 30
 
     // MARK: — C-State Telemetry (Read-only)

@@ -214,6 +214,7 @@ final class FanCurveController: ObservableObject {
     // MARK: - Curve Management
 
     func saveCurve(_ curve: FanCurveDefinition) {
+        guard FanCurveDefinition.isValid(points: curve.points) else { return }
         if let idx = customCurves.firstIndex(where: { $0.id == curve.id }) {
             customCurves[idx] = curve
         } else if customCurves.count < 4 {
@@ -223,6 +224,38 @@ final class FanCurveController: ObservableObject {
             updated.append(newCurve)
             customCurves = updated
         }
+    }
+
+    func resetToDefaults() {
+        self.customCurves = [
+            FanCurveDefinition(
+                name: "Silent",
+                kextSlot: 0,
+                points: [
+                    FanCurvePoint(temp: 40, pwm: 20),
+                    FanCurvePoint(temp: 60, pwm: 35),
+                    FanCurvePoint(temp: 75, pwm: 50),
+                    FanCurvePoint(temp: 85, pwm: 80)
+                ],
+                sourceSensor: .cpu,
+                hysteresis: 2,
+                rampRate: 5
+            ),
+            FanCurveDefinition(
+                name: "Performance",
+                kextSlot: 1,
+                points: [
+                    FanCurvePoint(temp: 40, pwm: 40),
+                    FanCurvePoint(temp: 60, pwm: 65),
+                    FanCurvePoint(temp: 75, pwm: 85),
+                    FanCurvePoint(temp: 85, pwm: 100)
+                ],
+                sourceSensor: .cpu,
+                hysteresis: 1,
+                rampRate: 10
+            )
+        ]
+        setAllAuto()
     }
 
     func deleteCurve(id: UUID) {

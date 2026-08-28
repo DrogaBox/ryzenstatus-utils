@@ -415,7 +415,12 @@ actor ProcessorModel {
 
     nonisolated func closeDriver() {
         terminationState.isTerminating = true
-        IOServiceClose(connect)
+        iokitLock.withLock {
+            if connect != 0 {
+                IOServiceClose(connect)
+                connect = 0
+            }
+        }
     }
 
     func alertAndQuit(message : String){
@@ -760,18 +765,40 @@ actor ProcessorModel {
                     }
                 }
                 if baseClock < 1000.0 {
-                    if cpuBrand.contains("5900xt") { baseClock = 3300.0 }
+                    if cpuBrand.contains("9950x") { baseClock = 4300.0 }
+                    else if cpuBrand.contains("9900x") { baseClock = 4400.0 }
+                    else if cpuBrand.contains("9700x") || cpuBrand.contains("9600x") { baseClock = 3800.0 }
+                    else if cpuBrand.contains("7950x") { baseClock = 4500.0 }
+                    else if cpuBrand.contains("7900x") { baseClock = 4700.0 }
+                    else if cpuBrand.contains("7800x3d") { baseClock = 4200.0 }
+                    else if cpuBrand.contains("7700x") { baseClock = 4500.0 }
+                    else if cpuBrand.contains("7600x") { baseClock = 4700.0 }
+                    else if cpuBrand.contains("8700g") || cpuBrand.contains("8600g") { baseClock = 4200.0 }
+                    else if cpuBrand.contains("5900xt") { baseClock = 3300.0 }
                     else if cpuBrand.contains("5950x") { baseClock = 3400.0 }
                     else if cpuBrand.contains("5900x") { baseClock = 3700.0 }
                     else if cpuBrand.contains("5800x") { baseClock = 3800.0 }
                     else if cpuBrand.contains("5600x") { baseClock = 3700.0 }
+                    else if cpuBrand.contains("7980x") || cpuBrand.contains("7995wx") { baseClock = 2500.0 }
                     else { baseClock = 3300.0 }
                 }
             }
 
             var maxBoost: Float = baseClock + 1000.0
             let cpuBrand = ProcessorModel.sysctlString(key: "machdep.cpu.brand_string").lowercased()
-            if cpuBrand.contains("5900xt") || cpuBrand.contains("5950x") {
+            if cpuBrand.contains("9950x") { maxBoost = 5700.0 }
+            else if cpuBrand.contains("9900x") { maxBoost = 5600.0 }
+            else if cpuBrand.contains("9700x") { maxBoost = 5500.0 }
+            else if cpuBrand.contains("9600x") { maxBoost = 5400.0 }
+            else if cpuBrand.contains("7950x") { maxBoost = 5700.0 }
+            else if cpuBrand.contains("7900x") { maxBoost = 5600.0 }
+            else if cpuBrand.contains("7800x3d") { maxBoost = 5000.0 }
+            else if cpuBrand.contains("7700x") { maxBoost = 5400.0 }
+            else if cpuBrand.contains("7600x") { maxBoost = 5300.0 }
+            else if cpuBrand.contains("8700g") { maxBoost = 5100.0 }
+            else if cpuBrand.contains("8600g") { maxBoost = 5000.0 }
+            else if cpuBrand.contains("7980x") || cpuBrand.contains("7995wx") { maxBoost = 5100.0 }
+            else if cpuBrand.contains("5900xt") || cpuBrand.contains("5950x") {
                 maxBoost = 4900.0
             } else if cpuBrand.contains("5900x") || cpuBrand.contains("5800x") || cpuBrand.contains("5700x") {
                 maxBoost = 4800.0
@@ -1119,11 +1146,11 @@ actor ProcessorModel {
         }
 
         let rawTemps = getKextGPUTemperatures()
-        let temps = rawTemps.map { Double(Int16(bitPattern: $0)) / 256.0 }
+        let temps = rawTemps.map { Double($0) }
         let powers = getKextGPUPowers().map(Double.init)
         let capabilities = getKextGPUCapabilities()
 
-        gpuCache.update(count: count, temperatures: temps, powers: powers, capabilities: capabilities)
+        gpuCache.update(count: min(count, 16), temperatures: temps, powers: powers, capabilities: capabilities)
     }
 
     // MARK: - GPU Statistics (via IOAcceleratorCache — single shared IOKit iterator)
@@ -1180,7 +1207,7 @@ actor ProcessorModel {
     nonisolated func getCCDTemperatures() -> [Float] {
         var scalerOut: UInt64 = 0
         var outputCount: UInt32 = 1
-        let maxCCDs = 16
+        let maxCCDs = 8
         var outputStr: [Float] = [Float](repeating: 0.0, count: maxCCDs)
         var outputStrCount: Int = MemoryLayout<Float>.size * maxCCDs
         
@@ -1193,11 +1220,11 @@ actor ProcessorModel {
         }
         
         let actualCCDCount = Int(scalerOut)
-        if actualCCDCount <= 0 {
+        guard actualCCDCount > 0 else {
             return []
         }
         
-        return Array(outputStr[0..<min(actualCCDCount, maxCCDs)])
+        return Array(outputStr[0..<min(actualCCDCount, maxCCDs, outputStrCount / MemoryLayout<Float>.size)])
     }
 
     nonisolated func getCPPCScore() -> (supported: Bool, scores: [UInt8]) {
@@ -1211,12 +1238,11 @@ actor ProcessorModel {
                                       &scalerOut, &outputCount,
                                       &outputStr, &outputStrCount)
                                       
-        if res != KERN_SUCCESS {
+        if res != KERN_SUCCESS || scalerOut != 1 {
             return (false, [])
         }
         
-        let supported = scalerOut == 1
-        return (supported, Array(outputStr[0..<maxLogicalCores]))
+        return (true, Array(outputStr[0..<maxLogicalCores]))
     }
 
     nonisolated func getPackageC6Residency() -> UInt64 {
@@ -1458,8 +1484,8 @@ actor ProcessorModel {
 
     @discardableResult
     nonisolated func setCurveOptimizerOffset(core: UInt8, offset: Int8) -> kern_return_t {
-        // cast offset to raw bit representation for transfer over 64-bit parameter
-        let rawOffset = UInt64(bitPattern: Int64(offset))
+        let clamped = AMDCurveOptimizer.clamp(Int(offset))
+        let rawOffset = UInt64(bitPattern: Int64(clamped))
         var input: [UInt64] = [UInt64(core), rawOffset]
         return safeIOConnectCallMethod( AMDKextSelector.curveOptimizerWrite.id, &input, 2, nil, 0, nil, nil, nil, nil)
     }
