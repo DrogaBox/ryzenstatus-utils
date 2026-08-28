@@ -108,7 +108,6 @@ struct MenuPanelView: View {
                 navigablePanel
             }
         }
-        .ignoresSafeArea(.container, edges: .top)
         .onAppear {
             applyFocus(panelFocus.request)
             KeepAwakeManager.shared.refreshPasswordlessStatus()

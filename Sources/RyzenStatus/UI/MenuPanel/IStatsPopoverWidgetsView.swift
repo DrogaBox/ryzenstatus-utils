@@ -187,10 +187,12 @@ struct IStatsPopoverWidgetsView: View {
                 if !cores.isEmpty {
                     HStack(alignment: .bottom, spacing: 2) {
                         ForEach(cores) { core in
-                            VStack(spacing: 0) {
-                                Spacer(minLength: 0)
+                            ZStack(alignment: .bottom) {
+                                RoundedRectangle(cornerRadius: 1.5)
+                                    .fill(Color.primary.opacity(0.08))
+                                    .frame(height: 40)
                                 
-                                let totalHeight = max(2, CGFloat(core.loadPct / 100.0) * 45)
+                                let totalHeight = max(2, CGFloat(core.loadPct / 100.0) * 40)
                                 RoundedRectangle(cornerRadius: 1.5)
                                     .fill(LinearGradient(
                                         gradient: Gradient(colors: [Color.cyan, Color.blue]),

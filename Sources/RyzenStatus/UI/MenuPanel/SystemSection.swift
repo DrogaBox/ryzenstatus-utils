@@ -159,11 +159,20 @@ struct SystemSection: View {
     }
 
     private var visibleBlocks: [Block] {
-        orderedBlocks.filter { isBlockAvailable($0) && isVisible($0) }
+        if panelViewStyle == "istats" {
+            return orderedBlocks.filter { block in
+                guard isBlockAvailable(block) && isVisible(block) else { return false }
+                return block != .temps && block != .memory
+            }
+        }
+        return orderedBlocks.filter { isBlockAvailable($0) && isVisible($0) }
     }
 
     private func blocks(editing: Bool) -> [Block] {
-        editing ? orderedBlocks.filter(isBlockAvailable) : visibleBlocks
+        if panelViewStyle == "istats" && !editing {
+            return visibleBlocks
+        }
+        return editing ? orderedBlocks.filter(isBlockAvailable) : visibleBlocks
     }
 
     private func isBlockAvailable(_ block: Block) -> Bool {
