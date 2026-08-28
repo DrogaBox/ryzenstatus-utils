@@ -57,7 +57,7 @@
 		<key>com.apple.kpi.unsupported</key>
 		<string>12.0.0</string>
 		<key>wtf.spinach.AMDRyzenCPUPowerManagement</key>
-		<string>3.34.0</string>
+		<string>3.16.0</string>
 	</dict>
 </dict>
 </plist>
