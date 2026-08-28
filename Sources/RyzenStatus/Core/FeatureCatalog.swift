@@ -208,9 +208,13 @@ extension AppFeature {
         case .whatsAppDownloads: return [.filesAndFolders, .notifications]
         case .mixer: return [.audioCapture]
         case .monitorCPU, .monitorMemory, .monitorDisk, .monitorPower: return [.notifications]
+        // AUDIT A-01: GPU alerts send notifications (MonitorAlertService.evaluate
+        // handles both GPU keys), so the feature must advertise them or the
+        // permissions portal and activeFeatures stay blind to GPU alerting.
+        case .monitorGPU: return [.notifications]
         case .clipboardHistory, .shelf, .urlCleaner, .soundOutputSwitcher, .musicBlock, .nowPlaying,
              .extraBrightness, .quickLauncher, .colorPicker, .micMute, .mediaTools,
-             .scratchpad, .monitorGPU, .monitorNetwork,
+             .scratchpad, .monitorNetwork,
              .monitorInsights, .monitorAnalytics, .monitorEnergy, .monitorNetworkDetails:
             return []
         }
@@ -275,6 +279,11 @@ extension AppFeature {
                 return boolFor(DefaultsKey.monitorAlertDisk)
             case (.monitorPower, .notifications):
                 return boolFor(DefaultsKey.monitorAlertBattery)
+            // AUDIT A-01: GPU alert toggles must register as active notification
+            // consumers just like the other monitor families.
+            case (.monitorGPU, .notifications):
+                return boolFor(DefaultsKey.monitorAlertGPUTemperature)
+                    || boolFor(DefaultsKey.monitorAlertGPUPower)
             case (.cleaner, .notifications):
                 return (stringFor(DefaultsKey.cleanerScheduleFrequency) ?? "off") != "off"
                     && boolFor(DefaultsKey.cleanerScheduleNotify)
@@ -297,6 +306,11 @@ extension AppFeature {
         (DefaultsKey.monitorAlertMemory, .monitorMemory),
         (DefaultsKey.monitorAlertDisk, .monitorDisk),
         (DefaultsKey.monitorAlertBattery, .monitorPower),
+        // AUDIT A-01: without these pairs, enabling only GPU alerts left
+        // anyEnabled() == false, so MonitorAlertService.syncWithPreferences()
+        // stopped the snapshot sink and the Settings toggles did nothing.
+        (DefaultsKey.monitorAlertGPUTemperature, .monitorGPU),
+        (DefaultsKey.monitorAlertGPUPower, .monitorGPU),
     ]
 
     static func anyMonitorAlertEnabled(isAvailable: (AppFeature) -> Bool,

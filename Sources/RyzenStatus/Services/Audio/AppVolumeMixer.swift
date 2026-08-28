@@ -580,7 +580,11 @@ final class AppVolumeMixer: ObservableObject {
             if systemOutputMuted != sysMuted { systemOutputMuted = sysMuted }
         }
 
-        guard audioEnvironmentChanged || next != apps else { return }
+        // AUDIT E-18: reconciliation must run on every refresh. The early return
+        // skipped it whenever the app list was unchanged, so an engine left
+        // inconsistent by a failed build never recovered until a slider moved.
+        // The publish below stays deduplicated; reconcile is a no-op when the
+        // taps already match.
         if apps != next {
             apps = next
         }

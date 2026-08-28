@@ -506,7 +506,12 @@ final class ProcessUsageService {
     private static var windowServerPID: pid_t? {
         windowServerLock.lock()
         defer { windowServerLock.unlock() }
-        if let cached = _windowServerPID { return cached }
+        // AUDIT B-08: WindowServer restarts on logout/login; a cached PID must be
+        // re-validated before reuse or GPU time is billed to a dead/reused PID forever.
+        if let cached = _windowServerPID {
+            if kill(cached, 0) == 0 { return cached }
+            _windowServerPID = nil
+        }
         for app in NSWorkspace.shared.runningApplications {
             if app.bundleIdentifier?.lowercased() == "com.apple.windowserver" || app.localizedName == "WindowServer" {
                 _windowServerPID = app.processIdentifier

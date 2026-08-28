@@ -61,14 +61,22 @@ enum URLCleaning {
             return nil
         }
 
-        if let items = components.queryItems {
+        // AUDIT D-25: splice the percent-encoded query instead of round-tripping
+        // through `queryItems`. Reading `queryItems` decodes percent-escapes and
+        // writing them back re-encodes with the query-allowed set, which turned
+        // "q=C%2B%2B" into "q=C++" (and "q=a+b" lost its plus) — silently
+        // corrupting every kept parameter the user's clipboard auto-clean rewrote.
+        // Working on the encoded pairs preserves every escape byte-for-byte.
+        if let encodedQuery = components.percentEncodedQuery {
             let hostParams = Self.resolvedHostParameters(for: host)
-            let kept = items.filter { item in
-                !shouldRemove(parameter: item.name,
-                              customParameters: customParameters,
-                              hostParameters: hostParams)
+            let keptPairs = encodedQuery.split(separator: "&").filter { pair in
+                let encodedName = pair.split(separator: "=", maxSplits: 1).first.map(String.init) ?? ""
+                let name = encodedName.removingPercentEncoding ?? encodedName
+                return !shouldRemove(parameter: name,
+                                     customParameters: customParameters,
+                                     hostParameters: hostParams)
             }
-            components.queryItems = kept.isEmpty ? nil : kept
+            components.percentEncodedQuery = keptPairs.isEmpty ? nil : keptPairs.joined(separator: "&")
         }
 
         return components.url?.absoluteString

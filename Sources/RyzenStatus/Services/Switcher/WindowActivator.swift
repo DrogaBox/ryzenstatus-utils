@@ -773,7 +773,12 @@ fileprivate final class SwitcherWindowMinimizeRestore {
     private func scheduleMinimizeCompletionRestore() {
         guard !minimizeCompletionRestoreScheduled else { return }
         minimizeCompletionRestoreScheduled = true
-        scheduleRestorePulses(delays: denseRestoreDelays(from: 0.0, through: 0.45, step: 0.003),
+        // AUDIT E-03: the 3 ms ladder queued ~150 restore probes (each an AX
+        // round-trip with a 0.35 s messaging timeout) on the main thread per
+        // minimize; against a busy or hung target app that serialized into
+        // minutes of main-thread stalls shared with every other tap. A capped
+        // back-off ladder keeps the same restore coverage with 9 probes.
+        scheduleRestorePulses(delays: [0.0, 0.02, 0.05, 0.09, 0.14, 0.20, 0.28, 0.37, 0.45],
                               completionDelay: 0.5)
     }
 

@@ -111,6 +111,8 @@ ISSuperIOIT86XXEFamily* ISSuperIOIT86XXEFamily::getDevice(uint16_t* chipIntel)
     if (ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER) != devAddr)
     {
         IOLog("IT%X%XE address verify failed", deviceID, revision);
+        // AUDIT F-11: close the config port before bailing out.
+        if (regport == 0x4E) { outb(regport, 0xAA); } else { outb(regport, 0x02); }
         return nullptr;
     }
 
@@ -122,6 +124,8 @@ ISSuperIOIT86XXEFamily* ISSuperIOIT86XXEFamily::getDevice(uint16_t* chipIntel)
     if (ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER + 2) != gpioAddress)
     {
         IOLog("IT%X%XE gpio address verify failed", deviceID, revision);
+        // AUDIT F-11: close the config port before bailing out.
+        if (regport == 0x4E) { outb(regport, 0xAA); } else { outb(regport, 0x02); }
         return nullptr;
     }
 

@@ -219,11 +219,16 @@ struct FansSettingsView: View {
         .formStyle(.grouped)
         .environment(\.defaultMinListRowHeight, 4)
         .onAppear {
-            SystemMonitor.shared.setMenuPanelNeeds(.none)
+            // AUDIT F-19: register as a panel client with the depth-counter API.
+            // setMenuPanelNeeds(.none) unconditionally wiped the panel's needs,
+            // silently stopping CPU/temp sampling for a detached menu panel until
+            // it was reopened — the AMD/Sensors pages already use this API.
+            SystemMonitor.shared.panelDidAppear()
             controller.startPolling()
         }
         .onDisappear {
             controller.stopPolling()
+            SystemMonitor.shared.panelDidDisappear()
         }
     }
 }

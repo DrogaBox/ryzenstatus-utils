@@ -90,9 +90,10 @@ enum Sudoers {
     // Rule files written under earlier names; removed whenever the rule is
     // (re)installed or removed, so the closed-lid permission migrates without an
     // extra password prompt.
+    // AUDIT D-07: the current rule path must NOT appear here — the duplicate
+    // made ruleFilesPresent()/rm list the same file twice.
     private static let legacyRulePaths = [
         "/etc/sudoers.d/ryzenstatus-utils-clamshell",
-        "/etc/sudoers.d/ryzenstatus-clamshell",
     ]
 
     /// Serializes every touch of the SleepDisabled state. The probe below
@@ -130,7 +131,10 @@ enum Sudoers {
         // Clear any earlier-named rule first, then write and validate the new one
         // (a failed check rolls back). Same password prompt either way.
         let legacy = legacyRulePaths.joined(separator: " ")
-        let command = "mkdir -p /etc/sudoers.d && chmod 0755 /etc/sudoers.d && rm -f \(legacy) && echo '\(rule)' > \(rulePath) && chmod 0440 \(rulePath) && /usr/sbin/visudo -c -f \(rulePath) || { rm -f \(rulePath); exit 1; }"
+        // AUDIT D-07: no more `chmod 0755 /etc/sudoers.d` — the mode is the
+        // system default anyway and force-resetting it silently reverted any
+        // hardening (0750) a user or MDM profile had applied.
+        let command = "mkdir -p /etc/sudoers.d && rm -f \(legacy) && echo '\(rule)' > \(rulePath) && chmod 0440 \(rulePath) && /usr/sbin/visudo -c -f \(rulePath) || { rm -f \(rulePath); exit 1; }"
         AdminShell.run(command, prompt: L10n.shared.s.adminPromptSudoersInstall) { ok in
             completion(ok && isConfigured())
         }

@@ -952,6 +952,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
     
     private var detachedWindowController: NSWindowController?
+    // AUDIT A-06: token for the detached panel's willClose observer, removed on close.
+    private var detachedCloseObserver: NSObjectProtocol?
     
     @objc func detachPanel() {
         // If already detached, re-attach: close the window and reopen the popover
@@ -987,7 +989,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             window.isReleasedWhenClosed = false
             detachedWindowController = NSWindowController(window: window)
             
-            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+            // AUDIT A-06: keep the observer token and remove it inside the close
+            // handler; each detach cycle used to register a fresh block forever.
+            detachedCloseObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+                if let token = self?.detachedCloseObserver {
+                    NotificationCenter.default.removeObserver(token)
+                    self?.detachedCloseObserver = nil
+                }
                 self?.detachedWindowController = nil
                 // Full monitor surface: a panel client, so the popover
                 // lifecycle cannot wipe these needs while the window is open.
@@ -1923,6 +1931,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     private func markSupportUpdateIntroSeenIfCurrentUpdate() {
+        // AUDIT A-07: mirror markUpdateShowcaseIntroSeenIfCurrentUpdate — without
+        // the version guard, completing onboarding on any release pre-seeds the
+        // "seen" key and permanently silences a future support intro bump for
+        // exactly the audience it was made for.
+        guard AppInfo.version == SupportUpdateIntroInfo.releaseVersion else { return }
         markSupportUpdateIntroSeen()
     }
 

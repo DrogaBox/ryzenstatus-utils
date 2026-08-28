@@ -134,7 +134,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = (provider->kMSR_PSTATE_LEN) * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
             
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -157,7 +162,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = (provider->kMSR_PSTATE_LEN) * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -181,7 +191,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = numPhyCores * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -202,7 +217,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = 1 * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -224,7 +244,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = (numPhyCores + 3) * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -251,7 +276,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = 1 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -279,7 +309,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = (provider->totalNumberOfPhysicalCores) * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -312,7 +347,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = (8) * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -339,7 +379,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = sizeof(xStringify(MODULE_VERSION));
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
             
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -360,7 +405,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = 1 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
             
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -398,13 +448,23 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             arguments->scalarOutputCount = 0;
             uint32_t requiredSize = sizeof(AMDRyzenCPUPowerManagement::CPUSensorPacket);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
             
             if (!arguments->structureOutput || maxLen < requiredSize) {
                 return kIOReturnBadArgument;
             }
             
             AMDRyzenCPUPowerManagement::CPUSensorPacket *packet = (AMDRyzenCPUPowerManagement::CPUSensorPacket*) arguments->structureOutput;
+            // AUDIT F-01: zero the packet first. The trap copies out the whole
+            // struct, and with fewer than 64 logical cores the tail of
+            // coreFrequenciesMHz[] (plus any padding) stayed uninitialized —
+            // an unprivileged kernel-heap infoleak of ~128 bytes per call.
+            memset(packet, 0, sizeof(*packet));
             packet->packagePowerW = (float)provider->uniPackagePowerW;
             packet->packageTempC = provider->PACKAGE_TEMPERATURE_perPackage[0];
             packet->numLogicalCores = provider->totalNumberOfLogicalCores;
@@ -426,7 +486,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = 2 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
             
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -466,7 +531,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 
             uint32_t requiredSize = 1 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
                 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -548,7 +618,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 
             uint32_t requiredSize = 1 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
                 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -568,7 +643,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 
             uint32_t requiredSize = 1 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
                 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -606,7 +686,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = ccdCount * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -633,7 +718,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = numLogicalCores * sizeof(uint8_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -720,7 +810,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             uint32_t flagsSize = sizeof(uint64_t);
             uint32_t requiredSize = nameSize + flagsSize;
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
             
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -761,7 +856,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             uint32_t gpuCountLocal = provider->getGPUCount();
             uint32_t requiredSize = gpuCountLocal * sizeof(UInt16);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
             
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -783,7 +883,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             uint32_t gpuCountLocal = provider->getGPUCount();
             uint32_t requiredSize = gpuCountLocal * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
             
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -804,7 +909,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
             
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -825,7 +935,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             uint32_t gpuCountLocal = provider->getGPUCount();
             uint32_t requiredSize = gpuCountLocal * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
             
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -844,10 +959,22 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
         
         //Try load SMC driver
         case 90: {
+            // AUDIT F-03: the probe itself stays unprivileged so the read-only
+            // fan list keeps working, but clearing the NCT67XX I/O-space lock
+            // (a firmware protection write) is now reserved for privileged
+            // callers — hasPrivilege is threaded down to the NCT67XX driver,
+            // which skips the CHIP_IO_SPACE_LOCK write without it.
+            bool allowUnlock = hasPrivilege(90);
+
             arguments->scalarOutputCount = 0;
             uint32_t requiredSize = 2 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
             
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -873,7 +1000,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             }
             
             uint16_t ci = 0;
-            bool found = provider->initSuperIO(&ci);
+            bool found = provider->initSuperIO(&ci, allowUnlock);
             
             if (maxLen >= sizeof(uint64_t)) {
                 dataOut[0] = (uint64_t)(found ? 1 : 0);
@@ -892,7 +1019,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = 1 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
             
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -972,7 +1104,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t numFans = (uint32_t)provider->superIO->getNumberOfFans();
             uint32_t requiredSize = numFans * sizeof(uint64_t);
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
             
             UInt32 currentCount = (UInt32)OSIncrementAtomic(&provider->fanUpdateCounter);
             if ((currentCount % 4) == 0) {
@@ -1007,7 +1144,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t numFans = (uint32_t)provider->superIO->getNumberOfFans();
             uint32_t requiredSize = numFans * sizeof(uint64_t);
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
             
             UInt32 snap94 = (UInt32)provider->fanUpdateCounter;
             if ((snap94 % 4) == 0) {
@@ -1111,7 +1253,14 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
         case 98: {
             if (!provider || !provider->superIOLock)
                 return kIOReturnNoDevice;
-            
+
+            // AUDIT F-04: a "read" still writes the register index into the
+            // chip (bank select / index outb) and can hit EC registers, so an
+            // unprivileged caller must not drive it — it would race the kext's
+            // own fan-control sequences. Mirror the write gate of case 99.
+            if (!hasPrivilege(98))
+                return kIOReturnNotPrivileged;
+
             if(arguments->scalarInputCount != 1)
                 return kIOReturnBadArgument;
             
@@ -1267,7 +1416,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = CPUInfo::MaxCpus;
             uint32_t maxLen = arguments->structureOutputSize;
-            arguments->structureOutputSize = requiredSize;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            // IOKit forbids raising structureOutputSize beyond the supplied
+            // buffer; the old line reported `requiredSize` even when the write
+            // below was clamped to maxLen, so undersized callers failed the
+            // trap (or, on older kernels, over-copied).
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
             
             if (!arguments->structureOutput || maxLen < requiredSize) {
                 return kIOReturnBadArgument;

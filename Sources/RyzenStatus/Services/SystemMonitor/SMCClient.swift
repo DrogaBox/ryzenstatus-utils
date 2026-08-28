@@ -114,6 +114,10 @@ final class SMCClient {
 
     /// Writes a value to the SMC.
     func writeValue(_ key: Key, bytes: [UInt8]) -> Bool {
+        // AUDIT B-24: enforce the declared payload length like the throwing
+        // writeBytes variant does; a short array would otherwise write a
+        // partially-stale payload to a live SMC key.
+        guard bytes.count == Int(key.dataSize) else { return false }
         var input = SMCParamStruct()
         input.key = key.code
         input.keyInfo.dataSize = key.dataSize

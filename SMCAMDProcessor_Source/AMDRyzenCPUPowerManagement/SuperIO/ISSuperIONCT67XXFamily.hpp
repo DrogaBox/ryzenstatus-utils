@@ -58,7 +58,7 @@ public:
         "PECI"
     };
     
-    static ISSuperIONCT67XXFamily* getDevice(uint16_t *chipIntel);
+    static ISSuperIONCT67XXFamily* getDevice(uint16_t *chipIntel, bool allowUnlock = true);
     
     
     ISSuperIONCT67XXFamily(int psel, uint16_t addr, uint16_t chipIntel);

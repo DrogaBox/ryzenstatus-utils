@@ -200,7 +200,10 @@ void AMDRyzenCPUPowerManagement::enumerateGPUs() {
         // Max 16 GPUs (sufficient for workstation configs; expand if needed)
         if (gpu && gpu->initFromDevice(device) && gpuCount < 16) {
             gpuDevices[gpuCount] = gpu;
-            gpu->retain();
+            // AUDIT F-06: no retain() here — OSObject construction starts at
+            // refcount 1 and free()/stop() release each slot once. The extra
+            // reference made AMDGPUDevice::free() unreachable, leaking the
+            // BAR mapping and gpuLock per GPU.
             gpuCount++;
             IOLog("AMDRyzenCPUPowerManagement: Found AMD GPU #%u (device 0x%04X, sub 0x%02X)\n",
                   gpuCount, devID, subClass);
@@ -809,6 +812,10 @@ void AMDRyzenCPUPowerManagement::fetchOEMBaseBoardInfo(){
     strlcpy(boardName, "Unknown Platform", BASEBOARD_STRING_MAX);
     
     auto efiRT = EfiRuntimeServices::get();
+    // AUDIT F-10: Lilu's ownership contract makes the caller release this
+    // instance; fetchOEMBaseBoardInfo is retried from selector 16 whenever
+    // boardInfoValid is false, so the missing release leaked per retry.
+    if (!efiRT) return;
     uint32_t att = 0;
     uint64_t sizee = BASEBOARD_STRING_MAX;
     uint64_t efistat;
@@ -865,6 +872,8 @@ void AMDRyzenCPUPowerManagement::fetchOEMBaseBoardInfo(){
     }
     
     IOLog("MB: %s %s (Valid: %d)\n", boardName, boardVendor, boardInfoValid);
+    // AUDIT F-10: release the Lilu-provided EFI runtime instance on exit.
+    efiRT->release();
 }
 
 bool AMDRyzenCPUPowerManagement::read_msr(uint32_t addr, uint64_t *value){
@@ -1454,6 +1463,18 @@ void AMDRyzenCPUPowerManagement::reinitHwState() {
 }
 
 void AMDRyzenCPUPowerManagement::writePstate(const uint64_t *buf){
+    // AUDIT F-08: selector 15 reaches here without the legacyPstateAllowed
+    // check that applyPowerControl() performs. On Zen 3+ profiles the feature
+    // matrix declares the CPU telemetry-only — macOS's native CPPC owns the
+    // P-state tables, so privileged writes must not fight it.
+    if (!legacyPstateAllowed) {
+        static bool loggedLegacyBlocked = false;
+        if (!loggedLegacyBlocked) {
+            loggedLegacyBlocked = true;
+            IOLog("AMDRyzenCPUPowerManagement::writePstate refused: CPU profile is telemetry-only (legacyPstateAllowed == false)\n");
+        }
+        return;
+    }
     if (!buf) {
         static bool loggedNullBuf = false;
         if (!loggedNullBuf) {
@@ -1523,14 +1544,15 @@ void AMDRyzenCPUPowerManagement::writePstate(const uint64_t *buf){
 
 }
 
-bool AMDRyzenCPUPowerManagement::initSuperIO(uint16_t *chipIntel){
+bool AMDRyzenCPUPowerManagement::initSuperIO(uint16_t *chipIntel, bool allowUnlock){
     if (!superIOLock) return false;
 
 #pragma mark - Super IO & Fan Control
     IOLockLock(superIOLock);
     if (superIO) { delete superIO; superIO = nullptr; }
     if(!superIO) superIO = ISSuperIONCT668X::getDevice(&savedSMCChipIntel);
-    if(!superIO) superIO = ISSuperIONCT67XXFamily::getDevice(&savedSMCChipIntel);
+    // AUDIT F-03: only privileged callers may clear the NCT67XX I/O-space lock.
+    if(!superIO) superIO = ISSuperIONCT67XXFamily::getDevice(&savedSMCChipIntel, allowUnlock);
     if(!superIO) superIO = ISSuperIOIT86XXEFamily::getDevice(&savedSMCChipIntel);
     
     *chipIntel = savedSMCChipIntel;

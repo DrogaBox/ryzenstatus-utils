@@ -102,6 +102,11 @@ final class NetworkScannerService: @unchecked Sendable {
                 txBytesPerSec: txRate
             ))
         }
+
+        // AUDIT B-10: drop samples for interfaces that vanished (USB tethering,
+        // dock adapters, VPN churn) so the dictionary cannot grow without bound
+        // and a reused interface name never pairs with a stale baseline.
+        previousSamples = previousSamples.filter { byteMap[$0.key] != nil }
         lock.unlock()
 
         return adapters.sorted { $0.name < $1.name }

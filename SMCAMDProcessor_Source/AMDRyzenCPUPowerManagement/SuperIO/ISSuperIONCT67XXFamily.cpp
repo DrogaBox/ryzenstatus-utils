@@ -37,7 +37,7 @@ ISSuperIONCT67XXFamily::ISSuperIONCT67XXFamily(int psel, uint16_t addr, uint16_t
     }
 }
 
-ISSuperIONCT67XXFamily* ISSuperIONCT67XXFamily::getDevice(uint16_t *chipIntel){
+ISSuperIONCT67XXFamily* ISSuperIONCT67XXFamily::getDevice(uint16_t *chipIntel, bool allowUnlock){
     
     i386_ioport_t regport = 0;
     uint8_t deviceID=0, revision=0;
@@ -102,6 +102,10 @@ ISSuperIONCT67XXFamily* ISSuperIONCT67XXFamily::getDevice(uint16_t *chipIntel){
     IODelay(10);
     if((ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER) & (~7)) != devAddr){
         IOLog("NCT67XX address verify failed");
+        // AUDIT F-11: failure paths here used to skip the 0xAA close, leaving
+        // the SIO in PnP config mode until the next power cycle. Close the port
+        // like the probe loop's not-found branch does.
+        outb(ISLPCPort::kREGISTER_PORTS[portSel], CHIP_SIO_CLOSE);
         return nullptr;
     }
     
@@ -124,7 +128,11 @@ ISSuperIONCT67XXFamily* ISSuperIONCT67XXFamily::getDevice(uint16_t *chipIntel){
         case CHIP_NCT6799D:
         case CHIP_NCT6701D:
             conf = ISLPCPort::readByte(portSel, CHIP_IO_SPACE_LOCK);
-            if(conf & 0x10){
+            // AUDIT F-03: clearing the I/O-space lock is a firmware protection
+            // change. Only privileged callers (root / -amdpnopchk) — the ones
+            // that can drive fan control anyway — may clear it; the read-only
+            // probe stays available to everyone.
+            if(allowUnlock && (conf & 0x10)){
                 ISLPCPort::writeByte(portSel, CHIP_IO_SPACE_LOCK, conf & ~0x10);
             }
             break;

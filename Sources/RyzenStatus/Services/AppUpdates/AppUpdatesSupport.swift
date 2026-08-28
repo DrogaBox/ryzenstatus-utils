@@ -171,12 +171,19 @@ enum AppUpdatesSupport {
         }
     }
 
-    static let storeLookupBatchSize = 20
+    // AUDIT D-12 (verified live against itunes.apple.com): the lookup endpoint
+    // only answers for the FIRST bundleId in a comma-separated `bundleId=` list
+    // (20 IDs in, 1 result out), so batching silently skipped ~95% of Mac App
+    // Store apps. One request per bundle ID is required; the merge/lock flow in
+    // AppUpdatesService.storeFindings stays unchanged.
+    static let storeLookupBatchSize = 1
 
     static func storeLookupURL(bundleIDs: [String], country: String?) -> URL? {
         guard !bundleIDs.isEmpty else { return nil }
         var components = URLComponents(string: "https://itunes.apple.com/lookup")
-        var query = [URLQueryItem(name: "bundleId", value: bundleIDs.joined(separator: ",")),
+        // AUDIT D-12: `bundleId` accepts exactly one identifier — comma lists are
+        // silently truncated to the first entry by the endpoint.
+        var query = [URLQueryItem(name: "bundleId", value: bundleIDs.first ?? ""),
                      URLQueryItem(name: "entity", value: "macSoftware")]
         if let country, !country.isEmpty {
             query.append(URLQueryItem(name: "country", value: country))

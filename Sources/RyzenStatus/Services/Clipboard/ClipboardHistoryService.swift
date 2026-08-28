@@ -482,6 +482,10 @@ final class ClipboardHistoryService: ObservableObject {
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
         isRunning = true
+        // AUDIT D-15: the ignore list only tracks the frontmost app while the
+        // history runs; without this call its observer was never installed and
+        // "ignored apps" copies still landed in history.
+        ClipboardIgnoredApps.shared.setHistoryRunning(true)
         baselinePasteboard()
     }
 
@@ -489,6 +493,8 @@ final class ClipboardHistoryService: ObservableObject {
         timer?.invalidate()
         timer = nil
         isRunning = false
+        // AUDIT D-15: release the activation observer with the capture loop.
+        ClipboardIgnoredApps.shared.setHistoryRunning(false)
         captureGeneration &+= 1
         captureInFlight = false
     }
@@ -550,11 +556,16 @@ final class ClipboardHistoryService: ObservableObject {
             DispatchQueue.main.async {
                 guard let self, self.captureGeneration == generation else { return }
                 self.captureInFlight = false
+                // AUDIT D-15: a copy noticed while an ignored app was frontmost
+                // must never reach the history (privacy promise the Settings UI
+                // makes). Runs once per completed check, resetting the candidate
+                // window exactly as ClipboardIgnoredApps documents.
+                let excludedSource = ClipboardIgnoredApps.shared.excludedSourceSinceLastCheck()
                 // Strictly forward: never re-capture a change that
                 // ignoreNextChange() consumed while the read was running.
                 guard changeCount > self.lastChangeCount else { return }
                 self.lastChangeCount = changeCount
-                guard self.isRunning, let content else { return }
+                guard self.isRunning, let content, !excludedSource else { return }
                 switch content {
                 case .files(let paths): self.promoteFiles(paths)
                 case .image(let image): self.promoteImage(image)
@@ -855,11 +866,11 @@ final class ClipboardHistoryService: ObservableObject {
                 sweepAfterPersist()
                 return
             }
-            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                     withIntermediateDirectories: true)
-            // Only a write that really landed retires the legacy blob, so a
-            // failed save leaves the history readable from somewhere.
-            guard (try? data.write(to: url, options: .atomic)) != nil else { return }
+            // AUDIT D-16: this JSON is the full private history (password-adjacent
+            // text included). PrivateFileStore writes it 0600 and tightens the
+            // container walk, instead of inheriting 0644 from the previous install.
+            guard PrivateFileStore.createDirectory(at: url.deletingLastPathComponent()),
+                  PrivateFileStore.write(data, to: url) else { return }
             sweepAfterPersist()
             if retireLegacyBlob {
                 UserDefaults.standard.removeObject(forKey: DefaultsKey.clipboardHistoryEntries)
@@ -1244,11 +1255,11 @@ enum ClipboardImageStore {
 
     static func store(_ data: Data) -> String? {
         guard let directory else { return nil }
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // AUDIT D-16: copied screenshots are private content — same 0600/0700
+        // treatment as the history JSON via PrivateFileStore.
+        guard PrivateFileStore.createDirectory(at: directory) else { return nil }
         let name = UUID().uuidString + ".png"
-        do {
-            try data.write(to: directory.appendingPathComponent(name), options: .atomic)
-        } catch {
+        guard PrivateFileStore.write(data, to: directory.appendingPathComponent(name)) else {
             return nil
         }
         return name

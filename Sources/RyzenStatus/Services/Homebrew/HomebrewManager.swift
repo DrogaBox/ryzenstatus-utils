@@ -685,6 +685,7 @@ final class HomebrewManager: ObservableObject {
             process.standardOutput = pipe
             process.standardError = pipe
             var output = Data()
+            var pendingUTF8 = Data()
             let lock = NSLock()
             let drained = DispatchSemaphore(value: 0)
             pipe.fileHandleForReading.readabilityHandler = { handle in
@@ -695,8 +696,24 @@ final class HomebrewManager: ObservableObject {
                 }
                 lock.lock()
                 output.append(data)
+                // AUDIT D-29: only decode up to the last complete UTF-8
+                // boundary; a multi-byte character split across pipe reads
+                // used to make String(data:) return nil and the chunk (or a
+                // garbled fragment) was dropped from the live log.
+                pendingUTF8.append(data)
+                // Find the longest prefix of pendingUTF8 that is valid UTF-8.
+                var emit = Data()
+                var end = pendingUTF8.count
+                while end > 0 {
+                    if String(data: pendingUTF8.prefix(end), encoding: .utf8) != nil {
+                        emit = pendingUTF8.prefix(end)
+                        break
+                    }
+                    end -= 1
+                }
+                if end > 0 { pendingUTF8.removeFirst(end) }
                 lock.unlock()
-                if let chunk = String(data: data, encoding: .utf8) {
+                if !emit.isEmpty, let chunk = String(data: emit, encoding: .utf8) {
                     DispatchQueue.main.async { onOutput(chunk) }
                 }
             }

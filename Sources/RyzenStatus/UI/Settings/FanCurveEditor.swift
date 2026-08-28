@@ -12,6 +12,10 @@ struct InteractiveFanCurveEditor: View {
     @State private var selectedCurveIndex: Int = 0
     @State private var draftCurve: FanCurveDefinition? = nil
     @State private var showAppliedConfirmation: Bool = false
+    // AUDIT F-21: hold the hide task so a second apply cancels the first one;
+    // previously two quick applies made the first (uncancelled) sleep hide the
+    // second confirmation immediately.
+    @State private var appliedConfirmationTask: Task<Void, Never>?
     @State private var hoveredPointIndex: Int? = nil
     @State private var draggingPoint: (index: Int, temp: Double, pwm: Double)? = nil
 
@@ -220,8 +224,10 @@ struct InteractiveFanCurveEditor: View {
                                     if let draft = draftCurve {
                                         controller.saveCurve(draft)
                                         showAppliedConfirmation = true
-                                        Task {
+                                        appliedConfirmationTask?.cancel()
+                                        appliedConfirmationTask = Task {
                                             try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                            guard !Task.isCancelled else { return }
                                             showAppliedConfirmation = false
                                         }
                                     }

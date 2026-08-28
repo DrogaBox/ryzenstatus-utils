@@ -380,8 +380,18 @@ final class AppSwitcher: ObservableObject {
         case .otherMouseDown:
             // Button 2 (middle-click) on the selected row closes its window
             // without dismissing the panel; any other button dismisses as usual.
+            // AUDIT E-06: the close action is gated to clicks inside the panel
+            // via the (previously unwired) containment helper. A middle click
+            // anywhere else — autoscroll in a browser behind the panel, paste
+            // on a Linux-style X11 app — passes through instead of closing the
+            // highlighted window (position-independent destruction).
             let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
-            if buttonNumber == 2, sessionActive {
+            if buttonNumber == 2, sessionActive,
+               SwitcherSupport.isMiddleClickInsidePanel(eventType: .otherMouseDown,
+                                                        buttonNumber: buttonNumber,
+                                                        panelIsVisible: panel?.isVisible == true,
+                                                        panelFrame: panel?.frame ?? .zero,
+                                                        location: NSEvent.mouseLocation) {
                 DispatchQueue.main.async { [weak self] in self?.closeSelectedWindow() }
                 return nil  // swallow; do not forward to other apps
             }

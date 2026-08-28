@@ -1139,7 +1139,9 @@ actor ProcessorModel {
         let vram  = (s["inUseVidMemoryBytes"] as? NSNumber)?.floatValue ?? 0
         let freq  = (s["Core Clock(MHz)"] as? NSNumber)?.floatValue ?? 0
         let rawFan = (s["Fan Speed(RPM)"] as? NSNumber)?.floatValue ?? 0
-        let fan   = (temp > 0 && temp < 50.0) ? 0 : rawFan
+        // AUDIT B-03: show the real reading whenever it is plausible.
+        // The old temp<50 gate fabricated "0 RPM" for GPUs idling below 50 °C.
+        let fan   = (rawFan > 0 && rawFan < 10_000) ? rawFan : 0
 
         cachedGPUStats = (temp, power, util, vram, fan, freq, Date())
         powerCache.setGPU(Double(power))
@@ -1441,11 +1443,17 @@ actor ProcessorModel {
 
     /// Injects the latest GPU temperature into the kext (selector 103) for GPU-sourced fan curves.
     /// Clamped to [0.0, 120.0] °C. Requires privilege (-amdpnopchk or root).
+    ///
+    /// AUDIT B-01: the kext converts the incoming scalar by VALUE
+    /// (`float t = (float)scalarInput[0]`), so the scalar must carry the
+    /// temperature itself. Sending the IEEE-754 bit pattern made every
+    /// value decode as ~1e9 and clamp to 120 °C, pinning GPU-sourced fan
+    /// curves at max PWM. Must stay in sync with AMDRyzenCPUPMUserClient.cpp case 103.
     @discardableResult
     nonisolated func setKextGPUTemp(_ tempC: Float) -> kern_return_t {
         let clamped = max(0.0, min(120.0, tempC))
-        var rawBitPattern = UInt64(clamped.bitPattern)
-        return safeIOConnectCallMethod(AMDKextSelector.gpuTempWrite.id, &rawBitPattern, 1, nil, 0, nil, nil, nil, nil)
+        var rawValue = UInt64(clamped)   // value conversion, matches kext case 103
+        return safeIOConnectCallMethod(AMDKextSelector.gpuTempWrite.id, &rawValue, 1, nil, 0, nil, nil, nil, nil)
     }
 
     @discardableResult

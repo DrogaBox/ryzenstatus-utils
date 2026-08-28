@@ -193,7 +193,8 @@ final class StatusItemController {
     private var settingsSyncScheduled = false
     private var isRefreshing = false
     private var refreshRequestedWhileRunning = false
-    private var renderedMetricItemCount = 0
+    // AUDIT A-03: consecutive empty renders per metric item feed the documented
+    // grace window (MenuBarSpacingSupport.emptyMetricRendersBeforeRemoval).
     private var metricEmptyRenders: [String: Int] = [:]
 
     private func scheduleSettingsSync() {
@@ -214,6 +215,9 @@ final class StatusItemController {
         // a block observer that outlives this instance.
         titleTimer?.invalidate()
         if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
+        // AUDIT A-05: the main status item must be removed too, or a teardown
+        // path leaks the idle glyph in the menu bar.
+        if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
         for item in metricStatusItems.values {
             NSStatusBar.system.removeStatusItem(item)
         }
@@ -493,9 +497,22 @@ final class StatusItemController {
                                                    metrics: group.metrics,
                                                    allowStacked: false)
             guard title.length > 0 else {
-                removeMetricStatusItem(for: group.id)
+                // AUDIT A-03: keep the item installed through short sample gaps.
+                // Removing and reinstalling on every transient nil reading forces
+                // a full status-bar re-layout and rewrites the placement defaults
+                // once per monitor tick — exactly the churn the grace window in
+                // MenuBarSpacingSupport was written to absorb.
+                let emptyRenders = (metricEmptyRenders[group.id] ?? 0) + 1
+                metricEmptyRenders[group.id] = emptyRenders
+                if !MenuBarSpacingSupport.keepsMetricStatusItem(
+                    hasRenderedTitle: false,
+                    itemExists: metricStatusItems[group.id] != nil,
+                    consecutiveEmptyRenders: emptyRenders) {
+                    removeMetricStatusItem(for: group.id)
+                }
                 continue
             }
+            metricEmptyRenders[group.id] = nil
 
             metricStatusItemFocus[group.id] = group.focusMetric
             let item = metricStatusItems[group.id] ?? installMetricStatusItem(for: group)
@@ -629,6 +646,7 @@ final class StatusItemController {
 
     private func removeMetricStatusItem(for id: String) {
         metricStatusItemFocus.removeValue(forKey: id)
+        metricEmptyRenders.removeValue(forKey: id)
         guard let item = metricStatusItems.removeValue(forKey: id) else { return }
         NSStatusBar.system.removeStatusItem(item)
     }

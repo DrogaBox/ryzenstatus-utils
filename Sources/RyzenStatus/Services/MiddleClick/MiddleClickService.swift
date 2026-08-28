@@ -167,11 +167,7 @@ final class MiddleClickService: ObservableObject {
             // The press went out as a middle-button down; with the tap gone the
             // physical release stays a LEFT up, so apps would keep the middle
             // button held forever. Close it out explicitly.
-            let position = CGEvent(source: nil)?.location ?? .zero
-            CGEvent(mouseEventSource: CGEventSource(stateID: .hidSystemState),
-                    mouseType: .otherMouseUp,
-                    mouseCursorPosition: position,
-                    mouseButton: .center)?.post(tap: .cghidEventTap)
+            releaseStuckMiddleButton()
         }
         stopMultitouch()
         removeObservers()
@@ -201,6 +197,16 @@ final class MiddleClickService: ObservableObject {
             Multitouch.register(UnsafeMutableRawPointer(mutating: device), middleClickContactCallback)
             Multitouch.start(UnsafeMutableRawPointer(mutating: device))
         }
+    }
+
+    /// AUDIT E-12: shared teardown for a relayed middle press whose physical
+    /// release never arrived (tap torn down, or the 10 s lost-release timeout).
+    private func releaseStuckMiddleButton() {
+        let position = CGEvent(source: nil)?.location ?? .zero
+        CGEvent(mouseEventSource: CGEventSource(stateID: .hidSystemState),
+                mouseType: .otherMouseUp,
+                mouseCursorPosition: position,
+                mouseButton: .center)?.post(tap: .cghidEventTap)
     }
 
     private func stopMultitouch() {
@@ -405,6 +411,11 @@ final class MiddleClickService: ObservableObject {
                 // A lost release must not swallow the user's clicks forever.
                 if now - middleButtonHeldSince > 10 {
                     middleButtonHeld = false
+                    // AUDIT E-12: the timeout used to only clear the flag — the
+                    // app that received the synthetic middle-down never got a
+                    // middle-up and kept a wedged selection/drag state. Close
+                    // the relay out exactly like stop() does.
+                    releaseStuckMiddleButton()
                 } else {
                     // Duplicate synthesized press while the middle button is
                     // already being relayed: a bounce, drop it.

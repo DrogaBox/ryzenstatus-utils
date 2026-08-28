@@ -103,14 +103,20 @@ final class Permissions: ObservableObject {
 
     /// Full refresh including Full Disk Access. Runs at launch and on activation.
     func refresh() {
-        let fda = Self.probeFullDiskAccess()
+        // AUDIT A-12: the FDA probe lists up to six TCC-gated directories plus a
+        // TCC.db touch — a synchronous main-thread stall at every launch and
+        // activation. The result is applied via a main-async hop anyway, so run
+        // the probe on a utility queue like requestFullDiskAccess() does.
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let fda = Self.probeFullDiskAccess()
+            DispatchQueue.main.async {
+                if self?.fullDiskAccess != fda { self?.fullDiskAccess = fda }
+            }
+        }
         refreshActivePermissions()
         refreshNotificationPermission()
         refreshCameraPermission()
         refreshMicrophonePermission()
-        DispatchQueue.main.async {
-            if self.fullDiskAccess != fda { self.fullDiskAccess = fda }
-        }
     }
 
     private func refreshMicrophonePermission() {

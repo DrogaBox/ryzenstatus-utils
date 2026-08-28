@@ -117,6 +117,10 @@ inline void set_PState(pmProcessor_t *cpu, uint8_t state){
 
 void pmRyzen_doPState_reset(void *arg){
     uint32_t cn = cpu_number();
+    // AUDIT F-02: this rendezvous runs on EVERY CPU. Every other entry point
+    // guards cn against XNU_MAX_CPU; on >64-logical-CPU systems the unguarded
+    // index wrote past pmRyzen_cpus[] with interrupts disabled.
+    if (cn >= XNU_MAX_CPU) return;
     pmProcessor_t *self = &pmRyzen_cpus[cn];
     self->PState = 8;
     set_PState(self, 0);

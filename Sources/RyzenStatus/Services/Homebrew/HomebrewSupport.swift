@@ -188,7 +188,12 @@ enum HomebrewCommandBuilder {
 
     static func search(brewPath: String, kind: HomebrewPackageKind, query: String) -> HomebrewCommand {
         let flag = kind == .formula ? "--formula" : "--cask"
-        return HomebrewCommand(executable: brewPath, arguments: ["search", flag, query])
+        // AUDIT D-06: a "-"-leading query is consumed by brew as an option
+        // ("search requires a token"), never as a search term. Stripping the
+        // leading dashes keeps the user's intent while always passing a token.
+        let token = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sanitized = token.drop { $0 == "-" }
+        return HomebrewCommand(executable: brewPath, arguments: ["search", flag, String(sanitized)])
     }
 
     static func details(brewPath: String, package: HomebrewPackage) -> HomebrewCommand {

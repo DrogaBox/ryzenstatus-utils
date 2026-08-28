@@ -217,7 +217,7 @@ public:
     void reinitHwState();
     void writePstate(const uint64_t *buf);
     
-    bool initSuperIO(uint16_t* chipIntel);
+    bool initSuperIO(uint16_t* chipIntel, bool allowUnlock = true);
     void evaluateFanCurves();
     
     uint32_t getPMPStateLimit();

@@ -73,6 +73,10 @@ ISSuperIONCT668X* ISSuperIONCT668X::getDevice(uint16_t *chipIntel){
     uint16_t devAddrVerify = ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER) & (~7);
     if (devAddrVerify != devAddr) {
         IOLog("NCT668X address verification failed: 0x%X != 0x%X\n", devAddrVerify, devAddr);
+        // AUDIT F-11: close the config port before bailing out.
+        outb(ISLPCPort::kREGISTER_PORTS[portSel], CHIP_SIO_CLOSE);
+        outb(ISLPCPort::kREGISTER_PORTS[portSel], 0x02);
+        outb(ISLPCPort::kREGISTER_PORTS[portSel], 0x02);
         return nullptr;
     }
     

@@ -152,15 +152,25 @@ final class ScrollInverter: ObservableObject {
             )
             if plan.vertical {
                 event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: -verticalLine)
-                if traits.isContinuous {
+                // AUDIT E-09: high-resolution wheels emit discrete events whose
+                // motion lives only in the fixed-point field (line reads 0).
+                // Negating the captured fields whenever they are non-zero keeps
+                // inversion lossless for those mice too; for events where the
+                // line field is actually written, the system still rederives
+                // the other fields, so guarding on non-zero avoids doubles.
+                if traits.isContinuous || verticalPoint != 0 {
                     event.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: -verticalPoint)
+                }
+                if traits.isContinuous || verticalFixedPoint != 0 {
                     event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: -verticalFixedPoint)
                 }
             }
             if plan.horizontal {
                 event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: -horizontalLine)
-                if traits.isContinuous {
+                if traits.isContinuous || horizontalPoint != 0 {
                     event.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: -horizontalPoint)
+                }
+                if traits.isContinuous || horizontalFixedPoint != 0 {
                     event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: -horizontalFixedPoint)
                 }
             }

@@ -429,7 +429,11 @@ bool AMDGPUDevice::initFromDevice(IOPCIDevice *device) {
         return false;
     }
 
+    // AUDIT F-06: the matching-services iterator hands out a reference we do
+    // not own; if the PCI service terminates (GPU rebind) the stored raw
+    // pointer would dangle inside ensureRMMIOMapped(). Own our reference.
     dev = device;
+    dev->retain();
     auto deviceID = WIOKit::readPCIConfigValue(dev, WIOKit::kIOPCIConfigDeviceID);
 
     // === Chip Family Detection ===
@@ -525,7 +529,8 @@ void AMDGPUDevice::free() {
         gpuLock = nullptr;
     }
 
-    dev = nullptr;
+    // AUDIT F-06: balance the retain() taken in initFromDevice.
+    OSSafeReleaseNULL(dev);
     OSObject::free();
 }
 

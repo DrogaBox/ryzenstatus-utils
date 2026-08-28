@@ -214,7 +214,11 @@ iconutil -c icns build/AppIcon.iconset
 xattr -c -r build/AppIcon.iconset build/AppIcon.icns build/MenuBarIcon.png build/MenuBarIcon@2x.png build/BrandMark.png 2>/dev/null || true
 
 echo "▸ Assembling and signing bundle…"
-STAGE="$(mktemp -d)/$APP_NAME.app"
+STAGE_ROOT="$(mktemp -d)"
+STAGE="$STAGE_ROOT/$APP_NAME.app"
+# AUDIT A-10: remove the mktemp staging bundle on exit — every build used to
+# leave a full signed .app behind in $TMPDIR until the OS purged it.
+trap 'rm -rf "$STAGE_ROOT"' EXIT
 mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources"
 cp "build/$EXECUTABLE" "$STAGE/Contents/MacOS/$EXECUTABLE"
 cp Resources/Info.plist "$STAGE/Contents/Info.plist"

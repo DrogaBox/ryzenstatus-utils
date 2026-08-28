@@ -1,11 +1,22 @@
 import Foundation
 
 struct SMCSensorReading: Identifiable {
-    let id = UUID()
+    // AUDIT B-15: the SMC key is the stable identity. A per-refresh UUID forced
+    // SwiftUI to diff every row as insert+delete on each readAll() (flicker +
+    // lost selection/scroll anchor).
+    let id: String
     let key: String
     let value: Double
     let type: String
     let category: String
+
+    init(key: String, value: Double, type: String, category: String) {
+        self.id = key
+        self.key = key
+        self.value = value
+        self.type = type
+        self.category = category
+    }
 }
 
 private final class SMCDumpReader: @unchecked Sendable {
