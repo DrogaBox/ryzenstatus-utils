@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.15.2] — 2026-08-28
+
+### Security & Hardening (Codebase Audit)
+- **GPU Fan Curve Temperature Injection**: Fixed value conversion mismatch in user-client selector 103 ensuring GPU-sourced fan curves track live temperature readings accurately.
+- **Kernel Heap Protection**: Zero-filled telemetry packets in selector 100 to eliminate uninitialized memory disclosures; added `cpu_number()` bounds checks on >64 CPU systems.
+- **SuperIO & Firmware Safety**: Gated NCT67XX firmware I/O-space unlock and raw register access behind privilege checks, and ensured configuration ports are safely closed on verify failure.
+- **IOPCIDevice Lifecycle**: Fixed `AMDGPUDevice` reference counting and released Lilu EFI runtime service instances on teardown.
+
+### App Correctness & Performance
+- **Mac App Store Updates**: Updated iTunes Lookup querying to check all installed App Store applications individually, resolving batch truncation.
+- **Clipboard Ignored Apps & Security**: Activated frontmost application exclusion during clipboard capture and enforced POSIX 0600/0700 permissions on history storage.
+- **Text Snippets & Pasteboard**: Offloaded `{{clipboard}}` expansion from the active event tap thread and chunked keyboard injection along Unicode grapheme boundaries.
+- **URL Cleaner Fidelity**: Switched query parameter cleaning to splice raw percent-encoded pairs, preserving original URL escape semantics.
+- **AX Optimization**: Replaced dense 150-probe minimize-restore loop with a responsive 9-step back-off ladder.
+- **Input & Window Management**: Constrained App Switcher middle-click closing to panel bounds, preserved fixed-point mouse wheel deltas, and added stuck-button safety timeouts.
+- **Status Item Stability**: Connected consecutive empty-render grace windows to eliminate status bar layout jitter during transient sampling gaps.
+
 ## [1.15.1] — 2026-08-27
 
 ### UI & Layout Optimization
