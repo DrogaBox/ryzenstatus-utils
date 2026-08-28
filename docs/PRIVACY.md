@@ -31,6 +31,10 @@ RyzenStatus opens only a few kinds of connection, and each one belongs to a visi
 
 4. **Now Playing lyrics & animated artwork, only when enabled.** When viewing the Now Playing details pane, synced and plain lyrics may be looked up via the public keyless `lrclib.net` API or from local Apple Music AppleScript. When live motion artwork is turned on, animated cover video streams are loaded from public Apple Music media CDNs. These requests include only the track metadata needed to locate the lyrics or artwork; no personal identifiers, account tokens, or telemetry are ever sent, and results are cached locally in memory.
 
+5. **App Store updates check, only when viewing the App Updates panel.** When checking for updates to Mac App Store applications, RyzenStatus queries Apple's public iTunes Search API at `itunes.apple.com/lookup` using the bundle identifiers of installed Mac App Store apps and your system region to check current store versions. No account information or user identifiers are transmitted.
+
+6. **Release highlights showcase media, only when viewing the What's New panel.** When opening the release highlights window after an update, showcase preview media is downloaded from GitHub release assets at `github.com`.
+
 That is the entire list. There are no RyzenStatus servers, no hidden beacons and no background uploads.
 
 ## Changes to this document

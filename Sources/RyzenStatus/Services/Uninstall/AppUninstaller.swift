@@ -184,7 +184,7 @@ final class AppUninstaller: ObservableObject {
                 }
             }
 
-            var verifiedURLs: [URL] = []
+            var stubbornURLs: [URL] = []
             var failed: [Leftover] = []
 
             for item in targets {
@@ -201,10 +201,20 @@ final class AppUninstaller: ObservableObject {
                     failed.append(item)
                     continue
                 }
-                verifiedURLs.append(item.url)
+                let resolvedURL = item.url.resolvingSymlinksInPath()
+                do {
+                    try fm.trashItem(at: resolvedURL, resultingItemURL: nil)
+                } catch {
+                    stubbornURLs.append(resolvedURL)
+                }
             }
 
-            Self.trashViaFinder(verifiedURLs)
+            if !stubbornURLs.isEmpty {
+                let stillSafe = stubbornURLs.filter { url in
+                    !UninstallerSupport.isSymbolicLink(url) && fm.fileExists(atPath: url.path)
+                }
+                Self.trashViaFinder(stillSafe)
+            }
 
             var freed: Int64 = 0
             for item in targets where !failed.contains(where: { $0.id == item.id }) {

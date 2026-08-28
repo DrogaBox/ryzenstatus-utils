@@ -149,6 +149,18 @@ final class UpdateService: ObservableObject {
     }
 
     private static let versionTrimSet = CharacterSet(charactersIn: "vV ")
+    private static let allowedDownloadHosts: Set<String> = [
+        "github.com",
+        "objects.githubusercontent.com",
+        "github-releases.githubusercontent.com",
+        "raw.githubusercontent.com"
+    ]
+
+    static func isTrustedDownloadURL(_ url: URL?) -> Bool {
+        guard let url, url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased() else { return false }
+        return allowedDownloadHosts.contains(host) || allowedDownloadHosts.contains(where: { host.hasSuffix("." + $0) })
+    }
 
     private func evaluateLatestRelease(data: Data) {
         guard let release = try? JSONDecoder().decode(GitHubRelease.self, from: data) else {
@@ -158,7 +170,11 @@ final class UpdateService: ObservableObject {
         }
         let latest = release.tagName.trimmingCharacters(in: Self.versionTrimSet)
         let asset = release.assets.first { $0.name.hasSuffix(".dmg") }
-        downloadURL = asset?.browserDownloadURL
+        if let url = asset?.browserDownloadURL, Self.isTrustedDownloadURL(url) {
+            downloadURL = url
+        } else {
+            downloadURL = nil
+        }
         applyRelease(version: latest, notes: release.body, manual: false)
     }
 
@@ -175,7 +191,11 @@ final class UpdateService: ObservableObject {
             guard let asset = release.assets.first(where: { $0.name.hasSuffix(".dmg") }) else { continue }
             guard Self.isNewer(tag, than: AppInfo.version) else { continue }
             let latest = release.tagName.trimmingCharacters(in: Self.versionTrimSet)
-            downloadURL = asset.browserDownloadURL
+            if Self.isTrustedDownloadURL(asset.browserDownloadURL) {
+                downloadURL = asset.browserDownloadURL
+            } else {
+                downloadURL = nil
+            }
             applyRelease(version: latest, notes: release.body, manual: false)
             return
         }
@@ -288,7 +308,7 @@ final class UpdateService: ObservableObject {
                     }
                     // Move out of the session's scratch space before handing off.
                     let dmgURL = FileManager.default.temporaryDirectory
-                        .appendingPathComponent("RyzenStatus-update.dmg")
+                        .appendingPathComponent("RyzenStatus-update-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString).dmg")
                     try? FileManager.default.removeItem(at: dmgURL)
                     do {
                         try FileManager.default.moveItem(at: tempURL, to: dmgURL)
@@ -338,9 +358,9 @@ final class UpdateService: ObservableObject {
         try? fm.removeItem(at: resultURL.appendingPathExtension("progress"))
 
         let appDirectory = (appPath as NSString).deletingLastPathComponent
+        let isWritable = fm.isWritableFile(atPath: appDirectory)
         let lastFailure = UserDefaults.standard.string(forKey: DefaultsKey.updateLastInstallFailure)
-        if fm.isWritableFile(atPath: appDirectory),
-           !UpdateInstallerSupport.shouldForceAdminInstall(afterFailureCode: lastFailure) {
+        if isWritable && !UpdateInstallerSupport.shouldForceAdminInstall(afterFailureCode: lastFailure) {
             launchUserInstaller(appPath: appPath, dmgPath: dmgPath, pid: pid,
                                 resultPath: resultURL.path, offered: offered)
         } else {
@@ -357,7 +377,7 @@ final class UpdateService: ObservableObject {
         let scriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("ryzenstatus-update-\(pid)-\(UUID().uuidString).sh")
         do {
-            try UpdateInstallerSupport.installerScript()
+            try UpdateInstallerSupport.installerScript(allowAdhoc: AppInfo.isDeveloperBuild)
                 .write(to: scriptURL, atomically: true, encoding: .utf8)
         } catch {
             failInstall(dmgPath: dmgPath, message: error.localizedDescription)
@@ -392,7 +412,8 @@ final class UpdateService: ObservableObject {
                                                                     dmgPath: dmgPath,
                                                                     pid: pid,
                                                                     resultPath: resultPath,
-                                                                    uid: getuid())
+                                                                    uid: getuid(),
+                                                                    allowAdhoc: AppInfo.isDeveloperBuild)
         AdminShell.run(command, prompt: L10n.shared.s.adminPromptUpdate) { [weak self] granted in
             DispatchQueue.main.async {
                 guard let self else { return }

@@ -35,12 +35,16 @@ final class FeatureRuntime: ObservableObject {
     /// Relaunches the app in place: a detached `open` fires after the process
     /// exits, so the fresh instance starts without the uninstalled features.
     func relaunchApp() {
-        guard let bundleID = Bundle.main.bundleIdentifier else { return }
+        let path = Bundle.main.bundlePath
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/sh")
-        task.arguments = ["-c", "sleep 0.6; /usr/bin/open -b '\(bundleID)'"]
-        try? task.run()
-        NSApp.terminate(nil)
+        task.arguments = ["-c", "sleep 0.3; /usr/bin/open \"$1\"", "ryzenstatus-relaunch", path]
+        do {
+            try task.run()
+            NSApp.terminate(nil)
+        } catch {
+            // If spawn failed, do not terminate
+        }
     }
 
     func isAvailable(_ feature: AppFeature) -> Bool { feature.isAvailable }

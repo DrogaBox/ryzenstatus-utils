@@ -156,7 +156,7 @@ struct HomebrewPendingAction {
 
 enum HomebrewCommandBuilder {
     static let candidatePaths = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
-    static let installerCommand = #"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#
+    static let installerCommand = #"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)""#
 
     static func installed(brewPath: String) -> HomebrewCommand {
         HomebrewCommand(executable: brewPath, arguments: ["info", "--json=v2", "--installed"])

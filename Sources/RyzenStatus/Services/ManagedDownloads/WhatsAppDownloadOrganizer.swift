@@ -89,20 +89,25 @@ final class WhatsAppDownloadOrganizer: ObservableObject {
 
     private init() {}
 
+    static func isDescendant(_ url: URL, of root: URL) -> Bool {
+        let stdURL = url.standardizedFileURL.path
+        let stdRoot = root.standardizedFileURL.path
+        return stdURL != stdRoot && (stdURL.hasPrefix(stdRoot.hasSuffix("/") ? stdRoot : stdRoot + "/"))
+    }
+
     static func destinationURL(defaults: UserDefaults = .standard,
                                downloadsURL: URL? = nil) -> URL? {
         let root = downloadsURL
             ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
         guard let root else { return nil }
         let configured = defaults.string(forKey: DefaultsKey.whatsAppOrganizerDestinationPath) ?? ""
-        let destination = configured.isEmpty
-            ? root.appendingPathComponent("WhatsApp", isDirectory: true)
-            : URL(fileURLWithPath: configured, isDirectory: true)
-        let standardized = destination.standardizedFileURL
-        guard standardized.path != root.standardizedFileURL.path else {
-            return root.appendingPathComponent("WhatsApp", isDirectory: true)
+        if !configured.isEmpty {
+            let destination = URL(fileURLWithPath: configured, isDirectory: true).standardizedFileURL
+            if isDescendant(destination, of: root) {
+                return destination
+            }
         }
-        return standardized
+        return root.appendingPathComponent("WhatsApp", isDirectory: true).standardizedFileURL
     }
 
     static func managedDestinationPaths() -> Set<String> {
@@ -133,7 +138,7 @@ final class WhatsAppDownloadOrganizer: ObservableObject {
         guard let root = downloadsURL else { return false }
         if let url {
             let destination = url.standardizedFileURL
-            guard destination.path != root.standardizedFileURL.path else { return false }
+            guard Self.isDescendant(destination, of: root) else { return false }
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: destination.path, isDirectory: &isDirectory),
                   isDirectory.boolValue else { return false }

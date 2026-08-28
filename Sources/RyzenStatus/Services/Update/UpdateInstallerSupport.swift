@@ -22,9 +22,10 @@ enum UpdateInstallerSupport {
     /// relaunches. Arguments: $1 app path, $2 dmg path, $3 pid to wait for,
     /// $4 result marker path, $5 uid to relaunch as (used when running as
     /// root, where a plain `open` could launch the app as root).
-    static func installerScript() -> String {
+    static func installerScript(allowAdhoc: Bool = false) -> String {
         """
         #!/bin/sh
+        ALLOW_ADHOC=\(allowAdhoc ? 1 : 0)
         APP="$1"; DMG="$2"; PID="$3"; RESULT="$4"; ASUSER="$5"
         SCRIPT="$0"
         # Write-ahead markers go to a progress file; only a FINISHED run
@@ -97,31 +98,25 @@ enum UpdateInstallerSupport {
                 #   2. Ad-hoc signed (manual releases, no paid Apple identity):
                 #      there is no certificate to anchor, so the gate falls back
                 #      to an intact seal plus the project's bundle identifier —
-                #      enough to reject corrupted downloads and foreign apps.
-                # Detect the signature kind first: Gatekeeper cannot assess an
-                # ad-hoc bundle (never notarized), so it would always fail the
-                # spctl check below even when the seal is perfectly intact.
-                ADHOC=0
-                # codesign -dv prints the signature info to stderr, so stderr
-                # must be merged in or the kind is never detected.
-                if /usr/bin/codesign -dv "$STAGE" 2>&1 | /usr/bin/grep -q "Signature=adhoc"; then
-                    ADHOC=1
-                fi
+                # Production updates strictly enforce the Developer ID requirement.
+                # In developer builds or testing, ad-hoc is gated behind allowAdhoc.
                 VERIFY_REQ='identifier "com.ryzenstatus.utils" and anchor apple generic and certificate leaf[subject.OU] = "3D485NHW29"'
                 note fail-verify
                 VERIFY_OK=0
-                if /usr/bin/codesign -v --deep --strict -R='identifier "com.ryzenstatus.utils"' "$STAGE" 2>/dev/null; then
-                    if [ "$ADHOC" = 1 ] || /usr/bin/codesign -v --deep --strict -R="$VERIFY_REQ" "$STAGE" 2>/dev/null; then
+                if [ "$ALLOW_ADHOC" = 1 ]; then
+                    if /usr/bin/codesign -v --deep --strict -R='identifier "com.ryzenstatus.utils"' "$STAGE" 2>/dev/null; then
+                        VERIFY_OK=1
+                    fi
+                else
+                    if /usr/bin/codesign -v --deep --strict -R="$VERIFY_REQ" "$STAGE" 2>/dev/null; then
                         VERIFY_OK=1
                     fi
                 fi
                 # When the user disabled Gatekeeper, spctl cannot assess anything
                 # and rejects even a healthy bundle; the codesign identity check
-                # stays as the gate in that case. Ad-hoc builds skip this check:
-                # they can never be assessed (no notarization), and the seal +
-                # identifier check above is their gate.
+                # stays as the gate in that case.
                 GATEKEEPER_OK=0
-                if [ "$ADHOC" = 1 ]; then
+                if [ "$ALLOW_ADHOC" = 1 ]; then
                     GATEKEEPER_OK=1
                 elif /usr/sbin/spctl --status 2>/dev/null | /usr/bin/grep -q disabled; then
                     GATEKEEPER_OK=1
@@ -185,8 +180,9 @@ enum UpdateInstallerSupport {
                                        dmgPath: String,
                                        pid: Int32,
                                        resultPath: String,
-                                       uid: uid_t) -> String {
-        let script = shellSingleQuoted(installerScript())
+                                       uid: uid_t,
+                                       allowAdhoc: Bool = false) -> String {
+        let script = shellSingleQuoted(installerScript(allowAdhoc: allowAdhoc))
         let args = [appPath, dmgPath, "\(pid)", resultPath, "\(uid)"]
             .map(shellSingleQuoted)
             .joined(separator: " ")

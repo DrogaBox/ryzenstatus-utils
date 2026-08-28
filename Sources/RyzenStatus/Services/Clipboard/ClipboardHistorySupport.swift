@@ -381,28 +381,34 @@ enum ClipboardHistoryPasteboardText {
 
 enum ClipboardHistorySensitiveText {
     static func looksSensitive(_ text: String) -> Bool {
-        let lowered = text.lowercased()
-        let obviousWords = ["password", "passwd", "secret", "token", "apikey", "api_key", "authorization"]
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowered = trimmed.lowercased()
+        let obviousWords = [
+            "password", "passwd", "pwd", "secret", "token", "apikey", "api_key",
+            "authorization", "bearer", "session", "credential", "otp", "private_key",
+            "auth_token", "access_token"
+        ]
         if obviousWords.contains(where: lowered.contains) { return true }
-        if isWebURL(text) { return false }
 
-        guard text.count >= 20, text.count <= 160, !text.contains(where: { $0.isWhitespace }) else {
+        if let url = URL(string: trimmed),
+           let scheme = url.scheme?.lowercased(), (scheme == "http" || scheme == "https"),
+           url.host != nil {
+            if let query = url.query?.lowercased() {
+                let sensitiveQueryKeys = ["token", "auth", "key", "secret", "sig", "signature", "pwd", "password", "session", "bearer"]
+                if sensitiveQueryKeys.contains(where: { query.contains($0 + "=") || query.hasPrefix($0 + "=") }) {
+                    return true
+                }
+            }
             return false
         }
-        let hasLetter = text.contains { $0.isLetter }
-        let hasDigit = text.contains { $0.isNumber }
-        let hasSymbol = text.contains { !$0.isLetter && !$0.isNumber && !$0.isWhitespace }
-        return hasLetter && hasDigit && hasSymbol
-    }
 
-    private static func isWebURL(_ text: String) -> Bool {
-        guard let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
-              let scheme = url.scheme?.lowercased(),
-              (scheme == "http" || scheme == "https"),
-              url.host != nil else {
+        guard trimmed.count >= 12, trimmed.count <= 160, !trimmed.contains(where: { $0.isWhitespace }) else {
             return false
         }
-        return true
+        let hasLetter = trimmed.contains { $0.isLetter }
+        let hasDigit = trimmed.contains { $0.isNumber }
+        let hasSymbol = trimmed.contains { !$0.isLetter && !$0.isNumber && !$0.isWhitespace }
+        return hasLetter && hasDigit && (hasSymbol || trimmed.count >= 24)
     }
 }
 

@@ -86,7 +86,12 @@ final class TelemetryLogger: ObservableObject {
     }
 
     private func flushBufferLocked() {
-        guard let handle = fileHandle, !buffer.isEmpty else { return }
+        guard let handle = fileHandle, !buffer.isEmpty else {
+            if fileHandle == nil && buffer.count > 1000 {
+                buffer.removeAll(keepingCapacity: true)
+            }
+            return
+        }
         let combined = buffer.joined()
         buffer.removeAll(keepingCapacity: true)
         lastFlushTime = Date()
@@ -96,9 +101,14 @@ final class TelemetryLogger: ObservableObject {
         do {
             try handle.write(contentsOf: data)
         } catch {
-            // Close and nil the handle — next logSnapshot will safely skip until a new log is created.
-            handle.closeFile()
+            // Close and nil the handle and stop logging to prevent infinite memory growth.
+            try? handle.close()
             fileHandle = nil
+            DispatchQueue.main.async { [weak self] in
+                self?.cancellable?.cancel()
+                self?.cancellable = nil
+                self?.isLogging = false
+            }
         }
     }
 
@@ -108,11 +118,13 @@ final class TelemetryLogger: ObservableObject {
         
         if let folder {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let filename = String(format: "ryzenstatus_telemetry_%@.csv", ISO8601DateFormatter().string(from: Date()))
+            let ts = dateFormatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
+            let filename = "ryzenstatus_telemetry_\(ts).csv"
             let fileURL = folder.appendingPathComponent(filename)
             
             let header = "timestamp,cpu_usage_pct,cpu_temp_c,gpu_temp_c,cpu_power_w,gpu_power_w,ccd0_temp_c,ccd1_temp_c\n"
             try? header.write(to: fileURL, atomically: true, encoding: .utf8)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
             
             self.fileHandle = try? FileHandle(forWritingTo: fileURL)
             self.fileHandle?.seekToEndOfFile()

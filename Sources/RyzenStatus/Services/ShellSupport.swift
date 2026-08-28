@@ -155,10 +155,8 @@ enum Sudoers {
         // Clear any earlier-named rule first, then write and validate the new one
         // (a failed check rolls back). Same password prompt either way.
         let legacy = legacyRulePaths.joined(separator: " ")
-        // AUDIT D-07: no more `chmod 0755 /etc/sudoers.d` — the mode is the
-        // system default anyway and force-resetting it silently reverted any
-        // hardening (0750) a user or MDM profile had applied.
-        let command = "mkdir -p /etc/sudoers.d && rm -f \(legacy) && echo '\(rule)' > \(rulePath) && chmod 0440 \(rulePath) && /usr/sbin/visudo -c -f \(rulePath) || { rm -f \(rulePath); exit 1; }"
+        // AUDIT D-07 / SEC-08: no more `chmod 0755 /etc/sudoers.d` and atomic 0440 file installation
+        let command = "mkdir -p /etc/sudoers.d && rm -f \(legacy) && (umask 077 && /bin/echo '\(rule)' | /usr/bin/install -m 0440 /dev/stdin \(rulePath)) && /usr/sbin/visudo -c -f \(rulePath) || { rm -f \(rulePath); exit 1; }"
         AdminShell.run(command, prompt: L10n.shared.s.adminPromptSudoersInstall) { ok in
             completion(ok && isConfigured())
         }

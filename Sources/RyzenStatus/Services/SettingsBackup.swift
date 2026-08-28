@@ -31,6 +31,7 @@ enum SettingsBackup {
                                                           format: .xml,
                                                           options: 0)
             try data.write(to: url, options: .atomic)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
             return true
         } catch {
             return false

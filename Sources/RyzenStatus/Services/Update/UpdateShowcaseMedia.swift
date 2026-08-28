@@ -19,8 +19,7 @@ enum UpdateShowcaseInfo {
            FileManager.default.fileExists(atPath: url.path) {
             return url
         }
-        let desktopDemo = URL(fileURLWithPath: "/Users/ryzenstatus/Desktop/demo.gif")
-        return FileManager.default.fileExists(atPath: desktopDemo.path) ? desktopDemo : nil
+        return nil
     }
 
     static var cacheDirectory: URL {
@@ -64,6 +63,7 @@ final class UpdateShowcaseMediaLoader: ObservableObject {
 
     @Published private(set) var state: State = .idle
     private var task: URLSessionDownloadTask?
+    private static let maxDownloadBytes: Int64 = 50 * 1024 * 1024
 
     func load() {
         if case .ready = state { return }
@@ -88,6 +88,13 @@ final class UpdateShowcaseMediaLoader: ObservableObject {
             guard let self else { return }
             let ok = (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? true
             guard let tempURL, error == nil, ok else {
+                DispatchQueue.main.async { self.state = .failed }
+                return
+            }
+
+            let fileSize = (try? FileManager.default.attributesOfItem(atPath: tempURL.path))?[.size] as? Int64 ?? 0
+            guard fileSize > 0, fileSize <= Self.maxDownloadBytes else {
+                try? FileManager.default.removeItem(at: tempURL)
                 DispatchQueue.main.async { self.state = .failed }
                 return
             }

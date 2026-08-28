@@ -1463,8 +1463,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/sh")
         task.arguments = ["-c", "sleep 0.3; /usr/bin/open \"$1\"", "ryzenstatus-relaunch", path]
-        try? task.run()
-        NSApp.terminate(nil)
+        do {
+            try task.run()
+            NSApp.terminate(nil)
+        } catch {
+            // If spawn failed, do not terminate to prevent leaving the user with a dead app.
+        }
     }
 
     func showOnboarding(mode: OnboardingMode = .full) {

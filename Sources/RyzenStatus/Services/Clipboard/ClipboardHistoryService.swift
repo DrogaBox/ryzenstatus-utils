@@ -862,7 +862,8 @@ final class ClipboardHistoryService: ObservableObject {
                 }
             }
             guard let url = Self.storeURL else {
-                UserDefaults.standard.set(data, forKey: DefaultsKey.clipboardHistoryEntries)
+                // If container URL is unavailable, do not fall back to writing private text to world-readable UserDefaults;
+                // keep history in-memory only for this session.
                 sweepAfterPersist()
                 return
             }

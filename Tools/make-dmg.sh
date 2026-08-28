@@ -51,11 +51,17 @@ ln -s /Applications "$STAGING/Applications"
 KEXT_DRIVER="SMCAMDProcessor_Source/build/dmg-kexts/AMDRyzenCPUPowerManagement.kext"
 KEXT_PLUGIN="SMCAMDProcessor_Source/build/dmg-kexts/SMCAMDProcessor.kext"
 if [[ ! -d "$KEXT_DRIVER" || ! -d "$KEXT_PLUGIN" ]] && [[ -f "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" ]]; then
+    EXPECTED_SHA="4a54be21442e2f21888926376d45c8d71c4d8739acd1cb11381b32437ccaedf4"
+    ACTUAL_SHA="$(shasum -a 256 "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" | awk '{print $1}')"
+    if [[ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]]; then
+        echo "✗ Error: ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip SHA-256 mismatch ($ACTUAL_SHA != $EXPECTED_SHA)" >&2
+        exit 1
+    fi
     KEXT_TEMP="$(mktemp -d)"
     ditto -x -k "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" "$KEXT_TEMP"
     KEXT_DRIVER="$KEXT_TEMP/AMDRyzenCPUPowerManagement.kext"
     KEXT_PLUGIN="$KEXT_TEMP/SMCAMDProcessor.kext"
-    echo "  ✓ Prebuilt AMD kexts extracted from ReleaseAssets"
+    echo "  ✓ Prebuilt AMD kexts verified and extracted from ReleaseAssets"
 fi
 if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
     mkdir -p "$STAGING/Kexts"

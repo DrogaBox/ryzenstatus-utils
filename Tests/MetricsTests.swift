@@ -3168,7 +3168,7 @@ struct MetricsTests {
         expect(!UpdateInstallerSupport.runsFromImmutableLocation(appPath: "/Volumes/ExternalSSD/RyzenStatus.app",
                                                                  volumeIsReadOnly: { _ in false }),
                "apps on a writable external volume stay updatable in place")
-        let installerScript = UpdateInstallerSupport.installerScript()
+        let installerScript = UpdateInstallerSupport.installerScript(allowAdhoc: false)
         for step in ["fail-tempdir", "fail-mount", "fail-no-app-in-dmg",
                      "fail-copy", "fail-verify", "fail-swap", "note ok"] {
             expect(installerScript.contains(step),
@@ -3176,14 +3176,13 @@ struct MetricsTests {
         }
         expect(installerScript.contains("spctl --status"),
                "installer script skips Gatekeeper assessment when the user disabled it")
-        expect(installerScript.contains("Signature=adhoc"),
-               "installer detects ad-hoc signed bundles")
-        expect(installerScript.contains("codesign -dv \"$STAGE\" 2>&1"),
-               "ad-hoc detection merges codesign -dv's stderr output")
+        expect(installerScript.contains("ALLOW_ADHOC=0") && installerScript.contains("certificate leaf[subject.OU] = \"3D485NHW29\""),
+               "production installer strictly enforces Developer ID identity requirement")
+        let adhocInstallerScript = UpdateInstallerSupport.installerScript(allowAdhoc: true)
+        expect(adhocInstallerScript.contains("ALLOW_ADHOC=1") && adhocInstallerScript.contains("-R='identifier \"com.ryzenstatus.utils\"'"),
+               "ad-hoc mode is supported for developer builds when explicitly enabled")
         expect(installerScript.contains("VERIFY_OK"),
                "installer gate separates signature integrity from publisher identity")
-        expect(installerScript.contains("-R='identifier \"com.ryzenstatus.utils\"'"),
-               "ad-hoc bundles are accepted on an intact seal plus the project identifier")
         expect(installerScript.contains("chown -R"),
                "an elevated install hands the bundle back to the user")
         expect(installerScript.contains("update-old.$PID"),
@@ -4536,7 +4535,7 @@ struct MetricsTests {
                "Homebrew metadata refresh status uses a refresh icon")
         expect(HomebrewCommandBuilder.needsTerminalFallback(output: "sudo: a terminal is required to read the password"),
                "sudo terminal error triggers Homebrew terminal fallback")
-        expect(HomebrewCommandBuilder.installerCommand == #"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#,
+        expect(HomebrewCommandBuilder.installerCommand == #"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)""#,
                "Homebrew installer command matches the official install script entrypoint")
         expectEqual(HomebrewCommandBuilder.shellProfilePath(homeDirectory: "/Users/test", shellPath: "/bin/zsh"),
                     "/Users/test/.zprofile",

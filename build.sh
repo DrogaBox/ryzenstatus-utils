@@ -66,8 +66,8 @@ finalize_installed_bundle_after_child() {
 }
 
 if (( INSTALL && ! TEST )) && [[ "${RYZENSTATUS_INSTALL_CHILD:-0}" != "1" ]]; then
-    RYZENSTATUS_INSTALL_CHILD=1 "$0" "$@"
-    child_status=$?
+    child_status=0
+    RYZENSTATUS_INSTALL_CHILD=1 "$0" "$@" || child_status=$?
     if (( child_status != 0 )); then
         exit "$child_status"
     fi
@@ -204,7 +204,11 @@ fi
 echo "▸ Compiling (release) against $(basename "$SDK") using 8 threads…"
 mkdir -p build
 rm -f "build/$EXECUTABLE"
-swiftc -O -num-threads 8 -target "$TARGET" -sdk "$SDK" \
+SWIFT_FLAGS=(-O -num-threads 8 -target "$TARGET" -sdk "$SDK")
+if (( DEV )); then
+    SWIFT_FLAGS+=(-DDEBUG)
+fi
+swiftc "${SWIFT_FLAGS[@]}" \
     Sources/RyzenStatus/**/*.swift \
     -o "build/$EXECUTABLE"
 

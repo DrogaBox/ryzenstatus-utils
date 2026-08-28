@@ -138,8 +138,9 @@ final class CleanerScheduler: ObservableObject {
                 guard let self else { return }
                 switch phase {
                 case .results:
-                    // The scan pre checks exactly the safe groups; an
-                    // automatic run takes that selection as is.
+                    // In automated unsupervised runs, unselect login items and root-owned items
+                    // to avoid unexpected admin prompts and accidental removal without user review.
+                    cleaner.setInclude(false, forCategory: .loginItems)
                     if cleaner.selectedCount > 0 {
                         cleaner.cleanSelected()
                     } else {

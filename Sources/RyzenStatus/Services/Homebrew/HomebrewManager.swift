@@ -695,7 +695,11 @@ final class HomebrewManager: ObservableObject {
                     return
                 }
                 lock.lock()
-                output.append(data)
+                let maxOutputBytes = 512 * 1024
+                if output.count < maxOutputBytes {
+                    let allowed = min(data.count, maxOutputBytes - output.count)
+                    output.append(data.prefix(allowed))
+                }
                 // AUDIT D-29: only decode up to the last complete UTF-8
                 // boundary; a multi-byte character split across pipe reads
                 // used to make String(data:) return nil and the chunk (or a
@@ -736,8 +740,14 @@ final class HomebrewManager: ObservableObject {
         }
     }
 
+    private static let maxLogLength = 512 * 1024
+
     private func appendLog(_ text: String) {
         log.append(text)
+        if log.count > Self.maxLogLength {
+            let overflow = log.count - Self.maxLogLength
+            log.removeFirst(overflow)
+        }
     }
 
     private func appleScriptString(_ value: String) -> String {

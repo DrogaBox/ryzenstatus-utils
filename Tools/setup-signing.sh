@@ -44,7 +44,7 @@ openssl pkcs12 -export -legacy -inkey "$WORK/key.pem" -in "$WORK/cert.pem" \
 
 security delete-keychain "$KC" 2>/dev/null || true
 security create-keychain -p "$KCPASS" "$KC"
-security set-keychain-settings "$KC"            # no auto-lock
+security set-keychain-settings -t 300 -l "$KC"   # auto-lock after 5 min / on sleep
 security unlock-keychain -p "$KCPASS" "$KC"
 security import "$WORK/id.p12" -k "$KC" -P "$KCPASS" -T /usr/bin/codesign
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPASS" "$KC" >/dev/null 2>&1

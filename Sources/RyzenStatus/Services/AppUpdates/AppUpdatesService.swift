@@ -302,6 +302,8 @@ final class AppUpdatesService: ObservableObject {
     }
 
     private func handOffToStore(_ url: URL) {
+        guard let scheme = url.scheme?.lowercased(),
+              ["https", "macappstore", "itms-apps"].contains(scheme) else { return }
         storeHandoffPending = true
         NSWorkspace.shared.open(url)
     }
@@ -422,25 +424,10 @@ final class AppUpdatesService: ObservableObject {
     private static let commandTimeout: TimeInterval = 120
 
     private static func runCommand(_ command: HomebrewCommand) -> (status: Int32, output: String) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: command.executable)
-        process.arguments = command.arguments
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        do {
-            try process.run()
-        } catch {
-            return (-1, error.localizedDescription)
-        }
-        let watchdog = DispatchWorkItem {
-            if process.isRunning { process.terminate() }
-        }
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + commandTimeout,
-                                                       execute: watchdog)
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        watchdog.cancel()
-        return (process.terminationStatus, String(data: data, encoding: .utf8) ?? "")
+        let result = BoundedProcessRunner.run(command.executable,
+                                              command.arguments,
+                                              timeout: commandTimeout,
+                                              maxOutputBytes: 2 * 1024 * 1024)
+        return (result.status, String(data: result.output, encoding: .utf8) ?? "")
     }
 }

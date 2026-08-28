@@ -198,7 +198,7 @@ final class JunkCleaner: ObservableObject {
             if !stubborn.isEmpty {
                 let stillSafe = stubborn.filter(Self.mayRemove)
                 failed += stubborn.count - stillSafe.count
-                Self.trashViaFinder(stillSafe.map(\.url))
+                Self.trashViaFinder(stillSafe.map { $0.url.resolvingSymlinksInPath() })
                 for item in stillSafe {
                     if fm.fileExists(atPath: item.url.path) {
                         failed += 1
@@ -466,6 +466,7 @@ final class JunkCleaner: ObservableObject {
         var found: [Item] = []
         for root in roots {
             guard let entries = try? fm.contentsOfDirectory(atPath: root) else { continue }
+            let isSystemPlist = root.hasPrefix("/Library/Launch")
             for entry in entries where entry.hasSuffix(".plist") {
                 let url = URL(fileURLWithPath: root).appendingPathComponent(entry)
                 guard !UninstallerSupport.isSymbolicLink(url) else { continue }
@@ -478,14 +479,24 @@ final class JunkCleaner: ObservableObject {
                     // A missing binary on an external volume is inconclusive
                     // (the volume may just be unmounted), so it counts as
                     // present and the plist is left alone.
-                    executableExists: { $0.hasPrefix("/Volumes/") || fm.fileExists(atPath: $0) }) else { continue }
+                    executableExists: { path in
+                        let expanded = (path as NSString).expandingTildeInPath
+                        if expanded.hasPrefix("/Volumes/") { return true }
+                        let parentDir = (expanded as NSString).deletingLastPathComponent
+                        var isDir: ObjCBool = false
+                        guard fm.fileExists(atPath: parentDir, isDirectory: &isDir), isDir.boolValue else {
+                            // If parent directory is missing/unmounted, do not treat as dead orphan.
+                            return true
+                        }
+                        return fm.fileExists(atPath: expanded)
+                    }) else { continue }
                 // Second signal: the label itself must not belong to anything
                 // installed either (a moved binary is not an uninstalled app).
                 if let label, hasLivingOwner(label, installed: installed) { continue }
                 found.append(Item(url: url, category: .loginItems,
                                   size: directorySize(of: url, fm: fm),
                                   detail: label ?? entry,
-                                  recommended: CleanerPolicy.precheckLoginItems))
+                                  recommended: CleanerPolicy.precheckLoginItems && !isSystemPlist))
             }
         }
         return sorted(found)
