@@ -876,7 +876,7 @@ void AMDRyzenCPUPowerManagement::fetchOEMBaseBoardInfo(){
     
     IOLog("MB: %s %s (Valid: %d)\n", boardName, boardVendor, boardInfoValid);
     // AUDIT F-10: release the Lilu-provided EFI runtime instance on exit.
-    efiRT->release();
+    efiRT->put();
 }
 
 bool AMDRyzenCPUPowerManagement::read_msr(uint32_t addr, uint64_t *value){

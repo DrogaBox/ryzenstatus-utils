@@ -51,7 +51,7 @@ ln -s /Applications "$STAGING/Applications"
 KEXT_DRIVER="SMCAMDProcessor_Source/build/dmg-kexts/AMDRyzenCPUPowerManagement.kext"
 KEXT_PLUGIN="SMCAMDProcessor_Source/build/dmg-kexts/SMCAMDProcessor.kext"
 if [[ ! -d "$KEXT_DRIVER" || ! -d "$KEXT_PLUGIN" ]] && [[ -f "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" ]]; then
-    EXPECTED_SHA="4a54be21442e2f21888926376d45c8d71c4d8739acd1cb11381b32437ccaedf4"
+    EXPECTED_SHA="7c52b4fbd5a07725327eedd6088971973a9f8bd0c0620cad0de76b734bf54580"
     ACTUAL_SHA="$(shasum -a 256 "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" | awk '{print $1}')"
     if [[ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]]; then
         echo "✗ Error: ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip SHA-256 mismatch ($ACTUAL_SHA != $EXPECTED_SHA)" >&2

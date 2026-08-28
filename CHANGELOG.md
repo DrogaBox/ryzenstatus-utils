@@ -2,38 +2,28 @@
 
 ## [1.16.0] — 2026-08-28
 
-### Security & Privilege Hardening (Phase 0 Audit)
-- **Developer ID & Verification**: Enforced Developer ID signature and Team ID verification across installer scripts and tooling with hardened host allowlists.
-- **Atomic Operations & Safe Staging**: Utilized randomized temporary staging paths (`mktemp -d`) for DMG packaging and atomic `0440` permission installation for privileged sudoers rules.
-- **Export & Storage Permissions**: Enforced strict POSIX `0600` permissions on settings exports and private stores, with 300-second keychain auto-locking.
-- **Process Resilience**: Wrapped background subprocess execution in `BoundedProcessRunner` with strict timeout thresholds and pipe buffer drainage.
+### AMD Power Management & Kernel Drivers
+- **Compiled Kernel Extensions**: Rebuilt and bundled updated `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` (v3.34.0) with enhanced stability and telemetry precision.
+- **SMU Mailbox Synchronization**: Synchronized multi-step SMU7/SMU9 mailbox commands under mutex locks to prevent command collisions during heavy background loads.
+- **Hardware Fan Curves & Hysteresis**: Clamped fan curve hysteresis and ramp rates to hardware-safe bounds, preventing fan oscillation and sudden speed jumps.
+- **Modern Zen Generation Support**: Added calibrated frequency and boost profiles for Ryzen 7000, 8000 (APUs), 9000 series, and Threadripper 7000/PRO silicon.
+- **Curve Optimizer Safety**: Enforced per-core voltage offset limits within the verified `[-30, +30]` range.
+- **GPU BAR Concurrency**: Resolved potential race conditions during concurrent PCI BAR register initialization for AMD Radeon GPUs.
 
-### Kernel & Driver Layer (`SMCAMDProcessor` & `AMDRyzenCPUPM`) (Phase 1 Audit)
-- **BAR Mapping Concurrency**: Added double-checked locking to `AMDGPUDevice::ensureRMMIOMapped()` to eliminate race conditions during concurrent BAR mappings.
-- **SuperIO Fan Control Limits**: Capped `NCT668X_MAX_NUMFAN` to 8 physical fan headers matching hardware register capabilities.
-- **ABI & Compatibility Bump**: Bumped `OSBundleCompatibleVersion` to `3.34.0` in both `SMCAMDProcessor` and `AMDRyzenCPUPowerManagement`.
-- **SMU Mailbox Synchronization**: Wrapped multi-step SMU7/SMU9 command sequences under `gpuLock` and resolved Critical Temperature Fault (CTF) bit testing.
-- **EMA Fan Curve Calculation**: Optimized exponential moving average (EMA) computation to run once per curve prior to fan loops with dynamic initial sample seeding.
-- **P-State Bounds & Validation**: Sanitized P-State configuration parsing, guarded minimum frequencies (≥ 400 MHz), and gated dispatch behind `allowDispatch`.
+### Audio Engine & Volume Control
+- **Automatic Audio Recovery**: Added a watchdog mechanism to automatically detect stalled CoreAudio aggregates after sleep/wake cycles and restore sound output seamlessly.
+- **Boost Limiter Peak Protection**: Integrated an exponential-decay peak limiter for volume amplification above 100%, preventing clipping and acoustic distortion.
+- **Clean Resource Teardown**: Ensured all CoreAudio property listeners and Carbon shortcut handlers are released upon device switching and app termination.
 
-### AMD Core Services & Telemetry (Phase 2 Audit)
-- **Fan Curve Controller Safety**: Guarded fan mode switches and manual PWM overrides against disconnected kernel states, with automated restore on `setAllAuto()`.
-- **Fan Curve Clamping & Validation**: Clamped fan curve hysteresis to `[0, 10]` and rampRate to `[1, 100]` in kext serialization; added `FanCurveDefinition.isValid` anchor validation and `resetToDefaults()`.
-- **Curve Optimizer Bounds**: Clamped per-core offset writes in `ProcessorModel.setCurveOptimizerOffset` strictly within the safe `[-30, +30]` range.
-- **Telemetry Sanitization**: Constrained CCD telemetry readings to max 8 CCDs, and formatted GPU temperatures directly as integer Celsius degrees matching user-client selector 28 contract.
-- **Modern AMD Generation Profiles**: Expanded base and max boost clock definitions for Ryzen 7000, 8000 (Phoenix/Hawk Point), 9000 (Granite Ridge), and Threadripper 7000/PRO series in `ProcessorModel.loadPStateDefClock`.
+### System Metrics & UI Experience
+- **Fluid Scrolling**: Preserved fractional pixel precision during mouse-wheel inertia animations to eliminate micro-stutters during slow scrolling.
+- **Thread-Safe Telemetry**: Isolated C6 residency and Auto-EPP power management routines on the main actor to prevent data races and ensure smooth 60 FPS menu bar updates.
+- **Accurate CCD & GPU Thermal Monitoring**: Constrained per-CCD temperature queries and formatted discrete GPU thermal readouts directly in integer degrees Celsius.
 
-### User Services & Audio Engine (Phase 3 & 4 Audit)
-- **Automatic Audio Recovery**: Added watchdog mechanism to detect stalled CoreAudio aggregate devices after sleep/wake and restore sound output cleanly.
-- **Boost Limiter Peak Protection**: Integrated exponential-decay peak limiter for volume amplification above 100%, preventing clipping and distortion on loud transients.
-- **Lifecycle Cleanup**: Added proper listener and Carbon event handler teardown (`RemoveEventHandler`, `AudioObjectRemovePropertyListenerBlock`) across `AudioInputDeviceManager`, `SoundOutputSwitcher`, and `WindowLayoutService`.
-- **Smooth Scroll Fidelity**: Preserved fractional pixel deltas during mouse-wheel glide animations to eliminate micro-stuttering during slow scrolling.
-- **Thread-Safe Telemetry**: Isolated C6 residency and Auto-EPP power management routines on the main actor to prevent data races.
-
-### Packaging, Verification & Hygiene
-- **Zero Warnings & Pure Dependencies**: 100% clean release build on Swift 5.9 with zero external SPM dependencies.
-- **Automated Test Suite**: 3,741 unit and contract assertions passing with 100% reliability.
-- **Clean Uninstallation**: Enhanced uninstaller script to remove private stores, TCC permissions, login items, and sudoers rules without residue.
+### Security, Packaging & System Hygiene
+- **Hardened Subprocess Execution**: Protected background process calls with strict execution timeouts and pipe buffer drainage to prevent system stalls.
+- **Secure File Exports**: Enforced strict POSIX 0600 file permissions on data exports and settings backups, with automated 300-second keychain auto-locking.
+- **Installer & Packaging Integrity**: DMG packaging verified with SHA-256 checks and clean uninstaller support.
 
 ## [1.15.2] — 2026-08-28
 
