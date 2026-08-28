@@ -664,6 +664,8 @@ final class AppVolumeMixer: ObservableObject {
         }
     }
 
+    private var engineObservations: [String: MixerRoutingSupport.EngineRenderObservation] = [:]
+
     /// Brings the running engines in line with the current app list: drops
     /// taps for apps that stopped playing, retargets taps whose process set
     /// changed (new helper spawned), and applies saved volumes to newcomers.
@@ -678,6 +680,7 @@ final class AppVolumeMixer: ObservableObject {
             guard let app = byId[id] else {
                 engine.stop()
                 engines.removeValue(forKey: id)
+                engineObservations.removeValue(forKey: id)
                 continue
             }
             if engine.tappedObjects != app.audioObjects
@@ -685,12 +688,40 @@ final class AppVolumeMixer: ObservableObject {
                 || !appNeedsEngine(app) {
                 engine.stop()
                 engines.removeValue(forKey: id)
+                engineObservations.removeValue(forKey: id)
                 applyRouting(for: app)
             }
         }
 
         for app in apps where appNeedsEngine(app) && engines[app.id] == nil {
             applyRouting(for: app)
+        }
+
+        // AUDIT E-01: Check for wedged engines whose aggregate IO proc never
+        // ran or stopped rendering while the app was actively playing (e.g. after sleep/wake).
+        let now = Date().timeIntervalSinceReferenceDate
+        for app in apps {
+            guard let engine = engines[app.id] else {
+                engineObservations.removeValue(forKey: app.id)
+                continue
+            }
+            if let verdict = MixerRoutingSupport.engineRenderVerdict(
+                previous: engineObservations[app.id],
+                cycles: engine.renderCycles,
+                isPlaying: app.isPlaying,
+                now: now) {
+                switch verdict {
+                case .wedged:
+                    engineObservations.removeValue(forKey: app.id)
+                    engine.stop()
+                    engines.removeValue(forKey: app.id)
+                    applyRouting(for: app)
+                case .note(let observation, _):
+                    engineObservations[app.id] = observation
+                case .stalled:
+                    break
+                }
+            }
         }
     }
 
@@ -1025,6 +1056,7 @@ private protocol GainEngine: AnyObject {
     var gain: Float { get set }
     var tappedObjects: [AudioObjectID] { get }
     var outputDeviceUID: String { get }
+    var renderCycles: UInt64 { get }
     func stop()
 }
 
@@ -1048,6 +1080,14 @@ private final class TapGainEngine: GainEngine {
     /// reader only asks whether the value moved at all, so being one
     /// callback behind is harmless.
     private final class CycleBox { var value: UInt64 = 0 }
+
+    /// Holds the peak limiter instance across IOProc callbacks.
+    private final class LimiterBox {
+        var limiter: BoostLimiter
+        init(sampleRate: Double = 48000) {
+            limiter = BoostLimiter(sampleRate: sampleRate)
+        }
+    }
 
     private let gainBox = GainBox()
     private let cycleBox = CycleBox()
@@ -1094,6 +1134,7 @@ private final class TapGainEngine: GainEngine {
 
         let box = gainBox
         let cycles = cycleBox
+        let limiterBox = LimiterBox(sampleRate: 48000)
         guard AudioDeviceCreateIOProcIDWithBlock(&ioProc, aggregateID, nil, { _, input, _, output, _ in
             cycles.value &+= 1
             let inputBuffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
@@ -1108,9 +1149,11 @@ private final class TapGainEngine: GainEngine {
                 let frames = min(Int(inputBuffer.mDataByteSize),
                                  Int(outputBuffers[index].mDataByteSize)) / MemoryLayout<Float>.size
                 vDSP_vsmul(source, 1, &gain, destination, 1, vDSP_Length(frames))
-                // A boost can push samples past [-1, 1]; hard-limit so nothing out
-                // of range reaches the device (a clean clip, never garbage).
+                // AUDIT E-02: Peak-limit when boosting above 100% to keep audio
+                // clean and natural (issue #326) without hard square-wave crackle,
+                // and keep vDSP_vclip as final safety ceiling.
                 if boosting {
+                    limiterBox.limiter.process(destination, frames: frames, channels: 1)
                     vDSP_vclip(destination, 1, &low, &high, destination, 1, vDSP_Length(frames))
                 }
             }

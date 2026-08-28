@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.16.0] — 2026-08-28
+
+### Audio Engine & Volume Mixer (Phase 2)
+- **Wedged-Engine Watchdog (E-01)**: Connected `MixerRoutingSupport.engineRenderVerdict` to detect stalled HAL aggregates after wake/sleep cycles and rebuild the audio tap automatically without user intervention.
+- **Boost Limiter Peak Protection (E-02)**: Integrated `BoostLimiter` with instant attack and exponential decay in `TapGainEngine` when volume exceeds 100%, eliminating harsh distortion and crackling (issue #326).
+
+### Menu Bar & System Metrics (Phase 2 & 3)
+- **Independent Co-Family Metrics (A-02)**: Fixed status item grouping so `.cpuPower`, `.cpuFrequency`, `.cpuTempPower`, `.gpuPower`, and `.gpuTempPower` are reliably emitted as dedicated status items.
+- **Smooth Scroll Sub-Pixel Retention (E-10)**: Wired carry arithmetic (`wholePixels`, `finalPixels`, `carry`) to eliminate lost fractional pixels and stutter during low-speed glide scrolling.
+- **Thread Safety Isolation (B-02)**: Converted `C6ResidencyService` and `AutoEppService` to isolated `@MainActor` executions, preventing state races between detached tasks and UI observers.
+- **Dead View Pruning (F-18)**: Removed ~650 lines of unmounted telemetry views (`ThreadGridView`, `CoreGridDashboard`, `CombinedFreqIPSGraph`) with unneeded 1 Hz polling timers.
+
+### Main-Thread Offloading & Latency (Phase 3)
+- **Background Screen Recording Processing (C-01)**: Offloaded `RecorderComposer.makePlan` (resampling, zero-phase filtering, spring sweeps) to a detached worker task, eliminating UI stalls during timeline edits.
+- **Process Subprocess Timeout (B-06)**: Added 10-second timeout with asynchronous `SIGKILL` escalation to `Shell.run` to prevent hung system utilities from blocking process lists.
+- **Targeted GPU IORegistry Reads (B-05)**: Replaced full CFDictionary materialization with targeted property lookups during per-PID GPU time attribution.
+- **AMD Settings UI Decoupling (F-17)**: Isolated live CPU and GPU metrics into focused subviews, eliminating full 1,000-line Form re-renders at 1 Hz.
+
 ## [1.15.2] — 2026-08-28
 
 ### Security & Hardening (Codebase Audit)

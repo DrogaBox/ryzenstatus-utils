@@ -13,6 +13,7 @@ import Foundation
 /// derived from the delta between two samples divided by the elapsed uptime:
 ///
 ///     Δµs / (Δseconds * 1_000_000) * 100
+@MainActor
 final class C6ResidencyService: ObservableObject {
     static let shared = C6ResidencyService()
 
@@ -31,7 +32,9 @@ final class C6ResidencyService: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.resetBaseline()
+            Task { @MainActor in
+                self?.resetBaseline()
+            }
         }
     }
 
@@ -70,9 +73,7 @@ final class C6ResidencyService: ObservableObject {
 
         // No counter (kext absent / not sampling) — report nothing.
         guard raw > 0 else {
-            await MainActor.run {
-                if self.percentage != 0 { self.percentage = 0 }
-            }
+            if percentage != 0 { percentage = 0 }
             lastRaw = 0
             lastTimestamp = 0
             return
@@ -98,10 +99,8 @@ final class C6ResidencyService: ObservableObject {
         lastTimestamp = now
 
         if let newPct = newPercentage {
-            await MainActor.run {
-                if abs(self.percentage - newPct) >= 0.1 {
-                    self.percentage = newPct
-                }
+            if abs(percentage - newPct) >= 0.1 {
+                percentage = newPct
             }
         }
     }

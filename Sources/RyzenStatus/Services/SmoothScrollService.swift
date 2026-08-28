@@ -32,6 +32,10 @@ final class SmoothScrollService: ObservableObject {
     /// thread (tap callback and timer both live on the main run loop).
     private var remainingVertical: Double = 0
     private var remainingHorizontal: Double = 0
+    // AUDIT E-10: Carry forward sub-pixel fractions so low-speed glides
+    // and high-resolution wheel ticks never drop distance to frame rounding.
+    private var carryVertical: Double = 0
+    private var carryHorizontal: Double = 0
     /// Modifiers of the wheel event that started or fed the glide, replayed on
     /// the synthetic events so apps can still react to them.
     private var currentFlags: CGEventFlags = []
@@ -225,18 +229,43 @@ final class SmoothScrollService: ObservableObject {
         frameTimer = nil
         remainingVertical = 0
         remainingHorizontal = 0
+        carryVertical = 0
+        carryHorizontal = 0
     }
 
     private func emitFrame() {
-        let vertical = SmoothScrollSupport.frameDelta(remaining: remainingVertical)
-        let horizontal = SmoothScrollSupport.frameDelta(remaining: remainingHorizontal)
-        remainingVertical -= vertical
-        remainingHorizontal -= horizontal
+        let rawVertical = SmoothScrollSupport.frameDelta(remaining: remainingVertical)
+        let rawHorizontal = SmoothScrollSupport.frameDelta(remaining: remainingHorizontal)
+        remainingVertical -= rawVertical
+        remainingHorizontal -= rawHorizontal
 
-        if vertical != 0 || horizontal != 0 {
-            post(vertical: vertical, horizontal: horizontal)
+        let isFinalVertical = remainingVertical == 0
+        let isFinalHorizontal = remainingHorizontal == 0
+
+        let postVertical: Double
+        if isFinalVertical {
+            postVertical = SmoothScrollSupport.finalPixels(rawVertical, carry: carryVertical)
+            carryVertical = 0
+        } else {
+            let split = SmoothScrollSupport.wholePixels(rawVertical, carry: carryVertical)
+            postVertical = split.pixels
+            carryVertical = split.carry
         }
-        if remainingVertical == 0, remainingHorizontal == 0 {
+
+        let postHorizontal: Double
+        if isFinalHorizontal {
+            postHorizontal = SmoothScrollSupport.finalPixels(rawHorizontal, carry: carryHorizontal)
+            carryHorizontal = 0
+        } else {
+            let split = SmoothScrollSupport.wholePixels(rawHorizontal, carry: carryHorizontal)
+            postHorizontal = split.pixels
+            carryHorizontal = split.carry
+        }
+
+        if postVertical != 0 || postHorizontal != 0 {
+            post(vertical: postVertical, horizontal: postHorizontal)
+        }
+        if isFinalVertical, isFinalHorizontal {
             frameTimer?.invalidate()
             frameTimer = nil
         }

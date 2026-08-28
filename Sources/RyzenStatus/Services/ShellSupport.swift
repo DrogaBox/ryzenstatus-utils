@@ -6,7 +6,7 @@ import CoreServices
 
 enum Shell {
     @discardableResult
-    static func run(_ path: String, _ args: [String]) -> (status: Int32, output: String) {
+    static func run(_ path: String, _ args: [String], timeout: TimeInterval = 10) -> (status: Int32, output: String) {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: path)
         p.arguments = args
@@ -14,7 +14,31 @@ enum Shell {
         p.standardOutput = pipe
         p.standardError = pipe
         do { try p.run() } catch { return (-1, "") }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+
+        // AUDIT B-06: Add deadline + drain queue with SIGTERM->SIGKILL escalation
+        // so a hung subprocess (e.g. ps, nettop) cannot permanently stall process monitoring.
+        let group = DispatchGroup()
+        group.enter()
+
+        var data = Data()
+        let queue = DispatchQueue(label: "com.ryzenstatus.shell.reader", qos: .utility)
+        queue.async {
+            data = pipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+
+        let deadline = DispatchTime.now() + timeout
+        if group.wait(timeout: deadline) == .timedOut {
+            p.terminate()
+            let pid = p.processIdentifier
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1.0) {
+                if p.isRunning && pid > 0 {
+                    kill(pid, SIGKILL)
+                }
+            }
+            return (-1, "")
+        }
+
         p.waitUntilExit()
         return (p.terminationStatus, String(data: data, encoding: .utf8) ?? "")
     }

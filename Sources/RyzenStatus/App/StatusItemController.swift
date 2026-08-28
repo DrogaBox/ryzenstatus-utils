@@ -564,12 +564,13 @@ final class StatusItemController {
 
         for metric in metrics {
             switch metric {
-            case .cpu, .cpuTemperature, .cpuPower, .cpuFrequency, .cpuTempPower:
+            case .cpu, .cpuTemperature:
+                // AUDIT A-02: Only .cpu and .cpuTemperature combine into the paired group.
                 appendComponentGroup(id: "cpu",
                                      primary: .cpu,
                                      temperature: .cpuTemperature,
                                      primaryTitle: strings.monitorShowCPU)
-            case .gpu, .gpuTemperature, .gpuPower, .gpuTempPower:
+            case .gpu, .gpuTemperature:
                 appendComponentGroup(id: "gpu",
                                      primary: .gpu,
                                      temperature: .gpuTemperature,
@@ -579,7 +580,12 @@ final class StatusItemController {
                                      primary: .battery,
                                      temperature: .batteryTemperature,
                                      primaryTitle: strings.batteryLabel)
-            case .memory, .network, .diskUsage, .diskActivity, .batteryTime, .peripheralBattery, .power:
+            case .cpuPower, .cpuFrequency, .cpuTempPower,
+                 .gpuPower, .gpuTempPower,
+                 .memory, .network, .diskUsage, .diskActivity, .batteryTime, .peripheralBattery, .power:
+                // AUDIT A-02: Co-family metrics (power, frequency, temp+power)
+                // must be emitted as their own individual MetricStatusGroup rather
+                // than being silently swallowed by the component pairing logic.
                 let id = metric.rawValue
                 guard emittedIDs.insert(id).inserted else { continue }
                 groups.append(MetricStatusGroup(id: id,

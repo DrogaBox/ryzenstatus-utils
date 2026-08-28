@@ -740,29 +740,29 @@ final class ProcessUsageService {
                         }
                     }
                 } else {
-                    // AMD fallback: properties are on the client itself
-                    var props: Unmanaged<CFMutableDictionary>?
-                    if IORegistryEntryCreateCFProperties(client, &props, kCFAllocatorDefault, 0) == kIOReturnSuccess,
-                       let dict = props?.takeRetainedValue() as? [String: Any] {
-                        let keys = ["accumulatedGPUTime", "gpuTime", "accumulatedTime", "CommandQueueGPUTime"]
-                        var rawTime: Double = 0
-                        for key in keys {
-                            if let t = dict[key] as? Double, t > 0 {
+                    // AUDIT B-05: Targeted property reads instead of materializing
+                    // the entire IORegistry properties dictionary for every user client.
+                    let keys = ["accumulatedGPUTime", "gpuTime", "accumulatedTime", "CommandQueueGPUTime"]
+                    var rawTime: Double = 0
+                    for key in keys {
+                        if let propRef = IORegistryEntryCreateCFProperty(client, key as CFString, kCFAllocatorDefault, 0) {
+                            let val = propRef.takeRetainedValue()
+                            if let t = val as? Double, t > 0 {
                                 rawTime = t
                                 break
-                            } else if let t = dict[key] as? Int64, t > 0 {
+                            } else if let t = val as? Int64, t > 0 {
                                 rawTime = Double(t)
                                 break
-                            } else if let t = dict[key] as? NSNumber, t.doubleValue > 0 {
+                            } else if let t = val as? NSNumber, t.doubleValue > 0 {
                                 rawTime = t.doubleValue
                                 break
                             }
                         }
-                        if rawTime > 0 {
-                            var existing = perPid[info.pid] ?? (info.name, 0)
-                            existing.time += rawTime
-                            perPid[info.pid] = existing
-                        }
+                    }
+                    if rawTime > 0 {
+                        var existing = perPid[info.pid] ?? (info.name, 0)
+                        existing.time += rawTime
+                        perPid[info.pid] = existing
                     }
                 }
                 }

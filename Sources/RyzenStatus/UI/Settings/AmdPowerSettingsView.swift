@@ -22,7 +22,6 @@ struct AmdPowerSettingsView: View {
     @State private var showCopiedToast: Bool = false
     @ObservedObject private var autoEpp = AutoEppService.shared
     @ObservedObject private var presetCtrl = AmdPresetController.shared
-    @ObservedObject private var monitor = SystemMonitor.shared
     @ObservedObject private var nvramCState = CStateNvramService.shared
     @ObservedObject private var l10n = L10n.shared
 
@@ -39,61 +38,12 @@ struct AmdPowerSettingsView: View {
         }
     }
 
-    private var minFrequency: Double {
-        let freqs = monitor.snapshot.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
-        return freqs.min() ?? 0
-    }
-
-    private var maxFrequency: Double {
-        let freqs = monitor.snapshot.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
-        return freqs.max() ?? 0
-    }
-
-    private var averageFrequency: Double {
-        let freqs = monitor.snapshot.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
-        guard !freqs.isEmpty else { return 0 }
-        return freqs.reduce(0, +) / Double(freqs.count)
-    }
+    // AUDIT F-17: Move 1 Hz live telemetry out of the root Form into focused
+    // subviews so the 1,000-line controls and settings tree does not re-render each second.
 
     var body: some View {
         Form {
-            Section(header: Text(l10n.s.amdRyzenProcessorInfo)) {
-                HStack {
-                    Text("Package Power")
-                    Spacer()
-                    Text(String(format: "%.1f W", monitor.snapshot.cpuPower ?? 0))
-                        .font(.system(.body, design: .monospaced))
-                }
-                HStack {
-                    Text("Package Temp")
-                    Spacer()
-                    let tempVal = monitor.snapshot.cpuTemperature
-                    let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
-                    Text(tempVal.map { MetricFormat.temperature($0, unit: unit) } ?? "--")
-                        .font(.system(.body, design: .monospaced))
-                }
-                
-                if !monitor.snapshot.cores.isEmpty {
-                    HStack {
-                        Text(l10n.s.amdMinFrequency)
-                        Spacer()
-                        Text(String(format: "%.0f MHz", minFrequency))
-                            .font(.system(.body, design: .monospaced))
-                    }
-                    HStack {
-                        Text(l10n.s.amdMaxFrequency)
-                        Spacer()
-                        Text(String(format: "%.0f MHz", maxFrequency))
-                            .font(.system(.body, design: .monospaced))
-                    }
-                    HStack {
-                        Text(l10n.s.amdAvgFrequency)
-                        Spacer()
-                        Text(String(format: "%.0f MHz", averageFrequency))
-                            .font(.system(.body, design: .monospaced))
-                    }
-                }
-            }
+            AmdLiveTelemetrySection()
             
             if isLoading {
                 Section {
@@ -219,42 +169,7 @@ struct AmdPowerSettingsView: View {
 
                 // AMD GPU — dedicated GPU telemetry from the kext (selectors 27-30).
                 // Hidden entirely when no AMD discrete GPU is detected (iGPU/NVIDIA).
-                if !monitor.snapshot.gpuDevices.isEmpty {
-                    Section {
-                        ForEach(monitor.snapshot.gpuDevices) { gpu in
-                            let label = monitor.snapshot.gpuDevices.count > 1 ? "AMD GPU \(gpu.id)" : "AMD GPU"
-                            HStack {
-                                Image(systemName: "display")
-                                    .foregroundColor(.orange)
-                                    .frame(width: 20)
-                                Text(label)
-                                    .font(.subheadline)
-                                Spacer()
-                                if gpu.supportsPower {
-                                    Text(gpu.power > 0 ? String(format: "%.1f W", gpu.power) : "— W")
-                                        .font(.system(.body, design: .monospaced))
-                                        .foregroundColor(.green)
-                                } else {
-                                    Text("— W")
-                                        .font(.system(.body, design: .monospaced))
-                                        .foregroundColor(.secondary)
-                                }
-                                HStack {
-                                    Text("Temperature")
-                                    Spacer()
-                                    let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
-                                    Text(gpu.temperature > 0 ? MetricFormat.temperature(gpu.temperature, unit: unit) : "--")
-                                        .font(.system(.body, design: .monospaced))
-                                }
-                                .foregroundColor(.orange)
-                            }
-                        }
-                    } header: {
-                        Text(l10n.amdPower.amdGPUHeader)
-                    } footer: {
-                        Text(l10n.amdPower.amdGPUFooter)
-                    }
-                }
+                AmdGpuTelemetrySection()
 
                 // AMD Curve Optimizer — per-core offsets (selectors 110/111).
                 // The kext only accepts writes on Zen 3 Vermeer; Zen 4/5 and the
@@ -1043,5 +958,112 @@ struct AmdPowerSettingsView: View {
         coCoreCount = state.coreCount
         curveOffsets = state.offsets
         isLoading = false
+    }
+}
+
+// MARK: - Dedicated Telemetry Subviews (AUDIT F-17)
+
+private struct AmdLiveTelemetrySection: View {
+    @ObservedObject private var monitor = SystemMonitor.shared
+    @ObservedObject private var l10n = L10n.shared
+
+    private var minFrequency: Double {
+        let freqs = monitor.snapshot.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
+        return freqs.min() ?? 0
+    }
+
+    private var maxFrequency: Double {
+        let freqs = monitor.snapshot.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
+        return freqs.max() ?? 0
+    }
+
+    private var averageFrequency: Double {
+        let freqs = monitor.snapshot.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
+        guard !freqs.isEmpty else { return 0 }
+        return freqs.reduce(0, +) / Double(freqs.count)
+    }
+
+    var body: some View {
+        Section(header: Text(l10n.s.amdRyzenProcessorInfo)) {
+            HStack {
+                Text("Package Power")
+                Spacer()
+                Text(String(format: "%.1f W", monitor.snapshot.cpuPower ?? 0))
+                    .font(.system(.body, design: .monospaced))
+            }
+            HStack {
+                Text("Package Temp")
+                Spacer()
+                let tempVal = monitor.snapshot.cpuTemperature
+                let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
+                Text(tempVal.map { MetricFormat.temperature($0, unit: unit) } ?? "--")
+                    .font(.system(.body, design: .monospaced))
+            }
+            
+            if !monitor.snapshot.cores.isEmpty {
+                HStack {
+                    Text(l10n.s.amdMinFrequency)
+                    Spacer()
+                    Text(String(format: "%.0f MHz", minFrequency))
+                        .font(.system(.body, design: .monospaced))
+                }
+                HStack {
+                    Text(l10n.s.amdMaxFrequency)
+                    Spacer()
+                    Text(String(format: "%.0f MHz", maxFrequency))
+                        .font(.system(.body, design: .monospaced))
+                }
+                HStack {
+                    Text(l10n.s.amdAvgFrequency)
+                    Spacer()
+                    Text(String(format: "%.0f MHz", averageFrequency))
+                        .font(.system(.body, design: .monospaced))
+                }
+            }
+        }
+    }
+}
+
+private struct AmdGpuTelemetrySection: View {
+    @ObservedObject private var monitor = SystemMonitor.shared
+    @ObservedObject private var l10n = L10n.shared
+
+    var body: some View {
+        if !monitor.snapshot.gpuDevices.isEmpty {
+            Section {
+                ForEach(monitor.snapshot.gpuDevices) { gpu in
+                    let label = monitor.snapshot.gpuDevices.count > 1 ? "AMD GPU \(gpu.id)" : "AMD GPU"
+                    HStack {
+                        Image(systemName: "display")
+                            .foregroundColor(.orange)
+                            .frame(width: 20)
+                        Text(label)
+                            .font(.subheadline)
+                        Spacer()
+                        if gpu.supportsPower {
+                            Text(gpu.power > 0 ? String(format: "%.1f W", gpu.power) : "— W")
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundColor(.green)
+                        } else {
+                            Text("— W")
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundColor(.secondary)
+                        }
+                        HStack {
+                            Text("Temperature")
+                            Spacer()
+                            let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
+                            Text(gpu.temperature > 0 ? MetricFormat.temperature(gpu.temperature, unit: unit) : "--")
+                                .font(.system(.body, design: .monospaced))
+                        }
+                        .foregroundColor(.orange)
+                    }
+                }
+            } header: {
+                Text(l10n.amdPower.amdGPUHeader)
+            } footer: {
+                Text(l10n.amdPower.amdGPUFooter)
+            }
+        }
     }
 }
