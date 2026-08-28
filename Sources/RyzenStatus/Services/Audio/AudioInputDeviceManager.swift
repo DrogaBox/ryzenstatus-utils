@@ -36,6 +36,10 @@ final class AudioInputDeviceManager: ObservableObject {
 
     private init() {}
 
+    deinit {
+        stop()
+    }
+
     /// The microphone selector lives in the mixer panel section, so it
     /// follows the mixer's hub availability.
     func syncWithPreferences() {

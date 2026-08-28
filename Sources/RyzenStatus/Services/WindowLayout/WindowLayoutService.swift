@@ -371,9 +371,17 @@ final class WindowLayoutService: ObservableObject {
         for ref in hotKeyRefs.values {
             UnregisterEventHotKey(ref)
         }
+        if let eventHandler {
+            RemoveEventHandler(eventHandler)
+        }
+        eventHandler = nil
         hotKeyRefs.removeAll()
         registeredShortcuts.removeAll()
         failedShortcutActions.removeAll()
+    }
+
+    deinit {
+        suspend()
     }
 
     // MARK: - Move and resize gesture

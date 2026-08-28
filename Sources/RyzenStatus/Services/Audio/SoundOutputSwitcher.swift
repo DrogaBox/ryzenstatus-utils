@@ -100,9 +100,17 @@ final class SoundOutputSwitcher: ObservableObject {
         if let hotKeyRef {
             UnregisterEventHotKey(hotKeyRef)
         }
+        if let eventHandler {
+            RemoveEventHandler(eventHandler)
+        }
+        eventHandler = nil
         hotKeyRef = nil
         registeredShortcut = nil
         registrationFailed = false
         lastSwitchFailed = false
+    }
+
+    deinit {
+        unregisterHotkey()
     }
 }
