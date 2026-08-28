@@ -92,6 +92,10 @@ IOReturn AMDGPUDevice::ensureRMMIOMapped() {
     }
 
     IOLockLock(gpuLock);
+    if (rmmio != nullptr) {
+        IOLockUnlock(gpuLock);
+        return kIOReturnSuccess;
+    }
 
     // GCN 1.2+ (Southern Islands+) uses BAR5; older Sea Islands uses BAR2
     bool useBar5 = (chipFamily >= 2);
@@ -246,9 +250,10 @@ UInt32 AMDGPUDevice::smu7PollResponse() {
 //==============================================================================
 
 IOReturn AMDGPUDevice::smu7GetTemp(UInt16 *data) {
-    auto ctfTemp = GET_THERMAL_STATUS_CTF_TEMP(readIndirectSMC(ixCG_MULT_THERMAL_STATUS));
-    // Clamp to unsigned 9-bit, mark 0x200 bit as invalid (255°C)
-    *data = (ctfTemp & 0x200) ? 255 : (ctfTemp & 0x1FF);
+    UInt32 raw = readIndirectSMC(ixCG_MULT_THERMAL_STATUS);
+    auto ctfTemp = GET_THERMAL_STATUS_CTF_TEMP(raw);
+    // In SMU7 raw register, bit 18 (0x40000) marks invalid temperature (255°C)
+    *data = (raw & 0x40000) ? 255 : (ctfTemp & 0x1FF);
     return kIOReturnSuccess;
 }
 
@@ -297,6 +302,7 @@ IOReturn AMDGPUDevice::thm10GetTemp(UInt16 *data) {
 // SMC mailbox does not support GetCurrPkgPwr directly.
 
 IOReturn AMDGPUDevice::smu7GetPowerPMStatus(float *data) {
+    IOLockLock(gpuLock);
     // Ensure SMC is ready before sending commands
     smu7PollResponse();
 
@@ -317,13 +323,15 @@ IOReturn AMDGPUDevice::smu7GetPowerPMStatus(float *data) {
         writeReg32(mmSMC_MESSAGE_0_SMU7, PPSMC_MSG_PmStatusLogSample_SMU7);
         memoryBarrier();
 
-        IOSleep(100);
+        IODelay(100);
 
         value = readIndirectSMC(ixSMU_PM_STATUS_95);
         if (value != 0) {
             break;
         }
     }
+
+    IOLockUnlock(gpuLock);
 
     if (value == 0) {
         return kIOReturnError;
@@ -342,6 +350,7 @@ IOReturn AMDGPUDevice::smu7GetPowerPMStatus(float *data) {
 // Uses the SMU7 SMC mailbox protocol documented in the Linux amdgpu driver.
 
 IOReturn AMDGPUDevice::smu7GetPowerSMC(float *data) {
+    IOLockLock(gpuLock);
     // Step 1: Wait for SMC to be ready (previous response consumed)
     UInt32 prevResp = smu7PollResponse();
 
@@ -359,12 +368,14 @@ IOReturn AMDGPUDevice::smu7GetPowerSMC(float *data) {
     // Step 5: Wait for response
     UInt32 resp = smu7PollResponse();
     if (resp != 1) {
+        IOLockUnlock(gpuLock);
         // Response not OK — fall back to PM Status log method
         return smu7GetPowerPMStatus(data);
     }
 
     // Step 6: Read power value from argument register
     UInt32 value = readReg32(mmSMC_MSG_ARG_0_SMU7);
+    IOLockUnlock(gpuLock);
 
     // Convert from 8.24 fractional format
     *data = static_cast<float>((value & 0xFFFFFF00) >> 8)
@@ -378,6 +389,7 @@ IOReturn AMDGPUDevice::smu7GetPowerSMC(float *data) {
 // SMU9 uses a different mailbox protocol via SOC15 MMIO registers.
 
 IOReturn AMDGPUDevice::smu9GetPower(float *data) {
+    IOLockLock(gpuLock);
     UInt32 base = MP_BASE_SMU9;
 
     // Step 1: Wait for previous command to complete
@@ -411,11 +423,13 @@ IOReturn AMDGPUDevice::smu9GetPower(float *data) {
     }
 
     if (resp != 1) {
+        IOLockUnlock(gpuLock);
         return kIOReturnError;
     }
 
     // Step 6: Read power value (in watts)
     UInt32 value = soc15ReadReg32(base + mmMP1_SMN_C2PMSG_82);
+    IOLockUnlock(gpuLock);
     *data = static_cast<float>(value);
     return kIOReturnSuccess;
 }

@@ -40,6 +40,7 @@ public:
     // IOUserClient methods
     virtual void stop(IOService* provider) override;
     virtual bool start(IOService* provider) override;
+    virtual IOReturn clientClose() override;
     
     
     

@@ -19,7 +19,7 @@
 #define CHIP_NCT6683 0xc730
 
 
-#define NCT668X_MAX_NUMFAN 16
+#define NCT668X_MAX_NUMFAN 8
 
 #define CHIP_SIO_OPEN 0x87
 #define CHIP_SIO_CLOSE 0xaa

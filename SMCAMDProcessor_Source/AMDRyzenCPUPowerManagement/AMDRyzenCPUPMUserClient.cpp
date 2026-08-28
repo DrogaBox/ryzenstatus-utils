@@ -74,6 +74,11 @@ void AMDRyzenCPUPMUserClient::stop(IOService *provider){
     IOService::stop(provider);
 }
 
+IOReturn AMDRyzenCPUPMUserClient::clientClose() {
+    terminate();
+    return kIOReturnSuccess;
+}
+
 bool AMDRyzenCPUPMUserClient::hasPrivilege(uint32_t selector){
     // Boot-arg bypass: allow writes without root when -amdpnopchk is present
     if (fProvider && fProvider->disablePrivilegeCheck) return true;
@@ -700,11 +705,10 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             float *dataOut = (float*) arguments->structureOutput;
             uint32_t copyCount = (maxLen / sizeof(float) < ccdCount) ? (maxLen / sizeof(float)) : ccdCount;
             
-            if (provider->controlLock) IOLockLock(provider->controlLock);
+            // Telemetry read: individual float reads are naturally aligned and atomic on x86_64
             for(uint32_t i = 0; i < copyCount; i++){
                 dataOut[i] = provider->ccdTemperatures[i];
             }
-            if (provider->controlLock) IOLockUnlock(provider->controlLock);
             
             break;
         }
@@ -849,8 +853,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
         
-        // Get GPU temperatures (SP78 format)
-        // Structure output: array of UInt16 in SP78 format, one per GPU
+        // Get GPU temperatures (integer degrees Celsius)
+        // Structure output: array of UInt16 in integer degrees Celsius, one per GPU
         case 28: {
             arguments->scalarOutputCount = 0;
             uint32_t gpuCountLocal = provider->getGPUCount();
@@ -1151,7 +1155,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             // trap (or, on older kernels, over-copied).
             arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
             
-            UInt32 snap94 = (UInt32)provider->fanUpdateCounter;
+            UInt32 snap94 = (UInt32)OSIncrementAtomic(&provider->fanUpdateCounter);
             if ((snap94 % 4) == 0) {
                 provider->superIO->updateFanControl();
             }
@@ -1339,10 +1343,16 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 return kIOReturnBadArgument;
             }
             
+            uint8_t hyst = (uint8_t)input->hysteresis;
+            if (hyst > 10) hyst = 10;
+            uint8_t ramp = (uint8_t)input->rampRate;
+            if (ramp < 1) ramp = 1;
+            if (ramp > 100) ramp = 100;
+
             IOLockLock(provider->superIOLock);
             provider->fanCurves[idx].sourceSensor = (uint8_t)input->sourceSensor;
-            provider->fanCurves[idx].hysteresis   = (uint8_t)input->hysteresis;
-            provider->fanCurves[idx].rampRate     = (uint8_t)input->rampRate;
+            provider->fanCurves[idx].hysteresis   = hyst;
+            provider->fanCurves[idx].rampRate     = ramp;
             memcpy(provider->fanCurves[idx].lut, input->lut, 256);
             IOLockUnlock(provider->superIOLock);
             

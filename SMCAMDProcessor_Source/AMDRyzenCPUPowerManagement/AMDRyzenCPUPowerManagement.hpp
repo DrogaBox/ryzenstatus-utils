@@ -264,25 +264,23 @@ public:
      *  Hard allocate space for cached readings.
      */
     float effFreq_perCore[CPUInfo::MaxCpus] {};
-    float PACKAGE_TEMPERATURE_perPackage[CPUInfo::MaxCpus];
+    float PACKAGE_TEMPERATURE_perPackage[CPUInfo::MaxCpus] {};
     
-    uint64_t lastMPERF_perCore[CPUInfo::MaxCpus];
-    uint64_t lastAPERF_perCore[CPUInfo::MaxCpus];
-    uint64_t deltaMPERF_perCore[CPUInfo::MaxCpus];
+    uint64_t lastMPERF_perCore[CPUInfo::MaxCpus] {};
+    uint64_t lastAPERF_perCore[CPUInfo::MaxCpus] {};
+    uint64_t deltaMPERF_perCore[CPUInfo::MaxCpus] {};
     
-//    uint64_t lastAPERF_PerCore[CPUInfo::MaxCpus];
+    uint64_t instructionDelta_perCore[CPUInfo::MaxCpus] {};
+    uint64_t lastInstructionDelta_perCore[CPUInfo::MaxCpus] {};
     
-    uint64_t instructionDelta_perCore[CPUInfo::MaxCpus];
-    uint64_t lastInstructionDelta_perCore[CPUInfo::MaxCpus];
-    
-    float loadIndex_perCore[CPUInfo::MaxCpus];
+    float loadIndex_perCore[CPUInfo::MaxCpus] {};
     
     float PStateStepUpRatio = 0.36;
     float PStateStepDownRatio = 0.05;
     
-    uint8_t PStateCur_perCore[CPUInfo::MaxCpus];
+    uint8_t PStateCur_perCore[CPUInfo::MaxCpus] {};
     uint8_t PStateCtl = 0;
-    uint64_t PStateDef_perCore[8];
+    uint64_t PStateDef_perCore[8] {};
     uint8_t PStateEnabledLen = 0;
     float PStateDefClock_perCore[8];
     bool cpbSupported;
@@ -398,7 +396,7 @@ public:
 
     bool disablePrivilegeCheck = false;
     uint16_t savedSMCChipIntel = 0;
-    uint16_t kextloadAlerts = 0;
+    SInt32 kextloadAlerts = 0;
     /// Ensures kunc_alert modal is shown at most once until the user dismisses/clears it.
     /// SInt32 for OSCompareAndSwap (audit R-6).
     SInt32 kextAlertDisplayed = 0;
@@ -424,6 +422,7 @@ public:
     static_assert(sizeof(lastPWMUpdateTime) / sizeof(lastPWMUpdateTime[0]) == kMAX_FANS, "fan array size mismatch");
     float gpuTempC;
     float curveSmoothedTemp[MAX_FAN_CURVES];
+    bool curveSmoothedSeeded[MAX_FAN_CURVES] {};
 
     // GPU monitoring (added)
     AMDGPUDevice *gpuDevices[16] {};
@@ -445,9 +444,9 @@ private:
     
     uint32_t updateTimeInterval = 1000;
     uint32_t actualUpdateTimeInterval = 1;
-    uint32_t timeOfLastUpdate = 0;
-    uint32_t estimatedRequestTimeInterval = 0;
-    uint32_t timeOfLastMissedRequest = 0;
+    uint64_t timeOfLastUpdate = 0;
+    uint64_t estimatedRequestTimeInterval = 0;
+    uint64_t timeOfLastMissedRequest = 0;
     
     int tempNextSample = 0;
     float tempSamples[HF_TEMP_SAMPLE_LEN];

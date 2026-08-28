@@ -140,7 +140,7 @@ public:
 
     /**
      *  Read the GPU temperature.
-     *  Output in SP78 format (UInt16: signed 8.8 fixed-point).
+     *  Output: UInt16 integer degrees Celsius.
      */
     IOReturn getTemperature(UInt16 *data);
 

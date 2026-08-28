@@ -65,7 +65,7 @@ bool AMDRyzenCPUPowerManagement::init(OSDictionary *dictionary){
         if (symbolRetries < 49) IOSleep(10);
     }
     if (!resolved) {
-        OSIncrementAtomic((SInt32*)&kextloadAlerts);
+        OSIncrementAtomic(&kextloadAlerts);
         IOLog("AMDRyzenCPUPowerManagement::init symbol resolution for _wrmsr_carefully failed after 50 retries\n");
         return false;
     }
@@ -125,6 +125,7 @@ bool AMDRyzenCPUPowerManagement::getPCIService(){
     waitForMatchingService(matching_dict);
     
     OSIterator *service_iter = getMatchingServices(matching_dict);
+    matching_dict->release();
     IOPCIDevice *service = nullptr;
     
     if(!service_iter){
@@ -340,13 +341,14 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
 
         IOLockUnlock(provider->rendezvousLock);
 
-        uint32_t now = uint32_t(getCurrentTimeNs() / 1000000); //ms
-        uint32_t newInt = max(now - provider->timeOfLastMissedRequest,
-                              provider->estimatedRequestTimeInterval);
+        uint64_t now = getCurrentTimeNs() / 1000000; //ms
+        uint64_t deltaMissed = (now >= provider->timeOfLastMissedRequest) ? (now - provider->timeOfLastMissedRequest) : 0;
+        uint64_t newInt = max(deltaMissed, provider->estimatedRequestTimeInterval);
 
-        provider->actualUpdateTimeInterval = now - provider->timeOfLastUpdate;
+        uint64_t deltaLast = (now >= provider->timeOfLastUpdate) ? (now - provider->timeOfLastUpdate) : 1;
+        provider->actualUpdateTimeInterval = (uint32_t)min((uint64_t)UINT32_MAX, deltaLast);
         provider->timeOfLastUpdate = now;
-        provider->updateTimeInterval = min(1200, max(50, newInt));
+        provider->updateTimeInterval = (uint32_t)min((uint64_t)1200, max((uint64_t)50, newInt));
 
         provider->timerEvent_main->setTimeoutMS(provider->updateTimeInterval);
 
@@ -688,7 +690,8 @@ bool AMDRyzenCPUPowerManagement::start(IOService *provider){
         fanCurves[i].sourceSensor = 0;
         fanCurves[i].hysteresis = 2;
         fanCurves[i].rampRate = 5;
-        curveSmoothedTemp[i] = 40.0f;
+        curveSmoothedTemp[i] = 0.0f;
+        curveSmoothedSeeded[i] = false;
     }
     gpuTempC = 0.0f;
 
@@ -929,9 +932,9 @@ bool AMDRyzenCPUPowerManagement::write_msr(uint32_t addr, uint64_t value){
 }
 
 void AMDRyzenCPUPowerManagement::registerRequest(){
-    uint32_t now = (uint32_t)(getCurrentTimeNs() / 1000000);
+    uint64_t now = getCurrentTimeNs() / 1000000;
     
-    estimatedRequestTimeInterval = now - timeOfLastMissedRequest;
+    estimatedRequestTimeInterval = (now >= timeOfLastMissedRequest) ? (now - timeOfLastMissedRequest) : 0;
     timeOfLastMissedRequest = now;
 }
 
@@ -1138,6 +1141,10 @@ inline float AMDRyzenCPUPowerManagement::getPackageTemp() {
     if (tempOffsetFlag)
         t -= 49.0f;
     
+    if (t < -20.0f || t > 135.0f) {
+        return 0.0f;
+    }
+    
     return t;
 }
 
@@ -1167,8 +1174,6 @@ float AMDRyzenCPUPowerManagement::getCCDTemp(uint8_t ccd) {
     // temp = (regVal & 0x7FF) * 125 - 49000 (in millidegrees)
     // We convert to float degrees Celsius:
     float temp = (float)(regVal & kZEN_CCD_TEMP_MASK) * 0.125f - 49.0f;
-    temp -= tempOffset;
-    
     return temp;
 }
 
@@ -1227,25 +1232,26 @@ int AMDRyzenCPUPowerManagement::smuSendCmd(uint32_t cmd, uint32_t arg) {
     // zero and falsely trigger the timeout reset path.
     __asm__ volatile("mfence" ::: "memory");
     
-    // Wait for response. Curve Optimizer (0x3D) triggers PLL reconfiguration and can
-    // take 5-15 ms on Zen 3; use 50 ms ceiling. Other commands typically complete <1 ms.
-    const uint32_t timeoutUs = (cmd == smuMailbox.curveOptimizerCmd) ? 50000 : 2000;
-    const uint32_t pollIters = timeoutUs;
+    // Wait for response. Curve Optimizer triggers PLL reconfiguration; use bounded ceiling.
+    const uint32_t timeoutUs = (cmd == smuMailbox.curveOptimizerCmd) ? 25000 : 2000;
     uint32_t rsp = 0;
-    for (uint32_t i = 0; i < pollIters; i++) {
+    uint32_t elapsed = 0;
+    while (elapsed < timeoutUs) {
         rsp = smnRead32(rspReg);
         if (rsp != 0) break;
-        IODelay(1);
+        uint32_t step = (elapsed < 100) ? 1 : 10;
+        IODelay(step);
+        elapsed += step;
     }
     
-    if (smuCmdLock) {
-        IOLockUnlock(smuCmdLock);
+    if (rsp == 0) {
+        // Mailbox stuck — flush within critical section before unlocking so concurrent callers don't collide.
+        smnWrite32(msgReg, 0x01);  // SMU_MSG_ResetMsgBus
+        IODelay(50);
     }
 
-    if (rsp == 0) {
-        // Mailbox stuck — flush before returning so the next caller doesn't inherit stale state.
-        smnWrite32(msgReg, 0x01);  // SMU_MSG_ResetMsgBus
-        IODelay(100);
+    if (smuCmdLock) {
+        IOLockUnlock(smuCmdLock);
     }
     
     return (int)rsp;
@@ -1396,16 +1402,7 @@ void AMDRyzenCPUPowerManagement::dumpPstate(){
         //        IOLog("a: %llu", msr_value_buf);
     }
     
-    if (len > kMSR_PSTATE_LEN) {
-        static bool loggedPStateLenExceeded = false;
-        if (!loggedPStateLenExceeded) {
-            loggedPStateLenExceeded = true;
-            IOLog("AMDRyzenCPUPowerManagement::dumpPstate WARN: Enabled P-States count (%u) exceeds AMD architectural limit (8). Clamping to 8.\n", len);
-        }
-        len = kMSR_PSTATE_LEN;
-    }
-    
-    PStateEnabledLen = len;
+    PStateEnabledLen = (len <= kMSR_PSTATE_LEN) ? len : (uint8_t)kMSR_PSTATE_LEN;
 }
 
 void AMDRyzenCPUPowerManagement::reinitHwState() {
@@ -1497,36 +1494,21 @@ void AMDRyzenCPUPowerManagement::writePstate(const uint64_t *buf){
 
         for (uint32_t i = 0; i < provider->kMSR_PSTATE_LEN; i++) {
             if (i >= 8) {
-                static bool loggedIndexBound = false;
-                if (!loggedIndexBound) {
-                    loggedIndexBound = true;
-                    IOLog("AMDRyzenCPUPowerManagement::writePstate WARN: P-state index %u out of bounds [0, 7]\n", i);
-                }
                 break;
             }
             uint64_t def = v[i];
             
             if (provider->cpuFamily >= 0x1A) {
                 uint64_t curCpuFid = (def & 0xfff);
-                uint64_t curCpuVid = ((def >> 14) & 0xff);
-                if (!def || curCpuFid == 0 || curCpuVid > 0xFF) {
-                    static bool loggedInvalidZen5Vals = false;
-                    if (!loggedInvalidZen5Vals) {
-                        loggedInvalidZen5Vals = true;
-                        IOLog("AMDRyzenCPUPowerManagement::writePstate WARN: Invalid Zen 5 P-state values (def=0x%llx, Fid=%llu, Vid=%llu)\n", def, curCpuFid, curCpuVid);
-                    }
+                float freq = (float)curCpuFid * 5.0f;
+                if (!def || curCpuFid == 0 || freq < 400.0f) {
                     continue;
                 }
             } else {
                 uint64_t curCpuDfsId = ((def >> 8) & 0x3f);
                 uint64_t curCpuFid = (def & 0xff);
-                uint64_t curCpuVid = ((def >> 14) & 0xff);
-                if (!def || curCpuDfsId == 0 || curCpuFid == 0 || curCpuVid > 0xFF) {
-                    static bool loggedInvalidVals = false;
-                    if (!loggedInvalidVals) {
-                        loggedInvalidVals = true;
-                        IOLog("AMDRyzenCPUPowerManagement::writePstate WARN: Invalid P-state values (def=0x%llx, DfsId=%llu, Fid=%llu, Vid=%llu)\n", def, curCpuDfsId, curCpuFid, curCpuVid);
-                    }
+                float freq = (curCpuDfsId > 0) ? ((float)curCpuFid / (float)curCpuDfsId * 200.0f) : 0.0f;
+                if (!def || curCpuDfsId == 0 || curCpuFid == 0 || freq < 400.0f) {
                     continue;
                 }
             }
@@ -1555,8 +1537,17 @@ bool AMDRyzenCPUPowerManagement::initSuperIO(uint16_t *chipIntel, bool allowUnlo
     if(!superIO) superIO = ISSuperIONCT67XXFamily::getDevice(&savedSMCChipIntel, allowUnlock);
     if(!superIO) superIO = ISSuperIOIT86XXEFamily::getDevice(&savedSMCChipIntel);
     
-    *chipIntel = savedSMCChipIntel;
-    bool ok = superIO != nullptr;
+    if (chipIntel) {
+        *chipIntel = savedSMCChipIntel;
+    }
+    
+    // Reset last applied PWM state on SuperIO re-probe
+    for (size_t i = 0; i < kMAX_FANS; i++) {
+        lastAppliedPWM[i] = 0;
+        lastPWMUpdateTime[i] = 0;
+    }
+    
+    bool ok = (superIO != nullptr);
     IOLockUnlock(superIOLock);
     return ok;
 }
@@ -1566,11 +1557,12 @@ uint32_t AMDRyzenCPUPowerManagement::getPMPStateLimit(){
 }
 
 void AMDRyzenCPUPowerManagement::setPMPStateLimit(uint32_t state){
-    if (!this) return;
     uint32_t safeState = min(2U, state);
     pmRyzen_pstatelimit = safeState;
-    if(safeState > 0){
+    if (safeState > 0) {
+        if (rendezvousLock) IOLockLock(rendezvousLock);
         pmRyzen_PState_reset();
+        if (rendezvousLock) IOLockUnlock(rendezvousLock);
     }
 }
 
@@ -1592,6 +1584,20 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
     
     uint64_t now = getCurrentTimeNs();
     
+    // 2. Smooth temperature per curve once before evaluating fan loop (KRN-07, KRN-09)
+    for (int c = 0; c < MAX_FAN_CURVES; c++) {
+        FanCurveConfig &config = fanCurves[c];
+        float rawSourceTemp = (config.sourceSensor == 1 && gpuTemp > 0.0f) ? gpuTemp : cpuTemp;
+        if (!curveSmoothedSeeded[c]) {
+            curveSmoothedTemp[c] = rawSourceTemp;
+            curveSmoothedSeeded[c] = true;
+        } else {
+            float alpha = 0.2f;
+            float prev = curveSmoothedTemp[c];
+            curveSmoothedTemp[c] = (alpha * rawSourceTemp) + ((1.0f - alpha) * prev);
+        }
+    }
+
     for (int fanIdx = 0; fanIdx < superIO->getNumberOfFans(); fanIdx++) {
         int8_t curveIdx = fanToCurveMap[fanIdx];
         if (curveIdx < 0 || curveIdx >= MAX_FAN_CURVES) {
@@ -1600,17 +1606,12 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
         
         FanCurveConfig &config = fanCurves[curveIdx];
         
-        // 2. Select temperature source
         float rawSourceTemp = cpuTemp;
         if (config.sourceSensor == 1) {
             rawSourceTemp = gpuTemp > 0.0f ? gpuTemp : cpuTemp; // Fallback to CPU if GPU not updated
         }
         
-        // 3. Apply Exponential Moving Average (EMA) for temperature input
-        float alpha = 0.2f;
-        float prevSmoothed = curveSmoothedTemp[curveIdx];
-        float smoothed = (alpha * rawSourceTemp) + ((1.0f - alpha) * prevSmoothed);
-        curveSmoothedTemp[curveIdx] = smoothed;
+        float smoothed = curveSmoothedTemp[curveIdx];
         
         // 4. Map temperature index (0 - 255) with proper rounding
         int tempIdx = (int)(smoothed + 0.5f);
@@ -1631,7 +1632,7 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
             }
             
             // Check temperature delta for hysteresis
-            float tempDelta = rawSourceTemp - prevSmoothed;
+            float tempDelta = rawSourceTemp - smoothed;
             if (tempDelta < 0.0f && -tempDelta < (float)config.hysteresis) {
                 targetPWM = currentPWM;
             } else {

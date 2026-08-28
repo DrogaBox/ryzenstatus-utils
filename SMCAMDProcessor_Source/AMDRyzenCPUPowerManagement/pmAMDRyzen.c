@@ -90,8 +90,12 @@ void pmRyzen_init_PState(void){
     float p0spd = ((float)(p0 & 0xff) / (float)p0dfsid) * 200.0f;
     
     uint64_t p1 = pmRyzen_rdmsr_safe(pmRyzen_io_service_handle, MSR_PSTATE_0 + 1);
-    uint32_t fid_raw = (uint32_t)((p0spd * p1_ratio) / 200.0f * (float)((p1 >> 8) & 0x3f));
+    uint64_t p1dfsid = (p1 >> 8) & 0x3f;
+    if (p1dfsid == 0) return;
+
+    uint32_t fid_raw = (uint32_t)((p0spd * p1_ratio) / 200.0f * (float)p1dfsid);
     if (fid_raw > 0xFF) fid_raw = 0xFF;
+    if (fid_raw < 0x10) fid_raw = 0x10;
     uint64_t p1fid = (uint64_t)fid_raw;
     
     pmRyzen_wrmsr_safe(pmRyzen_io_service_handle, MSR_PSTATE_0 + 1, (p1 & ~0xFFULL) | p1fid | (1ULL << 63));
@@ -217,8 +221,10 @@ void pmRyzen_init(void *handle, int allowDispatch){
     pmRyzen_p_sdtsc = (uint64_t)((double)pmRyzen_effective_timetsc * PSTATE_STEPDOWN_THRE);
     pmRyzen_p_sutsc = (uint64_t)((double)pmRyzen_effective_timetsc * PSTATE_STEPUP_THRE);
     
-    pmRyzen_init_PState();
-    pmRyzen_PState_reset();
+    if (allowDispatch) {
+        pmRyzen_init_PState();
+        pmRyzen_PState_reset();
+    }
     
     cb.initComplete();
 }

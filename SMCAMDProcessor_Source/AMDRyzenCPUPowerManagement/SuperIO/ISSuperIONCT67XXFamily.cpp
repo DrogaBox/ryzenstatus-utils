@@ -58,9 +58,6 @@ ISSuperIONCT67XXFamily* ISSuperIONCT67XXFamily::getDevice(uint16_t *chipIntel, b
         found = false;
         
         switch ((deviceID << 8) | revision) {
-            case CHIP_NCT610XD:
-            case CHIP_NCT6771F:
-            case CHIP_NCT6776F:
             case CHIP_NCT6779D:
             case CHIP_NCT6791D:
             case CHIP_NCT6792D:
