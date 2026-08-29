@@ -205,6 +205,10 @@ enum UninstallerSupport {
                  teamIDs: identity.teamIDs, groupIDs: identity.groupIDs)
     }
 
+
+    private static let crashDumpDateRegex1 = try? NSRegularExpression(pattern: "_\\d{4}-\\d{2}-\\d{2}")
+    private static let crashDumpDateRegex2 = try? NSRegularExpression(pattern: "-\\d{4}-\\d{2}-\\d{2}")
+
     static func leftoverMatch(_ rawName: String,
                               identity: Identity,
                               crashReporter: Bool = false) -> LeftoverMatch {
@@ -251,8 +255,9 @@ enum UninstallerSupport {
         // Crash dumps are handled only in crash-reporter folders, by prefix.
         let looksLikeIdentifier = CleanerSupport.looksLikeBundleID(stripped)
             || CleanerSupport.looksLikeBundleID(rawName)
-        let looksLikeCrashDump = rawName.range(of: #"_\d{4}-\d{2}-\d{2}"#, options: .regularExpression) != nil
-            || rawName.range(of: #"-\d{4}-\d{2}-\d{2}"#, options: .regularExpression) != nil
+        let rawNameRange = NSRange(location: 0, length: rawName.utf16.count)
+        let looksLikeCrashDump = (crashDumpDateRegex1?.firstMatch(in: rawName, range: rawNameRange) != nil)
+            || (crashDumpDateRegex2?.firstMatch(in: rawName, range: rawNameRange) != nil)
         if !looksLikeIdentifier, !looksLikeCrashDump {
             for token in identity.nameTokens where token.count >= 5 {
                 if normalizedStripped.hasPrefix(token) || normalizedRaw.hasPrefix(token) {
@@ -464,11 +469,15 @@ enum UninstallerSupport {
         return identity
     }
 
+
+    private static let trailingVersionRegex = try? NSRegularExpression(
+        pattern: "\\s+(?:\\d+(\\.\\d+)*|nightly|beta|alpha|dev|canary|preview|insider|stable|release|rc|lts|developer edition|technology preview)\\s*$",
+        options: [.caseInsensitive]
+    )
+
     static func nameWithoutTrailingVersion(_ raw: String) -> String {
         let stripped = strippedAppName(raw)
-        let suffixes = #"\d+(\.\d+)*|nightly|beta|alpha|dev|canary|preview|insider|stable|release|rc|lts|developer edition|technology preview"#
-        guard let regex = try? NSRegularExpression(
-            pattern: "\\s+(?:\(suffixes))\\s*$", options: [.caseInsensitive]) else {
+        guard let regex = trailingVersionRegex else {
             return stripped
         }
         let range = NSRange(stripped.startIndex..., in: stripped)
