@@ -56,6 +56,9 @@ final class RecorderComposer {
         /// once like everything else, so a frame is a lookup.
         let texts: [RecorderTextOverlay]
         let textOpacity: [[Double]]
+        /// Areas kept unreadable and, for each frame, whether each one is on.
+        let blurs: [RecorderBlurRegion]
+        let blurCovers: [[Bool]]
     }
 
     private let plan: Plan
@@ -82,6 +85,7 @@ final class RecorderComposer {
     func render(_ source: CIImage, at seconds: Double) -> CIImage {
         let index = frameIndex(for: seconds)
         var content = source.cropped(to: CGRect(origin: .zero, size: plan.sourceSize))
+        content = blurred(content, index: index)
 
         let pointerWasOnScreen = plan.pointerVisible.indices.contains(index)
             ? plan.pointerVisible[index] : true
@@ -127,6 +131,36 @@ final class RecorderComposer {
             result = faded(CIImage(cgImage: image), opacity: opacity)
                 .transformed(by: CGAffineTransform(translationX: origin.x, y: origin.y))
                 .composited(over: result)
+        }
+        return result
+    }
+
+    /// Blurs go into the picture before anything else is drawn on it, so the
+    /// zoom magnifies the blur along with what it hides and the pointer still
+    /// travels over it. A mosaic under a blur, rather than either alone: blocks
+    /// destroy the letters and the blur destroys the blocks.
+    private func blurred(_ content: CIImage, index: Int) -> CIImage {
+        guard !plan.blurs.isEmpty else { return content }
+        var result = content
+        for (order, region) in plan.blurs.enumerated() {
+            guard plan.blurCovers.indices.contains(order),
+                  plan.blurCovers[order].indices.contains(index),
+                  plan.blurCovers[order][index] else { continue }
+            let rect = region.pixelRect(in: plan.sourceSize)
+            guard rect.width >= 1, rect.height >= 1 else { continue }
+            let block = RecorderSupport.blurBlockSize(for: rect.size)
+            // Clamped first so the blur never pulls transparent edges in and
+            // lets a sliver of the original show through the border.
+            let hidden = content.clampedToExtent()
+                .applyingFilter("CIPixellate", parameters: [
+                    kCIInputScaleKey: block,
+                    kCIInputCenterKey: CIVector(x: rect.minX, y: rect.minY),
+                ])
+                .applyingFilter("CIGaussianBlur", parameters: [
+                    kCIInputRadiusKey: block * 0.6,
+                ])
+                .cropped(to: rect)
+            result = hidden.composited(over: result)
         }
         return result
     }
@@ -281,15 +315,19 @@ final class RecorderComposer {
                 return composition
             }
         }
+        let naturalSize = (try? await track.load(.naturalSize)) ?? sourceSize
+        let preferredTransform = (try? await track.load(.preferredTransform)) ?? .identity
         return plainComposition(track: track,
-                                sourceSize: sourceSize,
+                                naturalSize: naturalSize,
+                                preferredTransform: preferredTransform,
                                 outputSize: outputSize,
                                 frameRate: frameRate,
                                 duration: duration)
     }
 
     static func plainComposition(track: AVAssetTrack,
-                                 sourceSize: CGSize,
+                                 naturalSize: CGSize,
+                                 preferredTransform: CGAffineTransform,
                                  outputSize: CGSize,
                                  frameRate: Int,
                                  duration: CMTime) -> AVMutableVideoComposition {
@@ -301,10 +339,13 @@ final class RecorderComposer {
         let instruction = AVMutableVideoCompositionInstruction()
         instruction.timeRange = CMTimeRange(start: .zero, duration: duration)
         let layer = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
-        if sourceSize.width > 0, sourceSize.height > 0 {
-            layer.setTransform(CGAffineTransform(scaleX: outputSize.width / sourceSize.width,
-                                                 y: outputSize.height / sourceSize.height),
-                               at: .zero)
+        let geometry = RecorderSupport.videoGeometry(
+            naturalSize: naturalSize,
+            preferredTransform: preferredTransform)
+        if geometry.size.width > 0, geometry.size.height > 0 {
+            let scale = CGAffineTransform(scaleX: outputSize.width / geometry.size.width,
+                                          y: outputSize.height / geometry.size.height)
+            layer.setTransform(geometry.transform.concatenating(scale), at: .zero)
         }
         instruction.layerInstructions = [layer]
         composition.instructions = [instruction]

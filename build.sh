@@ -183,6 +183,7 @@ if (( TEST )); then
         Sources/RyzenStatus/Services/Metrics/DiskSupport.swift \
         Sources/RyzenStatus/Services/Metrics/MonitorSamplingPolicy.swift \
         Sources/RyzenStatus/Services/Metrics/MaxCapacityProbe.swift \
+        Sources/RyzenStatus/Services/BoundedProcessRunner.swift \
         Sources/RyzenStatus/Core/RecorderStrings.swift \
         Sources/RyzenStatus/Services/Metrics/TemperatureSensorSelector.swift \
         Sources/RyzenStatus/Services/Metrics/TemperatureAlertGate.swift \

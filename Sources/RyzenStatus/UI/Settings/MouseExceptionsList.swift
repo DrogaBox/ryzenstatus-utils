@@ -7,10 +7,6 @@ import SwiftUI
 /// section in Settings (issue #358), right under the switch it holds back, so
 /// the list is where the user is already looking. One list per feature: the
 /// same view with a different scope.
-///
-/// It stays a single quiet row while nothing is listed, and comes up open when
-/// the feature already has exceptions, so a page with every mouse feature on
-/// never turns into a wall of lists.
 struct MouseExceptionsList: View {
     let scope: MouseExceptionScope
 

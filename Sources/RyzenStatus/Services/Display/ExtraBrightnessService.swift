@@ -65,10 +65,16 @@ final class ExtraBrightnessService: ObservableObject {
 
     func syncWithPreferences() {
         refreshSupported()
-        let wanted = AppFeature.extraBrightness.isAvailable
+        let enabled = AppFeature.extraBrightness.isAvailable
             && UserDefaults.standard.bool(forKey: DefaultsKey.extraBrightnessEnabled)
-            && supported
-        if wanted { start() } else { stop() }
+        if enabled, supported {
+            start()
+        } else if enabled {
+            installObserver()
+            stop(preservingObservers: true)
+        } else {
+            stop()
+        }
     }
 
     /// Re-applies a level change immediately instead of waiting for the poll.
@@ -106,6 +112,21 @@ final class ExtraBrightnessService: ObservableObject {
         }
     }
 
+    /// The screen the overlay was built for. Which panel qualifies moves only
+    /// with the display topology, and `didChangeScreenParametersNotification`
+    /// already tracks that into `overlayDisplayID`, so the poll looks the
+    /// display up instead of re-deriving it with `builtInXDRScreen()` four
+    /// times a second. Both walk `NSScreen.screens` reading
+    /// `deviceDescription`; what this drops is the per-screen
+    /// `CGDisplayIsBuiltin` call and, on the built-in panel, `localizedName`
+    /// and `maximumPotentialExtendedDynamicRangeColorComponentValue` through
+    /// `isSupportedPanel` — a small saving on the main thread, and an answer
+    /// that could not have changed since the last screen-change notification.
+    private var overlayScreen: NSScreen? {
+        guard let overlayDisplayID else { return nil }
+        return NSScreen.screens.first { Self.displayID(of: $0) == overlayDisplayID }
+    }
+
     private func refreshSupported() {
         let now = Self.builtInXDRScreen() != nil
         if supported != now { supported = now }
@@ -129,10 +150,14 @@ final class ExtraBrightnessService: ObservableObject {
     }
 
     func stop() {
-        guard pollTimer != nil || overlayWindow != nil else { return }
+        stop(preservingObservers: false)
+    }
+
+    private func stop(preservingObservers: Bool) {
+        guard pollTimer != nil || overlayWindow != nil || screenObserver != nil else { return }
         pollTimer?.invalidate()
         pollTimer = nil
-        removeObserver()
+        if !preservingObservers { removeObserver() }
         overlayWindow?.orderOut(nil)
         overlayWindow = nil
         overlayLayer = nil
@@ -205,12 +230,20 @@ final class ExtraBrightnessService: ObservableObject {
 
     private func handleScreenChange() {
         refreshSupported()
-        guard pollTimer != nil else { return }
+        let enabled = AppFeature.extraBrightness.isAvailable
+            && UserDefaults.standard.bool(forKey: DefaultsKey.extraBrightnessEnabled)
+        guard enabled else {
+            stop()
+            return
+        }
         guard let screen = Self.builtInXDRScreen() else {
             // Built-in display gone (clamshell): release everything; the
             // preference stays on and a later screen change brings it back.
-            stop()
-            syncWithPreferences()
+            stop(preservingObservers: true)
+            return
+        }
+        guard pollTimer != nil else {
+            start()
             return
         }
         // The same panel re-announces itself in storms: an EDR headroom ramp
@@ -246,6 +279,11 @@ final class ExtraBrightnessService: ObservableObject {
         .ignoresCycle, .fullScreenAuxiliary, .canJoinAllApplications,
     ]
 
+    /// Desktop and window-overview transitions composite above ordinary
+    /// screen-saver windows. Keep the multiplier and its headroom trigger at
+    /// the display-shield level so both remain in the final picture.
+    private static let overlayWindowLevel = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
+
     // MARK: - Overlay
 
     private func showOverlay(on screen: NSScreen) {
@@ -257,7 +295,7 @@ final class ExtraBrightnessService: ObservableObject {
                               backing: .buffered, defer: false)
         // Above regular windows and the menu bar so the whole picture is
         // boosted evenly; it ignores clicks, so it is never in the way.
-        window.level = .screenSaver
+        window.level = Self.overlayWindowLevel
         window.isOpaque = false
         window.backgroundColor = .clear
         window.hasShadow = false
@@ -311,7 +349,7 @@ final class ExtraBrightnessService: ObservableObject {
 
         let window = NSWindow(contentRect: Self.triggerFrame(on: screen), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        window.level = .screenSaver
+        window.level = Self.overlayWindowLevel
         window.isOpaque = false
         window.backgroundColor = .clear
         window.hasShadow = false
@@ -373,7 +411,7 @@ final class ExtraBrightnessService: ObservableObject {
     /// snaps straight to the target.
     private func renderIfNeeded(immediate: Bool = false) {
         guard !screensAsleep else { return }
-        guard let screen = Self.builtInXDRScreen(), overlayLayer != nil else { return }
+        guard let screen = overlayScreen, overlayLayer != nil else { return }
         presentTrigger()
         let level = Double(UserDefaults.standard.integer(forKey: DefaultsKey.extraBrightnessLevel)) / 100.0
         let headroom = Double(screen.maximumExtendedDynamicRangeColorComponentValue)

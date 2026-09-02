@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.17.0] — 2026-09-02
+
+### Performance & Core System Stability
+- **IOAccelerator GPU Leak Fix**: Resolved `io_object_t` Mach port leak in `IOAcceleratorCache` by advancing iterator in the loop condition, preventing unreleased service references on early exit.
+- **Shelf Tolerant Store Decoding**: Integrated tolerant deserializer for saved items, preventing single corrupt entries from resetting the entire shelf.
+- **WhatsApp Download Atomic Renaming**: Optimized same-volume file moves using atomic rename instead of redundant multi-gigabyte SHA-256 rehashing.
+- **Display Fingerprint Validation**: Added hardware display fingerprint check before restoring gamma curves in Extra Brightness service.
+- **OCR Line Break Normalization**: Enhanced Screen OCR text joiner to optionally remove line breaks across wrapped paragraphs and Asian scripts.
+- **Shared Component Hardening**: Enhanced Launch At Login reconciliation, keyboard debounce handling, responsible process mapping, and screenshot rendering.
+
+### AMD Hardware & Custom Architecture Protected
+- **Full AMD Ecosystem Intact**: Maintained all custom Zen 1–5 telemetry, `SMCAMDProcessor` kext integrations, SuperIO fan curves, and AMD power presets.
+- **Dashboard Process Manager Intact**: 100% preservation of the built-in Dashboard Process Manager (`PerformanceSuiteView`, `BTopDashboardView`, `ProcessInspectorWindowController`, `ProcessGlossary`, and `LeakDetector`).
+- **Network Sampler**: Maintained macOS Sequoia 64-bit `IFMIB_IFDATA` network counters and real-zero rate detection.
+- **Ad-Hoc Update Acceptance**: Kept secure ad-hoc code signature acceptance for community releases.
+
 ## [1.16.0] — 2026-08-28
 
 ### AMD Power Management & Kernel Drivers

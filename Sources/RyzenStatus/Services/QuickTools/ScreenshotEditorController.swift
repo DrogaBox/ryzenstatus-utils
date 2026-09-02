@@ -980,8 +980,16 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
     }
 
     func show() {
+        let screen = NSScreen.pointerVisibleFrame
+        let minimumSize = ScreenshotSupport.editorMinimumContentSize(visibleSize: screen.size)
+        // The hosting view rewrites the window's size limits on its first
+        // layout pass, so a contentMinSize set on the window is silently
+        // lost. Declare the minimum on the hosted view and track just that:
+        // the hosting controller then maintains contentMinSize itself.
         let content = ScreenshotEditorView(model: model, controller: self)
+            .frame(minWidth: minimumSize.width, minHeight: minimumSize.height)
         let host = NSHostingController(rootView: content)
+        host.sizingOptions = [.minSize]
         let window = NSWindow(contentViewController: host)
         // One continuous surface: the canvas fills the window and the
         // controls float over it, so the editor reads as a single object.
@@ -1000,13 +1008,10 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
         // Chrome must equal the view's designed margins exactly (rail 64 +
         // sides, action band above, style band below), so a fresh window
         // opens with zero leftover stage around the capture.
-        let screen = NSScreen.pointerVisibleFrame
         let contentSize = ScreenshotSupport.editorContentSize(
             imagePointSize: model.pointSize,
             visibleSize: screen.size)
-        let minimumSize = ScreenshotSupport.editorMinimumContentSize(visibleSize: screen.size)
         window.setContentSize(contentSize)
-        window.contentMinSize = minimumSize
         window.center()
 
         self.window = window
@@ -1172,11 +1177,11 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Every terminal output closes the editor: the capture leaves the app
+    /// Every final output closes the editor: the capture leaves the app
     /// and the window's job is done, so nothing lingers to tidy up.
     func copyToClipboard() {
         guard let image = model.exportImage() else { return }
-        guard Self.copyImage(image) else {
+        guard Self.copyImage(image, fileNamePrefix: strings.fileNamePrefix) else {
             NSSound.beep()
             return
         }
@@ -1186,8 +1191,40 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
     }
 
     @discardableResult
-    static func copyImage(_ image: CGImage) -> Bool {
-        copyClipboardPayload(clipboardPayload(from: image))
+    static func copyImage(_ image: CGImage, fileNamePrefix: String) -> Bool {
+        guard let data = ScreenshotRenderer.pngData(from: image),
+              let base = FileManager.default.urls(for: .cachesDirectory,
+                                                  in: .userDomainMask).first,
+              let bundleID = Bundle.main.bundleIdentifier
+        else { return false }
+        let folder = base.appendingPathComponent(bundleID, isDirectory: true)
+            .appendingPathComponent("Copied Screenshots", isDirectory: true)
+        let name = ScreenshotSupport.fileName(prefix: fileNamePrefix, date: Date())
+        guard let url = try? ScreenshotSupport.copiedFile(data: data, name: name,
+                                                         directory: folder) else {
+            return false
+        }
+        guard copyFile(url, payload: clipboardPayload(from: image, png: data)) else {
+            try? FileManager.default.removeItem(at: url)
+            return false
+        }
+        ScreenshotSupport.pruneCopiedFiles(in: folder, preserving: url)
+        return true
+    }
+
+    @discardableResult
+    static func copyFile(_ url: URL, payload: ClipboardPayload? = nil) -> Bool {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        let item = NSPasteboardItem()
+        guard item.setString(url.absoluteString, forType: .fileURL) else { return false }
+        if let png = payload?.png {
+            item.setData(png, forType: .png)
+        }
+        if let tiff = payload?.tiff {
+            item.setData(tiff, forType: .tiff)
+        }
+        return pasteboard.writeObjects([item])
     }
 
     struct ClipboardPayload: Sendable {
@@ -1196,7 +1233,10 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
     }
 
     static func clipboardPayload(from image: CGImage) -> ClipboardPayload {
-        let png = ScreenshotRenderer.pngData(from: image)
+        clipboardPayload(from: image, png: ScreenshotRenderer.pngData(from: image))
+    }
+
+    static func clipboardPayload(from image: CGImage, png: Data?) -> ClipboardPayload {
         let bitmap = NSBitmapImageRep(cgImage: image)
         return ClipboardPayload(png: png, tiff: bitmap.tiffRepresentation)
     }

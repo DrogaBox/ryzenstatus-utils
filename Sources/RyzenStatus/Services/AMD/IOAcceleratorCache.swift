@@ -99,12 +99,8 @@ actor IOAcceleratorCache {
                                                &iter) == kIOReturnSuccess else { continue }
             defer { IOObjectRelease(iter) }
 
-            var entry = IOIteratorNext(iter)
-            while entry != 0 {
-                defer {
-                    IOObjectRelease(entry)
-                    entry = IOIteratorNext(iter)
-                }
+            while case let entry = IOIteratorNext(iter), entry != 0 {
+                defer { IOObjectRelease(entry) }
                 guard let ref = IORegistryEntryCreateCFProperty(
                     entry, "PerformanceStatistics" as CFString, kCFAllocatorDefault, 0
                 ), let dict = ref.takeRetainedValue() as? [String: Any] else { continue }
