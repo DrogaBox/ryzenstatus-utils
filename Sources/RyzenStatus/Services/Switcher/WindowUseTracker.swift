@@ -167,16 +167,11 @@ final class WindowUseTracker {
     @objc private func appActivated(_ note: Notification) {
         guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
         let pid = app.processIdentifier
-        // Our own activation during a handoff is `ActivationHandoff`
-        // self-activating on the way out; ranking it would put RyzenStatus ahead
-        // of the app the user left. Every other activation of RyzenStatus, the
-        // Dock icon and its own windows included, is a real use and is kept.
-        let own = pid == ProcessInfo.processInfo.processIdentifier && ActivationHandoff.isHandingOff
         // The application half is exact and free, so it lands right away; the
         // window half needs Accessibility and happens on the watcher thread.
-        if !own { promote(app: pid) }
+        promote(app: pid)
         lifecycleLock.withLock { requestedPID = pid }
-        performOnWatcher { [weak self] in self?.retargetObserver(filingFocusedWindow: !own) }
+        performOnWatcher { [weak self] in self?.retargetObserver() }
     }
 
     @objc private func appTerminated(_ note: Notification) {
@@ -284,11 +279,11 @@ final class WindowUseTracker {
     /// activation being posted solely inside the application that already has
     /// the keyboard, so one observer at a time covers every case the
     /// activation notifications miss — for the cost of a single one.
-    private func retargetObserver(filingFocusedWindow: Bool = true) {
+    private func retargetObserver() {
         guard !lifecycleLock.withLock({ shouldStopWatcher }) else { return }
         guard let pid = lifecycleLock.withLock({ requestedPID }) else { return }
         guard pid != observedPID else {
-            if filingFocusedWindow { readFocusedWindow(of: pid) }
+            readFocusedWindow(of: pid)
             return
         }
         detachObserver()
@@ -311,7 +306,7 @@ final class WindowUseTracker {
         // Activation itself posts no focus change, so the window the app came
         // back to has to be asked for once. Any change that races this arrives
         // through the observer, which is already installed.
-        if filingFocusedWindow { readFocusedWindow(of: pid) }
+        readFocusedWindow(of: pid)
     }
 
     private func detachObserver() {

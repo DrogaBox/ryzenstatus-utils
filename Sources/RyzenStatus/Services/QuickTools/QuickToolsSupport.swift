@@ -132,7 +132,7 @@ enum QuickToolsSupport {
     /// Joins recognized lines in natural reading order: top to bottom, left
     /// to right within the same visual row. Empty lines are dropped.
     static func joinedRecognizedText(_ lines: [RecognizedLine],
-                                     removingLineBreaks: Bool) -> String {
+                                     removingLineBreaks: Bool = false) -> String {
         let texts = lines
             .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .sorted {

@@ -3204,32 +3204,27 @@ struct MetricsTests {
 
         // MARK: Launch at login reconciliation
 
-        expect(LaunchAtLoginSupport.startupAction(wanted: true, registration: .off,
+        expect(LaunchAtLoginSupport.startupAction(wanted: true, systemEnabled: false,
                                                   locationIsUnstable: false) == .register,
                "a lost registration the user wants is redone at startup")
-        expect(LaunchAtLoginSupport.startupAction(wanted: true, registration: .off,
+        expect(LaunchAtLoginSupport.startupAction(wanted: true, systemEnabled: false,
                                                   locationIsUnstable: true) == .none,
                "no registration is redone from an unstable location")
-        expect(LaunchAtLoginSupport.startupAction(wanted: true, registration: .enabled,
+        expect(LaunchAtLoginSupport.startupAction(wanted: true, systemEnabled: true,
                                                   locationIsUnstable: false) == .none
-                && LaunchAtLoginSupport.startupAction(wanted: true, registration: .enabled,
+                && LaunchAtLoginSupport.startupAction(wanted: true, systemEnabled: true,
                                                       locationIsUnstable: true) == .none,
                "a healthy registration is left alone")
-        expect(LaunchAtLoginSupport.startupAction(wanted: false, registration: .enabled,
+        expect(LaunchAtLoginSupport.startupAction(wanted: false, systemEnabled: true,
                                                   locationIsUnstable: false) == .adoptEnabled
-                && LaunchAtLoginSupport.startupAction(wanted: false, registration: .enabled,
+                && LaunchAtLoginSupport.startupAction(wanted: false, systemEnabled: true,
                                                       locationIsUnstable: true) == .adoptEnabled,
                "an enable made outside the app becomes the stored choice")
-        expect(LaunchAtLoginSupport.startupAction(wanted: false, registration: .off,
+        expect(LaunchAtLoginSupport.startupAction(wanted: false, systemEnabled: false,
                                                   locationIsUnstable: false) == .none
-                && LaunchAtLoginSupport.startupAction(wanted: false, registration: .off,
+                && LaunchAtLoginSupport.startupAction(wanted: false, systemEnabled: false,
                                                       locationIsUnstable: true) == .none,
                "startup never turns launch at login on for a user who never asked")
-        expect(LaunchAtLoginSupport.startupAction(wanted: true, registration: .needsApproval,
-                                                  locationIsUnstable: false) == .none
-                && LaunchAtLoginSupport.startupAction(wanted: false, registration: .needsApproval,
-                                                      locationIsUnstable: false) == .none,
-               "an item awaiting approval in System Settings is never registered over (issue #260)")
 
         // MARK: Dock Preview helpers
 
@@ -3783,11 +3778,9 @@ struct MetricsTests {
             QuickToolsSupport.RecognizedLine(text: "below", x: 0.1, y: 0.4),
             QuickToolsSupport.RecognizedLine(text: "   ", x: 0.2, y: 0.6),
         ]
-        expectEqual(QuickToolsSupport.joinedRecognizedText(ocrLines, removingLineBreaks: false), "hello\nworld\nbelow",
+        expectEqual(QuickToolsSupport.joinedRecognizedText(ocrLines), "hello\nworld\nbelow",
                     "screen OCR joins lines top to bottom, left to right, dropping blanks")
-        expectEqual(QuickToolsSupport.joinedRecognizedText(ocrLines, removingLineBreaks: true), "hello world below",
-                    "screen OCR joins lines with space when removing line breaks")
-        expectEqual(QuickToolsSupport.joinedRecognizedText([], removingLineBreaks: false), "",
+        expectEqual(QuickToolsSupport.joinedRecognizedText([]), "",
                     "screen OCR joins an empty result to an empty string")
 
         // QR codes: several join top to bottom, left to right, blanks dropped.

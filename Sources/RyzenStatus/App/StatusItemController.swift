@@ -662,7 +662,7 @@ final class StatusItemController {
 /// light and dark menu bars. Active states can use real colors for attention.
 enum BlackHoleGlyph {
     /// Logical size of the glyph in the menu bar, in points.
-    private static let pointSize = NSSize(width: 20, height: 14)
+    static let pointSize = NSSize(width: 20, height: 14)
 
     /// Both scale representations go into one NSImage — loading the 1x file
     /// alone would render blurry on Retina menu bars.

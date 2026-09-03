@@ -820,6 +820,132 @@ enum ScreenshotSupport {
         return name
     }
 
+    /// Keeps copied captures available long enough for paste targets that read
+    /// the file after accepting its URL from the pasteboard.
+    static func copiedFile(data: Data, name: String, directory: URL) throws -> URL {
+        guard Int64(data.count) <= copiedFileMaximumBytes else {
+            throw CocoaError(.fileWriteOutOfSpace)
+        }
+        return try copiedFileLock.withLock {
+            let manager = FileManager.default
+            try preparePrivateCacheDirectory(directory, manager: manager)
+            let safeName = (name as NSString).lastPathComponent
+            let uniqueName = uniqueFileName(safeName) { candidate in
+                manager.fileExists(atPath: directory.appendingPathComponent(candidate).path)
+            }
+            let url = directory.appendingPathComponent(uniqueName)
+            try data.write(to: url, options: .atomic)
+            try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            return url
+        }
+    }
+
+    static func copiedFilesDirectory(fileManager: FileManager = .default,
+                                     bundle: Bundle = .main) -> URL? {
+        guard let base = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first,
+              let bundleID = bundle.bundleIdentifier else { return nil }
+        return base.appendingPathComponent(bundleID, isDirectory: true)
+            .appendingPathComponent("Copied Screenshots", isDirectory: true)
+    }
+
+    static func isCopiedScreenshot(_ url: URL, in directory: URL) -> Bool {
+        let file = url.standardizedFileURL
+        let root = directory.standardizedFileURL
+        guard file.path.hasPrefix(root.path),
+              file.deletingLastPathComponent().path == root.path,
+              let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        else { return false }
+        return values.isRegularFile == true && values.isSymbolicLink != true
+    }
+
+    struct CopiedFilePruneCandidate: Equatable {
+        let url: URL
+        let date: Date
+        let bytes: Int64
+    }
+
+    private static let copiedFileLock = NSLock()
+    private static let copiedFileMaximumCount = 100
+    private static let copiedFileMaximumBytes: Int64 = 256 * 1024 * 1024
+
+    private static func preparePrivateCacheDirectory(_ directory: URL,
+                                                     manager: FileManager) throws {
+        try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let values = try directory.resourceValues(
+            forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard values.isDirectory == true, values.isSymbolicLink != true else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+        try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+    }
+
+    static func copiedFilePruneVictims(_ files: [CopiedFilePruneCandidate],
+                                       preserving current: URL,
+                                       maximumCount: Int,
+                                       maximumBytes: Int64) -> [URL] {
+        let currentPath = current.standardizedFileURL.path
+        guard let currentFile = files.first(where: {
+            $0.url.standardizedFileURL.path == currentPath
+        }) else { return [] }
+        var count = 1
+        var bytes = max(0, currentFile.bytes)
+        var victims: [URL] = []
+        let sorted = files
+            .filter { $0.url.standardizedFileURL.path != currentPath }
+            .sorted { $0.date > $1.date }
+
+        for file in sorted {
+            count += 1
+            bytes += max(0, file.bytes)
+            if count > maximumCount || bytes > maximumBytes {
+                victims.append(file.url)
+            }
+        }
+        return victims
+    }
+
+    /// Applies the cache bounds only after `current` has reached the pasteboard.
+    /// A stale render may finish later, but it can never evict the published URL.
+    static func pruneCopiedFiles(in directory: URL, preserving current: URL,
+                                 now: Date = Date()) {
+        copiedFileLock.withLock {
+            let manager = FileManager.default
+            guard isCopiedScreenshot(current, in: directory) else { return }
+            let keys: Set<URLResourceKey> = [
+                .contentModificationDateKey, .fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey,
+            ]
+            guard let children = try? manager.contentsOfDirectory(
+                at: directory, includingPropertiesForKeys: Array(keys)) else { return }
+            let files = children.compactMap { url -> CopiedFilePruneCandidate? in
+                guard url.pathExtension.lowercased() == "png",
+                      let values = try? url.resourceValues(forKeys: keys),
+                      values.isRegularFile == true,
+                      values.isSymbolicLink != true
+                else { return nil }
+                return CopiedFilePruneCandidate(
+                    url: url,
+                    date: values.contentModificationDate ?? .distantPast,
+                    bytes: Int64(values.fileSize ?? 0))
+            }
+            let currentPath = current.standardizedFileURL.path
+            let cutoff = now.addingTimeInterval(-24 * 3600)
+            let expired = files.filter {
+                $0.url.standardizedFileURL.path != currentPath && $0.date < cutoff
+            }
+            let expiredURLs = Set(expired.map(\.url))
+            let currentFiles = files.filter { !expiredURLs.contains($0.url) }
+            let budgetVictims = copiedFilePruneVictims(
+                currentFiles,
+                preserving: current,
+                maximumCount: copiedFileMaximumCount,
+                maximumBytes: copiedFileMaximumBytes
+            )
+            for victim in expired.map(\.url) + budgetVictims {
+                try? manager.removeItem(at: victim)
+            }
+        }
+    }
+
     // MARK: - Annotation model
 
     enum Tool: String, CaseIterable {

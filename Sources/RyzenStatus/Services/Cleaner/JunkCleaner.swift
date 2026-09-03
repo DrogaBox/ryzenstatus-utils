@@ -150,7 +150,7 @@ final class JunkCleaner: ObservableObject {
 
     // MARK: - Clean
 
-    func cleanSelected() {
+    func cleanSelected(escalate: Bool = true) {
         let chosen = items.filter(\.include)
         guard !chosen.isEmpty else { return }
         phase = .cleaning
@@ -196,15 +196,19 @@ final class JunkCleaner: ObservableObject {
             // them to the Trash exactly like a drag would. One batch, one
             // prompt; a cancel leaves them in place and they count as failed.
             if !stubborn.isEmpty {
-                let stillSafe = stubborn.filter(Self.mayRemove)
-                failed += stubborn.count - stillSafe.count
-                Self.trashViaFinder(stillSafe.map { $0.url.resolvingSymlinksInPath() })
-                for item in stillSafe {
-                    if fm.fileExists(atPath: item.url.path) {
-                        failed += 1
-                    } else {
-                        freed += item.size
+                if escalate {
+                    let stillSafe = stubborn.filter(Self.mayRemove)
+                    failed += stubborn.count - stillSafe.count
+                    Self.trashViaFinder(stillSafe.map { $0.url.resolvingSymlinksInPath() })
+                    for item in stillSafe {
+                        if fm.fileExists(atPath: item.url.path) {
+                            failed += 1
+                        } else {
+                            freed += item.size
+                        }
                     }
+                } else {
+                    failed += stubborn.count
                 }
             }
 

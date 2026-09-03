@@ -20,4 +20,49 @@ enum ScreenshotCapturePolicy {
         !isOwnWindow
             || (!hideRyzenStatusWindows && !protectedWindowIDs.contains(windowID))
     }
+
+    /// One on-screen window as the capture decision needs it.
+    struct CaptureWindow: Equatable {
+        let id: CGWindowID
+        let ownerPID: pid_t
+        let frame: CGRect
+    }
+
+    /// The windows a capture of one clicked window has to draw. The area is
+    /// the clicked window's own, so the shot stays the one that was asked for.
+    struct AttachedCapturePlan: Equatable {
+        /// The clicked window first, then what sits on it, back to front.
+        let windowIDs: [CGWindowID]
+        let bounds: CGRect
+    }
+
+    /// What a sheet, alert or modal dialog stacked on the clicked window adds
+    /// to its capture (issue #1098).
+    static func attachedCapturePlan(target: CaptureWindow,
+                                    frontToBack: [CaptureWindow]) -> AttachedCapturePlan? {
+        guard target.frame.width > 0, target.frame.height > 0,
+              let position = frontToBack.firstIndex(where: { $0.id == target.id })
+        else { return nil }
+        let attached = frontToBack[..<position].filter { candidate in
+            candidate.ownerPID == target.ownerPID
+                && target.frame.contains(candidate.frame)
+        }
+        guard !attached.isEmpty else { return nil }
+        // Back to front, so the clicked window is drawn first and what the app
+        // stacked on it lands on top in the order it is shown.
+        let ordered = Array(attached.reversed())
+        return AttachedCapturePlan(windowIDs: [target.id] + ordered.map(\.id),
+                                   bounds: target.frame)
+    }
+
+    /// Narrows a geometric plan to the attached windows Accessibility named.
+    static func confirmedAttachment(_ plan: AttachedCapturePlan,
+                                    confirmedIDs: Set<CGWindowID>?) -> AttachedCapturePlan? {
+        guard let confirmedIDs else { return plan }
+        guard let targetID = plan.windowIDs.first else { return nil }
+        let attachedIDs = plan.windowIDs.dropFirst().filter(confirmedIDs.contains)
+        guard !attachedIDs.isEmpty else { return nil }
+        return AttachedCapturePlan(windowIDs: [targetID] + attachedIDs,
+                                   bounds: plan.bounds)
+    }
 }

@@ -181,6 +181,11 @@ enum Defaults {
     static let registeredDefaults: [String: Any] = [
         DefaultsKey.clamshellPreferred: false,
         DefaultsKey.appearance: AppAppearance.fallback.rawValue,
+        DefaultsKey.liquidGlassEnabled: false,
+        DefaultsKey.mouseSpacesGestureEnabled: false,
+        DefaultsKey.mouseSpacesGestureButton: 0,
+        DefaultsKey.whatsAppDownloadsEnabled: false,
+        DefaultsKey.diskEjectExcludedVolumes: [String](),
         DefaultsKey.whatsAppDownloadsAutomaticEnabled: false,
         DefaultsKey.whatsAppDownloadsCategories: "image,video,audio",
         DefaultsKey.whatsAppDownloadsRetentionDays: 7,

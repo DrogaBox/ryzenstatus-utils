@@ -6,6 +6,11 @@ import Foundation
 extension DefaultsKey {
     static let panelShowAmdPower = "panelShowAmdPower"
     static let appearance = "appAppearance"               // AppAppearance.rawValue
+    static let liquidGlassEnabled = "liquidGlassEnabled"  // Liquid Glass visual styling on macOS 26+
+    static let mouseSpacesGestureEnabled = "mouseSpacesGestureEnabled"
+    static let mouseSpacesGestureButton = "mouseSpacesGestureButton"
+    static let whatsAppDownloadsEnabled = "whatsAppDownloadsEnabled"
+    static let diskEjectExcludedVolumes = "diskEjectExcludedVolumes"
     static let language = "appLanguage"                   // AppLanguage.rawValue
     static let clamshellPreferred = "clamshellPreferred"  // apply closed-lid mode to every session
     static let onboardingStep = "onboardingStep"          // resume point if onboarding is interrupted

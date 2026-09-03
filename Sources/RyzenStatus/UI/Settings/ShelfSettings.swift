@@ -10,7 +10,6 @@ struct ShelfSettings: View {
     @AppStorage(DefaultsKey.shelfShortcutEnabled) private var shortcutEnabled = true
     @AppStorage(DefaultsKey.shelfShakeToOpen) private var shake = true
     @AppStorage(DefaultsKey.shelfDropZoneEnabled) private var dropZone = true
-    @AppStorage(DefaultsKey.shelfEdgeDragEnabled) private var edgeDrag = false
     @AppStorage(DefaultsKey.shelfCloseAfterDrop) private var closeAfterDrop = false
     @AppStorage(DefaultsKey.shelfRemoveAfterDrop) private var removeAfterDrop = true
     @State private var showingAppPicker = false
@@ -65,15 +64,6 @@ struct ShelfSettings: View {
                                 ShelfService.shared.syncDragMonitor()
                             }
                         Text(l10n.s.shelfDropZoneCaption)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Toggle(l10n.s.shelfEdgeToggle, isOn: $edgeDrag)
-                            .onChange(of: edgeDrag) { _, _ in
-                                ShelfService.shared.syncDragMonitor()
-                            }
-                        Text(l10n.s.shelfEdgeCaption)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

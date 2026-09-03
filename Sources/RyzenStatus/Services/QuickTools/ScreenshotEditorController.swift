@@ -1191,7 +1191,7 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
     }
 
     @discardableResult
-    static func copyImage(_ image: CGImage, fileNamePrefix: String) -> Bool {
+    static func copyImage(_ image: CGImage, fileNamePrefix: String = "Screenshot") -> Bool {
         guard let data = ScreenshotRenderer.pngData(from: image),
               let base = FileManager.default.urls(for: .cachesDirectory,
                                                   in: .userDomainMask).first,

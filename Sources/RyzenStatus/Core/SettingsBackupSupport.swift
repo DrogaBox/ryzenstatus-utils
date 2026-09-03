@@ -183,4 +183,12 @@ enum SettingsBackupSupport {
         guard let value = number(value) else { return false }
         return CFGetTypeID(value) != CFBooleanGetTypeID()
     }
+
+    static func pathIdentities(in list: [String]) -> [String] {
+        list.filter(MouseAppExceptionSupport.isExecutablePathIdentity)
+    }
+
+    static func restoredExceptionList(restored: [String], carried: [String]) -> [String] {
+        restored + carried.filter { !restored.contains($0) }
+    }
 }

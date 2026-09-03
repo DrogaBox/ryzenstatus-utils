@@ -202,39 +202,21 @@ enum RecorderMotion {
     static let clickAnchorWindow: Double = 0.12
 
     static func anchorWeight(at time: Double, clicks: [Click]) -> Double {
-        var cursor = 0
-        return anchorWeight(at: time, clicks: clicks, cursor: &cursor)
-    }
-
-    /// Requires `clicks` in ascending time order and, when `cursor` is
-    /// carried across calls, ascending `time` too. It steps only past a
-    /// release: a press weighs on every moment until its release arrives.
-    static func anchorWeight(at time: Double, clicks: [Click], cursor: inout Int) -> Double {
         var weight: Double = 0
         var pressedAt: Double?
-        var settled = cursor
-        var index = cursor
-        while index < clicks.count {
-            let click = clicks[index]
-            if pressedAt == nil, click.time > time + clickAnchorWindow { break }
-            index += 1
+        for click in clicks {
             if click.isDown {
                 pressedAt = click.time
-            } else {
-                if let down = pressedAt {
-                    if time >= down, time <= click.time { weight = 1 }
-                    pressedAt = nil
-                }
-                if click.time + clickAnchorWindow < time { settled = index }
+            } else if let down = pressedAt {
+                if time >= down, time <= click.time { return 1 }
+                pressedAt = nil
             }
             let distance = abs(time - click.time)
             guard distance <= clickAnchorWindow else { continue }
             weight = max(weight, smoothstep(1 - distance / clickAnchorWindow))
         }
-        cursor = settled
         // A press with no matching release: the recording ended mid-drag.
-        // Only the last click can be one, so it is read off the list directly.
-        if let last = clicks.last, last.isDown, time >= last.time { return 1 }
+        if let down = pressedAt, time >= down { return 1 }
         return weight
     }
 
@@ -244,9 +226,8 @@ enum RecorderMotion {
                          frameRate: Int) -> [CGPoint] {
         guard !clicks.isEmpty, smoothed.count == raw.count else { return smoothed }
         let step = 1.0 / Double(max(1, frameRate))
-        var cursor = 0
         return smoothed.indices.map { index in
-            let weight = anchorWeight(at: Double(index) * step, clicks: clicks, cursor: &cursor)
+            let weight = anchorWeight(at: Double(index) * step, clicks: clicks)
             guard weight > 0 else { return smoothed[index] }
             return CGPoint(x: smoothed[index].x + (raw[index].x - smoothed[index].x) * weight,
                            y: smoothed[index].y + (raw[index].y - smoothed[index].y) * weight)
@@ -452,18 +433,9 @@ enum RecorderMotion {
     }
 
     static func focus(at time: Double, clusters: [FocusCluster]) -> CGPoint {
-        var cursor = 0
-        return focus(at: time, clusters: clusters, cursor: &cursor)
-    }
-
-    /// Requires `clusters` in ascending time order and, when `cursor` is
-    /// carried across calls, ascending `time` too.
-    static func focus(at time: Double, clusters: [FocusCluster], cursor: inout Int) -> CGPoint {
-        guard let first = clusters.first else { return CGPoint(x: 0.5, y: 0.5) }
-        var current = cursor == 0 ? first.center : clusters[cursor - 1].center
-        while cursor < clusters.count, clusters[cursor].time <= time {
-            current = clusters[cursor].center
-            cursor += 1
+        var current = clusters.first?.center ?? CGPoint(x: 0.5, y: 0.5)
+        for cluster in clusters where cluster.time <= time {
+            current = cluster.center
         }
         return current
     }
@@ -564,48 +536,29 @@ enum RecorderMotion {
     static let pressPunchScale: Double = 0.8
 
     static func pressScale(at time: Double, clicks: [Click]) -> Double {
-        var cursor = 0
-        return pressScale(at: time, clicks: clicks, cursor: &cursor)
-    }
-
-    /// Requires `clicks` in ascending time order and, when `cursor` is
-    /// carried across calls, ascending `time` too.
-    static func pressScale(at time: Double, clicks: [Click], cursor: inout Int) -> Double {
-        let weight = anchorWeightForPunch(at: time, clicks: clicks, cursor: &cursor)
+        let weight = anchorWeightForPunch(at: time, clicks: clicks)
         return 1 - (1 - pressPunchScale) * weight
     }
 
-    private static func anchorWeightForPunch(at time: Double,
-                                             clicks: [Click],
-                                             cursor: inout Int) -> Double {
+    private static func anchorWeightForPunch(at time: Double, clicks: [Click]) -> Double {
         var weight: Double = 0
         var pressedAt: Double?
-        var settled = cursor
-        var index = cursor
-        while index < clicks.count {
-            let click = clicks[index]
-            if pressedAt == nil, click.time > time + pressPunchWindow { break }
-            index += 1
+        for click in clicks {
             if click.isDown {
                 pressedAt = click.time
                 if time >= click.time - pressPunchWindow, time <= click.time {
                     weight = max(weight, smoothstep((time - (click.time - pressPunchWindow))
                                                      / pressPunchWindow))
                 }
-            } else {
-                if let down = pressedAt {
-                    if time >= down, time <= click.time { weight = 1 }
-                    if time > click.time, time <= click.time + pressPunchWindow {
-                        weight = max(weight, smoothstep(1 - (time - click.time) / pressPunchWindow))
-                    }
-                    pressedAt = nil
+            } else if let down = pressedAt {
+                if time >= down, time <= click.time { weight = 1 }
+                if time > click.time, time <= click.time + pressPunchWindow {
+                    weight = max(weight, smoothstep(1 - (time - click.time) / pressPunchWindow))
                 }
-                if click.time + pressPunchWindow < time { settled = index }
+                pressedAt = nil
             }
         }
-        cursor = settled
-        // A press with no release can only be the last click; read it off the list.
-        if let last = clicks.last, last.isDown, time >= last.time { weight = 1 }
+        if let down = pressedAt, time >= down { weight = 1 }
         return min(1, weight)
     }
 
@@ -615,22 +568,10 @@ enum RecorderMotion {
     static let ringRadius: Double = 22
 
     static func ringProgress(at time: Double, clicks: [Click]) -> Double? {
-        var cursor = 0
-        return ringProgress(at: time, clicks: clicks, cursor: &cursor)
-    }
-
-    /// Requires `clicks` in ascending time order and, when `cursor` is
-    /// carried across calls, ascending `time` too.
-    static func ringProgress(at time: Double, clicks: [Click], cursor: inout Int) -> Double? {
         var best: Double?
-        var index = cursor
-        while index < clicks.count {
-            let click = clicks[index]
+        for click in clicks where click.isDown {
             let elapsed = time - click.time
-            if elapsed < 0 { break }
-            index += 1
-            if elapsed > ringDuration { cursor = index; continue }
-            guard click.isDown else { continue }
+            guard elapsed >= 0, elapsed <= ringDuration else { continue }
             let progress = elapsed / ringDuration
             // A burst of clicks restarts the same ring instead of stacking.
             best = min(best ?? progress, progress)

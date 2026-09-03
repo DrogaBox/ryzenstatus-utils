@@ -218,9 +218,7 @@ struct ShelfView: View {
             ShelfTilesView(items: shelf.visibleItems,
                            contentRevision: shelf.contentRevision,
                            selection: shelf.selection,
-                           expandedBatches: shelf.expandedBatches,
-                           revealID: shelf.revealTargetID,
-                           revealSerial: shelf.addSerial)
+                           expandedBatches: shelf.expandedBatches)
                 .frame(height: Self.tileAreaHeight)
         }
     }

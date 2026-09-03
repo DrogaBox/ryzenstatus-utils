@@ -31,9 +31,8 @@ enum ShortcutRecordingTap {
     /// This tap is created after the super key's and therefore sits ahead of
     /// it, so the trigger key arrives here bare. Reading it the same way the
     /// super key does lets a field record the combination the way it will be
-    /// pressed later, instead of asking for the chosen modifiers by hand.
+    /// pressed later, instead of asking for the four modifiers by hand.
     private static var superState = SuperKeySupport.State()
-    private static var observingSession = false
 
     /// Starts swallowing key events and delivering each fresh press to the
     /// handler. Returns false when the tap cannot exist (no Accessibility),
@@ -45,12 +44,6 @@ enum ShortcutRecordingTap {
         drainingKeyCode = nil
         heldKeyCode = nil
         superState.reset()
-        // Registered before the Accessibility check: ShortcutCapture.begin() has
-        // already switched the global shortcuts off, and the resign must give them back.
-        if !observingSession {
-            observingSession = true
-            SessionActivity.shared.onChange { if !$0 { tearDown(); ShortcutCapture.end() } }
-        }
         // A tap the system disabled behind our back reads as dead; rebuild.
         if let tap, !CGEvent.tapIsEnabled(tap: tap) {
             tearDown()
@@ -114,17 +107,13 @@ enum ShortcutRecordingTap {
 
     private static func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if SessionActivity.shared.isActive, AXIsProcessTrusted(), let tap {
-                CGEvent.tapEnable(tap: tap, enable: true)
-            } else {
-                DispatchQueue.main.async { tearDown(); ShortcutCapture.end() }
-            }
+            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return Unmanaged.passUnretained(event)
         }
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
         if let handler {
-            // Holding the super key while recording means the modifiers it
+            // Holding the super key while recording means the four modifiers it
             // stands for, and the key holding them is never the shortcut.
             var heldModifiers: GlobalShortcutModifiers = []
             if SuperKeyService.isEngaged {
