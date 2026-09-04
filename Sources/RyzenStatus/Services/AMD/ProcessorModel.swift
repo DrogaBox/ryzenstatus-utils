@@ -18,6 +18,11 @@ actor ProcessorModel {
     nonisolated(unsafe) var connect: io_connect_t
     nonisolated(unsafe) private var kextWatchdogTask: Task<Void, Never>?
 
+    // AUDIT F-24: thread-safe connection check to avoid data races with watchdog/closeDriver
+    nonisolated var isConnected: Bool {
+        iokitLock.withLock { connect != 0 }
+    }
+
     nonisolated func safeIOConnectCallMethod(
         _ selector: UInt32,
         _ scalarInput: UnsafePointer<UInt64>!,
@@ -128,10 +133,10 @@ actor ProcessorModel {
     }
 
     nonisolated func getCoreMetricTemperature() -> Double {
-        if isTerminating || Task.isCancelled || connect == 0 { return 0 }
+        if isTerminating || Task.isCancelled || !isConnected { return 0 }
         var scalerOut: UInt64 = 0
         var outputCount: UInt32 = 1
-        let maxStrLength = 64
+        let maxStrLength = 67 // MaxCpu + 3
         var outputStr: [Float] = [Float](repeating: 0, count: maxStrLength)
         var outputStrCount: Int = 4 * maxStrLength
         let res = safeIOConnectCallMethod(AMDKextSelector.coreMetric.id, nil, 0, nil, 0,
@@ -243,7 +248,7 @@ actor ProcessorModel {
     private(set) var cpuProfile = CPUProfile()
     
     private func loadCPUProfile() {
-        guard connect != 0 else { return }
+        guard isConnected else { return }
         let nameSize = 16
         let flagsSize = MemoryLayout<UInt64>.size
         let totalSize = nameSize + flagsSize
@@ -350,7 +355,7 @@ actor ProcessorModel {
     private(set) var isKextAvailable: Bool = false
 
     private func _finishInit() async {
-        if connect == 0 {
+        if !isConnected {
             NSLog("ProcessorModel: AMDRyzenCPUPowerManagement.kext is not loaded. Running in degraded mode.")
             isKextAvailable = false
             return
@@ -414,6 +419,9 @@ actor ProcessorModel {
     }
 
     nonisolated func closeDriver() {
+        // AUDIT F-24: cancel watchdog task to prevent background poll leak on teardown
+        kextWatchdogTask?.cancel()
+        kextWatchdogTask = nil
         terminationState.isTerminating = true
         iokitLock.withLock {
             if connect != 0 {

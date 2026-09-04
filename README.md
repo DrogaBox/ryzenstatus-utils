@@ -24,7 +24,8 @@
   <a href="https://github.com/DrogaBox/ryzenstatus-utils/releases"><img src="https://img.shields.io/github/v/release/DrogaBox/ryzenstatus-utils?label=release&color=4c8dff" alt="Latest release"></a>
   <a href="https://github.com/DrogaBox/ryzenstatus-utils/releases"><img src="https://img.shields.io/github/downloads/DrogaBox/ryzenstatus-utils/total?color=4c8dff" alt="Downloads"></a>
   <a href="https://github.com/DrogaBox/ryzenstatus-utils/actions/workflows/ci.yml"><img src="https://github.com/DrogaBox/ryzenstatus-utils/actions/workflows/ci.yml/badge.svg?branch=main&event=push" alt="CI status"></a>
-  <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-13%20to%2015%20AMD%2FIntel-black" alt="macOS 13 to 15 (Sequoia), AMD/Intel"></a>
+  <!-- AUDIT F-25: align advertised OS version with Package.swift/Info.plist minimum macOS 14.0 -->
+  <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-14%20to%2015%20AMD%2FIntel-black" alt="macOS 14 to 15 (Sonoma to Sequoia), AMD/Intel"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License GPL 3.0 or later"></a>
 </p>
 
@@ -172,7 +173,7 @@ The shelf and almost every quick toggle need no permission at all. Finder cut an
 ## What you need
 
 - A Hackintosh with an **AMD Ryzen CPU** (Zen architecture or newer)
-- macOS 13 Ventura up to macOS 15 Sequoia
+- macOS 14 Sonoma up to macOS 15 Sequoia
 - **Kernel Extensions (For AMD CPU telemetry & fan curves):** You must have `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` injected via OpenCore in your EFI folder. The source code for these is bundled in the `SMCAMDProcessor_Source` folder for reference.
 
 ### Kernel Extension Boot Arguments & Features

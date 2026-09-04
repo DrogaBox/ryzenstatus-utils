@@ -56,8 +56,8 @@ public:
         "Pump",
         "AUX",
     };
-    
-    static ISSuperIONCT668X* getDevice(uint16_t *chipIntel);
+    // AUDIT F-15: mirror NCT67XX allowUnlock privilege gating
+    static ISSuperIONCT668X* getDevice(uint16_t *chipIntel, bool allowUnlock = true);
     
     
     ISSuperIONCT668X(int psel, uint16_t addr, uint16_t chipIntel);

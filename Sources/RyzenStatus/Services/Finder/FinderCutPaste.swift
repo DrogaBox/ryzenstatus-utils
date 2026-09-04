@@ -243,7 +243,9 @@ final class FinderCutPaste: ObservableObject {
 
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
 
-        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Self.finderBundleID,
+        // AUDIT F-22: gate AX isEditingText IPC to ⌘X/⌘C/⌘V shortcuts only, dodging IPC on every Finder keystroke
+        guard [Key.x, Key.c, Key.v].contains(keyCode),
+              NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Self.finderBundleID,
               AXIsProcessTrusted(),
               !isEditingText()
         else { return Unmanaged.passUnretained(event) }
@@ -278,10 +280,14 @@ final class FinderCutPaste: ObservableObject {
         }
     }
 
+    private static let tapAXTimeout: Float = 0.05
+
     /// True when the keyboard focus is in an editable text control, so cut/copy/
     /// paste shortcuts must be left to the system (e.g. renaming a file).
     private func isEditingText() -> Bool {
         let system = AXUIElementCreateSystemWide()
+        // AUDIT F-22: enforce strict AX timeout inside event tap to prevent WindowServer input freeze
+        AXUIElementSetMessagingTimeout(system, Self.tapAXTimeout)
         var focused: CFTypeRef?
         guard AXUIElementCopyAttributeValue(system, "AXFocusedUIElement" as CFString, &focused) == .success,
               let focused,
@@ -289,6 +295,7 @@ final class FinderCutPaste: ObservableObject {
               // an unexpected CF type must degrade gracefully, never crash.
               CFGetTypeID(focused) == AXUIElementGetTypeID() else { return false }
         let element = focused as! AXUIElement
+        AXUIElementSetMessagingTimeout(element, Self.tapAXTimeout)
         var roleRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, "AXRole" as CFString, &roleRef) == .success,
               let role = roleRef as? String else { return false }

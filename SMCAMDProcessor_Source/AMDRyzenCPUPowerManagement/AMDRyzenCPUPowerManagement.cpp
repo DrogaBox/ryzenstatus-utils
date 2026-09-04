@@ -277,6 +277,8 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
                 if(!pmRyzen_cpu_primary_in_core(cpu_num)) return;
                 uint8_t physical = pmRyzen_cpu_phys_num(cpu_num);
 
+                // AUDIT F-13: guard physical core index on systems with >64 CPUs (>64 physical cores)
+                if (physical >= CPUInfo::MaxCpus) return;
 
                 //Init performance frequency counter.
                 uint64_t APERF, MPERF;
@@ -692,6 +694,9 @@ bool AMDRyzenCPUPowerManagement::start(IOService *provider){
         fanCurves[i].rampRate = 5;
         curveSmoothedTemp[i] = 0.0f;
         curveSmoothedSeeded[i] = false;
+        // AUDIT F-14: Seed per-curve anchor temperature for downward hysteresis
+        lastAppliedTemp[i] = 0.0f;
+        lastAppliedTempSeeded[i] = false;
     }
     gpuTempC = 0.0f;
 
@@ -937,7 +942,8 @@ void AMDRyzenCPUPowerManagement::registerRequest(){
 }
 
 void AMDRyzenCPUPowerManagement::updateClockSpeed(uint8_t physical){
-    
+    // AUDIT F-13: guard physical core index on >64 core systems
+    if (physical >= CPUInfo::MaxCpus) return;
 
 #pragma mark - Power & EPP Control
     uint64_t msr_value_buf = 0;
@@ -983,6 +989,9 @@ void AMDRyzenCPUPowerManagement::updateClockSpeed(uint8_t physical){
 }
 
 void AMDRyzenCPUPowerManagement::calculateEffectiveFrequency(uint8_t physical){
+    // AUDIT F-13: guard physical core index on >64 core systems
+    if (physical >= CPUInfo::MaxCpus) return;
+
     uint64_t APERF = 0;
     uint64_t MPERF = 0;
     
@@ -1017,6 +1026,9 @@ void AMDRyzenCPUPowerManagement::calculateEffectiveFrequency(uint8_t physical){
 }
 
 void AMDRyzenCPUPowerManagement::updateInstructionDelta(uint8_t cpu_num){
+    // AUDIT F-13: guard logical CPU index on >64 CPU systems
+    if (cpu_num >= CPUInfo::MaxCpus) return;
+
     uint64_t insCount;
     
     if(!read_msr(kMSR_PERF_IRPC, &insCount)) {
@@ -1530,7 +1542,8 @@ bool AMDRyzenCPUPowerManagement::initSuperIO(uint16_t *chipIntel, bool allowUnlo
 #pragma mark - Super IO & Fan Control
     IOLockLock(superIOLock);
     if (superIO) { delete superIO; superIO = nullptr; }
-    if(!superIO) superIO = ISSuperIONCT668X::getDevice(&savedSMCChipIntel);
+    // AUDIT F-15: pass allowUnlock to NCT668X to prevent unprivileged firmware unlock
+    if(!superIO) superIO = ISSuperIONCT668X::getDevice(&savedSMCChipIntel, allowUnlock);
     // AUDIT F-03: only privileged callers may clear the NCT67XX I/O-space lock.
     if(!superIO) superIO = ISSuperIONCT67XXFamily::getDevice(&savedSMCChipIntel, allowUnlock);
     if(!superIO) superIO = ISSuperIOIT86XXEFamily::getDevice(&savedSMCChipIntel);
@@ -1543,6 +1556,11 @@ bool AMDRyzenCPUPowerManagement::initSuperIO(uint16_t *chipIntel, bool allowUnlo
     for (size_t i = 0; i < kMAX_FANS; i++) {
         lastAppliedPWM[i] = 0;
         lastPWMUpdateTime[i] = 0;
+    }
+    // AUDIT F-14: Reset per-curve hysteresis state on re-probe
+    for (int i = 0; i < MAX_FAN_CURVES; i++) {
+        lastAppliedTemp[i] = 0.0f;
+        lastAppliedTempSeeded[i] = false;
     }
     
     bool ok = (superIO != nullptr);
@@ -1630,8 +1648,14 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
             }
             
             // Check temperature delta for hysteresis
-            float tempDelta = rawSourceTemp - smoothed;
-            if (tempDelta < 0.0f && -tempDelta < (float)config.hysteresis) {
+            // AUDIT F-14: Track downward hysteresis against the temperature where PWM was last applied,
+            // preventing the fan from permanently locking at elevated RPM.
+            if (!lastAppliedTempSeeded[curveIdx]) {
+                lastAppliedTemp[curveIdx] = smoothed;
+                lastAppliedTempSeeded[curveIdx] = true;
+            }
+            float tempDelta = smoothed - lastAppliedTemp[curveIdx];
+            if (tempDelta < 0.0f && -tempDelta < (float)config.hysteresis && targetPWM < currentPWM) {
                 targetPWM = currentPWM;
             } else {
                 // Limit the speed change to config.rampRate
@@ -1656,8 +1680,13 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
         if (targetPWM == 0) {
             superIO->setDefaultFanControl(fanIdx);
             lastAppliedPWM[fanIdx] = 0;
+            lastAppliedTempSeeded[curveIdx] = false;
         } else {
             superIO->overrideFanControl(fanIdx, targetPWM);
+            if (lastAppliedPWM[fanIdx] != targetPWM) {
+                lastAppliedTemp[curveIdx] = smoothed;
+                lastAppliedTempSeeded[curveIdx] = true;
+            }
             lastAppliedPWM[fanIdx] = targetPWM;
         }
         lastPWMUpdateTime[fanIdx] = now;

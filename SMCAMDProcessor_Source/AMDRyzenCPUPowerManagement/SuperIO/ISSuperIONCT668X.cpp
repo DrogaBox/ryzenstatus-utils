@@ -17,7 +17,7 @@ ISSuperIONCT668X::ISSuperIONCT668X(int psel, uint16_t addr, uint16_t chipIntel){
     // restored to Auto per-request in setDefaultFanControl().
 }
 
-ISSuperIONCT668X* ISSuperIONCT668X::getDevice(uint16_t *chipIntel){
+ISSuperIONCT668X* ISSuperIONCT668X::getDevice(uint16_t *chipIntel, bool allowUnlock){
     
     i386_ioport_t regport = 0;
     uint8_t deviceID=0, revision=0;
@@ -86,9 +86,13 @@ ISSuperIONCT668X* ISSuperIONCT668X::getDevice(uint16_t *chipIntel){
         // In short, these are all the chips we currently support.
         case CHIP_NCT6681:
         case CHIP_NCT6683:
-            conf = ISLPCPort::readByte(portSel, 0x30);
-            if(conf & 0x01){
-                ISLPCPort::writeByte(portSel, 0x30, conf & ~0x01);
+            // AUDIT F-15: clearing the I/O-space lock is a firmware protection
+            // change — only privileged callers (or safe-mode probes) may clear it.
+            if (allowUnlock) {
+                conf = ISLPCPort::readByte(portSel, 0x30);
+                if(conf & 0x01){
+                    ISLPCPort::writeByte(portSel, 0x30, conf & ~0x01);
+                }
             }
             break;
             

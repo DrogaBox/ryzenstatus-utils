@@ -762,11 +762,18 @@ final class AutoQuitService: ObservableObject {
         return buttonFrame.insetBy(dx: -4, dy: -4).contains(point) ? pid : nil
     }
 
+    private static let tapAXTimeout: Float = 0.05
+
     private func elementAt(point: CGPoint) -> AXUIElement? {
         let system = AXUIElementCreateSystemWide()
+        // AUDIT F-22: enforce strict AX timeout inside event tap to prevent WindowServer input freeze
+        AXUIElementSetMessagingTimeout(system, Self.tapAXTimeout)
         var element: AXUIElement?
         guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &element) == .success
         else { return nil }
+        if let element {
+            AXUIElementSetMessagingTimeout(element, Self.tapAXTimeout)
+        }
         return element
     }
 

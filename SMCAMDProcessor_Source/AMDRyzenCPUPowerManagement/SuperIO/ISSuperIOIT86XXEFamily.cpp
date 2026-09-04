@@ -90,7 +90,12 @@ ISSuperIOIT86XXEFamily* ISSuperIOIT86XXEFamily::getDevice(uint16_t* chipIntel)
         else
         {
             // close port
-            if (regport != 0x4E)
+            // AUDIT F-18: ensure port 0x4E is closed with 0xAA close sequence, matching exit paths
+            if (regport == 0x4E)
+            {
+                outb(regport, 0xAA);
+            }
+            else
             {
                 outb(regport, 0x02);
             }

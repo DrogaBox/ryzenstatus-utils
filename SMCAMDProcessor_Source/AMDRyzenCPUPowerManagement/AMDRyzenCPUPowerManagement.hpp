@@ -423,6 +423,9 @@ public:
     float gpuTempC;
     float curveSmoothedTemp[MAX_FAN_CURVES];
     bool curveSmoothedSeeded[MAX_FAN_CURVES] {};
+    // AUDIT F-14: per-curve anchor temperature for downward hysteresis
+    float lastAppliedTemp[MAX_FAN_CURVES];
+    bool lastAppliedTempSeeded[MAX_FAN_CURVES] {};
 
     // GPU monitoring (added)
     AMDGPUDevice *gpuDevices[16] {};

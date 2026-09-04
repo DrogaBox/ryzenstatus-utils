@@ -139,6 +139,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = (provider->kMSR_PSTATE_LEN) * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -167,6 +169,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = (provider->kMSR_PSTATE_LEN) * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -196,6 +200,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = numPhyCores * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -222,6 +228,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = 1 * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -245,10 +253,16 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
         case 4: {
             uint32_t numPhyCores = provider->totalNumberOfPhysicalCores;
             arguments->scalarOutputCount = 1;
-            arguments->scalarOutput[0] = numPhyCores;
-            
-            uint32_t requiredSize = (numPhyCores + 3) * sizeof(float);
+            arguments->scalarOutput[0] = numPhyCores;   // keep the REAL count for the app
+
+            // AUDIT F-26: cap at CPUInfo::MaxCpus — effFreq_perCore is sized [MaxCpus];
+            // the un-capped loop read past the array on >64-physical-core machines (OOB
+            // read / infoleak) and inflated requiredSize past every userspace buffer.
+            uint32_t effectiveCores = (numPhyCores < CPUInfo::MaxCpus) ? numPhyCores : CPUInfo::MaxCpus;
+            uint32_t requiredSize = (effectiveCores + 3) * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -281,6 +295,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = 1 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -314,6 +330,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = (provider->totalNumberOfPhysicalCores) * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -352,6 +370,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = (8) * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -384,6 +404,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = sizeof(xStringify(MODULE_VERSION));
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -410,6 +432,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = 1 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -491,6 +515,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = 2 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -536,6 +562,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 
             uint32_t requiredSize = 1 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -623,6 +651,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 
             uint32_t requiredSize = 1 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -648,6 +678,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 
             uint32_t requiredSize = 1 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -691,6 +723,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = ccdCount * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -722,6 +756,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = numLogicalCores * sizeof(uint8_t);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -814,6 +850,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             uint32_t flagsSize = sizeof(uint64_t);
             uint32_t requiredSize = nameSize + flagsSize;
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -860,6 +898,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             uint32_t gpuCountLocal = provider->getGPUCount();
             uint32_t requiredSize = gpuCountLocal * sizeof(UInt16);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -887,6 +927,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             uint32_t gpuCountLocal = provider->getGPUCount();
             uint32_t requiredSize = gpuCountLocal * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -913,6 +955,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t requiredSize = sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -939,6 +983,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             uint32_t gpuCountLocal = provider->getGPUCount();
             uint32_t requiredSize = gpuCountLocal * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -973,6 +1019,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             arguments->scalarOutputCount = 0;
             uint32_t requiredSize = 2 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -1023,6 +1071,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = 1 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -1108,6 +1158,11 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t numFans = (uint32_t)provider->superIO->getNumberOfFans();
             uint32_t requiredSize = numFans * sizeof(uint64_t);
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) {
+                IOLockUnlock(provider->superIOLock);
+                return kIOReturnBadArgument;
+            }
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
@@ -1148,6 +1203,11 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             uint32_t numFans = (uint32_t)provider->superIO->getNumberOfFans();
             uint32_t requiredSize = numFans * sizeof(uint64_t);
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) {
+                IOLockUnlock(provider->superIOLock);
+                return kIOReturnBadArgument;
+            }
             // AUDIT F-12: report only what actually fits the caller's buffer.
             // IOKit forbids raising structureOutputSize beyond the supplied
             // buffer; the old line reported `requiredSize` even when the write
