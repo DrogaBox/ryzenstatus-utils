@@ -62,8 +62,10 @@ Sweep performed over `AMDRyzenCPUPMUserClient.cpp` (49 cases), `AMDGPU.cpp`,
   timer-refreshed cache — no uninitialized element can reach userspace.
 - **C-1 — DONE (kext selector 32 + app publisher).**
 - **C-9 / B-25 — DONE (app-side reconnect + `KextReconnected` notification).**
-- Remaining OPEN: F-22k/B-30 (C-6 prerequisites), B-13 (C-3 companion) —
-  deferred to the next wave per plan §4 (smallest-risk-first, owner gate).
+- Remaining OPEN: none from the original suspect list — B-13/B-30/F-22k
+  closed in follow-up commit `cb050584`. Deferred feature work (not findings):
+  per-fan manual-control UI polish and the Zen 4 Curve Optimizer research
+  (owner-hardware-gated).
 
 ## 5. Feature candidates (Phase C shortlist with register-level evidence)
 
