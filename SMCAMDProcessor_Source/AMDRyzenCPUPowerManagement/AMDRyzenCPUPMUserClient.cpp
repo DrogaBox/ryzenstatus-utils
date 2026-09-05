@@ -20,7 +20,12 @@ bool AMDRyzenCPUPMUserClient::initWithTask(task_t owningTask,
     }
     
     token = securityToken;
+    // AUDIT F-07 fix: retain our own reference to the owning task. The task_t
+    // handed to initWithTask is NOT retained for us; hasPrivilege() dereferences
+    // fOwningTask on every privileged call, which can race with client death
+    // (use-after-free window). We balance this retain in free().
     fOwningTask = owningTask;
+    task_reference(owningTask);
     
     proc_t proc = (proc_t)get_bsdtask_info(owningTask);
     if (!proc) return false;
@@ -77,6 +82,17 @@ void AMDRyzenCPUPMUserClient::stop(IOService *provider){
 IOReturn AMDRyzenCPUPMUserClient::clientClose() {
     terminate();
     return kIOReturnSuccess;
+}
+
+// AUDIT F-07 fix: balance the task_reference() taken in initWithTask(). free()
+// is the final teardown point for every IOService exit path, so releasing the
+// extra task reference here closes the use-after-free window in hasPrivilege().
+void AMDRyzenCPUPMUserClient::free() {
+    if (fOwningTask) {
+        task_deallocate(fOwningTask);
+        fOwningTask = nullptr;
+    }
+    IOUserClient::free();
 }
 
 bool AMDRyzenCPUPMUserClient::hasPrivilege(uint32_t selector){
@@ -914,8 +930,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             UInt16 *dataOut = (UInt16*) arguments->structureOutput;
             uint32_t copyCount = (maxLen / sizeof(UInt16) < gpuCountLocal) ? (maxLen / sizeof(UInt16)) : gpuCountLocal;
             
+            // AUDIT N-01: never emit an uninitialized element. gpuTemperatures[]
+            // is zero-initialized and refreshed by the provider's command-gate
+            // timer, so a plain cached copy is always fully defined (F-05 fix:
+            // no live per-GPU MMIO from the caller's thread either).
             for (uint32_t i = 0; i < copyCount; i++) {
-                provider->getGPUTemperature(i, &dataOut[i]);
+                dataOut[i] = (i < gpuCountLocal) ? provider->gpuTemperatures[i] : 0;
             }
             break;
         }
@@ -943,8 +963,9 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             float *dataOut = (float*) arguments->structureOutput;
             uint32_t copyCount = (maxLen / sizeof(float) < gpuCountLocal) ? (maxLen / sizeof(float)) : gpuCountLocal;
             
+            // AUDIT N-01: see case 28 — cached, always-initialized copy (F-05 fix).
             for (uint32_t i = 0; i < copyCount; i++) {
-                provider->getGPUPower(i, &dataOut[i]);
+                dataOut[i] = (i < gpuCountLocal) ? provider->gpuPowers[i] : 0.0f;
             }
             break;
         }
@@ -971,6 +992,41 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             uint64_t *dataOut = (uint64_t*) arguments->structureOutput;
             if (maxLen >= sizeof(uint64_t)) {
                 dataOut[0] = provider->packageC6Residency;
+            }
+            break;
+        }
+        
+        // KEXT_WAVE 1.20.0 (C-1): Per-core C6 residency (%), one UInt16 per logical core.
+        // Derived from the pmRyzen per-CPU idle accounting the kernel already
+        // maintains (pmAMDRyzen.c: eff_idleaccd/eff_timeaccd decayed deltas).
+        // Read-only, cache-free (counters are lock-free per-CPU accumulators),
+        // and ABI-safe: new selector, no change to existing ones.
+        case 32: {
+            arguments->scalarOutputCount = 0;
+            uint32_t n = pmRyzen_num_logi;
+            if (n > XNU_MAX_CPU) n = XNU_MAX_CPU;
+            if (n == 0) return kIOReturnNoDevice;
+            
+            uint32_t requiredSize = n * sizeof(UInt16);
+            uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            
+            if (!arguments->structureOutput) {
+                return kIOReturnBadArgument;
+            }
+            
+            UInt16 *dataOut = (UInt16*) arguments->structureOutput;
+            uint32_t copyCount = (maxLen / sizeof(UInt16) < n) ? (maxLen / sizeof(UInt16)) : n;
+            
+            for (uint32_t c = 0; c < copyCount; c++) {
+                pmProcessor_t *p = pmRyzen_get_processor(c);
+                if (!p) { dataOut[c] = 0; continue; }
+                uint64_t idle = p->eff_idleaccd;
+                uint64_t tot  = p->eff_timeaccd;
+                dataOut[c] = (tot > 0) ? (UInt16)((idle * 100) / tot) : 0;
             }
             break;
         }

@@ -14,6 +14,7 @@
 
 #include <sys/proc.h>
 #include <sys/kauth.h>
+#include <mach/task.h>   // task_reference/task_deallocate (AUDIT F-07 fix)
 
 //#include <IOKit/IOService.h>
 //#include <IOKit/IOUserClient.h>
@@ -41,6 +42,8 @@ public:
     virtual void stop(IOService* provider) override;
     virtual bool start(IOService* provider) override;
     virtual IOReturn clientClose() override;
+    // AUDIT F-07 fix: release our own reference on fOwningTask.
+    virtual void free() override;
     
     
     

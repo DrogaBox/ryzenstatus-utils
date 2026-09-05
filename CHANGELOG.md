@@ -1,8 +1,16 @@
 # Changelog
 
-## [Unreleased]
+## [1.20.0] — 2026-09-05
 
-### AMD Concurrency & Correctness (post-audit F-27…F-30 follow-ups)
+### AMD Kernel Extensions & Audit Remediation (v3.34.2)
+- **F-05 — GPU telemetry off the hot path**: the SMC plugin's `RGPUTempValue`/`RGPUPowerValue` keys and the UserClient GPU selectors (28/29) now serve the provider's cached snapshot instead of issuing live SMU-mailbox reads. The old path could busy-wait up to 100 ms holding `gpuLock` **on any process's thread** that merely read the SMC key.
+- **F-07 — user-client task lifetime**: `AMDRyzenCPUPMUserClient` now retains its owning task (`task_reference`/`task_deallocate`), closing the use-after-free window in per-call privilege re-validation.
+- **N-01 — zero-initialized GPU outputs**: selectors 28/29 no longer copy uninitialized stack bytes to userspace when a per-GPU read fails.
+- **C-1 — per-core C6 residency (new selector 32)**: the kext now exports per-logical-core idle residency derived from its existing per-CPU accounting; `C6ResidencyService` publishes a per-core snapshot on the same cadence as the package metric.
+- **C-9 — kext reload self-healing (fixes audit B-25)**: the watchdog now detects a reloaded kext service, reopens the user-client connection, re-runs initialization and posts `KextReconnected` — previously the app stayed degraded until a manual restart.
+- **Kexts rebuilt from audited sources at 3.34.2** and bundled in the DMG.
+
+### App Concurrency & Correctness (F-27…F-30)
 - **Thread-safe kext connection checks** (F-27): replaced all 6 external `connect != 0` reads with the lock-guarded `isConnected` accessor across `AutoEppService`, `FanCurveController`, `AmdPowerControlsModel`, and `AmdPowerSettingsView`.
 - **Blocking kext IPC off MainActor** (F-28): `C6ResidencyService.poll()` now wraps the kext read + uptime timestamp in `Task.detached`; `AmdPowerControlsModel.syncFromKext()` batches 5 IPC calls in a single detached task with re-entrancy guard.
 - **Fan picker hardware names** (F-29): menu-panel fan picker now shows hardware-reported or user-custom fan names via `getFans(includeNames: true)` instead of synthesized "Fan N" labels.

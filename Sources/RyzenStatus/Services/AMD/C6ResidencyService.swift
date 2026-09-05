@@ -20,6 +20,11 @@ final class C6ResidencyService: ObservableObject {
     /// Percentage of time in C6 over the last polling window (0–100).
     @Published private(set) var percentage: Double = 0
 
+    /// Per-core C6 residency snapshot (KEXT_WAVE 1.20.0 C-1, selector 32).
+    /// Index = logical core; value = % of the decayed accounting window spent
+    /// idling (C6-ish). Empty when the kext predates selector 32.
+    @Published private(set) var coreResidency: [UInt16] = []
+
     private var lastRaw: UInt64 = 0
     private var lastTimestamp: TimeInterval = 0
     private var pollTask: Task<Void, Never>?
@@ -69,8 +74,10 @@ final class C6ResidencyService: ObservableObject {
 
     // AUDIT F-28: move blocking kext IPC off MainActor
     private func poll() async {
-        let (raw, now) = await Task.detached(priority: .background) {
-            (ProcessorModel.shared.getPackageC6Residency(), ProcessInfo.processInfo.systemUptime)
+        let (raw, now, corePct) = await Task.detached(priority: .background) {
+            (ProcessorModel.shared.getPackageC6Residency(),
+             ProcessInfo.processInfo.systemUptime,
+             ProcessorModel.shared.getCoreC6Residency())
         }.value
 
         let (newPct, nextRaw, nextTimestamp) = C6Sampling.sample(
@@ -81,6 +88,13 @@ final class C6ResidencyService: ObservableObject {
         // No counter (kext absent / not sampling) — report nothing.
         if raw == 0 {
             if percentage != 0 { percentage = 0 }
+        }
+
+        // KEXT_WAVE C-1: publish the per-core snapshot on the same cadence.
+        // Empty result (old kext) keeps the previous value untouched so the UI
+        // never flashes to "all zero" on a version mismatch.
+        if !corePct.isEmpty {
+            coreResidency = corePct
         }
 
         lastRaw = nextRaw

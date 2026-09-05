@@ -350,12 +350,46 @@ actor ProcessorModel {
                     }
                 } else {
                     IOObjectRelease(serviceObject)
+                    // KEXT_WAVE C-9 (fixes AUDIT B-25): the service is present but
+                    // we hold no connection — the kext was (re)loaded after an
+                    // unload, or we launched while the service was momentarily
+                    // unmatchable. Reopen and refresh actor state instead of
+                    // staying degraded until the app restarts.
+                    if !self.isConnected, self.attemptReconnect() {
+                        // The unload path set isTerminating; clear it or every
+                        // kernelGet* guard will keep returning empty arrays.
+                        self.terminationState.isTerminating = false
+                        NSLog("ProcessorModel: AMDRyzenCPUPowerManagement reconnected after reload")
+                        NotificationCenter.default.post(name: NSNotification.Name("KextReconnected"), object: nil)
+                        await self._finishInit()
+                    }
                 }
             }
         }
     }
 
     private(set) var isKextAvailable: Bool = false
+
+    /// KEXT_WAVE C-9: re-opens a user-client connection to a (re)loaded
+    /// AMDRyzenCPUPowerManagement service. Called only from the detached
+    /// watchdog task; connection state transitions stay under iokitLock.
+    nonisolated private func attemptReconnect() -> Bool {
+        let serviceObject = IOServiceGetMatchingService(kIOMainPortDefault,
+                                                        IOServiceMatching("AMDRyzenCPUPowerManagement"))
+        guard serviceObject != 0 else { return false }
+        defer { IOObjectRelease(serviceObject) }
+        var c: io_connect_t = 0
+        let status = IOServiceOpen(serviceObject, mach_task_self_, 0, &c)
+        guard status == KERN_SUCCESS else {
+            NSLog("ProcessorModel: reconnect IOServiceOpen failed status=0x%08x", status)
+            return false
+        }
+        return iokitLock.withLock {
+            if connect != 0 { IOServiceClose(connect) }  // defensive; normally 0 here
+            connect = c
+            return true
+        }
+    }
 
     private func _finishInit() async {
         if !isConnected {
@@ -1259,6 +1293,13 @@ actor ProcessorModel {
     nonisolated func getPackageC6Residency() -> UInt64 {
         let o = kernelGetUInt64(count: 1, selector: AMDKextSelector.c6ResidencyPkg)
         return o.first ?? 0
+    }
+
+    /// Per-core C6 residency percentage (KEXT_WAVE 1.20.0, selector 32).
+    /// One entry per logical core, 0–100. Empty array = kext without the
+    /// selector (pre-3.34.2) or kext absent.
+    nonisolated func getCoreC6Residency(logicalCores: Int = 64) -> [UInt16] {
+        return kernelGetUInt16s(count: logicalCores, selector: AMDKextSelector.coreC6Residency.id)
     }
 
     /// Reads the zero-copy telemetry packet (selector 100) — a packed

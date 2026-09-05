@@ -44,32 +44,30 @@ SMC_RESULT EnergyPackage::readAccess(){
 
 SMC_RESULT RGPUTempValue::readAccess() {
     if (!provider) return SmcError;
-    
-    UInt16 tempC = 0;
-    IOReturn ret = provider->getGPUTemperature(static_cast<uint32_t>(package), &tempC);
-    if (ret != kIOReturnSuccess) {
-        return SmcError;
-    }
+    // AUDIT F-05 fix: read the provider's cached value instead of issuing live
+    // MMIO/SMU-mailbox traffic here. The old path called getGPUTemperature(),
+    // whose SMU busy-wait (up to AMDGPU_SMU_TIMEOUT_US = 100 ms) executed on the
+    // thread of ANY process reading this SMC key, stalling it while holding
+    // gpuLock. The provider's command-gate timer refreshes gpuTemperatures[]
+    // every HF_TEMP_SAMPLE_PERIOD, which is fresher than any SMC consumer needs.
+    if (package >= provider->gpuCount) return SmcError;
     
     __sync_synchronize();
     uint16_t *ptr = reinterpret_cast<uint16_t *>(data);
-    *ptr = VirtualSMCAPI::encodeSp(type, (double)tempC);
+    *ptr = VirtualSMCAPI::encodeSp(type, (double)provider->gpuTemperatures[package]);
     
     return SmcSuccess;
 }
 
 SMC_RESULT RGPUPowerValue::readAccess() {
     if (!provider) return SmcError;
-    
-    float powerW = 0.0f;
-    IOReturn ret = provider->getGPUPower(static_cast<uint32_t>(package), &powerW);
-    if (ret != kIOReturnSuccess) {
-        return SmcError;
-    }
+    // AUDIT F-05 fix: cached read — see RGPUTempValue::readAccess() above for
+    // the full rationale (no live SMU mailbox busy-wait on reader threads).
+    if (package >= provider->gpuCount) return SmcError;
     
     __sync_synchronize();
     uint16_t *ptr = reinterpret_cast<uint16_t *>(data);
-    *ptr = VirtualSMCAPI::encodeSp(type, (double)powerW);
+    *ptr = VirtualSMCAPI::encodeSp(type, (double)provider->gpuPowers[package]);
     
     return SmcSuccess;
 }
