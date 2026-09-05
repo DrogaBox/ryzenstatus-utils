@@ -469,7 +469,12 @@ struct SystemSection: View {
 
                 if graphCPU {
                     if graphCPUMode, !monitor.snapshot.cores.isEmpty {
-                        CPUCoreGridView(cores: monitor.snapshot.cores)
+                        // KEXT_WAVE C-1: overlay per-core C6 residency dots (from
+                        // selector 32) and favorite-core badges (C-5) on the grid.
+                        // Empty residency (kext pre-3.34.2 or no kext) renders no dots.
+                        CPUCoreGridView(cores: monitor.snapshot.cores,
+                                        c6Residency: C6ResidencyService.shared.coreResidency,
+                                        favoriteThreads: ProcessorModel.shared.cachedFavoriteThreads)
                             .padding(.top, 4)
                             .padding(.bottom, 6)
                     } else if monitor.snapshot.cpuHistory.count >= 2 {

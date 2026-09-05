@@ -75,6 +75,8 @@ enum AMDKextSelector: UInt32 {
     case c6Residency       = 31
     /// Per-core C6 residency %% — one UInt16 (0…100) per logical core (KEXT_WAVE 1.20.0 C-1).
     case coreC6Residency   = 32
+    /// Per-core instructions-retired delta — one UInt32 per logical core (KEXT_WAVE 1.20.0 C-2).
+    case coreInstRetired   = 33
 
     // MARK: — Fan Control (via SuperIO)
 

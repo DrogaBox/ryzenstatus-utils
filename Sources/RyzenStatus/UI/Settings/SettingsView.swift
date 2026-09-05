@@ -1182,6 +1182,21 @@ struct AboutSettings: View {
                 .font(.system(size: 12))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
+            // KEXT_WAVE C-8: baseboard identity (kext selector 16) + kext
+            // version, surfaced only when the kext reported valid data.
+            if ProcessorModel.shared.boardValid {
+                VStack(spacing: 2) {
+                    Text("\(ProcessorModel.shared.boardName) — \(ProcessorModel.shared.boardVendor)")
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    if !ProcessorModel.shared.kextVersion.isEmpty {
+                        Text("AMDRyzenCPUPowerManagement \(ProcessorModel.shared.kextVersion)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
             HStack(spacing: 12) {
                 Button(l10n.s.reviewIntro) {
                     appDelegate()?.showOnboarding()

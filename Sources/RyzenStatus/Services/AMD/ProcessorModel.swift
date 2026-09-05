@@ -399,6 +399,11 @@ actor ProcessorModel {
         }
         isKextAvailable = true
 
+        // KEXT_WAVE C-5: badge favorite cores once at connect (scores are
+        // static per silicon). Re-run after a kext reconnect via _finishInit.
+        let threads = Int(ProcessorModel.sysctlInt64(key: "hw.logicalcpu"))
+        refreshFavoriteThreads(logicalThreadCount: threads)
+
         var scalerOut: UInt64 = 0
         var outputCount: UInt32 = 0
 
@@ -1293,6 +1298,24 @@ actor ProcessorModel {
         return (true, Array(outputStr[0..<maxLogicalCores]))
     }
 
+    /// KEXT_WAVE C-5: last computed favorite-thread set (see
+    /// `refreshFavoriteThreads()`), published nonisolated so the per-core grid
+    /// can badge them without awaiting the actor. Written only from
+    /// `_finishInit()` (actor-isolated); UI reads are best-effort snapshots.
+    nonisolated(unsafe) var cachedFavoriteThreads: Set<Int> = []
+
+    /// KEXT_WAVE C-5: computes the favorite cores from the CPPC ranking
+    /// (selector 21) using the pure, unit-tested `AMDCoreRanking` logic and
+    /// caches them for the menu-panel grid.
+    func refreshFavoriteThreads(logicalThreadCount: Int) {
+        let (supported, scores) = getCPPCScore()
+        cachedFavoriteThreads = AMDCoreRanking.favoriteThreads(
+            supported: supported,
+            scores: scores,
+            logicalThreadCount: logicalThreadCount
+        )
+    }
+
     nonisolated func getPackageC6Residency() -> UInt64 {
         let o = kernelGetUInt64(count: 1, selector: AMDKextSelector.c6ResidencyPkg)
         return o.first ?? 0
@@ -1303,6 +1326,34 @@ actor ProcessorModel {
     /// selector (pre-3.34.2) or kext absent.
     nonisolated func getCoreC6Residency(logicalCores: Int = 64) -> [UInt16] {
         return kernelGetUInt16s(count: logicalCores, selector: AMDKextSelector.coreC6Residency.id)
+    }
+
+    /// Per-core instructions-retired delta (KEXT_WAVE 1.20.0, selector 33).
+    /// Units: instructions retired in the kext's last telemetry window, per
+    /// logical core. Divide by the window length × effFreq to derive IPC.
+    nonisolated func getCoreInstRetired(logicalCores: Int = 64) -> [UInt32] {
+        return kernelGetUInt32s(count: logicalCores, selector: AMDKextSelector.coreInstRetired.id)
+    }
+
+    /// UInt32 variant of the kernelGet* family. Same guard/clamp semantics as
+    /// `kernelGetUInt16s` (see that method for the buffer contract).
+    nonisolated func kernelGetUInt32s(count: Int, selector: UInt32) -> [UInt32] {
+        if isTerminating || Task.isCancelled { return [] }
+        var scalarOut: UInt64 = 0
+        var scalarOutCount: UInt32 = 1
+        var output = [UInt32](repeating: 0, count: count)
+        var outputSize = MemoryLayout<UInt32>.size * count
+
+        let status = safeIOConnectCallMethod( selector, nil, 0, nil, 0,
+                                         &scalarOut, &scalarOutCount,
+                                         &output, &outputSize)
+        guard status == KERN_SUCCESS else {
+            logKernelError(status)
+            return []
+        }
+
+        let valid = min(count, outputSize / MemoryLayout<UInt32>.size)
+        return Array(output.prefix(valid))
     }
 
     /// Reads the zero-copy telemetry packet (selector 100) — a packed

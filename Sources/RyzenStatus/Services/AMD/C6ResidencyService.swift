@@ -25,6 +25,10 @@ final class C6ResidencyService: ObservableObject {
     /// idling (C6-ish). Empty when the kext predates selector 32.
     @Published private(set) var coreResidency: [UInt16] = []
 
+    /// Per-core instructions-retired delta (KEXT_WAVE 1.20.0 C-2, selector 33).
+    /// Sampled on the same 1.5 s cadence; empty on old kexts.
+    @Published private(set) var coreInstRetired: [UInt32] = []
+
     private var lastRaw: UInt64 = 0
     private var lastTimestamp: TimeInterval = 0
     private var pollTask: Task<Void, Never>?
@@ -74,10 +78,11 @@ final class C6ResidencyService: ObservableObject {
 
     // AUDIT F-28: move blocking kext IPC off MainActor
     private func poll() async {
-        let (raw, now, corePct) = await Task.detached(priority: .background) {
+        let (raw, now, corePct, coreInst) = await Task.detached(priority: .background) {
             (ProcessorModel.shared.getPackageC6Residency(),
              ProcessInfo.processInfo.systemUptime,
-             ProcessorModel.shared.getCoreC6Residency())
+             ProcessorModel.shared.getCoreC6Residency(),
+             ProcessorModel.shared.getCoreInstRetired())
         }.value
 
         let (newPct, nextRaw, nextTimestamp) = C6Sampling.sample(
@@ -95,6 +100,9 @@ final class C6ResidencyService: ObservableObject {
         // never flashes to "all zero" on a version mismatch.
         if !corePct.isEmpty {
             coreResidency = corePct
+        }
+        if !coreInst.isEmpty {
+            coreInstRetired = coreInst
         }
 
         lastRaw = nextRaw

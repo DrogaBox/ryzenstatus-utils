@@ -5,6 +5,12 @@ import SwiftUI
 
 public struct CPUCoreGridView: View {
     let cores: [CoreSnapshot]
+    /// KEXT_WAVE C-1: per-core C6 residency % (kext selector 32). Index =
+    /// logical thread. Empty array (old kext / no kext) hides the overlay.
+    let c6Residency: [UInt16]
+    /// KEXT_WAVE C-5: logical-thread indices on the CPU's favorite cores
+    /// (CPPC ranking, selector 21). Empty set hides the badge.
+    let favoriteThreads: Set<Int>
     @Environment(\.colorScheme) private var colorScheme
     
     private var colCount: Int {
@@ -31,8 +37,16 @@ public struct CPUCoreGridView: View {
         return cores.count <= 32
     }
     
-    public init(cores: [CoreSnapshot]) {
+    private var showOverlays: Bool {
+        return cores.count <= 32 && (!c6Residency.isEmpty || !favoriteThreads.isEmpty)
+    }
+    
+    public init(cores: [CoreSnapshot],
+                c6Residency: [UInt16] = [],
+                favoriteThreads: Set<Int> = []) {
         self.cores = cores
+        self.c6Residency = c6Residency
+        self.favoriteThreads = favoriteThreads
     }
     
     public var body: some View {
@@ -57,6 +71,32 @@ public struct CPUCoreGridView: View {
                             ))
                             .frame(height: geo.size.height * CGFloat(core.loadPct / 100.0))
                         
+                        // KEXT_WAVE C-1: C6 residency dot — green when the thread
+                        // spent most of the window idling (high residency), dim
+                        // when busy. Sized for the dense grid.
+                        if showOverlays, core.id < c6Residency.count {
+                            let residency = Int(c6Residency[core.id])
+                            Circle()
+                                .fill(residency >= 50 ? Color.green.opacity(0.95)
+                                                      : Color.green.opacity(Double(residency) / 100.0 * 0.5))
+                                .frame(width: 5, height: 5)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                .padding(.trailing, 2)
+                                .padding(.top, 1)
+                                .frame(maxHeight: .infinity, alignment: .top)
+                        }
+                        
+                        // KEXT_WAVE C-5: favorite-core badge (highest CPPC score).
+                        if showOverlays, favoriteThreads.contains(core.id) {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 6, weight: .bold))
+                                .foregroundColor(.yellow)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.leading, 2)
+                                .padding(.top, 1)
+                                .frame(maxHeight: .infinity, alignment: .top)
+                        }
+                        
                         // Labels (adaptive visibility for dense core layouts)
                         if showTextLabels {
                             VStack(spacing: 0) {
@@ -78,8 +118,20 @@ public struct CPUCoreGridView: View {
                     }
                 }
                 .frame(height: cellHeight)
-                .help(String(format: "Thread %d: %.1f%%", core.id, core.loadPct))
+                .help(hoverText(for: core))
             }
         }
+    }
+    
+    /// KEXT_WAVE C-1/C-5: enriched tooltip with residency and favorite status.
+    private func hoverText(for core: CoreSnapshot) -> String {
+        var parts = [String(format: "Thread %d: %.1f%%", core.id, core.loadPct)]
+        if core.id < c6Residency.count {
+            parts.append(String(format: "C6 residency %d%%", Int(c6Residency[core.id])))
+        }
+        if favoriteThreads.contains(core.id) {
+            parts.append("★ favorite core")
+        }
+        return parts.joined(separator: " · ")
     }
 }

@@ -1031,6 +1031,38 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
         
+        // KEXT_WAVE 1.20.0 (C-2): Per-core instruction-retired delta (IPC input),
+        // one UInt32 per logical core. instructionDelta_perCore is refreshed by
+        // the provider timer (updateInstructionDelta, MSR PERF_IRPC); this
+        // selector only exports the latest window. Read-only, additive (ABI-safe).
+        case 33: {
+            arguments->scalarOutputCount = 0;
+            uint32_t n = provider->totalNumberOfLogicalCores;
+            if (n > CPUInfo::MaxCpus) n = CPUInfo::MaxCpus;
+            if (n == 0) return kIOReturnNoDevice;
+            
+            uint32_t requiredSize = n * sizeof(UInt32);
+            uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffer to prevent uninitialized kernel memory leak
+            if (maxLen < requiredSize) return kIOReturnBadArgument;
+            // AUDIT F-12: report only what actually fits the caller's buffer.
+            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            
+            if (!arguments->structureOutput) {
+                return kIOReturnBadArgument;
+            }
+            
+            UInt32 *dataOut = (UInt32*) arguments->structureOutput;
+            uint32_t copyCount = (maxLen / sizeof(UInt32) < n) ? (maxLen / sizeof(UInt32)) : n;
+            
+            for (uint32_t c = 0; c < copyCount; c++) {
+                dataOut[c] = (c < CPUInfo::MaxCpus)
+                    ? (UInt32)min(provider->instructionDelta_perCore[c], (uint64_t)UINT32_MAX)
+                    : 0;
+            }
+            break;
+        }
+        
         // Get GPU capabilities bitmask per GPU
         // Structure output: array of uint64, one per GPU
         // Bit 0: supports power reading
