@@ -67,40 +67,28 @@ final class C6ResidencyService: ObservableObject {
         lastTimestamp = 0
     }
 
+    // AUDIT F-28: move blocking kext IPC off MainActor
     private func poll() async {
-        let raw = ProcessorModel.shared.getPackageC6Residency()
-        let now = ProcessInfo.processInfo.systemUptime
+        let (raw, now) = await Task.detached(priority: .background) {
+            (ProcessorModel.shared.getPackageC6Residency(), ProcessInfo.processInfo.systemUptime)
+        }.value
+
+        let (newPct, nextRaw, nextTimestamp) = C6Sampling.sample(
+            raw: raw, now: now,
+            lastRaw: lastRaw, lastTimestamp: lastTimestamp
+        )
 
         // No counter (kext absent / not sampling) — report nothing.
-        guard raw > 0 else {
+        if raw == 0 {
             if percentage != 0 { percentage = 0 }
-            lastRaw = 0
-            lastTimestamp = 0
-            return
         }
 
-        // Counter reset (kext reload / reboot / sleep mid-session): skip this sample
-        if lastRaw > 0 && raw < lastRaw {
-            lastRaw = raw
-            lastTimestamp = now
-            return
-        }
+        lastRaw = nextRaw
+        lastTimestamp = nextTimestamp
 
-        var newPercentage: Double? = nil
-        if lastRaw > 0 && lastTimestamp > 0 {
-            let deltaUs = Double(raw - lastRaw)
-            let elapsedUs = (now - lastTimestamp) * 1_000_000
-            if elapsedUs > 0 {
-                newPercentage = min(100, max(0, (deltaUs / elapsedUs) * 100.0))
-            }
-        }
-
-        lastRaw = raw
-        lastTimestamp = now
-
-        if let newPct = newPercentage {
-            if abs(percentage - newPct) >= 0.1 {
-                percentage = newPct
+        if let pct = newPct {
+            if abs(percentage - pct) >= 0.1 {
+                percentage = pct
             }
         }
     }

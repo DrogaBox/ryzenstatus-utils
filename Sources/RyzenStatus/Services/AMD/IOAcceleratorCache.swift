@@ -26,6 +26,14 @@ import os
 /// without manual locking, and callers `await` the async properties.
 /// For legacy sync callers (ProcessUsageService static methods on bg queues)
 /// use `cachedStatsSync` which returns the last snapshot without blocking.
+/// Sendable box for the heterogeneous PerformanceStatistics snapshot.
+/// Values are immutable once boxed; @unchecked is sound because the only
+/// mutable store lives behind OSAllocatedUnfairLock inside the actor.
+struct GPUStatsSnapshot: @unchecked Sendable {
+    let values: [String: Any]
+    static let empty = GPUStatsSnapshot(values: [:])
+}
+
 actor IOAcceleratorCache {
 
     // MARK: - Shared singleton
@@ -38,9 +46,9 @@ actor IOAcceleratorCache {
     /// matching IOAccelerator service. Keys: `"Temperature(C)"`, `"Total Power(W)"`,
     /// `"Device Utilization %"`, `"inUseVidMemoryBytes"`, `"Core Clock(MHz)"`,
     /// `"Fan Speed(RPM)"`, `"VRAM,totalMB"`, etc.
-    private let _stats = OSAllocatedUnfairLock(initialState: [String: Any]())
+    private let _stats = OSAllocatedUnfairLock(initialState: GPUStatsSnapshot.empty)
 
-    private(set) var stats: [String: Any] {
+    private(set) var stats: GPUStatsSnapshot {
         get { _stats.withLock { $0 } }
         set { _stats.withLock { $0 = newValue } }
     }
@@ -71,14 +79,14 @@ actor IOAcceleratorCache {
     // MARK: - Public API
 
     /// Returns a fresh (or cached) stats snapshot, awaiting a refresh if stale.
-    func snapshot() async -> [String: Any] {
+    func snapshot() async -> GPUStatsSnapshot {
         await refreshIfNeeded()
         return stats
     }
 
     /// Synchronous access to the last snapshot — for use from non-async contexts
     /// (e.g. ProcessUsageService background queues). Never triggers a refresh.
-    nonisolated func cachedStatsSync() -> [String: Any] {
+    nonisolated func cachedStatsSync() -> GPUStatsSnapshot {
         return _stats.withLock { $0 }
     }
 
@@ -106,7 +114,7 @@ actor IOAcceleratorCache {
                 ), let dict = ref.takeRetainedValue() as? [String: Any] else { continue }
 
                 // First GPU that has a stats dict wins.
-                stats = dict
+                stats = GPUStatsSnapshot(values: dict)
                 lastRefresh = now
                 return
             }
@@ -119,19 +127,19 @@ actor IOAcceleratorCache {
 
     /// GPU temperature in °C, or nil if not in the snapshot.
     func temperature() async -> Double? {
-        let s = await snapshot()
+        let s = await snapshot().values
         return (s["Temperature(C)"] as? NSNumber)?.doubleValue
             ?? s["Temperature(C)"] as? Double
     }
 
     func power() async -> Double? {
-        let s = await snapshot()
+        let s = await snapshot().values
         return (s["Total Power(W)"] as? NSNumber)?.doubleValue
             ?? s["Total Power(W)"] as? Double
     }
 
     func utilization() async -> Double? {
-        let s = await snapshot()
+        let s = await snapshot().values
         let coreClock: Double? = {
             if let value = (s["Core Clock(MHz)"] as? NSNumber)?.doubleValue { return value }
             if let value = s["Core Clock(MHz)"] as? Double { return value }
@@ -159,7 +167,7 @@ actor IOAcceleratorCache {
     }
 
     func vramUsed() async -> UInt64? {
-        let s = await snapshot()
+        let s = await snapshot().values
         let keys = ["inUseVidMemoryBytes", "vramUsed", "allocatedVidMemoryBytes",
                     "usedVRAM", "VRAMUsed"]
         for key in keys {
@@ -171,7 +179,7 @@ actor IOAcceleratorCache {
     }
 
     func vramTotal() async -> UInt64? {
-        let s = await snapshot()
+        let s = await snapshot().values
         let keys = ["VRAM,totalMB", "vramTotal", "totalVidMemoryBytes", "VRAMTotal"]
         for key in keys {
             if let v = (s[key] as? NSNumber)?.uint64Value {
@@ -185,13 +193,13 @@ actor IOAcceleratorCache {
     }
 
     func coreClockMHz() async -> Double? {
-        let s = await snapshot()
+        let s = await snapshot().values
         return (s["Core Clock(MHz)"] as? NSNumber)?.doubleValue
             ?? s["Core Clock(MHz)"] as? Double
     }
 
     func fanRPM() async -> Double? {
-        let s = await snapshot()
+        let s = await snapshot().values
         return (s["Fan Speed(RPM)"] as? NSNumber)?.doubleValue
             ?? s["Fan Speed(RPM)"] as? Double
     }

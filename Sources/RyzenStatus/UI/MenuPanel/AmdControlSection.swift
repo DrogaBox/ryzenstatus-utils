@@ -67,7 +67,7 @@ struct AmdControlSection: View {
                             .pickerStyle(.menu)
                             .frame(width: 80)
                             .onChange(of: selectedFanId) { _, _ in
-                                updateFanRpm()
+                                Task { @MainActor in updateFanRpm() }
                             }
                             
                             Spacer()
@@ -310,7 +310,7 @@ struct AmdControlSection: View {
                 Task { await controls.syncFromKext() }
                 loadTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
                     Task { await controls.syncFromKext() }
-                    updateFanRpm()
+                    Task { @MainActor in updateFanRpm() }
                 }
                 updateFanRpm()
             }
@@ -321,20 +321,14 @@ struct AmdControlSection: View {
         }
     }
     
+    // AUDIT F-29: use getFans(includeNames: true) to fetch hardware/custom fan names
     private func loadFanPicker() {
         Task.detached(priority: .userInitiated) {
-            let fansRes = ProcessorModel.shared.kernelGetUInt64(count: 1, selector: AMDKextSelector.fanCountRead.id)
-            var fans: [(id: Int, name: String)] = []
-            if fansRes.count > 0 {
-                let numFans = Int(fansRes[0])
-                for i in 0..<numFans {
-                    fans.append((id: i, name: "Fan \(i + 1)"))
-                }
-            }
-            let initFans = fans          // immutable capture before await
+            let snapshots = ProcessorModel.shared.getFans(includeNames: true)
+            let fans = snapshots.map { (id: $0.id, name: $0.name) }
             await MainActor.run {
                 guard !Task.isCancelled else { return }
-                self.availableFans = initFans
+                self.availableFans = fans
             }
         }
     }

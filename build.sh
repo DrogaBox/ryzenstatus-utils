@@ -145,6 +145,7 @@ if (( TEST )); then
         Sources/RyzenStatus/Services/AMD/CPUSensorPacket.swift \
         Sources/RyzenStatus/Services/AMD/AMDFanCurvePresets.swift \
         Sources/RyzenStatus/Services/AMD/AMDCpuGeneration.swift \
+        Sources/RyzenStatus/Services/AMD/C6Sampling.swift \
         Sources/RyzenStatus/Services/DockPreview/DockPreviewSupport.swift \
         Sources/RyzenStatus/Services/Homebrew/HomebrewSupport.swift \
         Sources/RyzenStatus/Services/AppUpdates/AppUpdatesSupport.swift \

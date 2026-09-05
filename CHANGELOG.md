@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### AMD Concurrency & Correctness (post-audit F-27…F-30 follow-ups)
+- **Thread-safe kext connection checks** (F-27): replaced all 6 external `connect != 0` reads with the lock-guarded `isConnected` accessor across `AutoEppService`, `FanCurveController`, `AmdPowerControlsModel`, and `AmdPowerSettingsView`.
+- **Blocking kext IPC off MainActor** (F-28): `C6ResidencyService.poll()` now wraps the kext read + uptime timestamp in `Task.detached`; `AmdPowerControlsModel.syncFromKext()` batches 5 IPC calls in a single detached task with re-entrancy guard.
+- **Fan picker hardware names** (F-29): menu-panel fan picker now shows hardware-reported or user-custom fan names via `getFans(includeNames: true)` instead of synthesized "Fan N" labels.
+- **GPU temperature doc comment** (F-30): corrected `getKextGPUTemperatures()` doc comment — kext selector 28 returns integer °C directly, not SP78 fixed-point.
+- **`closeDriver()` wired into termination**: `ProcessorModel.shared.closeDriver()` is now called from `applicationWillTerminate` as the final kext teardown step, ensuring the watchdog task is actually cancelled and the IOKit connection is closed cleanly on quit.
+- **Sendable conformances** (strict-concurrency): `TerminationState`, `PowerCache`, and `GPUCache` are now `@unchecked Sendable`; `IOAcceleratorCache` now returns a `GPUStatsSnapshot` wrapper instead of bare `[String: Any]`, eliminating all 20 AMD-layer diagnostics under `-strict-concurrency=complete`.
+- **AMD concurrency ratchet gate** (`Tools/concurrency-gate.sh`): new CI step enforces zero strict-concurrency diagnostics in the AMD layer; added to `.github/workflows/ci.yml`.
+- **C6 residency + snapEPP unit tests**: `C6Sampling` pure-math enum extracted from `C6ResidencyService`, registered in the `--test` build list, and covered by 20 new checks (first-sample, counter-reset, normal delta, clamp, no-counter, and EPP bucket edges).
+
 ## [1.18.0] — 2026-09-03
 
 ### AMD Kernel Extensions & Telemetry Hardening (v3.34.1)

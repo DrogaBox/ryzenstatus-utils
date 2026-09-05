@@ -893,7 +893,8 @@ struct AmdPowerSettingsView: View {
     private func fetchState() async {
         isLoading = true
         let worker = Task.detached(priority: .userInitiated) {
-            let kernelAnswered = ProcessorModel.shared.connect != 0
+            // AUDIT F-27: thread-safe connection check to avoid data races
+            let kernelAnswered = ProcessorModel.shared.isConnected
             let cpb = ProcessorModel.shared.getCPB()
             let cppcState: (active: Bool, epp: UInt8) = kernelAnswered
                 ? ProcessorModel.shared.getCPPCActiveMode()

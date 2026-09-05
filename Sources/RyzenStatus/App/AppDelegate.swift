@@ -207,6 +207,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             ClipboardHistoryService.shared.flushBeforeTermination()
         }
         KeepAwakeManager.shared.deactivate(reason: .quit)
+        // AUDIT F-27 residual: close the kext connection and cancel the watchdog task.
+        // Must run AFTER every other kext user above (FanCurveController.resetFansToAutoSync(),
+        // C6ResidencyService.stop(), etc.) — closing the connection kills all later IPC.
+        ProcessorModel.shared.closeDriver()
     }
 
     /// The lifeline when the menu bar icon goes missing. Opening the app again

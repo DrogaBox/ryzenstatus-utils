@@ -16,6 +16,9 @@ actor ProcessorModel {
 
     nonisolated let iokitLock = NSLock()
     nonisolated(unsafe) var connect: io_connect_t
+    // Written only from init() and closeDriver(), both of which run on the main
+    // thread and never overlap (applicationWillTerminate → closeDriver runs after
+    // init has long returned). Safe under that single-thread contract.
     nonisolated(unsafe) private var kextWatchdogTask: Task<Void, Never>?
 
     // AUDIT F-24: thread-safe connection check to avoid data races with watchdog/closeDriver
@@ -41,7 +44,7 @@ actor ProcessorModel {
     }
 
 
-    class TerminationState {
+    class TerminationState: @unchecked Sendable {
         private let lock = NSLock()
         private var _isTerminating = false
         var isTerminating: Bool {
@@ -81,7 +84,7 @@ actor ProcessorModel {
 
     // Thread-safe power cache: readable nonisolated from any queue (SystemMonitor, MenuBarRenderer)
     // Uses same class-wrapper pattern as TerminationState to avoid actor isolation issues.
-    final class PowerCache {
+    final class PowerCache: @unchecked Sendable {
         private let lock = NSLock()
         private var _cpuWatts: Double = 0
         private var _gpuWatts: Double = 0
@@ -154,7 +157,7 @@ actor ProcessorModel {
 
     // Thread-safe GPU cache for kext readings (selectors 27-30)
     // Provides nonisolated access to GPU temperature and power from the kext.
-    final class GPUCache {
+    final class GPUCache: @unchecked Sendable {
         private let lock = NSLock()
         private var _count: Int = 0
         private var _temperatures: [Double] = []
@@ -1125,8 +1128,8 @@ actor ProcessorModel {
         return result.isEmpty ? 0 : Int(result[0])
     }
 
-    /// GPU temperatures from kext in SP78 format (selector 28).
-    /// Convert to °C: `Double(Int16(bitPattern: raw)) / 256.0`
+    /// GPU temperatures from kext in integer degrees Celsius (selector 28, no conversion needed).
+    /// AUDIT F-30: kext returns integer °C directly, no SP78 conversion
     nonisolated func getKextGPUTemperatures() -> [UInt16] {
         return kernelGetUInt16s(count: 16, selector: AMDKextSelector.gpuStats1.id)
     }
@@ -1167,7 +1170,7 @@ actor ProcessorModel {
     /// The cache throttles IOKit walks to once per 500ms; this call is cheap
     /// when called more frequently (returns cached snapshot).
     private func updateGPUStatsCache() async {
-        let s   = await IOAcceleratorCache.shared.snapshot()
+        let s   = await IOAcceleratorCache.shared.snapshot().values
         let temp  = (s["Temperature(C)"] as? NSNumber)?.floatValue ?? (s["Temperature(C)"] as? Float) ?? 0
         let power = (s["Total Power(W)"] as? NSNumber)?.floatValue ?? (s["Total Power(W)"] as? Float) ?? 0
         let util  = (s["Device Utilization %"] as? NSNumber)?.floatValue ?? 0

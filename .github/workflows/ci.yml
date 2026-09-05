@@ -21,6 +21,9 @@ jobs:
       - name: Unit tests
         run: ./build.sh --test
 
+      - name: AMD concurrency gate
+        run: ./Tools/concurrency-gate.sh
+
       - name: Build
         run: ./build.sh
 

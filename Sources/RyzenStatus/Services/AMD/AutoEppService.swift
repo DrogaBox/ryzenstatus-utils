@@ -109,7 +109,8 @@ final class AutoEppService: ObservableObject {
 
     func poll() async {
         guard !isSuspended else { return }
-        let isConnected = ProcessorModel.shared.connect != 0
+        // AUDIT F-27: thread-safe connection check to avoid data races
+        let isConnected = ProcessorModel.shared.isConnected
         guard isConnected else {
             await MainActor.run {
                 if self.currentCPULoad != 0 { self.currentCPULoad = 0 }

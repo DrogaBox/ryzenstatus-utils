@@ -28,6 +28,8 @@ final class AmdPowerControlsModel: ObservableObject {
 
     /// Guard flag: true when updating published properties from kext reads
     /// to avoid trigger loops from `.onChange` handlers.
+    /// Writes arriving while a sync is in flight are intentionally dropped;
+    /// the 3 s panel timer re-syncs and reconciles published state.
     private(set) var isSyncingFromKext: Bool = false
 
     private var cancellables = Set<AnyCancellable>()
@@ -119,17 +121,23 @@ final class AmdPowerControlsModel: ObservableObject {
 
     // MARK: - State Sync
 
+    // AUDIT F-28: move blocking kext IPC off MainActor
     func syncFromKext() async {
+        guard !isSyncingFromKext else { return }
         isSyncingFromKext = true
         defer { isSyncingFromKext = false }
 
-        let kernelAnswered = ProcessorModel.shared.connect != 0
-        let cpb = ProcessorModel.shared.getCPB()
-        let cppcState: (active: Bool, epp: UInt8) = kernelAnswered
-            ? ProcessorModel.shared.getCPPCActiveMode()
-            : (active: false, epp: 0)
-        let ppm = kernelAnswered ? ProcessorModel.shared.getPPM() : false
-        let lpm = kernelAnswered ? ProcessorModel.shared.getLPM() : false
+        let (kernelAnswered, cpb, cppcState, ppm, lpm) = await Task.detached(priority: .userInitiated) {
+            // AUDIT F-27: thread-safe connection check to avoid data races
+            let kernelAnswered = ProcessorModel.shared.isConnected
+            let cpb = ProcessorModel.shared.getCPB()
+            let cppcState: (active: Bool, epp: UInt8) = kernelAnswered
+                ? ProcessorModel.shared.getCPPCActiveMode()
+                : (active: false, epp: 0)
+            let ppm = kernelAnswered ? ProcessorModel.shared.getPPM() : false
+            let lpm = kernelAnswered ? ProcessorModel.shared.getLPM() : false
+            return (kernelAnswered, cpb, cppcState, ppm, lpm)
+        }.value
         let profile = await ProcessorModel.shared.cpuProfile
 
         cppcSupported = kernelAnswered

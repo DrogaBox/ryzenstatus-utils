@@ -155,7 +155,8 @@ final class FanCurveController: ObservableObject {
 
     /// Uploads custom curves into kernel curve slots 0..<min(4, curves.count) (selector 101).
     func syncCurvesToKext() {
-        guard ProcessorModel.shared.connect != 0 else {
+        // AUDIT F-27: thread-safe connection check to avoid data races
+        guard ProcessorModel.shared.isConnected else {
             self.kextMissing = true
             return
         }
@@ -178,7 +179,8 @@ final class FanCurveController: ObservableObject {
 
     /// Maps each physical fan header to its designated curve slot or restores Auto (selector 102).
     func syncMappingsToKext() {
-        guard ProcessorModel.shared.connect != 0 else {
+        // AUDIT F-27: thread-safe connection check to avoid data races
+        guard ProcessorModel.shared.isConnected else {
             self.kextMissing = true
             return
         }
@@ -384,7 +386,8 @@ final class FanCurveController: ObservableObject {
         isLoadingFans = true
         readTask?.cancel()
         readTask = Task.detached(priority: .userInitiated) {
-            let kernelConnected = ProcessorModel.shared.connect != 0
+            // AUDIT F-27: thread-safe connection check to avoid data races
+            let kernelConnected = ProcessorModel.shared.isConnected
             guard kernelConnected else {
                 await MainActor.run {
                     self.kextMissing = true
