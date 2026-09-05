@@ -448,7 +448,14 @@ struct FanControlCard: View {
             sliderValue = Double(fan.throttlePWM)
         }
         .onChange(of: fan.throttlePWM) { _, newVal in
-            if !isDraggingSlider && fan.controlMode != .manual {
+            // AUDIT F-22k fix: while a manual override is active, `throttlePWM`
+            // IS the live duty we commanded — keep the slider glued to it even
+            // when not dragging. The old `!= .manual` guard froze the slider at
+            // the value from the moment manual mode was entered, so it stopped
+            // tracking reality after any kext-side change (wake, SuperIO
+            // re-probe, curve handoff). Only suppress tracking during an active
+            // drag, where the user's in-flight value must not be overwritten.
+            if !isDraggingSlider {
                 sliderValue = Double(newVal)
             }
         }

@@ -783,7 +783,10 @@ actor ProcessorModel {
             return
         }
 
-        PStateDefClock = kernelGetFloats(count: 10, selector: AMDKextSelector.pStateDefClock)
+        // AUDIT B-13: the kext exports exactly kMSR_PSTATE_LEN = 8 P-state clocks
+        // (selector 1). Requesting 10 used to rely on the F-12 clamp to trim the
+        // answer; ask for the real table size instead of masking the mismatch.
+        PStateDefClock = kernelGetFloats(count: 8, selector: AMDKextSelector.pStateDefClock)
 
         // Sanitizar valores NaN/Inf del kernel (CpuDfsId=0 produce NaN en la división)
         for i in 0..<PStateDefClock.count {

@@ -120,8 +120,10 @@ final class FanCurveController: ObservableObject {
 
     private func handleWakeNotification() {
         os_log("System did wake; re-syncing fan curves and mappings to kernel", log: logger, type: .info)
-        syncCurvesToKext()
-        syncMappingsToKext()
+        // AUDIT B-30: force on wake — the kext may have lost its slots across
+        // sleep even though our persisted state is unchanged.
+        syncCurvesToKext(force: true)
+        syncMappingsToKext(force: true)
     }
 
     // MARK: - Persistence
@@ -153,8 +155,18 @@ final class FanCurveController: ObservableObject {
 
     // MARK: - Kext Native Synchronization (Selectors 101 / 102 / 103)
 
+    /// AUDIT B-30: fingerprints of the last curve/mapping set successfully
+    /// uploaded to the kext. `didSet` on the published properties fires on every
+    /// UI refresh cycle, and each call re-issued 4 LUT writes + N mapping
+    /// writes; under a non-root session every one of those logs a privilege
+    /// denial. Uploads now happen only when content actually changes (or after
+    /// a wake, where the kext may have lost state — `force` bypasses the
+    /// fingerprint).
+    private var lastUploadedCurvesFingerprint: Int?
+    private var lastUploadedMappingsFingerprint: Int?
+
     /// Uploads custom curves into kernel curve slots 0..<min(4, curves.count) (selector 101).
-    func syncCurvesToKext() {
+    func syncCurvesToKext(force: Bool = false) {
         // AUDIT F-27: thread-safe connection check to avoid data races
         guard ProcessorModel.shared.isConnected else {
             self.kextMissing = true
@@ -162,6 +174,11 @@ final class FanCurveController: ObservableObject {
         }
         self.kextMissing = false
 
+        // AUDIT B-30: skip the write burst when nothing changed.
+        let fingerprint = customCurves.prefix(4).hashValue
+        if !force, fingerprint == lastUploadedCurvesFingerprint { return }
+
+        var sawPrivilegeError = false
         for (slot, curve) in customCurves.prefix(4).enumerated() {
             let input = curve.makeKextInput(slot: slot)
             let status = ProcessorModel.shared.setKextFanCurve(
@@ -173,12 +190,19 @@ final class FanCurveController: ObservableObject {
             )
             if status == kIOReturnNotPrivileged {
                 self.privilegeError = ProcessorModel.privilegeHint(for: status)
+                sawPrivilegeError = true
             }
+        }
+        // AUDIT B-30: remember success only — a failed upload retries on the
+        // next content change (never on unchanged refreshes, which is what
+        // caused the privilege-error spam).
+        if !sawPrivilegeError {
+            lastUploadedCurvesFingerprint = fingerprint
         }
     }
 
     /// Maps each physical fan header to its designated curve slot or restores Auto (selector 102).
-    func syncMappingsToKext() {
+    func syncMappingsToKext(force: Bool = false) {
         // AUDIT F-27: thread-safe connection check to avoid data races
         guard ProcessorModel.shared.isConnected else {
             self.kextMissing = true
@@ -186,15 +210,32 @@ final class FanCurveController: ObservableObject {
         }
         self.kextMissing = false
 
+        // AUDIT B-30: skip the write burst when nothing changed. (Deterministic
+        // order — tuples aren't Hashable, so fold key/value pairs into a Hasher
+        // over sorted keys.)
+        var mappingHasher = Hasher()
+        for key in fanMappings.keys.sorted() {
+            mappingHasher.combine(key)
+            mappingHasher.combine(fanMappings[key] ?? -1)
+        }
+        let fingerprint = mappingHasher.finalize()
+        if !force, fingerprint == lastUploadedMappingsFingerprint { return }
+
+        var sawPrivilegeError = false
         for (fanId, curveIdx) in fanMappings {
             if curveIdx >= 0 && curveIdx < customCurves.count {
                 let status = ProcessorModel.shared.mapKextFanToCurve(fanIndex: fanId, curveIndex: curveIdx)
                 if status == kIOReturnNotPrivileged {
                     self.privilegeError = ProcessorModel.privilegeHint(for: status)
+                    sawPrivilegeError = true
                 }
             } else {
                 _ = ProcessorModel.shared.mapKextFanToCurve(fanIndex: fanId, curveIndex: -1)
             }
+        }
+        // AUDIT B-30: see syncCurvesToKext — success-only fingerprint.
+        if !sawPrivilegeError {
+            lastUploadedMappingsFingerprint = fingerprint
         }
     }
 
@@ -431,8 +472,10 @@ final class FanCurveController: ObservableObject {
                     ))
                 }
                 self.fans = newFans
-                self.syncCurvesToKext()
-                self.syncMappingsToKext()
+                // AUDIT B-30: force — after a fan-count change / kext reload the
+                // kext-side slots may be stale even when our state is identical.
+                self.syncCurvesToKext(force: true)
+                self.syncMappingsToKext(force: true)
             }
         }
     }
