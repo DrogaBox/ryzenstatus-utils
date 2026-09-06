@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.21.0] — 2026-09-05
+
+### Homebrew
+- **Source-build warning in the operation panel**: the streamed brew log is now watched for the signals Homebrew actually prints while compiling (no-bottle and Tier 3 notices, raw clang/make/cmake lines). The moment a formula starts building from source, the operation status shows a sticky warning — the usual explanation for an update that sits at full CPU for hours on bottle-less Macs (Intel / older macOS tiers).
+- **Skip heavy formulas for Update All** (new toggle, on by default, persisted): a plain `brew upgrade` silently compiles known giants (node, llvm, gcc, python, openjdk, rust, cmake, boost, protobuf, openssl). Update All now upgrades outdated formulas through one explicit command that leaves those out (casks still included); when only heavy formulas are pending, it just refreshes. Localized for all 13 languages.
+
 ## [1.20.0] — 2026-09-05
 
 ### AMD Kernel Extensions & Audit Remediation (v3.34.2)
