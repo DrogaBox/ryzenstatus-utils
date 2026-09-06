@@ -134,6 +134,10 @@ struct HomebrewOperationStatus: Equatable {
     var startedAt: Date
     var finishedAt: Date?
     var lastActivity: String?
+    /// Sticky flag: once any log chunk shows a formula compiling from
+    /// source, the operation panel keeps warning until the operation ends.
+    /// Long compile chains are the usual reason an update "never finishes".
+    var sourceBuildDetected = false
 
     var isActive: Bool {
         result == .running
@@ -182,6 +186,17 @@ enum HomebrewCommandBuilder {
                                arguments: ["upgrade", "--cask", "--greedy"] + valid)
     }
 
+    /// Upgrades exactly the given formula tokens, one command instead of a
+    /// whole `brew upgrade`. Used when "Skip heavy formulas" is on, so the
+    /// source-build giants (node, llvm, ...) are left untouched rather than
+    /// silently compiling for hours on bottle-less Macs.
+    static func upgradeFormulas(brewPath: String, tokens: [String]) -> HomebrewCommand? {
+        let valid = tokens.filter(isValidToken)
+        guard !valid.isEmpty else { return nil }
+        return HomebrewCommand(executable: brewPath,
+                               arguments: ["upgrade"] + valid)
+    }
+
     static func update(brewPath: String) -> HomebrewCommand {
         HomebrewCommand(executable: brewPath, arguments: ["update"])
     }
@@ -225,6 +240,38 @@ enum HomebrewCommandBuilder {
     static func upgradeAll(brewPath: String) -> HomebrewCommand {
         HomebrewCommand(executable: brewPath, arguments: ["upgrade"])
     }
+
+    /// "Update all" with "Skip heavy formulas" on: upgrade everything except
+    /// the source-build giants, which stay untouched (a bare "brew upgrade"
+    /// cannot exclude packages). Returns nil when only heavy formulas are
+    /// pending, so callers can treat that as "nothing safe to upgrade".
+    static func upgradeAllCommand(brewPath: String,
+                                  outdatedIDs: Set<String>,
+                                  skipHeavyFormulas: Bool) -> HomebrewCommand? {
+        guard skipHeavyFormulas else {
+            return upgradeAll(brewPath: brewPath)
+        }
+        let tokens = outdatedIDs.compactMap { id -> String? in
+            // IDs look like "formula:node" / "cask:firefox".
+            guard let separator = id.firstIndex(of: ":") else { return nil }
+            return String(id[id.index(after: separator)...])
+        }
+        let toUpgrade = tokens.filter { !heavySourceBuildFormulas.contains($0) }.sorted()
+        guard !toUpgrade.isEmpty else { return nil }
+        return upgradeFormulas(brewPath: brewPath, tokens: toUpgrade)
+    }
+
+    /// Formulas Homebrew typically has to compile from source on
+    /// bottle-less Macs (Intel/older-macOS tiers). Each can mean 30 minutes
+    /// to hours of full-CPU compiling behind an innocent-looking "Update
+    /// all". The skip toggle filters these out; empty means "everything".
+    static let heavySourceBuildFormulas: Set<String> = [
+        "node", "node@20", "node@22", "node@24",
+        "llvm", "llvm@16", "llvm@17", "llvm@18", "llvm@19",
+        "gcc", "python@3.12", "python@3.13",
+        "openjdk", "openjdk@17", "openjdk@21",
+        "rust", "cmake", "boost", "protobuf", "openssl@3",
+    ]
 
     static func isValidToken(_ token: String) -> Bool {
         guard !token.isEmpty,
@@ -437,6 +484,32 @@ enum HomebrewProgressParser {
     private static let progressRegex = try? NSRegularExpression(pattern: #"([0-9]{1,3}(?:\.[0-9]+)?)%"#)
     private static let ansiRegex = try? NSRegularExpression(pattern: #"\u001B\[[0-9;?]*[ -/]*[@-~]"#)
     private static let progressSymbolsSet = CharacterSet(charactersIn: "#=-> .:%0123456789")
+
+    /// Markers that a formula is being COMPILED, not poured. Verified against
+    /// Homebrew's own output: it never prints a literal "Building from
+    /// source" header, so the reliable tells are its `no bottle available!` /
+    /// Tier 3 notices, and raw compiler/make lines streaming through the log
+    /// (brew's own steps never contain them). Case-insensitive.
+    private static let sourceBuildMarkers = [
+        "no bottle available",
+        "tier 3",
+        "build-from-source",
+        "clang",
+        "make[",
+        "cxx(target)",
+        "cc(target)",
+        "link(target)",
+        "building cxx object",
+        "building c object",
+    ]
+
+    /// True when the chunk shows a source compile in progress (or a hard
+    /// "no bottle" notice for it). Checked on every streamed chunk; the
+    /// status flag it feeds is sticky so the warning stays visible.
+    static func sourceBuildDetected(in output: String) -> Bool {
+        let lower = stripANSI(output).lowercased()
+        return sourceBuildMarkers.contains { lower.contains($0) }
+    }
 
     static func progressFraction(in output: String) -> Double? {
         var latest: Double?

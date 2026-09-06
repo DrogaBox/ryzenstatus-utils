@@ -514,6 +514,9 @@ struct Strings {
     let homebrewOpenTerminal: String
     let homebrewCancelOperation: String
     let homebrewClearLog: String
+    let homebrewSourceBuildWarning: String
+    let homebrewSkipHeavyFormulas: String
+    let homebrewSkipHeavyFormulasFootnote: String
     let homebrewLogTitle: String
     let homebrewVersion: String
     let homebrewDescription: String
@@ -1477,6 +1480,9 @@ extension Strings {
         homebrewOpenTerminal: "Abrir Terminal",
         homebrewCancelOperation: "Cancelar",
         homebrewClearLog: "Limpar log",
+        homebrewSourceBuildWarning: "Compilando do código-fonte: isso pode levar horas neste Mac.",
+        homebrewSkipHeavyFormulas: "Pular fórmulas pesadas (node, llvm, etc.)",
+        homebrewSkipHeavyFormulasFootnote: "Evita compilações de horas: fórmulas sem garrafa ficam desatualizadas.",
         homebrewLogTitle: "Log",
         homebrewVersion: "Versão",
         homebrewDescription: "Tipo",
@@ -2417,6 +2423,9 @@ extension Strings {
         homebrewOpenTerminal: "Open Terminal",
         homebrewCancelOperation: "Cancel",
         homebrewClearLog: "Clear log",
+        homebrewSourceBuildWarning: "Building from source: this can take hours on this Mac.",
+        homebrewSkipHeavyFormulas: "Skip heavy formulas (node, llvm, etc.)",
+        homebrewSkipHeavyFormulasFootnote: "Avoids hours-long compiles: bottle-less formulas stay outdated.",
         homebrewLogTitle: "Log",
         homebrewVersion: "Version",
         homebrewDescription: "Type",

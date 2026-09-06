@@ -4586,6 +4586,56 @@ struct MetricsTests {
         expect(HomebrewProgressParser.visibleError(from: "$ brew install x\nError: Cask failed")
                == "Error: Cask failed",
                "Homebrew progress parser hides command lines from visible errors")
+        expect(HomebrewProgressParser.sourceBuildDetected(in: "Error: node: no bottle available!\nYou can try to install from source with: brew install --build-from-source node"),
+               "Homebrew source-build detector reads the no-bottle notice")
+        expect(HomebrewProgressParser.sourceBuildDetected(in: "[ 12%] Building CXX object CMakeFiles/llvm-core.dir/Core.cpp.o"),
+               "Homebrew source-build detector reads cmake compile lines")
+        expect(HomebrewProgressParser.sourceBuildDetected(in: "  CXX(target) out/Release/obj.target/v8_base/sample.o"),
+               "Homebrew source-build detector reads node-gyp compile lines")
+        expect(HomebrewProgressParser.sourceBuildDetected(in: "make[2]: Entering directory '/private/tmp/node-20260905/node-v26.8.1/out'"),
+               "Homebrew source-build detector reads make directory lines")
+        expect(HomebrewProgressParser.sourceBuildDetected(in: "/usr/bin/clang -cc1 -triple x86_64-apple-macosx13 -emit-obj sample.cc"),
+               "Homebrew source-build detector reads clang invocation lines")
+        expect(HomebrewProgressParser.sourceBuildDetected(in: "\u{001B}[32m==> Pouring node--26.8.1.x86_64_big_sur.bottle.tar.gz\u{001B}[0m") == false,
+               "Homebrew source-build detector ignores normal bottle pours")
+        expect(HomebrewProgressParser.sourceBuildDetected(in: "==> Downloading https://example.com/file") == false,
+               "Homebrew source-build detector ignores plain downloads")
+        expect(HomebrewCommandBuilder.upgradeFormulas(brewPath: "/usr/local/bin/brew",
+                                                      tokens: ["wget", "node", "-bad", "git"])?
+               .arguments == ["upgrade", "wget", "node", "git"],
+               "Homebrew formula upgrade command keeps only valid tokens")
+        expect(HomebrewCommandBuilder.upgradeFormulas(brewPath: "/usr/local/bin/brew", tokens: []) == nil,
+               "Homebrew formula upgrade command rejects empty token lists")
+        expect(HomebrewCommandBuilder.heavySourceBuildFormulas.contains("node")
+               && HomebrewCommandBuilder.heavySourceBuildFormulas.contains("llvm"),
+               "Homebrew heavy source-build list covers the known giants")
+        let filteredCommand = HomebrewCommandBuilder.upgradeAllCommand(brewPath: "/usr/local/bin/brew",
+                                                                outdatedIDs: ["formula:node", "formula:wget", "cask:firefox"],
+                                                                skipHeavyFormulas: true)
+        expect(filteredCommand?.arguments == ["upgrade", "firefox", "wget"],
+               "Homebrew skip-heavy upgrade leaves source-build giants out (casks ride along, deterministic order)")
+        expect(HomebrewCommandBuilder.upgradeAllCommand(brewPath: "/usr/local/bin/brew",
+                                                 outdatedIDs: ["formula:node", "formula:llvm"],
+                                                 skipHeavyFormulas: true) == nil,
+               "Homebrew skip-heavy upgrade reports nothing to do when only giants are pending")
+        expect(HomebrewCommandBuilder.upgradeAllCommand(brewPath: "/usr/local/bin/brew",
+                                                 outdatedIDs: ["formula:node"],
+                                                 skipHeavyFormulas: false) ==
+               HomebrewCommand(executable: "/usr/local/bin/brew", arguments: ["upgrade"]),
+               "Homebrew skip-heavy off keeps the plain upgrade-everything command")
+        var sourceStatus = HomebrewOperationStatus(action: .upgradeAll,
+                                                   package: nil,
+                                                   phase: .upgrading,
+                                                   result: .running,
+                                                   progressFraction: nil,
+                                                   startedAt: Date(),
+                                                   finishedAt: nil,
+                                                   lastActivity: nil)
+        expect(!sourceStatus.sourceBuildDetected,
+               "Homebrew operation status starts without the source-build flag")
+        sourceStatus.sourceBuildDetected = true
+        expect(sourceStatus.sourceBuildDetected,
+               "Homebrew operation status carries the source-build flag")
 
         let homebrewJSON = """
         {
@@ -4739,6 +4789,14 @@ struct MetricsTests {
         expect(localizedStrings.count == AppLanguage.allCases.count, "all app languages are covered by tests")
         for (language, strings) in localizedStrings {
             let prefix = "localization \(language.rawValue)"
+            expect(!strings.homebrewSourceBuildWarning.isEmpty
+                   && !strings.homebrewSkipHeavyFormulas.isEmpty
+                   && !strings.homebrewSkipHeavyFormulasFootnote.isEmpty,
+                   "\(prefix) Homebrew source-build strings are localized")
+            expect(!strings.homebrewSourceBuildWarning.contains("—")
+                   && !strings.homebrewSkipHeavyFormulas.contains("—")
+                   && !strings.homebrewSkipHeavyFormulasFootnote.contains("—"),
+                   "no em-dash in Homebrew source-build strings (\(language.rawValue))")
             expectFormat(strings.cutMovedPluralFormat, ["d"], "\(prefix) cut plural format")
             expectFormat(strings.uninstallerSelectedFormat, ["d", "d"], "\(prefix) uninstaller selected format")
             expectFormat(strings.uninstallerFreedFormat, ["@"], "\(prefix) uninstaller freed format")

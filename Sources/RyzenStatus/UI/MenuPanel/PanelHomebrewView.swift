@@ -255,6 +255,13 @@ struct PanelHomebrewView: View {
                 Spacer(minLength: 0)
             }
             outdatedSummary
+            Toggle(isOn: $homebrew.skipHeavyFormulas) {
+                Text(l10n.s.homebrewSkipHeavyFormulas)
+                    .font(.system(size: 9.5))
+                    .lineLimit(1)
+            }
+            .controlSize(.mini)
+            .help(l10n.s.homebrewSkipHeavyFormulasFootnote)
         }
         .panelCard()
     }

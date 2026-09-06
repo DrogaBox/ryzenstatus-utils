@@ -20,6 +20,9 @@ struct HomebrewOperationStatusView: View {
         VStack(alignment: .leading, spacing: compact ? 7 : 9) {
             header
             progressArea
+            if status.isActive && status.sourceBuildDetected {
+                sourceBuildWarning
+            }
             if let activity = status.lastActivity, !activity.isEmpty {
                 Text(activity)
                     .font(.system(size: compact ? 9.5 : 11))
@@ -100,6 +103,18 @@ struct HomebrewOperationStatusView: View {
             ProgressView(value: 1)
                 .progressViewStyle(.linear)
         }
+    }
+
+    /// Shown the moment the log reveals a formula compiling from source —
+    /// the usual reason an "update" sits at full CPU for hours with no
+    /// visible progress (bottle-less Macs, e.g. Intel/older macOS tiers).
+    private var sourceBuildWarning: some View {
+        Label(l10n.s.homebrewSourceBuildWarning, systemImage: "hammer.fill")
+            .font(.system(size: compact ? 9.5 : 11, weight: .medium))
+            .foregroundStyle(.orange)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("homebrew.sourceBuildWarning")
     }
 
     private var terminalFallback: some View {

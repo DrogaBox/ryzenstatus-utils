@@ -32,6 +32,16 @@ final class HomebrewManager: ObservableObject {
     @Published private(set) var shellConfigProfilePath: String?
     @Published private(set) var didOpenShellConfig = false
     @Published private(set) var outdatedPackagesByID: [String: HomebrewPackageUpdate] = [:]
+    /// When on, "Update all" upgrades the outdated formulas one explicit
+    /// command and leaves known source-build giants (node, llvm, ...) out —
+    /// brew would otherwise compile them for hours on bottle-less Macs.
+    @Published var skipHeavyFormulas: Bool {
+        didSet {
+            guard oldValue != skipHeavyFormulas else { return }
+            UserDefaults.standard.set(skipHeavyFormulas,
+                                      forKey: DefaultsKey.homebrewSkipHeavyFormulas)
+        }
+    }
 
     private let workQueue = DispatchQueue(label: "com.ryzenstatus.homebrew", qos: .userInitiated)
     private var searchGeneration = 0
@@ -59,6 +69,7 @@ final class HomebrewManager: ObservableObject {
     }
 
     private init() {
+        skipHeavyFormulas = UserDefaults.standard.object(forKey: DefaultsKey.homebrewSkipHeavyFormulas) as? Bool ?? true
         brewPath = detectBrewPath()
     }
 
@@ -205,6 +216,19 @@ final class HomebrewManager: ObservableObject {
     }
 
     func upgradeAll() {
+        if skipHeavyFormulas, !outdatedPackagesByID.isEmpty,
+           let brewPath = brewPath ?? detectBrewPath() {
+            if let command = HomebrewCommandBuilder.upgradeAllCommand(brewPath: brewPath,
+                                                                      outdatedIDs: Set(outdatedPackagesByID.keys),
+                                                                      skipHeavyFormulas: true) {
+                perform(.upgradeAll, package: nil, command: command)
+            } else {
+                // Only source-build giants are pending: leave them alone and
+                // just refresh, so the list drops them from "updates".
+                refreshInstalled()
+            }
+            return
+        }
         perform(.upgradeAll, package: nil)
     }
 
@@ -374,7 +398,10 @@ final class HomebrewManager: ObservableObject {
             default: return HomebrewCommandBuilder.upgrade(brewPath: brewPath, package: package)
             }
         case .upgradeAll:
-            return HomebrewCommandBuilder.upgradeAll(brewPath: brewPath)
+            return HomebrewCommandBuilder.upgradeAllCommand(brewPath: brewPath,
+                                                            outdatedIDs: Set(outdatedPackagesByID.keys),
+                                                            skipHeavyFormulas: skipHeavyFormulas)
+                ?? HomebrewCommandBuilder.upgradeAll(brewPath: brewPath)
         case .updateHomebrew:
             return HomebrewCommandBuilder.update(brewPath: brewPath)
         }
@@ -390,6 +417,12 @@ final class HomebrewManager: ObservableObject {
         }
         if let activity = HomebrewProgressParser.activity(in: chunk) {
             status.lastActivity = activity
+        }
+        // Sticky: the first chunk that shows a compile keeps the warning on
+        // for the whole operation — a source build never "un-becomes" one.
+        if !status.sourceBuildDetected,
+           HomebrewProgressParser.sourceBuildDetected(in: chunk) {
+            status.sourceBuildDetected = true
         }
         operationStatus = status
     }

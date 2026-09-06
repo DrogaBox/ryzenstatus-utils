@@ -142,6 +142,13 @@ struct HomebrewSettings: View {
                 .frame(width: 300)
                 outdatedSummary
             }
+
+            Toggle(isOn: $homebrew.skipHeavyFormulas) {
+                Text(l10n.s.homebrewSkipHeavyFormulas)
+                    .font(.caption)
+            }
+            .controlSize(.small)
+            .help(l10n.s.homebrewSkipHeavyFormulasFootnote)
         }
     }
 

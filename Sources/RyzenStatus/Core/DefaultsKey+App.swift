@@ -173,6 +173,9 @@ extension DefaultsKey {
     static let appUpdatesNotify = "appUpdatesNotify"
     static let appUpdatesLastCheck = "appUpdatesLastCheck"            // Double, epoch seconds
     static let appUpdatesLastCount = "appUpdatesLastCount"
+    // Homebrew: "Update all" skips formulas that brew would compile from
+    // source on this Mac (node, llvm, ...), avoiding hours-long builds.
+    static let homebrewSkipHeavyFormulas = "homebrewSkipHeavyFormulas"
     static let panelUtilityMedia = "panelUtilityMedia"
     static let panelUtilityClipboard = "panelUtilityClipboard"
     static let panelUtilityWindowLayout = "panelUtilityWindowLayout"
