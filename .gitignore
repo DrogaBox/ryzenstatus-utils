@@ -18,6 +18,14 @@ AGENTS.md
 CLAUDE.md
 E2E/
 
+# Agent working documents (audit ledgers, handoff briefs, research notes)
+AUDIT_ARCHIVE.md
+HANDOFF_*.md
+KEXT_FINDINGS.md
+KEXT_WAVE_PLAN.md
+ZEN4_CURVE_OPTIMIZER_RESEARCH.md
+CROSS_DRIVER_IDEA_MINE.md
+
 # Freebuff desktop cache (tool internal state, never committed)
 .freebuff/
 
