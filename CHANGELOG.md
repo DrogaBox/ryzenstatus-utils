@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.24.0] — 2026-09-11
+
+### AMD Kernel: Precision Boost Overdrive Limits (wave S4)
+- **Precision Boost Overdrive (PBO) limits & scalar control**: added kernel-level support for adjusting PPT (Package Power Tracking in mW), TDC (Thermal Design Current in mA), EDC (Electrical Design Current in mA), and PBO Scalar (1.0x–10.0x) on AMD Zen 3 Vermeer CPUs via RSMU commands (`0x53`, `0x54`, `0x55`, `0x58`).
+- **UserClient selectors 40, 41, 42**:
+  - Selector 40: reports PBO capability, safe envelopes, and cached values.
+  - Selector 41: writes PPT/TDC/EDC limits with privilege verification (`hasPrivilege`), hardware bounds validation (1–500 W / 1–500 A), and emergency thermal interlock (writes blocked if package temp > 85 °C).
+  - Selector 42: writes PBO Scalar with privilege validation and 100–1000 range verification.
+- **Settings UI & Safety UX**:
+  - Dedicated PBO configuration section in AMD Power Settings with safety confirmation toggle, interactive sliders for PPT (W), TDC (A), EDC (A), and Scalar multiplier.
+  - Read-back telemetry showing currently active limits and fail-closed banners on unsupported CPUs (Zen 4/5 APUs and legacy pre-Zen 3 models).
+  - Complete 13-language localization sweep with string invariant tests.
+- **Driver packaging & SHA repin**: rebuilt `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` (v3.34.2), updated `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip`, and repinned the expected SHA-256 in `Tools/make-dmg.sh`.
+
 ## [1.23.0] — 2026-09-11
 
 ### AMD Kernel & Concurrency (wave S3)
