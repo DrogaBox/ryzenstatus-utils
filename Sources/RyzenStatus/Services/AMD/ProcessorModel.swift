@@ -1866,6 +1866,36 @@ actor ProcessorModel {
         guard res == KERN_SUCCESS, outputCount >= 2 else { return nil }
         return (UInt32(truncatingIfNeeded: output[0]), output[1] == 1)
     }
+
+    // MARK: — S8: OC capability + OC mode (selectors 49/50)
+
+    /// Read the kext's OC capability report: whether OC-mode and frequency/
+    /// VID commands are accepted on this silicon (Vermeer + SMU mailbox), the
+    /// cached ProcessorParameters (0x6F) bitfield for context, and the OC-mode
+    /// cache state (`AMDOcMode` codes). Returns nil on pre-1.28 kexts or when
+    /// the connection is down.
+    nonisolated func getOcCapability() -> (supported: Bool, procParamsRaw: UInt32, modeCode: UInt64)? {
+        var output: [UInt64] = [0, 0, 0, 0]
+        var outputCount: UInt32 = 4
+        let res = safeIOConnectCallMethod(AMDKextSelector.ocCapability.id, nil, 0, nil, 0,
+                                          &output, &outputCount, nil, nil)
+        guard res == KERN_SUCCESS, outputCount >= 4 else { return nil }
+        return (output[0] == 1, UInt32(truncatingIfNeeded: output[1]), output[2])
+    }
+
+    /// Enable or disable Vermeer OC mode (RSMU 0x5A/0x5B — semantics pinned
+    /// by ZenStates-Core, resolving the doc's contradictory rows). When
+    /// disabling, `resetScalar` additionally re-programs the PBO scalar to
+    /// 1.0 via 0x58 (some SMU firmware does not auto-reset it). Frequency
+    /// (0x5C/0x5D) and VID (0x61) writes are deliberately not exposed yet.
+    @discardableResult
+    nonisolated func setOcMode(enable: Bool, resetScalar: Bool) -> kern_return_t {
+        guard AMDOcMode.validate(enable: enable, resetScalar: resetScalar) else {
+            return kIOReturnBadArgument
+        }
+        var input: [UInt64] = [enable ? 1 : 0, resetScalar ? 1 : 0]
+        return safeIOConnectCallMethod(AMDKextSelector.ocModeWrite.id, &input, 2, nil, 0, nil, nil, nil, nil)
+    }
 }
 
 /// Per-component IOKit statuses of a `ProcessorModel.applyPowerPreset(_:)` call.

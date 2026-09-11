@@ -57,6 +57,12 @@ final class AmdPowerControlsModel: ObservableObject {
     @Published private(set) var smuVersionPolled = false
     @Published private(set) var activeScalarRaw: UInt32 = 0
 
+    // S8: OC capability + mode cache (selectors 49/50). `ocModeCode` mirrors
+    // the kext's cache: 0 = this driver never touched OC mode this boot
+    // (honestly unknown), 1 = enabled via 0x5A, 2 = disabled via 0x5B.
+    @Published private(set) var ocSupported = false
+    @Published private(set) var ocModeCode: UInt64 = 0
+
     /// Guard flag: true when updating published properties from kext reads
     /// to avoid trigger loops from `.onChange` handlers.
     /// Writes arriving while a sync is in flight are intentionally dropped;
@@ -161,7 +167,7 @@ final class AmdPowerControlsModel: ObservableObject {
         recordTelemetrySample()
 
         let (kernelAnswered, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
-             smuVersion, activeScalar) = await Task.detached(priority: .userInitiated) {
+             smuVersion, activeScalar, ocCap) = await Task.detached(priority: .userInitiated) {
             // AUDIT F-27: thread-safe connection check to avoid data races
             let kernelAnswered = ProcessorModel.shared.isConnected
             let cpb = ProcessorModel.shared.getCPB()
@@ -179,8 +185,10 @@ final class AmdPowerControlsModel: ObservableObject {
             // S7: one-shot 0x02 version + 0x6C active scalar readbacks.
             let smuVersion = kernelAnswered ? ProcessorModel.shared.getSmuVersion() : nil
             let activeScalar = kernelAnswered ? ProcessorModel.shared.getActivePBOScalar() : nil
+            // S8: OC capability + mode cache (no SMU traffic — cache only).
+            let ocCap = kernelAnswered ? ProcessorModel.shared.getOcCapability() : nil
             return (kernelAnswered, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
-                    smuVersion, activeScalar)
+                    smuVersion, activeScalar, ocCap)
         }.value
         let profile = await ProcessorModel.shared.cpuProfile
 
@@ -236,6 +244,15 @@ final class AmdPowerControlsModel: ObservableObject {
             activeScalarRaw = activeScalar.raw
         } else {
             activeScalarRaw = 0
+        }
+
+        // S8: publish the OC capability + mode cache.
+        if let ocCap {
+            ocSupported = ocCap.supported
+            ocModeCode = ocCap.modeCode
+        } else {
+            ocSupported = false
+            ocModeCode = 0
         }
 
         if profile.legacyPstateAllowed {

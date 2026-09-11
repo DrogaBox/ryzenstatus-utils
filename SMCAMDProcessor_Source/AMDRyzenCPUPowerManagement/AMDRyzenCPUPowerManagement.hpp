@@ -312,6 +312,15 @@ public:
     // command gate only (F-05).
     uint32_t pollSmuPBOScalar();
     
+    // S8: enable/disable Vermeer OC mode (RSMU 0x5A EnableOcMode / 0x5B
+    // DisableOcMode — semantics pinned by ZenStates-Core, resolving the doc's
+    // contradictory rows). Writes blocked under the same thermal interlock as
+    // the PBO/CO/cHTC paths. On the disable path `resetScalar` additionally
+    // re-programs the PBO scalar to 1.0 via 0x58, working around SMU firmware
+    // that does not auto-reset it. Returns 0 on success; negative maps like
+    // setPBOLimit.
+    int setOcMode(bool enable, bool resetScalar);
+    
     //Cache size in KB
     uint32_t cpuCacheL1_perCore;
     uint32_t cpuCacheL2_perCore;
@@ -534,6 +543,13 @@ public:
     uint32_t smuFirmwareVersionRaw {0};
     bool smuVersionPolled {false};
     uint32_t smuActiveScalarRaw {0};
+
+    // S8: OC-mode state cache — mirrors the last 0x5A/0x5B outcome this boot
+    // (0 = never touched by this driver, 1 = enabled via 0x5A, 2 = disabled
+    // via 0x5B). The SMU has no read-back for OC mode; the cache is written
+    // only on SMU_OK, and 0 honestly means "unknown" (another tool may have
+    // flipped the mode before we loaded).
+    uint32_t smuOcModeState {0};
 
     // S3-B: read-only view for the UserClient capability report (selector 35).
     // Exposes only the fields the CO capability needs; keeps the rest of the

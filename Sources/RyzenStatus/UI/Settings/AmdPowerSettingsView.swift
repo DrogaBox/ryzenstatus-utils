@@ -30,6 +30,12 @@ struct AmdPowerSettingsView: View {
     @State private var chtcStatusMessage: String?
     @State private var chtcStatusIsError = false
     @State private var chtcSeeded = false
+    // S8: OC mode — status message + reset-scalar draft. The mode itself is
+    // published by the ControlsModel from the kext's selector-49 cache.
+    @State private var ocStatusMessage: String?
+    @State private var ocStatusIsError = false
+    @State private var ocResetScalarDraft = true
+    @State private var showOcRiskConfirm = false
     @State private var isLoading = false
     @ObservedObject private var gaming = GamingModeService.shared
     @ObservedObject private var c6Service = C6ResidencyService.shared
@@ -199,6 +205,16 @@ struct AmdPowerSettingsView: View {
                 // AMD GPU — dedicated GPU telemetry from the kext (selectors 27-30).
                 // Hidden entirely when no AMD discrete GPU is detected (iGPU/NVIDIA).
                 AmdGpuTelemetrySection()
+
+                // Hardware-risk disclaimer: one banner ahead of every SMU write
+                // section (Curve Optimizer, PBO, cHTC, OC mode). Honest about the
+                // stakes — dead CPUs included — at the project owner's request.
+                Section {
+                    Label(l10n.amdPower.hardwareRiskBanner, systemImage: "exclamationmark.octagon.fill")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 // AMD Curve Optimizer — per-core offsets (selectors 110/111).
                 // The kext only accepts writes on Zen 3 Vermeer; Zen 4/5 and the
@@ -494,6 +510,79 @@ struct AmdPowerSettingsView: View {
                     Text(l10n.amdPower.chtcHeader)
                 } footer: {
                     Text(l10n.amdPower.chtcFooter)
+                }
+
+                // S8: OC mode master switch (RSMU 0x5A/0x5B, selectors 49/50).
+                // Semantics pinned by ZenStates-Core during S8 research; the
+                // SMU has no read-back, so the state row is this driver's
+                // write cache — "unknown" honestly means never touched this
+                // boot. Frequency (0x5C/0x5D) and VID (0x61) writes come only
+                // after owner hardware validation of this gate.
+                Section {
+                    if coGeneration.isZen4OrNewer {
+                        Label(l10n.amdPower.ocUnsupportedZen4, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if controls.ocSupported {
+                        HStack {
+                            Text(l10n.amdPower.ocModeLabel)
+                            Spacer()
+                            switch AMDOcMode.from(code: controls.ocModeCode) {
+                            case .enabled:
+                                Label(l10n.amdPower.ocStateEnabled, systemImage: "lock.open.fill")
+                                    .font(.caption)
+                                    .foregroundColor(.orange)
+                            case .disabled:
+                                Label(l10n.amdPower.ocStateDisabled, systemImage: "lock.fill")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            case .unknown:
+                                Label(l10n.amdPower.ocStateUnknown, systemImage: "questionmark.circle")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
+                        Toggle(l10n.amdPower.ocResetScalarLabel, isOn: $ocResetScalarDraft)
+                            .font(.caption)
+
+                        HStack(spacing: 10) {
+                            Button {
+                                // S8: enabling OC mode is the gate every future
+                                // frequency/voltage write sits behind — confirm first.
+                                showOcRiskConfirm = true
+                            } label: {
+                                Label(l10n.amdPower.ocEnable, systemImage: "lock.open")
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            Button {
+                                applyOcMode(enable: false)
+                            } label: {
+                                Label(l10n.amdPower.ocDisable, systemImage: "lock")
+                            }
+                            .buttonStyle(.bordered)
+
+                            Spacer()
+
+                            if let message = ocStatusMessage {
+                                Text(message)
+                                    .font(.caption2)
+                                    .foregroundColor(ocStatusIsError ? .red : .green)
+                                    .lineLimit(2)
+                            }
+                        }
+                    } else {
+                        Label(l10n.amdPower.ocUnsupportedVermeer, systemImage: "info.circle")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } header: {
+                    Text(l10n.amdPower.ocHeader)
+                } footer: {
+                    Text(l10n.amdPower.ocFooter)
                 }
 
                 if controls.cppcSupported {
@@ -977,6 +1066,18 @@ struct AmdPowerSettingsView: View {
         } message: {
             Text(controls.privilegeWarning ?? "")
         }
+        // S8: hardware-risk confirmation before enabling SMU OC mode.
+        .alert(
+            l10n.amdPower.ocRiskConfirmTitle,
+            isPresented: $showOcRiskConfirm
+        ) {
+            Button(l10n.amdPower.ocRiskConfirmAccept, role: .destructive) {
+                applyOcMode(enable: true)
+            }
+            Button(l10n.amdPower.ocRiskConfirmCancel, role: .cancel) {}
+        } message: {
+            Text(l10n.amdPower.ocRiskConfirmBody)
+        }
     }
 
     private var autoEppTargetColor: Color {
@@ -1226,6 +1327,36 @@ struct AmdPowerSettingsView: View {
                 chtcStatusMessage = "SMU busy — try again"
             } else {
                 chtcStatusMessage = "SMU command failed"
+            }
+        }
+    }
+
+    /// Applies the OC-mode transition (S8): enable → RSMU 0x5A (Arg0 1);
+    /// disable → 0x5B (Arg0 0), optionally re-programming the PBO scalar to
+    /// 1.0 via 0x58 (the pinned firmware quirk). The state row refreshes
+    /// from the kext's selector-49 cache on the next 3 s sync.
+    private func applyOcMode(enable: Bool) {
+        let status = ProcessorModel.shared.setOcMode(enable: enable,
+                                                     resetScalar: !enable && ocResetScalarDraft)
+        if status == KERN_SUCCESS {
+            ocStatusIsError = false
+            ocStatusMessage = nil
+        } else {
+            ocStatusIsError = true
+            if status == ProcessorModel.kIOReturnNotPrivilegedCode {
+                ocStatusMessage = "Requires root or -amdpnopchk"
+            } else if status == kIOReturnUnsupported {
+                ocStatusMessage = "Not supported by the kext on this CPU (Vermeer only)"
+            } else if status == kIOReturnNotReady {
+                ocStatusMessage = "Blocked: package temperature above 75 °C"
+            } else if status == kIOReturnBadArgument {
+                ocStatusMessage = "Invalid OC mode request"
+            } else if status == kIOReturnTimeout {
+                ocStatusMessage = "SMU timeout — try again"
+            } else if status == kIOReturnBusy {
+                ocStatusMessage = "SMU busy — try again"
+            } else {
+                ocStatusMessage = "SMU command failed"
             }
         }
     }

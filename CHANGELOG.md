@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.28.0] — 2026-09-11
+
+### AMD Kernel: OC-mode gate (wave S8, phase 1) + hardware-risk warnings
+- **Overclocking Mode master switch**: the kext now drives the Vermeer RSMU OC-mode gate — `EnableOcMode` (0x5A) / `DisableOcMode` (0x5B), semantics pinned by two independent sources (the public-record command table and irusanov/ZenStates-Core, which untangled the doc's contradictory rows). **Selector 49** returns an OC capability report (fused overclocking bit from the 0x6F read, OC-mode cache and its state); privileged **selector 50** enables/disables the gate behind the same root/`-amdpnopchk` + 75 °C thermal interlock as every other write. The SMU has no read-back for the gate: the state row reflects the kext's write cache, and disabling optionally resets the PBO scalar to 1.0x (some SMU firmware does not do it automatically — documented ZenStates-Core quirk).
+- **Frequency (0x5C/0x5D) and VID (0x61) writes are deliberately absent** — they land only after this gate is validated on real hardware (see the S-series roadmap; encodings already pinned by research).
+- **Hardware-risk disclaimer**: AMD Power Settings now opens the SMU write area with a red warning banner that names the real stakes — overclocking, voltage and power-limit changes can permanently damage or kill the CPU, motherboard or memory, and the authors take no responsibility for damaged hardware (nor for anything else, including alien invasions). Enabling OC mode additionally requires an explicit confirmation dialog accepting responsibility. All 13 locales.
+- **13-locale sweep** for the new strings, with format-specifier invariant tests; the strict-concurrency gate stays at 0 diagnostics.
+- Kexts rebuilt at **3.34.6**; `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` refreshed and its SHA-256 repinned in `Tools/make-dmg.sh`. App 1.28.0 (67).
+
 ## [1.27.0] — 2026-09-11
 
 ### AMD Kernel: SMU firmware version + active scalar readback (wave S7)

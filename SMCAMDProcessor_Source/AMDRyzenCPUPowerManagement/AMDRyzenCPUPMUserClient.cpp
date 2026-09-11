@@ -1846,6 +1846,68 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
         
+        // Get OC capability report (S8): [0] = 1 when the kext accepts OC-mode
+        // and frequency/VID commands on this silicon (Vermeer + SMU mailbox —
+        // same verdict policy as selector 38), [1] = cached ProcessorParameters
+        // (0x6F) bitfield for app-side context (bit 0 IsOverclockable fuse),
+        // [2] = OC-mode cache state (0 = never touched by this driver this
+        // boot, 1 = enabled via 0x5A, 2 = disabled via 0x5B — the SMU has no
+        // read-back, and 0 honestly means "unknown"), [3] = reserved.
+        // Read-only: no SMU traffic, cache only.
+        case 49: {
+            if(!provider)
+                return kIOReturnNoDevice;
+            
+            arguments->scalarOutputCount = 4;
+            arguments->scalarOutput[0] = provider->pboLimitsSupported() ? 1 : 0;
+            arguments->scalarOutput[1] = provider->smuProcessorParametersRaw;
+            arguments->scalarOutput[2] = provider->smuOcModeState;
+            arguments->scalarOutput[3] = 0;
+            
+            break;
+        }
+        
+        // Set OC mode (S8, privileged): [0] = 1 enable (RSMU 0x5A, Arg0 1) or
+        // 0 disable (RSMU 0x5B, Arg0 0) — semantics pinned by ZenStates-Core,
+        // resolving rsmu_commands.md's contradictory rows. [1] = reset-scalar
+        // flag: when disabling with [1] = 1, the kext additionally re-programs
+        // the PBO scalar to 1.0 via 0x58 (some SMU firmware does not auto-reset
+        // it on leaving OC mode). Frequency (0x5C/0x5D) and VID (0x61) writes
+        // are NOT in this selector — deferred until owner hardware validation.
+        // Privilege required; provider enforces the Vermeer gate and the
+        // package-temperature interlock.
+        case 50: {
+            if(!provider)
+                return kIOReturnNoDevice;
+            
+            if(!hasPrivilege(50))
+                return kIOReturnNotPrivileged;
+                
+            if(arguments->scalarInputCount != 2)
+                return kIOReturnBadArgument;
+                
+            uint32_t enable = (uint32_t)arguments->scalarInput[0];
+            uint32_t resetScalar = (uint32_t)arguments->scalarInput[1];
+            if (enable > 1 || resetScalar > 1)
+                return kIOReturnBadArgument;
+            
+            if (!provider->pboLimitsSupported())
+                return kIOReturnUnsupported;
+            
+            if (provider->controlLock) IOLockLock(provider->controlLock);
+            int rc = provider->setOcMode(enable == 1, resetScalar == 1);
+            if (provider->controlLock) IOLockUnlock(provider->controlLock);
+            
+            if (rc < 0) {
+                if (rc == -1 || rc == -11) return kIOReturnUnsupported;
+                if (rc == -4) return kIOReturnNotReady;
+                if (rc == -10) return kIOReturnTimeout;
+                if (rc == -13) return kIOReturnBusy;
+                return kIOReturnError;
+            }
+            break;
+        }
+        
         // Set PBO limits: PPT mW, TDC mA, EDC mA. Privilege required.
         case 41: {
             if(!provider)

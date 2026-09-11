@@ -1381,6 +1381,52 @@ uint32_t AMDRyzenCPUPowerManagement::pollProcessorParameters() {
     return smuProcessorParametersRaw;
 }
 
+// S8: enable/disable Vermeer OC mode (RSMU 0x5A EnableOcMode / 0x5B
+// DisableOcMode). Semantics pinned during S8 research: amkillam/ryzen_smu
+// rsmu_commands.md lists the pair, and irusanov/ZenStates-Core (Rsmu.
+// SMU_MSG_EnableOcMode = 0x5A / SMU_MSG_DisableOcMode = 0x5B, SetOcMode.cs)
+// resolves the doc's contradictory arg rows. Arg 1 enables, 0 disables.
+// Same capability gate and thermal interlock as every other SMU write path.
+// Disable quirk (pinned from ZenStates-Core SetOcMode.cs): some SMU firmware
+// versions do not auto-reset the PBO scalar when leaving OC mode — when
+// `resetScalar` is set, re-program the scalar to 1.0 (100 in %×100) via the
+// proven 0x58 write path after a successful disable.
+int AMDRyzenCPUPowerManagement::setOcMode(bool enable, bool resetScalar) {
+    if (!pboLimitsSupported()) return -1;
+    
+    // Thermal safety interlock, same policy as CO/PBO/cHTC: no new OC-mode
+    // transitions while the package is already hot.
+    float currentTemp = PACKAGE_TEMPERATURE_perPackage[0];
+    if (currentTemp > kCURVE_OPTIMIZER_BLOCK_TEMP_C) {
+        IOLog("AMDRyzenCPUPowerManagement: Blocked OC mode %s (0x%X) due to high package temperature (%.1f C).\n",
+              enable ? "enable" : "disable", enable ? 0x5A : 0x5B, currentTemp);
+        return -4;
+    }
+    
+    int response = smuSendCmd(enable ? 0x5A : 0x5B, enable ? 1 : 0);
+    
+    if (response == SMU_RSP_OK) {
+        smuOcModeState = enable ? 1 : 2;
+        IOLog("AMDRyzenCPUPowerManagement: OC mode %s (0x%X).\n", enable ? "ENABLED" : "DISABLED", enable ? 0x5A : 0x5B);
+        
+        if (!enable && resetScalar) {
+            // Pass the real cache slot: setPBOLimit updates it on success.
+            int scalarRc = setPBOLimit(0x58, 100, pboScalarPercentX100);
+            IOLog("AMDRyzenCPUPowerManagement: OC disable scalar reset (0x58 → 100): %s.\n",
+                  scalarRc == 0 ? "ok" : "failed");
+        }
+        return 0;
+    }
+    
+    IOLog("AMDRyzenCPUPowerManagement: SMU OC mode command 0x%X failed with response code: 0x%X\n",
+          enable ? 0x5A : 0x5B, response);
+    if (response == SMU_RSP_TIMEOUT) return -10;
+    if (response == SMU_RSP_INVALID_CMD) return -11;
+    if (response == SMU_RSP_INVALID_ARGS) return -12;
+    if (response == SMU_RSP_BUSY) return -13;
+    return -5;
+}
+
 // S6: program the cHTC thermal limit (Vermeer SMU 0x56, Arg0 = °C, per
 // ryzen_smu rsmu_commands.md). Same capability gate and thermal interlock
 // policy as the PBO limits: Vermeer-with-mailbox only, writes blocked while

@@ -133,6 +133,20 @@ enum AMDKextSelector: UInt32 {
     /// encoding than the 0x58 write!), [1] = 1 once the kext timer has read
     /// it successfully this boot. Unsupported on pre-1.27 kexts.
     case activeScalarRead = 48
+    /// Read-only OC capability report (S8): [0] = 1 when the kext accepts
+    /// OC-mode and frequency/VID commands (Vermeer + SMU mailbox, same
+    /// verdict policy as selector 38), [1] = cached ProcessorParameters
+    /// (0x6F) bitfield for context (bit 0 IsOverclockable fuse), [2] =
+    /// OC-mode cache state (`AMDOcMode` codes: 0 unknown / 1 enabled /
+    /// 2 disabled), [3] = reserved. Unsupported on pre-1.28 kexts.
+    case ocCapability = 49
+    /// Write OC mode (S8, privileged): [0] = 1 enable (RSMU 0x5A, Arg0 1) or
+    /// 0 disable (RSMU 0x5B, Arg0 0) — semantics pinned by ZenStates-Core,
+    /// resolving rsmu_commands.md's contradictory rows; [1] = reset-scalar
+    /// flag (on disable, also re-program the PBO scalar to 1.0 via 0x58 —
+    /// some SMU firmware does not auto-reset it). Frequency (0x5C/0x5D) and
+    /// VID (0x61) writes are deliberately NOT exposed yet.
+    case ocModeWrite = 50
 
     // MARK: — Fan Control (via SuperIO)
 

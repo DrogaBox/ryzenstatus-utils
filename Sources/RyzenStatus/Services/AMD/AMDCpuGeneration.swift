@@ -226,3 +226,31 @@ enum AMDSmuReadback {
         return String(format: "%.1fx", value)
     }
 }
+
+// MARK: - OC Mode (S8, selectors 49/50 — Vermeer 0x5A/0x5B)
+
+/// OC-mode cache-state codes reported by kext selector 49 ([2]) and the
+/// semantic validation for selector 50 writes. The SMU has no read-back for
+/// OC mode: `unknown` honestly means "this driver never touched it this
+/// boot" — another tool may have flipped it before we loaded.
+enum AMDOcMode {
+    case unknown
+    case enabled
+    case disabled
+
+    /// Decode the kext's cache code.
+    static func from(code: UInt64) -> AMDOcMode {
+        switch code {
+        case 1: return .enabled
+        case 2: return .disabled
+        default: return .unknown
+        }
+    }
+
+    /// Validate a selector-50 request before submission: enable and disable
+    /// are both meaningful; anything else is rejected app-side.
+    static func validate(enable: Bool, resetScalar: Bool) -> Bool {
+        // A scalar reset only makes sense when disabling.
+        !resetScalar || !enable
+    }
+}

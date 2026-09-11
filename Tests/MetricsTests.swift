@@ -7500,6 +7500,31 @@ struct MetricsTests {
                    "Language \(lang.rawValue) smuVersionFormat must keep exactly 1 %@ specifier: \(a.smuVersionFormat)")
             expect(formatSpecifiers(in: a.smuActiveScalarFormat) == ["@"],
                    "Language \(lang.rawValue) smuActiveScalarFormat must keep exactly 1 %@ specifier: \(a.smuActiveScalarFormat)")
+
+            // MARK: S8 OC Mode Strings Invariants (no specifiers in any row)
+            let ocKeys: [(String, String)] = [
+                ("ocHeader", a.ocHeader),
+                ("ocFooter", a.ocFooter),
+                ("ocModeLabel", a.ocModeLabel),
+                ("ocStateEnabled", a.ocStateEnabled),
+                ("ocStateDisabled", a.ocStateDisabled),
+                ("ocStateUnknown", a.ocStateUnknown),
+                ("ocResetScalarLabel", a.ocResetScalarLabel),
+                ("ocEnable", a.ocEnable),
+                ("ocDisable", a.ocDisable),
+                ("ocUnsupportedZen4", a.ocUnsupportedZen4),
+                ("ocUnsupportedVermeer", a.ocUnsupportedVermeer),
+                // S8 hardware-risk disclaimer (S8 disclaimer wave).
+                ("hardwareRiskBanner", a.hardwareRiskBanner),
+                ("ocRiskConfirmTitle", a.ocRiskConfirmTitle),
+                ("ocRiskConfirmBody", a.ocRiskConfirmBody),
+                ("ocRiskConfirmAccept", a.ocRiskConfirmAccept),
+                ("ocRiskConfirmCancel", a.ocRiskConfirmCancel)
+            ]
+            for (key, value) in ocKeys {
+                expect(!value.isEmpty, "Language \(lang.rawValue) amdPower.\(key) must not be empty")
+                expect(!value.contains("%"), "Language \(lang.rawValue) amdPower.\(key) must not carry format specifiers: \(value)")
+            }
         }
 
         // MARK: S4 AMDPBOLimits Helpers (gate, clamps, formatters)
@@ -7612,6 +7637,21 @@ struct MetricsTests {
                "formatActiveScalar rejects floats above the 10.0 ceiling")
         expect(AMDSmuReadback.formatActiveScalar(0x3F00_0000) == nil,
                "formatActiveScalar rejects floats below the 1.0 floor")
+
+        // MARK: S8 AMDOcMode (selectors 49/50 — 0x5A/0x5B pinned semantics)
+
+        // Cache-code decode: 0 = never touched (honestly unknown), 1 =
+        // enabled via 0x5A, 2 = disabled via 0x5B. Anything else is unknown.
+        if case .unknown = AMDOcMode.from(code: 0) {} else { expect(false, "code 0 must decode as unknown") }
+        if case .enabled = AMDOcMode.from(code: 1) {} else { expect(false, "code 1 must decode as enabled") }
+        if case .disabled = AMDOcMode.from(code: 2) {} else { expect(false, "code 2 must decode as disabled") }
+        if case .unknown = AMDOcMode.from(code: 99) {} else { expect(false, "out-of-range codes must decode as unknown") }
+
+        // Request validation: a scalar reset only makes sense when disabling.
+        expect(AMDOcMode.validate(enable: true, resetScalar: false), "enable without reset is valid")
+        expect(AMDOcMode.validate(enable: false, resetScalar: true), "disable with reset is valid")
+        expect(AMDOcMode.validate(enable: false, resetScalar: false), "disable without reset is valid")
+        expect(!AMDOcMode.validate(enable: true, resetScalar: true), "enable with reset must be rejected app-side")
 
         // MARK: Result
 
