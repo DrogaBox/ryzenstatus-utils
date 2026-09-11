@@ -107,6 +107,20 @@ enum AMDKextSelector: UInt32 {
     /// `AMDSmuBoost` where it is unit-testable, [2] = 1 once the kext timer
     /// has populated the caches this boot. Unsupported on pre-1.25 kexts.
     case boostTelemetry = 43
+    /// Read-only ProcessorParameters bitfield (S6): [0] = raw Vermeer RSMU
+    /// `GetProcessorParameters` (0x6F) response word — decoded app-side in
+    /// `AMDSmuParameters` (bit 0 IsOverclockable, bit 1 PBO support),
+    /// [1] = 1 once the kext timer has read the command successfully this
+    /// boot (a real 0-bitfield is a valid answer, so "polled" is distinct
+    /// from the value). Unsupported on pre-1.26 kexts.
+    case processorParametersRead = 44
+    /// Read-only cHTC limit cache (S6): [0] = the last value successfully
+    /// programmed via SMU `SetcHTCLimit` (0x56) this boot in °C (0 = never
+    /// set — the SMU has no cHTC read command). Unsupported on pre-1.26 kexts.
+    case chtcLimitRead = 45
+    /// Write cHTC thermal limit (S6, privileged): [0] = target in °C
+    /// (40…95). Same Vermeer gate + thermal interlock as the PBO limits.
+    case chtcLimitWrite = 46
 
     // MARK: — Fan Control (via SuperIO)
 

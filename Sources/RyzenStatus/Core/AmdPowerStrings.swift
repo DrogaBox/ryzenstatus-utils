@@ -114,6 +114,16 @@ struct AMDPowerFeatureStrings {
     let boostMaxFreqFormat: String
     let boostFastestCoreFormat: String
     let boostTelemetryUnavailable: String
+    // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+    let chtcHeader: String
+    let chtcFooter: String
+    let chtcSliderLabel: String
+    let chtcApply: String
+    let chtcActiveFormat: String
+    let chtcOverclockable: String
+    let chtcPBOSupport: String
+    let chtcUnsupportedZen4: String
+    let chtcUnsupportedVermeer: String
     let cpbToggle: String
     let ppmToggle: String
     let lpmToggle: String
@@ -281,6 +291,16 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "Max boost frequency: %u MHz",
         boostFastestCoreFormat: "Fastest core: #%u",
         boostTelemetryUnavailable: "Waiting for the first SMU read this boot…",  // S5
+        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        chtcHeader: "cHTC Thermal Limit (SMU)",
+        chtcFooter: "Writes the package cHTC thermal limit (SMU 0x56) with the same Vermeer validation and thermal interlock as the PBO limits. The SMU has no read command: the shown value is the last one programmed this boot.",
+        chtcSliderLabel: "cHTC limit",
+        chtcApply: "Apply cHTC limit",
+        chtcActiveFormat: "Active cHTC limit: %d °C",
+        chtcOverclockable: "Overclocking unlocked (fuse)",
+        chtcPBOSupport: "PBO support (fuse)",
+        chtcUnsupportedZen4: "cHTC is not yet verified on Zen 4: this section will be enabled once validated on real hardware.",
+        chtcUnsupportedVermeer: "The cHTC thermal limit requires Vermeer (Ryzen 3000) with an SMU mailbox.",
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -416,6 +436,16 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "Frecuencia máx. de boost: %u MHz",
         boostFastestCoreFormat: "Núcleo más rápido: n.º %u",
         boostTelemetryUnavailable: "Esperando la primera lectura de la SMU en este arranque…",  // S5
+        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        chtcHeader: "Límite térmico cHTC (SMU)",
+        chtcFooter: "Escribe el límite térmico cHTC del paquete (SMU 0x56) con la misma validación Vermeer y el mismo interbloqueo térmico que los límites de PBO. No hay comando de lectura en la SMU: el valor mostrado es el último programado en este arranque.",
+        chtcSliderLabel: "Límite cHTC",
+        chtcApply: "Aplicar límite cHTC",
+        chtcActiveFormat: "Límite cHTC activo: %d °C",
+        chtcOverclockable: "Overclocking habilitado (fusible)",
+        chtcPBOSupport: "Soporte PBO (fusible)",
+        chtcUnsupportedZen4: "cHTC aún no está verificado en Zen 4: la sección se habilitará cuando se valide en hardware real.",
+        chtcUnsupportedVermeer: "El límite térmico cHTC requiere Vermeer (Ryzen 3000) con buzón SMU.",
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -551,6 +581,16 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "Frequência máx. de boost: %u MHz",
         boostFastestCoreFormat: "Núcleo mais rápido: n.º %u",
         boostTelemetryUnavailable: "Aguardando a primeira leitura da SMU nesta inicialização…",  // S5
+        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        chtcHeader: "Limite térmico cHTC (SMU)",
+        chtcFooter: "Grava o limite térmico cHTC do pacote (SMU 0x56) com a mesma validação Vermeer e o mesmo intertravamento térmico dos limites de PBO. Não há comando de leitura na SMU: o valor exibido é o último programado nesta inicialização.",
+        chtcSliderLabel: "Limite cHTC",
+        chtcApply: "Aplicar limite cHTC",
+        chtcActiveFormat: "Limite cHTC ativo: %d °C",
+        chtcOverclockable: "Overclocking habilitado (fusível)",
+        chtcPBOSupport: "Suporte a PBO (fusível)",
+        chtcUnsupportedZen4: "cHTC ainda não verificado no Zen 4: a seção será habilitada quando validada em hardware real.",
+        chtcUnsupportedVermeer: "O limite térmico cHTC requer Vermeer (Ryzen 3000) com mailbox SMU.",
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -686,6 +726,16 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "Max. Boost-Frequenz: %u MHz",
         boostFastestCoreFormat: "Schnellster Kern: Nr. %u",
         boostTelemetryUnavailable: "Warte auf die erste SMU-Lesung in dieser Sitzung…",  // S5
+        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        chtcHeader: "cHTC-Thermallimit (SMU)",
+        chtcFooter: "Schreibt das cHTC-Thermallimit des Pakets (SMU 0x56) mit derselben Vermeer-Validierung und thermischen Verriegelung wie die PBO-Limits. Die SMU bietet keinen Lesebefehl: Der angezeigte Wert ist der zuletzt in dieser Sitzung programmierte.",
+        chtcSliderLabel: "cHTC-Limit",
+        chtcApply: "cHTC-Limit anwenden",
+        chtcActiveFormat: "Aktives cHTC-Limit: %d °C",
+        chtcOverclockable: "Übertaktung freigeschaltet (Fuse)",
+        chtcPBOSupport: "PBO-Unterstützung (Fuse)",
+        chtcUnsupportedZen4: "cHTC ist auf Zen 4 noch nicht verifiziert: Der Abschnitt wird freigeschaltet, sobald er auf echter Hardware validiert ist.",
+        chtcUnsupportedVermeer: "Das cHTC-Thermallimit erfordert Vermeer (Ryzen 3000) mit SMU-Mailbox.",
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -821,6 +871,16 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "Fréquence de boost max : %u MHz",
         boostFastestCoreFormat: "Cœur le plus rapide : n° %u",
         boostTelemetryUnavailable: "En attente de la première lecture SMU de cette session…",  // S5
+        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        chtcHeader: "Limite thermique cHTC (SMU)",
+        chtcFooter: "Écrit la limite thermique cHTC du paquet (SMU 0x56) avec la même validation Vermeer et le même verrouillage thermique que les limites PBO. La SMU n'offre pas de commande de lecture : la valeur affichée est la dernière programmée durant cette session.",
+        chtcSliderLabel: "Limite cHTC",
+        chtcApply: "Appliquer la limite cHTC",
+        chtcActiveFormat: "Limite cHTC active : %d °C",
+        chtcOverclockable: "Overclocking déverrouillé (fusible)",
+        chtcPBOSupport: "Prise en charge PBO (fusible)",
+        chtcUnsupportedZen4: "cHTC n'est pas encore vérifié sur Zen 4 : la section sera activée une fois validée sur du matériel réel.",
+        chtcUnsupportedVermeer: "La limite thermique cHTC requiert Vermeer (Ryzen 3000) avec boîte aux lettres SMU.",
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -956,6 +1016,16 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "Frequenza di boost massima: %u MHz",
         boostFastestCoreFormat: "Core più veloce: n. %u",
         boostTelemetryUnavailable: "In attesa della prima lettura SMU di questa sessione…",  // S5
+        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        chtcHeader: "Limite termico cHTC (SMU)",
+        chtcFooter: "Scrive il limite termico cHTC del pacchetto (SMU 0x56) con la stessa validazione Vermeer e lo stesso interblocco termico dei limiti PBO. La SMU non offre un comando di lettura: il valore mostrato è l'ultimo programmato in questa sessione.",
+        chtcSliderLabel: "Limite cHTC",
+        chtcApply: "Applica limite cHTC",
+        chtcActiveFormat: "Limite cHTC attivo: %d °C",
+        chtcOverclockable: "Overclocking abilitato (fusibile)",
+        chtcPBOSupport: "Supporto PBO (fusibile)",
+        chtcUnsupportedZen4: "cHTC non è ancora verificato su Zen 4: la sezione verrà abilitata quando validata su hardware reale.",
+        chtcUnsupportedVermeer: "Il limite termico cHTC richiede Vermeer (Ryzen 3000) con mailbox SMU.",
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -1091,6 +1161,16 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "Макс. частота разгона: %u МГц",
         boostFastestCoreFormat: "Самое быстрое ядро: № %u",
         boostTelemetryUnavailable: "Ожидание первого считывания SMU в этом сеансе…",  // S5
+        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        chtcHeader: "Термолимит cHTC (SMU)",
+        chtcFooter: "Записывает термолимит cHTC пакета (SMU 0x56) с той же проверкой Vermeer и тем же термоблокировщиком, что и лимиты PBO. Команды чтения в SMU нет: показанное значение — последнее, записанное в этом сеансе.",
+        chtcSliderLabel: "Лимит cHTC",
+        chtcApply: "Применить лимит cHTC",
+        chtcActiveFormat: "Активный лимит cHTC: %d °C",
+        chtcOverclockable: "Разгон разблокирован (фьюз)",
+        chtcPBOSupport: "Поддержка PBO (фьюз)",
+        chtcUnsupportedZen4: "cHTC ещё не проверен на Zen 4: раздел будет включён после проверки на реальном железе.",
+        chtcUnsupportedVermeer: "Термолимит cHTC требует Vermeer (Ryzen 3000) с почтовым ящиком SMU.",
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -1226,6 +1306,16 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "Maks. boost frekansı: %u MHz",
         boostFastestCoreFormat: "En hızlı çekirdek: #%u",
         boostTelemetryUnavailable: "Bu oturumda ilk SMU okuma bekleniyor…",  // S5
+        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        chtcHeader: "cHTC Isı Sınırı (SMU)",
+        chtcFooter: "Paketin cHTC ısı sınırını (SMU 0x56) PBO sınırlarıyla aynı Vermeer doğrulaması ve termik kilidi ile yazar. SMU'da okuma komutu yoktur: gösterilen değer bu oturumda programlanan son değerdir.",
+        chtcSliderLabel: "cHTC sınırı",
+        chtcApply: "cHTC sınırını uygula",
+        chtcActiveFormat: "Etkin cHTC sınırı: %d °C",
+        chtcOverclockable: "Hız aşırtma izni (füze)",
+        chtcPBOSupport: "PBO desteği (füze)",
+        chtcUnsupportedZen4: "cHTC henüz Zen 4 üzerinde doğrulanmadı: bölüm gerçek donanımda doğrulandığında etkinleştirilecek.",
+        chtcUnsupportedVermeer: "cHTC ısı sınırı, SMU mailbox'ı olan Vermeer (Ryzen 3000) gerektirir.",
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -1361,6 +1451,16 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "最大ブースト周波数: %u MHz",
         boostFastestCoreFormat: "最速コア: #%u",
         boostTelemetryUnavailable: "このセッションの最初の SMU 読み取りを待っています…",  // S5
+        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        chtcHeader: "cHTC 温度上限（SMU）",
+        chtcFooter: "パッケージの cHTC 温度上限（SMU 0x56）を、PBO 上限と同じ Vermeer 検証およびサーマルインターロック付きで書き込みます。SMU には読み出しコマンドがないため、表示値はこのセッションで最後に書き込んだ値です。",
+        chtcSliderLabel: "cHTC 上限",
+        chtcApply: "cHTC 上限を適用",
+        chtcActiveFormat: "適用済みの cHTC 上限: %d °C",
+        chtcOverclockable: "OC 解錠（ヒューズ）",
+        chtcPBOSupport: "PBO 対応（ヒューズ）",
+        chtcUnsupportedZen4: "cHTC は Zen 4 では未検証です。実機での検証後に有効化されます。",
+        chtcUnsupportedVermeer: "cHTC 温度上限には SMU メールボックスを持つ Vermeer（Ryzen 3000）が必要です。",
         cpbToggle: "Core Performance Boost（CPB）",
         ppmToggle: "Processor Power Manager（PPM）",
         lpmToggle: "Low Power Mode（LPM）",
@@ -1496,6 +1596,16 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "최대 부스트 클럭: %u MHz",
         boostFastestCoreFormat: "가장 빠른 코어: #%u",
         boostTelemetryUnavailable: "이 세션의 첫 SMU 읽기를 기다리는 중…",  // S5
+        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        chtcHeader: "cHTC 온도 한계 (SMU)",
+        chtcFooter: "패키지의 cHTC 온도 한계(SMU 0x56)를 PBO 한계와 동일한 Vermeer 검증 및 열 인터락과 함께 기록합니다. SMU에는 읽기 명령이 없으므로 표시되는 값은 이 세션에서 마지막으로 기록한 값입니다.",
+        chtcSliderLabel: "cHTC 한계",
+        chtcApply: "cHTC 한계 적용",
+        chtcActiveFormat: "적용된 cHTC 한계: %d °C",
+        chtcOverclockable: "오버클러킹 허용 (퓨즈)",
+        chtcPBOSupport: "PBO 지원 (퓨즈)",
+        chtcUnsupportedZen4: "cHTC는 아직 Zen 4에서 검증되지 않았습니다: 실제 하드웨어에서 검증되면 활성화됩니다.",
+        chtcUnsupportedVermeer: "cHTC 온도 한계는 SMU 메일박스가 있는 Vermeer(Ryzen 3000)가 필요합니다.",
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -1631,6 +1741,16 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "最大加速频率：%u MHz",
         boostFastestCoreFormat: "最快核心：#%u",
         boostTelemetryUnavailable: "等待本次会话的首次 SMU 读取…",  // S5
+        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        chtcHeader: "cHTC 温度上限（SMU）",
+        chtcFooter: "写入封装的 cHTC 温度上限（SMU 0x56），沿用与 PBO 上限相同的 Vermeer 校验和热保护联锁。SMU 没有读取命令：显示值是本次会话中最后写入的值。",
+        chtcSliderLabel: "cHTC 上限",
+        chtcApply: "应用 cHTC 上限",
+        chtcActiveFormat: "当前 cHTC 上限：%d °C",
+        chtcOverclockable: "超频已解锁（熔丝）",
+        chtcPBOSupport: "PBO 支持（熔丝）",
+        chtcUnsupportedZen4: "cHTC 尚未在 Zen 4 上验证：该部分将在真实硬件验证后启用。",
+        chtcUnsupportedVermeer: "cHTC 温度上限需要带 SMU 邮箱的 Vermeer（Ryzen 3000）。",
         cpbToggle: "Core Performance Boost（CPB）",
         ppmToggle: "Processor Power Manager（PPM）",
         lpmToggle: "Low Power Mode（LPM）",
@@ -1766,6 +1886,16 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "最大加速頻率：%u MHz",
         boostFastestCoreFormat: "最快核心：#%u",
         boostTelemetryUnavailable: "等待本次工作階段的首次 SMU 讀取…",  // S5
+        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        chtcHeader: "cHTC 溫度上限（SMU）",
+        chtcFooter: "寫入封裝的 cHTC 溫度上限（SMU 0x56），沿用與 PBO 上限相同的 Vermeer 驗證與熱保護聯鎖。SMU 沒有讀取命令：顯示值是本次工作階段中最後寫入的值。",
+        chtcSliderLabel: "cHTC 上限",
+        chtcApply: "套用 cHTC 上限",
+        chtcActiveFormat: "目前 cHTC 上限：%d °C",
+        chtcOverclockable: "超頻已解鎖（熔絲）",
+        chtcPBOSupport: "PBO 支援（熔絲）",
+        chtcUnsupportedZen4: "cHTC 尚未在 Zen 4 上驗證：該部分將在真實硬體驗證後啟用。",
+        chtcUnsupportedVermeer: "cHTC 溫度上限需要具備 SMU 信箱的 Vermeer（Ryzen 3000）。",
         cpbToggle: "Core Performance Boost（CPB）",
         ppmToggle: "Processor Power Manager（PPM）",
         lpmToggle: "Low Power Mode（LPM）",

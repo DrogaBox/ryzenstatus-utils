@@ -24,6 +24,12 @@ struct AmdPowerSettingsView: View {
     @State private var pboScalarTenths: Double = 10  // 1.0x
     @State private var pboStatusMessage: String?
     @State private var pboStatusIsError = false
+    // S6: cHTC limit (0x56) — draft slider + applied badge + status message.
+    @State private var chtcDraftCelsius: Double = Double(AMDSmuParameters.defaultCHTCCelsius)
+    @State private var chtcAppliedCelsius: Int?
+    @State private var chtcStatusMessage: String?
+    @State private var chtcStatusIsError = false
+    @State private var chtcSeeded = false
     @State private var isLoading = false
     @ObservedObject private var gaming = GamingModeService.shared
     @ObservedObject private var c6Service = C6ResidencyService.shared
@@ -388,6 +394,84 @@ struct AmdPowerSettingsView: View {
                     Text(l10n.amdPower.boostTelemetryHeader)
                 } footer: {
                     Text(l10n.amdPower.boostTelemetryFooter)
+                }
+
+                // S6: cHTC thermal limit (SMU 0x56) + fused capability bits
+                // from GetProcessorParameters (0x6F). Same fail-closed Vermeer
+                // gate and write flow as the PBO limits; the kext reports the
+                // last programmed value for read-back.
+                Section {
+                    if coGeneration.isZen4OrNewer {
+                        Label(l10n.amdPower.chtcUnsupportedZen4, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if pboSupported {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(l10n.amdPower.chtcSliderLabel)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                Text("\(Int(chtcDraftCelsius)) °C")
+                                    .font(.system(.body, design: .monospaced))
+                            }
+                            Slider(value: $chtcDraftCelsius,
+                                   in: Double(AMDSmuParameters.minCHTCCelsius)...Double(AMDSmuParameters.maxCHTCCelsius),
+                                   step: 1)
+                        }
+                        .padding(.vertical, 2)
+
+                        HStack(spacing: 10) {
+                            Button {
+                                applyCHTCLimit()
+                            } label: {
+                                Label(l10n.amdPower.chtcApply, systemImage: "thermometer.sun.fill")
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            Spacer()
+
+                            if let message = chtcStatusMessage {
+                                Text(message)
+                                    .font(.caption2)
+                                    .foregroundColor(chtcStatusIsError ? .red : .green)
+                                    .lineLimit(2)
+                            }
+                        }
+
+                        if let applied = chtcAppliedCelsius {
+                            Text(String(format: l10n.amdPower.chtcActiveFormat, applied))
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+
+                        // Fused capability bits (0x6F), read once by the kext
+                        // timer. The raw word renders only when undocumented
+                        // bits are set — honesty over guessing.
+                        if controls.procParamsPolled {
+                            HStack(spacing: 12) {
+                                capabilityBadge(l10n.amdPower.chtcOverclockable,
+                                                enabled: AMDSmuParameters.isOverclockable(controls.procParamsRaw))
+                                capabilityBadge(l10n.amdPower.chtcPBOSupport,
+                                                enabled: AMDSmuParameters.pboSupportFused(controls.procParamsRaw))
+                                if AMDSmuParameters.hasReservedBits(controls.procParamsRaw) {
+                                    Text(String(format: "0x%08X", controls.procParamsRaw))
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                    } else {
+                        Label(l10n.amdPower.chtcUnsupportedVermeer, systemImage: "info.circle")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } header: {
+                    Text(l10n.amdPower.chtcHeader)
+                } footer: {
+                    Text(l10n.amdPower.chtcFooter)
                 }
 
                 if controls.cppcSupported {
@@ -1083,6 +1167,47 @@ struct AmdPowerSettingsView: View {
         }
     }
 
+    /// Small fused-capability badge: green check or muted cross.
+    private func capabilityBadge(_ title: String, enabled: Bool) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: enabled ? "checkmark.circle.fill" : "xmark.circle")
+                .foregroundColor(enabled ? .green : .secondary)
+                .font(.caption2)
+            Text(title)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    /// Programs the cHTC thermal limit from the slider (°C). Same call-flow
+    /// and message mapping as the PBO writes; the read-back row below the
+    /// buttons confirms the programmed value from the kext cache.
+    private func applyCHTCLimit() {
+        let status = ProcessorModel.shared.setCHTCLimit(celsius: Int(chtcDraftCelsius.rounded()))
+        if status == KERN_SUCCESS {
+            chtcStatusIsError = false
+            chtcStatusMessage = nil
+            chtcAppliedCelsius = Int(chtcDraftCelsius.rounded())
+        } else {
+            chtcStatusIsError = true
+            if status == ProcessorModel.kIOReturnNotPrivilegedCode {
+                chtcStatusMessage = "Requires root or -amdpnopchk"
+            } else if status == kIOReturnUnsupported {
+                chtcStatusMessage = "Not supported by the kext on this CPU (Vermeer only)"
+            } else if status == kIOReturnNotReady {
+                chtcStatusMessage = "Blocked: package temperature above 75 °C"
+            } else if status == kIOReturnBadArgument {
+                chtcStatusMessage = "Value outside the safe range"
+            } else if status == kIOReturnTimeout {
+                chtcStatusMessage = "SMU timeout — try again"
+            } else if status == kIOReturnBusy {
+                chtcStatusMessage = "SMU busy — try again"
+            } else {
+                chtcStatusMessage = "SMU command failed"
+            }
+        }
+    }
+
     /// Maps the kext's selector-111 return codes to friendly messages.
     private func curveOptimizerError(_ status: kern_return_t) -> String {
         if status == ProcessorModel.kIOReturnNotPrivilegedCode {
@@ -1196,6 +1321,8 @@ struct AmdPowerSettingsView: View {
         let supportsPBO: Bool
         let pboLimitsCache: (ppt: Int, tdc: Int, edc: Int)?
         let pboScalarCache: Int?
+        // S6: cHTC limit cache (0 = never written this boot).
+        let chtcCache: Int?
     }
 
     private func fetchState() async {
@@ -1265,7 +1392,8 @@ struct AmdPowerSettingsView: View {
                                    pStateLabels: pStateLabels,
                                    supportsPBO: supportsPBO,
                                    pboLimitsCache: pboLimitsTuple,
-                                   pboScalarCache: pboScalarCache)
+                                   pboScalarCache: pboScalarCache,
+                                   chtcCache: supportsPBO ? ProcessorModel.shared.getCHTCLimit().map(Int.init) : nil)
         }
         let state = await withTaskCancellationHandler(operation: {
             await worker.value
@@ -1301,6 +1429,19 @@ struct AmdPowerSettingsView: View {
             pboScalarCacheX100 = scalar
         } else {
             pboScalarTenths = pboLastScalarTenths
+        }
+        // S6: seed the cHTC slider — kext cache when present, else the AMD
+        // stock ceiling. Only the first sync drafts the slider; later syncs
+        // just refresh the applied badge so mid-session edits survive.
+        if let chtc = state.chtcCache {
+            chtcAppliedCelsius = chtc
+            if !chtcSeeded {
+                chtcDraftCelsius = Double(chtc)
+                chtcSeeded = true
+            }
+        } else if !chtcSeeded {
+            chtcDraftCelsius = Double(AMDSmuParameters.defaultCHTCCelsius)
+            chtcSeeded = true
         }
         isLoading = false
     }

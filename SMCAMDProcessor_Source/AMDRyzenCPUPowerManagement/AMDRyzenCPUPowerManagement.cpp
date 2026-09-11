@@ -343,6 +343,10 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
         // from the same command gate — never from user threads (F-05 lesson).
         provider->pollBoostTelemetry();
 
+        // S6: one-shot ProcessorParameters (0x6F) read — static silicon
+        // configuration, so stop after the first successful answer this boot.
+        provider->pollProcessorParameters();
+
         IOLockUnlock(provider->rendezvousLock);
 
         uint64_t now = getCurrentTimeNs() / 1000000; //ms
@@ -1319,6 +1323,55 @@ void AMDRyzenCPUPowerManagement::pollBoostTelemetry() {
     // the SMU only returns 0 while clocks are being reconfigured.
     smuMaxBoostFreqMHz = pollSmuRead(0x6E);
     smuFastestCoreRaw = pollSmuRead(0x59);
+}
+
+// S6: one-shot ProcessorParameters read (Vermeer RSMU 0x6F, per ryzen_smu
+// rsmu_commands.md — Res0 bitfield, no input arg). Static silicon config:
+// on the first SMU_RSP_OK the result is cached and the command is never
+// re-issued this boot. Runs on the timer command gate only (F-05 lesson).
+uint32_t AMDRyzenCPUPowerManagement::pollProcessorParameters() {
+    if (!smuMailbox.supported) return 0;
+    if (smuProcParamsPolled) return smuProcessorParametersRaw;
+    
+    uint32_t result = 0;
+    int rsp = smuSendCmd(0x6F, 0, result);
+    if (rsp == SMU_RSP_OK) {
+        smuProcessorParametersRaw = result;
+        smuProcParamsPolled = true;
+        IOLog("AMDRyzenCPUPowerManagement: ProcessorParameters (0x6F) = 0x%X (bit0 overclockable, bit1 PBO).\n", result);
+    }
+    return smuProcessorParametersRaw;
+}
+
+// S6: program the cHTC thermal limit (Vermeer SMU 0x56, Arg0 = °C, per
+// ryzen_smu rsmu_commands.md). Same capability gate and thermal interlock
+// policy as the PBO limits: Vermeer-with-mailbox only, writes blocked while
+// the package is already hot. Cache updated for read-back on success.
+int AMDRyzenCPUPowerManagement::setCHTCLimit(uint32_t arg) {
+    if (!pboLimitsSupported()) return -1;
+    
+    // Thermal safety interlock, same policy as Curve Optimizer / PBO: don't
+    // push a new thermal limit while the package is already hot.
+    float currentTemp = PACKAGE_TEMPERATURE_perPackage[0];
+    if (currentTemp > kCURVE_OPTIMIZER_BLOCK_TEMP_C) {
+        IOLog("AMDRyzenCPUPowerManagement: Blocked cHTC limit write (0x56) due to high package temperature (%.1f C).\n", currentTemp);
+        return -4;
+    }
+    
+    int response = smuSendCmd(0x56, arg);
+    
+    if (response == SMU_RSP_OK) {
+        smuCHTCLimitCelsius = arg;
+        IOLog("AMDRyzenCPUPowerManagement: cHTC limit applied (0x56, %u C).\n", arg);
+        return 0;
+    }
+    
+    IOLog("AMDRyzenCPUPowerManagement: SMU cHTC command 0x56 failed with response code: 0x%X\n", response);
+    if (response == SMU_RSP_TIMEOUT) return -10;
+    if (response == SMU_RSP_INVALID_CMD) return -11;
+    if (response == SMU_RSP_INVALID_ARGS) return -12;
+    if (response == SMU_RSP_BUSY) return -13;
+    return -5;
 }
 
 int AMDRyzenCPUPowerManagement::setCurveOptimizer(uint8_t core, int8_t offset) {

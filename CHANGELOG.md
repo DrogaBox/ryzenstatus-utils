@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.26.0] — 2026-09-11
+
+### AMD Kernel: cHTC thermal limit + fused capability bits (wave S6)
+- **cHTC limit control**: the kext now programs the package cHTC thermal limit via the Vermeer SMU `SetcHTCLimit` command (0x56, Arg0 = °C), behind the same capability gate and 85 °C package-temperature interlock as the PBO limits. New privileged **selector 46** validates the target into a 40…95 °C window (Tjmax on Vermeer); **selector 45** reads back the last value programmed this boot — the SMU has no read command for cHTC, so the kext caches on write success, exactly like the PBO limits.
+- **ProcessorParameters capability bits**: the command-gate timer performs a one-shot read of the Vermeer RSMU `GetProcessorParameters` command (0x6F) — static silicon configuration, never re-issued after the first successful answer. **Selector 44** exposes the raw bitfield (bit 0 IsOverclockable, bit 1 PBO support) plus a "polled" flag, so a genuine 0-bitfield is distinguishable from "not read yet". The word is cached raw and decoded app-side in the unit-tested `AMDSmuParameters` helpers; any undocumented bits surface as raw hex instead of being silently dropped.
+- **Settings UI**: a new "cHTC Thermal Limit (SMU)" section in AMD Power Settings with the slider/apply/status flow shared with the PBO controls, an applied read-back row, and fused-capability badges (overclocking unlocked, PBO support). Fail-closed banners for Zen 4 and non-Vermeer silicon.
+- **13-locale sweep** for the new section, with format-specifier invariant tests; the strict-concurrency gate stays at 0 diagnostics.
+- Kexts rebuilt at **3.34.4**; `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` refreshed and its SHA-256 repinned in `Tools/make-dmg.sh`. App 1.26.0 (65).
+
 ## [1.25.0] — 2026-09-11
 
 ### AMD Kernel: SMU boost telemetry (wave S5)

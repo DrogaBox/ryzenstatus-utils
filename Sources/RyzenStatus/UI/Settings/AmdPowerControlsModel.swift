@@ -40,6 +40,15 @@ final class AmdPowerControlsModel: ObservableObject {
     @Published private(set) var fastestCoreIndex: Int?
     @Published private(set) var fastestCoreRaw: UInt32 = 0
 
+    // S6: ProcessorParameters (0x6F) + cHTC limit cache — refreshed inside
+    // syncFromKext's detached kext batch alongside the S5 telemetry.
+    // `procParamsPolled` is false until the kext timer's one-shot 0x6F read
+    // has succeeded this boot; `chtcLimitCelsius` stays nil until a write
+    // succeeds (or the kext reports a cache from an earlier write).
+    @Published private(set) var procParamsRaw: UInt32 = 0
+    @Published private(set) var procParamsPolled = false
+    @Published private(set) var chtcLimitCelsius: Int?
+
     /// Guard flag: true when updating published properties from kext reads
     /// to avoid trigger loops from `.onChange` handlers.
     /// Writes arriving while a sync is in flight are intentionally dropped;
@@ -143,7 +152,7 @@ final class AmdPowerControlsModel: ObservableObject {
 
         recordTelemetrySample()
 
-        let (kernelAnswered, cpb, cppcState, ppm, lpm, boost) = await Task.detached(priority: .userInitiated) {
+        let (kernelAnswered, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit) = await Task.detached(priority: .userInitiated) {
             // AUDIT F-27: thread-safe connection check to avoid data races
             let kernelAnswered = ProcessorModel.shared.isConnected
             let cpb = ProcessorModel.shared.getCPB()
@@ -155,7 +164,10 @@ final class AmdPowerControlsModel: ObservableObject {
             // S5: cached boost telemetry — the kext call never touches the SMU,
             // it only reads the timer-populated cache.
             let boost = kernelAnswered ? ProcessorModel.shared.getBoostTelemetry() : nil
-            return (kernelAnswered, cpb, cppcState, ppm, lpm, boost)
+            // S6: one-shot 0x6F bitfield + cHTC cache, same off-the-SMU policy.
+            let procParams = kernelAnswered ? ProcessorModel.shared.getProcessorParameters() : nil
+            let chtcLimit = kernelAnswered ? ProcessorModel.shared.getCHTCLimit() : nil
+            return (kernelAnswered, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit)
         }.value
         let profile = await ProcessorModel.shared.cpuProfile
 
@@ -185,6 +197,18 @@ final class AmdPowerControlsModel: ObservableObject {
             maxBoostFreqMHz = 0
             fastestCoreRaw = 0
             fastestCoreIndex = nil
+        }
+
+        // S6: publish the ProcessorParameters bitfield + cHTC limit cache.
+        if let procParams {
+            procParamsRaw = procParams.raw
+            procParamsPolled = procParams.polled
+        } else {
+            procParamsRaw = 0
+            procParamsPolled = false
+        }
+        if chtcLimitCelsius != chtcLimit.map({ Int($0) }) {
+            chtcLimitCelsius = chtcLimit.map({ Int($0) })
         }
 
         if profile.legacyPstateAllowed {

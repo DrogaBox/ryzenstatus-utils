@@ -1800,6 +1800,44 @@ actor ProcessorModel {
         return (UInt32(truncatingIfNeeded: output[0]),
                 UInt32(truncatingIfNeeded: output[1]))
     }
+
+    // MARK: — S6: cHTC limit + ProcessorParameters (Vermeer SMU, selectors 44-46)
+
+    /// Read the kext's cached `GetProcessorParameters` (0x6F) bitfield: bit 0
+    /// IsOverclockable, bit 1 PBO support (decode in `AMDSmuParameters`).
+    /// Returns nil when the kext is pre-1.26 (selector unsupported), the
+    /// connection is down, or the kext timer has not read the command yet.
+    nonisolated func getProcessorParameters() -> (raw: UInt32, polled: Bool)? {
+        var output: [UInt64] = [0, 0]
+        var outputCount: UInt32 = 2
+        let res = safeIOConnectCallMethod(AMDKextSelector.processorParametersRead.id, nil, 0, nil, 0,
+                                          &output, &outputCount, nil, nil)
+        guard res == KERN_SUCCESS, outputCount >= 2 else { return nil }
+        return (UInt32(truncatingIfNeeded: output[0]), output[1] == 1)
+    }
+
+    /// Read the kext's cHTC limit cache: the last value successfully
+    /// programmed via SMU 0x56 this boot in °C (nil when pre-1.26 kext /
+    /// connection down / nothing written yet).
+    nonisolated func getCHTCLimit() -> UInt32? {
+        var output: [UInt64] = [0]
+        var outputCount: UInt32 = 1
+        let res = safeIOConnectCallMethod(AMDKextSelector.chtcLimitRead.id, nil, 0, nil, 0,
+                                          &output, &outputCount, nil, nil)
+        guard res == KERN_SUCCESS, outputCount >= 1 else { return nil }
+        let value = UInt32(truncatingIfNeeded: output[0])
+        return value == 0 ? nil : value
+    }
+
+    /// Program the cHTC thermal limit (SMU 0x56) in °C. Values are clamped to
+    /// the shared 40…95 °C window before submission; the kext additionally
+    /// gates on Vermeer + SMU mailbox and blocks while the package is hot.
+    @discardableResult
+    nonisolated func setCHTCLimit(celsius: Int) -> kern_return_t {
+        let clamped = AMDSmuParameters.clampCHTCCelsius(celsius)
+        var input: [UInt64] = [UInt64(clamped)]
+        return safeIOConnectCallMethod(AMDKextSelector.chtcLimitWrite.id, &input, 1, nil, 0, nil, nil, nil, nil)
+    }
 }
 
 /// Per-component IOKit statuses of a `ProcessorModel.applyPowerPreset(_:)` call.

@@ -7474,6 +7474,26 @@ struct MetricsTests {
                    "Language \(lang.rawValue) boostFastestCoreFormat must keep exactly 1 %u specifier: \(a.boostFastestCoreFormat)")
             expect(!a.boostTelemetryUnavailable.contains("%"),
                    "Language \(lang.rawValue) boostTelemetryUnavailable must not carry format specifiers")
+
+            // MARK: S6 cHTC Strings Invariants (one %d in the active format)
+            let chtcKeys: [(String, String)] = [
+                ("chtcHeader", a.chtcHeader),
+                ("chtcFooter", a.chtcFooter),
+                ("chtcSliderLabel", a.chtcSliderLabel),
+                ("chtcApply", a.chtcApply),
+                ("chtcActiveFormat", a.chtcActiveFormat),
+                ("chtcOverclockable", a.chtcOverclockable),
+                ("chtcPBOSupport", a.chtcPBOSupport),
+                ("chtcUnsupportedZen4", a.chtcUnsupportedZen4),
+                ("chtcUnsupportedVermeer", a.chtcUnsupportedVermeer)
+            ]
+            for (key, value) in chtcKeys {
+                expect(!value.isEmpty, "Language \(lang.rawValue) amdPower.\(key) must not be empty")
+            }
+            expect(formatSpecifiers(in: a.chtcActiveFormat) == ["d"],
+                   "Language \(lang.rawValue) chtcActiveFormat must keep exactly 1 %d specifier: \(a.chtcActiveFormat)")
+            expect(!a.chtcFooter.contains("%"),
+                   "Language \(lang.rawValue) chtcFooter must not carry format specifiers")
         }
 
         // MARK: S4 AMDPBOLimits Helpers (gate, clamps, formatters)
@@ -7532,6 +7552,28 @@ struct MetricsTests {
         // n=0 contributes nothing to the word: a bare core 0 is
         // indistinguishable from the "never read" placeholder, which the
         // 0 case above already covers.
+
+        // MARK: S6 AMDSmuParameters Helpers (0x6F bitfield, cHTC window)
+
+        // Command ID must match the Vermeer RSMU read command the kext polls.
+        expect(AMDSmuParameters.getProcessorParametersCmd == 0x6F,
+               "GetProcessorParameters is RSMU 0x6F")
+
+        // Bitfield decode: bit 0 = IsOverclockable, bit 1 = PBO support.
+        expect(AMDSmuParameters.isOverclockable(0x1), "bit 0 set ⇒ overclockable")
+        expect(!AMDSmuParameters.isOverclockable(0x2), "bit 0 clear ⇒ not overclockable")
+        expect(AMDSmuParameters.pboSupportFused(0x2), "bit 1 set ⇒ PBO fused on")
+        expect(!AMDSmuParameters.pboSupportFused(0x1), "bit 1 clear ⇒ no fused PBO")
+        expect(AMDSmuParameters.isOverclockable(0x3) && AMDSmuParameters.pboSupportFused(0x3),
+               "0x3 sets both documented bits")
+        expect(AMDSmuParameters.hasReservedBits(0x4), "bits above 0…1 surface as reserved")
+        expect(!AMDSmuParameters.hasReservedBits(0x3), "documented bits are not reserved")
+
+        // cHTC clamp: the 40…95 °C window is shared with the kext.
+        expect(AMDSmuParameters.clampCHTCCelsius(0) == 40, "clampCHTCCelsius floors at 40")
+        expect(AMDSmuParameters.clampCHTCCelsius(120) == 95, "clampCHTCCelsius caps at Tjmax 95")
+        expect(AMDSmuParameters.clampCHTCCelsius(85) == 85, "clampCHTCCelsius passes in-range values through")
+        expect(AMDSmuParameters.defaultCHTCCelsius == 85, "default cHTC target is the AMD stock ceiling")
 
         // MARK: Result
 

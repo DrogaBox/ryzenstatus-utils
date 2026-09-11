@@ -146,3 +146,45 @@ enum AMDSmuBoost {
         return index
     }
 }
+
+// MARK: - SMU Processor Parameters (S6, selector 44 — Vermeer read command)
+
+enum AMDSmuParameters {
+    /// Vermeer RSMU `GetProcessorParameters` command ID polled once by the
+    /// kext's command-gate timer (ryzen_smu `rsmu_commands.md`; the doc
+    /// carries an uncertainty marker, so the kext caches the raw word and
+    /// every interpretation lives in this single unit-tested place).
+    static let getProcessorParametersCmd: UInt32 = 0x6F
+
+    /// cHTC default for the UI slider when nothing has been programmed this
+    /// boot (°C) — AMD's stock thermal ceiling for Vermeer.
+    static let defaultCHTCCelsius = 85
+
+    /// Safety window enforced identically by the kext (selector 46) and the
+    /// UI slider: below 40 °C the limit could engage before the package even
+    /// warms up; Vermeer's Tjmax is 95 °C.
+    static let minCHTCCelsius = 40
+    static let maxCHTCCelsius = 95
+
+    /// Clamps a cHTC target to the shared 40…95 °C window.
+    static func clampCHTCCelsius(_ celsius: Int) -> Int {
+        min(maxCHTCCelsius, max(minCHTCCelsius, celsius))
+    }
+
+    /// Bit 0 of the 0x6F bitfield: the fused overclocking fuse is blown —
+    /// the silicon accepts SMU overclocking/limit commands.
+    static func isOverclockable(_ raw: UInt32) -> Bool {
+        raw & 0x1 != 0
+    }
+
+    /// Bit 1 of the 0x6F bitfield: fused PBO support.
+    static func pboSupportFused(_ raw: UInt32) -> Bool {
+        raw & 0x2 != 0
+    }
+
+    /// Bits above the two documented ones are reserved — surfaced as "unknown
+    /// extra state" rather than silently dropped (honesty over guessing).
+    static func hasReservedBits(_ raw: UInt32) -> Bool {
+        raw & ~0x3 != 0
+    }
+}

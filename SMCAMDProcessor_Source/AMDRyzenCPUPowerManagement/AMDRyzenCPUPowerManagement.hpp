@@ -289,6 +289,18 @@ public:
     // per kSMU_BOOST_POLL_MIN_INTERVAL_MS (the main timer cadence is shorter).
     void pollBoostTelemetry();
     
+    // S6: shared write path for the Vermeer cHTC thermal limit (SMU 0x56,
+    // Arg0 = degrees Celsius). Same capability gate + thermal interlock policy
+    // as setPBOLimit; on success the new limit is cached for read-back.
+    // Negative return maps like setPBOLimit (-1 unsupported, -4 hot, -5 SMU
+    // error, -10 timeout, -11 invalid cmd, -12 invalid args, -13 busy).
+    int setCHTCLimit(uint32_t arg);
+    
+    // S6: one-shot read of the Vermeer ProcessorParameters bitfield (SMU 0x6F:
+    // bit 0 IsOverclockable, bit 1 PBO support). Returns the raw word on OK,
+    // else 0. Timer command gate only — never from user threads (F-05).
+    uint32_t pollProcessorParameters();
+    
     //Cache size in KB
     uint32_t cpuCacheL1_perCore;
     uint32_t cpuCacheL2_perCore;
@@ -488,6 +500,19 @@ public:
     uint32_t smuMaxBoostFreqMHz {0};
     uint32_t smuFastestCoreRaw {0};
     uint64_t smuBoostTelemetryLastPollMs {0};
+
+    // S6: cached ProcessorParameters bitfield (Vermeer RSMU 0x6F). Static
+    // silicon configuration, so it is read once from the timer command gate
+    // and cached; smuProcParamsPolled distinguishes a real 0 response from
+    // "never read this boot". Raw word cached byte-identically — decode in
+    // AMDSmuParameters on the app side, where it is unit-testable.
+    uint32_t smuProcessorParametersRaw {0};
+    bool smuProcParamsPolled {false};
+
+    // S6: cHTC limit cache — the last value successfully programmed via SMU
+    // 0x56 this boot (0 = never set). The SMU has no read command for cHTC;
+    // the kext caches on success, same as the PBO limits.
+    uint32_t smuCHTCLimitCelsius {0};
 
     // S3-B: read-only view for the UserClient capability report (selector 35).
     // Exposes only the fields the CO capability needs; keeps the rest of the

@@ -1744,6 +1744,76 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
         
+        // Get ProcessorParameters bitfield (S6): [0] = raw 0x6F response word
+        // (bit 0 IsOverclockable, bit 1 PBO support — decode lives app-side in
+        // AMDSmuParameters), [1] = 1 once the timer command gate has read the
+        // command successfully this boot (a real 0-bitfield is a valid answer,
+        // so "polled" must be distinct from the value). Read-only: served from
+        // the timer cache, never a live SMU read on a user thread (F-05).
+        case 44: {
+            if(!provider)
+                return kIOReturnNoDevice;
+            
+            arguments->scalarOutputCount = 2;
+            arguments->scalarOutput[0] = provider->smuProcessorParametersRaw;
+            arguments->scalarOutput[1] = provider->smuProcParamsPolled ? 1 : 0;
+            
+            break;
+        }
+        
+        // Get cHTC limit cache (S6): [0] = the last value successfully
+        // programmed via SMU 0x56 this boot in °C (0 = never set — the SMU has
+        // no read command for cHTC; the kext caches on write success).
+        // Read-only, no SMU traffic.
+        case 45: {
+            if(!provider)
+                return kIOReturnNoDevice;
+            
+            arguments->scalarOutputCount = 1;
+            arguments->scalarOutput[0] = provider->smuCHTCLimitCelsius;
+            
+            break;
+        }
+        
+        // Set cHTC thermal limit (S6, privileged): [0] = target in °C, valid
+        // window 40..95 (0x56 Arg0 = degrees Celsius). Privilege required,
+        // same as the PBO limits; the provider enforces the Vermeer gate and
+        // the package-temperature interlock.
+        case 46: {
+            if(!provider)
+                return kIOReturnNoDevice;
+            
+            if(!hasPrivilege(46))
+                return kIOReturnNotPrivileged;
+                
+            if(arguments->scalarInputCount != 1)
+                return kIOReturnBadArgument;
+                
+            uint32_t celsius = (uint32_t)arguments->scalarInput[0];
+            
+            // Safety window: below 40 °C the limit could engage before the
+            // package even warms up, and nothing in the Ryzen Master range
+            // asks for more than 95 °C (Tjmax is 95 °C on Vermeer).
+            if (celsius < 40 || celsius > 95)
+                return kIOReturnBadArgument;
+            
+            if (!provider->pboLimitsSupported())
+                return kIOReturnUnsupported;
+            
+            if (provider->controlLock) IOLockLock(provider->controlLock);
+            int rc = provider->setCHTCLimit(celsius);
+            if (provider->controlLock) IOLockUnlock(provider->controlLock);
+            
+            if (rc < 0) {
+                if (rc == -1 || rc == -11) return kIOReturnUnsupported;
+                if (rc == -4) return kIOReturnNotReady;
+                if (rc == -10) return kIOReturnTimeout;
+                if (rc == -13) return kIOReturnBusy;
+                return kIOReturnError;
+            }
+            break;
+        }
+        
         // Set PBO limits: PPT mW, TDC mA, EDC mA. Privilege required.
         case 41: {
             if(!provider)
