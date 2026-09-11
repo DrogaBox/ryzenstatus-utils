@@ -253,3 +253,30 @@ struct FanCurveDefinition: Codable, Identifiable, Hashable, Sendable {
 }
 
 typealias FanCurve = FanCurveDefinition
+
+// MARK: - Hardware Safety Bounds
+
+public enum AMDFanSafety {
+    /// Safe minimum hardware PWM duty floor (~1.18% duty) to prevent fan rotor stall.
+    public static let minimumManualPWM: UInt8 = 3
+    /// Temperature threshold at which emergency thermal guard activates.
+    public static let thermalGuardTempC: Double = 85.0
+    /// Emergency PWM floor (200 / 255 = ~78.4%) enforced at or above 85°C.
+    public static let thermalGuardPWM: UInt8 = 200
+
+    /// Clamps user manual PWM to the safe hardware floor (PWM >= 3 / ~1%).
+    public static func clampManualPWM(_ pwm: UInt8) -> UInt8 {
+        max(minimumManualPWM, pwm)
+    }
+
+    /// Calculates effective manual PWM applying the thermal guard clamp at or above 85°C.
+    /// Stateless: reverts to user's desired PWM when temperature drops below 85°C.
+    public static func effectiveManualPWM(userPWM: UInt8, currentTemp: Double) -> UInt8 {
+        let safeUserPWM = clampManualPWM(userPWM)
+        if currentTemp >= thermalGuardTempC {
+            return max(safeUserPWM, thermalGuardPWM)
+        }
+        return safeUserPWM
+    }
+}
+

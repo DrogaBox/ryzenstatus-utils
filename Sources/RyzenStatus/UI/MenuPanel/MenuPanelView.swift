@@ -375,7 +375,10 @@ struct MenuPanelView: View {
         case .network: return 190
         case .disk: return 360
         case .power: return 170
-        case .amdPower: return 110
+        // S2-T1: fan picker + EPP picker + preset grid + thresholds disclosure
+        // + 4 toggles measure ~550-600 pt; the stale 110 estimate caused the
+        // scroll height to clip/jump on first open before real measurement.
+        case .amdPower: return 580
         case .utilities: return 500
         case .controls: return 360
         case .toggles: return 420

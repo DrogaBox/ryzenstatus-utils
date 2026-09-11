@@ -26,7 +26,7 @@ enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
         case .network: return s.networkSection
         case .disk: return s.diskSection
         case .power: return s.powerSection
-        case .amdPower: return "AMD Ryzen"
+        case .amdPower: return FeatureStrings.amdPower(L10n.shared.language).panelSectionTitle
         case .utilities: return s.utilitiesSection
         case .controls: return s.quickControlsSection
         case .toggles: return FeatureStrings.quickToggles(L10n.shared.language).pageTitle
@@ -43,7 +43,7 @@ enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
         case .network: return "network"
         case .disk: return "internaldrive"
         case .power: return "bolt"
-        case .amdPower: return "cpu"
+        case .amdPower: return "cpu.fill"  // distinct from .system's "cpu"
         case .utilities: return "wrench.and.screwdriver.fill"
         case .controls: return "switch.2"
         case .toggles: return "togglepower"

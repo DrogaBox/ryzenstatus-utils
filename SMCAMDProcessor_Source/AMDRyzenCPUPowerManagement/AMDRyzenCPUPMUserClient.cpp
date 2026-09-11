@@ -802,6 +802,20 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
         
+        // S2-T4: Get resolved deep C-State policy (read-only, no privilege).
+        // Scalar output: [0] = 1 if the kext disables deep C-States (C6+),
+        //                [1] = raw cstateAddrConfig read after the boot write.
+        // Complements selector 22: apps can distinguish "0xF0 because we wrote
+        // it" from "0xF0 because firmware set it" and detect pre-1.21 kexts
+        // (this case absent → kIOReturnUnsupported → selector-22 fallback).
+        case 34: {
+            arguments->scalarOutputCount = 2;
+            arguments->scalarOutput[0] = provider->disableCStates ? 1 : 0;
+            arguments->scalarOutput[1] = provider->cstateAddrConfig;
+            
+            break;
+        }
+        
         // Get CPPC Active Mode status and current EPP value
         case 23: {
             arguments->scalarOutputCount = 2;
@@ -1329,6 +1343,19 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             int fanSel = (int)arguments->scalarInput[0];
             uint8_t pwm = (uint8_t)arguments->scalarInput[1];
+            
+            // S2-T4b (defense-in-depth): every manual PWM write, from any
+            // privileged process, honors the same emergency thermal guard the
+            // kext applies to curve-mode fans (kTHERMAL_GUARD_TEMP_C →
+            // kTHERMAL_GUARD_PWM). PACKAGE_TEMPERATURE_perPackage[0] is the
+            // timer-cached snapshot refreshed by updatePackageTemp() on the
+            // command-gated workloop (no live SMN/PCI read here — F-05 rule).
+            // Reading it under superIOLock is safe: writers hold rendezvousLock
+            // only, and the float read is atomic-enough for a clamp floor.
+            if (provider->PACKAGE_TEMPERATURE_perPackage[0] >= kTHERMAL_GUARD_TEMP_C
+                && pwm < kTHERMAL_GUARD_PWM) {
+                pwm = kTHERMAL_GUARD_PWM;
+            }
             
             IOLockLock(provider->superIOLock);
             if (!provider->superIO) {

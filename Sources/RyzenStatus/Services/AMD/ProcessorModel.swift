@@ -203,11 +203,11 @@ actor ProcessorModel {
     private var cpuListedAsSupported : Bool = false
 
     var systemConfig : [String : String] = [:]
-    var kextVersion : String = ""
+    nonisolated(unsafe) var kextVersion : String = ""
     var cpuidBasic : [UInt64] = []
-    var boardValid = false
-    var boardName : String = "Unknown"
-    var boardVendor : String = "Unknown"
+    nonisolated(unsafe) var boardValid = false
+    nonisolated(unsafe) var boardName : String = "Unknown"
+    nonisolated(unsafe) var boardVendor : String = "Unknown"
     private var lastLoadIndexTime: TimeInterval = 0
 
     var cpuFamily: Int {
@@ -1385,6 +1385,26 @@ actor ProcessorModel {
             return 0
         }
         return scalerOut
+    }
+
+    /// S2-T4: kext-resolved deep C-State policy. Prefers explicit selector 34
+    /// (kext ≥ 1.21.0, reports what `start()` actually resolved from the
+    /// `amdcstate` boot-arg); falls back to selector 22 for older kexts, where
+    /// `cstateAddrConfig == 0xF0` means the boot-time write disabled C6.
+    /// Returns nil when the kernel connection is unavailable.
+    nonisolated func getCStatePolicy() -> (disabled: Bool, addr: UInt64)? {
+        var output: [UInt64] = [0, 0]
+        var outputCount: UInt32 = 2
+        let res = safeIOConnectCallMethod( AMDKextSelector.cStatePolicy.id, nil, 0, nil, 0,
+                                           &output, &outputCount, nil, nil)
+        if res == KERN_SUCCESS && outputCount >= 1 {
+            return (output[0] == 1, output[1])
+        }
+        // Selector 34 unsupported → pre-1.21.0 kext. Selector 22 existed since
+        // the first ABI; its value is the post-start MSR state.
+        let addr = getCStateAddress()
+        guard addr != 0 else { return nil }
+        return (addr == 0xF0, addr)
     }
 
     // MARK: - Snapshot Transaction (IPC Optimization)

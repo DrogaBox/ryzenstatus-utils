@@ -61,6 +61,11 @@ struct FanControlFeatureStrings {
     let applyCurveButton: String
     let appliedCurveBadge: String
     let revertChangesButton: String
+    // AMD Polish S2-T2: manual-mode safety visibility.
+    let thermalGuardActiveHint: String
+    let pwmFloorHint: String
+    let sidebarTitle: String
+    let sensorsSidebarTitle: String
 }
 
 extension FeatureStrings {
@@ -147,7 +152,11 @@ extension FanControlFeatureStrings {
         deletePointTooltip: "Delete Point",
         applyCurveButton: "Apply Curve",
         appliedCurveBadge: "Applied",
-        revertChangesButton: "Revert"
+        revertChangesButton: "Revert",
+        thermalGuardActiveHint: "Emergency cooling: CPU ≥ 85 °C — fan forced to at least 78%",
+        pwmFloorHint: "Slider floor is 1% — lower PWM would stall the fan rotor",
+        sidebarTitle: "Fans & Cooling",
+        sensorsSidebarTitle: "Sensors"
     )
 
     static let es = FanControlFeatureStrings(
@@ -207,7 +216,11 @@ extension FanControlFeatureStrings {
         deletePointTooltip: "Eliminar Punto",
         applyCurveButton: "Aplicar curva",
         appliedCurveBadge: "Aplicada",
-        revertChangesButton: "Revertir"
+        revertChangesButton: "Revertir",
+        thermalGuardActiveHint: "Enfriamiento de emergencia: CPU ≥ 85 °C — ventilador forzado a al menos 78%",
+        pwmFloorHint: "El piso del deslizador es 1% — un PWM menor trabaría el rotor",
+        sidebarTitle: "Ventiladores y refrigeración",
+        sensorsSidebarTitle: "Sensores"
     )
 
     static let ptBR = FanControlFeatureStrings(
@@ -267,7 +280,11 @@ extension FanControlFeatureStrings {
         deletePointTooltip: "Excluir Ponto",
         applyCurveButton: "Aplicar curva",
         appliedCurveBadge: "Aplicada",
-        revertChangesButton: "Reverter"
+        revertChangesButton: "Reverter",
+        thermalGuardActiveHint: "Refrigeração de emergência: CPU ≥ 85 °C — fan forçado a pelo menos 78%",
+        pwmFloorHint: "O mínimo do controle é 1% — um PWM menor travaria o rotor",
+        sidebarTitle: "Ventiladores e refrigeração",
+        sensorsSidebarTitle: "Sensores"
     )
 
     static let de = FanControlFeatureStrings(
@@ -327,7 +344,11 @@ extension FanControlFeatureStrings {
         deletePointTooltip: "Punkt löschen",
         applyCurveButton: "Kurve anwenden",
         appliedCurveBadge: "Angewendet",
-        revertChangesButton: "Zurücksetzen"
+        revertChangesButton: "Zurücksetzen",
+        thermalGuardActiveHint: "Notfallkühlung: CPU ≥ 85 °C — Lüfter auf mindestens 78 % erzwungen",
+        pwmFloorHint: "Untergrenze des Reglers ist 1 % — niedrigerer PWM würde den Lüfterrotor blockieren",
+        sidebarTitle: "Lüfter & Kühlung",
+        sensorsSidebarTitle: "Sensoren"
     )
 
     static let fr = FanControlFeatureStrings(
@@ -387,7 +408,11 @@ extension FanControlFeatureStrings {
         deletePointTooltip: "Supprimer le point",
         applyCurveButton: "Appliquer la courbe",
         appliedCurveBadge: "Appliquée",
-        revertChangesButton: "Rétablir"
+        revertChangesButton: "Rétablir",
+        thermalGuardActiveHint: "Refroidissement d'urgence : CPU ≥ 85 °C — ventilateur forcé à au moins 78 %",
+        pwmFloorHint: "Le plancher du curseur est 1 % — un PWM inférieur bloquerait le rotor",
+        sidebarTitle: "Ventilateurs & refroidissement",
+        sensorsSidebarTitle: "Capteurs"
     )
 
     static let it = FanControlFeatureStrings(
@@ -447,7 +472,11 @@ extension FanControlFeatureStrings {
         deletePointTooltip: "Elimina punto",
         applyCurveButton: "Applica curva",
         appliedCurveBadge: "Applicata",
-        revertChangesButton: "Ripristina"
+        revertChangesButton: "Ripristina",
+        thermalGuardActiveHint: "Raffreddamento di emergenza: CPU ≥ 85 °C — ventola forzata ad almeno il 78%",
+        pwmFloorHint: "Il minimo dello slider è 1% — un PWM inferiore bloccherebbe il rotore",
+        sidebarTitle: "Ventole e raffreddamento",
+        sensorsSidebarTitle: "Sensori"
     )
 
     static let ru = FanControlFeatureStrings(
@@ -507,7 +536,11 @@ extension FanControlFeatureStrings {
         deletePointTooltip: "Удалить точку",
         applyCurveButton: "Применить кривую",
         appliedCurveBadge: "Применено",
-        revertChangesButton: "Сбросить"
+        revertChangesButton: "Сбросить",
+        thermalGuardActiveHint: "Аварийное охлаждение: CPU ≥ 85 °C — вентилятор принудительно на ≥78%",
+        pwmFloorHint: "Нижняя граница ползунка — 1%: меньший PWM застопорит ротор",
+        sidebarTitle: "Вентиляторы и охлаждение",
+        sensorsSidebarTitle: "Датчики"
     )
 
     static let tr = FanControlFeatureStrings(
@@ -567,7 +600,11 @@ extension FanControlFeatureStrings {
         deletePointTooltip: "Noktayı Sil",
         applyCurveButton: "Eğriyi Uygula",
         appliedCurveBadge: "Uygulandı",
-        revertChangesButton: "Geri Al"
+        revertChangesButton: "Geri Al",
+        thermalGuardActiveHint: "Acil soğutma: CPU ≥ 85 °C — fan en az %78'e zorlanıyor",
+        pwmFloorHint: "Kaydırıcı alt sınırı %1 — daha düşük PWM fan rotorunu durdurur",
+        sidebarTitle: "Fanlar ve Soğutma",
+        sensorsSidebarTitle: "Sensörler"
     )
 
     static let ja = FanControlFeatureStrings(
@@ -627,7 +664,11 @@ extension FanControlFeatureStrings {
         deletePointTooltip: "ポイントを削除",
         applyCurveButton: "カーブを適用",
         appliedCurveBadge: "適用済み",
-        revertChangesButton: "元に戻す"
+        revertChangesButton: "元に戻す",
+        thermalGuardActiveHint: "緊急冷却：CPU ≥ 85 °C — ファンを最低78%に強制中",
+        pwmFloorHint: "スライダーの下限は1% — それ未満のPWMではファンが失速します",
+        sidebarTitle: "ファンと冷却",
+        sensorsSidebarTitle: "センサー"
     )
 
     static let ko = FanControlFeatureStrings(
@@ -687,7 +728,11 @@ extension FanControlFeatureStrings {
         deletePointTooltip: "포인트 삭제",
         applyCurveButton: "곡선 적용",
         appliedCurveBadge: "적용됨",
-        revertChangesButton: "되돌리기"
+        revertChangesButton: "되돌리기",
+        thermalGuardActiveHint: "긴급 냉각: CPU ≥ 85 °C — 팬이 최소 78%로 강제됨",
+        pwmFloorHint: "슬라이더 하한은 1% — 더 낮은 PWM에서는 팬 로터가 멈춥니다",
+        sidebarTitle: "팬 및 냉각",
+        sensorsSidebarTitle: "센서"
     )
 
     static let zhHans = FanControlFeatureStrings(
@@ -747,7 +792,11 @@ extension FanControlFeatureStrings {
         deletePointTooltip: "删除控制点",
         applyCurveButton: "应用曲线",
         appliedCurveBadge: "已应用",
-        revertChangesButton: "还原"
+        revertChangesButton: "还原",
+        thermalGuardActiveHint: "紧急散热：CPU ≥ 85 °C — 风扇被强制至少 78%",
+        pwmFloorHint: "滑块下限为 1% — 更低的 PWM 会导致风扇转子停转",
+        sidebarTitle: "风扇与散热",
+        sensorsSidebarTitle: "传感器"
     )
 
     static let zhTW = FanControlFeatureStrings(
@@ -807,7 +856,11 @@ extension FanControlFeatureStrings {
         deletePointTooltip: "刪除控制點",
         applyCurveButton: "套用曲線",
         appliedCurveBadge: "已套用",
-        revertChangesButton: "復原"
+        revertChangesButton: "復原",
+        thermalGuardActiveHint: "緊急散熱：CPU ≥ 85 °C — 風扇被強制至少 78%",
+        pwmFloorHint: "滑桿下限為 1% — 更低的 PWM 會導致風扇轉子停轉",
+        sidebarTitle: "風扇與散熱",
+        sensorsSidebarTitle: "感測器"
     )
 
     static let zhHK = zhTW

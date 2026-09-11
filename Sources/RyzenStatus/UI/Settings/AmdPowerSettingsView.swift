@@ -24,6 +24,10 @@ struct AmdPowerSettingsView: View {
     @ObservedObject private var presetCtrl = AmdPresetController.shared
     @ObservedObject private var nvramCState = CStateNvramService.shared
     @ObservedObject private var l10n = L10n.shared
+    // AMD Polish S2-T4: kext-resolved C-state runtime policy (selector 34,
+    // selector-22 fallback). nil = kext unreachable.
+    @State private var c6RuntimeDisabled: Bool?
+    @State private var c6RuntimeAddr: UInt64 = 0
 
     @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 25
     @AppStorage(DefaultsKey.autoEppLoadThreshold) private var loadThreshold: Int = 50
@@ -50,7 +54,7 @@ struct AmdPowerSettingsView: View {
                     HStack(spacing: 8) {
                         ProgressView()
                             .controlSize(.small)
-                        Text("Loading AMD power controls…")
+                        Text(l10n.amdPower.loadingControls)
                             .foregroundColor(.secondary)
                     }
                 }
@@ -117,7 +121,7 @@ struct AmdPowerSettingsView: View {
                             Image(systemName: "waveform.path.ecg")
                                 .foregroundColor(.cyan)
                                 .frame(width: 20)
-                            Text("Telemetry Packet (Selector 100)")
+                            Text(l10n.amdPower.telemetryPacketSelectorTitle)
                                 .font(.subheadline)
                             Spacer()
                             Text("\(CPUSensorPacket.byteSize) B")
@@ -125,21 +129,26 @@ struct AmdPowerSettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                         HStack {
-                            Text("Package Power")
+                            Text(l10n.amdPower.packagePowerLabel)
                             Spacer()
                             Text(String(format: "%.1f W", packet.packagePowerW))
                                 .font(.system(.body, design: .monospaced))
                         }
                         HStack {
-                            Text("Package Temperature")
+                            Text(l10n.amdPower.packageTempLabel)
                             Spacer()
                             let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
                             Text(MetricFormat.temperature(Double(packet.packageTempC), unit: unit))
                                 .font(.system(.body, design: .monospaced))
                         }
+                        // S2-T5: two telemetry sources can momentarily disagree;
+                        // label each section's source so readers know which is which.
+                        Text(l10n.amdPower.telemetrySourcePacket)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                         if packet.ccdCount > 0 {
                             HStack {
-                                Text("CCDs (\(packet.ccdCount))")
+                                Text(String(format: l10n.amdPower.ccdCountFormat, Int(packet.ccdCount)))
                                 Spacer()
                                 let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
                                 Text(packet.ccdTemperatures.prefix(Int(packet.ccdCount))
@@ -151,7 +160,7 @@ struct AmdPowerSettingsView: View {
                         let freqs = packet.activeFrequenciesMHz
                         if !freqs.isEmpty {
                             HStack {
-                                Text("Core Freq (\(freqs.count) threads)")
+                                Text(String(format: l10n.amdPower.telemetryCoreFreqFormat, freqs.count))
                                 Spacer()
                                 Text(String(format: "%.0f / %.0f / %.0f MHz",
                                            freqs.min() ?? 0,
@@ -161,9 +170,9 @@ struct AmdPowerSettingsView: View {
                             }
                         }
                     } header: {
-                        Text("Telemetry Packet")
+                        Text(l10n.amdPower.telemetryPacketHeader)
                     } footer: {
-                        Text("Zero-copy streaming packet from the kext (selector 100).")
+                        Text(l10n.amdPower.telemetryPacketFooter)
                     }
                 }
 
@@ -176,12 +185,12 @@ struct AmdPowerSettingsView: View {
                 // baseline profile get an explanatory message instead of a grid.
                 Section {
                     if coGeneration.isZen4OrNewer {
-                        Label("Curve Optimizer is not supported on Zen 4/5 CPUs. Use PBO in BIOS instead.", systemImage: "exclamationmark.triangle.fill")
+                        Label(l10n.amdPower.coUnsupportedZen4, systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
                             .foregroundColor(.orange)
                             .fixedSize(horizontal: false, vertical: true)
                     } else if coSupported {
-                        Toggle("Unlock Curve Optimizer Controls", isOn: $coUnlocked)
+                        Toggle(l10n.amdPower.coUnlockToggle, isOn: $coUnlocked)
                             .padding(.bottom, 4)
                         
                         if coUnlocked {
@@ -194,11 +203,11 @@ struct AmdPowerSettingsView: View {
                                 Button {
                                     applyAllCurveOffsets()
                                 } label: {
-                                    Label("Apply All", systemImage: "bolt.fill")
+                                    Label(l10n.amdPower.coApplyAll, systemImage: "bolt.fill")
                                 }
                                 .buttonStyle(.borderedProminent)
 
-                                Button("Reset to 0") {
+                                Button(l10n.amdPower.coResetZero) {
                                     resetCurveOffsets()
                                 }
                                 .buttonStyle(.bordered)
@@ -214,20 +223,20 @@ struct AmdPowerSettingsView: View {
                             }
                         }
                     } else {
-                        Label("Curve Optimizer is disabled because Legacy P-States (PM Dispatch) are not active. The kext blocks SMU writes when running in CPPC or telemetry-only mode.", systemImage: "info.circle")
+                        Label(l10n.amdPower.coDisabledLegacy, systemImage: "info.circle")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } header: {
-                    Text("Curve Optimizer (Selectors 110/111)")
+                    Text(l10n.amdPower.coHeader)
                 } footer: {
-                    Text("Per-core voltage offset −30..+30 applied via SMU command 0x3D. Writes require root or -amdpnopchk and are blocked above 75 °C package temperature.")
+                    Text(l10n.amdPower.coFooter)
                 }
 
                 if controls.cppcSupported {
                     Section {
-                        Toggle("Auto EPP (Zen 3)", isOn: Binding(
+                        Toggle(l10n.amdPower.autoEppToggle, isOn: Binding(
                             get: { autoEpp.isActive },
                             set: { autoEpp.setCPPCActive($0) }
                         ))
@@ -235,7 +244,7 @@ struct AmdPowerSettingsView: View {
                         if autoEpp.isActive {
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack {
-                                    Text("CPU Load")
+                                    Text(l10n.amdPower.cpuLoadLabel)
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                     Spacer()
@@ -314,29 +323,28 @@ struct AmdPowerSettingsView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(L10n.shared.amdPower.energyProfileHeader)
                                 .font(.headline)
-
                             HStack {
-                                Text(autoEpp.isActive ? "Auto" : eppLabel)
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(autoEpp.isActive ? .secondary : .cyan)
-                                Spacer()
-                                if !autoEpp.isActive {
-                                    Text("Manual")
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
+                                    Text(autoEpp.isActive ? l10n.amdPower.autoBadge : eppLabel)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(autoEpp.isActive ? .secondary : .cyan)
+                                    Spacer()
+                                    if !autoEpp.isActive {
+                                        Text(l10n.amdPower.manualBadge)
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
                                 }
-                            }
 
                             // CPPC info (selector 23): active mode + raw EPP value.
                             HStack {
                                 Image(systemName: cppcActiveMode ? "bolt.fill" : "bolt.slash")
                                     .font(.caption)
                                     .foregroundColor(cppcActiveMode ? .green : .secondary)
-                                Text(cppcActiveMode ? "CPPC Active Mode: On" : "CPPC Active Mode: Off")
+                                Text(cppcActiveMode ? l10n.amdPower.cppcActiveOn : l10n.amdPower.cppcActiveOff)
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                                 Spacer()
-                                Text("EPP \(cppcCurrentEPP)/255")
+                                Text(String(format: l10n.amdPower.eppValueFormat, cppcCurrentEPP))
                                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                                     .foregroundColor(.cyan)
                             }
@@ -351,10 +359,10 @@ struct AmdPowerSettingsView: View {
                                 },
                                 set: { controls.setEPP($0) }
                             )) {
-                                Text("Max").tag(UInt8(0))
-                                Text("Bal+").tag(UInt8(85))
-                                Text("Bal-").tag(UInt8(170))
-                                Text("Eco").tag(UInt8(255))
+                                Text(l10n.amdPower.perfMax).tag(UInt8(0))
+                                Text(l10n.amdPower.perfBalPlus).tag(UInt8(85))
+                                Text(l10n.amdPower.perfBalMinus).tag(UInt8(170))
+                                Text(l10n.amdPower.perfEco).tag(UInt8(255))
                             }
                             .pickerStyle(.segmented)
                             .labelsHidden()
@@ -363,7 +371,7 @@ struct AmdPowerSettingsView: View {
                         .padding(.vertical, 8)
                         .opacity(autoEpp.isActive || gaming.isActive ? 0.5 : 1.0)
                     } header: {
-                        Text("Collaborative Processor Performance Control")
+                        Text(l10n.amdPower.cppcSectionHeader)
                     } footer: {
                         Text(L10n.shared.amdPower.autoEPPFooter)
                     }
@@ -451,28 +459,27 @@ struct AmdPowerSettingsView: View {
                             .disabled(gaming.isActive)
                         }
                     } header: {
-                        Text("CPU Speed Profiles (Legacy P-States)")
+                        Text(l10n.amdPower.legacyPstatesHeader)
                     } footer: {
                         Text(L10n.shared.amdPower.legacyPStatesFooter)
                     }
                 }
-
                 Section {
                     if controls.cpbSupported {
-                        Toggle("Core Performance Boost (CPB)", isOn: Binding(
+                        Toggle(l10n.amdPower.cpbToggle, isOn: Binding(
                             get: { controls.corePerformanceBoost },
                             set: { controls.setCPB($0) }
                         ))
                         .disabled(gaming.isActive)
                     }
 
-                    Toggle("Processor Power Manager (PPM)", isOn: Binding(
+                    Toggle(l10n.amdPower.ppmToggle, isOn: Binding(
                         get: { controls.ppmEnabled },
                         set: { controls.setPPM($0) }
                     ))
                     .disabled(gaming.isActive)
 
-                    Toggle("Low Power Mode (LPM)", isOn: Binding(
+                    Toggle(l10n.amdPower.lpmToggle, isOn: Binding(
                         get: { controls.lpmEnabled },
                         set: { controls.setLPM($0) }
                     ))
@@ -520,6 +527,47 @@ struct AmdPowerSettingsView: View {
                             }
                         }
                         .frame(height: 6)
+
+                        // S2-T4: kext-resolved runtime policy + NVRAM drift warning.
+                        HStack {
+                            Image(systemName: "gearshape.2.fill")
+                                .foregroundColor(.indigo)
+                                .font(.caption)
+                            Text(l10n.amdPower.c6RuntimeRowTitle)
+                                .font(.subheadline)
+                            Spacer()
+                            switch c6RuntimeDisabled {
+                            case .some(true):
+                                Text(l10n.amdPower.runtimeC6DisabledBadge)
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.blue)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Capsule().fill(Color.blue.opacity(0.12)))
+                            case .some(false):
+                                Text(l10n.amdPower.runtimeC6EnabledBadge)
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.green)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Capsule().fill(Color.green.opacity(0.12)))
+                            case .none:
+                                Text("--")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        if let runtime = c6RuntimeDisabled, runtime != nvramCState.isC6Enabled {
+                            // amdcstate in boot-args says one thing, the running
+                            // kext does another: stale boot-args vs pre-feature
+                            // kext (older than 1.21.0). Drift must be visible.
+                            Label(l10n.amdPower.c6DriftWarning, systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
 
                         Text(l10n.amdPower.c6Guidance)
                             .font(.caption2)
@@ -630,6 +678,12 @@ struct AmdPowerSettingsView: View {
             // so opening/closing the menu popover cannot wipe these needs.
             SystemMonitor.shared.panelDidAppear()
             await fetchState()
+            if let policy = ProcessorModel.shared.getCStatePolicy() {
+                c6RuntimeDisabled = policy.disabled
+                c6RuntimeAddr = policy.addr
+            } else {
+                c6RuntimeDisabled = nil
+            }
         }
         .onDisappear {
             SystemMonitor.shared.panelDidDisappear()
@@ -641,6 +695,16 @@ struct AmdPowerSettingsView: View {
             Task {
                 await controls.syncFromKext()
                 await fetchState()
+            }
+        }
+        .onReceive(nvramCState.$isC6Enabled) { _ in
+            // Re-resolve runtime policy when the NVRAM badge refreshes so the
+            // drift warning flips without leaving the settings page.
+            Task {
+                if let policy = ProcessorModel.shared.getCStatePolicy() {
+                    c6RuntimeDisabled = policy.disabled
+                    c6RuntimeAddr = policy.addr
+                }
             }
         }
         .alert(
@@ -856,6 +920,9 @@ struct AmdPowerSettingsView: View {
     }
 
     private func applyPreset(_ preset: AMDPowerPreset) {
+        // S2-T1: presets rewrite EPP; don't fight Auto EPP (same gate as the
+        // segmented EPP picker in this view).
+        guard !autoEpp.isActive else { return }
         presetCtrl.apply(preset)
         Task {
             await controls.syncFromKext()
@@ -985,21 +1052,25 @@ private struct AmdLiveTelemetrySection: View {
     }
 
     var body: some View {
-        Section(header: Text(l10n.s.amdRyzenProcessorInfo)) {
+        Section {
             HStack {
-                Text("Package Power")
+                Text(l10n.amdPower.packagePowerLabel)
                 Spacer()
                 Text(String(format: "%.1f W", monitor.snapshot.cpuPower ?? 0))
                     .font(.system(.body, design: .monospaced))
             }
             HStack {
-                Text("Package Temp")
+                Text(l10n.amdPower.packageTempLabel)
                 Spacer()
                 let tempVal = monitor.snapshot.cpuTemperature
                 let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
                 Text(tempVal.map { MetricFormat.temperature($0, unit: unit) } ?? "--")
                     .font(.system(.body, design: .monospaced))
             }
+            // S2-T5: source caption — this section reads SystemMonitor's poll.
+            Text(l10n.amdPower.telemetrySourceMonitor)
+                .font(.caption2)
+                .foregroundColor(.secondary)
             
             if !monitor.snapshot.cores.isEmpty {
                 HStack {
@@ -1021,6 +1092,8 @@ private struct AmdLiveTelemetrySection: View {
                         .font(.system(.body, design: .monospaced))
                 }
             }
+        } header: {
+            Text(l10n.s.amdRyzenProcessorInfo)
         }
     }
 }
@@ -1034,30 +1107,33 @@ private struct AmdGpuTelemetrySection: View {
             Section {
                 ForEach(monitor.snapshot.gpuDevices) { gpu in
                     let label = monitor.snapshot.gpuDevices.count > 1 ? "AMD GPU \(gpu.id)" : "AMD GPU"
-                    HStack {
-                        Image(systemName: "display")
-                            .foregroundColor(.orange)
-                            .frame(width: 20)
-                        Text(label)
-                            .font(.subheadline)
-                        Spacer()
-                        if gpu.supportsPower {
-                            Text(gpu.power > 0 ? String(format: "%.1f W", gpu.power) : "— W")
-                                .font(.system(.body, design: .monospaced))
-                                .foregroundColor(.green)
-                        } else {
-                            Text("— W")
-                                .font(.system(.body, design: .monospaced))
-                                .foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Image(systemName: "display")
+                                .foregroundColor(.orange)
+                                .frame(width: 20)
+                            Text(label)
+                                .font(.subheadline)
+                            Spacer()
+                            if gpu.supportsPower {
+                                Text(gpu.power > 0 ? String(format: "%.1f W", gpu.power) : "— W")
+                                    .font(.system(.body, design: .monospaced))
+                                    .foregroundColor(.green)
+                            } else {
+                                Text("— W")
+                                    .font(.system(.body, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                            }
                         }
                         HStack {
-                            Text("Temperature")
+                            Text(l10n.amdPower.gpuTempRowLabel)
                             Spacer()
                             let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
                             Text(gpu.temperature > 0 ? MetricFormat.temperature(gpu.temperature, unit: unit) : "--")
                                 .font(.system(.body, design: .monospaced))
                         }
                         .foregroundColor(.orange)
+                        .padding(.leading, 20)
                     }
                 }
             } header: {

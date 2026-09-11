@@ -18,8 +18,6 @@ static constexpr const struct tctl_offset tctl_offset_table[] = {
     { 0x17, "AMD Ryzen Threadripper 29", 27 }, /* 29{20,50,70,90}[W]X */
 };
 
-static constexpr float  kTHERMAL_GUARD_TEMP_C        = 85.0f;
-static constexpr uint8_t kTHERMAL_GUARD_PWM          = 200;   // 80%
 static constexpr float  kTHERMAL_THROTTLE_TEMP_C     = 95.0f; // CPPC throttle
 static constexpr float  kTHERMAL_THROTTLE_CLEAR_C    = 85.0f;
 static constexpr float  kCURVE_OPTIMIZER_BLOCK_TEMP_C = 75.0f;
@@ -235,12 +233,12 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
                 auto provider = static_cast<AMDRyzenCPUPowerManagement*>(obj);
                 
                 // NOTE: Writing kMSR_CSTATE_ADDR (0xC0010073) with 0xF0 disables
-                // deep C-states (C6+). This prevents macOS from parking cores in
-                // low-power idle, which reduces wake latency for telemetry but
-                // increases idle power consumption. This is intentional for the
-                // monitoring use-case — if power efficiency is critical, consider
-                // making this configurable via a boot-arg.
-                provider->write_msr(kMSR_CSTATE_ADDR, 0xf0);
+                // deep C-states (C6+), reducing wake latency for telemetry and audio.
+                // Configured via the amdcstate boot-arg (amdcstate=0 enables C6;
+                // amdcstate=1 or default disables C6).
+                if (provider->disableCStates) {
+                    provider->write_msr(kMSR_CSTATE_ADDR, 0xf0);
+                }
                 
                 uint64_t hwConfig;
                 if(!provider->read_msr(kMSR_HWCR, &hwConfig)) {
@@ -442,6 +440,15 @@ bool AMDRyzenCPUPowerManagement::start(IOService *provider){
     }
     
     disablePrivilegeCheck = checkKernelArgument("-amdpnopchk");
+    
+    uint32_t amdcstateVal = 1;
+    if (PE_parse_boot_argn("amdcstate", &amdcstateVal, sizeof(amdcstateVal))) {
+        disableCStates = (amdcstateVal != 0);
+    } else {
+        disableCStates = true;
+    }
+    IOLog("AMDRyzenCPUPowerManagement::start C-States (C6) %s (amdcstate=%u)\n",
+          disableCStates ? "disabled (low-latency)" : "enabled (power-saving)", amdcstateVal);
     
     uint32_t cpuid_eax = 0;
     uint32_t cpuid_ebx = 0;

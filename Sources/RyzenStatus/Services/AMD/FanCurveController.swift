@@ -343,18 +343,35 @@ final class FanCurveController: ObservableObject {
             fanMappings = updated
             _ = ProcessorModel.shared.mapKextFanToCurve(fanIndex: fanId, curveIndex: -1)
             let pwm = manualPWM ?? 128
-            let res = ProcessorModel.shared.setFanSpeed(pwm: Int(pwm), fanIndex: fanId)
+            let safePWM = AMDFanSafety.clampManualPWM(pwm)
+            let effectivePWM = AMDFanSafety.effectiveManualPWM(userPWM: safePWM, currentTemp: currentCPUOrPackageTemp)
+            let res = ProcessorModel.shared.setFanSpeed(pwm: Int(effectivePWM), fanIndex: fanId)
             if !res {
                 self.privilegeError = "Write permission denied for manual fan control."
             }
-            updateFanLocalState(fanId: fanId, mode: .manual, curveIdx: nil, manualPWM: pwm)
+            updateFanLocalState(fanId: fanId, mode: .manual, curveIdx: nil, manualPWM: safePWM)
         }
     }
 
+    var currentCPUOrPackageTemp: Double {
+        if let packet = ProcessorModel.shared.getTelemetry(), packet.packageTempC > 0 {
+            return Double(packet.packageTempC)
+        }
+        return SystemMonitor.shared.snapshot.cpuTemperature ?? 0.0
+    }
+
+    /// S2-T2: true while the emergency thermal guard is clamping manual fans
+    /// (temp at/above 85 °C) — drives the UI hint in FanControlCard.
+    var isThermalGuardActive: Bool {
+        currentCPUOrPackageTemp >= AMDFanSafety.thermalGuardTempC
+    }
+
     func setManualPWM(fanId: Int, pwm: UInt8) {
+        let safePWM = AMDFanSafety.clampManualPWM(pwm)
         _ = ProcessorModel.shared.mapKextFanToCurve(fanIndex: fanId, curveIndex: -1)
-        _ = ProcessorModel.shared.setFanSpeed(pwm: Int(pwm), fanIndex: fanId)
-        updateFanLocalState(fanId: fanId, mode: .manual, curveIdx: nil, manualPWM: pwm)
+        let effectivePWM = AMDFanSafety.effectiveManualPWM(userPWM: safePWM, currentTemp: currentCPUOrPackageTemp)
+        _ = ProcessorModel.shared.setFanSpeed(pwm: Int(effectivePWM), fanIndex: fanId)
+        updateFanLocalState(fanId: fanId, mode: .manual, curveIdx: nil, manualPWM: safePWM)
     }
 
     func setAllAuto() {
@@ -516,6 +533,18 @@ final class FanCurveController: ObservableObject {
                     self.fans[i].isKextAuto = !snap.isOverridden
                 }
                 self.pushGPUTempIfNeeded()
+                self.enforceManualThermalGuard()
+            }
+        }
+    }
+
+    private func enforceManualThermalGuard() {
+        let temp = currentCPUOrPackageTemp
+        for fan in fans {
+            guard fan.controlMode == .manual, let userPWM = fan.manualPWM else { continue }
+            let effectivePWM = AMDFanSafety.effectiveManualPWM(userPWM: userPWM, currentTemp: temp)
+            if fan.throttlePWM != effectivePWM {
+                _ = ProcessorModel.shared.setFanSpeed(pwm: Int(effectivePWM), fanIndex: fan.id)
             }
         }
     }

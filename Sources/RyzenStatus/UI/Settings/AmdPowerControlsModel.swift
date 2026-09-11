@@ -26,6 +26,12 @@ final class AmdPowerControlsModel: ObservableObject {
     @Published var privilegeWarning: String?
     @Published var isLoading: Bool = false
 
+    // S2-T2: rolling history for the AMD panel sparklines — 60 samples ≈ 3 min
+    // at the 3 s panel poll. Sampled inside syncFromKext, so no new timers.
+    @Published private(set) var packagePowerHistory: [Double] = []
+    @Published private(set) var packageTempHistory: [Double] = []
+    private static let historyCapacity = 60
+
     /// Guard flag: true when updating published properties from kext reads
     /// to avoid trigger loops from `.onChange` handlers.
     /// Writes arriving while a sync is in flight are intentionally dropped;
@@ -127,6 +133,8 @@ final class AmdPowerControlsModel: ObservableObject {
         isSyncingFromKext = true
         defer { isSyncingFromKext = false }
 
+        recordTelemetrySample()
+
         let (kernelAnswered, cpb, cppcState, ppm, lpm) = await Task.detached(priority: .userInitiated) {
             // AUDIT F-27: thread-safe connection check to avoid data races
             let kernelAnswered = ProcessorModel.shared.isConnected
@@ -165,6 +173,18 @@ final class AmdPowerControlsModel: ObservableObject {
                     String(format: "P%d (%.1f GHz)", index, Double(clock) / 1000.0)
                 }
             }
+        }
+    }
+
+    private func recordTelemetrySample() {
+        guard let packet = ProcessorModel.shared.getTelemetry() else { return }
+        packagePowerHistory.append(Double(packet.packagePowerW))
+        if packagePowerHistory.count > Self.historyCapacity {
+            packagePowerHistory.removeFirst(packagePowerHistory.count - Self.historyCapacity)
+        }
+        packageTempHistory.append(Double(packet.packageTempC))
+        if packageTempHistory.count > Self.historyCapacity {
+            packageTempHistory.removeFirst(packageTempHistory.count - Self.historyCapacity)
         }
     }
 }

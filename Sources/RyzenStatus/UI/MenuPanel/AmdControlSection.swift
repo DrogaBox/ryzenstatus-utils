@@ -53,7 +53,7 @@ struct AmdControlSection: View {
     }
 
     var body: some View {
-        PanelSection(.amdPower, title: "AMD Ryzen Power Control", collapsible: collapsible) {
+        PanelSection(.amdPower, title: L10n.shared.amdPower.sidebarTitle, collapsible: collapsible) {
             VStack(alignment: .leading, spacing: 18) {
                 if !availableFans.isEmpty {
                     DisclosureGroup(isExpanded: $showFansInAmdPower) {
@@ -65,7 +65,8 @@ struct AmdControlSection: View {
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
-                            .frame(width: 80)
+                            // S2-T1: 80 pt truncated hardware names like "CPU Fan 0".
+                            .frame(width: 130)
                             .onChange(of: selectedFanId) { _, _ in
                                 Task { @MainActor in updateFanRpm() }
                             }
@@ -77,7 +78,7 @@ struct AmdControlSection: View {
                                 .foregroundColor(.secondary)
                         }
                     } label: {
-                        Text("SMC Fan Control (Advanced)")
+                        Text(L10n.shared.amdPower.panelSmcFanControl)
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.secondary)
                     }
@@ -123,6 +124,27 @@ struct AmdControlSection: View {
                             }
                         }
 
+                        // S2-T2: package power / temp sparklines from the 3 s
+                        // sync history (no new timers, no extra kext traffic).
+                        if controls.packagePowerHistory.count >= 2 {
+                            HStack(spacing: 10) {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(L10n.shared.amdPower.packagePowerLabel)
+                                        .font(.system(size: 8, weight: .medium))
+                                        .foregroundColor(.secondary)
+                                    Sparkline(values: controls.packagePowerHistory, color: .cyan, fillOpacity: 0.14, lineWidth: 1.2)
+                                        .frame(height: 26)
+                                }
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(L10n.shared.amdPower.packageTempLabel)
+                                        .font(.system(size: 8, weight: .medium))
+                                        .foregroundColor(.secondary)
+                                    Sparkline(values: controls.packageTempHistory, color: .orange, fillOpacity: 0.14, lineWidth: 1.2)
+                                        .frame(height: 26)
+                                }
+                            }
+                        }
+
                         VStack(spacing: 8) {
                             Picker("", selection: Binding(
                                 get: { 
@@ -134,10 +156,10 @@ struct AmdControlSection: View {
                                 },
                                 set: { controls.setEPP($0) }
                             )) {
-                                Text("Max").tag(UInt8(0))
-                                Text("Bal+").tag(UInt8(85))
-                                Text("Bal-").tag(UInt8(170))
-                                Text("Eco").tag(UInt8(255))
+                                Text(L10n.shared.amdPower.perfMaxShort).tag(UInt8(0))
+                                Text(L10n.shared.amdPower.perfBalPlusShort).tag(UInt8(85))
+                                Text(L10n.shared.amdPower.perfBalMinusShort).tag(UInt8(170))
+                                Text(L10n.shared.amdPower.perfEcoShort).tag(UInt8(255))
                             }
                             .pickerStyle(.segmented)
                             .disabled(autoEpp.isActive || gaming.isActive)
@@ -145,7 +167,7 @@ struct AmdControlSection: View {
                         .opacity(autoEpp.isActive || gaming.isActive ? 0.4 : 1.0)
 
                         if gaming.isActive {
-                            Text("Managed by Gaming Mode")
+                            Text(L10n.shared.amdPower.panelManagedByGamingMode)
                                 .font(.system(size: 9, weight: .medium))
                                 .foregroundColor(.orange)
                         }
@@ -182,7 +204,7 @@ struct AmdControlSection: View {
                                         Text(L10n.shared.amdPower.autoEPPThresholds)
                                             .font(.system(size: 10, weight: .medium))
                                         Spacer()
-                                        Text("Idle <\(idleThreshold)% | Load >\(loadThreshold)%")
+                                        Text(String(format: L10n.shared.amdPower.panelThresholdsSummaryFormat, idleThreshold, loadThreshold))
                                             .font(.system(size: 9))
                                             .foregroundColor(.secondary)
                                     }
@@ -224,11 +246,11 @@ struct AmdControlSection: View {
                                 .foregroundColor(.green)
                                 .padding(.bottom, -2)
 
-                            Text("CPU Speed Profiles (Legacy)")
+                            Text(L10n.shared.amdPower.panelLegacyProfiles)
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundColor(.cyan)
                             
-                            Text("P-State overrides (Frequencies locked).")
+                            Text(L10n.shared.amdPower.panelPstateOverrides)
                                 .font(.system(size: 10))
                                 .foregroundColor(.secondary)
                             
@@ -256,7 +278,7 @@ struct AmdControlSection: View {
                         if controls.cppcSupported {
                             HStack {
                                 Image(systemName: "cpu").foregroundColor(.cyan).frame(width: 20)
-                                Toggle("Auto EPP (Zen 3)", isOn: Binding(
+                                Toggle(L10n.shared.amdPower.autoEppToggle, isOn: Binding(
                                     get: { autoEpp.isActive },
                                     set: { autoEpp.setCPPCActive($0) }
                                 ))
@@ -269,7 +291,7 @@ struct AmdControlSection: View {
                         if controls.cpbSupported {
                             HStack {
                                 Image(systemName: "flame.fill").foregroundColor(.orange).frame(width: 20)
-                                Toggle("Core Performance Boost", isOn: Binding(
+                                Toggle(L10n.shared.amdPower.panelCpbToggle, isOn: Binding(
                                     get: { controls.corePerformanceBoost },
                                     set: { controls.setCPB($0) }
                                 ))
@@ -281,7 +303,7 @@ struct AmdControlSection: View {
 
                         HStack {
                             Image(systemName: "speedometer").foregroundColor(.teal).frame(width: 20)
-                            Toggle("PPM Limit", isOn: Binding(
+                            Toggle(L10n.shared.amdPower.panelPpmToggle, isOn: Binding(
                                 get: { controls.ppmEnabled },
                                 set: { controls.setPPM($0) }
                             ))
@@ -292,7 +314,7 @@ struct AmdControlSection: View {
 
                         HStack {
                             Image(systemName: "moon.zzz.fill").foregroundColor(.purple).frame(width: 20)
-                            Toggle("LPM Limit", isOn: Binding(
+                            Toggle(L10n.shared.amdPower.panelLpmLimit, isOn: Binding(
                                 get: { controls.lpmEnabled },
                                 set: { controls.setLPM($0) }
                             ))
@@ -310,7 +332,6 @@ struct AmdControlSection: View {
                 Task { await controls.syncFromKext() }
                 loadTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
                     Task { await controls.syncFromKext() }
-                    Task { @MainActor in updateFanRpm() }
                 }
                 updateFanRpm()
             }
@@ -334,7 +355,9 @@ struct AmdControlSection: View {
     }
 
     private func updateFanRpm() {
-        guard !availableFans.isEmpty else { return }
+        // S2-T1: the 3 s SuperIO RPM poll only matters while the fan disclosure
+        // is expanded — skip it when collapsed to avoid needless LPC traffic.
+        guard showFansInAmdPower, !availableFans.isEmpty else { return }
         let fanCount = availableFans.count
         Task.detached(priority: .utility) {
             let rpms = ProcessorModel.shared.kernelGetUInt64(count: fanCount, selector: AMDKextSelector.fanSpeedRead.id)
@@ -374,6 +397,8 @@ struct AmdControlSection: View {
             .contentShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
-        .disabled(gaming.isActive)
+        // S2-T1: presets also drive EPP, so gate on Auto EPP like the EPP
+        // picker above — otherwise the two systems fight over the same MSR.
+        .disabled(gaming.isActive || autoEpp.isActive)
     }
 }

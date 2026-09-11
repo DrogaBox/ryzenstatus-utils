@@ -66,9 +66,9 @@ struct SettingsView: View {
                 SidebarItem(page: .monitor, title: l10n.s.tabMonitor, icon: "chart.line.uptrend.xyaxis",
                             keywords: [l10n.s.menuBarSpacingLabel, l10n.s.menuBarHideIconToggle,
                                        l10n.s.monitorMemoryPressureDot]),
-                SidebarItem(page: .fans, title: "Fans & Cooling", icon: "fanblades.fill"),
-                SidebarItem(page: .amdPower, title: "AMD Ryzen Power", icon: "cpu"),
-                SidebarItem(page: .sensors, title: "Sensors", icon: "thermometer.sun.fill"),
+                SidebarItem(page: .fans, title: FeatureStrings.fanControl(L10n.shared.language).sidebarTitle, icon: "fanblades.fill"),
+                SidebarItem(page: .amdPower, title: FeatureStrings.amdPower(L10n.shared.language).sidebarTitle, icon: "cpu.fill"),
+                SidebarItem(page: .sensors, title: FeatureStrings.fanControl(L10n.shared.language).sensorsSidebarTitle, icon: "thermometer.sun.fill"),
             ]),
             (categories.windowsControls, [
                 SidebarItem(page: .mouse, title: l10n.s.tabMouse, icon: "computermouse",

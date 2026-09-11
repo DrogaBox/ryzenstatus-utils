@@ -77,6 +77,9 @@ enum AMDKextSelector: UInt32 {
     case coreC6Residency   = 32
     /// Per-core instructions-retired delta — one UInt32 per logical core (KEXT_WAVE 1.20.0 C-2).
     case coreInstRetired   = 33
+    /// Read-only C-state policy: [0] = 1 if the kext disables deep C-States
+    /// (amdcstate=1 or default), [1] = raw cstateAddrConfig. Added in kext 1.21.0 (S2-T4).
+    case cStatePolicy      = 34
 
     // MARK: — Fan Control (via SuperIO)
 

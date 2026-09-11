@@ -7300,6 +7300,116 @@ struct MetricsTests {
         expect(AMDPowerPreset.snapEPP(255) == 255, "snapEPP(255) → 255")
         checks += 3
 
+        // MARK: AMD Fan Safety & Thermal Guard
+
+        expect(AMDFanSafety.clampManualPWM(0) == 3, "clampManualPWM(0) → 3 (floor)")
+        expect(AMDFanSafety.clampManualPWM(1) == 3, "clampManualPWM(1) → 3 (floor)")
+        expect(AMDFanSafety.clampManualPWM(2) == 3, "clampManualPWM(2) → 3 (floor)")
+        expect(AMDFanSafety.clampManualPWM(3) == 3, "clampManualPWM(3) → 3")
+        expect(AMDFanSafety.clampManualPWM(128) == 128, "clampManualPWM(128) → 128")
+        expect(AMDFanSafety.clampManualPWM(255) == 255, "clampManualPWM(255) → 255")
+
+        expect(AMDFanSafety.effectiveManualPWM(userPWM: 50, currentTemp: 40.0) == 50,
+               "effectiveManualPWM normal load below 85°C preserves user PWM")
+        expect(AMDFanSafety.effectiveManualPWM(userPWM: 50, currentTemp: 84.9) == 50,
+               "effectiveManualPWM edge below 85°C preserves user PWM")
+        expect(AMDFanSafety.effectiveManualPWM(userPWM: 50, currentTemp: 85.0) == 200,
+               "effectiveManualPWM at 85.0°C clamps to thermal guard PWM (200)")
+        expect(AMDFanSafety.effectiveManualPWM(userPWM: 50, currentTemp: 92.5) == 200,
+               "effectiveManualPWM above 85.0°C clamps to thermal guard PWM (200)")
+        expect(AMDFanSafety.effectiveManualPWM(userPWM: 220, currentTemp: 90.0) == 220,
+               "effectiveManualPWM above 85.0°C preserves user PWM when already above guard")
+        expect(AMDFanSafety.effectiveManualPWM(userPWM: 1, currentTemp: 50.0) == 3,
+               "effectiveManualPWM applies floor clamp even below 85°C")
+
+        // MARK: AMD Boot-Args Formatter & C-State Options
+
+        expectEqual(
+            CStateNvramService.formatAmdBootArgs(isC6Enabled: false, isCppcActiveEnabled: false, isPnopchkEnabled: false),
+            "amdcstate=1",
+            "formatAmdBootArgs defaults (C6 disabled)"
+        )
+        expectEqual(
+            CStateNvramService.formatAmdBootArgs(isC6Enabled: true, isCppcActiveEnabled: false, isPnopchkEnabled: false),
+            "amdcstate=0",
+            "formatAmdBootArgs C6 enabled"
+        )
+        expectEqual(
+            CStateNvramService.formatAmdBootArgs(isC6Enabled: true, isCppcActiveEnabled: true, isPnopchkEnabled: false),
+            "-amdcppcactive amdcstate=0",
+            "formatAmdBootArgs CPPC + C6 enabled"
+        )
+        expectEqual(
+            CStateNvramService.formatAmdBootArgs(isC6Enabled: false, isCppcActiveEnabled: true, isPnopchkEnabled: true),
+            "-amdcppcactive -amdpnopchk amdcstate=1",
+            "formatAmdBootArgs CPPC + pnopchk + C6 disabled"
+        )
+
+        // MARK: AMD Power Strings Invariant (gamingModeC6Hint)
+
+        for lang in AppLanguage.allCases {
+            let s = AMDPowerFeatureStrings.current(lang)
+            expect(
+                !s.gamingModeC6Hint.contains("amdcstate=0"),
+                "Language \(lang.rawValue) gamingModeC6Hint must NOT contain amdcstate=0: \(s.gamingModeC6Hint)"
+            )
+            expect(
+                s.gamingModeC6Hint.contains("amdcstate=1"),
+                "Language \(lang.rawValue) gamingModeC6Hint must contain amdcstate=1: \(s.gamingModeC6Hint)"
+            )
+        }
+
+        // MARK: S2-T3/T5 New Strings Invariants (non-empty across all 12 locales)
+
+        for lang in AppLanguage.allCases {
+            let a = AMDPowerFeatureStrings.current(lang)
+            let f = FeatureStrings.fanControl(lang)
+            let amdKeys: [(String, String)] = [
+                ("packagePowerLabel", a.packagePowerLabel),
+                ("packageTempLabel", a.packageTempLabel),
+                ("telemetryPacketSelectorTitle", a.telemetryPacketSelectorTitle),
+                ("telemetrySourceMonitor", a.telemetrySourceMonitor),
+                ("telemetrySourcePacket", a.telemetrySourcePacket),
+                ("panelSectionTitle", a.panelSectionTitle),
+                ("sidebarTitle", a.sidebarTitle),
+                ("loadingControls", a.loadingControls),
+                ("runtimeC6DisabledBadge", a.runtimeC6DisabledBadge),
+                ("runtimeC6EnabledBadge", a.runtimeC6EnabledBadge),
+                ("c6RuntimeRowTitle", a.c6RuntimeRowTitle),
+                ("c6DriftWarning", a.c6DriftWarning),
+                ("panelSmcFanControl", a.panelSmcFanControl),
+                ("panelManagedByGamingMode", a.panelManagedByGamingMode),
+                ("autoEppToggle", a.autoEppToggle),
+                ("panelCpbToggle", a.panelCpbToggle),
+                ("panelPpmToggle", a.panelPpmToggle),
+                ("panelLpmLimit", a.panelLpmLimit),
+                ("panelLegacyProfiles", a.panelLegacyProfiles),
+                ("panelPstateOverrides", a.panelPstateOverrides),
+                ("panelThresholdsSummaryFormat", a.panelThresholdsSummaryFormat)
+            ]
+            for (key, value) in amdKeys {
+                expect(!value.isEmpty, "Language \(lang.rawValue) amdPower.\(key) must not be empty")
+            }
+            // S2 fix: compact picker labels must stay short or they overflow the
+            // menu-bar panel (the segmented picker cannot shrink below titles).
+            for short in [a.perfMaxShort, a.perfBalPlusShort, a.perfBalMinusShort, a.perfEcoShort] {
+                expect(short.count <= 8, "Language \(lang.rawValue) compact preset label too long (\(short.count) chars): \(short)")
+            }
+            expect(!a.panelThresholdsSummaryFormat.contains("%d") || a.panelThresholdsSummaryFormat.contains("%"),
+                   "Language \(lang.rawValue) panelThresholdsSummaryFormat keeps its format specifiers")
+            let fanKeys: [(String, String)] = [
+                ("thermalGuardActiveHint", f.thermalGuardActiveHint),
+                ("pwmFloorHint", f.pwmFloorHint),
+                ("sidebarTitle", f.sidebarTitle),
+                ("sensorsSidebarTitle", f.sensorsSidebarTitle)
+            ]
+            for (key, value) in fanKeys {
+                expect(!value.isEmpty, "Language \(lang.rawValue) fanControl.\(key) must not be empty")
+            }
+            expect(f.thermalGuardActiveHint.contains("85"),
+                   "Language \(lang.rawValue) thermalGuardActiveHint mentions the 85 °C threshold")
+        }
+
         // MARK: Result
 
         if failures.isEmpty {

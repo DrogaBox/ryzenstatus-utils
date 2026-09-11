@@ -25,6 +25,11 @@ struct AMDPowerFeatureStrings {
     let perfBalPlus: String
     let perfBalMinus: String
     let perfEco: String
+    // Compact forms for segmented pickers — full words overflow the panel.
+    let perfMaxShort: String
+    let perfBalPlusShort: String
+    let perfBalMinusShort: String
+    let perfEcoShort: String
 
     let cpuProfileHeader: String
     let cpuProfileFooter: String
@@ -65,6 +70,53 @@ struct AMDPowerFeatureStrings {
     let copyAmdArgsButton: String
     let copyAmdArgsGuidance: String
     let copiedToastText: String
+
+    // AMD Polish S2-T2/T3/T4: telemetry labels, Curve Optimizer, runtime C6 policy.
+    let packagePowerLabel: String
+    let packageTempLabel: String
+    let telemetryPacketHeader: String
+    let telemetryPacketFooter: String
+    let telemetryCoreFreqFormat: String
+    let ccdCountFormat: String
+    let telemetrySourceMonitor: String
+    let telemetrySourcePacket: String
+    let coHeader: String
+    let coFooter: String
+    let coUnlockToggle: String
+    let coApplyAll: String
+    let coResetZero: String
+    let coUnsupportedZen4: String
+    let coDisabledLegacy: String
+    let cpbToggle: String
+    let ppmToggle: String
+    let lpmToggle: String
+    let cppcSectionHeader: String
+    let cppcActiveOn: String
+    let cppcActiveOff: String
+    let eppValueFormat: String
+    let manualBadge: String
+    let autoBadge: String
+    let cpuLoadLabel: String
+    let legacyPstatesHeader: String
+    let gpuTempRowLabel: String
+    let runtimeC6DisabledBadge: String
+    let runtimeC6EnabledBadge: String
+    let c6RuntimeRowTitle: String
+    let c6DriftWarning: String
+    // Menu-panel section (S2-T3).
+    let panelSmcFanControl: String
+    let panelManagedByGamingMode: String
+    let autoEppToggle: String
+    let panelCpbToggle: String
+    let panelPpmToggle: String
+    let panelLpmLimit: String
+    let panelLegacyProfiles: String
+    let panelPstateOverrides: String
+    let panelThresholdsSummaryFormat: String
+    let panelSectionTitle: String
+    let sidebarTitle: String
+    let telemetryPacketSelectorTitle: String
+    let loadingControls: String
 }
 
 extension L10n {
@@ -120,6 +172,10 @@ extension AMDPowerFeatureStrings {
         perfBalPlus: "Balanced Perf",
         perfBalMinus: "Balanced Power",
         perfEco: "Power Save",
+        perfMaxShort: "Max",
+        perfBalPlusShort: "Bal+",
+        perfBalMinusShort: "Bal-",
+        perfEcoShort: "Eco",
 
         cpuProfileHeader: "CPU Profile",
         cpuProfileFooter: "Architecture and power-management capabilities detected by the kext.",
@@ -139,7 +195,7 @@ extension AMDPowerFeatureStrings {
         gamingModeActivePreset: "Extreme preset applied (EPP 0, CPB on)",
         gamingModeActiveKeepAwake: "Keep Awake active (indefinite)",
         gamingModeIconHiddenHint: "Menu bar icon hidden — relaunch RyzenStatus to open Settings",
-        gamingModeC6Hint: "C6 still enabled at the NVRAM level — set amdcstate=0 and reboot for the full effect",
+        gamingModeC6Hint: "C6 still enabled at the NVRAM level — set amdcstate=1 and reboot for the full effect",
         gamingModeFooter: "One click: applies the Extreme power preset, starts Keep Awake indefinitely and hides the menu bar icon. Toggle off, or relaunch the app, to restore your previous profile.",
 
         deepCStatesTitle: "Deep C-States (C6+)",
@@ -159,7 +215,51 @@ extension AMDPowerFeatureStrings {
 
         copyAmdArgsButton: "Copy AMD Boot-Args",
         copyAmdArgsGuidance: "If OpenCore resets NVRAM on boot, click to copy only our app's AMD boot-args string to paste into your config.plist.",
-        copiedToastText: "Copied to clipboard:"
+        copiedToastText: "Copied to clipboard:",
+        packagePowerLabel: "Package Power",
+        packageTempLabel: "Package Temperature",
+        telemetryPacketHeader: "Telemetry Packet",
+        telemetryPacketFooter: "Zero-copy streaming packet from the kext (selector 100).",
+        telemetryCoreFreqFormat: "Core Freq (%d threads)",
+        ccdCountFormat: "CCDs (%d)",
+        telemetrySourceMonitor: "Sampled via SystemMonitor.",
+        telemetrySourcePacket: "Direct kext telemetry packet (selector 100).",
+        coHeader: "Curve Optimizer (Selectors 110/111)",
+        coFooter: "Per-core voltage offset −30..+30 applied via SMU command 0x3D. Writes require root or -amdpnopchk and are blocked above 75 °C package temperature.",
+        coUnlockToggle: "Unlock Curve Optimizer Controls",
+        coApplyAll: "Apply All",
+        coResetZero: "Reset to 0",
+        coUnsupportedZen4: "Curve Optimizer is not supported on Zen 4/5 CPUs. Use PBO in BIOS instead.",
+        coDisabledLegacy: "Curve Optimizer is disabled because Legacy P-States (PM Dispatch) are not active. The kext blocks SMU writes when running in CPPC or telemetry-only mode.",
+        cpbToggle: "Core Performance Boost (CPB)",
+        ppmToggle: "Processor Power Manager (PPM)",
+        lpmToggle: "Low Power Mode (LPM)",
+        cppcSectionHeader: "Collaborative Processor Performance Control",
+        cppcActiveOn: "CPPC Active Mode: On",
+        cppcActiveOff: "CPPC Active Mode: Off",
+        eppValueFormat: "EPP %d/255",
+        manualBadge: "Manual",
+        autoBadge: "Auto",
+        cpuLoadLabel: "CPU Load",
+        legacyPstatesHeader: "CPU Speed Profiles (Legacy P-States)",
+        gpuTempRowLabel: "Temperature",
+        runtimeC6DisabledBadge: "Runtime: C6 disabled by kext",
+        runtimeC6EnabledBadge: "Runtime: C6 enabled",
+        c6RuntimeRowTitle: "Runtime policy (kext)",
+        c6DriftWarning: "NVRAM and the running kext disagree — reboot after changing boot-args, or update the AMD kext.",
+        panelSmcFanControl: "SMC Fan Control (Advanced)",
+        panelManagedByGamingMode: "Managed by Gaming Mode",
+        autoEppToggle: "Auto EPP (Zen 3)",
+        panelCpbToggle: "Core Performance Boost",
+        panelPpmToggle: "PPM Limit",
+        panelLpmLimit: "LPM Limit",
+        panelLegacyProfiles: "CPU Speed Profiles (Legacy)",
+        panelPstateOverrides: "P-State overrides (Frequencies locked).",
+        panelThresholdsSummaryFormat: "Idle <%d%% | Load >%d%%",
+        panelSectionTitle: "AMD Ryzen",
+        sidebarTitle: "AMD Ryzen Power",
+        telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
+        loadingControls: "Loading AMD power controls…"
     )
 
     static let es = AMDPowerFeatureStrings(
@@ -184,6 +284,10 @@ extension AMDPowerFeatureStrings {
         perfBalPlus: "Rendimiento Bal.",
         perfBalMinus: "Ahorro Bal.",
         perfEco: "Ahorro Máx.",
+        perfMaxShort: "Máx",
+        perfBalPlusShort: "Bal+",
+        perfBalMinusShort: "Bal-",
+        perfEcoShort: "Ahorro",
 
         cpuProfileHeader: "Perfil de CPU",
         cpuProfileFooter: "Arquitectura y capacidades de gestión de energía detectadas por el kext.",
@@ -203,7 +307,7 @@ extension AMDPowerFeatureStrings {
         gamingModeActivePreset: "Preset Extreme aplicado (EPP 0, CPB on)",
         gamingModeActiveKeepAwake: "Keep Awake activo (indefinido)",
         gamingModeIconHiddenHint: "Ícono de la barra de menús oculto — relanzá RyzenStatus para abrir Ajustes",
-        gamingModeC6Hint: "C6 aún activado a nivel NVRAM — configurá amdcstate=0 y reiniciá para el efecto completo",
+        gamingModeC6Hint: "C6 aún activado a nivel NVRAM — configurá amdcstate=1 y reiniciá para el efecto completo",
         gamingModeFooter: "Un clic: aplica el preset Extreme de energía, inicia Keep Awake indefinidamente y oculta el ícono de la barra de menús. Desactivá el modo, o relanzá la app, para restaurar tu perfil anterior.",
 
         deepCStatesTitle: "Deep C-States (C6+)",
@@ -223,7 +327,51 @@ extension AMDPowerFeatureStrings {
 
         copyAmdArgsButton: "Copiar argumentos AMD",
         copyAmdArgsGuidance: "Si tu OpenCore resetea la NVRAM al reiniciar, usá este botón para copiar únicamente la cadena de argumentos AMD de la app y pegarla en tu config.plist.",
-        copiedToastText: "Copiado al portapapeles:"
+        copiedToastText: "Copiado al portapapeles:",
+        packagePowerLabel: "Potencia del paquete",
+        packageTempLabel: "Temperatura del paquete",
+        telemetryPacketHeader: "Paquete de telemetría",
+        telemetryPacketFooter: "Paquete de transmisión sin copias del kext (selector 100).",
+        telemetryCoreFreqFormat: "Frec. de núcleos (%d hilos)",
+        ccdCountFormat: "CCDs (%d)",
+        telemetrySourceMonitor: "Muestreado vía SystemMonitor.",
+        telemetrySourcePacket: "Paquete de telemetría directo del kext (selector 100).",
+        coHeader: "Curve Optimizer (selectores 110/111)",
+        coFooter: "Desplazamiento de voltaje por núcleo −30..+30 aplicado vía comando SMU 0x3D. Las escrituras requieren root o -amdpnopchk y se bloquean por encima de 75 °C de temperatura del paquete.",
+        coUnlockToggle: "Desbloquear controles de Curve Optimizer",
+        coApplyAll: "Aplicar todo",
+        coResetZero: "Reiniciar a 0",
+        coUnsupportedZen4: "Curve Optimizer no es compatible con CPUs Zen 4/5. Usá PBO en el BIOS.",
+        coDisabledLegacy: "Curve Optimizer está deshabilitado porque los P-States legacy (PM Dispatch) no están activos. El kext bloquea las escrituras SMU en modo CPPC o solo telemetría.",
+        cpbToggle: "Core Performance Boost (CPB)",
+        ppmToggle: "Processor Power Manager (PPM)",
+        lpmToggle: "Low Power Mode (LPM)",
+        cppcSectionHeader: "Control colaborativo de rendimiento del procesador",
+        cppcActiveOn: "Modo activo CPPC: activado",
+        cppcActiveOff: "Modo activo CPPC: desactivado",
+        eppValueFormat: "EPP %d/255",
+        manualBadge: "Manual",
+        autoBadge: "Auto",
+        cpuLoadLabel: "Carga de CPU",
+        legacyPstatesHeader: "Perfiles de velocidad de CPU (P-States legacy)",
+        gpuTempRowLabel: "Temperatura",
+        runtimeC6DisabledBadge: "Runtime: C6 deshabilitado por el kext",
+        runtimeC6EnabledBadge: "Runtime: C6 habilitado",
+        c6RuntimeRowTitle: "Política en ejecución (kext)",
+        c6DriftWarning: "La NVRAM y el kext en ejecución no coinciden — reiniciá después de cambiar los boot-args, o actualizá el kext AMD.",
+        panelSmcFanControl: "Control de ventilador SMC (avanzado)",
+        panelManagedByGamingMode: "Administrado por Modo Gaming",
+        autoEppToggle: "Auto EPP (Zen 3)",
+        panelCpbToggle: "Core Performance Boost",
+        panelPpmToggle: "Límite PPM",
+        panelLpmLimit: "Límite LPM",
+        panelLegacyProfiles: "Perfiles de velocidad de CPU (legacy)",
+        panelPstateOverrides: "Anulaciones de P-State (frecuencias bloqueadas).",
+        panelThresholdsSummaryFormat: "Inactivo <%d%% | Carga >%d%%",
+        panelSectionTitle: "AMD Ryzen",
+        sidebarTitle: "AMD Ryzen Power",
+        telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
+        loadingControls: "Loading AMD power controls…"
     )
 
     static let ptBR = AMDPowerFeatureStrings(
@@ -248,6 +396,10 @@ extension AMDPowerFeatureStrings {
         perfBalPlus: "Desemp. Equil.",
         perfBalMinus: "Econ. Equil.",
         perfEco: "Economia",
+        perfMaxShort: "Máx",
+        perfBalPlusShort: "Equ+",
+        perfBalMinusShort: "Equ-",
+        perfEcoShort: "Eco",
 
         cpuProfileHeader: "Perfil da CPU",
         cpuProfileFooter: "Arquitetura e recursos de energia detectados pela kext.",
@@ -267,7 +419,7 @@ extension AMDPowerFeatureStrings {
         gamingModeActivePreset: "Predefinição Extreme aplicada (EPP 0, CPB on)",
         gamingModeActiveKeepAwake: "Manter Ativo ligado (indefinido)",
         gamingModeIconHiddenHint: "Ícone oculto — reabra o app para abrir Ajustes",
-        gamingModeC6Hint: "C6 ativo na NVRAM — use amdcstate=0 e reinicie",
+        gamingModeC6Hint: "C6 ativo na NVRAM — use amdcstate=1 e reinicie",
         gamingModeFooter: "Um clique: aplica perfil Extreme e ativa Manter Ativo.",
 
         deepCStatesTitle: "Deep C-States (C6+)",
@@ -287,7 +439,51 @@ extension AMDPowerFeatureStrings {
 
         copyAmdArgsButton: "Copiar Boot-Args AMD",
         copyAmdArgsGuidance: "Clique para copiar os argumentos de boot para o config.plist.",
-        copiedToastText: "Copiado para a área de transferência:"
+        copiedToastText: "Copiado para a área de transferência:",
+        packagePowerLabel: "Potência do pacote",
+        packageTempLabel: "Temperatura do pacote",
+        telemetryPacketHeader: "Pacote de telemetria",
+        telemetryPacketFooter: "Pacote de transmissão sem cópias do kext (seletor 100).",
+        telemetryCoreFreqFormat: "Freq. de núcleos (%d threads)",
+        ccdCountFormat: "CCDs (%d)",
+        telemetrySourceMonitor: "Amostrado via SystemMonitor.",
+        telemetrySourcePacket: "Pacote de telemetria direto do kext (seletor 100).",
+        coHeader: "Curve Optimizer (seletores 110/111)",
+        coFooter: "Deslocamento de tensão por núcleo −30..+30 via comando SMU 0x3D. Gravações exigem root ou -amdpnopchk e são bloqueadas acima de 75 °C no pacote.",
+        coUnlockToggle: "Desbloquear controles do Curve Optimizer",
+        coApplyAll: "Aplicar tudo",
+        coResetZero: "Redefinir para 0",
+        coUnsupportedZen4: "O Curve Optimizer não é compatível com CPUs Zen 4/5. Use PBO no BIOS.",
+        coDisabledLegacy: "O Curve Optimizer está desativado porque os P-States legados (PM Dispatch) não estão ativos. O kext bloqueia gravações SMU em modo CPPC ou somente telemetria.",
+        cpbToggle: "Core Performance Boost (CPB)",
+        ppmToggle: "Processor Power Manager (PPM)",
+        lpmToggle: "Low Power Mode (LPM)",
+        cppcSectionHeader: "Controle colaborativo de desempenho do processador",
+        cppcActiveOn: "Modo ativo CPPC: ligado",
+        cppcActiveOff: "Modo ativo CPPC: desligado",
+        eppValueFormat: "EPP %d/255",
+        manualBadge: "Manual",
+        autoBadge: "Auto",
+        cpuLoadLabel: "Carga da CPU",
+        legacyPstatesHeader: "Perfis de velocidade da CPU (P-States legados)",
+        gpuTempRowLabel: "Temperatura",
+        runtimeC6DisabledBadge: "Runtime: C6 desativado pelo kext",
+        runtimeC6EnabledBadge: "Runtime: C6 ativado",
+        c6RuntimeRowTitle: "Política em execução (kext)",
+        c6DriftWarning: "A NVRAM e o kext em execução divergem — reinicie após alterar os boot-args ou atualize o kext AMD.",
+        panelSmcFanControl: "Controle de fan SMC (avançado)",
+        panelManagedByGamingMode: "Gerenciado pelo Modo Gaming",
+        autoEppToggle: "Auto EPP (Zen 3)",
+        panelCpbToggle: "Core Performance Boost",
+        panelPpmToggle: "Limite PPM",
+        panelLpmLimit: "Limite LPM",
+        panelLegacyProfiles: "Perfis de velocidade da CPU (legados)",
+        panelPstateOverrides: "Substituições de P-State (frequências travadas).",
+        panelThresholdsSummaryFormat: "Ocioso <%d%% | Carga >%d%%",
+        panelSectionTitle: "AMD Ryzen",
+        sidebarTitle: "AMD Ryzen Power",
+        telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
+        loadingControls: "Loading AMD power controls…"
     )
 
     static let de = AMDPowerFeatureStrings(
@@ -312,6 +508,10 @@ extension AMDPowerFeatureStrings {
         perfBalPlus: "Ausgew. Leistung",
         perfBalMinus: "Ausgew. Sparen",
         perfEco: "Energiesparen",
+        perfMaxShort: "Max",
+        perfBalPlusShort: "Bal+",
+        perfBalMinusShort: "Bal-",
+        perfEcoShort: "Öko",
 
         cpuProfileHeader: "CPU-Profil",
         cpuProfileFooter: "Vom Kext erkannte Architektur und Energieverwaltungsfunktionen.",
@@ -331,7 +531,7 @@ extension AMDPowerFeatureStrings {
         gamingModeActivePreset: "Extreme-Profil angewendet",
         gamingModeActiveKeepAwake: "Wachhalten aktiv",
         gamingModeIconHiddenHint: "Symbol ausgeblendet — App neu starten für Einstellungen",
-        gamingModeC6Hint: "C6 in NVRAM aktiv — amdcstate=0 setzen",
+        gamingModeC6Hint: "C6 in NVRAM aktiv — amdcstate=1 setzen",
         gamingModeFooter: "Ein Klick: Extreme-Profil und Wachhalten aktivieren.",
 
         deepCStatesTitle: "Deep C-States (C6+)",
@@ -351,7 +551,51 @@ extension AMDPowerFeatureStrings {
 
         copyAmdArgsButton: "AMD Boot-Args kopieren",
         copyAmdArgsGuidance: "Kopiert die Boot-Argumente für die config.plist.",
-        copiedToastText: "In die Zwischenablage kopiert:"
+        copiedToastText: "In die Zwischenablage kopiert:",
+        packagePowerLabel: "Paketleistung",
+        packageTempLabel: "Pakettemperatur",
+        telemetryPacketHeader: "Telemetrie-Paket",
+        telemetryPacketFooter: "Zero-Copy-Streaming-Paket vom Kext (Selektor 100).",
+        telemetryCoreFreqFormat: "Kern-Takt (%d Threads)",
+        ccdCountFormat: "CCDs (%d)",
+        telemetrySourceMonitor: "Abgetastet über SystemMonitor.",
+        telemetrySourcePacket: "Direktes Kext-Telemetrie-Paket (Selector 100).",
+        coHeader: "Curve Optimizer (Selektoren 110/111)",
+        coFooter: "Kernspezifische Spannungsoffsets −30..+30 via SMU-Befehl 0x3D. Schreibvorgänge erfordern root oder -amdpnopchk und werden über 75 °C Pakettemperatur blockiert.",
+        coUnlockToggle: "Curve Optimizer-Steuerung entsperren",
+        coApplyAll: "Alle anwenden",
+        coResetZero: "Auf 0 zurücksetzen",
+        coUnsupportedZen4: "Curve Optimizer wird auf Zen-4/5-CPUs nicht unterstützt. Bitte PBO im BIOS verwenden.",
+        coDisabledLegacy: "Curve Optimizer ist deaktiviert, weil Legacy-P-States (PM Dispatch) nicht aktiv sind. Der Kext blockiert SMU-Schreibvorgänge im CPPC- oder Nur-Telemetrie-Modus.",
+        cpbToggle: "Core Performance Boost (CPB)",
+        ppmToggle: "Processor Power Manager (PPM)",
+        lpmToggle: "Low Power Mode (LPM)",
+        cppcSectionHeader: "Kollaborative Prozessor-Leistungssteuerung",
+        cppcActiveOn: "CPPC-Aktivmodus: ein",
+        cppcActiveOff: "CPPC-Aktivmodus: aus",
+        eppValueFormat: "EPP %d/255",
+        manualBadge: "Manuell",
+        autoBadge: "Auto",
+        cpuLoadLabel: "CPU-Last",
+        legacyPstatesHeader: "CPU-Geschwindigkeitsprofile (Legacy-P-States)",
+        gpuTempRowLabel: "Temperatur",
+        runtimeC6DisabledBadge: "Laufzeit: C6 durch Kext deaktiviert",
+        runtimeC6EnabledBadge: "Laufzeit: C6 aktiviert",
+        c6RuntimeRowTitle: "Laufzeitrichtlinie (Kext)",
+        c6DriftWarning: "NVRAM und laufender Kext widersprechen sich — nach dem Ändern der Boot-Args neu starten oder den AMD-Kext aktualisieren.",
+        panelSmcFanControl: "SMC-Lüftersteuerung (erweitert)",
+        panelManagedByGamingMode: "Vom Gaming-Modus verwaltet",
+        autoEppToggle: "Auto-EPP (Zen 3)",
+        panelCpbToggle: "Core Performance Boost",
+        panelPpmToggle: "PPM-Limit",
+        panelLpmLimit: "LPM-Limit",
+        panelLegacyProfiles: "CPU-Geschwindigkeitsprofile (Legacy)",
+        panelPstateOverrides: "P-State-Überschreibungen (Taktraten fixiert).",
+        panelThresholdsSummaryFormat: "Idle <%d%% | Last >%d%%",
+        panelSectionTitle: "AMD Ryzen",
+        sidebarTitle: "AMD Ryzen Power",
+        telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
+        loadingControls: "Loading AMD power controls…"
     )
 
     static let fr = AMDPowerFeatureStrings(
@@ -376,6 +620,10 @@ extension AMDPowerFeatureStrings {
         perfBalPlus: "Perf. équilibrée",
         perfBalMinus: "Éco. équilibrée",
         perfEco: "Économie",
+        perfMaxShort: "Max",
+        perfBalPlusShort: "Éq+",
+        perfBalMinusShort: "Éq-",
+        perfEcoShort: "Éco",
 
         cpuProfileHeader: "Profil CPU",
         cpuProfileFooter: "Architecture et capacités détectées par le kext.",
@@ -395,7 +643,7 @@ extension AMDPowerFeatureStrings {
         gamingModeActivePreset: "Préréglage Extreme appliqué",
         gamingModeActiveKeepAwake: "Maintien de l'éveil actif",
         gamingModeIconHiddenHint: "Icône masquée — relancez l'application pour les réglages",
-        gamingModeC6Hint: "C6 actif dans la NVRAM — amdcstate=0",
+        gamingModeC6Hint: "C6 actif dans la NVRAM — amdcstate=1",
         gamingModeFooter: "Un clic : active le profil Extreme et le maintien de l'éveil.",
 
         deepCStatesTitle: "Deep C-States (C6+)",
@@ -415,7 +663,51 @@ extension AMDPowerFeatureStrings {
 
         copyAmdArgsButton: "Copier les boot-args AMD",
         copyAmdArgsGuidance: "Cliquez pour copier la chaîne d'arguments pour config.plist.",
-        copiedToastText: "Copié dans le presse-papiers :"
+        copiedToastText: "Copié dans le presse-papiers :",
+        packagePowerLabel: "Puissance du paquet",
+        packageTempLabel: "Température du paquet",
+        telemetryPacketHeader: "Paquet de télémétrie",
+        telemetryPacketFooter: "Paquet en flux sans copie depuis le kext (sélecteur 100).",
+        telemetryCoreFreqFormat: "Fréq. cœurs (%d threads)",
+        ccdCountFormat: "CCDs (%d)",
+        telemetrySourceMonitor: "Échantillonné via SystemMonitor.",
+        telemetrySourcePacket: "Paquet de télémétrie direct du kext (sélecteur 100).",
+        coHeader: "Curve Optimizer (sélecteurs 110/111)",
+        coFooter: "Décalage de tension par cœur −30..+30 via commande SMU 0x3D. Les écritures exigent root ou -amdpnopchk et sont bloquées au-delà de 75 °C de température du paquet.",
+        coUnlockToggle: "Déverrouiller les contrôles Curve Optimizer",
+        coApplyAll: "Tout appliquer",
+        coResetZero: "Réinitialiser à 0",
+        coUnsupportedZen4: "Curve Optimizer non pris en charge sur les CPU Zen 4/5. Utilisez le PBO dans le BIOS.",
+        coDisabledLegacy: "Curve Optimizer est désactivé car les P-States legacy (PM Dispatch) ne sont pas actifs. Le kext bloque les écritures SMU en mode CPPC ou télémétrie seule.",
+        cpbToggle: "Core Performance Boost (CPB)",
+        ppmToggle: "Processor Power Manager (PPM)",
+        lpmToggle: "Low Power Mode (LPM)",
+        cppcSectionHeader: "Contrôle collaboratif des performances du processeur",
+        cppcActiveOn: "Mode actif CPPC : activé",
+        cppcActiveOff: "Mode actif CPPC : désactivé",
+        eppValueFormat: "EPP %d/255",
+        manualBadge: "Manuel",
+        autoBadge: "Auto",
+        cpuLoadLabel: "Charge CPU",
+        legacyPstatesHeader: "Profils de vitesse CPU (P-States legacy)",
+        gpuTempRowLabel: "Température",
+        runtimeC6DisabledBadge: "Exécution : C6 désactivé par le kext",
+        runtimeC6EnabledBadge: "Exécution : C6 activé",
+        c6RuntimeRowTitle: "Politique d'exécution (kext)",
+        c6DriftWarning: "La NVRAM et le kext en cours divergent — redémarrez après avoir modifié les boot-args, ou mettez à jour le kext AMD.",
+        panelSmcFanControl: "Contrôle SMC des ventilateurs (avancé)",
+        panelManagedByGamingMode: "Géré par le Mode Gaming",
+        autoEppToggle: "EPP auto (Zen 3)",
+        panelCpbToggle: "Core Performance Boost",
+        panelPpmToggle: "Limite PPM",
+        panelLpmLimit: "Limite LPM",
+        panelLegacyProfiles: "Profils de vitesse CPU (legacy)",
+        panelPstateOverrides: "Substitutions de P-State (fréquences verrouillées).",
+        panelThresholdsSummaryFormat: "Inactif <%d%% | Charge >%d%%",
+        panelSectionTitle: "AMD Ryzen",
+        sidebarTitle: "AMD Ryzen Power",
+        telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
+        loadingControls: "Loading AMD power controls…"
     )
 
     static let it = AMDPowerFeatureStrings(
@@ -440,6 +732,10 @@ extension AMDPowerFeatureStrings {
         perfBalPlus: "Prest. bilanciate",
         perfBalMinus: "Risp. bilanciato",
         perfEco: "Risparmio",
+        perfMaxShort: "Max",
+        perfBalPlusShort: "Bil+",
+        perfBalMinusShort: "Bil-",
+        perfEcoShort: "Eco",
 
         cpuProfileHeader: "Profilo CPU",
         cpuProfileFooter: "Architettura e funzionalità rilevate dal kext.",
@@ -459,7 +755,7 @@ extension AMDPowerFeatureStrings {
         gamingModeActivePreset: "Profilo Extreme applicato",
         gamingModeActiveKeepAwake: "Keep Awake attivo",
         gamingModeIconHiddenHint: "Icona nascosta — riavvia per le impostazioni",
-        gamingModeC6Hint: "C6 attivo in NVRAM — amdcstate=0",
+        gamingModeC6Hint: "C6 attivo in NVRAM — amdcstate=1",
         gamingModeFooter: "Un clic: attiva il profilo Extreme e Keep Awake.",
 
         deepCStatesTitle: "Deep C-States (C6+)",
@@ -479,7 +775,51 @@ extension AMDPowerFeatureStrings {
 
         copyAmdArgsButton: "Copia boot-args AMD",
         copyAmdArgsGuidance: "Copia gli argomenti di avvio per config.plist.",
-        copiedToastText: "Copiato negli appunti:"
+        copiedToastText: "Copiato negli appunti:",
+        packagePowerLabel: "Potenza del pacchetto",
+        packageTempLabel: "Temperatura del pacchetto",
+        telemetryPacketHeader: "Pacchetto di telemetria",
+        telemetryPacketFooter: "Pacchetto in streaming zero-copy dal kext (selettore 100).",
+        telemetryCoreFreqFormat: "Freq. core (%d thread)",
+        ccdCountFormat: "CCD (%d)",
+        telemetrySourceMonitor: "Campionato tramite SystemMonitor.",
+        telemetrySourcePacket: "Pacchetto di telemetria diretto del kext (selettore 100).",
+        coHeader: "Curve Optimizer (selettori 110/111)",
+        coFooter: "Offset di tensione per core −30..+30 applicati via comando SMU 0x3D. Le scritture richiedono root o -amdpnopchk e sono bloccate sopra i 75 °C di temperatura del pacchetto.",
+        coUnlockToggle: "Sblocca i controlli Curve Optimizer",
+        coApplyAll: "Applica tutto",
+        coResetZero: "Reimposta a 0",
+        coUnsupportedZen4: "Curve Optimizer non è supportato su CPU Zen 4/5. Usa il PBO nel BIOS.",
+        coDisabledLegacy: "Curve Optimizer è disabilitato perché i P-State legacy (PM Dispatch) non sono attivi. Il kext blocca le scritture SMU in modalità CPPC o sola telemetria.",
+        cpbToggle: "Core Performance Boost (CPB)",
+        ppmToggle: "Processor Power Manager (PPM)",
+        lpmToggle: "Low Power Mode (LPM)",
+        cppcSectionHeader: "Controllo collaborativo delle prestazioni del processore",
+        cppcActiveOn: "Modalità attiva CPPC: on",
+        cppcActiveOff: "Modalità attiva CPPC: off",
+        eppValueFormat: "EPP %d/255",
+        manualBadge: "Manuale",
+        autoBadge: "Auto",
+        cpuLoadLabel: "Carico CPU",
+        legacyPstatesHeader: "Profili di velocità CPU (P-State legacy)",
+        gpuTempRowLabel: "Temperatura",
+        runtimeC6DisabledBadge: "Runtime: C6 disabilitato dal kext",
+        runtimeC6EnabledBadge: "Runtime: C6 abilitato",
+        c6RuntimeRowTitle: "Politica di runtime (kext)",
+        c6DriftWarning: "NVRAM e kext in esecuzione non concordano — riavvia dopo aver modificato i boot-arg, o aggiorna il kext AMD.",
+        panelSmcFanControl: "Controllo ventole SMC (avanzato)",
+        panelManagedByGamingMode: "Gestito dalla Modalità Gaming",
+        autoEppToggle: "EPP automatico (Zen 3)",
+        panelCpbToggle: "Core Performance Boost",
+        panelPpmToggle: "Limite PPM",
+        panelLpmLimit: "Limite LPM",
+        panelLegacyProfiles: "Profili di velocità CPU (legacy)",
+        panelPstateOverrides: "Sostituzioni P-State (frequenze bloccate).",
+        panelThresholdsSummaryFormat: "Inattivo <%d%% | Carico >%d%%",
+        panelSectionTitle: "AMD Ryzen",
+        sidebarTitle: "AMD Ryzen Power",
+        telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
+        loadingControls: "Loading AMD power controls…"
     )
 
     static let ru = AMDPowerFeatureStrings(
@@ -504,6 +844,10 @@ extension AMDPowerFeatureStrings {
         perfBalPlus: "Сбаланс. произв.",
         perfBalMinus: "Сбаланс. эконом.",
         perfEco: "Энергосбережение",
+        perfMaxShort: "Макс",
+        perfBalPlusShort: "Бал+",
+        perfBalMinusShort: "Бал-",
+        perfEcoShort: "Эко",
 
         cpuProfileHeader: "Профиль CPU",
         cpuProfileFooter: "Архитектура и параметры управления питанием из кекста.",
@@ -523,7 +867,7 @@ extension AMDPowerFeatureStrings {
         gamingModeActivePreset: "Применен пресет Extreme",
         gamingModeActiveKeepAwake: "Запрет сна активен",
         gamingModeIconHiddenHint: "Иконка скрыта — перезапустите приложение для настроек",
-        gamingModeC6Hint: "C6 активен в NVRAM — amdcstate=0",
+        gamingModeC6Hint: "C6 активен в NVRAM — amdcstate=1",
         gamingModeFooter: "Один клик: включает профиль Extreme и запрет сна.",
 
         deepCStatesTitle: "Deep C-States (C6+)",
@@ -543,7 +887,51 @@ extension AMDPowerFeatureStrings {
 
         copyAmdArgsButton: "Копировать AMD Boot-Args",
         copyAmdArgsGuidance: "Копирует строку аргументов для config.plist.",
-        copiedToastText: "Скопировано в буфер обмена:"
+        copiedToastText: "Скопировано в буфер обмена:",
+        packagePowerLabel: "Мощность пакета",
+        packageTempLabel: "Температура пакета",
+        telemetryPacketHeader: "Пакет телеметрии",
+        telemetryPacketFooter: "Пакет потоковой передачи без копирования от kext (селектор 100).",
+        telemetryCoreFreqFormat: "Частота ядер (%d потоков)",
+        ccdCountFormat: "CCD: %d",
+        telemetrySourceMonitor: "Выборка через SystemMonitor.",
+        telemetrySourcePacket: "Прямой телеметрический пакет кекста (селектор 100).",
+        coHeader: "Curve Optimizer (селекторы 110/111)",
+        coFooter: "Поядерный сдвиг напряжения −30..+30 через SMU-команду 0x3D. Запись требует root или -amdpnopchk и блокируется выше 75 °C температуры пакета.",
+        coUnlockToggle: "Разблокировать управление Curve Optimizer",
+        coApplyAll: "Применить ко всем",
+        coResetZero: "Сбросить в 0",
+        coUnsupportedZen4: "Curve Optimizer не поддерживается на CPU Zen 4/5. Используйте PBO в BIOS.",
+        coDisabledLegacy: "Curve Optimizer отключён: legacy P-States (PM Dispatch) не активны. Kext блокирует SMU-запись в режиме CPPC или только-телеметрии.",
+        cpbToggle: "Core Performance Boost (CPB)",
+        ppmToggle: "Processor Power Manager (PPM)",
+        lpmToggle: "Low Power Mode (LPM)",
+        cppcSectionHeader: "Совместное управление производительностью процессора",
+        cppcActiveOn: "Активный режим CPPC: вкл",
+        cppcActiveOff: "Активный режим CPPC: выкл",
+        eppValueFormat: "EPP %d/255",
+        manualBadge: "Вручную",
+        autoBadge: "Авто",
+        cpuLoadLabel: "Нагрузка CPU",
+        legacyPstatesHeader: "Профили скорости CPU (legacy P-States)",
+        gpuTempRowLabel: "Температура",
+        runtimeC6DisabledBadge: "Runtime: C6 отключён kext",
+        runtimeC6EnabledBadge: "Runtime: C6 включён",
+        c6RuntimeRowTitle: "Политика времени выполнения (kext)",
+        c6DriftWarning: "NVRAM и работающий kext расходятся — перезагрузитесь после изменения boot-args или обновите AMD kext.",
+        panelSmcFanControl: "Управление вентилятором SMC (дополнительно)",
+        panelManagedByGamingMode: "Управляется игровым режимом",
+        autoEppToggle: "Авто EPP (Zen 3)",
+        panelCpbToggle: "Core Performance Boost",
+        panelPpmToggle: "Лимит PPM",
+        panelLpmLimit: "Лимит LPM",
+        panelLegacyProfiles: "Профили скорости CPU (legacy)",
+        panelPstateOverrides: "Переопределения P-State (частоты зафиксированы).",
+        panelThresholdsSummaryFormat: "Простой <%d%% | Нагрузка >%d%%",
+        panelSectionTitle: "AMD Ryzen",
+        sidebarTitle: "AMD Ryzen Power",
+        telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
+        loadingControls: "Loading AMD power controls…"
     )
 
     static let tr = AMDPowerFeatureStrings(
@@ -568,6 +956,10 @@ extension AMDPowerFeatureStrings {
         perfBalPlus: "Dengeli Perf.",
         perfBalMinus: "Dengeli Tasarruf",
         perfEco: "Güç Tasarrufu",
+        perfMaxShort: "Maks",
+        perfBalPlusShort: "Dg+",
+        perfBalMinusShort: "Dg-",
+        perfEcoShort: "Tasarruf",
 
         cpuProfileHeader: "İşlemci Profili",
         cpuProfileFooter: "Kext tarafından algılanan mimari ve yetenekler.",
@@ -587,7 +979,7 @@ extension AMDPowerFeatureStrings {
         gamingModeActivePreset: "Extreme profili uygulandı",
         gamingModeActiveKeepAwake: "Uyanık Tut aktif",
         gamingModeIconHiddenHint: "Simge gizli — Ayarlar için uygulamayı yeniden başlatın",
-        gamingModeC6Hint: "NVRAM'de C6 aktif — amdcstate=0",
+        gamingModeC6Hint: "NVRAM'de C6 aktif — amdcstate=1",
         gamingModeFooter: "Tek tık: Extreme profil ve Uyanık Tut'u açar.",
 
         deepCStatesTitle: "Derin C-States (C6+)",
@@ -607,7 +999,51 @@ extension AMDPowerFeatureStrings {
 
         copyAmdArgsButton: "AMD Boot-Args Kopyala",
         copyAmdArgsGuidance: "config.plist içine yapıştırmak için argümanları kopyalar.",
-        copiedToastText: "Panoya kopyalandı:"
+        copiedToastText: "Panoya kopyalandı:",
+        packagePowerLabel: "Paket Gücü",
+        packageTempLabel: "Paket Sıcaklığı",
+        telemetryPacketHeader: "Telemetri Paketi",
+        telemetryPacketFooter: "Kext'ten sıfır kopyalı akış paketi (seçici 100).",
+        telemetryCoreFreqFormat: "Çekirdek Frekansı (%d iş parçacığı)",
+        ccdCountFormat: "CCD (%d)",
+        telemetrySourceMonitor: "SystemMonitor üzerinden örneklenir.",
+        telemetrySourcePacket: "Doğrudan kext telemetri paketi (selektör 100).",
+        coHeader: "Curve Optimizer (110/111 seçicileri)",
+        coFooter: "Çekirdek başına voltaj ofseti −30..+30, SMU komutu 0x3D ile uygulanır. Yazmalar root veya -amdpnopchk gerektirir ve 75 °C paket sıcaklığının üzerinde engellenir.",
+        coUnlockToggle: "Curve Optimizer Denetimlerinin Kilidini Aç",
+        coApplyAll: "Tümünü Uygula",
+        coResetZero: "0'a Sıfırla",
+        coUnsupportedZen4: "Curve Optimizer Zen 4/5 CPU'lerde desteklenmez. Bunun yerine BIOS'ta PBO kullanın.",
+        coDisabledLegacy: "Legacy P-States (PM Dispatch) etkin olmadığından Curve Optimizer devre dışı. Kext, CPPC veya yalnızca-telemetri modunda SMU yazmalarını engeller.",
+        cpbToggle: "Core Performance Boost (CPB)",
+        ppmToggle: "Processor Power Manager (PPM)",
+        lpmToggle: "Low Power Mode (LPM)",
+        cppcSectionHeader: "İşbirlikçi İşlemci Performans Denetimi",
+        cppcActiveOn: "CPPC Etkin Modu: açık",
+        cppcActiveOff: "CPPC Etkin Modu: kapalı",
+        eppValueFormat: "EPP %d/255",
+        manualBadge: "Manuel",
+        autoBadge: "Otomatik",
+        cpuLoadLabel: "CPU Yükü",
+        legacyPstatesHeader: "CPU Hız Profilleri (Legacy P-States)",
+        gpuTempRowLabel: "Sıcaklık",
+        runtimeC6DisabledBadge: "Çalışma zamanı: C6 kext tarafından devre dışı",
+        runtimeC6EnabledBadge: "Çalışma zamanı: C6 etkin",
+        c6RuntimeRowTitle: "Çalışma zamanı politikası (kext)",
+        c6DriftWarning: "NVRAM ile çalışan kext çelişiyor — boot-arg değişikliğinden sonra yeniden başlatın veya AMD kext'i güncelleyin.",
+        panelSmcFanControl: "SMC Fan Kontrolü (Gelişmiş)",
+        panelManagedByGamingMode: "Gaming Modu tarafından yönetiliyor",
+        autoEppToggle: "Otomatik EPP (Zen 3)",
+        panelCpbToggle: "Core Performance Boost",
+        panelPpmToggle: "PPM Sınırı",
+        panelLpmLimit: "LPM Sınırı",
+        panelLegacyProfiles: "CPU Hız Profilleri (legacy)",
+        panelPstateOverrides: "P-State geçersiz kılmaları (frekanslar kilitli).",
+        panelThresholdsSummaryFormat: "Boşta <%d%% | Yük >%d%%",
+        panelSectionTitle: "AMD Ryzen",
+        sidebarTitle: "AMD Ryzen Power",
+        telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
+        loadingControls: "Loading AMD power controls…"
     )
 
     static let ja = AMDPowerFeatureStrings(
@@ -632,6 +1068,10 @@ extension AMDPowerFeatureStrings {
         perfBalPlus: "バランス (高)",
         perfBalMinus: "バランス (省)",
         perfEco: "省電力",
+        perfMaxShort: "最高",
+        perfBalPlusShort: "均衡+",
+        perfBalMinusShort: "均衡−",
+        perfEcoShort: "省電",
 
         cpuProfileHeader: "CPUプロファイル",
         cpuProfileFooter: "kextによって検出されたアーキテクチャ情報。",
@@ -651,7 +1091,7 @@ extension AMDPowerFeatureStrings {
         gamingModeActivePreset: "Extremeプリセット適用中",
         gamingModeActiveKeepAwake: "スリープ無効化中",
         gamingModeIconHiddenHint: "アイコン非表示中 — 設定を開くにはアプリを再起動",
-        gamingModeC6Hint: "NVRAMでC6有効 — amdcstate=0",
+        gamingModeC6Hint: "NVRAMでC6有効 — amdcstate=1",
         gamingModeFooter: "ワンクリックでExtreme設定とスリープ無効化を適用します。",
 
         deepCStatesTitle: "Deep C-States (C6+)",
@@ -671,7 +1111,51 @@ extension AMDPowerFeatureStrings {
 
         copyAmdArgsButton: "AMD起動引数をコピー",
         copyAmdArgsGuidance: "config.plistに貼り付ける起動引数をコピーします。",
-        copiedToastText: "クリップボードにコピーしました:"
+        copiedToastText: "クリップボードにコピーしました:",
+        packagePowerLabel: "パッケージ電力",
+        packageTempLabel: "パッケージ温度",
+        telemetryPacketHeader: "テレメトリパケット",
+        telemetryPacketFooter: "kextからのゼロコピー・ストリーミングパケット（セレクタ100）。",
+        telemetryCoreFreqFormat: "コア周波数（%dスレッド）",
+        ccdCountFormat: "CCD（%d）",
+        telemetrySourceMonitor: "SystemMonitor経由でサンプリング。",
+        telemetrySourcePacket: "kextのテレメトリパケットを直接取得（セレクタ100）。",
+        coHeader: "Curve Optimizer（セレクタ 110/111）",
+        coFooter: "コアごとの電圧オフセット −30..+30 をSMUコマンド 0x3D で適用。書き込みには root または -amdpnopchk が必要で、パッケージ温度75 °C超ではブロックされます。",
+        coUnlockToggle: "Curve Optimizer制御をアンロック",
+        coApplyAll: "すべて適用",
+        coResetZero: "0にリセット",
+        coUnsupportedZen4: "Curve OptimizerはZen 4/5 CPUではサポートされていません。代わりにBIOSでPBOを使用してください。",
+        coDisabledLegacy: "レガシーP-State（PM Dispatch）が無効なためCurve Optimizerは使用できません。CPPCまたはテレメトリ専用モードではkextがSMU書き込みをブロックします。",
+        cpbToggle: "Core Performance Boost（CPB）",
+        ppmToggle: "Processor Power Manager（PPM）",
+        lpmToggle: "Low Power Mode（LPM）",
+        cppcSectionHeader: "コラボレーティブ・プロセッサ・パフォーマンス制御",
+        cppcActiveOn: "CPPCアクティブモード: オン",
+        cppcActiveOff: "CPPCアクティブモード: オフ",
+        eppValueFormat: "EPP %d/255",
+        manualBadge: "手動",
+        autoBadge: "自動",
+        cpuLoadLabel: "CPU負荷",
+        legacyPstatesHeader: "CPU速度プロファイル（レガシーP-State）",
+        gpuTempRowLabel: "温度",
+        runtimeC6DisabledBadge: "ランタイム: kextによりC6無効",
+        runtimeC6EnabledBadge: "ランタイム: C6有効",
+        c6RuntimeRowTitle: "ランタイムポリシー（kext）",
+        c6DriftWarning: "NVRAMと実行中のkextが一致しません — boot-arg変更後に再起動するか、AMD kextを更新してください。",
+        panelSmcFanControl: "SMCファン制御（詳細）",
+        panelManagedByGamingMode: "Gamingモードが管理中",
+        autoEppToggle: "自動EPP（Zen 3）",
+        panelCpbToggle: "Core Performance Boost",
+        panelPpmToggle: "PPM制限",
+        panelLpmLimit: "LPM制限",
+        panelLegacyProfiles: "CPU速度プロファイル（レガシー）",
+        panelPstateOverrides: "P-Stateオーバーライド（周波数固定）。",
+        panelThresholdsSummaryFormat: "アイドル <%d%% | 負荷 >%d%%",
+        panelSectionTitle: "AMD Ryzen",
+        sidebarTitle: "AMD Ryzen Power",
+        telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
+        loadingControls: "Loading AMD power controls…"
     )
 
     static let ko = AMDPowerFeatureStrings(
@@ -696,6 +1180,10 @@ extension AMDPowerFeatureStrings {
         perfBalPlus: "균형 성능",
         perfBalMinus: "균형 절전",
         perfEco: "절전",
+        perfMaxShort: "최대",
+        perfBalPlusShort: "균형+",
+        perfBalMinusShort: "균형−",
+        perfEcoShort: "절전",
 
         cpuProfileHeader: "CPU 프로필",
         cpuProfileFooter: "kext에서 감지한 아키텍처 및 전원 관리 기능입니다.",
@@ -715,7 +1203,7 @@ extension AMDPowerFeatureStrings {
         gamingModeActivePreset: "Extreme 프리셋 적용됨",
         gamingModeActiveKeepAwake: "화면 켜짐 유지 활성",
         gamingModeIconHiddenHint: "아이콘 숨김 — 설정을 열려면 앱을 다시 실행하세요",
-        gamingModeC6Hint: "NVRAM C6 활성 — amdcstate=0",
+        gamingModeC6Hint: "NVRAM C6 활성 — amdcstate=1",
         gamingModeFooter: "원클릭: Extreme 프로필 및 화면 켜짐 유지를 적용합니다.",
 
         deepCStatesTitle: "Deep C-States (C6+)",
@@ -735,7 +1223,51 @@ extension AMDPowerFeatureStrings {
 
         copyAmdArgsButton: "AMD 부팅 플래그 복사",
         copyAmdArgsGuidance: "config.plist에 붙여넣을 부팅 플래그를 복사합니다.",
-        copiedToastText: "클립보드에 복사됨:"
+        copiedToastText: "클립보드에 복사됨:",
+        packagePowerLabel: "패키지 전력",
+        packageTempLabel: "패키지 온도",
+        telemetryPacketHeader: "텔레메트리 패킷",
+        telemetryPacketFooter: "kext의 제로카피 스트리밍 패킷 (셀렉터 100).",
+        telemetryCoreFreqFormat: "코어 클럭 (%d 스레드)",
+        ccdCountFormat: "CCD (%d)",
+        telemetrySourceMonitor: "SystemMonitor를 통해 샘플링.",
+        telemetrySourcePacket: "kext 텔레메트리 패킷 직접 수신 (셀렉터 100).",
+        coHeader: "Curve Optimizer (셀렉터 110/111)",
+        coFooter: "코어별 전압 오프셋 −30..+30을 SMU 명령 0x3D로 적용합니다. 쓰기에는 root 또는 -amdpnopchk가 필요하며 패키지 온도 75 °C 초과 시 차단됩니다.",
+        coUnlockToggle: "Curve Optimizer 제어 잠금 해제",
+        coApplyAll: "모두 적용",
+        coResetZero: "0으로 초기화",
+        coUnsupportedZen4: "Curve Optimizer는 Zen 4/5 CPU에서 지원되지 않습니다. 대신 BIOS에서 PBO를 사용하세요.",
+        coDisabledLegacy: "레거시 P-State(PM Dispatch)가 활성화되지 않아 Curve Optimizer가 비활성화되었습니다. CPPC 또는 텔레메트리 전용 모드에서는 kext가 SMU 쓰기를 차단합니다.",
+        cpbToggle: "Core Performance Boost (CPB)",
+        ppmToggle: "Processor Power Manager (PPM)",
+        lpmToggle: "Low Power Mode (LPM)",
+        cppcSectionHeader: "협력적 프로세서 성능 제어",
+        cppcActiveOn: "CPPC 활성 모드: 켜짐",
+        cppcActiveOff: "CPPC 활성 모드: 꺼짐",
+        eppValueFormat: "EPP %d/255",
+        manualBadge: "수동",
+        autoBadge: "자동",
+        cpuLoadLabel: "CPU 부하",
+        legacyPstatesHeader: "CPU 속도 프로파일 (레거시 P-State)",
+        gpuTempRowLabel: "온도",
+        runtimeC6DisabledBadge: "런타임: kext가 C6 비활성화",
+        runtimeC6EnabledBadge: "런타임: C6 활성화",
+        c6RuntimeRowTitle: "런타임 정책 (kext)",
+        c6DriftWarning: "NVRAM과 실행 중인 kext가 일치하지 않습니다 — boot-arg 변경 후 재부팅하거나 AMD kext를 업데이트하세요.",
+        panelSmcFanControl: "SMC 팬 제어 (고급)",
+        panelManagedByGamingMode: "게이밍 모드가 관리 중",
+        autoEppToggle: "자동 EPP (Zen 3)",
+        panelCpbToggle: "Core Performance Boost",
+        panelPpmToggle: "PPM 제한",
+        panelLpmLimit: "LPM 제한",
+        panelLegacyProfiles: "CPU 속도 프로파일 (레거시)",
+        panelPstateOverrides: "P-State 재정의 (주파수 고정).",
+        panelThresholdsSummaryFormat: "유휴 <%d%% | 부하 >%d%%",
+        panelSectionTitle: "AMD Ryzen",
+        sidebarTitle: "AMD Ryzen Power",
+        telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
+        loadingControls: "Loading AMD power controls…"
     )
 
     static let zhHans = AMDPowerFeatureStrings(
@@ -760,6 +1292,10 @@ extension AMDPowerFeatureStrings {
         perfBalPlus: "均衡性能",
         perfBalMinus: "均衡节能",
         perfEco: "节能",
+        perfMaxShort: "最高",
+        perfBalPlusShort: "均衡+",
+        perfBalMinusShort: "均衡−",
+        perfEcoShort: "节能",
 
         cpuProfileHeader: "CPU 信息",
         cpuProfileFooter: "kext 检测到的架构和电源管理功能。",
@@ -779,7 +1315,7 @@ extension AMDPowerFeatureStrings {
         gamingModeActivePreset: "已应用 Extreme 预设",
         gamingModeActiveKeepAwake: "防休眠已激活",
         gamingModeIconHiddenHint: "图标已隐藏 — 重新启动应用以打开设置",
-        gamingModeC6Hint: "NVRAM 中 C6 仍启用 — 设置 amdcstate=0",
+        gamingModeC6Hint: "NVRAM 中 C6 仍启用 — 设置 amdcstate=1",
         gamingModeFooter: "一键应用 Extreme 配置文件并保持唤醒状态。",
 
         deepCStatesTitle: "深度 C-States (C6+)",
@@ -799,7 +1335,51 @@ extension AMDPowerFeatureStrings {
 
         copyAmdArgsButton: "复制 AMD 引导参数",
         copyAmdArgsGuidance: "复制用于粘贴到 config.plist 的 AMD 引导参数字符串。",
-        copiedToastText: "已复制到剪贴板:"
+        copiedToastText: "已复制到剪贴板:",
+        packagePowerLabel: "封装功耗",
+        packageTempLabel: "封装温度",
+        telemetryPacketHeader: "遥测数据包",
+        telemetryPacketFooter: "来自 kext 的零拷贝流式数据包（选择器 100）。",
+        telemetryCoreFreqFormat: "核心频率（%d 线程）",
+        ccdCountFormat: "CCD（%d 个）",
+        telemetrySourceMonitor: "通过 SystemMonitor 采样。",
+        telemetrySourcePacket: "直接来自 kext 的遥测数据包（选择器 100）。",
+        coHeader: "Curve Optimizer（选择器 110/111）",
+        coFooter: "通过 SMU 命令 0x3D 应用每核电压偏移 −30..+30。写入需要 root 或 -amdpnopchk，封装温度超过 75 °C 时将被阻止。",
+        coUnlockToggle: "解锁 Curve Optimizer 控件",
+        coApplyAll: "全部应用",
+        coResetZero: "重置为 0",
+        coUnsupportedZen4: "Zen 4/5 CPU 不支持 Curve Optimizer。请在 BIOS 中使用 PBO。",
+        coDisabledLegacy: "由于传统 P-State（PM Dispatch）未启用，Curve Optimizer 已禁用。在 CPPC 或仅遥测模式下，kext 会阻止 SMU 写入。",
+        cpbToggle: "Core Performance Boost（CPB）",
+        ppmToggle: "Processor Power Manager（PPM）",
+        lpmToggle: "Low Power Mode（LPM）",
+        cppcSectionHeader: "协作处理器性能控制",
+        cppcActiveOn: "CPPC 活动模式：开",
+        cppcActiveOff: "CPPC 活动模式：关",
+        eppValueFormat: "EPP %d/255",
+        manualBadge: "手动",
+        autoBadge: "自动",
+        cpuLoadLabel: "CPU 负载",
+        legacyPstatesHeader: "CPU 速度配置文件（传统 P-State）",
+        gpuTempRowLabel: "温度",
+        runtimeC6DisabledBadge: "运行时：kext 已禁用 C6",
+        runtimeC6EnabledBadge: "运行时：C6 已启用",
+        c6RuntimeRowTitle: "运行时策略（kext）",
+        c6DriftWarning: "NVRAM 与运行中的 kext 不一致 — 修改 boot-args 后请重启，或更新 AMD kext。",
+        panelSmcFanControl: "SMC 风扇控制（高级）",
+        panelManagedByGamingMode: "由游戏模式管理",
+        autoEppToggle: "自动 EPP（Zen 3）",
+        panelCpbToggle: "Core Performance Boost",
+        panelPpmToggle: "PPM 限制",
+        panelLpmLimit: "LPM 限制",
+        panelLegacyProfiles: "CPU 速度配置文件（传统）",
+        panelPstateOverrides: "P-State 覆盖（频率已锁定）。",
+        panelThresholdsSummaryFormat: "空闲 <%d%% | 负载 >%d%%",
+        panelSectionTitle: "AMD Ryzen",
+        sidebarTitle: "AMD Ryzen Power",
+        telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
+        loadingControls: "Loading AMD power controls…"
     )
 
     static let zhTW = AMDPowerFeatureStrings(
@@ -824,6 +1404,10 @@ extension AMDPowerFeatureStrings {
         perfBalPlus: "均衡效能",
         perfBalMinus: "均衡省電",
         perfEco: "省電",
+        perfMaxShort: "最高",
+        perfBalPlusShort: "均衡+",
+        perfBalMinusShort: "均衡−",
+        perfEcoShort: "省電",
 
         cpuProfileHeader: "CPU 資訊",
         cpuProfileFooter: "kext 偵測到的架構與電源管理功能。",
@@ -843,7 +1427,7 @@ extension AMDPowerFeatureStrings {
         gamingModeActivePreset: "已套用 Extreme 預設",
         gamingModeActiveKeepAwake: "防休眠已啟用",
         gamingModeIconHiddenHint: "圖示已隱藏 — 重新啟動 App 以開啟設定",
-        gamingModeC6Hint: "NVRAM 中 C6 仍啟用 — 設定 amdcstate=0",
+        gamingModeC6Hint: "NVRAM 中 C6 仍啟用 — 設定 amdcstate=1",
         gamingModeFooter: "一鍵套用 Extreme 設定檔並保持喚醒。",
 
         deepCStatesTitle: "深度 C-States (C6+)",
@@ -863,7 +1447,51 @@ extension AMDPowerFeatureStrings {
 
         copyAmdArgsButton: "複製 AMD 開機參數",
         copyAmdArgsGuidance: "複製用於貼至 config.plist 的 AMD 開機參數字串。",
-        copiedToastText: "已複製至剪貼簿:"
+        copiedToastText: "已複製至剪貼簿:",
+        packagePowerLabel: "封裝功耗",
+        packageTempLabel: "封裝溫度",
+        telemetryPacketHeader: "遙測封包",
+        telemetryPacketFooter: "來自 kext 的零拷貝串流封包（選擇器 100）。",
+        telemetryCoreFreqFormat: "核心頻率（%d 執行緒）",
+        ccdCountFormat: "CCD（%d 個）",
+        telemetrySourceMonitor: "透過 SystemMonitor 取樣。",
+        telemetrySourcePacket: "直接來自 kext 的遙測封包（選擇器 100）。",
+        coHeader: "Curve Optimizer（選擇器 110/111）",
+        coFooter: "透過 SMU 命令 0x3D 套用每核電壓偏移 −30..+30。寫入需要 root 或 -amdpnopchk，封裝溫度超過 75 °C 時將被封鎖。",
+        coUnlockToggle: "解鎖 Curve Optimizer 控制項",
+        coApplyAll: "全部套用",
+        coResetZero: "重設為 0",
+        coUnsupportedZen4: "Zen 4/5 CPU 不支援 Curve Optimizer。請在 BIOS 中使用 PBO。",
+        coDisabledLegacy: "由於傳統 P-State（PM Dispatch）未啟用，Curve Optimizer 已停用。在 CPPC 或僅遙測模式下，kext 會阻止 SMU 寫入。",
+        cpbToggle: "Core Performance Boost（CPB）",
+        ppmToggle: "Processor Power Manager（PPM）",
+        lpmToggle: "Low Power Mode（LPM）",
+        cppcSectionHeader: "協作處理器效能控制",
+        cppcActiveOn: "CPPC 活動模式：開",
+        cppcActiveOff: "CPPC 活動模式：關",
+        eppValueFormat: "EPP %d/255",
+        manualBadge: "手動",
+        autoBadge: "自動",
+        cpuLoadLabel: "CPU 負載",
+        legacyPstatesHeader: "CPU 速度設定檔（傳統 P-State）",
+        gpuTempRowLabel: "溫度",
+        runtimeC6DisabledBadge: "執行階段：kext 已停用 C6",
+        runtimeC6EnabledBadge: "執行階段：C6 已啟用",
+        c6RuntimeRowTitle: "執行階段原則（kext）",
+        c6DriftWarning: "NVRAM 與執行中的 kext 不一致 — 修改 boot-args 後請重新開機，或更新 AMD kext。",
+        panelSmcFanControl: "SMC 風扇控制（進階）",
+        panelManagedByGamingMode: "由遊戲模式管理",
+        autoEppToggle: "自動 EPP（Zen 3）",
+        panelCpbToggle: "Core Performance Boost",
+        panelPpmToggle: "PPM 限制",
+        panelLpmLimit: "LPM 限制",
+        panelLegacyProfiles: "CPU 速度設定檔（傳統）",
+        panelPstateOverrides: "P-State 覆寫（頻率已鎖定）。",
+        panelThresholdsSummaryFormat: "閒置 <%d%% | 負載 >%d%%",
+        panelSectionTitle: "AMD Ryzen",
+        sidebarTitle: "AMD Ryzen Power",
+        telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
+        loadingControls: "Loading AMD power controls…"
     )
 
     static let zhHK = zhTW

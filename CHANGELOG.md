@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.22.0] — 2026-09-10
+
+### AMD Kernel: configurable deep C-States (`amdcstate`)
+- The kext no longer hardcodes `0xF0` into MSR `0xC0010073` on every boot. The `amdcstate` boot-arg now decides: `amdcstate=0` keeps deep C-states (C6) enabled for power saving; `amdcstate=1` or absent disables C6 for low wake latency (previous behavior). Resolution is logged via `IOLog` at start.
+- **New read-only selector 34** exposes the resolved C-state policy (`disableCStates` + raw `cstateAddrConfig`) to userspace; the app falls back to the legacy selector 22 on older kexts.
+
+### Fan safety, now visible
+- **Emergency thermal guard surfaced in the UI**: when the CPU reaches 85 °C in manual mode and the kext clamps the fan to ≥78%, the fan card now shows an orange warning instead of the slider silently snapping. A persistent caption explains the 1% (PWM 3) floor that prevents rotor stalls.
+- **Kernel defense-in-depth**: the kext's UserClient fan-PWM write path (selector 95) now applies the same 85 °C → PWM 200 clamp for every caller, not only curve-mode fans.
+
+### AMD UI & layout fixes
+- **Menu panel**: the AMD section's stale height estimate (110 pt vs the real ~580 pt) no longer clips/jumps on first open; AMD got its own `cpu.fill` icon (no longer colliding with System); the fan picker no longer truncates hardware names; the 3 s SuperIO RPM poll now only runs while the fan disclosure is expanded; one-tap power presets are disabled while Auto EPP is active so the two systems stop fighting over EPP.
+- **Settings**: the AMD GPU telemetry row no longer crams GPU name, power and temperature into one competing HStack; sparklines for package power and temperature (60-sample, 3-minute history) were added to the AMD panel section; both telemetry sections now label their source (SystemMonitor vs direct kext selector-100 packet); the Deep C-States row shows the **runtime kext policy** and warns in orange when NVRAM intent and the running kext disagree (e.g. old kext ignoring `amdcstate`).
+- **Sensors**: "Export sensor dump" now really exports the full SMC dump as CSV; the never-implemented "Start verification" dead button was removed.
+
+### Localization
+- ~45 previously hardcoded English strings across the AMD settings view, the AMD panel section, and the Settings sidebar ("Fans & Cooling", "Sensors", "AMD Ryzen Power") are now localized across all 13 app languages, with new non-emptiness invariant tests.
+
 ## [1.21.0] — 2026-09-05
 
 ### Homebrew

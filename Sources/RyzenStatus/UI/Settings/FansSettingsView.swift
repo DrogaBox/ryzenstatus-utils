@@ -406,7 +406,7 @@ struct FanControlCard: View {
                                 }
                             }
                         ),
-                        in: 0...255,
+                        in: Double(AMDFanSafety.minimumManualPWM)...255,
                         step: 1,
                         onEditingChanged: { editing in
                             isDraggingSlider = editing
@@ -432,6 +432,17 @@ struct FanControlCard: View {
                         .foregroundColor(.orange)
                 }
                 .buttonStyle(.plain)
+
+                // S2-T2: make the silent safety behavior visible. Without these
+                // hints a 5% slider snapping to 78% looks like a UI bug.
+                if controller.isThermalGuardActive {
+                    Label(l10n.fanControl.thermalGuardActiveHint, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.orange)
+                }
+                Text(l10n.fanControl.pwmFloorHint)
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
             }
         }
         .padding(16)
@@ -445,7 +456,7 @@ struct FanControlCard: View {
                 .stroke(fan.controlMode == .manual ? Color.orange.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: 1)
         )
         .onAppear {
-            sliderValue = Double(fan.throttlePWM)
+            sliderValue = max(Double(AMDFanSafety.minimumManualPWM), Double(fan.throttlePWM))
         }
         .onChange(of: fan.throttlePWM) { _, newVal in
             // AUDIT F-22k fix: while a manual override is active, `throttlePWM`

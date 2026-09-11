@@ -45,6 +45,19 @@ final class CStateNvramService: ObservableObject {
     /// This string is for pasting into your bootloader config.plist — the app
     /// never writes to NVRAM directly.
     var amdBootArgsString: String {
+        Self.formatAmdBootArgs(
+            isC6Enabled: isC6Enabled,
+            isCppcActiveEnabled: isCppcActiveEnabled,
+            isPnopchkEnabled: isPnopchkEnabled
+        )
+    }
+
+    /// Pure formatter for AMD boot-args string generation.
+    nonisolated static func formatAmdBootArgs(
+        isC6Enabled: Bool,
+        isCppcActiveEnabled: Bool,
+        isPnopchkEnabled: Bool
+    ) -> String {
         var items: [String] = []
         if isCppcActiveEnabled { items.append("-amdcppcactive") }
         if isPnopchkEnabled    { items.append("-amdpnopchk") }

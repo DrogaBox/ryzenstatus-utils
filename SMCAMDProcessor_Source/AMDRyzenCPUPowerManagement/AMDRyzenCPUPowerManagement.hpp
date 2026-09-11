@@ -90,6 +90,14 @@ struct FanCurveConfig {
 };
 
 
+//
+// Thermal guard bounds shared between the power-management driver and the
+// UserClient: above kTHERMAL_GUARD_TEMP_C, any fan command is clamped to at
+// least kTHERMAL_GUARD_PWM (curve mode and manual mode alike).
+//
+static constexpr float    kTHERMAL_GUARD_TEMP_C = 85.0f;
+static constexpr uint8_t  kTHERMAL_GUARD_PWM    = 200;   // ~78.4% duty
+
 static IOPMPowerState powerStates[kNrOfPowerStates] = {
    {1, kIOPMPowerOff, kIOPMPowerOff, kIOPMPowerOff, 0, 0, 0, 0, 0, 0, 0, 0},
    {1, kIOPMPowerOn, kIOPMPowerOn, kIOPMPowerOn, 0, 0, 0, 0, 0, 0, 0, 0}
@@ -234,6 +242,7 @@ public:
     uint8_t cppcEPPValue {0x3F};
     uint8_t cppcHighestPerf_perCore[CPUInfo::MaxCpus] {};
     bool cppcThrottled {false};
+    bool disableCStates = true;
     uint64_t cstateAddrConfig {0};
     uint64_t packageC6Residency {0};
     

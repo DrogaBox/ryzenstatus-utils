@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SensorsView: View {
     @ObservedObject private var smcDump = SMCDumpService.shared
@@ -43,19 +44,13 @@ struct SensorsView: View {
             
             Section(header: Text("Sensor verification"), footer: Text("Puts the CPU through three known load states and checks that the keys used for the cores respond like cores. The Mac will heat up and the fan will spin up: that is expected.")) {
                 HStack {
-                    Button("Start verification (~6 min)") {
-                        // TODO: Implement verification
+                    Button("Export sensor dump") {
+                        exportSensorDumpCSV()
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(.blue)
                     
                     Spacer()
-                    
-                    Button("Export sensor dump") {
-                        // TODO: Implement export
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.blue)
                 }
                 .padding(.vertical, 8)
             }
@@ -478,6 +473,27 @@ struct SensorsView: View {
             if key.hasPrefix("P") { return "Power Sensor (\(key))" }
             return key
         }
+    }
+    
+    /// S2-T5: export the current SMC dump as CSV via a save panel (replaces
+    /// the dead stub; the verification flow was never implemented and is gone).
+    private func exportSensorDumpCSV() {
+        let readings = smcDump.readings
+        guard !readings.isEmpty else { return }
+        
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "RyzenStatus-Sensors"
+        panel.allowedContentTypes = [UTType.commaSeparatedText]
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        var csv = "Key,Value,Type,Category\n"
+        for r in readings {
+            let value = (r.value.isFinite)
+                ? String(format: "%.4f", r.value)
+                : ""
+            csv += "\(r.key),\(value),\(r.type),\(r.category)\n"
+        }
+        try? csv.write(to: url, atomically: true, encoding: .utf8)
     }
     
     private func buildCPUSensors(from filteredReadings: [SMCSensorReading]) -> [SMCSensorReading] {
