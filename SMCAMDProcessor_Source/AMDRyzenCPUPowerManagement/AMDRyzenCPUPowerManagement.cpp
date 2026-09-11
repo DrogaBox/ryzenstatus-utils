@@ -347,6 +347,10 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
         // configuration, so stop after the first successful answer this boot.
         provider->pollProcessorParameters();
 
+        // S7: one-shot SMU firmware version (0x02) read — static, cached
+        // after the first successful answer this boot.
+        provider->pollSmuVersion();
+
         IOLockUnlock(provider->rendezvousLock);
 
         uint64_t now = getCurrentTimeNs() / 1000000; //ms
@@ -1323,6 +1327,40 @@ void AMDRyzenCPUPowerManagement::pollBoostTelemetry() {
     // the SMU only returns 0 while clocks are being reconfigured.
     smuMaxBoostFreqMHz = pollSmuRead(0x6E);
     smuFastestCoreRaw = pollSmuRead(0x59);
+    // S7: GetPBOScalar 0x6C rides the same throttle window (active scalar as
+    // IEEE-754 float; pairs with the 0x58 write cache for drift detection).
+    smuActiveScalarRaw = pollSmuRead(0x6C);
+}
+
+// S7: one-shot SMU firmware version read (global TestMessage-family command
+// 0x02, per ryzen_smu: "OP 0x02 is consistent with all platforms"). Static —
+// on the first SMU_RSP_OK the result is cached and never re-issued this
+// boot. Response is the raw byte-packed version word; decode in
+// AMDSmuReadback app-side. Timer command gate only (F-05 lesson).
+uint32_t AMDRyzenCPUPowerManagement::pollSmuVersion() {
+    if (!smuMailbox.supported) return 0;
+    if (smuVersionPolled) return smuFirmwareVersionRaw;
+    
+    uint32_t result = 0;
+    int rsp = smuSendCmd(0x02, 0, result);
+    if (rsp == SMU_RSP_OK) {
+        smuFirmwareVersionRaw = result;
+        smuVersionPolled = true;
+        IOLog("AMDRyzenCPUPowerManagement: SMU firmware version word 0x%X.\n", result);
+    }
+    return smuFirmwareVersionRaw;
+}
+
+// S7: one-shot SMU PBO scalar read (Vermeer RSMU 0x6C, per ryzen_smu
+// monitor_cpu.c: response is an IEEE-754 float in the 1.0–10.0 range —
+// different encoding than the 0x58 write). Complements the 0x58 write cache
+// with the SMU's actual active scalar. Timer command gate only (F-05).
+uint32_t AMDRyzenCPUPowerManagement::pollSmuPBOScalar() {
+    if (!smuMailbox.supported) return 0;
+    
+    uint32_t result = 0;
+    int rsp = smuSendCmd(0x6C, 0, result);
+    return (rsp == SMU_RSP_OK) ? result : 0;
 }
 
 // S6: one-shot ProcessorParameters read (Vermeer RSMU 0x6F, per ryzen_smu

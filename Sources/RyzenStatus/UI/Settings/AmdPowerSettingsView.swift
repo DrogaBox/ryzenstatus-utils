@@ -390,6 +390,28 @@ struct AmdPowerSettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+                    // S7: what the SMU itself reports as the active PBO
+                        // scalar (0x6C float readback) — pairs with the 0x58
+                        // write cache shown in the PBO section. Hidden until
+                        // the timer populates the cache (pre-1.27 kexts: no
+                        // row at all).
+                    if let scalar = AMDSmuReadback.formatActiveScalar(controls.activeScalarRaw) {
+                        HStack {
+                            Text(String(format: l10n.amdPower.smuActiveScalarFormat, scalar))
+                                .font(.system(.body, design: .monospaced))
+                            Spacer()
+                            Image(systemName: "gauge.with.needle")
+                                .foregroundColor(.mint)
+                                .font(.caption)
+                        }
+                    }
+                    // S7: SMU firmware version (0x02, one-shot) — pure
+                    // diagnostics row for the About/bug-report workflow.
+                    if let version = AMDSmuReadback.formatSmuVersion(controls.smuVersionRaw) {
+                        Text(String(format: l10n.amdPower.smuVersionFormat, version))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
                 } header: {
                     Text(l10n.amdPower.boostTelemetryHeader)
                 } footer: {

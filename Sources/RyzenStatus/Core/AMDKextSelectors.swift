@@ -121,6 +121,18 @@ enum AMDKextSelector: UInt32 {
     /// Write cHTC thermal limit (S6, privileged): [0] = target in °C
     /// (40…95). Same Vermeer gate + thermal interlock as the PBO limits.
     case chtcLimitWrite = 46
+    /// Read-only SMU firmware version (S7): [0] = raw byte-packed version
+    /// word (24-bit A.B.C, or 32-bit A.B.C.D when byte 3 ≠ 0 — decoded
+    /// app-side in `AMDSmuReadback.formatSmuVersion`), [1] = 1 once the kext
+    /// timer has read the command (global 0x02) successfully this boot.
+    /// Unsupported on pre-1.27 kexts.
+    case smuVersionRead = 47
+    /// Read-only active PBO scalar (S7): [0] = raw Vermeer RSMU `GetPBOScalar`
+    /// (0x6C) response word — an IEEE-754 float in the 1.0–10.0 range,
+    /// decoded app-side in `AMDSmuReadback.formatActiveScalar` (different
+    /// encoding than the 0x58 write!), [1] = 1 once the kext timer has read
+    /// it successfully this boot. Unsupported on pre-1.27 kexts.
+    case activeScalarRead = 48
 
     // MARK: — Fan Control (via SuperIO)
 

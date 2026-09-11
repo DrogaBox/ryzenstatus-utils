@@ -1838,6 +1838,34 @@ actor ProcessorModel {
         var input: [UInt64] = [UInt64(clamped)]
         return safeIOConnectCallMethod(AMDKextSelector.chtcLimitWrite.id, &input, 1, nil, 0, nil, nil, nil, nil)
     }
+
+    // MARK: — S7: SMU firmware version + active scalar (selectors 47/48)
+
+    /// Read the kext's cached SMU firmware version word (global 0x02 command,
+    /// one-shot in the timer command gate). Returns nil when the kext is
+    /// pre-1.27 (selector unsupported), the connection is down, or the timer
+    /// has not read the command yet. Decode in `AMDSmuReadback`.
+    nonisolated func getSmuVersion() -> (raw: UInt32, polled: Bool)? {
+        var output: [UInt64] = [0, 0]
+        var outputCount: UInt32 = 2
+        let res = safeIOConnectCallMethod(AMDKextSelector.smuVersionRead.id, nil, 0, nil, 0,
+                                          &output, &outputCount, nil, nil)
+        guard res == KERN_SUCCESS, outputCount >= 2 else { return nil }
+        return (UInt32(truncatingIfNeeded: output[0]), output[1] == 1)
+    }
+
+    /// Read the kext's cached active PBO scalar word (Vermeer 0x6C, an
+    /// IEEE-754 float — what the SMU itself reports, complementing the 0x58
+    /// write cache). Returns nil when the kext is pre-1.27, the connection is
+    /// down, or the timer has not read the command yet.
+    nonisolated func getActivePBOScalar() -> (raw: UInt32, polled: Bool)? {
+        var output: [UInt64] = [0, 0]
+        var outputCount: UInt32 = 2
+        let res = safeIOConnectCallMethod(AMDKextSelector.activeScalarRead.id, nil, 0, nil, 0,
+                                          &output, &outputCount, nil, nil)
+        guard res == KERN_SUCCESS, outputCount >= 2 else { return nil }
+        return (UInt32(truncatingIfNeeded: output[0]), output[1] == 1)
+    }
 }
 
 /// Per-component IOKit statuses of a `ProcessorModel.applyPowerPreset(_:)` call.

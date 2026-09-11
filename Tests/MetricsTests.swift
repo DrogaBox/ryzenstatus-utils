@@ -7494,6 +7494,12 @@ struct MetricsTests {
                    "Language \(lang.rawValue) chtcActiveFormat must keep exactly 1 %d specifier: \(a.chtcActiveFormat)")
             expect(!a.chtcFooter.contains("%"),
                    "Language \(lang.rawValue) chtcFooter must not carry format specifiers")
+
+            // MARK: S7 SMU Readback Strings Invariants (one %@ each)
+            expect(formatSpecifiers(in: a.smuVersionFormat) == ["@"],
+                   "Language \(lang.rawValue) smuVersionFormat must keep exactly 1 %@ specifier: \(a.smuVersionFormat)")
+            expect(formatSpecifiers(in: a.smuActiveScalarFormat) == ["@"],
+                   "Language \(lang.rawValue) smuActiveScalarFormat must keep exactly 1 %@ specifier: \(a.smuActiveScalarFormat)")
         }
 
         // MARK: S4 AMDPBOLimits Helpers (gate, clamps, formatters)
@@ -7574,6 +7580,38 @@ struct MetricsTests {
         expect(AMDSmuParameters.clampCHTCCelsius(120) == 95, "clampCHTCCelsius caps at Tjmax 95")
         expect(AMDSmuParameters.clampCHTCCelsius(85) == 85, "clampCHTCCelsius passes in-range values through")
         expect(AMDSmuParameters.defaultCHTCCelsius == 85, "default cHTC target is the AMD stock ceiling")
+
+        // MARK: S7 AMDSmuReadback Helpers (0x02 version word, 0x6C scalar float)
+
+        // Command IDs must match the SMU commands the kext polls.
+        expect(AMDSmuReadback.getSmuVersionCmd == 0x02, "GetSMUVersion is command 0x02")
+        expect(AMDSmuReadback.getPBOScalarCmd == 0x6C, "GetPBOScalar is RSMU 0x6C")
+
+        // Version word: byte-packed dotted decimal — 24-bit A.B.C, or 32-bit
+        // A.B.C.D when byte 3 != 0 (reference libsmu smu_get_fw_version). The
+        // 0 placeholder must not render as a bogus "0.0.0".
+        expectEqual(AMDSmuReadback.formatSmuVersion(0x0025_0B01) ?? "", "37.11.1",
+                    "formatSmuVersion decodes 24-bit maj.min.rev")
+        expectEqual(AMDSmuReadback.formatSmuVersion(0x0A00_0205) ?? "", "10.0.2.5",
+                    "formatSmuVersion decodes 32-bit when byte 3 is set")
+        expect(AMDSmuReadback.formatSmuVersion(0) == nil,
+               "formatSmuVersion rejects the 0 placeholder")
+
+        // Active scalar: the 0x6C response is an IEEE-754 float in 1.0–10.0
+        // (reference monitor_cpu.c renders %.1fx). Out-of-range or non-finite
+        // words refuse to render rather than invent a value.
+        expectEqual(AMDSmuReadback.formatActiveScalar(0x3F80_0000) ?? "", "1.0x",
+                    "formatActiveScalar decodes 1.0f as 1.0x")
+        expectEqual(AMDSmuReadback.formatActiveScalar(0x4120_0000) ?? "", "10.0x",
+                    "formatActiveScalar decodes 10.0f as 10.0x")
+        expectEqual(AMDSmuReadback.formatActiveScalar(0x3FC0_0000) ?? "", "1.5x",
+                    "formatActiveScalar decodes 1.5f as 1.5x")
+        expect(AMDSmuReadback.formatActiveScalar(0) == nil,
+               "formatActiveScalar rejects the 0 placeholder")
+        expect(AMDSmuReadback.formatActiveScalar(0x42C8_0000) == nil,
+               "formatActiveScalar rejects floats above the 10.0 ceiling")
+        expect(AMDSmuReadback.formatActiveScalar(0x3F00_0000) == nil,
+               "formatActiveScalar rejects floats below the 1.0 floor")
 
         // MARK: Result
 

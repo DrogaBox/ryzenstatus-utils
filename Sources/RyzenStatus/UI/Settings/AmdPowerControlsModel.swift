@@ -49,6 +49,14 @@ final class AmdPowerControlsModel: ObservableObject {
     @Published private(set) var procParamsPolled = false
     @Published private(set) var chtcLimitCelsius: Int?
 
+    // S7: SMU firmware version (0x02, one-shot) + active PBO scalar (0x6C,
+    // rides the boost throttle) — refreshed inside syncFromKext's detached
+    // kext batch. `smuVersionPolled` distinguishes "not read yet" from a
+    // cached answer; `activeScalarRaw` stays 0 until the timer succeeds.
+    @Published private(set) var smuVersionRaw: UInt32 = 0
+    @Published private(set) var smuVersionPolled = false
+    @Published private(set) var activeScalarRaw: UInt32 = 0
+
     /// Guard flag: true when updating published properties from kext reads
     /// to avoid trigger loops from `.onChange` handlers.
     /// Writes arriving while a sync is in flight are intentionally dropped;
@@ -152,7 +160,8 @@ final class AmdPowerControlsModel: ObservableObject {
 
         recordTelemetrySample()
 
-        let (kernelAnswered, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit) = await Task.detached(priority: .userInitiated) {
+        let (kernelAnswered, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
+             smuVersion, activeScalar) = await Task.detached(priority: .userInitiated) {
             // AUDIT F-27: thread-safe connection check to avoid data races
             let kernelAnswered = ProcessorModel.shared.isConnected
             let cpb = ProcessorModel.shared.getCPB()
@@ -167,7 +176,11 @@ final class AmdPowerControlsModel: ObservableObject {
             // S6: one-shot 0x6F bitfield + cHTC cache, same off-the-SMU policy.
             let procParams = kernelAnswered ? ProcessorModel.shared.getProcessorParameters() : nil
             let chtcLimit = kernelAnswered ? ProcessorModel.shared.getCHTCLimit() : nil
-            return (kernelAnswered, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit)
+            // S7: one-shot 0x02 version + 0x6C active scalar readbacks.
+            let smuVersion = kernelAnswered ? ProcessorModel.shared.getSmuVersion() : nil
+            let activeScalar = kernelAnswered ? ProcessorModel.shared.getActivePBOScalar() : nil
+            return (kernelAnswered, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
+                    smuVersion, activeScalar)
         }.value
         let profile = await ProcessorModel.shared.cpuProfile
 
@@ -209,6 +222,20 @@ final class AmdPowerControlsModel: ObservableObject {
         }
         if chtcLimitCelsius != chtcLimit.map({ Int($0) }) {
             chtcLimitCelsius = chtcLimit.map({ Int($0) })
+        }
+
+        // S7: publish the SMU version + active scalar readbacks.
+        if let smuVersion {
+            smuVersionRaw = smuVersion.raw
+            smuVersionPolled = smuVersion.polled
+        } else {
+            smuVersionRaw = 0
+            smuVersionPolled = false
+        }
+        if let activeScalar {
+            activeScalarRaw = activeScalar.raw
+        } else {
+            activeScalarRaw = 0
         }
 
         if profile.legacyPstateAllowed {

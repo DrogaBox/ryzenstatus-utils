@@ -301,6 +301,17 @@ public:
     // else 0. Timer command gate only — never from user threads (F-05).
     uint32_t pollProcessorParameters();
     
+    // S7: one-shot read of the SMU firmware version (global TestMessage-family
+    // command 0x02, works on every mailbox). Returns the raw byte-packed
+    // version word on OK, else 0. Timer command gate only (F-05).
+    uint32_t pollSmuVersion();
+    
+    // S7: read of the SMU's active PBO scalar (Vermeer RSMU 0x6C — response
+    // is an IEEE-754 float, unlike the 0x58 write encoding). Returns the raw
+    // word on OK, else 0. Rides the boost-telemetry throttle window; timer
+    // command gate only (F-05).
+    uint32_t pollSmuPBOScalar();
+    
     //Cache size in KB
     uint32_t cpuCacheL1_perCore;
     uint32_t cpuCacheL2_perCore;
@@ -513,6 +524,16 @@ public:
     // 0x56 this boot (0 = never set). The SMU has no read command for cHTC;
     // the kext caches on success, same as the PBO limits.
     uint32_t smuCHTCLimitCelsius {0};
+
+    // S7: cached SMU readbacks. The 0x02 firmware version is static — read
+    // once and kept. The 0x6C PBO scalar reflects live SMU state (what Ryzen
+    // Master / the firmware actually apply), so it re-reads inside the boost
+    // poll's 500 ms throttle window and pairs with the 0x58 write cache for
+    // drift detection. Both words are cached raw; decode in AMDSmuReadback
+    // app-side, where it is unit-testable.
+    uint32_t smuFirmwareVersionRaw {0};
+    bool smuVersionPolled {false};
+    uint32_t smuActiveScalarRaw {0};
 
     // S3-B: read-only view for the UserClient capability report (selector 35).
     // Exposes only the fields the CO capability needs; keeps the rest of the

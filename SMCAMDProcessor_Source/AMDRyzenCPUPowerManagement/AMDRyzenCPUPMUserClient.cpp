@@ -1814,6 +1814,38 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
         
+        // Get SMU firmware version (S7): [0] = raw byte-packed version word
+        // (24-bit A.B.C, or 32-bit A.B.C.D when byte 3 != 0 — decoded app-side
+        // in AMDSmuReadback.formatSmuVersion), [1] = 1 once the timer command
+        // gate has read the command successfully this boot. Read-only: served
+        // from the timer cache, never a live SMU read on a user thread (F-05).
+        case 47: {
+            if(!provider)
+                return kIOReturnNoDevice;
+            
+            arguments->scalarOutputCount = 2;
+            arguments->scalarOutput[0] = provider->smuFirmwareVersionRaw;
+            arguments->scalarOutput[1] = provider->smuVersionPolled ? 1 : 0;
+            
+            break;
+        }
+        
+        // Get active PBO scalar (S7): [0] = raw 0x6C response word (IEEE-754
+        // float 1.0–10.0, decoded app-side in AMDSmuReadback — different
+        // encoding than the 0x58 write), [1] = 1 once the timer has read the
+        // command successfully this boot. Read-only, rides the
+        // boost-telemetry throttle cache.
+        case 48: {
+            if(!provider)
+                return kIOReturnNoDevice;
+            
+            arguments->scalarOutputCount = 2;
+            arguments->scalarOutput[0] = provider->smuActiveScalarRaw;
+            arguments->scalarOutput[1] = (provider->smuActiveScalarRaw != 0) ? 1 : 0;
+            
+            break;
+        }
+        
         // Set PBO limits: PPT mW, TDC mA, EDC mA. Privilege required.
         case 41: {
             if(!provider)

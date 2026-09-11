@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.27.0] — 2026-09-11
+
+### AMD Kernel: SMU firmware version + active scalar readback (wave S7)
+- **SMU firmware version diagnostics**: the kext's command-gate timer performs a one-shot read of the global `GetSMUVersion` command (0x02 — per the public record, "consistent with all platforms"). **Selector 47** exposes the raw byte-packed version word plus a "polled" flag; the app decodes it in the unit-tested `AMDSmuReadback.formatSmuVersion` helper (24-bit `A.B.C`, or 32-bit `A.B.C.D` when byte 3 ≠ 0 — the same rendering the reference libsmu uses). The version shows as a diagnostics row in AMD Power Settings for the bug-report workflow.
+- **Active PBO scalar readback**: the timer also polls the Vermeer RSMU `GetPBOScalar` command (0x6C) inside the boost-telemetry throttle window. **Selector 48** exposes the raw response — an IEEE-754 float in the 1.0–10.0 range (a different encoding than the 0x58 write!) — decoded app-side in `AMDSmuReadback.formatActiveScalar`. This is what the SMU itself reports as active, complementing the 0x58 write cache in the PBO section with real drift detection; out-of-range words refuse to render rather than invent a value.
+- Both selectors are read-only and served exclusively from the timer cache — user-space reads never touch the SMU (F-05 policy). All 13 locales carry the two new rows; format-specifier invariant tests extended.
+- Kexts rebuilt at **3.34.5**; `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` refreshed and its SHA-256 repinned in `Tools/make-dmg.sh`. App 1.27.0 (66).
+
 ## [1.26.0] — 2026-09-11
 
 ### AMD Kernel: cHTC thermal limit + fused capability bits (wave S6)

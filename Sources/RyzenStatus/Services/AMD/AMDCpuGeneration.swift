@@ -188,3 +188,41 @@ enum AMDSmuParameters {
         raw & ~0x3 != 0
     }
 }
+
+// MARK: - SMU Readbacks (S7, selectors 47/48 — version + active scalar)
+
+enum AMDSmuReadback {
+    /// Global TestMessage-family SMU version command (0x02 — per ryzen_smu:
+    /// "consistent with all platforms").
+    static let getSmuVersionCmd: UInt32 = 0x02
+    /// Vermeer RSMU `GetPBOScalar` command (0x6C).
+    static let getPBOScalarCmd: UInt32 = 0x6C
+
+    /// Decode of the SMU firmware version word from `GetSMUVersion` (0x02).
+    ///
+    /// The public record documents only `Res0: Version`; the reference
+    /// libsmu renders the word byte-packed as dotted decimal — 24-bit
+    /// `maj.min.rev`, or 32-bit `maj.min.rev.alt` when byte 3 ≠ 0. Returns
+    /// nil for the "never read" placeholder (0) — callers show nothing
+    /// rather than a bogus "0.0.0".
+    static func formatSmuVersion(_ raw: UInt32) -> String? {
+        guard raw != 0 else { return nil }
+        if raw & 0xFF00_0000 != 0 {
+            return "\((raw >> 24) & 0xFF).\((raw >> 16) & 0xFF).\((raw >> 8) & 0xFF).\(raw & 0xFF)"
+        }
+        return "\((raw >> 16) & 0xFF).\((raw >> 8) & 0xFF).\(raw & 0xFF)"
+    }
+
+    /// Decode of the SMU's active PBO scalar response word from
+    /// `GetPBOScalar` (0x6C): an IEEE-754 float in the documented 1.0–10.0
+    /// range (reference monitor_cpu.c renders `%.fx`). Returns nil for the
+    /// "never read" placeholder (0) or any word outside the documented
+    /// range — the kext's 0x58 write cache remains the authoritative UI
+    /// value; this readback only reports what the SMU itself claims.
+    static func formatActiveScalar(_ raw: UInt32) -> String? {
+        guard raw != 0 else { return nil }
+        let value = Float(bitPattern: raw)
+        guard value >= 1.0, value <= 10.0, value.isFinite else { return nil }
+        return String(format: "%.1fx", value)
+    }
+}

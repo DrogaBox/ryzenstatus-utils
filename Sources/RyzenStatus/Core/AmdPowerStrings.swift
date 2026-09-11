@@ -124,6 +124,10 @@ struct AMDPowerFeatureStrings {
     let chtcPBOSupport: String
     let chtcUnsupportedZen4: String
     let chtcUnsupportedVermeer: String
+    // S7: SMU readback rows — firmware version word and the SMU's own active
+    // PBO scalar (both pre-formatted by AMDSmuReadback).
+    let smuVersionFormat: String
+    let smuActiveScalarFormat: String
     let cpbToggle: String
     let ppmToggle: String
     let lpmToggle: String
@@ -301,6 +305,8 @@ extension AMDPowerFeatureStrings {
         chtcPBOSupport: "PBO support (fuse)",
         chtcUnsupportedZen4: "cHTC is not yet verified on Zen 4: this section will be enabled once validated on real hardware.",
         chtcUnsupportedVermeer: "The cHTC thermal limit requires Vermeer (Ryzen 3000) with an SMU mailbox.",
+        smuVersionFormat: "SMU firmware: %@",
+        smuActiveScalarFormat: "SMU active scalar: %@",
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -446,6 +452,8 @@ extension AMDPowerFeatureStrings {
         chtcPBOSupport: "Soporte PBO (fusible)",
         chtcUnsupportedZen4: "cHTC aún no está verificado en Zen 4: la sección se habilitará cuando se valide en hardware real.",
         chtcUnsupportedVermeer: "El límite térmico cHTC requiere Vermeer (Ryzen 3000) con buzón SMU.",
+        smuVersionFormat: "Firmware de la SMU: %@",
+        smuActiveScalarFormat: "Escalar activo de la SMU: %@",
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -591,6 +599,8 @@ extension AMDPowerFeatureStrings {
         chtcPBOSupport: "Suporte a PBO (fusível)",
         chtcUnsupportedZen4: "cHTC ainda não verificado no Zen 4: a seção será habilitada quando validada em hardware real.",
         chtcUnsupportedVermeer: "O limite térmico cHTC requer Vermeer (Ryzen 3000) com mailbox SMU.",
+        smuVersionFormat: "Firmware da SMU: %@",
+        smuActiveScalarFormat: "Escalar ativo da SMU: %@",
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -736,6 +746,8 @@ extension AMDPowerFeatureStrings {
         chtcPBOSupport: "PBO-Unterstützung (Fuse)",
         chtcUnsupportedZen4: "cHTC ist auf Zen 4 noch nicht verifiziert: Der Abschnitt wird freigeschaltet, sobald er auf echter Hardware validiert ist.",
         chtcUnsupportedVermeer: "Das cHTC-Thermallimit erfordert Vermeer (Ryzen 3000) mit SMU-Mailbox.",
+        smuVersionFormat: "SMU-Firmware: %@",
+        smuActiveScalarFormat: "Aktiver SMU-Skalierungsfaktor: %@",
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -881,6 +893,8 @@ extension AMDPowerFeatureStrings {
         chtcPBOSupport: "Prise en charge PBO (fusible)",
         chtcUnsupportedZen4: "cHTC n'est pas encore vérifié sur Zen 4 : la section sera activée une fois validée sur du matériel réel.",
         chtcUnsupportedVermeer: "La limite thermique cHTC requiert Vermeer (Ryzen 3000) avec boîte aux lettres SMU.",
+        smuVersionFormat: "Micrologiciel SMU : %@",
+        smuActiveScalarFormat: "Facteur actif de la SMU : %@",
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -1026,6 +1040,8 @@ extension AMDPowerFeatureStrings {
         chtcPBOSupport: "Supporto PBO (fusibile)",
         chtcUnsupportedZen4: "cHTC non è ancora verificato su Zen 4: la sezione verrà abilitata quando validata su hardware reale.",
         chtcUnsupportedVermeer: "Il limite termico cHTC richiede Vermeer (Ryzen 3000) con mailbox SMU.",
+        smuVersionFormat: "Firmware della SMU: %@",
+        smuActiveScalarFormat: "Scalare attivo della SMU: %@",
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -1171,6 +1187,8 @@ extension AMDPowerFeatureStrings {
         chtcPBOSupport: "Поддержка PBO (фьюз)",
         chtcUnsupportedZen4: "cHTC ещё не проверен на Zen 4: раздел будет включён после проверки на реальном железе.",
         chtcUnsupportedVermeer: "Термолимит cHTC требует Vermeer (Ryzen 3000) с почтовым ящиком SMU.",
+        smuVersionFormat: "Прошивка SMU: %@",
+        smuActiveScalarFormat: "Активный скаляр SMU: %@",
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -1316,6 +1334,8 @@ extension AMDPowerFeatureStrings {
         chtcPBOSupport: "PBO desteği (füze)",
         chtcUnsupportedZen4: "cHTC henüz Zen 4 üzerinde doğrulanmadı: bölüm gerçek donanımda doğrulandığında etkinleştirilecek.",
         chtcUnsupportedVermeer: "cHTC ısı sınırı, SMU mailbox'ı olan Vermeer (Ryzen 3000) gerektirir.",
+        smuVersionFormat: "SMU aygıt yazılımı: %@",
+        smuActiveScalarFormat: "SMU etkin ölçekleyici: %@",
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -1461,6 +1481,8 @@ extension AMDPowerFeatureStrings {
         chtcPBOSupport: "PBO 対応（ヒューズ）",
         chtcUnsupportedZen4: "cHTC は Zen 4 では未検証です。実機での検証後に有効化されます。",
         chtcUnsupportedVermeer: "cHTC 温度上限には SMU メールボックスを持つ Vermeer（Ryzen 3000）が必要です。",
+        smuVersionFormat: "SMU ファームウェア: %@",
+        smuActiveScalarFormat: "SMU の適用済みスカラー: %@",
         cpbToggle: "Core Performance Boost（CPB）",
         ppmToggle: "Processor Power Manager（PPM）",
         lpmToggle: "Low Power Mode（LPM）",
@@ -1606,6 +1628,8 @@ extension AMDPowerFeatureStrings {
         chtcPBOSupport: "PBO 지원 (퓨즈)",
         chtcUnsupportedZen4: "cHTC는 아직 Zen 4에서 검증되지 않았습니다: 실제 하드웨어에서 검증되면 활성화됩니다.",
         chtcUnsupportedVermeer: "cHTC 온도 한계는 SMU 메일박스가 있는 Vermeer(Ryzen 3000)가 필요합니다.",
+        smuVersionFormat: "SMU 펌웨어: %@",
+        smuActiveScalarFormat: "SMU 적용된 스칼라: %@",
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -1751,6 +1775,8 @@ extension AMDPowerFeatureStrings {
         chtcPBOSupport: "PBO 支持（熔丝）",
         chtcUnsupportedZen4: "cHTC 尚未在 Zen 4 上验证：该部分将在真实硬件验证后启用。",
         chtcUnsupportedVermeer: "cHTC 温度上限需要带 SMU 邮箱的 Vermeer（Ryzen 3000）。",
+        smuVersionFormat: "SMU 固件：%@",
+        smuActiveScalarFormat: "SMU 已应用的标量：%@",
         cpbToggle: "Core Performance Boost（CPB）",
         ppmToggle: "Processor Power Manager（PPM）",
         lpmToggle: "Low Power Mode（LPM）",
@@ -1896,6 +1922,8 @@ extension AMDPowerFeatureStrings {
         chtcPBOSupport: "PBO 支援（熔絲）",
         chtcUnsupportedZen4: "cHTC 尚未在 Zen 4 上驗證：該部分將在真實硬體驗證後啟用。",
         chtcUnsupportedVermeer: "cHTC 溫度上限需要具備 SMU 信箱的 Vermeer（Ryzen 3000）。",
+        smuVersionFormat: "SMU 韌體：%@",
+        smuActiveScalarFormat: "SMU 已套用的純量：%@",
         cpbToggle: "Core Performance Boost（CPB）",
         ppmToggle: "Processor Power Manager（PPM）",
         lpmToggle: "Low Power Mode（LPM）",
