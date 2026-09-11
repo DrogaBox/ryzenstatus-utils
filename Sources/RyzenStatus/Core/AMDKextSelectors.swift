@@ -84,6 +84,23 @@ enum AMDKextSelector: UInt32 {
     /// accepts CO writes for this silicon, [1] = active SMU command ID,
     /// [2]/[3] = min/max safe offset. Unsupported on pre-1.22 kexts.
     case curveOptimizerCapability = 35
+    /// Read-only PBO limits cache (S4): [0] = PPT mW, [1] = TDC mA, [2] = EDC mA
+    /// — the last values successfully programmed this boot (0 = never set).
+    /// The SMU has no read-back for limits; the kext caches on success.
+    case pboLimitsRead = 36
+    /// Read-only PBO scalar cache (S4): [0] = scalar in %×100 (200 = 2x; 0 = never set).
+    case pboScalarRead = 37
+    /// Read-only PBO capability (S4): [0] = 1 when PBO limit writes are accepted
+    /// (Vermeer + SMU mailbox), [1..3] reserved. Unsupported on pre-1.24 kexts.
+    case pboCapability = 38
+    /// Read-only PBO scalar capability (S4): [0] = supported,
+    /// [1]/[2] = min/max scalar in %×100 (100…1000). Unsupported on pre-1.24 kexts.
+    case pboScalarCapability = 39
+    /// Write PBO limits (S4, privileged): [0] = PPT mW, [1] = TDC mA, [2] = EDC mA.
+    /// All three programmed atomically; aborts on first SMU failure.
+    case pboLimitsWrite = 41
+    /// Write PBO scalar (S4, privileged): [0] = scalar in %×100 (100…1000).
+    case pboScalarWrite = 42
 
     // MARK: — Fan Control (via SuperIO)
 

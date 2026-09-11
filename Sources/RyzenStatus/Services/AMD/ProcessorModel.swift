@@ -1717,6 +1717,71 @@ actor ProcessorModel {
         var input: [UInt64] = [UInt64(core), rawOffset]
         return safeIOConnectCallMethod( AMDKextSelector.curveOptimizerWrite.id, &input, 2, nil, 0, nil, nil, nil, nil)
     }
+
+    // MARK: — S4: Precision Boost Overdrive limits + scalar (Vermeer)
+
+    /// Read-only PBO limits cache — the last values successfully programmed
+    /// this boot (0 = never set). Nil when the kext is pre-1.24 (selector
+    /// unsupported) or the connection is down.
+    nonisolated func getPBOLimits() -> (pptMilliwatts: UInt64, tdcMilliamps: UInt64, edcMilliamps: UInt64)? {
+        var output: [UInt64] = [0, 0, 0]
+        var outputCount: UInt32 = 3
+        let res = safeIOConnectCallMethod(AMDKextSelector.pboLimitsRead.id, nil, 0, nil, 0,
+                                          &output, &outputCount, nil, nil)
+        guard res == KERN_SUCCESS, outputCount >= 3 else { return nil }
+        return (output[0], output[1], output[2])
+    }
+
+    /// Read-only PBO scalar cache in %×100 (200 = 2x; 0 = never set).
+    nonisolated func getPBOScalar() -> UInt64? {
+        var output: [UInt64] = [0]
+        var outputCount: UInt32 = 1
+        let res = safeIOConnectCallMethod(AMDKextSelector.pboScalarRead.id, nil, 0, nil, 0,
+                                          &output, &outputCount, nil, nil)
+        guard res == KERN_SUCCESS, outputCount >= 1 else { return nil }
+        return output[0]
+    }
+
+    /// Read-only PBO capability report. `supported` is the kext's own verdict
+    /// (Vermeer + SMU mailbox); when nil (pre-1.24 kext) callers must fall back
+    /// to the app-side family/model gate.
+    nonisolated func getPBOCapability() -> (supported: Bool, reserved: (UInt64, UInt64, UInt64))? {
+        var output: [UInt64] = [0, 0, 0, 0]
+        var outputCount: UInt32 = 4
+        let res = safeIOConnectCallMethod(AMDKextSelector.pboCapability.id, nil, 0, nil, 0,
+                                          &output, &outputCount, nil, nil)
+        guard res == KERN_SUCCESS, outputCount >= 4 else { return nil }
+        return (output[0] == 1, (output[1], output[2], output[3]))
+    }
+
+    /// Read-only PBO scalar capability report (min/max in %×100).
+    nonisolated func getPBOScalarCapability() -> (supported: Bool, minScalar: UInt64, maxScalar: UInt64)? {
+        var output: [UInt64] = [0, 0, 0]
+        var outputCount: UInt32 = 3
+        let res = safeIOConnectCallMethod(AMDKextSelector.pboScalarCapability.id, nil, 0, nil, 0,
+                                          &output, &outputCount, nil, nil)
+        guard res == KERN_SUCCESS, outputCount >= 3 else { return nil }
+        return (output[0] == 1, output[1], output[2])
+    }
+
+    /// Program PPT/TDC/EDC in one call — the kext applies all three SMU writes
+    /// under its control lock and aborts on the first failure, so a `success`
+    /// return never leaves a half-applied set. Values are clamped to the kext's
+    /// hard envelope (1…500 W/A) before submission.
+    @discardableResult
+    nonisolated func setPBOLimits(pptMilliwatts: Int, tdcMilliamps: Int, edcMilliamps: Int) -> kern_return_t {
+        let clamped = AMDPBOLimits.clampTriple(ppt: pptMilliwatts, tdc: tdcMilliamps, edc: edcMilliamps)
+        var input: [UInt64] = [UInt64(clamped.ppt), UInt64(clamped.tdc), UInt64(clamped.edc)]
+        return safeIOConnectCallMethod(AMDKextSelector.pboLimitsWrite.id, &input, 3, nil, 0, nil, nil, nil, nil)
+    }
+
+    /// Program the PBO scalar in %×100 (100…1000 → 1x…10x).
+    @discardableResult
+    nonisolated func setPBOScalar(percentX100: Int) -> kern_return_t {
+        let clamped = AMDPBOLimits.clampScalar(percentX100)
+        var input: [UInt64] = [UInt64(clamped)]
+        return safeIOConnectCallMethod(AMDKextSelector.pboScalarWrite.id, &input, 1, nil, 0, nil, nil, nil, nil)
+    }
 }
 
 /// Per-component IOKit statuses of a `ProcessorModel.applyPowerPreset(_:)` call.

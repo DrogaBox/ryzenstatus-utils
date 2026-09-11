@@ -259,6 +259,28 @@ public:
     // Curve Optimizer (Phase 13)
     int8_t curveOptimizerOffsets[CPUInfo::MaxCpus] {};
     
+    // S4: Precision Boost Overdrive limits (Vermeer-only SMU commands).
+    // Values are the last successfully-programmed limits, cached for read-back
+    // (the SMU has no read command for these — same approach as the CO cache).
+    // Defaults of 0 mean "unknown / never set this boot"; the capability
+    // selector reports support only — the board's PM-table power budget is
+    // not parsed, so there is no default-limit read-back.
+    uint32_t pboPPTMilliwatts {0};
+    uint32_t pboTDCMilliamps  {0};
+    uint32_t pboEDCMilliamps  {0};
+    uint32_t pboScalarPercentX100 {0};  // e.g. 200 = 2x
+    
+    // S4: returns true only when the silicon matches the Vermeer RSMU command
+    // set documented in ryzen_smu rsmu_commands.md (family 0x19, 0x21-0x2F) —
+    // the same gate as Curve Optimizer. Fail-closed everywhere else.
+    bool pboLimitsSupported() const {
+        return (cpuFamily == 0x19 && cpuModel >= 0x21 && cpuModel <= 0x2F) &&
+               smuMailbox.supported;
+    }
+    // int setPBOLimit(uint32_t cmd, uint32_t value): shared SMU write path for
+    // PPT/TDC/EDC/scalar; negative return maps like setCurveOptimizer.
+    int setPBOLimit(uint32_t smuCmd, uint32_t arg, uint32_t &cacheSlot);
+    
     //Cache size in KB
     uint32_t cpuCacheL1_perCore;
     uint32_t cpuCacheL2_perCore;

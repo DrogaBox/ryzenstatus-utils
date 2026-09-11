@@ -7423,6 +7423,70 @@ struct MetricsTests {
                    "Language \(lang.rawValue) thermalGuardActiveHint mentions the 85 °C threshold")
         }
 
+        // MARK: S4 PBO Strings Invariants (non-empty, format specifiers intact)
+
+        for lang in AppLanguage.allCases {
+            let a = AMDPowerFeatureStrings.current(lang)
+            let pboKeys: [(String, String)] = [
+                ("pboHeader", a.pboHeader),
+                ("pboFooter", a.pboFooter),
+                ("pboUnlockToggle", a.pboUnlockToggle),
+                ("pboPPTLabel", a.pboPPTLabel),
+                ("pboTDCLabel", a.pboTDCLabel),
+                ("pboEDCLabel", a.pboEDCLabel),
+                ("pboScalarLabel", a.pboScalarLabel),
+                ("pboApplyLimits", a.pboApplyLimits),
+                ("pboApplyScalar", a.pboApplyScalar),
+                ("pboUnsupportedZen4", a.pboUnsupportedZen4),
+                ("pboDisabledLegacy", a.pboDisabledLegacy),
+                ("pboUnitWatts", a.pboUnitWatts),
+                ("pboUnitAmps", a.pboUnitAmps),
+                ("pboUnitMilliwatts", a.pboUnitMilliwatts),
+                ("pboUnitMilliamps", a.pboUnitMilliamps),
+                ("pboUnitScalar", a.pboUnitScalar),
+                ("pboActiveLimitsFormat", a.pboActiveLimitsFormat),
+                ("pboActiveScalarFormat", a.pboActiveScalarFormat)
+            ]
+            for (key, value) in pboKeys {
+                expect(!value.isEmpty, "Language \(lang.rawValue) amdPower.\(key) must not be empty")
+            }
+            // The read-back rows interpolate one formatted string per axis:
+            // limits take exactly three %@, the scalar exactly one.
+            expect(formatSpecifiers(in: a.pboActiveLimitsFormat) == ["@", "@", "@"],
+                   "Language \(lang.rawValue) pboActiveLimitsFormat must keep exactly 3 %@ specifiers: \(a.pboActiveLimitsFormat)")
+            expect(formatSpecifiers(in: a.pboActiveScalarFormat) == ["@"],
+                   "Language \(lang.rawValue) pboActiveScalarFormat must keep exactly 1 %@ specifier: \(a.pboActiveScalarFormat)")
+        }
+
+        // MARK: S4 AMDPBOLimits Helpers (gate, clamps, formatters)
+
+        // Silicon gate mirrors the kext: Zen 3 Vermeer only, fail-closed.
+        expect(AMDPBOLimits.supported(family: 0x19, model: 0x21), "Vermeer 0x21 must be PBO-capable")
+        expect(AMDPBOLimits.supported(family: 0x19, model: 0x2F), "Vermeer 0x2F must be PBO-capable")
+        expect(!AMDPBOLimits.supported(family: 0x19, model: 0x61), "Raphael (Zen 4) must fail closed")
+        expect(!AMDPBOLimits.supported(family: 0x19, model: 0x50), "Cezanne must fail closed")
+        expect(!AMDPBOLimits.supported(family: 0x1A, model: 0x21), "Family 0x1A must fail closed")
+
+        // Clamps: hard envelope 1000…500000 milli-units, scalar 100…1000 %×100.
+        expect(AMDPBOLimits.clampLimit(0) == AMDPBOLimits.minLimit, "clampLimit must reject disable (0) writes")
+        expect(AMDPBOLimits.clampLimit(142000) == 142000, "clampLimit passes in-range values through")
+        expect(AMDPBOLimits.clampLimit(600000) == AMDPBOLimits.maxLimit, "clampLimit caps at 500000")
+        let clampedTriple = AMDPBOLimits.clampTriple(ppt: 0, tdc: 95000, edc: 900000)
+        expect(clampedTriple.ppt == AMDPBOLimits.minLimit && clampedTriple.tdc == 95000 && clampedTriple.edc == AMDPBOLimits.maxLimit,
+               "clampTriple clamps each axis independently")
+        expect(AMDPBOLimits.clampScalar(50) == 100, "clampScalar floors at 1.0x")
+        expect(AMDPBOLimits.clampScalar(2000) == 1000, "clampScalar caps at 10.0x")
+
+        // Formatters: milli-units render in the base unit with at most one
+        // decimal; the scalar renders as "N.Tx".
+        expectEqual(AMDPBOLimits.formatLimit(142000, unitMilli: "mW", unitBase: "W"), "142 W", "formatLimit whole watts")
+        expectEqual(AMDPBOLimits.formatLimit(95500, unitMilli: "mA", unitBase: "A"), "95.5 A", "formatLimit one decimal")
+        expectEqual(AMDPBOLimits.formatLimit(800, unitMilli: "mW", unitBase: "W"), "800 mW", "formatLimit sub-base stays milli")
+        expectEqual(AMDPBOLimits.formatScalar(200), "2.0x", "formatScalar 2x")
+        expectEqual(AMDPBOLimits.formatScalar(1000), "10.0x", "formatScalar 10x")
+        expectEqual(AMDPBOLimits.formatScalar(105), "1.0x", "formatScalar truncates below tenths")
+        expect(AMDPBOLimits.milliFromBase(142) == 142000, "milliFromBase converts W → mW")
+
         // MARK: Result
 
         if failures.isEmpty {

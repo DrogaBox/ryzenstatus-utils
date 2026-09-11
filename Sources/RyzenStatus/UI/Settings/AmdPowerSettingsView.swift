@@ -15,6 +15,15 @@ struct AmdPowerSettingsView: View {
     @State private var curveOffsets: [Int8] = []
     @State private var coStatusMessage: String?
     @State private var coStatusIsError = false
+    @State private var pboSupported = false
+    @State private var pboCacheMilli: (ppt: Int, tdc: Int, edc: Int)?
+    @State private var pboScalarCacheX100: Int?
+    @State private var pboPPTWatts: Double = 142
+    @State private var pboTDCAmps: Double = 95
+    @State private var pboEDCAmps: Double = 140
+    @State private var pboScalarTenths: Double = 10  // 1.0x
+    @State private var pboStatusMessage: String?
+    @State private var pboStatusIsError = false
     @State private var isLoading = false
     @ObservedObject private var gaming = GamingModeService.shared
     @ObservedObject private var c6Service = C6ResidencyService.shared
@@ -32,6 +41,11 @@ struct AmdPowerSettingsView: View {
     @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 25
     @AppStorage(DefaultsKey.autoEppLoadThreshold) private var loadThreshold: Int = 50
     @AppStorage("coUnlocked") private var coUnlocked: Bool = false
+    @AppStorage("pboUnlocked") private var pboUnlocked: Bool = false
+    @AppStorage("pboLastPPTWatts") private var pboLastPPTWatts: Double = 142
+    @AppStorage("pboLastTDCAmps") private var pboLastTDCAmps: Double = 95
+    @AppStorage("pboLastEDCAmps") private var pboLastEDCAmps: Double = 140
+    @AppStorage("pboLastScalarTenths") private var pboLastScalarTenths: Double = 10
 
     private var eppLabel: String {
         switch AMDPowerPreset.snapEPP(controls.selectedEpp) {
@@ -232,6 +246,106 @@ struct AmdPowerSettingsView: View {
                     Text(l10n.amdPower.coHeader)
                 } footer: {
                     Text(l10n.amdPower.coFooter)
+                }
+
+                // S4: Precision Boost Overdrive limits + scalar (selectors 36-42).
+                // Same fail-closed Vermeer gate as Curve Optimizer; the kext
+                // reports the last programmed values for read-back.
+                Section {
+                    if coGeneration.isZen4OrNewer {
+                        Label(l10n.amdPower.pboUnsupportedZen4, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if pboSupported {
+                        Toggle(l10n.amdPower.pboUnlockToggle, isOn: $pboUnlocked)
+                            .padding(.bottom, 4)
+
+                        if pboUnlocked {
+                            Group {
+                                pboLimitRow(title: l10n.amdPower.pboPPTLabel,
+                                            value: $pboPPTWatts,
+                                            range: 20...500,
+                                            step: 1,
+                                            unit: l10n.amdPower.pboUnitWatts,
+                                            format: "%0.0f")
+                                pboLimitRow(title: l10n.amdPower.pboTDCLabel,
+                                            value: $pboTDCAmps,
+                                            range: 5...500,
+                                            step: 1,
+                                            unit: l10n.amdPower.pboUnitAmps,
+                                            format: "%0.0f")
+                                pboLimitRow(title: l10n.amdPower.pboEDCLabel,
+                                            value: $pboEDCAmps,
+                                            range: 5...500,
+                                            step: 1,
+                                            unit: l10n.amdPower.pboUnitAmps,
+                                            format: "%0.0f")
+                                pboLimitRow(title: l10n.amdPower.pboScalarLabel,
+                                            value: $pboScalarTenths,
+                                            range: 10...100,
+                                            step: 1,
+                                            unit: l10n.amdPower.pboUnitScalar,
+                                            format: "%0.1f")
+                            }
+                            .padding(.vertical, 2)
+
+                            HStack(spacing: 10) {
+                                Button {
+                                    applyPBOLimits()
+                                } label: {
+                                    Label(l10n.amdPower.pboApplyLimits, systemImage: "bolt.fill")
+                                }
+                                .buttonStyle(.borderedProminent)
+
+                                Button {
+                                    applyPBOScalar()
+                                } label: {
+                                    Label(l10n.amdPower.pboApplyScalar, systemImage: "gauge.with.needle")
+                                }
+                                .buttonStyle(.bordered)
+
+                                Spacer()
+
+                                if let message = pboStatusMessage {
+                                    Text(message)
+                                        .font(.caption2)
+                                        .foregroundColor(pboStatusIsError ? .red : .green)
+                                        .lineLimit(2)
+                                }
+                            }
+
+                            if let cache = pboCacheMilli {
+                                Text(String(format: l10n.amdPower.pboActiveLimitsFormat,
+                                            AMDPBOLimits.formatLimit(cache.ppt,
+                                                                     unitMilli: l10n.amdPower.pboUnitMilliwatts,
+                                                                     unitBase: l10n.amdPower.pboUnitWatts),
+                                            AMDPBOLimits.formatLimit(cache.tdc,
+                                                                     unitMilli: l10n.amdPower.pboUnitMilliamps,
+                                                                     unitBase: l10n.amdPower.pboUnitAmps),
+                                            AMDPBOLimits.formatLimit(cache.edc,
+                                                                     unitMilli: l10n.amdPower.pboUnitMilliamps,
+                                                                     unitBase: l10n.amdPower.pboUnitAmps)))
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            if let scalar = pboScalarCacheX100 {
+                                Text(String(format: l10n.amdPower.pboActiveScalarFormat,
+                                            AMDPBOLimits.formatScalar(scalar)))
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    } else {
+                        Label(l10n.amdPower.pboDisabledLegacy, systemImage: "info.circle")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } header: {
+                    Text(l10n.amdPower.pboHeader)
+                } footer: {
+                    Text(l10n.amdPower.pboFooter)
                 }
 
                 if controls.cppcSupported {
@@ -846,6 +960,87 @@ struct AmdPowerSettingsView: View {
         }
     }
 
+    // MARK: - S4: PBO limits + scalar
+
+    /// One slider row of the PBO section — label, live value, bounded slider.
+    private func pboLimitRow(title: String, value: Binding<Double>, range: ClosedRange<Double>,
+                             step: Double, unit: String, format: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                    .font(.caption)
+                Spacer()
+                Text(String(format: format, value.wrappedValue) + " \(unit)")
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+            Slider(value: value, in: range, step: step)
+                .labelsHidden()
+        }
+    }
+
+    /// Programs PPT/TDC/EDC from the slider values (UI units → milli-units).
+    private func applyPBOLimits() {
+        let status = ProcessorModel.shared.setPBOLimits(
+            pptMilliwatts: AMDPBOLimits.milliFromBase(Int(pboPPTWatts)),
+            tdcMilliamps: AMDPBOLimits.milliFromBase(Int(pboTDCAmps)),
+            edcMilliamps: AMDPBOLimits.milliFromBase(Int(pboEDCAmps)))
+        handlePBOResult(status)
+        if status == KERN_SUCCESS {
+            pboLastPPTWatts = pboPPTWatts
+            pboLastTDCAmps = pboTDCAmps
+            pboLastEDCAmps = pboEDCAmps
+            refreshPBOReadback()
+        }
+    }
+
+    /// Programs the PBO scalar from the slider (1.0x…10.0x → %×100).
+    private func applyPBOScalar() {
+        let percentX100 = Int((pboScalarTenths * 10).rounded())
+        let status = ProcessorModel.shared.setPBOScalar(percentX100: percentX100)
+        handlePBOResult(status)
+        if status == KERN_SUCCESS {
+            pboLastScalarTenths = pboScalarTenths
+            refreshPBOReadback()
+        }
+    }
+
+    /// Live read-back of the kext caches after a successful write.
+    private func refreshPBOReadback() {
+        if let limits = ProcessorModel.shared.getPBOLimits() {
+            pboCacheMilli = (Int(limits.pptMilliwatts), Int(limits.tdcMilliamps), Int(limits.edcMilliamps))
+        }
+        if let scalar = ProcessorModel.shared.getPBOScalar() {
+            pboScalarCacheX100 = Int(scalar)
+        }
+    }
+
+    /// Maps selector 41/42 return codes to friendly messages. On success the
+    /// message is cleared — the read-back rows below confirm the new values.
+    private func handlePBOResult(_ status: kern_return_t) {
+        if status == KERN_SUCCESS {
+            pboStatusIsError = false
+            pboStatusMessage = nil
+            return
+        }
+        pboStatusIsError = true
+        if status == ProcessorModel.kIOReturnNotPrivilegedCode {
+            pboStatusMessage = "Requires root or -amdpnopchk"
+        } else if status == kIOReturnUnsupported {
+            pboStatusMessage = "Not supported by the kext on this CPU (Vermeer only)"
+        } else if status == kIOReturnNotReady {
+            pboStatusMessage = "Blocked: package temperature above 75 °C"
+        } else if status == kIOReturnBadArgument {
+            pboStatusMessage = "Value outside the safe range"
+        } else if status == kIOReturnTimeout {
+            pboStatusMessage = "SMU timeout — try again"
+        } else if status == kIOReturnBusy {
+            pboStatusMessage = "SMU busy — try again"
+        } else {
+            pboStatusMessage = "SMU command failed"
+        }
+    }
+
     /// Maps the kext's selector-111 return codes to friendly messages.
     private func curveOptimizerError(_ status: kern_return_t) -> String {
         if status == ProcessorModel.kIOReturnNotPrivilegedCode {
@@ -955,6 +1150,10 @@ struct AmdPowerSettingsView: View {
         let offsets: [Int8]
         let currentPState: Int?
         let pStateLabels: [String]
+        // S4: PBO capability + kext caches for read-back seeding.
+        let supportsPBO: Bool
+        let pboLimitsCache: (ppt: Int, tdc: Int, edc: Int)?
+        let pboScalarCache: Int?
     }
 
     private func fetchState() async {
@@ -980,6 +1179,15 @@ struct AmdPowerSettingsView: View {
             // only on pre-1.22 kexts that don't implement the selector.
             let supportsCurveOptimizer = ProcessorModel.shared.getCurveOptimizerCapability()?.supported
                 ?? AMDCurveOptimizer.supported(family: family, model: model)
+            // S4: same dual-source pattern — kext capability first, app-side
+            // family/model gate as fallback for pre-1.24 kexts.
+            let supportsPBO = ProcessorModel.shared.getPBOCapability()?.supported
+                ?? AMDPBOLimits.supported(family: family, model: model)
+            let pboLimitsCache = supportsPBO ? ProcessorModel.shared.getPBOLimits() : nil
+            let pboLimitsTuple: (ppt: Int, tdc: Int, edc: Int)? = pboLimitsCache.map {
+                (Int($0.pptMilliwatts), Int($0.tdcMilliamps), Int($0.edcMilliamps))
+            }
+            let pboScalarCache = supportsPBO ? ProcessorModel.shared.getPBOScalar().map(Int.init) : nil
             let coreCount = physicalCores > 0 ? min(physicalCores, 32) : 16
             let rawCurveOffsets = supportsCurveOptimizer
                 ? ProcessorModel.shared.getCurveOptimizerOffsets()
@@ -1012,7 +1220,10 @@ struct AmdPowerSettingsView: View {
                                    coreCount: coreCount,
                                    offsets: offsets,
                                    currentPState: currentPState,
-                                   pStateLabels: pStateLabels)
+                                   pStateLabels: pStateLabels,
+                                   supportsPBO: supportsPBO,
+                                   pboLimitsCache: pboLimitsTuple,
+                                   pboScalarCache: pboScalarCache)
         }
         let state = await withTaskCancellationHandler(operation: {
             await worker.value
@@ -1030,6 +1241,25 @@ struct AmdPowerSettingsView: View {
         coSupported = state.supportsCurveOptimizer
         coCoreCount = state.coreCount
         curveOffsets = state.offsets
+        // S4: seed PBO state — sliders default to the last values the user
+        // applied (persisted), overridden by the kext cache when available.
+        pboSupported = state.supportsPBO
+        if let cache = state.pboLimitsCache, cache.ppt > 0 {
+            pboPPTWatts = Double(cache.ppt / 1000)
+            pboTDCAmps = Double(cache.tdc / 1000)
+            pboEDCAmps = Double(cache.edc / 1000)
+            pboCacheMilli = cache
+        } else {
+            pboPPTWatts = pboLastPPTWatts
+            pboTDCAmps = pboLastTDCAmps
+            pboEDCAmps = pboLastEDCAmps
+        }
+        if let scalar = state.pboScalarCache, scalar > 0 {
+            pboScalarTenths = Double(scalar / 10)
+            pboScalarCacheX100 = scalar
+        } else {
+            pboScalarTenths = pboLastScalarTenths
+        }
         isLoading = false
     }
 }

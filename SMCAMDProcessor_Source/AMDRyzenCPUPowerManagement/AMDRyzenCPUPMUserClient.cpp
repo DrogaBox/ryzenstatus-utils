@@ -1667,6 +1667,138 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
         
+        // ---- S4: Precision Boost Overdrive limits + scalar (Vermeer) ----
+        // Read-only selectors 36-39 report the last successfully-programmed
+        // values plus the PBO capability; write selectors 41-42 program new
+        // limits and are root/-amdpnopchk only.
+        
+        // Get PBO limits cache (mW / mA / mA) — last set this boot, 0 = never.
+        case 36: {
+            if(!provider)
+                return kIOReturnNoDevice;
+            
+            arguments->scalarOutputCount = 3;
+            arguments->scalarOutput[0] = provider->pboPPTMilliwatts;
+            arguments->scalarOutput[1] = provider->pboTDCMilliamps;
+            arguments->scalarOutput[2] = provider->pboEDCMilliamps;
+            
+            break;
+        }
+        
+        // Get PBO scalar cache (%x100 — 200 means 2x), 0 = never set.
+        case 37: {
+            if(!provider)
+                return kIOReturnNoDevice;
+            
+            arguments->scalarOutputCount = 1;
+            arguments->scalarOutput[0] = provider->pboScalarPercentX100;
+            
+            break;
+        }
+        
+        // Get PBO capability: [0] supported (Vermeer + mailbox),
+        // [1..3] reserved (no verified SMU read command exists for limits —
+        // the PM-table budget is not parsed; reported as 0).
+        case 38: {
+            if(!provider)
+                return kIOReturnNoDevice;
+            
+            arguments->scalarOutputCount = 4;
+            arguments->scalarOutput[0] = provider->pboLimitsSupported() ? 1 : 0;
+            arguments->scalarOutput[1] = 0;
+            arguments->scalarOutput[2] = 0;
+            arguments->scalarOutput[3] = 0;
+            
+            break;
+        }
+        
+        // Get PBO scalar capability: [0] supported, [1] min %x100 (100), [2] max %x100 (1000).
+        case 39: {
+            if(!provider)
+                return kIOReturnNoDevice;
+            
+            arguments->scalarOutputCount = 3;
+            arguments->scalarOutput[0] = provider->pboLimitsSupported() ? 1 : 0;
+            arguments->scalarOutput[1] = 100;   // 1x
+            arguments->scalarOutput[2] = 1000;  // 10x — matches Ryzen Master range
+            
+            break;
+        }
+        
+        // Set PBO limits: PPT mW, TDC mA, EDC mA. Privilege required.
+        case 41: {
+            if(!provider)
+                return kIOReturnNoDevice;
+            
+            if(!hasPrivilege(41))
+                return kIOReturnNotPrivileged;
+                
+            if(arguments->scalarInputCount != 3)
+                return kIOReturnBadArgument;
+                
+            uint32_t ppt = (uint32_t)arguments->scalarInput[0];
+            uint32_t tdc = (uint32_t)arguments->scalarInput[1];
+            uint32_t edc = (uint32_t)arguments->scalarInput[2];
+            
+            // Hard safety envelope: reject limits outside 1000..500000
+            // milli-units (1..500 W for PPT, 1..500 A for TDC/EDC) — nothing
+            // the silicon could have shipped with falls outside this band.
+            if (ppt < 1000 || ppt > 500000 || tdc < 1000 || tdc > 500000 || edc < 1000 || edc > 500000)
+                return kIOReturnBadArgument;
+            
+            if (!provider->pboLimitsSupported())
+                return kIOReturnUnsupported;
+            
+            // Serialize the three writes; abort on first failure so the UI
+            // never shows a half-applied set as success.
+            if (provider->controlLock) IOLockLock(provider->controlLock);
+            int rc = provider->setPBOLimit(0x53, ppt, provider->pboPPTMilliwatts);
+            if (rc == 0) rc = provider->setPBOLimit(0x54, tdc, provider->pboTDCMilliamps);
+            if (rc == 0) rc = provider->setPBOLimit(0x55, edc, provider->pboEDCMilliamps);
+            if (provider->controlLock) IOLockUnlock(provider->controlLock);
+            
+            if (rc < 0) {
+                if (rc == -1 || rc == -11) return kIOReturnUnsupported;
+                if (rc == -4) return kIOReturnNotReady;
+                if (rc == -10) return kIOReturnTimeout;
+                if (rc == -13) return kIOReturnBusy;
+                return kIOReturnError;
+            }
+            break;
+        }
+        
+        // Set PBO scalar: %x100 (100..1000). Privilege required.
+        case 42: {
+            if(!provider)
+                return kIOReturnNoDevice;
+            
+            if(!hasPrivilege(42))
+                return kIOReturnNotPrivileged;
+                
+            if(arguments->scalarInputCount != 1)
+                return kIOReturnBadArgument;
+                
+            uint32_t scalar = (uint32_t)arguments->scalarInput[0];
+            if (scalar < 100 || scalar > 1000)
+                return kIOReturnBadArgument;
+            
+            if (!provider->pboLimitsSupported())
+                return kIOReturnUnsupported;
+            
+            if (provider->controlLock) IOLockLock(provider->controlLock);
+            int rc = provider->setPBOLimit(0x58, scalar, provider->pboScalarPercentX100);
+            if (provider->controlLock) IOLockUnlock(provider->controlLock);
+            
+            if (rc < 0) {
+                if (rc == -1 || rc == -11) return kIOReturnUnsupported;
+                if (rc == -4) return kIOReturnNotReady;
+                if (rc == -10) return kIOReturnTimeout;
+                if (rc == -13) return kIOReturnBusy;
+                return kIOReturnError;
+            }
+            break;
+        }
+        
         default: {
             IOLog("AMDRyzenCPUPMUserClient::externalMethod: invalid selector %u\n", selector);
             return kIOReturnUnsupported;

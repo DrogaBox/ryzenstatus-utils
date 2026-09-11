@@ -1323,6 +1323,50 @@ int AMDRyzenCPUPowerManagement::setCurveOptimizer(uint8_t core, int8_t offset) {
     }
 }
 
+// ------------------------------------------------------------------
+// S4: Precision Boost Overdrive limits + scalar (Vermeer RSMU set).
+//
+// Commands follow the evidence-documented Vermeer mailbox set used by
+// Ryzen Master / ryzen_smu (rsmu_commands.md):
+//   0x53 SetPptLimit   (arg in mW)
+//   0x54 SetTdcLimit   (arg in mA)
+//   0x55 SetEdcLimit   (arg in mA)
+//   0x58 SetPboScalar  (arg in %x100, 100..1000 => 1x..10x)
+// These are write-only SMU commands: there is no read-back, so the
+// successfully-programmed values are cached for the UI in the same
+// way as Curve Optimizer offsets.
+//
+// Fail-closed: requires Vermeer (family 0x19, model 0x21..0x2F) and a
+// supported mailbox — identical gating to setCurveOptimizer.
+// ------------------------------------------------------------------
+
+int AMDRyzenCPUPowerManagement::setPBOLimit(uint32_t smuCmd, uint32_t arg, uint32_t &cacheSlot) {
+    if (!pboLimitsSupported()) return -1;
+    
+    // Thermal safety interlock, same policy as Curve Optimizer: don't push
+    // new power limits while the package is already hot.
+    float currentTemp = PACKAGE_TEMPERATURE_perPackage[0];
+    if (currentTemp > kCURVE_OPTIMIZER_BLOCK_TEMP_C) {
+        IOLog("AMDRyzenCPUPowerManagement: Blocked PBO limit write (cmd 0x%X) due to high package temperature (%.1f C).\n", smuCmd, currentTemp);
+        return -4;
+    }
+    
+    int response = smuSendCmd(smuCmd, arg);
+    
+    if (response == SMU_RSP_OK) {
+        cacheSlot = arg;
+        IOLog("AMDRyzenCPUPowerManagement: PBO limit applied (cmd 0x%X, arg %u).\n", smuCmd, arg);
+        return 0;
+    }
+    
+    IOLog("AMDRyzenCPUPowerManagement: SMU PBO command 0x%X failed with response code: 0x%X\n", smuCmd, response);
+    if (response == SMU_RSP_TIMEOUT) return -10;
+    if (response == SMU_RSP_INVALID_CMD) return -11;
+    if (response == SMU_RSP_INVALID_ARGS) return -12;
+    if (response == SMU_RSP_BUSY) return -13;
+    return -5;
+}
+
 void AMDRyzenCPUPowerManagement::updatePackageTemp(){
     float sum = 0;
 

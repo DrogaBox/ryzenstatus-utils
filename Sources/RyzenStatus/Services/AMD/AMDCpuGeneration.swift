@@ -58,3 +58,63 @@ enum AMDCurveOptimizer {
         !offsets.isEmpty && coreCount > 0 && offsets.count >= coreCount
     }
 }
+
+// MARK: - PBO Limits & Scalar (S4, selectors 36-42)
+
+enum AMDPBOLimits {
+    /// The kext accepts PBO limit/scalar writes on the same silicon window as
+    /// Curve Optimizer: Zen 3 Vermeer (family 0x19, model 0x21–0x2F) with a
+    /// supported SMU mailbox. Fail-closed everywhere else.
+    static func supported(family: Int, model: Int) -> Bool {
+        family == 0x19 && (0x21...0x2F).contains(model)
+    }
+
+    /// Hard envelope shared with the kext: 1000…500000 milli-units per axis
+    /// (PPT in mW ⇒ 1…500 W; TDC/EDC in mA ⇒ 1…500 A). The lower bound also
+    /// blocks "disable the limit" (0) writes.
+    static let minLimit = 1000
+    static let maxLimit = 500000
+
+    /// PBO scalar range in %×100: 100 (1x) … 1000 (10x) — the Ryzen Master range.
+    static let minScalarPercentX100 = 100
+    static let maxScalarPercentX100 = 1000
+
+    /// Clamps one limit axis to the shared 1…500000 milli-unit envelope.
+    static func clampLimit(_ value: Int) -> Int {
+        min(maxLimit, max(minLimit, value))
+    }
+
+    /// Clamps PPT/TDC/EDC as a triple (used by the settings UI stepper validation).
+    static func clampTriple(ppt: Int, tdc: Int, edc: Int) -> (ppt: Int, tdc: Int, edc: Int) {
+        (clampLimit(ppt), clampLimit(tdc), clampLimit(edc))
+    }
+
+    /// Clamps the scalar to 100…1000 (%×100).
+    static func clampScalar(_ percentX100: Int) -> Int {
+        min(maxScalarPercentX100, max(minScalarPercentX100, percentX100))
+    }
+
+    /// Formats a milli-unit value for the UI: ≥ 1000 renders in the base unit
+    /// with at most one decimal ("142 W", "95.5 A"), smaller values stay in the
+    /// milli unit ("800 mA"). `unitMilli`/`unitBase` are already-localized suffixes.
+    static func formatLimit(_ milliValue: Int, unitMilli: String, unitBase: String) -> String {
+        if milliValue >= 1000 {
+            let whole = milliValue / 1000
+            let tenths = (milliValue % 1000) / 100
+            return tenths == 0 ? "\(whole) \(unitBase)" : "\(whole).\(tenths) \(unitBase)"
+        }
+        return "\(milliValue) \(unitMilli)"
+    }
+
+    /// Formats the scalar cache/capability values: %×100 → "2.0x" style.
+    static func formatScalar(_ percentX100: Int) -> String {
+        let whole = percentX100 / 100
+        let tenths = (percentX100 % 100) / 10
+        return "\(whole).\(tenths)x"
+    }
+
+    /// Inverse of the UI display step: whole W (or A) → milli-units for the kext.
+    static func milliFromBase(_ baseValue: Int) -> Int {
+        baseValue * 1000
+    }
+}
