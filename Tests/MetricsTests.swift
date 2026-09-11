@@ -7519,12 +7519,23 @@ struct MetricsTests {
                 ("ocRiskConfirmTitle", a.ocRiskConfirmTitle),
                 ("ocRiskConfirmBody", a.ocRiskConfirmBody),
                 ("ocRiskConfirmAccept", a.ocRiskConfirmAccept),
-                ("ocRiskConfirmCancel", a.ocRiskConfirmCancel)
+                ("ocRiskConfirmCancel", a.ocRiskConfirmCancel),
+                // S8.2 frequency-override section (no specifiers in prose keys).
+                ("ocFreqHeader", a.ocFreqHeader),
+                ("ocFreqFooter", a.ocFreqFooter),
+                ("ocFreqAllCoreLabel", a.ocFreqAllCoreLabel),
+                ("ocFreqApply", a.ocFreqApply),
+                ("ocFreqBlockedNoOcMode", a.ocFreqBlockedNoOcMode)
             ]
             for (key, value) in ocKeys {
                 expect(!value.isEmpty, "Language \(lang.rawValue) amdPower.\(key) must not be empty")
                 expect(!value.contains("%"), "Language \(lang.rawValue) amdPower.\(key) must not carry format specifiers: \(value)")
             }
+            // S8.2: the two formatted keys carry exactly one %u each.
+            expect(formatSpecifiers(in: a.ocFreqPerCcdFormat) == ["u"],
+                   "Language \(lang.rawValue) ocFreqPerCcdFormat must keep exactly 1 %u specifier: \(a.ocFreqPerCcdFormat)")
+            expect(formatSpecifiers(in: a.ocFreqCacheFormat) == ["u"],
+                   "Language \(lang.rawValue) ocFreqCacheFormat must keep exactly 1 %u specifier: \(a.ocFreqCacheFormat)")
         }
 
         // MARK: S4 AMDPBOLimits Helpers (gate, clamps, formatters)
@@ -7652,6 +7663,50 @@ struct MetricsTests {
         expect(AMDOcMode.validate(enable: false, resetScalar: true), "disable with reset is valid")
         expect(AMDOcMode.validate(enable: false, resetScalar: false), "disable without reset is valid")
         expect(!AMDOcMode.validate(enable: true, resetScalar: true), "enable with reset must be rejected app-side")
+
+        // MARK: S8.2 AMDOcFreq (selectors 51/52 — 0x5C/0x5D pinned encodings)
+
+        // Pinned packing vectors: Vermeer mask = (ccd << 28) | ((core % 8)
+        // << 20) | freq with core = ccd·8 → (ccd << 28) | freq.
+        //   4000 MHz  = 0x0FA0 → 0x0000_0FA0
+        //   4250 MHz  = 0x109A → 0x1000_109A (CCD 1)
+        //   4875 MHz  = 0x130B → 0x3000_130B (CCD 3)
+        expect(AMDOcFreq.perCcdArg(ccd: 0, mhz: 4000) == 0x0000_0FA0,
+               "perCcdArg(0, 4000) must equal 0x0000_0FA0, got \(AMDOcFreq.perCcdArg(ccd: 0, mhz: 4000).map { String(format: "0x%08X", $0) } ?? "nil")")
+        expect(AMDOcFreq.perCcdArg(ccd: 1, mhz: 4250) == 0x1000_109A,
+               "perCcdArg(1, 4250) must equal 0x1000_109A, got \(AMDOcFreq.perCcdArg(ccd: 1, mhz: 4250).map { String(format: "0x%08X", $0) } ?? "nil")")
+        expect(AMDOcFreq.perCcdArg(ccd: 3, mhz: 4875) == 0x3000_130B,
+               "perCcdArg(3, 4875) must equal 0x3000_130B, got \(AMDOcFreq.perCcdArg(ccd: 3, mhz: 4875).map { String(format: "0x%08X", $0) } ?? "nil")")
+        // 8000 MHz must fit the 20-bit freq field exactly (doc MAX).
+        expect(AMDOcFreq.perCcdArg(ccd: 0, mhz: 8000) == 0x0000_1F40,
+               "perCcdArg(0, 8000) must equal 0x0000_1F40 (doc MAX fits 20 bits)")
+
+        // All-core is the mask-free 0x5C encoding: freq & 0xFFFFF.
+        expect(AMDOcFreq.allCoresArg(4000) == 0x0FA0, "allCoresArg(4000) must equal 0x0FA0")
+        expect(AMDOcFreq.allCoresArg(8000) == 0x1F40, "allCoresArg(8000) must equal 0x1F40")
+
+        // Envelope guards: doc MIN 400 / MAX 8000, CCDs below 8.
+        expect(AMDOcFreq.allCoresArg(399) == nil, "399 MHz must be rejected")
+        expect(AMDOcFreq.allCoresArg(8001) == nil, "8001 MHz must be rejected (doc MAX 8000)")
+        expect(AMDOcFreq.perCcdArg(ccd: 8, mhz: 4000) == nil, "CCD 8 must be rejected (max 8 CCDs)")
+        expect(AMDOcFreq.perCcdArg(ccd: -1, mhz: 4000) == nil, "negative CCD must be rejected")
+        expect(AMDOcFreq.perCcdArg(ccd: 0, mhz: 0) == nil, "0 MHz must be rejected")
+        expect(AMDOcFreq.isValidMHz(400) && AMDOcFreq.isValidMHz(8000), "envelope endpoints must be valid")
+        expect(!AMDOcFreq.isValidMHz(8001) && !AMDOcFreq.isValidMHz(399), "out-of-envelope values must be invalid")
+
+        // Round trip: decode inverts the packing (CCD, freq fields).
+        if let d = AMDOcFreq.decode(mask: 0x3000_130B) {
+            expect(d.ccd == 3 && d.mhz == 4875, "decode(0x3000_130B) must give ccd 3 @ 4875, got ccd \(d.ccd) @ \(d.mhz)")
+        } else {
+            expect(false, "decode(0x3000_130B) must succeed")
+        }
+        if let d = AMDOcFreq.decode(mask: 0x1000_109A) {
+            expect(d.ccd == 1 && d.mhz == 4250, "decode(0x1000_109A) must give ccd 1 @ 4250")
+        } else {
+            expect(false, "decode(0x1000_109A) must succeed")
+        }
+        expect(AMDOcFreq.decode(mask: 0x8000_0FA0) == nil, "decode must refuse CCD 8 (mask bit 31 set)")
+        expect(AMDOcFreq.decode(mask: 0x0000_0000) == nil, "decode must refuse 0 MHz (never-written cache)")
 
         // MARK: Result
 

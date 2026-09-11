@@ -1871,23 +1871,26 @@ actor ProcessorModel {
 
     /// Read the kext's OC capability report: whether OC-mode and frequency/
     /// VID commands are accepted on this silicon (Vermeer + SMU mailbox), the
-    /// cached ProcessorParameters (0x6F) bitfield for context, and the OC-mode
-    /// cache state (`AMDOcMode` codes). Returns nil on pre-1.28 kexts or when
-    /// the connection is down.
-    nonisolated func getOcCapability() -> (supported: Bool, procParamsRaw: UInt32, modeCode: UInt64)? {
+    /// cached ProcessorParameters (0x6F) bitfield for context, the OC-mode
+    /// cache state (`AMDOcMode` codes), and — S8.2 — whether frequency
+    /// overrides are accepted (slot [3]; 0 on pre-1.29 kexts, which shipped
+    /// it reserved). Returns nil on pre-1.28 kexts or when the connection is
+    /// down.
+    nonisolated func getOcCapability() -> (supported: Bool, procParamsRaw: UInt32, modeCode: UInt64, freqSupported: Bool)? {
         var output: [UInt64] = [0, 0, 0, 0]
         var outputCount: UInt32 = 4
         let res = safeIOConnectCallMethod(AMDKextSelector.ocCapability.id, nil, 0, nil, 0,
                                           &output, &outputCount, nil, nil)
         guard res == KERN_SUCCESS, outputCount >= 4 else { return nil }
-        return (output[0] == 1, UInt32(truncatingIfNeeded: output[1]), output[2])
+        return (output[0] == 1, UInt32(truncatingIfNeeded: output[1]), output[2], output[3] == 1)
     }
 
     /// Enable or disable Vermeer OC mode (RSMU 0x5A/0x5B — semantics pinned
     /// by ZenStates-Core, resolving the doc's contradictory rows). When
     /// disabling, `resetScalar` additionally re-programs the PBO scalar to
     /// 1.0 via 0x58 (some SMU firmware does not auto-reset it). Frequency
-    /// (0x5C/0x5D) and VID (0x61) writes are deliberately not exposed yet.
+    /// overrides (0x5C/0x5D) live in S8.2's selectors 51/52; VID (0x61)
+    /// writes are deliberately not exposed yet.
     @discardableResult
     nonisolated func setOcMode(enable: Bool, resetScalar: Bool) -> kern_return_t {
         guard AMDOcMode.validate(enable: enable, resetScalar: resetScalar) else {
@@ -1895,6 +1898,68 @@ actor ProcessorModel {
         }
         var input: [UInt64] = [enable ? 1 : 0, resetScalar ? 1 : 0]
         return safeIOConnectCallMethod(AMDKextSelector.ocModeWrite.id, &input, 2, nil, 0, nil, nil, nil, nil)
+    }
+
+    // MARK: — S8.2: frequency override (selectors 51/52)
+
+    /// Read the kext's frequency-override cache (selector 52): the last
+    /// values THIS driver successfully programmed this boot (SMU has no
+    /// read-back), plus the kext's start-time CCD count for the per-CCD UI
+    /// (0 = probe not ready / no AMD host — callers fall back to their own
+    /// estimate). Returns nil on pre-1.29 kexts or when the connection is
+    /// down. Cache only — no SMU traffic (F-05).
+    nonisolated func getOcFreqCache() -> (allCoresMHz: UInt32,
+                                          kextCcdCount: UInt32,
+                                          perCcdMHz: [UInt32])? {
+        var output = [UInt64](repeating: 0, count: 10)
+        var outputCount: UInt32 = 10
+        let res = safeIOConnectCallMethod(AMDKextSelector.ocFreqCacheRead.id, nil, 0, nil, 0,
+                                          &output, &outputCount, nil, nil)
+        guard res == KERN_SUCCESS, outputCount >= 10 else { return nil }
+        let perCcd = (0..<8).map { UInt32(truncatingIfNeeded: output[2 + $0]) }
+        return (UInt32(truncatingIfNeeded: output[0]),
+                UInt32(truncatingIfNeeded: output[1]),
+                perCcd)
+    }
+
+    /// Program an all-core frequency override via 0x5C (selector 51, mode 0).
+    /// App mirrors the kernel clamps first — fail fast in-process. The SMU
+    /// still refuses unless this driver enabled OC mode earlier this boot.
+    @discardableResult
+    nonisolated func setOverclockFreq(allCoresMHz: Int) -> kern_return_t {
+        guard let arg = AMDOcFreq.allCoresArg(allCoresMHz) else {
+            return kIOReturnBadArgument
+        }
+        var input: [UInt64] = [0, UInt64(arg)]
+        return safeIOConnectCallMethod(AMDKextSelector.ocFreqWrite.id, &input, 2, nil, 0, nil, nil, nil, nil)
+    }
+
+    /// Program per-CCD frequency overrides via 0x5D (selector 51, mode 1).
+    /// `targets` maps CCD index → absolute MHz; only the entries present are
+    /// sent as one contiguous window ([startCcd = min, count = span] with
+    /// every in-between CCD also written — pass the full window when in
+    /// doubt; single-CCD applies send exactly one 0x5D). App mirrors the
+    /// kernel clamps first — fail fast in-process.
+    @discardableResult
+    nonisolated func setOverclockFreq(perCcdMHz targets: [Int: Int]) -> kern_return_t {
+        guard !targets.isEmpty, targets.count <= AMDOcFreq.maxCcds,
+              let startCcd = targets.keys.min(),
+              let endCcd = targets.keys.max(),
+              endCcd - startCcd + 1 == targets.count,
+              endCcd < AMDOcFreq.maxCcds else {
+            return kIOReturnBadArgument
+        }
+        var input = [UInt64](repeating: 0, count: 12)
+        input[0] = 1                                  // mode: per-CCD
+        for (ccd, mhz) in targets {
+            guard ccd >= startCcd, let arg = AMDOcFreq.perCcdArg(ccd: ccd, mhz: mhz) else {
+                return kIOReturnBadArgument
+            }
+            input[2 + ccd - startCcd] = UInt64(arg)
+        }
+        input[10] = UInt64(startCcd)
+        input[11] = UInt64(targets.count)
+        return safeIOConnectCallMethod(AMDKextSelector.ocFreqWrite.id, &input, 12, nil, 0, nil, nil, nil, nil)
     }
 }
 

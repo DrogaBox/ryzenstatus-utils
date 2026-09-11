@@ -320,7 +320,27 @@ public:
     // that does not auto-reset it. Returns 0 on success; negative maps like
     // setPBOLimit.
     int setOcMode(bool enable, bool resetScalar);
-    
+
+    // S8.2: program a frequency override via the Vermeer RSMU OC commands —
+    // all-core (0x5C, one call) or per-CCD (0x5D, one round trip per CCD;
+    // Vermeer mask = (ccd << 28) | freq, see S_SERIES_ROADMAP.md §1.1).
+    // Hard-gated: refuses with -3 unless THIS driver enabled OC mode via
+    // 0x5A earlier this boot (we only send frequency writes after observing
+    // the gate open ourselves — another tool's enable does not count).
+    // Same Vermeer gate, thermal interlock and mapped-error policy as
+    // setOcMode/setPBOLimit. Per-CCD writes are all-or-nothing per CCD:
+    // a mid-sequence failure returns the mapped error and the cache keeps
+    // only the CCDs that acknowledged OK.
+    //   allCores: mhz in 400..8000 (doc MAX), perCcd must be null.
+    //   perCcd:   window of ccdCount entries starting at CCD `startCcd`,
+    //             each an absolute MHz in 400..8000. ccd index of entry i
+    //             = startCcd + i.
+    // Returns 0 on success; negative maps: -1 unsupported, -2 bad args,
+    // -3 OC mode not enabled by this driver, -4 hot, -5 SMU error,
+    // -10 timeout, -11 invalid cmd, -12 invalid args, -13 busy.
+    int setOverclockFreqAllCores(uint32_t mhz);
+    int setOverclockFreqPerCcd(const uint32_t *mhzByCcd, uint8_t ccdCount, uint8_t startCcd);
+
     //Cache size in KB
     uint32_t cpuCacheL1_perCore;
     uint32_t cpuCacheL2_perCore;
@@ -550,6 +570,16 @@ public:
     // only on SMU_OK, and 0 honestly means "unknown" (another tool may have
     // flipped the mode before we loaded).
     uint32_t smuOcModeState {0};
+
+    // S8.2: frequency-override caches (0x5C all-core / 0x5D per-CCD). 0 =
+    // never written by this driver this boot; on success each slot holds the
+    // absolute MHz last acknowledged by the SMU. Driver-local truth only:
+    // the SMU has no read-back for these commands.
+    static constexpr uint8_t kS8MaxCcds = 8;   // Vermeer tops out well below
+                                               // this; kept in step with the
+                                               // CPUSensorPacket CCD cap.
+    uint32_t ocFreqMHzAllCores {0};
+    uint32_t ocFreqMHzPerCcd[kS8MaxCcds] {0};
 
     // S3-B: read-only view for the UserClient capability report (selector 35).
     // Exposes only the fields the CO capability needs; keeps the rest of the

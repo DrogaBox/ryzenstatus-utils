@@ -1427,6 +1427,122 @@ int AMDRyzenCPUPowerManagement::setOcMode(bool enable, bool resetScalar) {
     return -5;
 }
 
+// ------------------------------------------------------------------
+// S8.2: frequency overrides (Vermeer RSMU 0x5C all-core / 0x5D per-CCD).
+//
+// PINNED semantics (S_SERIES_ROADMAP.md §1, sources D+ZC):
+//   0x5C SetOverclockFreqAllCores: Arg0 = freq & 0xFFFFF (absolute MHz,
+//        doc MAX 8000).
+//   0x5D SetOverclockFreqPerCore:  Arg0 = (freq & 0xFFFFF) | coreMask with
+//        Vermeer coreMask = (ccd << 28) | ((core % 8) << 20). Vermeer has
+//        one CCX per CCD and all cores of a CCX must share one frequency
+//        (CCX-uniformity rule, both sources) — so the effective granularity
+//        IS the CCD and core = ccd*8 makes (core % 8) == 0: the mask
+//        collapses to (ccd << 28) | freq.
+// Both are write-only SMU commands: there is no read-back, so the caches
+// describe THIS driver's last successful writes only.
+//
+// Fail-closed: Vermeer-with-mailbox gate, OC-mode gate (this driver must
+// have enabled OC mode via 0x5A earlier this boot — another tool's enable
+// does not count), and the same thermal interlock as every write path.
+// ------------------------------------------------------------------
+
+int AMDRyzenCPUPowerManagement::setOverclockFreqAllCores(uint32_t mhz) {
+    if (!pboLimitsSupported()) return -1;
+    
+    if (mhz < 400 || mhz > 8000) {
+        IOLog("AMDRyzenCPUPowerManagement: Freq override %u MHz outside the 400..8000 envelope. Blocking.\n", mhz);
+        return -2;
+    }
+    
+    // OC-mode gate: we only send 0x5C/0x5D after observing the gate open
+    // ourselves (0x5A succeeded this boot). Maps to kIOReturnNotPermitted.
+    if (smuOcModeState != 1) {
+        IOLog("AMDRyzenCPUPowerManagement: Blocked freq override (0x5C): OC mode not enabled by this driver this boot.\n");
+        return -3;
+    }
+    
+    // Thermal safety interlock, same policy as CO/PBO/cHTC/OC-mode.
+    float currentTemp = PACKAGE_TEMPERATURE_perPackage[0];
+    if (currentTemp > kCURVE_OPTIMIZER_BLOCK_TEMP_C) {
+        IOLog("AMDRyzenCPUPowerManagement: Blocked freq override (0x5C) due to high package temperature (%.1f C).\n", currentTemp);
+        return -4;
+    }
+    
+    uint32_t arg = mhz & 0xFFFFF;   // 0x5C: absolute MHz in the low 20 bits
+    int response = smuSendCmd(0x5C, arg);
+    
+    if (response == SMU_RSP_OK) {
+        ocFreqMHzAllCores = mhz;
+        IOLog("AMDRyzenCPUPowerManagement: All-core freq override applied (0x5C, %u MHz).\n", mhz);
+        return 0;
+    }
+    
+    IOLog("AMDRyzenCPUPowerManagement: SMU 0x5C failed with response code: 0x%X\n", response);
+    if (response == SMU_RSP_TIMEOUT) return -10;
+    if (response == SMU_RSP_INVALID_CMD) return -11;
+    if (response == SMU_RSP_INVALID_ARGS) return -12;
+    if (response == SMU_RSP_BUSY) return -13;
+    return -5;
+}
+
+int AMDRyzenCPUPowerManagement::setOverclockFreqPerCcd(const uint32_t *mhzByCcd, uint8_t ccdCount, uint8_t startCcd) {
+    if (!pboLimitsSupported()) return -1;
+    
+    if (!mhzByCcd || ccdCount == 0 || ccdCount > kS8MaxCcds || startCcd >= kS8MaxCcds ||
+        startCcd + ccdCount > kS8MaxCcds) {
+        IOLog("AMDRyzenCPUPowerManagement: Invalid per-CCD freq request (%u CCDs from %u, array %p).\n", ccdCount, startCcd, mhzByCcd);
+        return -2;
+    }
+    for (uint8_t i = 0; i < ccdCount; i++) {
+        if (mhzByCcd[i] < 400 || mhzByCcd[i] > 8000) {
+            IOLog("AMDRyzenCPUPowerManagement: CCD%u freq %u MHz outside the 400..8000 envelope. Blocking.\n", startCcd + i, mhzByCcd[i]);
+            return -2;
+        }
+    }
+    
+    // OC-mode gate, same as the all-core path.
+    if (smuOcModeState != 1) {
+        IOLog("AMDRyzenCPUPowerManagement: Blocked per-CCD freq override (0x5D): OC mode not enabled by this driver this boot.\n");
+        return -3;
+    }
+    
+    // Thermal safety interlock (one check up front — the whole sequence
+    // runs within a single controlLock hold, milliseconds apart).
+    float currentTemp = PACKAGE_TEMPERATURE_perPackage[0];
+    if (currentTemp > kCURVE_OPTIMIZER_BLOCK_TEMP_C) {
+        IOLog("AMDRyzenCPUPowerManagement: Blocked per-CCD freq override (0x5D) due to high package temperature (%.1f C).\n", currentTemp);
+        return -4;
+    }
+    
+    // One mailbox round trip per CCD. All-or-nothing per CCD: a mid-sequence
+    // failure returns the mapped error and the cache keeps only the CCDs
+    // that acknowledged OK — the UI reads the cache, so it shows the truth.
+    for (uint8_t i = 0; i < ccdCount; i++) {
+        uint32_t mhz = mhzByCcd[i];
+        uint8_t ccd = startCcd + i;
+        // Vermeer: (ccd << 28) | ((core % 8) << 20) | freq with core = ccd*8
+        // → (core % 8) == 0 → (ccd << 28) | freq. The full packing stays in
+        // this comment for a future multi-CCX silicon (see rsmu_commands.md
+        // §SetOverclockFreqPerCore and ZenStates-Core MakeCoreMask).
+        uint32_t arg = ((uint32_t)ccd << 28) | (mhz & 0xFFFFF);
+        
+        int response = smuSendCmd(0x5D, arg);
+        if (response == SMU_RSP_OK) {
+            ocFreqMHzPerCcd[ccd] = mhz;
+            IOLog("AMDRyzenCPUPowerManagement: Per-CCD freq override applied (0x5D, ccd %u, %u MHz).\n", ccd, mhz);
+        } else {
+            IOLog("AMDRyzenCPUPowerManagement: SMU 0x5D ccd %u failed (response 0x%X) — earlier CCDs keep their programmed values.\n", ccd, response);
+            if (response == SMU_RSP_TIMEOUT) return -10;
+            if (response == SMU_RSP_INVALID_CMD) return -11;
+            if (response == SMU_RSP_INVALID_ARGS) return -12;
+            if (response == SMU_RSP_BUSY) return -13;
+            return -5;
+        }
+    }
+    return 0;
+}
+
 // S6: program the cHTC thermal limit (Vermeer SMU 0x56, Arg0 = °C, per
 // ryzen_smu rsmu_commands.md). Same capability gate and thermal interlock
 // policy as the PBO limits: Vermeer-with-mailbox only, writes blocked while

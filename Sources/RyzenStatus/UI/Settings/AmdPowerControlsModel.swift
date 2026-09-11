@@ -63,6 +63,14 @@ final class AmdPowerControlsModel: ObservableObject {
     @Published private(set) var ocSupported = false
     @Published private(set) var ocModeCode: UInt64 = 0
 
+    // S8.2: frequency-override support flag (selector 49 [3], promoted from
+    // reserved-0 in 1.28.0) + selector-52 cache. 0 MHz slots mean "never
+    // written by this driver this boot" — never fabricated state.
+    @Published private(set) var ocFreqSupported = false
+    @Published private(set) var ocFreqAllCoresMHz: UInt32 = 0
+    @Published private(set) var ocFreqPerCcdMHz: [UInt32] = []
+    @Published private(set) var kextCcdCount: Int = 0
+
     /// Guard flag: true when updating published properties from kext reads
     /// to avoid trigger loops from `.onChange` handlers.
     /// Writes arriving while a sync is in flight are intentionally dropped;
@@ -167,7 +175,7 @@ final class AmdPowerControlsModel: ObservableObject {
         recordTelemetrySample()
 
         let (kernelAnswered, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
-             smuVersion, activeScalar, ocCap) = await Task.detached(priority: .userInitiated) {
+             smuVersion, activeScalar, ocCap, ocFreq) = await Task.detached(priority: .userInitiated) {
             // AUDIT F-27: thread-safe connection check to avoid data races
             let kernelAnswered = ProcessorModel.shared.isConnected
             let cpb = ProcessorModel.shared.getCPB()
@@ -187,10 +195,15 @@ final class AmdPowerControlsModel: ObservableObject {
             let activeScalar = kernelAnswered ? ProcessorModel.shared.getActivePBOScalar() : nil
             // S8: OC capability + mode cache (no SMU traffic — cache only).
             let ocCap = kernelAnswered ? ProcessorModel.shared.getOcCapability() : nil
+            // S8.2: frequency-override cache (cache only, no SMU traffic).
+            let ocFreq = kernelAnswered ? ProcessorModel.shared.getOcFreqCache() : nil
             return (kernelAnswered, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
-                    smuVersion, activeScalar, ocCap)
+                    smuVersion, activeScalar, ocCap, ocFreq)
         }.value
         let profile = await ProcessorModel.shared.cpuProfile
+        // S8.2 fallback for the per-CCD row count when the kext's register
+        // probe has not run (0): Vermeer packs 8 cores per CCD.
+        let physicalCores = await ProcessorModel.shared.physicalCoreCount
 
         cppcSupported = kernelAnswered
         legacyPstateAllowed = profile.legacyPstateAllowed
@@ -253,6 +266,23 @@ final class AmdPowerControlsModel: ObservableObject {
         } else {
             ocSupported = false
             ocModeCode = 0
+        }
+
+        // S8.2: publish the frequency-override cache. `ocFreqSupported` reads
+        // selector 49 [3] (0 on pre-1.29 kexts — controls stay hidden); the
+        // kext's CCD count falls back to the app's own estimate when the
+        // kext reports 0.
+        ocFreqSupported = ocCap?.freqSupported ?? false
+        if let ocFreq {
+            ocFreqAllCoresMHz = ocFreq.allCoresMHz
+            ocFreqPerCcdMHz = ocFreq.perCcdMHz
+            kextCcdCount = ocFreq.kextCcdCount > 0
+                ? Int(ocFreq.kextCcdCount)
+                : max(1, physicalCores / 8)
+        } else {
+            ocFreqAllCoresMHz = 0
+            ocFreqPerCcdMHz = []
+            kextCcdCount = 0
         }
 
         if profile.legacyPstateAllowed {

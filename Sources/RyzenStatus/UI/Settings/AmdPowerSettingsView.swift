@@ -36,6 +36,14 @@ struct AmdPowerSettingsView: View {
     @State private var ocStatusIsError = false
     @State private var ocResetScalarDraft = true
     @State private var showOcRiskConfirm = false
+    // S8.2: frequency-override drafts — local state seeded once from the
+    // kext cache (PBO-draft pattern) so mid-session edits survive the 3 s
+    // sync. Applied values come from the ControlsModel (selector 52).
+    @State private var ocFreqAllDraft: Double = 4000
+    @State private var ocFreqPerCcdDrafts: [Double] = []
+    @State private var ocFreqSeeded = false
+    @State private var ocFreqStatusMessage: String?
+    @State private var ocFreqStatusIsError = false
     @State private var isLoading = false
     @ObservedObject private var gaming = GamingModeService.shared
     @ObservedObject private var c6Service = C6ResidencyService.shared
@@ -583,6 +591,98 @@ struct AmdPowerSettingsView: View {
                     Text(l10n.amdPower.ocHeader)
                 } footer: {
                     Text(l10n.amdPower.ocFooter)
+                }
+
+                // S8.2: frequency overrides (0x5C/0x5D) — hard-gated behind
+                // the OC-mode gate above. The kernel refuses unless THIS
+                // driver enabled OC mode this boot; the UI mirrors that by
+                // rendering guidance instead of controls (the kernel gate is
+                // law, this gate is UX).
+                Section {
+                    if coGeneration.isZen4OrNewer {
+                        Label(l10n.amdPower.ocUnsupportedZen4, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if controls.ocFreqSupported,
+                              AMDOcMode.from(code: controls.ocModeCode) == .enabled {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(l10n.amdPower.ocFreqAllCoreLabel)
+                                    .font(.caption)
+                                Spacer()
+                                Text("\(Int(ocFreqAllDraft)) MHz")
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.primary)
+                            }
+                            Slider(value: $ocFreqAllDraft,
+                                   in: Double(AMDOcFreq.minMHz)...Double(AMDOcFreq.maxMHz),
+                                   step: 25)
+                                .labelsHidden()
+                        }
+                        .padding(.bottom, 4)
+
+                        Button {
+                            applyOcFreqAllCores()
+                        } label: {
+                            Label(l10n.amdPower.ocFreqApply, systemImage: "bolt.horizontal")
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        ForEach(0..<controls.kextCcdCount, id: \.self) { ccd in
+                            if ccd < ocFreqPerCcdDrafts.count {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(String(format: l10n.amdPower.ocFreqPerCcdFormat, ccd))
+                                            .font(.caption)
+                                        Spacer()
+                                        Text("\(Int(ocFreqPerCcdDrafts[ccd])) MHz")
+                                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                            .foregroundColor(.primary)
+                                    }
+                                    Slider(value: $ocFreqPerCcdDrafts[ccd],
+                                           in: Double(AMDOcFreq.minMHz)...Double(AMDOcFreq.maxMHz),
+                                           step: 25)
+                                        .labelsHidden()
+                                    Button {
+                                        applyOcFreqCcd(ccd)
+                                    } label: {
+                                        Label(l10n.amdPower.ocFreqApply, systemImage: "bolt.horizontal")
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                                .padding(.top, 2)
+                            }
+                        }
+
+                        if let message = ocFreqStatusMessage {
+                            Text(message)
+                                .font(.caption2)
+                                .foregroundColor(ocFreqStatusIsError ? .red : .green)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        if !ocFreqCacheSummary.isEmpty {
+                            Text(ocFreqCacheSummary)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    } else if controls.ocFreqSupported {
+                        Label(l10n.amdPower.ocFreqBlockedNoOcMode, systemImage: "lock")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Label(l10n.amdPower.ocUnsupportedVermeer, systemImage: "info.circle")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } header: {
+                    Text(l10n.amdPower.ocFreqHeader)
+                } footer: {
+                    Text(l10n.amdPower.ocFreqFooter)
                 }
 
                 if controls.cppcSupported {
@@ -1361,6 +1461,76 @@ struct AmdPowerSettingsView: View {
         }
     }
 
+    /// S8.2: one-line read-back of the frequency-override cache (selector
+    /// 52). Slots never written this boot are omitted — the summary only
+    /// ever states what THIS driver actually programmed.
+    private var ocFreqCacheSummary: String {
+        var parts: [String] = []
+        if controls.ocFreqAllCoresMHz > 0 {
+            parts.append(String(format: l10n.amdPower.ocFreqCacheFormat, controls.ocFreqAllCoresMHz))
+        }
+        for (ccd, mhz) in controls.ocFreqPerCcdMHz.enumerated()
+        where mhz > 0 && ccd < controls.kextCcdCount {
+            parts.append(String(format: l10n.amdPower.ocFreqPerCcdFormat, ccd) + " \(mhz) MHz")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Maps the kext's selector-51 return codes to friendly messages (S8.2).
+    /// The OC-gate refusal is spelled out because it is the likely first
+    /// mistake: the kext only accepts frequency writes after IT enabled OC
+    /// mode this boot (another tool's enable does not count).
+    private func ocFreqError(_ status: kern_return_t) -> String {
+        if status == ProcessorModel.kIOReturnNotPrivilegedCode {
+            return "Requires root or -amdpnopchk"
+        }
+        if status == kIOReturnNotPermitted { return "Enable OC mode first (this driver must open the gate itself)" }
+        if status == kIOReturnUnsupported { return "Not supported by the kext on this CPU (Vermeer only)" }
+        if status == kIOReturnNotReady { return "Blocked: package temperature above 75 °C" }
+        if status == kIOReturnBadArgument { return "Invalid frequency request" }
+        if status == kIOReturnTimeout { return "SMU timeout — try again" }
+        if status == kIOReturnBusy { return "SMU busy — try again" }
+        return "SMU command failed"
+    }
+
+    /// S8.2: apply the all-core frequency target (0x5C, selector 51 mode 0).
+    private func applyOcFreqAllCores() {
+        let mhz = Int(ocFreqAllDraft.rounded())
+        guard AMDOcFreq.isValidMHz(mhz) else {
+            ocFreqStatusIsError = true
+            ocFreqStatusMessage = "Invalid frequency request"
+            return
+        }
+        let status = ProcessorModel.shared.setOverclockFreq(allCoresMHz: mhz)
+        if status == KERN_SUCCESS {
+            ocFreqStatusIsError = false
+            ocFreqStatusMessage = nil
+        } else {
+            ocFreqStatusIsError = true
+            ocFreqStatusMessage = ocFreqError(status)
+        }
+    }
+
+    /// S8.2: apply a single CCD's frequency target (0x5D, selector 51 mode 1
+    /// with a one-entry window) — limits blast radius to that CCD.
+    private func applyOcFreqCcd(_ ccd: Int) {
+        guard ccd < ocFreqPerCcdDrafts.count else { return }
+        let mhz = Int(ocFreqPerCcdDrafts[ccd].rounded())
+        guard AMDOcFreq.isValidMHz(mhz) else {
+            ocFreqStatusIsError = true
+            ocFreqStatusMessage = "Invalid frequency request"
+            return
+        }
+        let status = ProcessorModel.shared.setOverclockFreq(perCcdMHz: [ccd: mhz])
+        if status == KERN_SUCCESS {
+            ocFreqStatusIsError = false
+            ocFreqStatusMessage = nil
+        } else {
+            ocFreqStatusIsError = true
+            ocFreqStatusMessage = ocFreqError(status)
+        }
+    }
+
     /// Maps the kext's selector-111 return codes to friendly messages.
     private func curveOptimizerError(_ status: kern_return_t) -> String {
         if status == ProcessorModel.kIOReturnNotPrivilegedCode {
@@ -1476,6 +1646,11 @@ struct AmdPowerSettingsView: View {
         let pboScalarCache: Int?
         // S6: cHTC limit cache (0 = never written this boot).
         let chtcCache: Int?
+        // S8.2: frequency-override cache for draft seeding (0 = never
+        // written by this driver this boot) + the kext's CCD count.
+        let ocFreqAllCores: UInt32
+        let ocFreqPerCcd: [UInt32]
+        let kextCcdCount: UInt32
     }
 
     private func fetchState() async {
@@ -1510,6 +1685,8 @@ struct AmdPowerSettingsView: View {
                 (Int($0.pptMilliwatts), Int($0.tdcMilliamps), Int($0.edcMilliamps))
             }
             let pboScalarCache = supportsPBO ? ProcessorModel.shared.getPBOScalar().map(Int.init) : nil
+            // S8.2: frequency-override cache (same Vermeer gate as PBO).
+            let ocFreqCache = supportsPBO ? ProcessorModel.shared.getOcFreqCache() : nil
             let coreCount = physicalCores > 0 ? min(physicalCores, 32) : 16
             let rawCurveOffsets = supportsCurveOptimizer
                 ? ProcessorModel.shared.getCurveOptimizerOffsets()
@@ -1546,7 +1723,10 @@ struct AmdPowerSettingsView: View {
                                    supportsPBO: supportsPBO,
                                    pboLimitsCache: pboLimitsTuple,
                                    pboScalarCache: pboScalarCache,
-                                   chtcCache: supportsPBO ? ProcessorModel.shared.getCHTCLimit().map(Int.init) : nil)
+                                   chtcCache: supportsPBO ? ProcessorModel.shared.getCHTCLimit().map(Int.init) : nil,
+                                   ocFreqAllCores: ocFreqCache?.allCoresMHz ?? 0,
+                                   ocFreqPerCcd: ocFreqCache?.perCcdMHz ?? [],
+                                   kextCcdCount: ocFreqCache?.kextCcdCount ?? 0)
         }
         let state = await withTaskCancellationHandler(operation: {
             await worker.value
@@ -1595,6 +1775,24 @@ struct AmdPowerSettingsView: View {
         } else if !chtcSeeded {
             chtcDraftCelsius = Double(AMDSmuParameters.defaultCHTCCelsius)
             chtcSeeded = true
+        }
+        // S8.2: seed the frequency-override drafts — per-CCD rows sized to
+        // the kext's CCD count (fallback: cores/8), all-core and per-CCD
+        // drafts from the kext cache when written, else a neutral 4000 MHz.
+        // Only the first sync drafts the sliders; later syncs leave them
+        // alone so mid-session edits survive.
+        if !ocFreqSeeded {
+            let ccdCount = state.kextCcdCount > 0 ? Int(state.kextCcdCount) : max(1, state.coreCount / 8)
+            var drafts = [Double](repeating: 4000, count: ccdCount)
+            if state.ocFreqAllCores > 0 {
+                ocFreqAllDraft = Double(state.ocFreqAllCores)
+                for i in drafts.indices { drafts[i] = Double(state.ocFreqAllCores) }
+            }
+            for i in 0..<min(ccdCount, state.ocFreqPerCcd.count) where state.ocFreqPerCcd[i] > 0 {
+                drafts[i] = Double(state.ocFreqPerCcd[i])
+            }
+            ocFreqPerCcdDrafts = drafts
+            ocFreqSeeded = true
         }
         isLoading = false
     }

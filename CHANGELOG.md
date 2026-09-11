@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.29.0] — 2026-09-11
+
+### AMD Kernel: SMU frequency overrides behind the OC gate (wave S8, phase 2)
+- **All-core frequency override**: privileged **selector 51** programs an absolute core-clock target through the Vermeer RSMU `SetOverclockFreqAllCores` command (0x5C, `freq & 0xFFFFF` MHz). The kernel validates the 400…8000 MHz envelope (doc MIN/MAX), and — new for phase 2 — **refuses unless this driver enabled OC mode itself earlier this boot** (`kIOReturnNotPermitted`): the kext only sends frequency writes after observing its own 0x5A succeed, so an OC gate opened by the BIOS or another tool never silently unlocks this path. Same thermal interlock and mapped-error policy as every write selector.
+- **Per-CCD frequency overrides**: `SetOverclockFreqPerCore` (0x5D) with the pinned Vermeer mask `(ccd << 28) | ((core % 8) << 20) | freq` — which collapses to `(ccd << 28) | freq` because Vermeer has one CCX per CCD and the CCX-uniformity rule makes the CCD the SMU's real frequency granularity. The UI therefore presents **CCD rows**, not per-core sliders that would all write the same value. One mailbox round trip per CCD; a mid-sequence failure leaves earlier CCDs programmed and the cache tells the truth. The kernel builds the mask — user space never ships packed masks.
+- **Selector 52 (read-only)**: the frequency-override cache — all-core plus per-CCD values last programmed by this driver this boot (0 = never written; the SMU has no read-back). Also reports the kext's start-time CCD count so the UI sizes its rows from real silicon topology.
+- **Selector 49 [3] promoted** from reserved-0 to the frequency-override support flag — a compatibility-safe change: 1.28.0 apps read 0 and hide the new section; 1.29.0 apps read 1.
+- **Settings UI**: a new "Frequency Override (SMU)" section directly under Overclocking Mode — all-core slider (400–8000 MHz, 25 MHz steps) + per-CCD sliders, each with its own Apply, drafts seeded once from the kext cache (PBO-draft pattern), and a cache read-back footer carrying the verification-loop hint: watch the Boost Telemetry row — the SMU's reported max frequency (0x6E) should follow your target. Controls render only when OC mode reads *enabled*; otherwise a localized "Enable OC mode first" guidance row (the kernel re-checks regardless).
+- **13-locale sweep** for the new section, with format-specifier invariant tests; the strict-concurrency gate stays at 0 diagnostics.
+- Kexts rebuilt at **3.34.7**; `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` refreshed and its SHA-256 repinned in `Tools/make-dmg.sh`. App 1.29.0 (68).
+
 ## [1.28.0] — 2026-09-11
 
 ### AMD Kernel: OC-mode gate (wave S8, phase 1) + hardware-risk warnings

@@ -254,3 +254,70 @@ enum AMDOcMode {
         !resetScalar || !enable
     }
 }
+
+// MARK: - OC Frequency Override (S8.2, selectors 51/52 — Vermeer 0x5C/0x5D)
+
+/// Encoding helpers for the Vermeer SMU frequency-override commands, pinned
+/// from two independent sources (amkillam/ryzen_smu rsmu_commands.md and
+/// irusanov/ZenStates-Core `MakeCoreMask`) — see S_SERIES_ROADMAP.md §1.
+///
+/// 0x5C (all cores): arg = freq & 0xFFFFF — absolute MHz.
+/// 0x5D (per-CCD):  arg = (freq & 0xFFFFF) | coreMask with the documented
+/// fields [31:28] CCD, [27:24] CCX, [23:20] core-in-CCX, [19:0] freq MHz.
+/// Vermeer has one CCX per CCD and all cores of a CCX must share one
+/// frequency (CCX-uniformity rule, both sources), so the effective
+/// granularity IS the CCD: with core = ccd·8, (core % 8) == 0 and the mask
+/// collapses to `(ccd << 28) | freq`. The kernel builds the mask itself —
+/// these helpers exist for the app-side clamp + cache decode, never to ship
+/// packed masks over IPC.
+enum AMDOcFreq {
+    /// Doc-documented envelope: MIN 400, MAX 8000 MHz (absolute targets).
+    static let minMHz = 400
+    static let maxMHz = 8000
+    /// Kernel `kS8MaxCcds` mirror — Vermeer tops out well below this.
+    static let maxCcds = 8
+
+    /// Validate an absolute MHz target against the pinned envelope.
+    static func isValidMHz(_ mhz: Int) -> Bool {
+        mhz >= minMHz && mhz <= maxMHz
+    }
+
+    /// 0x5C argument for an all-core target. Nil outside 400…8000.
+    static func allCoresArg(_ mhz: Int) -> UInt32? {
+        guard isValidMHz(mhz) else { return nil }
+        return UInt32(mhz) & 0xFFFFF
+    }
+
+    /// 0x5D argument for a single Vermeer CCD target. Nil outside the
+    /// envelope or for a CCD index ≥ 8.
+    ///
+    /// The full documented packing (non-Vermeer future) is
+    /// `(ccd << 28) | ((ccx & 0xF) << 24) | ((core % 8) << 20) | freq`;
+    /// on Vermeer ccx is always 0 and core = ccd·8, so both inner fields
+    /// vanish. Written out longhand here to match the pinned spec.
+    static func perCcdArg(ccd: Int, mhz: Int) -> UInt32? {
+        guard ccd >= 0, ccd < maxCcds, isValidMHz(mhz) else { return nil }
+        let ccx = 0                        // Vermeer: one CCX per CCD
+        let core = ccd * 8                 // first core of the CCD's CCX
+        let freqField = UInt32(mhz) & 0xFFFFF
+        let coreField = UInt32(core % 8) << 20          // == 0 on Vermeer
+        let ccxField = UInt32(ccx & 0xF) << 24          // == 0 on Vermeer
+        let ccdField = UInt32(ccd) << 28
+        return ccdField | ccxField | coreField | freqField
+    }
+
+    /// Inverse of `perCcdArg` for cache/debug rendering of a 0x5D arg:
+    /// refuses freq fields above 0xFFFFF·0 that cannot exist (mhz ≤ 8000
+    /// always fits) and out-of-range CCD indices.
+    static func decode(mask: UInt32) -> (ccd: Int, core: Int, mhz: Int)? {
+        let ccd = Int(mask >> 28)
+        let ccx = Int((mask >> 24) & 0xF)
+        let coreInCcx = Int((mask >> 20) & 0xF)
+        let mhz = Int(mask & 0xFFFFF)
+        guard ccd < maxCcds, isValidMHz(mhz) else { return nil }
+        // Absolute core index for display: Vermeer layout (core % 8 maps
+        // within one CCD of 8; other layouts stay documented-unknown).
+        let core = ccd * 8 + (ccx * 8 + coreInCcx) % 8
+        return (ccd, core, mhz)
+    }
+}

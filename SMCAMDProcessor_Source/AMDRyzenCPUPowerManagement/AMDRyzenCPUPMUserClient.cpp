@@ -1852,7 +1852,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
         // (0x6F) bitfield for app-side context (bit 0 IsOverclockable fuse),
         // [2] = OC-mode cache state (0 = never touched by this driver this
         // boot, 1 = enabled via 0x5A, 2 = disabled via 0x5B — the SMU has no
-        // read-back, and 0 honestly means "unknown"), [3] = reserved.
+        // read-back, and 0 honestly means "unknown"). [3] = 1 when the kext
+        // accepts frequency overrides (S8.2: 0x5C/0x5D behind the OC-mode
+        // gate) — same Vermeer verdict as [0]; the app mirrors the kext's
+        // fixed 8-CCD cache model. 1.28.0 shipped [3] as reserved 0, so
+        // pre-1.29 apps reading 0 simply hide those controls (compatibility-
+        // safe promotion).
         // Read-only: no SMU traffic, cache only.
         case 49: {
             if(!provider)
@@ -1862,7 +1867,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             arguments->scalarOutput[0] = provider->pboLimitsSupported() ? 1 : 0;
             arguments->scalarOutput[1] = provider->smuProcessorParametersRaw;
             arguments->scalarOutput[2] = provider->smuOcModeState;
-            arguments->scalarOutput[3] = 0;
+            arguments->scalarOutput[3] = provider->pboLimitsSupported() ? 1 : 0;
             
             break;
         }
@@ -1905,6 +1910,106 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 if (rc == -13) return kIOReturnBusy;
                 return kIOReturnError;
             }
+            break;
+        }
+        
+        // Set frequency override (S8.2, privileged): [0] = mode (0 all-core
+        // via 0x5C, 1 per-CCD via 0x5D), [1] = MHz for all-core mode,
+        // [2..9] = per-CCD MHz (entry i targets CCD startCcd + i),
+        // [10] = startCcd, [11] = CCD count for per-CCD mode (contiguous
+        // window — the app applies one CCD with startCcd = ccd, count = 1).
+        // Envelopes mirror the kernel: 400..8000 MHz, startCcd + count <= 8.
+        // The kernel builds the 0x5D mask itself ((ccd << 28) | freq on
+        // Vermeer) — user space never ships a packed mask. Hard-gated
+        // kernel-side: OC mode must have been enabled by THIS driver earlier
+        // this boot — refusal maps to kIOReturnNotPermitted; thermal
+        // interlock maps to kIOReturnNotReady.
+        // Output scalars: [0] = 0 on success, [1] = programmed MHz (all-core
+        // mode) or 0, [2] = last mask/arg used (0xFFFFFFFF sentinel for
+        // all-core), [3] = CCD count processed, [4..7] reserved 0.
+        case 51: {
+            if(!provider)
+                return kIOReturnNoDevice;
+            
+            if(!hasPrivilege(51))
+                return kIOReturnNotPrivileged;
+            
+            if(arguments->scalarInputCount < 2 || arguments->scalarInputCount > 11)
+                return kIOReturnBadArgument;
+            
+            uint32_t mode = (uint32_t)arguments->scalarInput[0];
+            if (mode > 1)
+                return kIOReturnBadArgument;
+            
+            if (!provider->pboLimitsSupported())
+                return kIOReturnUnsupported;
+            
+            int rc;
+            uint32_t maskUsed = 0xFFFFFFFF;   // sentinel: all-core
+            uint32_t ccdsDone = 0;
+            
+            if (mode == 0) {
+                if (arguments->scalarInputCount != 2)
+                    return kIOReturnBadArgument;
+                uint32_t mhz = (uint32_t)arguments->scalarInput[1];
+                rc = provider->setOverclockFreqAllCores(mhz);
+                maskUsed = mhz & 0xFFFFF;
+            } else {
+                if (arguments->scalarInputCount != 12)
+                    return kIOReturnBadArgument;
+                uint32_t startCcd = (uint32_t)arguments->scalarInput[10];
+                uint32_t ccdCount = (uint32_t)arguments->scalarInput[11];
+                if (ccdCount == 0 || startCcd >= AMDRyzenCPUPowerManagement::kS8MaxCcds ||
+                    startCcd + ccdCount > AMDRyzenCPUPowerManagement::kS8MaxCcds)
+                    return kIOReturnBadArgument;
+                uint32_t mhzByCcd[AMDRyzenCPUPowerManagement::kS8MaxCcds];
+                for (uint8_t c = 0; c < ccdCount; c++)
+                    mhzByCcd[c] = (uint32_t)arguments->scalarInput[2 + c];
+                rc = provider->setOverclockFreqPerCcd(mhzByCcd, (uint8_t)ccdCount, (uint8_t)startCcd);
+                if (rc == 0)
+                    maskUsed = ((uint32_t)(startCcd + ccdCount - 1) << 28) | (mhzByCcd[ccdCount - 1] & 0xFFFFF);
+                ccdsDone = (rc == 0) ? ccdCount : 0;
+            }
+            
+            if (rc < 0) {
+                if (rc == -1 || rc == -11) return kIOReturnUnsupported;
+                if (rc == -2 || rc == -12) return kIOReturnBadArgument;
+                if (rc == -3) return kIOReturnNotPermitted;   // OC gate closed
+                if (rc == -4) return kIOReturnNotReady;        // thermal
+                if (rc == -10) return kIOReturnTimeout;
+                if (rc == -13) return kIOReturnBusy;
+                return kIOReturnError;
+            }
+            
+            arguments->scalarOutputCount = 8;
+            arguments->scalarOutput[0] = 0;
+            arguments->scalarOutput[1] = (mode == 0) ? (uint32_t)arguments->scalarInput[1] : 0;
+            arguments->scalarOutput[2] = maskUsed;
+            arguments->scalarOutput[3] = ccdsDone;
+            arguments->scalarOutput[4] = 0;
+            arguments->scalarOutput[5] = 0;
+            arguments->scalarOutput[6] = 0;
+            arguments->scalarOutput[7] = 0;
+            
+            break;
+        }
+        
+        // Get frequency-override cache (S8.2, read-only): [0] = all-core
+        // cache MHz (0 = never written by this driver this boot), [1] = CCD
+        // count from the kext's start-time register probe (0 = probe not
+        // ready or no AMD host — the app falls back to its own estimate),
+        // [2..9] = per-CCD caches (array index = CCD index, 0 = never
+        // written). Cache only — no SMU traffic (F-05).
+        case 52: {
+            if(!provider)
+                return kIOReturnNoDevice;
+            
+            arguments->scalarOutputCount = 10;
+            arguments->scalarOutput[0] = provider->ocFreqMHzAllCores;
+            arguments->scalarOutput[1] = provider->ccdCount;
+            for (uint8_t c = 0; c < AMDRyzenCPUPowerManagement::kS8MaxCcds; c++)
+                arguments->scalarOutput[2 + c] = provider->ocFreqMHzPerCcd[c];
+            
             break;
         }
         
