@@ -1782,6 +1782,24 @@ actor ProcessorModel {
         var input: [UInt64] = [UInt64(clamped)]
         return safeIOConnectCallMethod(AMDKextSelector.pboScalarWrite.id, &input, 1, nil, 0, nil, nil, nil, nil)
     }
+
+    // MARK: — S5: SMU boost telemetry (Vermeer read commands, selector 43)
+
+    /// Read the kext's cached boost telemetry snapshot: max boost frequency in
+    /// MHz (RSMU `GetMaxFrequency` 0x6E) and the raw `GetFastestCoreOfSocket`
+    /// (0x59) word for `AMDSmuBoost.decodeFastestCore`. The kext refreshes
+    /// these from its command-gate timer — this call never touches the SMU.
+    /// Returns nil when the kext is pre-1.25 (selector unsupported), the
+    /// connection is down, or the timer has not populated the caches yet.
+    nonisolated func getBoostTelemetry() -> (maxBoostFreqMHz: UInt32, fastestCoreRaw: UInt32)? {
+        var output: [UInt64] = [0, 0, 0]
+        var outputCount: UInt32 = 3
+        let res = safeIOConnectCallMethod(AMDKextSelector.boostTelemetry.id, nil, 0, nil, 0,
+                                          &output, &outputCount, nil, nil)
+        guard res == KERN_SUCCESS, outputCount >= 3, output[2] == 1 else { return nil }
+        return (UInt32(truncatingIfNeeded: output[0]),
+                UInt32(truncatingIfNeeded: output[1]))
+    }
 }
 
 /// Per-component IOKit statuses of a `ProcessorModel.applyPowerPreset(_:)` call.

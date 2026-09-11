@@ -339,6 +339,10 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
         // Read Package C6 Residency MSR (cumulative microseconds)
         provider->read_msr(kMSR_PKG_C6_RES, &provider->packageC6Residency);
 
+        // S5: refresh cached boost telemetry (Vermeer RSMU 0x6E/0x59 reads)
+        // from the same command gate — never from user threads (F-05 lesson).
+        provider->pollBoostTelemetry();
+
         IOLockUnlock(provider->rendezvousLock);
 
         uint64_t now = getCurrentTimeNs() / 1000000; //ms
@@ -1220,6 +1224,14 @@ void AMDRyzenCPUPowerManagement::smnWrite32(uint32_t addr, uint32_t val) {
 }
 
 int AMDRyzenCPUPowerManagement::smuSendCmd(uint32_t cmd, uint32_t arg) {
+    uint32_t unused = 0;
+    return smuSendCmd(cmd, arg, unused);
+}
+
+// S5: full-mailbox variant — after SMU_RSP_OK the read command's result word
+// is left in the mailbox ARG register (reference driver reads it back from
+// args_addr + 0 post-OK), so snapshot it inside the same critical section.
+int AMDRyzenCPUPowerManagement::smuSendCmd(uint32_t cmd, uint32_t arg, uint32_t &outArg0) {
     if (!smuMailbox.supported) return SMU_RSP_INVALID_CMD;
 
 #pragma mark - Thermal & Energy Monitoring
@@ -1233,6 +1245,8 @@ int AMDRyzenCPUPowerManagement::smuSendCmd(uint32_t cmd, uint32_t arg) {
     if (smuCmdLock) {
         IOLockLock(smuCmdLock);
     }
+    
+    uint32_t argRes = arg;
     
     // Clear response register first
     smnWrite32(rspReg, 0);
@@ -1267,11 +1281,44 @@ int AMDRyzenCPUPowerManagement::smuSendCmd(uint32_t cmd, uint32_t arg) {
         IODelay(50);
     }
 
+    if (rsp == SMU_RSP_OK) {
+        argRes = smnRead32(argReg);
+    }
+
     if (smuCmdLock) {
         IOLockUnlock(smuCmdLock);
     }
     
+    outArg0 = argRes;
     return (int)rsp;
+}
+
+// S5: one RSMU read command (no arg in). Returns the raw mailbox result word
+// on OK, else 0. Never called from user threads — timer command gate only.
+uint32_t AMDRyzenCPUPowerManagement::pollSmuRead(uint32_t smuCmd) {
+    uint32_t result = 0;
+    int rsp = smuSendCmd(smuCmd, 0, result);
+    return (rsp == SMU_RSP_OK) ? result : 0;
+}
+
+void AMDRyzenCPUPowerManagement::pollBoostTelemetry() {
+    if (!smuMailbox.supported) return;
+    
+    uint64_t now = getCurrentTimeNs() / 1000000; // ms
+    if (smuBoostTelemetryLastPollMs != 0 &&
+        now - smuBoostTelemetryLastPollMs < kSMU_BOOST_POLL_MIN_INTERVAL_MS) {
+        return;
+    }
+    smuBoostTelemetryLastPollMs = now;
+    
+    // Vermeer RSMU read commands documented in ryzen_smu rsmu_commands.md:
+    //   GetMaxFrequency       0x6E  Res0: MHz
+    //   GetFastestCoreOfSocket 0x59  raw word; decode lives app-side
+    //        (AMDSmuBoost.decodeFastestCore) where it is unit-testable.
+    // 0 responses are cached as "unknown" rather than retried every tick —
+    // the SMU only returns 0 while clocks are being reconfigured.
+    smuMaxBoostFreqMHz = pollSmuRead(0x6E);
+    smuFastestCoreRaw = pollSmuRead(0x59);
 }
 
 int AMDRyzenCPUPowerManagement::setCurveOptimizer(uint8_t core, int8_t offset) {

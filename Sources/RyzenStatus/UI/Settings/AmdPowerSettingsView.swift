@@ -348,6 +348,48 @@ struct AmdPowerSettingsView: View {
                     Text(l10n.amdPower.pboFooter)
                 }
 
+                // S5: SMU boost telemetry (selector 43). The kext's command-gate
+                // timer reads the silicon's own max-boost clock and fastest-core
+                // report; this section only renders the cached snapshot that
+                // `controls.syncFromKext()` publishes every 3 s.
+                Section {
+                    if controls.maxBoostFreqMHz == 0 && controls.fastestCoreRaw == 0 {
+                        Text(l10n.amdPower.boostTelemetryUnavailable)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        if controls.maxBoostFreqMHz > 0 {
+                            HStack {
+                                Text(String(format: l10n.amdPower.boostMaxFreqFormat, controls.maxBoostFreqMHz))
+                                    .font(.system(.body, design: .monospaced))
+                                Spacer()
+                                Image(systemName: "bolt.horizontal.fill")
+                                    .foregroundColor(.cyan)
+                                    .font(.caption)
+                            }
+                        }
+                        if let coreIndex = controls.fastestCoreIndex {
+                            HStack {
+                                Text(String(format: l10n.amdPower.boostFastestCoreFormat, UInt32(coreIndex)))
+                                    .font(.system(.body, design: .monospaced))
+                                Spacer()
+                                Image(systemName: "crown.fill")
+                                    .foregroundColor(.yellow)
+                                    .font(.caption)
+                            }
+                        } else if controls.fastestCoreRaw != 0 {
+                            Text(String(format: "0x%08X", controls.fastestCoreRaw))
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                } header: {
+                    Text(l10n.amdPower.boostTelemetryHeader)
+                } footer: {
+                    Text(l10n.amdPower.boostTelemetryFooter)
+                }
+
                 if controls.cppcSupported {
                     Section {
                         Toggle(l10n.amdPower.autoEppToggle, isOn: Binding(

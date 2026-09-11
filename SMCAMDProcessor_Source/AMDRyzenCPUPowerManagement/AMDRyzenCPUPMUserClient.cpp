@@ -1725,6 +1725,25 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
         
+        // Get boost telemetry snapshot (S5): [0] = max boost frequency in MHz
+        // (RSMU 0x6E), [1] = raw GetFastestCoreOfSocket word (RSMU 0x59 —
+        // decoded app-side in AMDSmuBoost where it is unit-testable),
+        // [2] = 1 once the timer has populated the caches this boot.
+        // Read-only: served from the command-gate timer cache, never a live
+        // SMU read on a user thread (F-05 lesson).
+        case 43: {
+            if(!provider)
+                return kIOReturnNoDevice;
+            
+            arguments->scalarOutputCount = 3;
+            arguments->scalarOutput[0] = provider->smuMaxBoostFreqMHz;
+            arguments->scalarOutput[1] = provider->smuFastestCoreRaw;
+            arguments->scalarOutput[2] = (provider->smuMaxBoostFreqMHz != 0 ||
+                                          provider->smuFastestCoreRaw != 0) ? 1 : 0;
+            
+            break;
+        }
+        
         // Set PBO limits: PPT mW, TDC mA, EDC mA. Privilege required.
         case 41: {
             if(!provider)

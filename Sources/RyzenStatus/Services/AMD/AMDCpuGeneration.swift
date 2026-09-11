@@ -118,3 +118,31 @@ enum AMDPBOLimits {
         baseValue * 1000
     }
 }
+
+// MARK: - SMU Boost Telemetry (S5, selector 43 — Vermeer read commands)
+
+enum AMDSmuBoost {
+    /// Vermeer RSMU read command IDs polled by the kext's command-gate timer
+    /// (ryzen_smu `rsmu_commands.md`, same mailbox the kext already drives).
+    static let getMaxFrequencyCmd: UInt32 = 0x6E
+    static let getFastestCoreOfSocketCmd: UInt32 = 0x59
+
+    /// Decode of the raw `GetFastestCoreOfSocket` (0x59) response word.
+    ///
+    /// The public record documents the response as the self-referential
+    /// `Res0:(16 * BYTE2(Res0)) | (Res0 + 4 * BYTE1(Res0)) & 0xF` — an
+    /// ambiguous expression, so this decode is kept in one tested place.
+    /// Under the literal reading, the core index contributes 16·n to the
+    /// word ⇒ n lives in the high nibble of byte 2 (`raw >> 20 & 0xF`),
+    /// which exactly covers the 0…15 physical-core range of the silicon
+    /// this feature is gated to (Vermeer, 1–16 cores).
+    /// Returns nil for the "never read" placeholder (0) and for any word
+    /// that does not fit the documented window — callers show the raw value
+    /// instead of inventing a wrong core number.
+    static func decodeFastestCore(_ raw: UInt32) -> Int? {
+        guard raw != 0 else { return nil }
+        let index = Int((raw >> 20) & 0xF)
+        guard raw & 0x000F_0000 == 0, raw & 0xFF00_0000 == 0, index != 0 else { return nil }
+        return index
+    }
+}

@@ -101,6 +101,12 @@ enum AMDKextSelector: UInt32 {
     case pboLimitsWrite = 41
     /// Write PBO scalar (S4, privileged): [0] = scalar in %×100 (100…1000).
     case pboScalarWrite = 42
+    /// Read-only SMU boost telemetry snapshot (S5): [0] = max boost frequency
+    /// in MHz (Vermeer RSMU `GetMaxFrequency` 0x6E), [1] = raw
+    /// `GetFastestCoreOfSocket` (0x59) response word — decoded app-side in
+    /// `AMDSmuBoost` where it is unit-testable, [2] = 1 once the kext timer
+    /// has populated the caches this boot. Unsupported on pre-1.25 kexts.
+    case boostTelemetry = 43
 
     // MARK: — Fan Control (via SuperIO)
 

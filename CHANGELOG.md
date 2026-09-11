@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.25.0] — 2026-09-11
+
+### AMD Kernel: SMU boost telemetry (wave S5)
+- **Max boost frequency & fastest core, straight from the SMU**: the kext's command-gate timer now polls the Vermeer RSMU read commands documented in the public record — `GetMaxFrequency` (0x6E) and `GetFastestCoreOfSocket` (0x59) — through the same mailbox the kext already drives. Results are cached kernel-side; user-space reads never touch the SMU (same off-the-hot-path policy as the 1.20.0 GPU fix).
+- **New read-only selector 43**: returns the cached max boost frequency in MHz, the raw 0x59 response word, and a "cache valid" flag. The 0x59 word is decoded app-side in the single, unit-tested `AMDSmuBoost.decodeFastestCore` helper — the public record's decode expression is ambiguous, so the kext caches the raw word and refuses to guess.
+- **Settings UI**: a new "Boost Telemetry (SMU)" section in AMD Power Settings shows the silicon's own max boost clock and which physical core is currently hitting it, refreshed every 3 s with the rest of the control sync. A fail-quiet placeholder row shows while the kext cache is cold (first poll after boot); undecodable raw words render as hex instead of a wrong core number.
+- **13-locale sweep** for the new section, with format-specifier invariant tests; the strict-concurrency gate stays at 0 diagnostics.
+- Kexts rebuilt at **3.34.3**; `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` refreshed and its SHA-256 repinned in `Tools/make-dmg.sh`.
+
 ## [1.24.0] — 2026-09-11
 
 ### AMD Kernel: Precision Boost Overdrive Limits (wave S4)

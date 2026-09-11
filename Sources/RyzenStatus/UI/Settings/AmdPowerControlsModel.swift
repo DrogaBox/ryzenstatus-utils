@@ -32,6 +32,14 @@ final class AmdPowerControlsModel: ObservableObject {
     @Published private(set) var packageTempHistory: [Double] = []
     private static let historyCapacity = 60
 
+    // S5: SMU boost telemetry (selector 43) — refreshed inside syncFromKext's
+    // detached kext batch. `fastestCoreIndex` is nil while the kext cache is
+    // cold or the raw 0x59 word does not decode; `fastestCoreRaw` then carries
+    // the undecoded word for display.
+    @Published private(set) var maxBoostFreqMHz: UInt32 = 0
+    @Published private(set) var fastestCoreIndex: Int?
+    @Published private(set) var fastestCoreRaw: UInt32 = 0
+
     /// Guard flag: true when updating published properties from kext reads
     /// to avoid trigger loops from `.onChange` handlers.
     /// Writes arriving while a sync is in flight are intentionally dropped;
@@ -135,7 +143,7 @@ final class AmdPowerControlsModel: ObservableObject {
 
         recordTelemetrySample()
 
-        let (kernelAnswered, cpb, cppcState, ppm, lpm) = await Task.detached(priority: .userInitiated) {
+        let (kernelAnswered, cpb, cppcState, ppm, lpm, boost) = await Task.detached(priority: .userInitiated) {
             // AUDIT F-27: thread-safe connection check to avoid data races
             let kernelAnswered = ProcessorModel.shared.isConnected
             let cpb = ProcessorModel.shared.getCPB()
@@ -144,7 +152,10 @@ final class AmdPowerControlsModel: ObservableObject {
                 : (active: false, epp: 0)
             let ppm = kernelAnswered ? ProcessorModel.shared.getPPM() : false
             let lpm = kernelAnswered ? ProcessorModel.shared.getLPM() : false
-            return (kernelAnswered, cpb, cppcState, ppm, lpm)
+            // S5: cached boost telemetry — the kext call never touches the SMU,
+            // it only reads the timer-populated cache.
+            let boost = kernelAnswered ? ProcessorModel.shared.getBoostTelemetry() : nil
+            return (kernelAnswered, cpb, cppcState, ppm, lpm, boost)
         }.value
         let profile = await ProcessorModel.shared.cpuProfile
 
@@ -162,6 +173,18 @@ final class AmdPowerControlsModel: ObservableObject {
         if cpb.count > 1 {
             cpbSupported = cpb[0]
             if corePerformanceBoost != cpb[1] { corePerformanceBoost = cpb[1] }
+        }
+
+        // S5: publish the boost telemetry snapshot (or clear it when the kext
+        // is pre-1.25 / the cache has not been populated yet).
+        if let boost {
+            maxBoostFreqMHz = boost.maxBoostFreqMHz
+            fastestCoreRaw = boost.fastestCoreRaw
+            fastestCoreIndex = AMDSmuBoost.decodeFastestCore(boost.fastestCoreRaw)
+        } else {
+            maxBoostFreqMHz = 0
+            fastestCoreRaw = 0
+            fastestCoreIndex = nil
         }
 
         if profile.legacyPstateAllowed {

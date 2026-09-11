@@ -7456,6 +7456,24 @@ struct MetricsTests {
                    "Language \(lang.rawValue) pboActiveLimitsFormat must keep exactly 3 %@ specifiers: \(a.pboActiveLimitsFormat)")
             expect(formatSpecifiers(in: a.pboActiveScalarFormat) == ["@"],
                    "Language \(lang.rawValue) pboActiveScalarFormat must keep exactly 1 %@ specifier: \(a.pboActiveScalarFormat)")
+
+            // MARK: S5 Boost Telemetry Strings Invariants (one %u each)
+            let boostKeys: [(String, String)] = [
+                ("boostTelemetryHeader", a.boostTelemetryHeader),
+                ("boostTelemetryFooter", a.boostTelemetryFooter),
+                ("boostMaxFreqFormat", a.boostMaxFreqFormat),
+                ("boostFastestCoreFormat", a.boostFastestCoreFormat),
+                ("boostTelemetryUnavailable", a.boostTelemetryUnavailable)
+            ]
+            for (key, value) in boostKeys {
+                expect(!value.isEmpty, "Language \(lang.rawValue) amdPower.\(key) must not be empty")
+            }
+            expect(formatSpecifiers(in: a.boostMaxFreqFormat) == ["u"],
+                   "Language \(lang.rawValue) boostMaxFreqFormat must keep exactly 1 %u specifier: \(a.boostMaxFreqFormat)")
+            expect(formatSpecifiers(in: a.boostFastestCoreFormat) == ["u"],
+                   "Language \(lang.rawValue) boostFastestCoreFormat must keep exactly 1 %u specifier: \(a.boostFastestCoreFormat)")
+            expect(!a.boostTelemetryUnavailable.contains("%"),
+                   "Language \(lang.rawValue) boostTelemetryUnavailable must not carry format specifiers")
         }
 
         // MARK: S4 AMDPBOLimits Helpers (gate, clamps, formatters)
@@ -7486,6 +7504,34 @@ struct MetricsTests {
         expectEqual(AMDPBOLimits.formatScalar(1000), "10.0x", "formatScalar 10x")
         expectEqual(AMDPBOLimits.formatScalar(105), "1.0x", "formatScalar truncates below tenths")
         expect(AMDPBOLimits.milliFromBase(142) == 142000, "milliFromBase converts W → mW")
+
+        // MARK: S5 AMDSmuBoost Helpers (0x59 decode, command IDs)
+
+        // Command IDs must match the Vermeer RSMU read commands the kext polls.
+        expect(AMDSmuBoost.getMaxFrequencyCmd == 0x6E, "GetMaxFrequency is RSMU 0x6E")
+        expect(AMDSmuBoost.getFastestCoreOfSocketCmd == 0x59, "GetFastestCoreOfSocket is RSMU 0x59")
+
+        // Decode: the public record encodes the core index as 16·n inside the
+        // response word ⇒ n sits in the high nibble of byte 2 (raw >> 20 & 0xF).
+        // 0x0050_0000 = core 5 (n=5 → 16·n = 0x50 in byte 2).
+        expect(AMDSmuBoost.decodeFastestCore(0x0050_0000) == 5,
+               "decodeFastestCore recovers core 5 from 0x00500000")
+        expect(AMDSmuBoost.decodeFastestCore(0x0080_0000) == 8,
+               "decodeFastestCore recovers core 8 from 0x00800000")
+        expect(AMDSmuBoost.decodeFastestCore(0x00F0_0000) == 15,
+               "decodeFastestCore accepts the top of the 0…15 window")
+        // The "never read" placeholder must not decode to a bogus core.
+        expect(AMDSmuBoost.decodeFastestCore(0) == nil,
+               "decodeFastestCore rejects the 0 placeholder")
+        // Residue outside the documented window (bytes 0/1 set, byte 3 set)
+        // means the encoding is not the one described — refuse to guess.
+        expect(AMDSmuBoost.decodeFastestCore(0x0150_00AB) == nil,
+               "decodeFastestCore rejects words with byte-0/1 residue")
+        expect(AMDSmuBoost.decodeFastestCore(0x8150_0000) == nil,
+               "decodeFastestCore rejects words with byte-3 residue")
+        // n=0 contributes nothing to the word: a bare core 0 is
+        // indistinguishable from the "never read" placeholder, which the
+        // 0 case above already covers.
 
         // MARK: Result
 

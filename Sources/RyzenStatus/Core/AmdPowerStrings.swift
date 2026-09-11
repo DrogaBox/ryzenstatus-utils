@@ -108,6 +108,12 @@ struct AMDPowerFeatureStrings {
     // Read-back rows: three formatted PPT/TDC/EDC values, then the scalar.
     let pboActiveLimitsFormat: String
     let pboActiveScalarFormat: String
+    // S5: SMU boost telemetry — max boost clock and which physical core hits it.
+    let boostTelemetryHeader: String
+    let boostTelemetryFooter: String
+    let boostMaxFreqFormat: String
+    let boostFastestCoreFormat: String
+    let boostTelemetryUnavailable: String
     let cpbToggle: String
     let ppmToggle: String
     let lpmToggle: String
@@ -270,6 +276,11 @@ extension AMDPowerFeatureStrings {
         pboUnitScalar: "x",
         pboActiveLimitsFormat: "Active limits: %@ / %@ / %@",
         pboActiveScalarFormat: "Active scalar: %@",
+        boostTelemetryHeader: "Boost Telemetry (SMU)",
+        boostTelemetryFooter: "Read directly from the SMU by the kext: the maximum boost frequency the silicon reports and the physical core currently reaching it.",
+        boostMaxFreqFormat: "Max boost frequency: %u MHz",
+        boostFastestCoreFormat: "Fastest core: #%u",
+        boostTelemetryUnavailable: "Waiting for the first SMU read this boot…",  // S5
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -400,6 +411,11 @@ extension AMDPowerFeatureStrings {
         pboUnitScalar: "x",
         pboActiveLimitsFormat: "Límites activos: %@ / %@ / %@",
         pboActiveScalarFormat: "Escalar activo: %@",
+        boostTelemetryHeader: "Telemetría de boost (SMU)",
+        boostTelemetryFooter: "Leída directamente de la SMU por el kext: la frecuencia máxima de boost que reporta el silicio y el núcleo físico que la alcanza actualmente.",
+        boostMaxFreqFormat: "Frecuencia máx. de boost: %u MHz",
+        boostFastestCoreFormat: "Núcleo más rápido: n.º %u",
+        boostTelemetryUnavailable: "Esperando la primera lectura de la SMU en este arranque…",  // S5
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -530,6 +546,11 @@ extension AMDPowerFeatureStrings {
         pboUnitScalar: "x",
         pboActiveLimitsFormat: "Limites ativos: %@ / %@ / %@",
         pboActiveScalarFormat: "Escalar ativo: %@",
+        boostTelemetryHeader: "Telemetria de boost (SMU)",
+        boostTelemetryFooter: "Lida diretamente da SMU pelo kext: a frequência máxima de boost que o silício reporta e o núcleo físico que a atinge atualmente.",
+        boostMaxFreqFormat: "Frequência máx. de boost: %u MHz",
+        boostFastestCoreFormat: "Núcleo mais rápido: n.º %u",
+        boostTelemetryUnavailable: "Aguardando a primeira leitura da SMU nesta inicialização…",  // S5
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -660,6 +681,11 @@ extension AMDPowerFeatureStrings {
         pboUnitScalar: "x",
         pboActiveLimitsFormat: "Aktive Limits: %@ / %@ / %@",
         pboActiveScalarFormat: "Aktive Skalierung: %@",
+        boostTelemetryHeader: "Boost-Telemetrie (SMU)",
+        boostTelemetryFooter: "Vom Kext direkt aus der SMU gelesen: die maximale Boost-Frequenz, die die Silizium-Einheit meldet, und der physische Kern, der sie aktuell erreicht.",
+        boostMaxFreqFormat: "Max. Boost-Frequenz: %u MHz",
+        boostFastestCoreFormat: "Schnellster Kern: Nr. %u",
+        boostTelemetryUnavailable: "Warte auf die erste SMU-Lesung in dieser Sitzung…",  // S5
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -790,6 +816,11 @@ extension AMDPowerFeatureStrings {
         pboUnitScalar: "x",
         pboActiveLimitsFormat: "Limites actives : %@ / %@ / %@",
         pboActiveScalarFormat: "Facteur actif : %@",
+        boostTelemetryHeader: "Télémétrie de boost (SMU)",
+        boostTelemetryFooter: "Lue directement dans la SMU par le kext : la fréquence de boost maximale rapportée par le silicium et le cœur physique qui l'atteint actuellement.",
+        boostMaxFreqFormat: "Fréquence de boost max : %u MHz",
+        boostFastestCoreFormat: "Cœur le plus rapide : n° %u",
+        boostTelemetryUnavailable: "En attente de la première lecture SMU de cette session…",  // S5
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -920,6 +951,11 @@ extension AMDPowerFeatureStrings {
         pboUnitScalar: "x",
         pboActiveLimitsFormat: "Limiti attivi: %@ / %@ / %@",
         pboActiveScalarFormat: "Scalare attivo: %@",
+        boostTelemetryHeader: "Telemetria di boost (SMU)",
+        boostTelemetryFooter: "Letta direttamente dalla SMU dal kext: la frequenza di boost massima riportata dal silicio e il core fisico che la raggiunge attualmente.",
+        boostMaxFreqFormat: "Frequenza di boost massima: %u MHz",
+        boostFastestCoreFormat: "Core più veloce: n. %u",
+        boostTelemetryUnavailable: "In attesa della prima lettura SMU di questa sessione…",  // S5
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -1050,6 +1086,11 @@ extension AMDPowerFeatureStrings {
         pboUnitScalar: "x",
         pboActiveLimitsFormat: "Активные лимиты: %@ / %@ / %@",
         pboActiveScalarFormat: "Активный скаляр: %@",
+        boostTelemetryHeader: "Телеметрия разгона (SMU)",
+        boostTelemetryFooter: "Кекст считывает напрямую из SMU: максимальную частоту разгона, которую сообщает кремний, и физическое ядро, которое её достигает в данный момент.",
+        boostMaxFreqFormat: "Макс. частота разгона: %u МГц",
+        boostFastestCoreFormat: "Самое быстрое ядро: № %u",
+        boostTelemetryUnavailable: "Ожидание первого считывания SMU в этом сеансе…",  // S5
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -1180,6 +1221,11 @@ extension AMDPowerFeatureStrings {
         pboUnitScalar: "x",
         pboActiveLimitsFormat: "Etkin sınırlar: %@ / %@ / %@",
         pboActiveScalarFormat: "Etkin ölçekleyici: %@",
+        boostTelemetryHeader: "Boost telemetrisi (SMU)",
+        boostTelemetryFooter: "Kext tarafından doğrudan SMU'dan okunur: silikonun raporladığı maksimum boost frekansı ve şu anda buna ulaşan fiziksel çekirdek.",
+        boostMaxFreqFormat: "Maks. boost frekansı: %u MHz",
+        boostFastestCoreFormat: "En hızlı çekirdek: #%u",
+        boostTelemetryUnavailable: "Bu oturumda ilk SMU okuma bekleniyor…",  // S5
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -1310,6 +1356,11 @@ extension AMDPowerFeatureStrings {
         pboUnitScalar: "x",
         pboActiveLimitsFormat: "適用済みの制限値: %@ / %@ / %@",
         pboActiveScalarFormat: "適用済みのスカラー: %@",
+        boostTelemetryHeader: "ブーストテレメトリ（SMU）",
+        boostTelemetryFooter: "kext が SMU から直接読み取ります。シリコンが報告する最大ブースト周波数と、現在それに達している物理コア。",
+        boostMaxFreqFormat: "最大ブースト周波数: %u MHz",
+        boostFastestCoreFormat: "最速コア: #%u",
+        boostTelemetryUnavailable: "このセッションの最初の SMU 読み取りを待っています…",  // S5
         cpbToggle: "Core Performance Boost（CPB）",
         ppmToggle: "Processor Power Manager（PPM）",
         lpmToggle: "Low Power Mode（LPM）",
@@ -1440,6 +1491,11 @@ extension AMDPowerFeatureStrings {
         pboUnitScalar: "x",
         pboActiveLimitsFormat: "적용된 제한: %@ / %@ / %@",
         pboActiveScalarFormat: "적용된 스칼라: %@",
+        boostTelemetryHeader: "부스트 텔레메트리(SMU)",
+        boostTelemetryFooter: "커널 확장이 SMU에서 직접 읽습니다: 실리콘이 보고하는 최대 부스트 클럭과 현재 그에 도달한 물리 코어.",
+        boostMaxFreqFormat: "최대 부스트 클럭: %u MHz",
+        boostFastestCoreFormat: "가장 빠른 코어: #%u",
+        boostTelemetryUnavailable: "이 세션의 첫 SMU 읽기를 기다리는 중…",  // S5
         cpbToggle: "Core Performance Boost (CPB)",
         ppmToggle: "Processor Power Manager (PPM)",
         lpmToggle: "Low Power Mode (LPM)",
@@ -1570,6 +1626,11 @@ extension AMDPowerFeatureStrings {
         pboUnitScalar: "x",
         pboActiveLimitsFormat: "已应用的限制：%@ / %@ / %@",
         pboActiveScalarFormat: "已应用的标量：%@",
+        boostTelemetryHeader: "加速遥测（SMU）",
+        boostTelemetryFooter: "由内核扩展直接从 SMU 读取：芯片报告的最大加速频率，以及当前达到该频率的物理核心。",
+        boostMaxFreqFormat: "最大加速频率：%u MHz",
+        boostFastestCoreFormat: "最快核心：#%u",
+        boostTelemetryUnavailable: "等待本次会话的首次 SMU 读取…",  // S5
         cpbToggle: "Core Performance Boost（CPB）",
         ppmToggle: "Processor Power Manager（PPM）",
         lpmToggle: "Low Power Mode（LPM）",
@@ -1700,6 +1761,11 @@ extension AMDPowerFeatureStrings {
         pboUnitScalar: "x",
         pboActiveLimitsFormat: "已套用的限制：%@ / %@ / %@",
         pboActiveScalarFormat: "已套用的純量：%@",
+        boostTelemetryHeader: "加速遙測（SMU）",
+        boostTelemetryFooter: "由核心擴充直接從 SMU 讀取：晶片回報的最大加速頻率，以及目前達到該頻率的實體核心。",
+        boostMaxFreqFormat: "最大加速頻率：%u MHz",
+        boostFastestCoreFormat: "最快核心：#%u",
+        boostTelemetryUnavailable: "等待本次工作階段的首次 SMU 讀取…",  // S5
         cpbToggle: "Core Performance Boost（CPB）",
         ppmToggle: "Processor Power Manager（PPM）",
         lpmToggle: "Low Power Mode（LPM）",

@@ -280,6 +280,14 @@ public:
     // int setPBOLimit(uint32_t cmd, uint32_t value): shared SMU write path for
     // PPT/TDC/EDC/scalar; negative return maps like setCurveOptimizer.
     int setPBOLimit(uint32_t smuCmd, uint32_t arg, uint32_t &cacheSlot);
+
+    // S5: one RSMU read command polled from the main timer (no arg in,
+    // result arrives in the mailbox arg register after SMU_RSP_OK). Returns
+    // the raw result word, or 0 on failure / unsupported silicon.
+    uint32_t pollSmuRead(uint32_t smuCmd);
+    // S5: refresh both boost-telemetry caches; throttled to one SMU round trip
+    // per kSMU_BOOST_POLL_MIN_INTERVAL_MS (the main timer cadence is shorter).
+    void pollBoostTelemetry();
     
     //Cache size in KB
     uint32_t cpuCacheL1_perCore;
@@ -438,7 +446,10 @@ public:
     
     ISSuperIOSMCFamily *superIO{nullptr};
     IOLock *superIOLock{nullptr};   // Protects multi-step SuperIO I/O port sequences from concurrent UserClient calls
-    IOLock *smuCmdLock{nullptr};    // Serializes full SMU command sequences (audit R-8)
+    IOLock *smuCmdLock{nullptr};    // Serializes full SMU command sequences (audit R-8).
+                                    // Lock order: rendezvousLock → smuCmdLock (S5 timer boost-telemetry
+                                    // poll) and controlLock → smuCmdLock (CO/PBO writes). smuCmdLock is
+                                    // always a leaf — never take another lock while holding it.
     IOLock *rendezvousLock{nullptr}; // Serializes all mp_rendezvous calls (timer + UserClient control ops)
     IOLock *controlLock{nullptr};   // Serializes provider state writes (PStateCtl, CPPC) from concurrent UserClients (audit K-2)
     
@@ -468,6 +479,15 @@ public:
     IOReturn getGPUTemperature(uint32_t index, UInt16 *data);
     IOReturn getGPUPower(uint32_t index, float *data);
     bool gpuSupportsPower(uint32_t index);
+
+    // S5: cached boost telemetry (Vermeer RSMU read commands 0x6E/0x59).
+    // Refreshed from the main command-gate timer; 0 = unknown / never read
+    // this boot. Raw SMU response words are cached byte-identically (no
+    // kernel-side decode) so the app owns the decode — keep it that way and
+    // decode in AMDSmuBoost on the app side, where it is unit-testable.
+    uint32_t smuMaxBoostFreqMHz {0};
+    uint32_t smuFastestCoreRaw {0};
+    uint64_t smuBoostTelemetryLastPollMs {0};
 
     // S3-B: read-only view for the UserClient capability report (selector 35).
     // Exposes only the fields the CO capability needs; keeps the rest of the
@@ -515,6 +535,7 @@ private:
     uint32_t smnRead32(uint32_t addr);
     void smnWrite32(uint32_t addr, uint32_t val);
     int smuSendCmd(uint32_t cmd, uint32_t arg);
+    int smuSendCmd(uint32_t cmd, uint32_t arg, uint32_t &outArg0);
 
     struct SMUMailbox {
         uint32_t msgReg;
@@ -524,6 +545,10 @@ private:
         bool     supported;
     };
     SMUMailbox smuMailbox{};
+
+    // S5: SMU read commands ride the main timer's command gate. The throttle
+    // keeps the added SMU traffic to ~2 round trips per second worst case.
+    static constexpr uint64_t kSMU_BOOST_POLL_MIN_INTERVAL_MS = 500;
     
     void initWorkLoop();
     void stopWorkLoop();
