@@ -816,6 +816,28 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
         
+        // S3-B: Curve Optimizer capability report (read-only, no privilege).
+        // Scalar output: [0] = 1 when the kext will accept CO writes (family
+        //                 matches the Vermeer-only payload AND the SMU mailbox
+        //                 reports itself supported),
+        //                 0 when writes are fail-closed (other generations).
+        // [1] = active SMU command ID for CO (0x3D on Vermeer, else 0),
+        // [2] = minimum safe offset (-30),
+        // [3] = maximum safe offset (+30).
+        // Single source of truth: the app renders its CO UI from this report
+        // instead of re-implementing the family gate, so a future Zen 4/5 CO
+        // payload only flips this switch in the kext — no app update needed.
+        case 35: {
+            arguments->scalarOutputCount = 4;
+            arguments->scalarOutput[0] = (provider->smuMailboxSupported() &&
+                                          provider->smuCurveOptimizerCmd() != 0) ? 1 : 0;
+            arguments->scalarOutput[1] = provider->smuCurveOptimizerCmd();
+            arguments->scalarOutput[2] = -30;
+            arguments->scalarOutput[3] = 30;
+            
+            break;
+        }
+        
         // Get CPPC Active Mode status and current EPP value
         case 23: {
             arguments->scalarOutputCount = 2;

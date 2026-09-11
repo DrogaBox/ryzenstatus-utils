@@ -15,15 +15,55 @@ actor ProcessorModel {
 
 
     nonisolated let iokitLock = NSLock()
-    nonisolated(unsafe) var connect: io_connect_t
-    // Written only from init() and closeDriver(), both of which run on the main
-    // thread and never overlap (applicationWillTerminate → closeDriver runs after
-    // init has long returned). Safe under that single-thread contract.
-    nonisolated(unsafe) private var kextWatchdogTask: Task<Void, Never>?
+    // Wave S3-A: locked connection box. The raw IOKit handle is guarded by its
+    // own NSLock — every kext call path is nonisolated, so actor isolation can
+    // never cover this handle. The old `nonisolated(unsafe)` + external
+    // iokitLock pairing worked but kept an unsafe alias in scope.
+    final class ConnectBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _handle: io_connect_t = 0
+        var handle: io_connect_t {
+            lock.lock(); defer { lock.unlock() }; return _handle
+        }
+        /// Atomic swap: closes the previous handle if any, installs the new one.
+        func install(_ new: io_connect_t) {
+            lock.lock()
+            let old = _handle
+            _handle = new
+            lock.unlock()
+            if old != 0 { IOServiceClose(old) }  // defensive; normally 0 here
+        }
+        /// Atomic close-and-zero; returns whether a handle was open.
+        @discardableResult
+        func closeIfOpen() -> Bool {
+            lock.lock()
+            let was = _handle != 0
+            let old = _handle
+            _handle = 0
+            lock.unlock()
+            if old != 0 { IOServiceClose(old) }
+            return was
+        }
+    }
+    nonisolated let connectBox = ConnectBox()
+    /// Wave S3-A: locked Task box for the watchdog. Writers: init (main thread),
+    /// closeDriver (main thread, after watchdog start is long past) — but the
+    /// compiler cannot prove it, so the lock documents and enforces the contract.
+    final class WatchdogBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _task: Task<Void, Never>?
+        var task: Task<Void, Never>? {
+            lock.lock(); defer { lock.unlock() }; return _task
+        }
+        func set(_ t: Task<Void, Never>?) {
+            lock.lock(); _task = t; lock.unlock()
+        }
+    }
+    nonisolated let watchdogBox = WatchdogBox()
 
     // AUDIT F-24: thread-safe connection check to avoid data races with watchdog/closeDriver
     nonisolated var isConnected: Bool {
-        iokitLock.withLock { connect != 0 }
+        connectBox.handle != 0
     }
 
     nonisolated func safeIOConnectCallMethod(
@@ -37,10 +77,9 @@ actor ProcessorModel {
         _ structureOutput: UnsafeMutableRawPointer!,
         _ structureOutputSize: UnsafeMutablePointer<Int>!
     ) -> kern_return_t {
-        iokitLock.lock()
-        defer { iokitLock.unlock() }
-        if connect == 0 { return kIOReturnNoDevice }
-        return IOConnectCallMethod(connect, selector, scalarInput, scalarInputCount, structureInput, structureInputSize, scalarOutput, scalarOutputCount, structureOutput, structureOutputSize)
+        let handle = connectBox.handle
+        if handle == 0 { return kIOReturnNoDevice }
+        return IOConnectCallMethod(handle, selector, scalarInput, scalarInputCount, structureInput, structureInputSize, scalarOutput, scalarOutputCount, structureOutput, structureOutputSize)
     }
 
 
@@ -62,6 +101,57 @@ actor ProcessorModel {
     }
     nonisolated let terminationState = TerminationState()
     nonisolated var isTerminating: Bool { terminationState.isTerminating }
+
+    /// Wave S3-A: locked snapshot box for the About-panel identity fields
+    /// (kext version + baseboard strings). Replaces 4 `nonisolated(unsafe)`
+    /// vars: the actor writes at connect/reconnect and SwiftUI reads
+    /// synchronously from the main thread — same class-wrapper pattern as
+    /// `PowerCache`/`TerminationState`.
+    final class IdentityCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _kextVersion = ""
+        private var _boardValid = false
+        private var _boardName = "Unknown"
+        private var _boardVendor = "Unknown"
+
+        var kextVersion: String {
+            lock.lock(); defer { lock.unlock() }; return _kextVersion
+        }
+        var boardValid: Bool {
+            lock.lock(); defer { lock.unlock() }; return _boardValid
+        }
+        var boardName: String {
+            lock.lock(); defer { lock.unlock() }; return _boardName
+        }
+        var boardVendor: String {
+            lock.lock(); defer { lock.unlock() }; return _boardVendor
+        }
+
+        func set(version: String) {
+            lock.lock(); _kextVersion = version; lock.unlock()
+        }
+        func setBaseboard(valid: Bool, vendor: String, name: String) {
+            lock.lock()
+            _boardValid = valid
+            _boardVendor = vendor
+            _boardName = name
+            lock.unlock()
+        }
+        func reset() {
+            lock.lock()
+            _kextVersion = ""
+            _boardValid = false
+            _boardName = "Unknown"
+            _boardVendor = "Unknown"
+            lock.unlock()
+        }
+    }
+    nonisolated let identityCache = IdentityCache()
+
+    /// Wave S3-A: locked snapshot box for the About-panel identity fields
+    /// (kextVersion, baseboard). Replaces 4 `nonisolated(unsafe)` vars: the
+    /// actor writes once at connect/reconnect and SwiftUI reads synchronously
+    /// from the main thread — same class-wrapper pattern as PowerCache.
 
     private var cachedMetric : [Float] = []
     private var numberOfCores : Int = 0
@@ -203,11 +293,7 @@ actor ProcessorModel {
     private var cpuListedAsSupported : Bool = false
 
     var systemConfig : [String : String] = [:]
-    nonisolated(unsafe) var kextVersion : String = ""
     var cpuidBasic : [UInt64] = []
-    nonisolated(unsafe) var boardValid = false
-    nonisolated(unsafe) var boardName : String = "Unknown"
-    nonisolated(unsafe) var boardVendor : String = "Unknown"
     private var lastLoadIndexTime: TimeInterval = 0
 
     var cpuFamily: Int {
@@ -319,7 +405,7 @@ actor ProcessorModel {
                 conn = c
             }
         }
-        self.connect = conn
+        connectBox.install(conn)
 
         // Deferred actor-isolated initialization: the IOKit connection is established
         // synchronously, but all further setup (version check, CPUID, board info,
@@ -328,21 +414,13 @@ actor ProcessorModel {
         // a nonisolated init() context.
         Task { await self._finishInit() }
         
-        self.kextWatchdogTask = Task.detached(priority: .background) { [weak self] in
+        self.watchdogBox.set(Task.detached(priority: .background) { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 guard let self = self else { break }
                 let serviceObject = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AMDRyzenCPUPowerManagement"))
                 if serviceObject == 0 {
-                    let wasConnected = self.iokitLock.withLock {
-                        let was = (self.connect != 0)
-                        if was {
-                            IOServiceClose(self.connect)
-                            self.connect = 0
-                        }
-                        return was
-                    }
-                    
+                    let wasConnected = self.connectBox.closeIfOpen()
                     if wasConnected {
                         self.terminationState.isTerminating = true
                         NSLog("ProcessorModel: AMDRyzenCPUPowerManagement was unloaded!")
@@ -365,7 +443,7 @@ actor ProcessorModel {
                     }
                 }
             }
-        }
+        })
     }
 
     private(set) var isKextAvailable: Bool = false
@@ -384,11 +462,8 @@ actor ProcessorModel {
             NSLog("ProcessorModel: reconnect IOServiceOpen failed status=0x%08x", status)
             return false
         }
-        return iokitLock.withLock {
-            if connect != 0 { IOServiceClose(connect) }  // defensive; normally 0 here
-            connect = c
-            return true
-        }
+        connectBox.install(c)
+        return true
     }
 
     private func _finishInit() async {
@@ -415,13 +490,15 @@ actor ProcessorModel {
                                                  &outputStr, &outputStrCount)
         guard versionResult == KERN_SUCCESS, outputStrCount > 0 else {
             NSLog("ProcessorModel: failed to read kext version, kr=0x%08x", versionResult)
-            kextVersion = ""
+            identityCache.set(version: "")
             return
         }
-        kextVersion = String(cString: Array(outputStr[0...min(outputStrCount - 1, outputStr.count - 1)]))
+        let resolvedVersion = String(cString: Array(outputStr[0...min(outputStrCount - 1, outputStr.count - 1)]))
+        identityCache.set(version: resolvedVersion)
 
         let compatVers = ["1.0.0"]
 
+        let kextVersion = identityCache.kextVersion
         var isCompatible = compatVers.contains(kextVersion)
         if !isCompatible {
             if kextVersion.compare("1.0.0", options: .numeric) != .orderedAscending {
@@ -462,15 +539,10 @@ actor ProcessorModel {
 
     nonisolated func closeDriver() {
         // AUDIT F-24: cancel watchdog task to prevent background poll leak on teardown
-        kextWatchdogTask?.cancel()
-        kextWatchdogTask = nil
+        watchdogBox.task?.cancel()
+        watchdogBox.set(nil)
         terminationState.isTerminating = true
-        iokitLock.withLock {
-            if connect != 0 {
-                IOServiceClose(connect)
-                connect = 0
-            }
-        }
+        connectBox.closeIfOpen()
     }
 
     func alertAndQuit(message : String){
@@ -769,13 +841,15 @@ actor ProcessorModel {
                                       &outputStr, &outputStrCount)
 
         if scalerOut[0] == 1 {
-            boardValid = true
-            boardVendor = String(cString: Array(outputStr[0...64-1]))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .trimmingCharacters(in: .controlCharacters)
-            boardName = String(cString: Array(outputStr[64...128-1]))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .trimmingCharacters(in: .controlCharacters)
+            identityCache.setBaseboard(
+                valid: true,
+                vendor: String(cString: Array(outputStr[0...64-1]))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .trimmingCharacters(in: .controlCharacters),
+                name: String(cString: Array(outputStr[64...128-1]))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .trimmingCharacters(in: .controlCharacters)
+            )
         }
 
     }
@@ -1107,7 +1181,7 @@ actor ProcessorModel {
     }
 
     func loadSystemConfig() {
-        systemConfig["ver"] = kextVersion
+        systemConfig["ver"] = identityCache.kextVersion
         systemConfig["cpu"] = ProcessorModel.sysctlString(key: "machdep.cpu.brand_string")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         systemConfig["os"] = ProcessorModel.sysctlString(key: "kern.osproductversion")
@@ -1120,8 +1194,8 @@ actor ProcessorModel {
             }
         }
 
-        if boardValid {
-            systemConfig["mb"] = "\(boardName) \(boardVendor)"
+        if identityCache.boardValid {
+            systemConfig["mb"] = "\(identityCache.boardName) \(identityCache.boardVendor)"
         }
 
         // GPU info detection optimized and offloaded to avoid blocking the actor
@@ -1299,21 +1373,32 @@ actor ProcessorModel {
     }
 
     /// KEXT_WAVE C-5: last computed favorite-thread set (see
-    /// `refreshFavoriteThreads()`), published nonisolated so the per-core grid
+    /// `refreshFavoriteThreads()`), readable nonisolated so the per-core grid
     /// can badge them without awaiting the actor. Written only from
     /// `_finishInit()` (actor-isolated); UI reads are best-effort snapshots.
-    nonisolated(unsafe) var cachedFavoriteThreads: Set<Int> = []
+    /// Wave S3-A: NSLock box instead of `nonisolated(unsafe)`.
+    final class FavoriteThreadsCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _threads: Set<Int> = []
+        var value: Set<Int> {
+            lock.lock(); defer { lock.unlock() }; return _threads
+        }
+        func set(_ threads: Set<Int>) {
+            lock.lock(); _threads = threads; lock.unlock()
+        }
+    }
+    nonisolated let favoriteThreadsCache = FavoriteThreadsCache()
 
     /// KEXT_WAVE C-5: computes the favorite cores from the CPPC ranking
     /// (selector 21) using the pure, unit-tested `AMDCoreRanking` logic and
     /// caches them for the menu-panel grid.
     func refreshFavoriteThreads(logicalThreadCount: Int) {
         let (supported, scores) = getCPPCScore()
-        cachedFavoriteThreads = AMDCoreRanking.favoriteThreads(
+        favoriteThreadsCache.set(AMDCoreRanking.favoriteThreads(
             supported: supported,
             scores: scores,
             logicalThreadCount: logicalThreadCount
-        )
+        ))
     }
 
     nonisolated func getPackageC6Residency() -> UInt64 {
@@ -1371,6 +1456,23 @@ actor ProcessorModel {
             return nil
         }
         return CPUSensorPacket.parse(output)
+    }
+
+    /// S3-B: read the kext's Curve Optimizer capability report (selector 35).
+    /// Returns nil when the kernel connection is unavailable or the kext is
+    /// pre-1.22 (selector unsupported) — callers then fall back to the
+    /// app-side family/model gate (`AMDCurveOptimizer.supported`).
+    nonisolated func getCurveOptimizerCapability() -> (supported: Bool, commandID: UInt64, minOffset: Int, maxOffset: Int)? {
+        var output: [UInt64] = [0, 0, 0, 0]
+        var outputCount: UInt32 = 4
+        let res = safeIOConnectCallMethod( AMDKextSelector.curveOptimizerCapability.id, nil, 0, nil, 0,
+                                           &output, &outputCount, nil, nil)
+        guard res == KERN_SUCCESS, outputCount >= 4 else { return nil }
+        // The min/max come back through UInt64 scalars; sign-extend the
+        // two's-complement byte the kext wrote.
+        let minOff = Int(Int8(truncatingIfNeeded: output[2]))
+        let maxOff = Int(Int8(truncatingIfNeeded: output[3]))
+        return (output[0] == 1, output[1], minOff, maxOff)
     }
 
     nonisolated func getCStateAddress() -> UInt64 {

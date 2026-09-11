@@ -1184,14 +1184,14 @@ struct AboutSettings: View {
                 .foregroundStyle(.secondary)
             // KEXT_WAVE C-8: baseboard identity (kext selector 16) + kext
             // version, surfaced only when the kext reported valid data.
-            if ProcessorModel.shared.boardValid {
+            if ProcessorModel.shared.identityCache.boardValid {
                 VStack(spacing: 2) {
-                    Text("\(ProcessorModel.shared.boardName) — \(ProcessorModel.shared.boardVendor)")
+                    Text("\(ProcessorModel.shared.identityCache.boardName) — \(ProcessorModel.shared.identityCache.boardVendor)")
                         .font(.caption2.monospaced())
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
-                    if !ProcessorModel.shared.kextVersion.isEmpty {
-                        Text("AMDRyzenCPUPowerManagement \(ProcessorModel.shared.kextVersion)")
+                    if !ProcessorModel.shared.identityCache.kextVersion.isEmpty {
+                        Text("AMDRyzenCPUPowerManagement \(ProcessorModel.shared.identityCache.kextVersion)")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                     }

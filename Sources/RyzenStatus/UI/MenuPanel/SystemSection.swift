@@ -474,7 +474,7 @@ struct SystemSection: View {
                         // Empty residency (kext pre-3.34.2 or no kext) renders no dots.
                         CPUCoreGridView(cores: monitor.snapshot.cores,
                                         c6Residency: C6ResidencyService.shared.coreResidency,
-                                        favoriteThreads: ProcessorModel.shared.cachedFavoriteThreads)
+                                        favoriteThreads: ProcessorModel.shared.favoriteThreadsCache.value)
                             .padding(.top, 4)
                             .padding(.bottom, 6)
                     } else if monitor.snapshot.cpuHistory.count >= 2 {

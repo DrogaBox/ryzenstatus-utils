@@ -446,7 +446,13 @@ public:
     IOReturn getGPUTemperature(uint32_t index, UInt16 *data);
     IOReturn getGPUPower(uint32_t index, float *data);
     bool gpuSupportsPower(uint32_t index);
-    
+
+    // S3-B: read-only view for the UserClient capability report (selector 35).
+    // Exposes only the fields the CO capability needs; keeps the rest of the
+    // mailbox (SMN register layout) private.
+    bool smuMailboxSupported() const { return smuMailbox.supported; }
+    uint32_t smuCurveOptimizerCmd() const { return smuMailbox.curveOptimizerCmd; }
+
 private:
     IOWorkLoop *workLoop;
     IOTimerEventSource *timerEvent_main;

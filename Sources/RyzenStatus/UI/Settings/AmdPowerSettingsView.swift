@@ -974,7 +974,12 @@ struct AmdPowerSettingsView: View {
             let model = await ProcessorModel.shared.cpuModel
             let physicalCores = await ProcessorModel.shared.physicalCoreCount
             let generation = AMDCpuGeneration.classify(family: family, model: model)
-            let supportsCurveOptimizer = AMDCurveOptimizer.supported(family: family, model: model)
+            // S3-B: the kext is the single source of truth for CO support —
+            // its capability report (selector 35) already encodes family gate
+            // + SMU mailbox state. Fall back to the app-side family/model gate
+            // only on pre-1.22 kexts that don't implement the selector.
+            let supportsCurveOptimizer = ProcessorModel.shared.getCurveOptimizerCapability()?.supported
+                ?? AMDCurveOptimizer.supported(family: family, model: model)
             let coreCount = physicalCores > 0 ? min(physicalCores, 32) : 16
             let rawCurveOffsets = supportsCurveOptimizer
                 ? ProcessorModel.shared.getCurveOptimizerOffsets()

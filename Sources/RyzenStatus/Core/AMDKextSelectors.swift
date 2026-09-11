@@ -80,6 +80,10 @@ enum AMDKextSelector: UInt32 {
     /// Read-only C-state policy: [0] = 1 if the kext disables deep C-States
     /// (amdcstate=1 or default), [1] = raw cstateAddrConfig. Added in kext 1.21.0 (S2-T4).
     case cStatePolicy      = 34
+    /// Read-only Curve Optimizer capability report (S3-B): [0] = 1 when the kext
+    /// accepts CO writes for this silicon, [1] = active SMU command ID,
+    /// [2]/[3] = min/max safe offset. Unsupported on pre-1.22 kexts.
+    case curveOptimizerCapability = 35
 
     // MARK: — Fan Control (via SuperIO)
 

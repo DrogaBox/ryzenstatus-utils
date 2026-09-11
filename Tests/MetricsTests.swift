@@ -7007,6 +7007,19 @@ struct MetricsTests {
         expect(!AMDCurveOptimizer.validOffsets([1, 2], coreCount: 3), "short offsets are invalid")
         expect(!AMDCurveOptimizer.validOffsets([], coreCount: 4), "empty offsets are invalid")
 
+        // S3-B: selector-35 capability decode. The kext packs min/max as
+        // two's-complement bytes inside UInt64 scalars — a plain cast would
+        // turn -30 into 4294967266; the Int8 truncating decode must recover it.
+        do {
+            let minRaw: UInt64 = UInt64(UInt8(truncatingIfNeeded: Int8(-30)))
+            let maxRaw: UInt64 = 30
+            expect(Int(Int8(truncatingIfNeeded: minRaw)) == -30,
+                   "selector-35 minOffset sign-extension recovers -30")
+            expect(Int(Int8(truncatingIfNeeded: maxRaw)) == 30,
+                   "selector-35 maxOffset decode preserves +30")
+            expect((minRaw == 0xE2), "selector-35 -30 encodes as byte 0xE2")
+        }
+
         // MARK: Now Playing tests
 
         // 1. LRC Synced & Plain Lyrics Parsing
