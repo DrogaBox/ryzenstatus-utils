@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.23.0] — 2026-09-11
+
+### AMD Kernel & Concurrency (wave S3)
+- **Zero `nonisolated(unsafe)` in the kext bridge**: all six unsafe actor-isolation escape hatches in `ProcessorModel` were replaced with lock-guarded boxes in the project's established `PowerCache` pattern — an atomic `ConnectBox` for the IOKit handle (per-call handle snapshot in every kext call), a `WatchdogBox` for the reload-reconnect task, an `IdentityCache` for the About-panel kext version and baseboard strings, and a `FavoriteThreadsCache` for the menu-panel core-grid badges. The strict-concurrency gate remains at zero diagnostics; behavior is unchanged.
+- **Curve Optimizer capability report (new read-only selector 35)**: the kext — not the app — is now the single source of truth for whether Curve Optimizer writes are accepted, exposing {supported, active SMU command ID, safe offset range}. The settings UI gates on this report first and only falls back to the app-side family/model check on pre-1.22 kexts. Curve Optimizer behavior is unchanged on Vermeer (Zen 3) and stays fail-closed on Zen 4/5; a future kernel-side enablement will no longer require an app update. New tests cover the selector's sign-extension decode of the offset range.
+- Under the hood: this wave also fixed a latent kext-build breakage in the selector-34 access path by promoting the SMU-mailbox capability accessors to public members.
+
 ## [1.22.0] — 2026-09-10
 
 ### AMD Kernel: configurable deep C-States (`amdcstate`)
