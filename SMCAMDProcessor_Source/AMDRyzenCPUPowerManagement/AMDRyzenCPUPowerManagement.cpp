@@ -1717,6 +1717,50 @@ uint32_t AMDRyzenCPUPowerManagement::pollProcessorParameters() {
     return smuProcessorParametersRaw;
 }
 
+// S9d: on-demand mailbox health report (UserClient selector 58). Same three
+// probes as the boot diagnostic, but callable from the app any time — every
+// raw code is returned so the app can render the report without log show.
+// The caller (UserClient) holds rendezvousLock across the whole run, matching
+// the selector-57-op-2 capture convention; smuSendCmd's smuCmdLock stays the
+// inner leaf. Read-only: never writes mailbox-visible state beyond the two
+// probe commands themselves.
+bool AMDRyzenCPUPowerManagement::runMailboxDiagnostics(SMUDiagnosticReport &out)
+{
+    out = {};
+    out.mailboxSupported = smuMailbox.supported ? 1 : 0;
+    out.msgReg = smuMailbox.msgReg;
+    out.argReg = smuMailbox.argReg;
+    out.rspReg = smuMailbox.rspReg;
+    out.curveOptimizerCmd = smuMailbox.curveOptimizerCmd;
+    if (!smuMailbox.supported) return false;
+
+    // Probe 1 — SMN aperture: Tctl raw word through the PCI 0x60/0x64
+    // window. A constant 0xFFFFFFFF here means the aperture itself is
+    // broken (PCI config routing), independent of the mailbox.
+    out.smnTctlRaw = smnRead32(kF17H_M01H_THM_TCON_CUR_TMP);
+
+    // Probe 2 — TestMessage echo: arg 0x42 must come back as 0x43.
+    // Proves the full write-command-poll cycle plus SMU firmware liveness.
+    uint32_t testResult = 0;
+    uint32_t testElapsedUs = 0;
+    out.testRsp = smuSendCmd(0x01, 0x42, testResult, &testElapsedUs);
+    out.testArg0 = testResult;
+    out.testElapsedUs = testElapsedUs;
+
+    // Probe 3 — GetSMUVersion (0x02, Arg0 = 1): the BCD version word.
+    uint32_t verResult = 0;
+    uint32_t verElapsedUs = 0;
+    out.versionRsp = smuSendCmd(0x02, 1, verResult, &verElapsedUs);
+    out.versionRaw = verResult;
+    out.versionElapsedUs = verElapsedUs;
+
+    IOLog("AMDRyzenCPUPowerManagement: [SMU Diagnostic] run: tctl=0x%08X, TestMessage rsp=0x%X arg0=0x%X (%u us), GetSMUVersion rsp=0x%X raw=0x%08X (%u us)\n",
+          out.smnTctlRaw, out.testRsp, out.testArg0, out.testElapsedUs,
+          out.versionRsp, out.versionRaw, out.versionElapsedUs);
+
+    return (out.testRsp == SMU_RSP_OK && out.testArg0 == 0x43);
+}
+
 // S8: enable/disable Vermeer OC mode (RSMU 0x5A EnableOcMode / 0x5B
 // DisableOcMode). Semantics pinned during S8 research: amkillam/ryzen_smu
 // rsmu_commands.md lists the pair, and irusanov/ZenStates-Core (Rsmu.

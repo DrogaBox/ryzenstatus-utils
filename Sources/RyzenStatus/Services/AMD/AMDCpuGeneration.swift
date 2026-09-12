@@ -227,6 +227,110 @@ enum AMDSmuReadback {
     }
 }
 
+// MARK: - Mailbox Diagnostics (S9d, selector 58)
+
+/// Decode + formatting for the kext's on-demand mailbox health report
+/// (selector 58, kext 3.34.13+). The kext runs the same three probes as its
+/// boot diagnostic — SMN aperture (Tctl), TestMessage echo (0x01 arg 0x42
+/// must return 0x43) and GetSMUVersion (0x02) — and hands back every raw
+/// code; this type turns that into a human-readable verdict.
+enum AMDSmuDiagnostics {
+    /// Wire layout of the kext's 48-byte structure report (12 × UInt32,
+    /// little-endian). Field order mirrors the C struct — pinned by the
+    /// kernel-side static_assert and the app-side byte-count check.
+    /// Mutable so tests can derive verdict-checking variants.
+    struct Report: Equatable {
+        var mailboxSupported: Bool
+        var msgReg: UInt32
+        var argReg: UInt32
+        var rspReg: UInt32
+        var curveOptimizerCmd: UInt32
+        var smnTctlRaw: UInt32
+        var testRspCode: Int32
+        var testArg0: UInt32
+        var testElapsedUs: UInt32
+        var versionRspCode: Int32
+        var versionRaw: UInt32
+        var versionElapsedUs: UInt32
+    }
+
+    static let wireByteCount = 48
+
+    /// Decode the kext's structure buffer. Returns nil for any size other
+    /// than the pinned 48 bytes — a size mismatch means a kext/app mismatch
+    /// and guessing would fabricate a verdict.
+    static func decode(_ data: Data) -> Report? {
+        guard data.count == wireByteCount else { return nil }
+        func u32(_ offset: Int) -> UInt32 {
+            var v: UInt32 = 0
+            _ = withUnsafeMutableBytes(of: &v) { data.copyBytes(to: $0, from: offset..<offset + 4) }
+            return v.littleEndian
+        }
+        return Report(
+            mailboxSupported: u32(0) != 0,
+            msgReg: u32(4),
+            argReg: u32(8),
+            rspReg: u32(12),
+            curveOptimizerCmd: u32(16),
+            smnTctlRaw: u32(20),
+            testRspCode: Int32(bitPattern: u32(24)),
+            testArg0: u32(28),
+            testElapsedUs: u32(32),
+            versionRspCode: Int32(bitPattern: u32(36)),
+            versionRaw: u32(40),
+            versionElapsedUs: u32(44)
+        )
+    }
+
+    /// SMU response codes (kernel `SMUResponse`); negative app-side codes
+    /// (e.g. -11 for an unsupported mailbox) ride the same fields.
+    static func responseName(_ code: Int32) -> String {
+        switch code {
+        case 1: return "OK"
+        case 0: return "TIMEOUT"
+        case 0xFF: return "FAILED"
+        case 0xFE: return "UNKNOWN_CMD"
+        case 0xFD: return "BUSY"
+        case -11: return "UNSUPPORTED"
+        default: return String(format: "0x%02X", UInt32(bitPattern: code))
+        }
+    }
+
+    /// One rendered probe line for the diagnostics bundle.
+    static func line(for report: Report) -> String {
+        var lines: [String] = []
+        lines.append(String(format: "mailbox: supported=%@ cmd=0x%08X arg=0x%08X rsp=0x%08X co=0x%02X",
+                            report.mailboxSupported ? "1" : "0",
+                            report.msgReg, report.argReg, report.rspReg,
+                            report.curveOptimizerCmd))
+        lines.append(String(format: "smn-aperture: TCTL(0x59800)=0x%08X%@",
+                            report.smnTctlRaw,
+                            report.smnTctlRaw == 0xFFFFFFFF ? " (BROKEN — PCI routing?)" : ""))
+        lines.append(String(format: "test-message(0x01): rsp=%@ arg0=0x%X (%@) — %@",
+                            responseName(report.testRspCode), report.testArg0,
+                            formatUs(report.testElapsedUs),
+                            (report.testRspCode == 1 && report.testArg0 == 0x43) ? "ECHO OK" : "ECHO MISMATCH"))
+        lines.append(String(format: "smu-version(0x02): rsp=%@ raw=0x%08X (%@)%@",
+                            responseName(report.versionRspCode), report.versionRaw,
+                            formatUs(report.versionElapsedUs),
+                            AMDSmuReadback.formatSmuVersion(report.versionRaw).map { " — SMU fw \($0)" } ?? ""))
+        return lines.joined(separator: "\n")
+    }
+
+    /// Overall verdict: SMN aperture alive, echo came back exact, version
+    /// read OK. Anything else is a degraded mailbox.
+    static func decodeHealthy(_ report: Report) -> Bool {
+        report.mailboxSupported
+            && report.smnTctlRaw != 0 && report.smnTctlRaw != 0xFFFFFFFF
+            && report.testRspCode == 1 && report.testArg0 == 0x43
+            && report.versionRspCode == 1
+    }
+
+    private static func formatUs(_ us: UInt32) -> String {
+        us >= 1000 ? String(format: "%.1f ms", Double(us) / 1000.0) : "\(us) us"
+    }
+}
+
 // MARK: - OC Mode (S8, selectors 49/50 — Vermeer 0x5A/0x5B)
 
 /// OC-mode cache-state codes reported by kext selector 49 ([2]) and the

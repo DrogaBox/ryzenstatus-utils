@@ -89,6 +89,14 @@ final class AmdPowerControlsModel: ObservableObject {
     @Published private(set) var pmCoreClockHistory: [Int: [Double]] = [:]
     @Published private(set) var pmCoreTempHistory: [Int: [Double]] = [:]
 
+    // S9d: on-demand mailbox health report (selector 58). Never polled in the
+    // sync tick — the kext adds real SMU mailbox traffic to answer, so this
+    // only updates when the user asks for it (Diagnostics bundle button) or
+    // when a sync happens to run after such a request. Nil until the first
+    // successful run on a 3.34.13+ kext with privileges.
+    @Published private(set) var smuDiagnostics: AMDSmuDiagnostics.Report?
+    @Published private(set) var smuDiagnosticsDenied = false
+
     /// Guard flag: true when updating published properties from kext reads
     /// to avoid trigger loops from `.onChange` handlers.
     /// Writes arriving while a sync is in flight are intentionally dropped;
@@ -328,6 +336,9 @@ final class AmdPowerControlsModel: ObservableObject {
         // table versions — the layout must never be guessed.
         let boxDecoded = ProcessorModel.shared.pmTableBox.decoded
         if boxDecoded != pmTableDecoded { pmTableDecoded = boxDecoded }
+        // S9d: the diagnostics report is deliberately NOT refreshed here —
+        // the kext adds real SMU mailbox traffic to answer, so it only
+        // updates when the user asks (runMailboxDiagnostics).
         // S9b: feed the per-core sparkline windows from the same decode.
         if let decoded = pmTableDecoded {
             for row in decoded.cores where row.isPresent {
@@ -349,6 +360,57 @@ final class AmdPowerControlsModel: ObservableObject {
                 }
             }
         }
+    }
+
+    /// S9d: run the mailbox health probes on demand (selector 58, root or
+    /// `-amdpnopchk`). Off the main thread like every kext call; publishes
+    /// the report on success or the denial flag when the kext refuses
+    /// (pre-3.34.13 kexts answer `kIOReturnNotPrivileged`/unsupported).
+    func runMailboxDiagnostics() async {
+        let (report, status) = await Task.detached(priority: .userInitiated) {
+            ProcessorModel.shared.getMailboxDiagnostics()
+        }.value
+        if let report {
+            smuDiagnostics = report
+            smuDiagnosticsDenied = false
+        } else if status == ProcessorModel.kIOReturnNotPrivilegedCode {
+            smuDiagnosticsDenied = true
+        }
+    }
+
+    /// S9d: one-shot text bundle for bug reports — versions, chip identity,
+    /// SMU/PM-table state and the last mailbox health report. Technical
+    /// ASCII on purpose (paste-able into an issue); the UI button that
+    /// copies it is localized, the artifact is not.
+    func buildDiagnosticsBundle() -> String {
+        var lines: [String] = []
+        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+        lines.append("RyzenStatus SMU diagnostics — app \(short) (\(build)), kext \(ProcessorModel.shared.identityCache.kextVersion)")
+        if let fw = AMDSmuReadback.formatSmuVersion(smuVersionRaw) {
+            lines.append("smu firmware: \(fw)")
+        }
+        if pmTableVersionPolled {
+            let size = pmTableSizeBytes > 0 ? " \(pmTableSizeBytes) B" : ""
+            lines.append(String(format: "pm-table: 0x%08X%@ valid=%@ age=%lums",
+                                pmTableVersionRaw, size,
+                                pmTableValid ? "1" : "0", pmTableAgeMs))
+        }
+        if let diag = smuDiagnostics {
+            lines.append("mailbox-health:")
+            lines.append(AMDSmuDiagnostics.line(for: diag))
+        } else {
+            lines.append("mailbox-health: not run this session")
+        }
+        lines.append(String(format: "boost: max=%u MHz fastestRaw=0x%04X scalar=%@",
+                            maxBoostFreqMHz, fastestCoreRaw,
+                            AMDSmuReadback.formatActiveScalar(activeScalarRaw) ?? "n/a"))
+        if let c = chtcLimitCelsius {
+            lines.append("chtc limit: \(c) C")
+        }
+        lines.append(String(format: "oc: mode=%u freqSupported=%@ allCores=%u MHz",
+                            ocModeCode, ocFreqSupported ? "1" : "0", ocFreqAllCoresMHz))
+        return lines.joined(separator: "\n")
     }
 
     /// S9b: bounded append for one per-core sparkline window. Skips slots

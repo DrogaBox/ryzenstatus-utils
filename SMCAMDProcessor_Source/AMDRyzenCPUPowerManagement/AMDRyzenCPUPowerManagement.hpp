@@ -616,6 +616,31 @@ public:
     bool smuMailboxSupported() const { return smuMailbox.supported; }
     uint32_t smuCurveOptimizerCmd() const { return smuMailbox.curveOptimizerCmd; }
 
+    // S9d: on-demand mailbox health report (UserClient selector 58). Runs the
+    // same three probes the boot diagnostic does — SMN aperture read (Tctl),
+    // TestMessage echo (0x01, arg 0x42 → expects 0x43 back) and GetSMUVersion
+    // (0x02) — and returns every raw code plus the SMN read word, so the app
+    // can render a full health report without touching log show. Adds SMU
+    // mailbox traffic on demand, hence the privilege gate lives in the
+    // UserClient (same policy as selector 57 op 2). Serialized under
+    // rendezvousLock by the caller (UserClient convention for timer-context
+    // capture paths); smuCmdLock remains the inner leaf.
+    struct SMUDiagnosticReport {
+        uint32_t mailboxSupported;   // 1 when the family mailbox descriptor is live
+        uint32_t msgReg;             // mailbox descriptor registers (0 when unsupported)
+        uint32_t argReg;
+        uint32_t rspReg;
+        uint32_t curveOptimizerCmd;
+        uint32_t smnTctlRaw;         // SMN 0x59800 read word (Tctl encoding)
+        int      testRsp;            // smuSendCmd result code for 0x01 (SMUResponse / timeout)
+        uint32_t testArg0;           // arg-window word after the echo (0x43 expected)
+        uint32_t testElapsedUs;
+        int      versionRsp;         // smuSendCmd result code for 0x02
+        uint32_t versionRaw;         // arg-window word (BCD-packed version)
+        uint32_t versionElapsedUs;
+    };
+    bool runMailboxDiagnostics(SMUDiagnosticReport &out);
+
 private:
     IOWorkLoop *workLoop;
     IOTimerEventSource *timerEvent_main;

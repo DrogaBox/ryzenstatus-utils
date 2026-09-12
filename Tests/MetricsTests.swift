@@ -7534,7 +7534,11 @@ struct MetricsTests {
                 ("pmTableUnknownVersion", a.pmTableUnknownVersion),
                 ("pmTableCaptureLabel", a.pmTableCaptureLabel),
                 ("pmTableExport", a.pmTableExport),
-                ("pmTableUnavailable", a.pmTableUnavailable)
+                ("pmTableUnavailable", a.pmTableUnavailable),
+                // S9d mailbox-health diagnostics (selector 58; no specifiers).
+                ("diagBundleButton", a.diagBundleButton),
+                ("diagBundleCopied", a.diagBundleCopied),
+                ("diagBundleDenied", a.diagBundleDenied)
             ]
             for (key, value) in ocKeys {
                 expect(!value.isEmpty, "Language \(lang.rawValue) amdPower.\(key) must not be empty")
@@ -7960,6 +7964,72 @@ struct MetricsTests {
                "SystemMonitor must not promote SMU effective clocks into snapshot.cores[] (window-averaged values poison current-clock aggregates)")
         expect(monitorSwift.range(of: "let freqIdx = physicalIdx \\+ 3", options: .regularExpression) != nil,
                "core-grid frequency must keep the kext metric-array source (current-clock semantics)")
+
+        // MARK: S9d mailbox diagnostics (selector 58) — decode + kernel wire pins
+
+        // Wire decode: build the exact 48-byte little-endian layout the
+        // kernel's SMUDiagWire struct emits and require a lossless round-trip.
+        func diagWire(_ fields: [UInt32]) -> Data {
+            precondition(fields.count == 12)
+            var data = Data()
+            for f in fields { withUnsafeBytes(of: f.littleEndian) { data.append(contentsOf: $0) } }
+            return data
+        }
+        let sample = AMDSmuDiagnostics.Report(
+            mailboxSupported: true, msgReg: 0x3B10524, argReg: 0x3B10A40,
+            rspReg: 0x3B10570, curveOptimizerCmd: 0x3D, smnTctlRaw: 0x1234,
+            testRspCode: 1, testArg0: 0x43, testElapsedUs: 240,
+            versionRspCode: 1, versionRaw: 0x00380805, versionElapsedUs: 180)
+        let encoded = diagWire([
+            1, sample.msgReg, sample.argReg, sample.rspReg, sample.curveOptimizerCmd,
+            sample.smnTctlRaw, UInt32(bitPattern: sample.testRspCode), sample.testArg0,
+            sample.testElapsedUs, UInt32(bitPattern: sample.versionRspCode),
+            sample.versionRaw, sample.versionElapsedUs])
+        expect(encoded.count == 48, "SMU diagnostics wire must stay 48 bytes")
+        if let decoded = AMDSmuDiagnostics.decode(encoded) {
+            expect(decoded == sample, "SMU diagnostics wire decode must round-trip exactly, got \(decoded)")
+            expect(AMDSmuDiagnostics.decodeHealthy(decoded), "echo-OK report must decode as healthy")
+        } else {
+            expect(false, "SMU diagnostics 48-byte wire must decode")
+        }
+        expect(AMDSmuDiagnostics.decode(encoded.prefix(40)) == nil, "short wire must fail closed")
+        expect(AMDSmuDiagnostics.decode(encoded + [0x00]) == nil, "oversized wire must fail closed")
+
+        // Verdict rules: each failed probe must flip the verdict.
+        func variant(_ mutate: (inout AMDSmuDiagnostics.Report) -> Void) -> AMDSmuDiagnostics.Report {
+            var r = sample; mutate(&r); return r
+        }
+        expect(!AMDSmuDiagnostics.decodeHealthy(variant { $0.testArg0 = 0x00 }),
+               "echo mismatch (arg0 != 0x43) must be unhealthy")
+        expect(!AMDSmuDiagnostics.decodeHealthy(variant { $0.testRspCode = 0 }),
+               "echo timeout must be unhealthy")
+        expect(!AMDSmuDiagnostics.decodeHealthy(variant { $0.smnTctlRaw = 0xFFFFFFFF }),
+               "broken SMN aperture (0xFFFFFFFF) must be unhealthy")
+        expect(!AMDSmuDiagnostics.decodeHealthy(variant { $0.versionRspCode = 0xFF }),
+               "version FAILED must be unhealthy")
+        expect(!AMDSmuDiagnostics.decodeHealthy(variant { $0.mailboxSupported = false }),
+               "unsupported mailbox must be unhealthy")
+        // Response-name decode covers the documented SMU return values.
+        expect(AMDSmuDiagnostics.responseName(1) == "OK", "rsp 1 must decode as OK")
+        expect(AMDSmuDiagnostics.responseName(0) == "TIMEOUT", "rsp 0 must decode as TIMEOUT")
+        expect(AMDSmuDiagnostics.responseName(0xFF) == "FAILED", "rsp 0xFF must decode as FAILED")
+        expect(AMDSmuDiagnostics.responseName(0xFE) == "UNKNOWN_CMD", "rsp 0xFE must decode as UNKNOWN_CMD")
+        expect(AMDSmuDiagnostics.responseName(0xFD) == "BUSY", "rsp 0xFD must decode as BUSY")
+        expect(AMDSmuDiagnostics.responseName(-11) == "UNSUPPORTED", "app-side -11 must decode as UNSUPPORTED")
+
+        // Kernel-side pins: the UserClient must keep the privilege gate, the
+        // 48-byte wire assertion and the rendezvous serialization.
+        let userClientCpp = kextSource("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPMUserClient.cpp")
+        expect(!userClientCpp.isEmpty, "UserClient source must be readable for the S9d pin checks")
+        expect(userClientCpp.range(of: "case 58:\\s*\\{[\\s\\S]*?hasPrivilege\\(58\\)", options: .regularExpression) != nil,
+               "selector 58 must keep the hasPrivilege(58) gate (SMU traffic on demand)")
+        expect(userClientCpp.contains("static_assert(sizeof(SMUDiagWire) == 48"),
+               "kernel must static-assert the 48-byte diagnostics wire")
+        expect(userClientCpp.range(of: "case 58:\\s*\\{[\\s\\S]*?rendezvousLock\\) IOLockLock", options: .regularExpression) != nil,
+               "selector 58 must serialize the probe run under rendezvousLock")
+        let kextHppS9d = kextSource("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.hpp")
+        expect(kextHppS9d.contains("bool runMailboxDiagnostics(SMUDiagnosticReport &out);"),
+               "provider must keep the public runMailboxDiagnostics entry point")
 
         // MARK: S4 AMDPBOLimits Helpers (gate, clamps, formatters)
 

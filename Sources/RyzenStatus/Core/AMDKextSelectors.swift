@@ -183,6 +183,13 @@ enum AMDKextSelector: UInt32 {
     /// 0x05 → 0x06 → read-only map → snapshot), privileged because it adds
     /// SMU mailbox traffic on demand. Unsupported on pre-1.30 kexts.
     case pmTableRaw = 57
+    /// Mailbox health diagnostics (S9d, privileged): runs the kext's three
+    /// boot-diagnostic probes on demand — SMN aperture (Tctl word), TestMessage
+    /// echo (0x01 arg 0x42 → 0x43) and GetSMUVersion (0x02) — and returns a
+    /// 48-byte structure report (decoded in `AMDSmuDiagnostics.Report`).
+    /// Privileged: adds SMU mailbox traffic on demand (same policy as 57 op 2).
+    /// Unsupported on pre-3.34.13 kexts.
+    case smuDiagnostics = 58
 
     // MARK: — Fan Control (via SuperIO)
 

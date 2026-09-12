@@ -2013,6 +2013,68 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
         
+        // Mailbox health diagnostics (S9d, privileged): runs the provider's
+        // three boot-diagnostic probes on demand — SMN aperture (Tctl word),
+        // TestMessage echo (0x01, arg 0x42 → 0x43) and GetSMUVersion (0x02)
+        // — and returns the full raw report through structure output so the
+        // app can surface a health report without log show. Privileged
+        // because it adds SMU mailbox traffic on demand (same policy as
+        // selector 57 op 2); serialized under rendezvousLock like the
+        // capture path. Struct layout (little-endian, 4-byte fields, 48
+        // bytes total; int fields carry SMUResponse/timeout codes):
+        //   [0] mailboxSupported  [1] msgReg       [2] argReg      [3] rspReg
+        //   [4] curveOptimizerCmd [5] smnTctlRaw   [6] testRsp     [7] testArg0
+        //   [8] testElapsedUs     [9] versionRsp  [10] versionRaw [11] versionElapsedUs
+        case 58: {
+            if(!provider)
+                return kIOReturnNoDevice;
+
+            if(!hasPrivilege(58))
+                return kIOReturnNotPrivileged;
+
+            AMDRyzenCPUPowerManagement::SMUDiagnosticReport report;
+            if (provider->rendezvousLock) IOLockLock(provider->rendezvousLock);
+            provider->runMailboxDiagnostics(report);
+            if (provider->rendezvousLock) IOLockUnlock(provider->rendezvousLock);
+
+            struct SMUDiagWire {
+                uint32_t mailboxSupported;
+                uint32_t msgReg;
+                uint32_t argReg;
+                uint32_t rspReg;
+                uint32_t curveOptimizerCmd;
+                uint32_t smnTctlRaw;
+                int32_t  testRsp;
+                uint32_t testArg0;
+                uint32_t testElapsedUs;
+                int32_t  versionRsp;
+                uint32_t versionRaw;
+                uint32_t versionElapsedUs;
+            };
+            static_assert(sizeof(SMUDiagWire) == 48, "SMU diagnostic wire layout must stay 48 bytes");
+            SMUDiagWire wire{};
+            wire.mailboxSupported  = report.mailboxSupported;
+            wire.msgReg            = report.msgReg;
+            wire.argReg            = report.argReg;
+            wire.rspReg            = report.rspReg;
+            wire.curveOptimizerCmd = report.curveOptimizerCmd;
+            wire.smnTctlRaw        = report.smnTctlRaw;
+            wire.testRsp           = (int32_t)report.testRsp;
+            wire.testArg0          = report.testArg0;
+            wire.testElapsedUs     = report.testElapsedUs;
+            wire.versionRsp        = (int32_t)report.versionRsp;
+            wire.versionRaw        = report.versionRaw;
+            wire.versionElapsedUs  = report.versionElapsedUs;
+
+            // AUDIT F-12/F-16: report only what fits the caller's buffer.
+            if (arguments->structureOutput == nullptr || arguments->structureOutputSize < sizeof(SMUDiagWire))
+                return kIOReturnBadArgument;
+            memcpy(arguments->structureOutput, &wire, sizeof(SMUDiagWire));
+            arguments->structureOutputSize = sizeof(SMUDiagWire);
+            arguments->scalarOutputCount = 0;
+            break;
+        }
+
         // Get PM-table info (S9a, read-only): [0] = table version word
         // (0x08 response, BCD-style e.g. 0x380904 → 38.09.04), [1] = version
         // polled flag, [2] = documented size in bytes for that version

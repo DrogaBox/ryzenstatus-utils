@@ -2102,6 +2102,23 @@ actor ProcessorModel {
         var input: [UInt64] = [2]
         return safeIOConnectCallMethod(AMDKextSelector.pmTableRaw.id, &input, 1, nil, 0, nil, nil, nil, nil)
     }
+
+    /// On-demand mailbox health report (selector 58, privileged — the kext
+    /// adds SMU mailbox traffic to answer). Returns the kext's status code:
+    /// `KERN_SUCCESS` with a decoded report on 3.34.13+ kexts;
+    /// `kIOReturnNotPrivileged` without root/`-amdpnopchk`;
+    /// `kIOReturnUnsupported` on older kexts; nil-report + `KERN_RETURN_MAX`
+    /// style failures keep the raw code for the caller. A wrong wire size is
+    /// a contract break and decodes to nothing (fail closed).
+    nonisolated func getMailboxDiagnostics() -> (report: AMDSmuDiagnostics.Report?, status: kern_return_t) {
+        var buffer = [UInt8](repeating: 0, count: AMDSmuDiagnostics.wireByteCount)
+        var size = AMDSmuDiagnostics.wireByteCount
+        let res = safeIOConnectCallMethod(AMDKextSelector.smuDiagnostics.id,
+                                          nil, 0, nil, 0,
+                                          nil, nil, &buffer, &size)
+        guard res == KERN_SUCCESS else { return (nil, res) }
+        return (AMDSmuDiagnostics.decode(Data(buffer.prefix(size))), KERN_SUCCESS)
+    }
 }
 
 /// Per-component IOKit statuses of a `ProcessorModel.applyPowerPreset(_:)` call.

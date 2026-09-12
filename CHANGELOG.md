@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.32.0] — 2026-09-12
+
+### AMD Kernel + App: on-demand mailbox health diagnostics (wave S9d)
+- **New selector 58 (privileged)**: runs the kext's boot-diagnostic probes on demand — SMN aperture (raw Tctl word through the PCI 0x60/0x64 window), TestMessage echo (0x01, arg 0x42 must return 0x43) and `GetSMUVersion` (0x02) — and returns the full 48-byte raw report (all response codes, arg-window words and per-probe elapsed times) through structure output. Privileged because it adds real SMU mailbox traffic on demand (same policy as the selector-57 force-recapture); serialized under `rendezvousLock` like the capture path, `smuCmdLock` stays the inner leaf. Wire layout is pinned by a kernel `static_assert` and a fail-closed app-side size check.
+- **Diagnostics bundle button** in the SMU PM Table section: runs the probes and copies a paste-able ASCII bundle (app/kext versions, SMU firmware, PM-table state, mailbox health lines, boost/scalar/OC caches) for bug reports — no more asking users to run `log show`. The rendered health lines appear under the button (green when all three probes pass, orange with the failing probe named otherwise), with a localized privilege-denied hint. Button/copy/denied strings added across all 13 locales.
+- **Kexts rebuilt at 3.34.13** (kernel changes: selector 58 dispatch in `AMDRyzenCPUPMUserClient`, `runMailboxDiagnostics` on the provider, no changes to any existing command path). `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` refreshed and its SHA-256 repinned in `Tools/make-dmg.sh` (`93c88a22…63abced`).
+- **Tests**: wire round-trip vectors (exact 48-byte layout, short/oversized buffers fail closed), per-probe verdict rules (echo mismatch, SMN aperture 0xFFFFFFFF, timeout/FAILED codes all flip the verdict), response-name decode for every documented SMU return value, string invariants ×13, and kernel-side source pins (privilege gate, wire static_assert, rendezvous serialization). Suite grew to **6271 checks OK**; strict-concurrency gate 0 diagnostics.
+
 ## [1.31.0] — 2026-09-12
 
 ### AMD App: L3 decode + SMU-native value promotion (wave S9c)

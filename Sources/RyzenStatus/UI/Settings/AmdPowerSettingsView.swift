@@ -486,6 +486,31 @@ struct AmdPowerSettingsView: View {
                                 Label(l10n.amdPower.pmTableExport, systemImage: "square.and.arrow.up")
                             }
                             .buttonStyle(.bordered)
+                            // S9d: run the mailbox health probes and copy a
+                            // paste-able diagnostics bundle. Privileged — the
+                            // kext refuses without root/-amdpnopchk.
+                            Button {
+                                Task { await controls.runMailboxDiagnostics() }
+                                let bundle = controls.buildDiagnosticsBundle()
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(bundle, forType: .string)
+                                pmStatusMessage = l10n.amdPower.diagBundleCopied
+                                pmStatusIsError = false
+                            } label: {
+                                Label(l10n.amdPower.diagBundleButton, systemImage: "stethoscope")
+                            }
+                            .buttonStyle(.bordered)
+                            if controls.smuDiagnosticsDenied {
+                                Label(l10n.amdPower.diagBundleDenied, systemImage: "lock.fill")
+                                    .font(.caption2)
+                                    .foregroundColor(.orange)
+                            } else if let diag = controls.smuDiagnostics {
+                                Text(AMDSmuDiagnostics.line(for: diag))
+                                    .font(.system(size: 10, weight: .regular, design: .monospaced))
+                                    .foregroundColor(AMDSmuDiagnostics.decodeHealthy(diag) ? .green : .orange)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
                             if let message = pmStatusMessage {
                                 Text(message)
                                     .font(.caption2)
