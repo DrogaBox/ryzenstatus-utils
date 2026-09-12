@@ -1739,8 +1739,9 @@ bool AMDRyzenCPUPowerManagement::runMailboxDiagnostics(SMUDiagnosticReport &out)
     // broken (PCI config routing), independent of the mailbox.
     out.smnTctlRaw = smnRead32(kF17H_M01H_THM_TCON_CUR_TMP);
 
-    // Probe 2 — TestMessage echo: arg 0x42 must come back as 0x43.
-    // Proves the full write-command-poll cycle plus SMU firmware liveness.
+    // Probe 2 — TestMessage round-trip: documented semantics are
+    // Res0 = Arg0 + 1, so arg 0x42 must come back as 0x43. Proves the full
+    // write-command-poll cycle plus SMU firmware liveness.
     uint32_t testResult = 0;
     uint32_t testElapsedUs = 0;
     out.testRsp = smuSendCmd(0x01, 0x42, testResult, &testElapsedUs);

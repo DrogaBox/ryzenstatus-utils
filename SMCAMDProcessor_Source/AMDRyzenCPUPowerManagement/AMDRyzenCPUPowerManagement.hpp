@@ -618,7 +618,8 @@ public:
 
     // S9d: on-demand mailbox health report (UserClient selector 58). Runs the
     // same three probes the boot diagnostic does — SMN aperture read (Tctl),
-    // TestMessage echo (0x01, arg 0x42 → expects 0x43 back) and GetSMUVersion
+    // TestMessage round-trip (0x01: documented Res0 = Arg0 + 1, so arg
+    // 0x42 expects 0x43 back) and GetSMUVersion
     // (0x02) — and returns every raw code plus the SMN read word, so the app
     // can render a full health report without touching log show. Adds SMU
     // mailbox traffic on demand, hence the privilege gate lives in the

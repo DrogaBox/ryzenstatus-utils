@@ -231,8 +231,9 @@ enum AMDSmuReadback {
 
 /// Decode + formatting for the kext's on-demand mailbox health report
 /// (selector 58, kext 3.34.13+). The kext runs the same three probes as its
-/// boot diagnostic — SMN aperture (Tctl), TestMessage echo (0x01 arg 0x42
-/// must return 0x43) and GetSMUVersion (0x02) — and hands back every raw
+/// boot diagnostic — SMN aperture (Tctl), TestMessage round-trip (0x01:
+/// documented Res0 = Arg0 + 1, so arg 0x42 returns 0x43) and GetSMUVersion
+/// (0x02) — and hands back every raw
 /// code; this type turns that into a human-readable verdict.
 enum AMDSmuDiagnostics {
     /// Wire layout of the kext's 48-byte structure report (12 × UInt32,
@@ -309,7 +310,7 @@ enum AMDSmuDiagnostics {
         lines.append(String(format: "test-message(0x01): rsp=%@ arg0=0x%X (%@) — %@",
                             responseName(report.testRspCode), report.testArg0,
                             formatUs(report.testElapsedUs),
-                            (report.testRspCode == 1 && report.testArg0 == 0x43) ? "ECHO OK" : "ECHO MISMATCH"))
+                            (report.testRspCode == 1 && report.testArg0 == 0x43) ? "ROUND-TRIP OK" : "ROUND-TRIP MISMATCH"))
         lines.append(String(format: "smu-version(0x02): rsp=%@ raw=0x%08X (%@)%@",
                             responseName(report.versionRspCode), report.versionRaw,
                             formatUs(report.versionElapsedUs),
@@ -317,8 +318,8 @@ enum AMDSmuDiagnostics {
         return lines.joined(separator: "\n")
     }
 
-    /// Overall verdict: SMN aperture alive, echo came back exact, version
-    /// read OK. Anything else is a degraded mailbox.
+    /// Overall verdict: SMN aperture alive, the Arg0+1 round-trip came back
+    /// exact, version read OK. Anything else is a degraded mailbox.
     static func decodeHealthy(_ report: Report) -> Bool {
         report.mailboxSupported
             && report.smnTctlRaw != 0 && report.smnTctlRaw != 0xFFFFFFFF

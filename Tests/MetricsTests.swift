@@ -7988,7 +7988,7 @@ struct MetricsTests {
         expect(encoded.count == 48, "SMU diagnostics wire must stay 48 bytes")
         if let decoded = AMDSmuDiagnostics.decode(encoded) {
             expect(decoded == sample, "SMU diagnostics wire decode must round-trip exactly, got \(decoded)")
-            expect(AMDSmuDiagnostics.decodeHealthy(decoded), "echo-OK report must decode as healthy")
+            expect(AMDSmuDiagnostics.decodeHealthy(decoded), "round-trip-OK report must decode as healthy")
         } else {
             expect(false, "SMU diagnostics 48-byte wire must decode")
         }
@@ -8000,9 +8000,9 @@ struct MetricsTests {
             var r = sample; mutate(&r); return r
         }
         expect(!AMDSmuDiagnostics.decodeHealthy(variant { $0.testArg0 = 0x00 }),
-               "echo mismatch (arg0 != 0x43) must be unhealthy")
+               "Arg0+1 mismatch (arg0 != 0x43) must be unhealthy")
         expect(!AMDSmuDiagnostics.decodeHealthy(variant { $0.testRspCode = 0 }),
-               "echo timeout must be unhealthy")
+               "round-trip timeout must be unhealthy")
         expect(!AMDSmuDiagnostics.decodeHealthy(variant { $0.smnTctlRaw = 0xFFFFFFFF }),
                "broken SMN aperture (0xFFFFFFFF) must be unhealthy")
         expect(!AMDSmuDiagnostics.decodeHealthy(variant { $0.versionRspCode = 0xFF }),

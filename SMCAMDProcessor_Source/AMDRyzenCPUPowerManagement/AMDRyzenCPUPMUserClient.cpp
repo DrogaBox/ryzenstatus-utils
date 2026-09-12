@@ -2015,7 +2015,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
         
         // Mailbox health diagnostics (S9d, privileged): runs the provider's
         // three boot-diagnostic probes on demand — SMN aperture (Tctl word),
-        // TestMessage echo (0x01, arg 0x42 → 0x43) and GetSMUVersion (0x02)
+        // TestMessage round-trip (0x01: Res0 = Arg0 + 1 → 0x43) and GetSMUVersion (0x02)
         // — and returns the full raw report through structure output so the
         // app can surface a health report without log show. Privileged
         // because it adds SMU mailbox traffic on demand (same policy as
