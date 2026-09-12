@@ -7791,6 +7791,94 @@ struct MetricsTests {
         expect(AMDSmuPMTable.decode(version: 0x380705, data: syntheticTable(bytes: 2288, elements: headValues)) == nil,
                "0x380705 must stay fail-closed: no public authoritative element map exists (kext may capture it, the app must not guess)")
 
+        // MARK: S9c L3 (GameCache) block + promotion freshness gate
+
+        // Synthetic L3 vectors: the block is the tail of every layout (each
+        // table's min_size = highest L3 element + 1), so a full-size
+        // synthetic table already contains it. Known floats at the
+        // pm_tables.c elements: field j of cache i = base + j*l3Count + i
+        // (LOGIC 0, VDDM 1, TEMP 2, FREQ_EFF 6, EDC_LIMIT 11 fields).
+        if let d805l3 = AMDSmuPMTable.decode(version: 0x380805, data: syntheticTable(
+            bytes: 572 * 4,
+            elements: headValues.merging([540: 2.75, 541: 1.85, 542: 0.5, 543: 0.45,
+                                          544: 34.5, 545: 38.5, 552: 4.25, 553: 4.1,
+                                          562: 15.0], uniquingKeysWith: { a, _ in a })))
+        {
+            expect(d805l3.l3.count == 2, "0x380805 must expose 2 L3 caches, got \(d805l3.l3.count)")
+            if let c0 = d805l3.l3.first {
+                expect(near(c0.logicPowerW, 2.75, 0.01), "0x380805 L3[0] logic power from element 540, got \(c0.logicPowerW)")
+                expect(near(c0.vddmPowerW, 0.5, 0.01), "0x380805 L3[0] VDDM power from element 542, got \(c0.vddmPowerW)")
+                expect(near(c0.tempC, 34.5, 0.01), "0x380805 L3[0] temp from element 544, got \(c0.tempC)")
+                expect(near(c0.freqEffMHz, 4250, 0.5), "0x380805 L3[0] FREQ_EFF = element 552 × 1000 (GameCache is GHz like cores), got \(c0.freqEffMHz)")
+                expect(near(c0.edcLimitA, 15.0, 0.01), "0x380805 L3[0] EDC limit from element 562, got \(c0.edcLimitA)")
+            } else { expect(false, "0x380805 L3[0] must exist") }
+            if let c1 = d805l3.l3.last, d805l3.l3.count > 1 {
+                expect(near(c1.logicPowerW, 1.85, 0.01), "0x380805 L3[1] logic power stride +1 from element 541, got \(c1.logicPowerW)")
+                expect(near(c1.tempC, 38.5, 0.01), "0x380805 L3[1] temp from element 545, got \(c1.tempC)")
+                expect(near(c1.freqEffMHz, 4100, 0.5), "0x380805 L3[1] clock from element 553, got \(c1.freqEffMHz)")
+            } else { expect(false, "0x380805 L3[1] must exist") }
+        } else {
+            expect(false, "0x380805 synthetic L3 capture must decode")
+        }
+        // 0x380905: base 356, 1 cache.
+        if let d905l3 = AMDSmuPMTable.decode(version: 0x380905, data: syntheticTable(
+            bytes: 372 * 4, elements: [356: 1.5, 357: 0.4, 358: 41.5, 362: 3.8, 367: 12.0])) {
+            expect(d905l3.l3.count == 1, "0x380905 must expose 1 L3 cache, got \(d905l3.l3.count)")
+            if let c0 = d905l3.l3.first {
+                expect(near(c0.tempC, 41.5, 0.01), "0x380905 L3[0] temp from element 358, got \(c0.tempC)")
+                expect(near(c0.freqEffMHz, 3800, 0.5), "0x380905 L3[0] clock from element 362, got \(c0.freqEffMHz)")
+            } else { expect(false, "0x380905 L3[0] must exist") }
+        } else {
+            expect(false, "0x380905 synthetic L3 capture must decode")
+        }
+        // 0x380904: base 345, 1 cache (older-head family).
+        if let d904l3 = AMDSmuPMTable.decode(version: 0x380904, data: syntheticTable(
+            bytes: 361 * 4, elements: [345: 1.25, 346: 0.35, 347: 40.5, 351: 3.7, 356: 12.0])) {
+            expect(d904l3.l3.count == 1, "0x380904 must expose 1 L3 cache, got \(d904l3.l3.count)")
+            if let c0 = d904l3.l3.first {
+                expect(near(c0.tempC, 40.5, 0.01), "0x380904 L3[0] temp from element 347, got \(c0.tempC)")
+                expect(near(c0.freqEffMHz, 3700, 0.5), "0x380904 L3[0] clock from element 351, got \(c0.freqEffMHz)")
+            } else { expect(false, "0x380904 L3[0] must exist") }
+        } else {
+            expect(false, "0x380904 synthetic L3 capture must decode")
+        }
+        // 0x380804: base 521, 2 caches (old head, 16-core family).
+        if let d804l3 = AMDSmuPMTable.decode(version: 0x380804, data: syntheticTable(
+            bytes: 553 * 4, elements: [521: 2.5, 522: 1.75, 525: 33.5, 533: 4.0, 534: 3.9, 543: 15.0])) {
+            expect(d804l3.l3.count == 2, "0x380804 must expose 2 L3 caches, got \(d804l3.l3.count)")
+            if let c0 = d804l3.l3.first {
+                expect(near(c0.tempC, 33.5, 0.01), "0x380804 L3[0] temp from element 525, got \(c0.tempC)")
+                expect(near(c0.freqEffMHz, 4000, 0.5), "0x380804 L3[0] clock from element 533, got \(c0.freqEffMHz)")
+            } else { expect(false, "0x380804 L3[0] must exist") }
+        } else {
+            expect(false, "0x380804 synthetic L3 capture must decode")
+        }
+
+        // Live-fixture L3 pins (idle 5900XT capture): plausible ranges on
+        // every cache plus exact anchors for cache 0 — any layout shift
+        // breaks the exact values while ranges keep passing.
+        if let d = pmDecoded {
+            expect(d.l3.count == 2, "live 5900XT (Vermeer dual-CCD) must expose 2 L3 caches, got \(d.l3.count)")
+            for row in d.l3 {
+                expect(row.tempC > 20 && row.tempC < 90, "L3[\(row.id)] temp must be plausible, got \(row.tempC)")
+                expect(row.freqEffMHz > 500 && row.freqEffMHz < 5500, "L3[\(row.id)] GameCache clock must be plausible MHz (live silicon reads ~4.1–4.5 GHz), got \(row.freqEffMHz)")
+                expect(row.logicPowerW >= 0 && row.logicPowerW < 15, "L3[\(row.id)] logic power must be plausible, got \(row.logicPowerW)")
+                expect(row.vddmPowerW >= 0 && row.vddmPowerW < 5, "L3[\(row.id)] VDDM power must be plausible, got \(row.vddmPowerW)")
+                expect(near(row.edcLimitA, 15, 0.1), "L3[\(row.id)] EDC limit must decode 15 A, got \(row.edcLimitA)")
+            }
+            expect(near(d.l3[0].tempC, 34.694, 0.01), "idle-fixture L3[0] temp pin, got \(d.l3[0].tempC)")
+            expect(near(d.l3[0].freqEffMHz, 4264, 1), "idle-fixture L3[0] clock pin (×1000), got \(d.l3[0].freqEffMHz)")
+            expect(near(d.l3[1].tempC, 38.295, 0.01), "idle-fixture L3[1] temp pin, got \(d.l3[1].tempC)")
+        }
+
+        // Freshness gate for the SMU-native promotion (S9c Part 2).
+        expect(AMDSmuPMTable.isFresh(ageMs: 0), "age 0 must count as fresh")
+        expect(AMDSmuPMTable.isFresh(ageMs: 5_999), "just under the default window must count as fresh")
+        expect(AMDSmuPMTable.isFresh(ageMs: 6_000), "boundary age == limit must count as fresh")
+        expect(!AMDSmuPMTable.isFresh(ageMs: 6_001), "past the default window must count as stale")
+        expect(AMDSmuPMTable.isFresh(ageMs: 4_000, limitMs: 5_000), "custom limit must be honored")
+        expect(!AMDSmuPMTable.isFresh(ageMs: 5_001, limitMs: 5_000), "custom limit boundary must go stale")
+
         // MARK: S9a hardware-pin regression guards (kernel C++ source pins)
 
         // The test binary cannot link the kext, so these checks pin the

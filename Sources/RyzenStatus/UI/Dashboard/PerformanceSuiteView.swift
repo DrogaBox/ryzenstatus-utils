@@ -48,10 +48,20 @@ struct PerformanceSuiteView: View {
     @State private var cachedAdapters: [NetworkAdapterInfo] = []
     @State private var lastAdaptersRefresh = Date.distantPast
     @State private var refreshInFlight = false
+    /// S9c: observed mirror of the three PM-column toggle keys. Plain
+    /// UserDefaults writes don't re-render SwiftUI, so the toggles bump
+    /// this counter to repaint the grid instantly (the popover's own
+    /// @AppStorage observes the same keys — both surfaces stay in sync).
+    @State private var pmColumnsRevision = 0
 
     @ObservedObject var l10n = L10n.shared
     @ObservedObject private var runtime = FeatureRuntime.shared
+    /// S9c: live SMU PM-table decode (kext 3.34.11+, Vermeer 0x380804/05/904/905).
+    /// Synced on the same 3 s cadence the AMD section uses; nil on old kexts
+    /// or undecodable table versions — the whole section then stays hidden.
+    @ObservedObject private var amdControls = AmdPowerControlsModel.shared
     @Environment(\.colorScheme) private var colorScheme
+    @State private var amdSyncTimer: Timer?
 
     init(monitor: SystemMonitor) {
         self.monitor = monitor
@@ -121,9 +131,17 @@ struct PerformanceSuiteView: View {
         .onAppear {
             SystemMonitor.shared.panelDidAppear()
             refreshData()
+            // S9c: keep the SMU decode fresh while the dashboard is visible
+            // (same 3 s cadence as the AMD panel section; torn down on exit).
+            Task { await amdControls.syncFromKext() }
+            amdSyncTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
+                Task { await amdControls.syncFromKext() }
+            }
         }
         .onDisappear {
             SystemMonitor.shared.panelDidDisappear()
+            amdSyncTimer?.invalidate()
+            amdSyncTimer = nil
         }
         .onChange(of: selectedTab) { _, _ in
             refreshData()
@@ -154,6 +172,14 @@ struct PerformanceSuiteView: View {
 
             // Headline Metric Cards Row
             headlineMetricCardsGrid(strings: strings)
+
+            // S9c: SMU PM-table telemetry — socket power, peak temp, fabric
+            // clocks and the per-core effective-clock grid, straight from the
+            // kext's 1 Hz snapshot. Zero new polling on top of the shared
+            // 3 s sync tick.
+            if let decoded = amdControls.pmTableDecoded {
+                smuTelemetrySection(decoded: decoded, strings: strings)
+            }
 
             // Activity Monitor Matrix & Process Manager
             BTopDashboardView(monitor: monitor)
@@ -273,6 +299,234 @@ struct PerformanceSuiteView: View {
             .frame(height: 36)
         }
         .suiteCard(padding: 10)
+    }
+
+    // MARK: - 1b. SMU PM-table Telemetry (S9c)
+
+    /// SMU-native telemetry row: package power / peak temp / fabric clocks
+    /// cards plus the per-core effective-clock grid. Values come straight
+    /// from the PM table snapshot the kext's 1 Hz timer maintains — the same
+    /// source the AMD panel section renders. Hidden entirely when no table
+    /// version decodes (old kext, non-Vermeer, unknown version).
+    @ViewBuilder
+    private func smuTelemetrySection(decoded: AMDSmuPMTable.Decoded, strings: PerformanceSuiteFeatureStrings) -> some View {
+        let amdStrings = L10n.shared.amdPower
+        let tempUnit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
+        let presentCores = decoded.cores.filter { $0.isPresent }
+        let corePeak = presentCores.map { Double($0.tempC) }.max() ?? 0
+        let activeCount = presentCores.filter { !$0.isSleeping }.count
+        let clockColor = PanelMetricColor.cyan(for: colorScheme)
+
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(amdStrings.smuPmTableTelemetryHeader)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text(String(format: "%@ · %d/%d", amdStrings.panelPmTableCores, activeCount, presentCores.count))
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                // Socket power with the model's rolling history (3 s cadence).
+                smuMetricCard(
+                    title: amdStrings.packagePowerLabel,
+                    value: String(format: "%.1f W", decoded.summary.socketPowerW),
+                    accentColor: clockColor,
+                    history: amdControls.packagePowerHistory,
+                    maxDomain: max(60, Double(decoded.summary.pptLimitW) * 1.05)
+                )
+                // Peak sensor: PM-table window peak (package) vs hottest core.
+                smuMetricCard(
+                    title: amdStrings.packageTempLabel,
+                    value: MetricFormat.temperatureCompact(Double(decoded.summary.peakTempC), unit: tempUnit),
+                    extraInfo: String(format: "core %.0f °C", corePeak),
+                    accentColor: PanelMetricColor.orange(for: colorScheme),
+                    history: amdControls.packageTempHistory,
+                    maxDomain: 100.0
+                )
+                // Fabric clocks (MHz) — technical labels by convention.
+                smuFabricCard(fclk: decoded.summary.fclkMHz,
+                              uclk: decoded.summary.uclkMHz,
+                              memclk: decoded.summary.memclkMHz)
+            }
+
+            // Per-core grid — same data the panel disclosure renders, with the
+            // same per-field column toggles (voltage / C0 / CC6) sharing the
+            // popover's persisted @AppStorage keys, so both surfaces stay in
+            // sync app-wide. Sleeping cores dim with a dash.
+            HStack(spacing: 10) {
+                smuColumnToggle("bolt.fill", color: .yellow,
+                                isOn: Binding(get: { UserDefaults.standard.bool(forKey: DefaultsKey.showPmCoreVoltage) },
+                                              set: { UserDefaults.standard.set($0, forKey: DefaultsKey.showPmCoreVoltage); pmColumnsRevision += 1 }),
+                                help: "Per-core voltage (SMU)")
+                smuColumnToggle("cpu", color: .green,
+                                isOn: Binding(get: { UserDefaults.standard.bool(forKey: DefaultsKey.showPmCoreC0) },
+                                              set: { UserDefaults.standard.set($0, forKey: DefaultsKey.showPmCoreC0); pmColumnsRevision += 1 }),
+                                help: "C0 residency (%)")
+                smuColumnToggle("moon.zzz.fill", color: .purple,
+                                isOn: Binding(get: { UserDefaults.standard.bool(forKey: DefaultsKey.showPmCoreCC6) },
+                                              set: { UserDefaults.standard.set($0, forKey: DefaultsKey.showPmCoreCC6); pmColumnsRevision += 1 }),
+                                help: "CC6 residency (%)")
+                Spacer()
+                if presentCores.contains(where: { $0.isSleeping }) {
+                    // Sleeping legend — mirrors the disclosure's dash cell.
+                    Text("— park").font(.system(size: 8, weight: .medium, design: .monospaced)).foregroundColor(.secondary)
+                }
+            }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
+                ForEach(presentCores, id: \.slot) { core in
+                    smuCoreCell(core: core,
+                                showsVoltage: UserDefaults.standard.bool(forKey: DefaultsKey.showPmCoreVoltage),
+                                showsC0: UserDefaults.standard.bool(forKey: DefaultsKey.showPmCoreC0),
+                                showsCC6: UserDefaults.standard.bool(forKey: DefaultsKey.showPmCoreCC6),
+                                tempUnit: tempUnit)
+                }
+            }
+            .id(pmColumnsRevision)
+        }
+        .suiteCard(padding: 10)
+    }
+
+    /// One per-core SMU cell in the dashboard grid: slot, effective clock,
+    /// temp, power — plus the toggleable V / C0 / CC6 columns shared with the
+    /// panel disclosure. Layout matches the panel row's color language.
+    @ViewBuilder
+    private func smuCoreCell(core: AMDSmuPMTable.CoreRow,
+                             showsVoltage: Bool, showsC0: Bool, showsCC6: Bool,
+                             tempUnit: TemperatureUnit) -> some View {
+        let tempColor: Color = core.tempC >= 70 ? .red : (core.tempC >= 50 ? .orange : .secondary)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Text(String(format: "%02d", core.slot))
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .foregroundColor(.secondary.opacity(0.6))
+                Spacer()
+                Text(core.isSleeping ? "—" : String(format: "%.0f MHz", core.freqMHz))
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundColor(core.isSleeping ? .secondary.opacity(0.5) : .primary)
+                    .monospacedDigit()
+            }
+            HStack(spacing: 4) {
+                Spacer()
+                Text(core.isSleeping ? "—" : MetricFormat.temperatureCompact(Double(core.tempC), unit: tempUnit))
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(core.isSleeping ? .secondary.opacity(0.5) : tempColor)
+                    .monospacedDigit()
+                Spacer()
+                Text(core.isSleeping ? "—" : String(format: "%.1f W", core.powerW))
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .monospacedDigit()
+            }
+            if showsVoltage || showsC0 || showsCC6 {
+                HStack(spacing: 4) {
+                    if showsVoltage {
+                        Text(String(format: "%.2f V", core.voltageRaw))
+                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .foregroundColor(.yellow)
+                    }
+                    if showsC0 {
+                        Text(String(format: "C0 %.0f", core.c0Percent))
+                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .foregroundColor(.green)
+                    }
+                    if showsCC6 {
+                        Text(String(format: "CC6 %.0f", core.cc6Percent))
+                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .foregroundColor(.purple)
+                    }
+                    Spacer()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(RoundedRectangle(cornerRadius: 4)
+            .fill(Color.primary.opacity(colorScheme == .dark ? 0.06 : 0.04)))
+        .help(String(format: "core %02d · %.0f MHz eff · %.1f °C · %.2f W · C0 %.1f%% · CC6 %.1f%%",
+                     core.slot, core.freqMHz, core.tempC, core.powerW, core.c0Percent, core.cc6Percent))
+    }
+
+    /// Icon-only column toggle — same language as the panel disclosure's
+    /// `pmColumnToggle` (meaning in the tooltip, color matches the column).
+    @ViewBuilder
+    private func smuColumnToggle(_ icon: String, color: Color, isOn: Binding<Bool>, help: String) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) { isOn.wrappedValue.toggle() }
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(isOn.wrappedValue ? color : .secondary.opacity(0.45))
+                .frame(width: 20, height: 16)
+                .background(RoundedRectangle(cornerRadius: 4)
+                    .fill(isOn.wrappedValue ? color.opacity(0.15) : Color.primary.opacity(0.04)))
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    /// One SMU metric card mirroring `suiteMetricCard`'s anatomy at a smaller
+    /// footprint (3-across instead of 4-across row).
+    @ViewBuilder
+    private func smuMetricCard(title: String, value: String, extraInfo: String = "", accentColor: Color, history: [Double], maxDomain: Double) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(value)
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                if !extraInfo.isEmpty {
+                    Text(extraInfo)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            }
+            if history.count >= 2 {
+                TrendChart(
+                    series: [TrendSeries(points: history.enumerated().map { idx, val in
+                        TrendPoint(date: Date().addingTimeInterval(Double(idx - history.count)), value: val)
+                    }, color: accentColor, filled: true, lineWidth: 1.2)],
+                    yDomain: 0...maxDomain,
+                    showsYAxis: false
+                )
+                .frame(height: 26)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Fabric clock readout (FCLK/UCLK/MEMCLK in MHz). Language-neutral
+    /// technical labels, matching the PM-table section convention.
+    @ViewBuilder
+    private func smuFabricCard(fclk: Float, uclk: Float, memclk: Float) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Fabric (MHz)")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(.secondary)
+            HStack(spacing: 8) {
+                smuFabricValue("FCLK", fclk)
+                smuFabricValue("UCLK", uclk)
+                smuFabricValue("MEM", memclk)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func smuFabricValue(_ label: String, _ mhz: Float) -> some View {
+        VStack(spacing: 0) {
+            Text(label)
+                .font(.system(size: 8, weight: .medium))
+                .foregroundColor(.secondary.opacity(0.7))
+            Text(String(format: "%.0f", mhz))
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .monospacedDigit()
+                .foregroundColor(.primary)
+        }
     }
 
     // MARK: - 2. Insights Tab Content

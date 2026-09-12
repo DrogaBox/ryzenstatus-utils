@@ -622,6 +622,9 @@ enum Defaults {
         DefaultsKey.showPmCoreVoltage: false,
         DefaultsKey.showPmCoreC0: false,
         DefaultsKey.showPmCoreCC6: false,
+        // S9c: classic core grid renders load (the classic fill) until the
+        // user switches the card to an SMU metric.
+        DefaultsKey.panelCoreGridMetric: "load",
         // Gaming Mode — off by default; hiding the icon is the default behavior.
         DefaultsKey.gamingModeActive: false,
         DefaultsKey.gamingModeHideMenuBar: true,

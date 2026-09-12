@@ -14,8 +14,16 @@ enum BreakdownKind {
 struct SystemSection: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var monitor = SystemMonitor.shared
+    /// S9c: live SMU PM-table decode for the reinvented core grid — the
+    /// same single-owner model the AMD section and dashboard consume. The
+    /// model only syncs while some view drives it; the AMD control section
+    /// (same panel) runs that 3 s timer, so this stays a passive consumer
+    /// with no new timers.
+    @ObservedObject private var amdControls = AmdPowerControlsModel.shared
     @Environment(\.colorScheme) private var colorScheme
     var collapsible = true
+    /// S9c: core-grid metric mode, persisted ("load" = classic fill).
+    @AppStorage(DefaultsKey.panelCoreGridMetric) private var coreGridMetricRaw = "load"
     @State private var expandedKinds: Set<BreakdownKind> = []
     @State private var alertsExpanded = false
     @State private var breakdownRows: [BreakdownKind: [ProcessUsage]] = [:]
@@ -228,6 +236,52 @@ struct SystemSection: View {
         case .memory: memoryRows(editing: editing)
         case .alerts: alertRows(editing: editing)
         case .uptime: uptimeRow(editing: editing)
+        }
+    }
+
+    // MARK: SMU core-grid metric mode (S9c)
+
+    private var coreGridMetric: PanelCoreGridMetric {
+        PanelCoreGridMetric(rawValue: coreGridMetricRaw) ?? .load
+    }
+
+    /// Present SMU cores for the grid (decode exists; disabled slots dropped).
+    private var smuPresentCores: [AMDSmuPMTable.CoreRow] {
+        amdControls.pmTableDecoded?.cores.filter { $0.isPresent } ?? []
+    }
+
+    /// Mode switch under the grid — compact segmented control, only rendered
+    /// when SMU data exists. "Load" is the classic fill; the other modes are
+    /// SMU-native per-physical-core values. Technical labels by convention.
+    private var smuGridModePicker: some View {
+        HStack(spacing: 0) {
+            ForEach([PanelCoreGridMetric.load, .clock, .temp, .power], id: \.rawValue) { m in
+                Button {
+                    coreGridMetricRaw = m.rawValue
+                } label: {
+                    Text(smuModeLabel(m))
+                        .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                        .foregroundColor(coreGridMetric == m ? .primary : .secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(coreGridMetric == m ? Color.primary.opacity(0.10) : Color.clear)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+        .padding(.top, 2)
+    }
+
+    private func smuModeLabel(_ m: PanelCoreGridMetric) -> String {
+        switch m {
+        case .load: return "LOAD"
+        case .clock: return "MHz"
+        case .temp: return "°C"
+        case .power: return "W"
         }
     }
 
@@ -472,11 +526,19 @@ struct SystemSection: View {
                         // KEXT_WAVE C-1: overlay per-core C6 residency dots (from
                         // selector 32) and favorite-core badges (C-5) on the grid.
                         // Empty residency (kext pre-3.34.2 or no kext) renders no dots.
+                        // S9c: when the SMU PM table decodes, a mode switch offers
+                        // per-physical-core clock/temp/power cells; "load" keeps
+                        // the classic grid exactly as it was.
                         CPUCoreGridView(cores: monitor.snapshot.cores,
                                         c6Residency: C6ResidencyService.shared.coreResidency,
-                                        favoriteThreads: ProcessorModel.shared.favoriteThreadsCache.value)
+                                        favoriteThreads: ProcessorModel.shared.favoriteThreadsCache.value,
+                                        smuCores: smuPresentCores,
+                                        metric: coreGridMetric)
                             .padding(.top, 4)
                             .padding(.bottom, 6)
+                        if !smuPresentCores.isEmpty {
+                            smuGridModePicker
+                        }
                     } else if monitor.snapshot.cpuHistory.count >= 2 {
                         Sparkline(values: monitor.snapshot.cpuHistory,
                                   color: .accentColor,

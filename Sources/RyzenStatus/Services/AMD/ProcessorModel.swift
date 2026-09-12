@@ -207,8 +207,52 @@ actor ProcessorModel {
     }
     nonisolated let powerCache = PowerCache()
 
+    /// S9c: thread-safe SMU PM-table decode + freshness, maintained by
+    /// `loadMetric()` on the telemetry tick (the same cadence that feeds
+    /// `powerCache`). Single owner of the fetch+decode — the AMD settings
+    /// model and the dashboard are consumers. `@unchecked Sendable` matches
+    /// the established `PowerCache` pattern for cross-queue reads.
+    final class PMTableBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _decoded: AMDSmuPMTable.Decoded?
+        private var _ageMs: UInt64 = 0
+        var decoded: AMDSmuPMTable.Decoded? {
+            lock.lock(); defer { lock.unlock() }; return _decoded
+        }
+        var ageMs: UInt64 {
+            lock.lock(); defer { lock.unlock() }; return _ageMs
+        }
+        func update(_ decoded: AMDSmuPMTable.Decoded?, ageMs: UInt64) {
+            lock.lock()
+            _decoded = decoded
+            _ageMs = ageMs
+            lock.unlock()
+        }
+        /// Cached SMU-native socket power (SOCKET_POWER), valid only while
+        /// the snapshot is fresh (kext timer alive). 0 when absent/stale.
+        var freshSocketPowerW: Double {
+            guard let d = decoded, AMDSmuPMTable.isFresh(ageMs: ageMs) else { return 0 }
+            return max(0, Double(d.summary.socketPowerW))
+        }
+        /// Cached per-slot SMU effective clocks in MHz (index = table slot,
+        /// value 0 for disabled slots). Empty when absent/stale.
+        var freshCoreClocksMHz: [Int: Double] {
+            guard let d = decoded, AMDSmuPMTable.isFresh(ageMs: ageMs) else { return [:] }
+            var out: [Int: Double] = [:]
+            for row in d.cores where row.isPresent { out[row.slot] = Double(row.freqMHz) }
+            return out
+        }
+    }
+    nonisolated let pmTableBox = PMTableBox()
+
     /// Latest CPU package power in Watts. Thread-safe, no await needed.
-    nonisolated var lastCPUPowerWatts: Double { powerCache.cpuWatts }
+    /// S9c: prefers the SMU-native SOCKET_POWER while the kext's 1 Hz
+    /// snapshot is fresh; falls back to the kext-computed selector-100
+    /// estimate otherwise. Both sources are F-05-clean (timer caches).
+    nonisolated var lastCPUPowerWatts: Double {
+        let smu = pmTableBox.freshSocketPowerW
+        return smu > 0 ? smu : powerCache.cpuWatts
+    }
     /// Latest GPU total power in Watts. Thread-safe, no await needed.
     nonisolated var lastGPUPowerWatts: Double { powerCache.gpuWatts }
     /// Latest CPU package temperature in °C. Thread-safe, no await needed.
@@ -754,7 +798,30 @@ actor ProcessorModel {
             }
         }
 
+        // S9c: single-owner SMU PM-table refresh on the telemetry tick. The
+        // kext's 1 Hz timer maintains the snapshot (F-05 — no SMU traffic
+        // here); we only read the kext's caches and decode app-side.
+        refreshPMTableBox()
+
         lastMLoad = ProcessInfo.processInfo.systemUptime
+    }
+
+    /// S9c: refresh the PM-table box from the kext's timer caches. All calls
+    /// are cache-only (F-05); the decode is a few hundred float loads. The
+    /// box keeps the last good decode with its snapshot age, so a transient
+    /// IPC failure degrades to "stale" (freshness-gated) rather than
+    /// clearing the promoted values outright.
+    nonisolated private func refreshPMTableBox() {
+        guard let info = getPMTableInfo(), info.snapshotValid else {
+            pmTableBox.update(nil, ageMs: 0)
+            return
+        }
+        guard let data = getPMTableSnapshot() else {
+            pmTableBox.update(pmTableBox.decoded, ageMs: info.snapshotAgeMs)
+            return
+        }
+        let decoded = AMDSmuPMTable.decode(version: info.versionRaw, data: data)
+        pmTableBox.update(decoded, ageMs: info.snapshotAgeMs)
     }
 
     private func loadLoadIndex() {

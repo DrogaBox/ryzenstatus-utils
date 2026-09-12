@@ -492,14 +492,18 @@ struct AmdPowerSettingsView: View {
                                     .foregroundColor(pmStatusIsError ? .red : .green)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
-                            // S9b: decoded live rows. Only for known table
-                            // layouts (currently 0x380805) — unknown versions
-                            // keep the raw-export-only behavior, fail closed.
+                            // S9b/S9c: decoded live rows. Only for known table
+                            // layouts — unknown versions keep the raw-export-only
+                            // behavior, fail closed.
                             if let decoded = controls.pmTableDecoded {
                                 Divider()
                                 pmTablePackageRows(decoded.summary)
                                 Divider()
                                 pmTableCoreRows(decoded.cores)
+                                if !decoded.l3.isEmpty {
+                                    Divider()
+                                    pmTableL3Rows(decoded.l3)
+                                }
                             } else {
                                 Text(l10n.amdPower.pmTableUnknownVersion)
                                     .font(.caption2)
@@ -1591,6 +1595,26 @@ struct AmdPowerSettingsView: View {
                 .font(.system(size: 11, weight: .regular, design: .monospaced))
                 .foregroundColor(c.isPresent ? (sleeping ? .secondary : .primary) : .secondary)
             if !c.isPresent { Text("off").font(.caption2).foregroundColor(.secondary) }
+        }
+    }
+
+    /// S9c: L3 (GameCache) rows decoded from the PM-table snapshot — one
+    /// compact line per cache. Monospace technical labels, same convention
+    /// as the package/core rows (raw telemetry renders without locale
+    /// strings).
+    private func pmTableL3Rows(_ l3: [AMDSmuPMTable.L3Row]) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(l3, id: \.id) { row in
+                HStack(spacing: 5) {
+                    Text("L3\\(row.id)")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(.secondary)
+                    Text(String(format: "%4.0f MHz  %4.1f C  %4.2f + %.2f W  EDC %.0f A",
+                                row.freqEffMHz, row.tempC, row.logicPowerW, row.vddmPowerW, row.edcLimitA))
+                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                        .foregroundColor(.primary)
+                }
+            }
         }
     }
 

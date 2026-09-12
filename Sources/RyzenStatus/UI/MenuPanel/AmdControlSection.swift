@@ -195,17 +195,58 @@ struct AmdControlSection: View {
                                         Spacer()
                                     }
                                     .padding(.leading, 2)
-                                    VStack(spacing: 2) {
-                                        ForEach(decoded.cores.filter { $0.isPresent }, id: \.slot) { core in
-                                            AmdPmTableCoreRowView(core: core,
-                                                                  clockHistory: controls.pmCoreClockHistory[core.slot],
-                                                                  tempHistory: controls.pmCoreTempHistory[core.slot],
-                                                                  showsVoltage: showsPmCoreVoltage,
-                                                                  showsC0: showsPmCoreC0,
-                                                                  showsCC6: showsPmCoreCC6)
+                                    // S9c UX fix: bounded core list. Unbounded, 16 rows
+                                    // grew the panel past the screen below the status
+                                    // item, and macOS re-anchored the whole popover to
+                                    // the side of the icon. Taller than the cap ⇒ the
+                                    // list scrolls internally; the frame height is
+                                    // computed from the row count, so the expand
+                                    // animation stays deterministic (no measurement
+                                    // pass, no second reflow).
+                                    let presentCores = decoded.cores.filter { $0.isPresent }
+                                    let listCap = min(320.0, max(160.0, (NSScreen.main?.visibleFrame.height ?? 760) * 0.3))
+                                    ScrollView(.vertical, showsIndicators: true) {
+                                        VStack(spacing: 2) {
+                                            ForEach(presentCores, id: \.slot) { core in
+                                                AmdPmTableCoreRowView(core: core,
+                                                                      clockHistory: controls.pmCoreClockHistory[core.slot],
+                                                                      tempHistory: controls.pmCoreTempHistory[core.slot],
+                                                                      showsVoltage: showsPmCoreVoltage,
+                                                                      showsC0: showsPmCoreC0,
+                                                                      showsCC6: showsPmCoreCC6)
+                                            }
                                         }
                                     }
+                                    .frame(height: min(listCap, CGFloat(presentCores.count) * 17 + 2))
                                     .transition(.opacity.combined(with: .move(edge: .top)))
+
+                                    // S9c: one compact row per L3 cache (temp +
+                                    // effective clock only — the 308 pt row budget is
+                                    // nearly full; full fields live in Settings and
+                                    // the tooltip).
+                                    ForEach(decoded.l3, id: \.id) { l3 in
+                                        HStack(spacing: 6) {
+                                            Text(l3.id == 0 ? "L3" : String(format: "L3%d", l3.id))
+                                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                                .foregroundColor(.secondary.opacity(0.6))
+                                                .frame(width: 18, alignment: .leading)
+                                            Text(String(format: "%.0f MHz", l3.freqEffMHz))
+                                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                                .foregroundColor(.primary)
+                                                .frame(width: 46, alignment: .leading)
+                                            Text(String(format: "%.1f °C", l3.tempC))
+                                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                                .foregroundColor(.secondary)
+                                                .frame(width: 40, alignment: .trailing)
+                                            Spacer(minLength: 0)
+                                            Text(String(format: "%.1f W", l3.logicPowerW + l3.vddmPowerW))
+                                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                                .foregroundColor(.secondary)
+                                                .frame(width: 38, alignment: .trailing)
+                                        }
+                                        .help(String(format: "L3 cache %d · %.0f MHz eff · %.1f °C · %.2f W logic + %.2f W VDDM · EDC %.0f A",
+                                                     l3.id, l3.freqEffMHz, l3.tempC, l3.logicPowerW, l3.vddmPowerW, l3.edcLimitA))
+                                    }
                                 }
                             }
                             .padding(.vertical, 2)
@@ -500,6 +541,11 @@ struct AmdControlSection: View {
 /// (sampled on the model's 3 s sync tick — no timers here). Monospaced
 /// technical fields by design — same convention as the Settings PM Table
 /// diagnostics section (raw telemetry renders without localization).
+///
+/// Width budget: the panel content column is 308 pt and the row must fit
+/// with EVERY optional column enabled (~295 pt worst case), so all frames
+/// are sized for the longest realistic string at 9 pt monospaced and the
+/// C0/CC6 fields share one residency column.
 struct AmdPmTableCoreRowView: View {
     let core: AMDSmuPMTable.CoreRow
     /// Rolling windows from the model; nil/short windows render nothing.
@@ -525,51 +571,52 @@ struct AmdPmTableCoreRowView: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 3) {
             Text(String(format: "%02d", core.slot))
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .foregroundColor(.secondary.opacity(0.6))
-                .frame(width: 18, alignment: .leading)
+                .frame(width: 14, alignment: .leading)
             // Sleeping cores show a language-neutral dash instead of a clock.
             Text(core.isSleeping ? "—" : String(format: "%.0f MHz", core.freqMHz))
-                .font(.system(size: 9.5, weight: core.isSleeping ? .medium : .semibold, design: .monospaced))
+                .font(.system(size: 9, weight: core.isSleeping ? .medium : .semibold, design: .monospaced))
                 .foregroundColor(core.isSleeping ? Color.secondary.opacity(0.55) : .cyan)
-                .frame(width: 58, alignment: .leading)
+                .frame(width: 46, alignment: .leading)
             VStack(spacing: 1) {
                 Sparkline(values: clockHistory ?? [], color: .cyan,
                           maxValue: Self.clockScaleMHz, fillOpacity: 0.12, lineWidth: 0.8)
-                    .frame(width: 44, height: 8)
+                    .frame(width: 28, height: 8)
                 Sparkline(values: tempHistory ?? [], color: .orange,
                           maxValue: Self.tempScaleC, fillOpacity: 0.12, lineWidth: 0.8)
-                    .frame(width: 44, height: 8)
+                    .frame(width: 28, height: 8)
             }
-            Spacer(minLength: 8)
             if showsVoltage {
                 Text(String(format: "%.2f V", core.voltageRaw))
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundColor(.yellow.opacity(0.85))
-                    .frame(width: 46, alignment: .trailing)
+                    .frame(width: 36, alignment: .trailing)
             }
-            if showsC0 {
-                Text(String(format: "C0 %.0f%%", core.c0Percent))
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .frame(width: 52, alignment: .trailing)
-            }
-            if showsCC6 {
-                Text(String(format: "CC6 %.0f%%", core.cc6Percent))
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundColor(.purple.opacity(0.8))
-                    .frame(width: 58, alignment: .trailing)
+            if showsC0 || showsCC6 {
+                HStack(spacing: 3) {
+                    if showsC0 {
+                        Text(String(format: "C0 %.0f", core.c0Percent))
+                            .foregroundColor(.secondary)
+                    }
+                    if showsCC6 {
+                        Text(String(format: "CC6 %.0f", core.cc6Percent))
+                            .foregroundColor(.purple.opacity(0.8))
+                    }
+                }
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .frame(width: 78, alignment: .trailing)
             }
             Text(String(format: "%.0f °C", core.tempC))
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(tempColor)
-                .frame(width: 46, alignment: .trailing)
+                .frame(width: 40, alignment: .trailing)
             Text(String(format: "%.1f W", core.powerW))
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(.secondary)
-                .frame(width: 44, alignment: .trailing)
+                .frame(width: 38, alignment: .trailing)
         }
         .help(String(format: "core %02d · %.0f MHz eff · %.1f °C · %.2f W · C0 %.1f%% · CC6 %.1f%%",
                      core.slot, core.freqMHz, core.tempC, core.powerW, core.c0Percent, core.cc6Percent))

@@ -411,13 +411,45 @@ enum AMDSmuPMTable {
         let pc6Percent: Float
     }
 
+    /// One decoded L3 (GameCache) cache row. Fields mirror the L3 block of
+    /// `pm_tables.c` (S9c): 16 elements per cache, field arrays of `l3Count`
+    /// consecutive elements — element(field j, cache i) = base + j·l3Count + i.
+    /// Validated upstream (0x380805/0x380804) and against two live 5900XT
+    /// captures; 0x380904/0x380905 inherit their head's guess caveat.
+    struct L3Row: Equatable {
+        /// Cache index within the package (0 for single-CCD parts, 0…1 for
+        /// Vermeer dual-CCD).
+        let id: Int
+        /// L3_TEMP — °C.
+        let tempC: Float
+        /// L3_FREQ_EFF × 1000 — effective GameCache clock in MHz (the table
+        /// stores GHz like the core clocks; live capture reads ~4.4).
+        let freqEffMHz: Float
+        /// L3_LOGIC_POWER — logic power in W.
+        let logicPowerW: Float
+        /// L3_VDDM_POWER — VDDM power in W.
+        let vddmPowerW: Float
+        /// L3_EDC_LIMIT — EDC ceiling for the cache in A.
+        let edcLimitA: Float
+    }
+
     /// Decoded snapshot for one capture. `cores` has one slot per core the
     /// version's layout defines: 16 for 0x380805 (Vermeer dual-CCD), 8 for
     /// 0x380904/0x380905 (single-CCD parts like the 5600X). Disabled slots
-    /// carry `isPresent == false`.
+    /// carry `isPresent == false`. `l3` follows the version's cache count
+    /// (2 for the 16-core layouts, 1 for the 8-core ones).
     struct Decoded: Equatable {
         let summary: Summary
         let cores: [CoreRow]
+        let l3: [L3Row]
+    }
+
+    /// S9c freshness gate for promoting SMU-native values over the kext's
+    /// computed estimates: the kext's 1 Hz timer must have published the
+    /// snapshot within the promotion window (older ⇒ the timer stopped and
+    /// SMU values are stale — callers fall back to the estimate path).
+    static func isFresh(ageMs: UInt64, limitMs: UInt64 = 6_000) -> Bool {
+        ageMs <= limitMs
     }
 
     /// Package-head element map — identical across the Vermeer/Zen3 layout
@@ -460,6 +492,14 @@ enum AMDSmuPMTable {
         let coreC0: Int
         let coreCC1: Int
         let coreCC6: Int
+        /// First element of the L3 (GameCache) block, or nil when a version
+        /// has no L3 map documented (all four supported Zen3 versions do).
+        /// The block is the tail of every layout: pm_tables.c sets each
+        /// table's `min_size = (highest L3 element + 1) × 4`, so the existing
+        /// minimum-size gate already bounds-checks the whole block.
+        let l3Base: Int?
+        /// Caches in the L3 block (1 = single-CCD parts, 2 = Vermeer).
+        let l3Count: Int
     }
 
     /// Supported layouts. Provenance per pm_tables.c:
@@ -479,16 +519,20 @@ enum AMDSmuPMTable {
     private static let layouts: [UInt32: Layout] = [
         0x380805: Layout(maxCores: 16, minBytes: 572 * 4, cpuTelemetryVoltage: 40, pc6: 155,
                          corePower: 172, coreVoltage: 188, coreTemp: 204, coreFreqEff: 268,
-                         coreC0: 284, coreCC1: 300, coreCC6: 316),
+                         coreC0: 284, coreCC1: 300, coreCC6: 316,
+                         l3Base: 540, l3Count: 2),
         0x380905: Layout(maxCores: 8, minBytes: 372 * 4, cpuTelemetryVoltage: 40, pc6: 155,
                          corePower: 172, coreVoltage: 180, coreTemp: 188, coreFreqEff: 220,
-                         coreC0: 228, coreCC1: 236, coreCC6: 244),
+                         coreC0: 228, coreCC1: 236, coreCC6: 244,
+                         l3Base: 356, l3Count: 1),
         0x380904: Layout(maxCores: 8, minBytes: 361 * 4, cpuTelemetryVoltage: 41, pc6: 152,
                          corePower: 169, coreVoltage: 177, coreTemp: 185, coreFreqEff: 217,
-                         coreC0: 225, coreCC1: 233, coreCC6: 241),
+                         coreC0: 225, coreCC1: 233, coreCC6: 241,
+                         l3Base: 345, l3Count: 1),
         0x380804: Layout(maxCores: 16, minBytes: 553 * 4, cpuTelemetryVoltage: 41, pc6: 152,
                          corePower: 169, coreVoltage: 185, coreTemp: 201, coreFreqEff: 249,
-                         coreC0: 265, coreCC1: 281, coreCC6: 297),
+                         coreC0: 265, coreCC1: 281, coreCC6: 297,
+                         l3Base: 521, l3Count: 2),
     ]
 
     /// Decode a captured snapshot for one table version. Fail-closed:
@@ -537,6 +581,24 @@ enum AMDSmuPMTable {
                 cc6Percent: f(l.coreCC6 + slot)
             ))
         }
-        return Decoded(summary: summary, cores: cores)
+
+        // S9c: L3 (GameCache) block. Element(field j, cache i) =
+        // base + j·l3Count + i (field arrays are l3Count consecutive
+        // elements). Display fields only — FIT/CKS_FDD/CCA/… stay raw.
+        var l3 = [L3Row]()
+        if let base = l.l3Base {
+            l3.reserveCapacity(l.l3Count)
+            for cache in 0..<l.l3Count {
+                l3.append(L3Row(
+                    id: cache,
+                    tempC: f(base + 2 * l.l3Count + cache),
+                    freqEffMHz: f(base + 6 * l.l3Count + cache) * 1000,
+                    logicPowerW: f(base + cache),
+                    vddmPowerW: f(base + 1 * l.l3Count + cache),
+                    edcLimitA: f(base + 11 * l.l3Count + cache)
+                ))
+            }
+        }
+        return Decoded(summary: summary, cores: cores, l3: l3)
     }
 }

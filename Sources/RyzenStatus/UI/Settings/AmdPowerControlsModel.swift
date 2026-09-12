@@ -193,7 +193,7 @@ final class AmdPowerControlsModel: ObservableObject {
         recordTelemetrySample()
 
         let (kernelAnswered, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
-             smuVersion, activeScalar, ocCap, ocFreq, pmInfo, pmData) = await Task.detached(priority: .userInitiated) {
+             smuVersion, activeScalar, ocCap, ocFreq, pmInfo) = await Task.detached(priority: .userInitiated) {
             // AUDIT F-27: thread-safe connection check to avoid data races
             let kernelAnswered = ProcessorModel.shared.isConnected
             let cpb = ProcessorModel.shared.getCPB()
@@ -217,12 +217,8 @@ final class AmdPowerControlsModel: ObservableObject {
             let ocFreq = kernelAnswered ? ProcessorModel.shared.getOcFreqCache() : nil
             // S9a: PM-table info (cache only, no SMU traffic).
             let pmInfo = kernelAnswered ? ProcessorModel.shared.getPMTableInfo() : nil
-            // S9b: raw snapshot for decoding (cache-only chunk reads; one
-            // ≤4 KiB call covers every documented Vermeer table).
-            let pmData = (kernelAnswered && pmInfo?.snapshotValid == true)
-                ? ProcessorModel.shared.getPMTableSnapshot() : nil
             return (kernelAnswered, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
-                    smuVersion, activeScalar, ocCap, ocFreq, pmInfo, pmData)
+                    smuVersion, activeScalar, ocCap, ocFreq, pmInfo)
         }.value
         let profile = await ProcessorModel.shared.cpuProfile
         // S8.2 fallback for the per-CCD row count when the kext's register
@@ -325,13 +321,13 @@ final class AmdPowerControlsModel: ObservableObject {
             pmTableValid = false
             pmTableAgeMs = 0
         }
-        // S9b: decode the captured snapshot for the per-core rows. Nil for
-        // unknown table versions — the layout must never be guessed.
-        if let pmInfo, pmInfo.snapshotValid, let pmData {
-            pmTableDecoded = AMDSmuPMTable.decode(version: pmInfo.versionRaw, data: pmData)
-        } else {
-            pmTableDecoded = nil
-        }
+        // S9c: consume ProcessorModel's single-owner decode instead of
+        // decoding here — the box is refreshed on loadMetric's telemetry
+        // tick (one fetch+decode app-wide; the settings section, the panel
+        // and the dashboard all read the same instance). Nil for unknown
+        // table versions — the layout must never be guessed.
+        let boxDecoded = ProcessorModel.shared.pmTableBox.decoded
+        if boxDecoded != pmTableDecoded { pmTableDecoded = boxDecoded }
         // S9b: feed the per-core sparkline windows from the same decode.
         if let decoded = pmTableDecoded {
             for row in decoded.cores where row.isPresent {

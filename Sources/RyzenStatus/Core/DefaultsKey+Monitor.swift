@@ -6,6 +6,10 @@ import Foundation
 extension DefaultsKey {
     // System monitor — live metrics shown next to the menu bar icon (opt-in).
     static let monitorGraphCPUMode = "monitorGraphCPUMode"
+    /// Core-grid metric in the panel's classic CPU card (S9c): "load" (the
+    /// classic fill), "clock" / "temp" / "power" (SMU PM-table per-core
+    /// values when the table decodes; falls back to load otherwise).
+    static let panelCoreGridMetric = "panelCoreGridMetric"
     static let menuBarCPU = "menuBarCPU"
     static let menuBarGPU = "menuBarGPU"
     static let menuBarCPUPower = "menuBarCPUPower"
