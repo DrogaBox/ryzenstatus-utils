@@ -7315,10 +7315,14 @@ struct MetricsTests {
 
         // MARK: AMD Fan Safety & Thermal Guard
 
-        expect(AMDFanSafety.clampManualPWM(0) == 3, "clampManualPWM(0) → 3 (floor)")
-        expect(AMDFanSafety.clampManualPWM(1) == 3, "clampManualPWM(1) → 3 (floor)")
-        expect(AMDFanSafety.clampManualPWM(2) == 3, "clampManualPWM(2) → 3 (floor)")
-        expect(AMDFanSafety.clampManualPWM(3) == 3, "clampManualPWM(3) → 3")
+        // S10 D6 finding #7: user-commanded floor is 40 (matches the kernel's
+        // curve-mode kCURVE_MIN_ACTIVE_PWM); PWM 0 keeps its release-to-BIOS
+        // meaning at the kext layer, and hardware-inherited duty is exempt via
+        // guardOnlyPWM below.
+        expect(AMDFanSafety.clampManualPWM(0) == 40, "clampManualPWM(0) → 40 (floor)")
+        expect(AMDFanSafety.clampManualPWM(1) == 40, "clampManualPWM(1) → 40 (floor)")
+        expect(AMDFanSafety.clampManualPWM(2) == 40, "clampManualPWM(2) → 40 (floor)")
+        expect(AMDFanSafety.clampManualPWM(3) == 40, "clampManualPWM(3) → 40 (floor)")
         expect(AMDFanSafety.clampManualPWM(128) == 128, "clampManualPWM(128) → 128")
         expect(AMDFanSafety.clampManualPWM(255) == 255, "clampManualPWM(255) → 255")
 
@@ -7332,8 +7336,17 @@ struct MetricsTests {
                "effectiveManualPWM above 85.0°C clamps to thermal guard PWM (200)")
         expect(AMDFanSafety.effectiveManualPWM(userPWM: 220, currentTemp: 90.0) == 220,
                "effectiveManualPWM above 85.0°C preserves user PWM when already above guard")
-        expect(AMDFanSafety.effectiveManualPWM(userPWM: 1, currentTemp: 50.0) == 3,
+        expect(AMDFanSafety.effectiveManualPWM(userPWM: 1, currentTemp: 50.0) == 40,
                "effectiveManualPWM applies floor clamp even below 85°C")
+
+        // S10 D6: guard-only variant for hardware-inherited duty — no floor,
+        // emergency guard armed from the hottest reading only.
+        expect(AMDFanSafety.guardOnlyPWM(userPWM: 10, currentTemp: 50.0) == 10,
+               "guardOnlyPWM below 85°C preserves inherited duty (no floor)")
+        expect(AMDFanSafety.guardOnlyPWM(userPWM: 10, currentTemp: 90.0) == 200,
+               "guardOnlyPWM at high temp clamps to thermal guard PWM (200)")
+        expect(AMDFanSafety.guardOnlyPWM(userPWM: 220, currentTemp: 90.0) == 220,
+               "guardOnlyPWM preserves duty already above the guard")
 
         // MARK: AMD Boot-Args Formatter & C-State Options
 

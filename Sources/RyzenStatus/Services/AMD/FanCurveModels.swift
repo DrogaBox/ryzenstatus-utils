@@ -266,8 +266,12 @@ typealias FanCurve = FanCurveDefinition
 // MARK: - Hardware Safety Bounds
 
 public enum AMDFanSafety {
-    /// Safe minimum hardware PWM duty floor (~1.18% duty) to prevent fan rotor stall.
-    public static let minimumManualPWM: UInt8 = 3
+    /// S10 D6 (finding #7): user-commanded manual duty floor. Raised from the
+    /// old value of 3 (~1.2 %) to close the asymmetry with the curve-mode
+    /// kCURVE_MIN_ACTIVE_PWM: a duty below the rotor's start threshold stalls
+    /// the fan silently. This clamp applies ONLY to duty the user commands;
+    /// see `guardOnlyPWM` for duty inherited from the hardware.
+    public static let minimumManualPWM: UInt8 = 40
     /// Temperature threshold at which emergency thermal guard activates.
     public static let thermalGuardTempC: Double = 85.0
     /// Emergency PWM floor (200 / 255 = ~78.4%) enforced at or above 85°C.
@@ -286,6 +290,18 @@ public enum AMDFanSafety {
             return max(safeUserPWM, thermalGuardPWM)
         }
         return safeUserPWM
+    }
+
+    /// S10 D6: emergency-guard-only variant, for PWM values inherited from the
+    /// hardware rather than commanded by the user.
+    ///
+    /// `FanState.manualPWM` is seeded from `snap.throttle`, i.e. from whatever
+    /// the Super I/O currently reports — typically a fixed duty configured in
+    /// the BIOS. Applying `minimumManualPWM` to that would raise a fan that is
+    /// demonstrably spinning fine at 4 % up to ~16 %, with no safety benefit:
+    /// the stall risk is at rotor START, not at maintain.
+    public static func guardOnlyPWM(userPWM: UInt8, currentTemp: Double) -> UInt8 {
+        currentTemp >= thermalGuardTempC ? max(userPWM, thermalGuardPWM) : userPWM
     }
 }
 

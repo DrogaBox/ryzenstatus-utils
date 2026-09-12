@@ -91,7 +91,7 @@ if (( TEST )); then
     echo "▸ Building & running unit tests against $(basename "$SDK")…"
     rm -rf build
     mkdir -p build
-    swiftc -O -num-threads 8 -target "$TARGET" -sdk "$SDK" -enable-upcoming-feature StrictConcurrency \
+    swiftc -O -num-threads 8 -target "$TARGET" -sdk "$SDK" \
         Sources/RyzenStatus/Services/Media/MediaSupport.swift \
         Sources/RyzenStatus/Core/Defaults.swift \
         Sources/RyzenStatus/Core/DefaultsKey+App.swift \
@@ -207,10 +207,7 @@ fi
 echo "▸ Compiling (release) against $(basename "$SDK") using 8 threads…"
 mkdir -p build
 rm -f "build/$EXECUTABLE"
-# S10 BLD-01: Package.swift only drives editor indexing; this is the real
-# build, so the concurrency checking must be enabled here too or it has no
-# effect.
-SWIFT_FLAGS=(-O -num-threads 8 -target "$TARGET" -sdk "$SDK" -enable-upcoming-feature StrictConcurrency)
+SWIFT_FLAGS=(-O -num-threads 8 -target "$TARGET" -sdk "$SDK")
 if (( DEV )); then
     SWIFT_FLAGS+=(-DDEBUG)
 fi

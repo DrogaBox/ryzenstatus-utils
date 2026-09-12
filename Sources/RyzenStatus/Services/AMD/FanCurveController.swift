@@ -708,7 +708,14 @@ final class FanCurveController: ObservableObject {
         let temp = currentCPUOrPackageTemp
         for fan in fans {
             guard fan.controlMode == .manual, let userPWM = fan.manualPWM else { continue }
-            let effectivePWM = AMDFanSafety.effectiveManualPWM(userPWM: userPWM, currentTemp: temp)
+            // S10 D6: guardOnlyPWM, not effectiveManualPWM. `manualPWM` seeds
+            // from the hardware's current duty (often a fixed BIOS setpoint),
+            // so applying the user-commanded floor here would silently ramp
+            // BIOS-fixed fans up on the first poll after an update. The floor
+            // is enforced where the USER sets duty (setManualPWM and the
+            // slider); the enforcement loop only arms the emergency guard.
+            // Intentional divergence from effectiveManualPWM — do not "fix".
+            let effectivePWM = AMDFanSafety.guardOnlyPWM(userPWM: userPWM, currentTemp: temp)
             if fan.throttlePWM != effectivePWM {
                 _ = ProcessorModel.shared.setFanSpeed(pwm: Int(effectivePWM), fanIndex: fan.id)
             }

@@ -458,6 +458,15 @@ struct FanControlCard: View {
                 .stroke(fan.controlMode == .manual ? Color.orange.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: 1)
         )
         .onAppear {
+            // S10 D6: the slider floor (minimumManualPWM = 40) is deliberately
+            // stricter than the enforcement loop: onAppear seeds from the live
+            // hardware duty (often a fixed BIOS setpoint below 40) and the
+            // F-22k onChange tracking below keeps the readout glued to it, so
+            // the slider's numeric display reports the REAL duty while its
+            // range starts at 40. The floor is enforced when the user commits a
+            // value (setManualPWM's clampManualPWM). Nobody should "fix" this
+            // by moving the floor into the enforcement loop — that would ramp
+            // BIOS-fixed fans up on the first poll after an update.
             sliderValue = max(Double(AMDFanSafety.minimumManualPWM), Double(fan.throttlePWM))
         }
         .onChange(of: fan.throttlePWM) { _, newVal in
