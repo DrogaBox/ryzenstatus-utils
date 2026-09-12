@@ -351,6 +351,11 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
         // after the first successful answer this boot.
         provider->pollSmuVersion();
 
+        // S9a: SMU PM-table plumbing — version probe, 0x05 transfer, 0x06
+        // base, read-only snapshot capture (throttled to 1/s). Diagnostic
+        // only: failures never disturb the control paths.
+        provider->pollPMTable();
+
         IOLockUnlock(provider->rendezvousLock);
 
         uint64_t now = getCurrentTimeNs() / 1000000; //ms
@@ -677,10 +682,14 @@ bool AMDRyzenCPUPowerManagement::start(IOService *provider){
     pmRyzen_init(this, pmDispatchAllowed ? 1 : 0);
 
     // Populate per-family SMU mailbox descriptor.
-    // Sources: Linux drivers/platform/x86/amd-pmf/, AGESA SMU headers, amdgpu nv.c.
+    // Sources: ryzen_smu (smu.c / rsmu_commands.md), Linux amd_pmf, AGESA SMU headers.
+    // Vermeer RSMU mailbox addresses:
+    //   cmd (msg):  0x3B10524
+    //   rsp:        0x3B10570
+    //   args:       0x3B10A40 (window up to 6 dwords: +0x0, +0x4, ...)
     if (cpuFamily == 0x19 && cpuModel >= 0x21 && cpuModel <= 0x2F) {
         // Zen 3 Vermeer
-        smuMailbox = { 0x3B10524, 0x3B10528, 0x3B1052C, 0x3D, true };
+        smuMailbox = { 0x3B10524, 0x3B10A40, 0x3B10570, 0x3D, true };
     } else if (cpuFamily == 0x19 && cpuModel >= 0x60 && cpuModel <= 0x7F) {
         // Zen 4 Raphael — SMU mailbox moved; Curve Optimizer command is 0x55.
         // NOTE: offsets below are placeholders — verify against AGESA Family 19h Model 60h PPR.
@@ -692,7 +701,35 @@ bool AMDRyzenCPUPowerManagement::start(IOService *provider){
         smuMailbox = { 0, 0, 0, 0, false };
         IOLog("AMDRyzenCPUPowerManagement: Zen 5 SMU mailbox unsupported — Curve Optimizer blocked.\n");
     } else {
-        smuMailbox = { 0x3B10524, 0x3B10528, 0x3B1052C, 0x3D, false };
+        smuMailbox = { 0x3B10524, 0x3B10A40, 0x3B10570, 0x3D, false };
+    }
+
+    // One-shot SMU mailbox diagnostic probe at boot
+    if (smuMailbox.supported) {
+        IOLog("AMDRyzenCPUPowerManagement: [SMU Diagnostic] Mailbox initialized: cmd=0x%08X, arg=0x%08X, rsp=0x%08X\n",
+              smuMailbox.msgReg, smuMailbox.argReg, smuMailbox.rspReg);
+
+        uint32_t tctlVal = smnRead32(kF17H_M01H_THM_TCON_CUR_TMP);
+        IOLog("AMDRyzenCPUPowerManagement: [SMU Diagnostic] SMN Aperture Probe (0x%08X) = 0x%08X\n",
+              kF17H_M01H_THM_TCON_CUR_TMP, tctlVal);
+
+        uint32_t testResult = 0;
+        uint32_t testElapsedUs = 0;
+        int testRsp = smuSendCmd(0x01, 0x42, testResult, &testElapsedUs);
+        IOLog("AMDRyzenCPUPowerManagement: [SMU Diagnostic] TestMessage(0x01, arg=0x42): rsp=0x%X, res0=0x%X (expected 0x43), elapsed=%u us\n",
+              testRsp, testResult, testElapsedUs);
+
+        uint32_t verResult = 0;
+        uint32_t verElapsedUs = 0;
+        int verRsp = smuSendCmd(0x02, 1, verResult, &verElapsedUs);
+        IOLog("AMDRyzenCPUPowerManagement: [SMU Diagnostic] GetSMUVersion(0x02, arg=1): rsp=0x%X, raw=0x%08X, elapsed=%u us\n",
+              verRsp, verResult, verElapsedUs);
+
+        if (testRsp == SMU_RSP_OK && testResult == 0x43) {
+            IOLog("AMDRyzenCPUPowerManagement: [SMU Diagnostic] Mailbox communication verified OK.\n");
+        } else {
+            IOLog("AMDRyzenCPUPowerManagement: [SMU Diagnostic] WARN: Mailbox communication check failed (rsp=0x%X).\n", testRsp);
+        }
     }
 
     totalNumberOfLogicalCores = pmRyzen_num_logi;
@@ -1239,7 +1276,8 @@ int AMDRyzenCPUPowerManagement::smuSendCmd(uint32_t cmd, uint32_t arg) {
 // S5: full-mailbox variant — after SMU_RSP_OK the read command's result word
 // is left in the mailbox ARG register (reference driver reads it back from
 // args_addr + 0 post-OK), so snapshot it inside the same critical section.
-int AMDRyzenCPUPowerManagement::smuSendCmd(uint32_t cmd, uint32_t arg, uint32_t &outArg0) {
+int AMDRyzenCPUPowerManagement::smuSendCmd(uint32_t cmd, uint32_t arg, uint32_t &outArg0, uint32_t *outElapsedUs) {
+    if (outElapsedUs) *outElapsedUs = 0;
     if (!smuMailbox.supported) return SMU_RSP_INVALID_CMD;
 
 #pragma mark - Thermal & Energy Monitoring
@@ -1254,15 +1292,25 @@ int AMDRyzenCPUPowerManagement::smuSendCmd(uint32_t cmd, uint32_t arg, uint32_t 
         IOLockLock(smuCmdLock);
     }
     
+    // Step 1: Pre-flight probe — wait until RSP register is non-zero (mailbox ready)
+    uint32_t preRsp = 0;
+    uint32_t preElapsed = 0;
+    while (preElapsed < 2000) {
+        preRsp = smnRead32(rspReg);
+        if (preRsp != 0) break;
+        IODelay(10);
+        preElapsed += 10;
+    }
+
     uint32_t argRes = arg;
     
-    // Clear response register first
+    // Step 2: Clear response register first
     smnWrite32(rspReg, 0);
     
-    // Write argument
+    // Step 3: Write argument
     smnWrite32(argReg, arg);
     
-    // Send command
+    // Step 4: Send command
     smnWrite32(msgReg, cmd);
     
     // Memory barrier: ensure the SMU sees the command write before we start
@@ -1271,22 +1319,20 @@ int AMDRyzenCPUPowerManagement::smuSendCmd(uint32_t cmd, uint32_t arg, uint32_t 
     // zero and falsely trigger the timeout reset path.
     __asm__ volatile("mfence" ::: "memory");
     
-    // Wait for response. Curve Optimizer triggers PLL reconfiguration; use bounded ceiling.
-    const uint32_t timeoutUs = (cmd == smuMailbox.curveOptimizerCmd) ? 25000 : 2000;
+    // Step 5: Wait for response. Curve Optimizer triggers PLL reconfiguration; PM table transfer DMA takes time.
+    const uint32_t timeoutUs = (cmd == smuMailbox.curveOptimizerCmd || cmd == 0x05) ? 25000 : 10000;
     uint32_t rsp = 0;
     uint32_t elapsed = 0;
     while (elapsed < timeoutUs) {
         rsp = smnRead32(rspReg);
         if (rsp != 0) break;
-        uint32_t step = (elapsed < 100) ? 1 : 10;
+        uint32_t step = (elapsed < 100) ? 5 : 20;
         IODelay(step);
         elapsed += step;
     }
     
-    if (rsp == 0) {
-        // Mailbox stuck — flush within critical section before unlocking so concurrent callers don't collide.
-        smnWrite32(msgReg, 0x01);  // SMU_MSG_ResetMsgBus
-        IODelay(50);
+    if (outElapsedUs) {
+        *outElapsedUs = elapsed;
     }
 
     if (rsp == SMU_RSP_OK) {
@@ -1309,6 +1355,77 @@ uint32_t AMDRyzenCPUPowerManagement::pollSmuRead(uint32_t smuCmd) {
     return (rsp == SMU_RSP_OK) ? result : 0;
 }
 
+// S9a: two-argument mailbox command returning both arg-window words after
+// SMU_RSP_OK. Needed for Vermeer GetDramBaseAddress (0x06), which the
+// reference driver calls with Arg0=1/Arg1=1 and reads the 64-bit physical
+// base back as arg0 | (arg1 << 32) (smu.c smu_get_dram_base_address,
+// BASE_ADDR_CLASS_1). Same protocol/locking as smuSendCmd: serialized under
+// smuCmdLock (leaf lock), response register cleared first, bounded poll.
+// Timer command gate only (F-05).
+int AMDRyzenCPUPowerManagement::smuSendCmd2(uint32_t cmd, uint32_t arg0, uint32_t arg1,
+                                            uint32_t &outArg0, uint32_t &outArg1, uint32_t *outElapsedUs) {
+    outArg0 = 0;
+    outArg1 = 0;
+    if (outElapsedUs) *outElapsedUs = 0;
+    if (!smuMailbox.supported) return SMU_RSP_INVALID_CMD;
+
+    uint32_t msgReg = smuMailbox.msgReg;
+    uint32_t argReg = smuMailbox.argReg;
+    uint32_t rspReg = smuMailbox.rspReg;
+
+    if (smuCmdLock) {
+        IOLockLock(smuCmdLock);
+    }
+
+    // Step 1: Pre-flight probe
+    uint32_t preRsp = 0;
+    uint32_t preElapsed = 0;
+    while (preElapsed < 2000) {
+        preRsp = smnRead32(rspReg);
+        if (preRsp != 0) break;
+        IODelay(10);
+        preElapsed += 10;
+    }
+
+    // Step 2: Clear response register first
+    smnWrite32(rspReg, 0);
+
+    // Step 3: Write both arguments (second word at argReg+4, same layout the
+    // reference driver uses for its 6-word arg window).
+    smnWrite32(argReg, arg0);
+    smnWrite32(argReg + 4, arg1);
+
+    // Step 4: Send command
+    smnWrite32(msgReg, cmd);
+    __asm__ volatile("mfence" ::: "memory");
+
+    const uint32_t timeoutUs = 10000;
+    uint32_t rsp = 0;
+    uint32_t elapsed = 0;
+    while (elapsed < timeoutUs) {
+        rsp = smnRead32(rspReg);
+        if (rsp != 0) break;
+        uint32_t step = (elapsed < 100) ? 5 : 20;
+        IODelay(step);
+        elapsed += step;
+    }
+
+    if (outElapsedUs) {
+        *outElapsedUs = elapsed;
+    }
+
+    if (rsp == SMU_RSP_OK) {
+        outArg0 = smnRead32(argReg);
+        outArg1 = smnRead32(argReg + 4);
+    }
+
+    if (smuCmdLock) {
+        IOLockUnlock(smuCmdLock);
+    }
+
+    return (int)rsp;
+}
+
 void AMDRyzenCPUPowerManagement::pollBoostTelemetry() {
     if (!smuMailbox.supported) return;
     
@@ -1320,16 +1437,30 @@ void AMDRyzenCPUPowerManagement::pollBoostTelemetry() {
     smuBoostTelemetryLastPollMs = now;
     
     // Vermeer RSMU read commands documented in ryzen_smu rsmu_commands.md:
-    //   GetMaxFrequency       0x6E  Res0: MHz
+    //   GetMaxFrequency        0x6E  Res0: MHz
     //   GetFastestCoreOfSocket 0x59  raw word; decode lives app-side
-    //        (AMDSmuBoost.decodeFastestCore) where it is unit-testable.
+    //   GetPBOScalar           0x6C  active scalar (IEEE-754 float)
     // 0 responses are cached as "unknown" rather than retried every tick —
     // the SMU only returns 0 while clocks are being reconfigured.
-    smuMaxBoostFreqMHz = pollSmuRead(0x6E);
-    smuFastestCoreRaw = pollSmuRead(0x59);
-    // S7: GetPBOScalar 0x6C rides the same throttle window (active scalar as
-    // IEEE-754 float; pairs with the 0x58 write cache for drift detection).
-    smuActiveScalarRaw = pollSmuRead(0x6C);
+    uint32_t maxFreq = 0;
+    uint32_t fastestCore = 0;
+    uint32_t activeScalar = 0;
+    uint32_t elap6E = 0, elap59 = 0, elap6C = 0;
+
+    int rsp6E = smuSendCmd(0x6E, 0, maxFreq, &elap6E);
+    int rsp59 = smuSendCmd(0x59, 0, fastestCore, &elap59);
+    int rsp6C = smuSendCmd(0x6C, 0, activeScalar, &elap6C);
+
+    if (rsp6E == SMU_RSP_OK) smuMaxBoostFreqMHz = maxFreq;
+    if (rsp59 == SMU_RSP_OK) smuFastestCoreRaw = fastestCore;
+    if (rsp6C == SMU_RSP_OK) smuActiveScalarRaw = activeScalar;
+
+    static bool sLoggedBoostFirst = false;
+    if (!sLoggedBoostFirst) {
+        IOLog("AMDRyzenCPUPowerManagement: Boost telemetry initial: 0x6E(rsp=0x%X, %u MHz, %u us), 0x59(rsp=0x%X, 0x%X, %u us), 0x6C(rsp=0x%X, 0x%X, %u us)\n",
+              rsp6E, smuMaxBoostFreqMHz, elap6E, rsp59, smuFastestCoreRaw, elap59, rsp6C, smuActiveScalarRaw, elap6C);
+        sLoggedBoostFirst = true;
+    }
 }
 
 // S7: one-shot SMU firmware version read (global TestMessage-family command
@@ -1342,11 +1473,18 @@ uint32_t AMDRyzenCPUPowerManagement::pollSmuVersion() {
     if (smuVersionPolled) return smuFirmwareVersionRaw;
     
     uint32_t result = 0;
-    int rsp = smuSendCmd(0x02, 0, result);
+    uint32_t elapsed = 0;
+    int rsp = smuSendCmd(0x02, 1, result, &elapsed);
     if (rsp == SMU_RSP_OK) {
         smuFirmwareVersionRaw = result;
         smuVersionPolled = true;
-        IOLog("AMDRyzenCPUPowerManagement: SMU firmware version word 0x%X.\n", result);
+        IOLog("AMDRyzenCPUPowerManagement: SMU firmware version word 0x%08X (elapsed %u us).\n", result, elapsed);
+    } else {
+        static bool sLoggedVerFail = false;
+        if (!sLoggedVerFail) {
+            IOLog("AMDRyzenCPUPowerManagement: pollSmuVersion (0x02) failed: rsp=0x%X, elapsed=%u us\n", rsp, elapsed);
+            sLoggedVerFail = true;
+        }
     }
     return smuFirmwareVersionRaw;
 }
@@ -1363,6 +1501,197 @@ uint32_t AMDRyzenCPUPowerManagement::pollSmuPBOScalar() {
     return (rsp == SMU_RSP_OK) ? result : 0;
 }
 
+// ------------------------------------------------------------------
+// S9a: SMU PM-table plumbing (Vermeer RSMU 0x08 / 0x05 / 0x06).
+//
+// The SMU exposes a live metrics table (per-core clocks/temps/power —
+// the same table ryzen_smu and HWiNFO feed from). The flow, pinned from
+// the reference driver (smu.c):
+//   0x08 GetPMTableVersion → response word, BCD-style (e.g. 0x380904)
+//   table size             → per-version table sourced from Ryzen Master
+//                            (Vermeer: 0x594 … 0x1BB0 bytes; unknown
+//                            versions fail closed)
+//   0x05 TransferTableSmu2Dram (Arg0 = 0) → SMU copies the table to DRAM
+//   0x06 GetDramBaseAddress (Arg0=1, Arg1=1) → 64-bit physical base
+//                            assembled as arg0 | (arg1 << 32)
+// The kext maps the region READ-ONLY, copies it into a fixed snapshot
+// buffer, and unmaps immediately; user space (selector 57) reads the
+// snapshot only. Nothing in this path writes to SMU-controlled memory.
+// Runs exclusively on the timer command gate (F-05).
+// ------------------------------------------------------------------
+
+// Documented Vermeer/Chagall PM-table sizes (Ryzen-Master-sourced list,
+// reference smu.c smu_update_pmtablesize). Unknown versions → 0 (fail
+// closed; the snapshot stays invalid rather than mapping a guessed size).
+static uint32_t pmTableSizeForVersion(uint32_t version) {
+    switch (version) {
+    case 0x2D0803: return 0x0894;
+    case 0x2D0903: return 0x0594;
+    case 0x380005: return 0x1BB0;
+    case 0x380505: return 0x0F30;
+    case 0x380605: return 0x0C10;
+    case 0x380705: return 0x08F0;
+    case 0x380804: return 0x08A4;
+    case 0x380805: return 0x08F0;
+    case 0x380904: return 0x05A4;
+    case 0x380905: return 0x05D0;
+    default:       return 0;    // unknown version — fail closed
+    }
+}
+
+// One capture cycle: (re-map if needed) 0x05 → 0x06 → map → copy → unmap.
+// Returns 0 on success, else a mapped negative (-1 unsupported, -5 SMU
+// error, -10 timeout, -11 invalid cmd, -12 invalid args, -13 busy, -14
+// unknown table version, -15 map failed).
+int AMDRyzenCPUPowerManagement::forcePMTableCapture() {
+    if (!pboLimitsSupported()) {
+        static bool sLoggedNotSupp = false;
+        if (!sLoggedNotSupp) {
+            IOLog("AMDRyzenCPUPowerManagement: forcePMTableCapture aborted: pboLimitsSupported() returned false.\n");
+            sLoggedNotSupp = true;
+        }
+        return -1;
+    }
+
+    // 0x08: version (one-shot — static per firmware)
+    if (!pmTableVersionPolled) {
+        uint32_t versionWord = 0;
+        uint32_t elap08 = 0;
+        int rsp = smuSendCmd(0x08, 0, versionWord, &elap08);
+        if (rsp != SMU_RSP_OK) {
+            static bool sLogged08Fail = false;
+            if (!sLogged08Fail) {
+                IOLog("AMDRyzenCPUPowerManagement: PM table 0x08 (GetPMTableVersion) failed: rsp=0x%X, elapsed=%u us\n", rsp, elap08);
+                sLogged08Fail = true;
+            }
+            return (rsp == SMU_RSP_TIMEOUT) ? -10 :
+                   (rsp == SMU_RSP_INVALID_CMD) ? -11 :
+                   (rsp == SMU_RSP_INVALID_ARGS) ? -12 :
+                   (rsp == SMU_RSP_BUSY) ? -13 : -5;
+        }
+        pmTableVersionRaw = versionWord;
+        pmTableVersionPolled = true;
+        IOLog("AMDRyzenCPUPowerManagement: PM table version 0x%08X (BCD %u.%u.%u, elapsed %u us).\n",
+              versionWord, (versionWord >> 16) & 0xFF, (versionWord >> 8) & 0xFF, versionWord & 0xFF, elap08);
+    }
+
+    // Size lookup — unknown versions fail closed.
+    uint32_t size = pmTableSizeForVersion(pmTableVersionRaw);
+    if (size == 0 || size > kPM_TABLE_MAX_SIZE) {
+        static bool sLoggedSzFail = false;
+        if (!sLoggedSzFail) {
+            IOLog("AMDRyzenCPUPowerManagement: PM table version 0x%08X unsupported or unknown size %u (fail closed)\n",
+                  pmTableVersionRaw, size);
+            sLoggedSzFail = true;
+        }
+        return -14;
+    }
+    pmTableSize = size;
+
+    // 0x05: ask the SMU to copy the live table into DRAM (Arg0 = 0: main
+    // CPU table; for CPUs the argument is ignored per the reference).
+    {
+        uint32_t arg0 = 0;
+        uint32_t elap05 = 0;
+        int rsp = smuSendCmd(0x05, 0, arg0, &elap05);
+        if (rsp != SMU_RSP_OK) {
+            static bool sLogged05Fail = false;
+            if (!sLogged05Fail) {
+                IOLog("AMDRyzenCPUPowerManagement: PM table 0x05 (TransferTableSmu2Dram) failed: rsp=0x%X, elapsed=%u us\n", rsp, elap05);
+                sLogged05Fail = true;
+            }
+            return (rsp == SMU_RSP_TIMEOUT) ? -10 :
+                   (rsp == SMU_RSP_INVALID_CMD) ? -11 :
+                   (rsp == SMU_RSP_INVALID_ARGS) ? -12 :
+                   (rsp == SMU_RSP_BUSY) ? -13 : -5;
+        }
+    }
+
+    // 0x06: 64-bit physical base (Arg0=1/Arg1=1 in, arg0|arg1<<32 out).
+    {
+        uint32_t lo = 0, hi = 0;
+        uint32_t elap06 = 0;
+        int rsp = smuSendCmd2(0x06, 1, 1, lo, hi, &elap06);
+        if (rsp != SMU_RSP_OK) {
+            static bool sLogged06Fail = false;
+            if (!sLogged06Fail) {
+                IOLog("AMDRyzenCPUPowerManagement: PM table 0x06 (GetDramBaseAddress) failed: rsp=0x%X, elapsed=%u us\n", rsp, elap06);
+                sLogged06Fail = true;
+            }
+            return (rsp == SMU_RSP_TIMEOUT) ? -10 :
+                   (rsp == SMU_RSP_INVALID_CMD) ? -11 :
+                   (rsp == SMU_RSP_INVALID_ARGS) ? -12 :
+                   (rsp == SMU_RSP_BUSY) ? -13 : -5;
+        }
+        uint64_t base = (uint64_t)lo | ((uint64_t)hi << 32);
+        if (base == 0) {
+            IOLog("AMDRyzenCPUPowerManagement: PM table 0x06 returned base=0\n");
+            return -15;
+        }
+        if (pmDramBase == 0 || pmDramBase != base) {
+            IOLog("AMDRyzenCPUPowerManagement: PM table physical DRAM base 0x%llx (lo=0x%X, hi=0x%X, elapsed %u us).\n",
+                  (unsigned long long)base, lo, hi, elap06);
+        }
+        pmDramBase = base;
+    }
+
+    // Map READ-ONLY, copy into the snapshot, unmap immediately. Nothing
+    // persistent is created: the base address can change across firmware
+    // events, so every capture creates a fresh short-lived kernel mapping
+    // of exactly pmTableSize bytes at the SMU-provided physical address.
+    {
+        IOMemoryDescriptor *md =
+            IOMemoryDescriptor::withPhysicalAddress(
+                (IOPhysicalAddress)pmDramBase, (IOByteCount)pmTableSize,
+                kIODirectionIn);
+        if (!md) {
+            IOLog("AMDRyzenCPUPowerManagement: PM table IOMemoryDescriptor creation failed (base 0x%llx, %u bytes).\n",
+                  (unsigned long long)pmDramBase, pmTableSize);
+            return -15;
+        }
+        IOMemoryMap *map = md->createMappingInTask(kernel_task, 0,
+                                                   kIOMapAnywhere | kIOMapInhibitCache | kIOMapReadOnly,
+                                                   0, pmTableSize);
+        if (!map) {
+            IOLog("AMDRyzenCPUPowerManagement: PM table mapping failed (base 0x%llx, %u bytes).\n",
+                  (unsigned long long)pmDramBase, pmTableSize);
+            md->release();
+            return -15;
+        }
+        memcpy(pmTableSnapshot, (const void *)map->getVirtualAddress(), pmTableSize);
+        map->release();
+        md->release();
+    }
+
+    pmTableCapturedMs = getCurrentTimeNs() / 1000000;
+    if (!pmMapValid) {
+        IOLog("AMDRyzenCPUPowerManagement: PM table snapshot capture active (%u bytes from physical 0x%llx, version 0x%08X).\n",
+              pmTableSize, (unsigned long long)pmDramBase, pmTableVersionRaw);
+    }
+    pmMapValid = true;
+    return 0;
+}
+
+// S9a: main-timer refresh (F-05 — timer command gate only), throttled to
+// one 0x05 + capture per second. Re-runs the full cycle every time (the
+// reference re-issues 0x05 per read; bases can migrate across firmware
+// events), so a changed base address is picked up within a second.
+// Failures keep the previous snapshot and stay diagnostic — this path
+// must never disturb the PBO/CO/OC command flow (it shares smuCmdLock,
+// which stays a leaf).
+void AMDRyzenCPUPowerManagement::pollPMTable() {
+    if (!pboLimitsSupported()) return;
+
+    uint64_t now = getCurrentTimeNs() / 1000000; // ms
+    if (pmRefreshLastPollMs != 0 &&
+        now - pmRefreshLastPollMs < kPM_REFRESH_MIN_INTERVAL_MS) {
+        return;
+    }
+    pmRefreshLastPollMs = now;
+
+    (void)forcePMTableCapture();
+}
+
 // S6: one-shot ProcessorParameters read (Vermeer RSMU 0x6F, per ryzen_smu
 // rsmu_commands.md — Res0 bitfield, no input arg). Static silicon config:
 // on the first SMU_RSP_OK the result is cached and the command is never
@@ -1372,11 +1701,18 @@ uint32_t AMDRyzenCPUPowerManagement::pollProcessorParameters() {
     if (smuProcParamsPolled) return smuProcessorParametersRaw;
     
     uint32_t result = 0;
-    int rsp = smuSendCmd(0x6F, 0, result);
+    uint32_t elapsed = 0;
+    int rsp = smuSendCmd(0x6F, 0, result, &elapsed);
     if (rsp == SMU_RSP_OK) {
         smuProcessorParametersRaw = result;
         smuProcParamsPolled = true;
-        IOLog("AMDRyzenCPUPowerManagement: ProcessorParameters (0x6F) = 0x%X (bit0 overclockable, bit1 PBO).\n", result);
+        IOLog("AMDRyzenCPUPowerManagement: ProcessorParameters (0x6F) = 0x%X (bit0 overclockable, bit1 PBO, elapsed %u us).\n", result, elapsed);
+    } else {
+        static bool sLoggedProcFail = false;
+        if (!sLoggedProcFail) {
+            IOLog("AMDRyzenCPUPowerManagement: pollProcessorParameters (0x6F) failed: rsp=0x%X, elapsed=%u us\n", rsp, elapsed);
+            sLoggedProcFail = true;
+        }
     }
     return smuProcessorParametersRaw;
 }

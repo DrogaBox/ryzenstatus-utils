@@ -1961,6 +1961,80 @@ actor ProcessorModel {
         input[11] = UInt64(targets.count)
         return safeIOConnectCallMethod(AMDKextSelector.ocFreqWrite.id, &input, 12, nil, 0, nil, nil, nil, nil)
     }
+
+    // MARK: — S9a: SMU PM-table plumbing (selectors 56/57)
+
+    /// Read the kext's PM-table info (selector 56): version word + polled
+    /// flag, documented size for that version (0 = unknown — fail closed),
+    /// physical base, snapshot validity and age. Cache only — no SMU
+    /// traffic (F-05). Returns nil on pre-1.30 kexts or when the connection
+    /// is down.
+    nonisolated func getPMTableInfo() -> (versionRaw: UInt32,
+                                          versionPolled: Bool,
+                                          sizeBytes: UInt32,
+                                          dramBase: UInt64,
+                                          snapshotValid: Bool,
+                                          snapshotAgeMs: UInt64)? {
+        var output = [UInt64](repeating: 0, count: 8)
+        var outputCount: UInt32 = 8
+        let res = safeIOConnectCallMethod(AMDKextSelector.pmTableInfo.id, nil, 0, nil, 0,
+                                          &output, &outputCount, nil, nil)
+        guard res == KERN_SUCCESS, outputCount >= 8 else { return nil }
+        let base = (UInt64(truncatingIfNeeded: output[4]) << 32) | UInt64(truncatingIfNeeded: output[3])
+        return (UInt32(truncatingIfNeeded: output[0]),
+                output[1] == 1,
+                UInt32(truncatingIfNeeded: output[2]),
+                base,
+                output[5] == 1,
+                output[6])
+    }
+
+    /// Read a chunk of the kext's PM-table snapshot (selector 57 op 1).
+    /// Returns nil when no snapshot is valid yet, on pre-1.30 kexts, or if
+    /// the kext refuses the offset. Cache only — no SMU traffic.
+    nonisolated func getPMTableChunk(offset: UInt32, maxBytes: Int = 4096) -> Data? {
+        let requestedBytes = min(maxBytes, 4096)
+        guard requestedBytes > 0 else { return nil }
+        var input: [UInt64] = [1, UInt64(offset)]   // op 1 = read chunk
+        var buffer = [UInt8](repeating: 0, count: requestedBytes)
+        var size = requestedBytes
+        let res = safeIOConnectCallMethod(AMDKextSelector.pmTableRaw.id,
+                                          &input, 2, nil, 0,
+                                          nil, nil, &buffer, &size)
+        guard res == KERN_SUCCESS, size > 0 else { return nil }
+        return Data(buffer.prefix(min(size, buffer.count)))
+    }
+
+    /// Read the whole snapshot through chunked calls (selector 57 op 1).
+    /// Stops when the kext reports fewer bytes than requested (end of table).
+    nonisolated func getPMTableSnapshot() -> Data? {
+        guard let info = getPMTableInfo(), info.snapshotValid, info.sizeBytes > 0 else { return nil }
+        var out = Data()
+        let chunkSize = 4096
+        var offset: UInt32 = 0
+        while offset < info.sizeBytes {
+            guard let chunk = getPMTableChunk(offset: offset, maxBytes: chunkSize), !chunk.isEmpty else {
+                return nil
+            }
+            out.append(chunk)
+            offset += UInt32(chunk.count)
+            if chunk.count < chunkSize && offset < info.sizeBytes {
+                return nil
+            }
+        }
+        guard offset == info.sizeBytes, out.count == Int(info.sizeBytes) else { return nil }
+        return out
+    }
+
+    /// Force an immediate capture cycle (selector 57 op 2, privileged):
+    /// 0x08 once, then 0x05 → 0x06 → read-only map → snapshot. Adds SMU
+    /// mailbox traffic on demand — that is why the kext gates it behind
+    /// root/`-amdpnopchk`.
+    @discardableResult
+    nonisolated func forcePMTableCapture() -> kern_return_t {
+        var input: [UInt64] = [2]
+        return safeIOConnectCallMethod(AMDKextSelector.pmTableRaw.id, &input, 1, nil, 0, nil, nil, nil, nil)
+    }
 }
 
 /// Per-component IOKit statuses of a `ProcessorModel.applyPowerPreset(_:)` call.

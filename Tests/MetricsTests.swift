@@ -7525,7 +7525,16 @@ struct MetricsTests {
                 ("ocFreqFooter", a.ocFreqFooter),
                 ("ocFreqAllCoreLabel", a.ocFreqAllCoreLabel),
                 ("ocFreqApply", a.ocFreqApply),
-                ("ocFreqBlockedNoOcMode", a.ocFreqBlockedNoOcMode)
+                ("ocFreqBlockedNoOcMode", a.ocFreqBlockedNoOcMode),
+                // S9a PM-table diagnostics (read-only plumbing; no specifiers).
+                ("pmTableHeader", a.pmTableHeader),
+                ("pmTableFooter", a.pmTableFooter),
+                ("pmTableVersionLabel", a.pmTableVersionLabel),
+                ("pmTableSizeLabel", a.pmTableSizeLabel),
+                ("pmTableUnknownVersion", a.pmTableUnknownVersion),
+                ("pmTableCaptureLabel", a.pmTableCaptureLabel),
+                ("pmTableExport", a.pmTableExport),
+                ("pmTableUnavailable", a.pmTableUnavailable)
             ]
             for (key, value) in ocKeys {
                 expect(!value.isEmpty, "Language \(lang.rawValue) amdPower.\(key) must not be empty")
@@ -7537,6 +7546,24 @@ struct MetricsTests {
             expect(formatSpecifiers(in: a.ocFreqCacheFormat) == ["u"],
                    "Language \(lang.rawValue) ocFreqCacheFormat must keep exactly 1 %u specifier: \(a.ocFreqCacheFormat)")
         }
+
+        // MARK: S9a AMDSmuPMTable (0x08 version word — BCD-ish fields)
+
+        // formatVersion renders the three byte fields dotted, zero-padded.
+        expectEqual(AMDSmuPMTable.formatVersion(0x0037_0B01), "55.11.01",
+                    "formatVersion(0x00370B01) must render 55.11.01")
+        expectEqual(AMDSmuPMTable.formatVersion(0x0040_050A), "64.05.10",
+                    "formatVersion(0x0040050A) must render 64.05.10")
+        expectEqual(AMDSmuPMTable.formatVersion(0), "00.00.00",
+                    "formatVersion(0) must render 00.00.00 (never-read still renders)")
+
+        // isKnownVersion mirrors the kext's fail-closed size table exactly.
+        expect(AMDSmuPMTable.isKnownVersion(0x380905), "0x380905 must be a documented Vermeer table version")
+        expect(AMDSmuPMTable.isKnownVersion(0x2D0903), "0x2D0903 must be a documented table version")
+        expect(AMDSmuPMTable.isKnownVersion(0x380005), "0x380005 must be a documented table version (largest, 0x1BB0)")
+        expect(!AMDSmuPMTable.isKnownVersion(0), "version 0 (never read) must not count as known")
+        expect(!AMDSmuPMTable.isKnownVersion(0x1234_5678), "unknown future versions must fail closed")
+        expect(!AMDSmuPMTable.isKnownVersion(0x0037_0B01), "SMU firmware version (0x02) must not be confused with a PM-table version")
 
         // MARK: S4 AMDPBOLimits Helpers (gate, clamps, formatters)
 

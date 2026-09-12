@@ -71,6 +71,15 @@ final class AmdPowerControlsModel: ObservableObject {
     @Published private(set) var ocFreqPerCcdMHz: [UInt32] = []
     @Published private(set) var kextCcdCount: Int = 0
 
+    // S9a: PM-table plumbing snapshot info (selector 56). All diagnostic —
+    // `pmTableValid` is false until the timer's first successful capture.
+    @Published private(set) var pmTableVersionRaw: UInt32 = 0
+    @Published private(set) var pmTableVersionPolled = false
+    @Published private(set) var pmTableSizeBytes: UInt32 = 0
+    @Published private(set) var pmTableBase: UInt64 = 0
+    @Published private(set) var pmTableValid = false
+    @Published private(set) var pmTableAgeMs: UInt64 = 0
+
     /// Guard flag: true when updating published properties from kext reads
     /// to avoid trigger loops from `.onChange` handlers.
     /// Writes arriving while a sync is in flight are intentionally dropped;
@@ -175,7 +184,7 @@ final class AmdPowerControlsModel: ObservableObject {
         recordTelemetrySample()
 
         let (kernelAnswered, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
-             smuVersion, activeScalar, ocCap, ocFreq) = await Task.detached(priority: .userInitiated) {
+             smuVersion, activeScalar, ocCap, ocFreq, pmInfo) = await Task.detached(priority: .userInitiated) {
             // AUDIT F-27: thread-safe connection check to avoid data races
             let kernelAnswered = ProcessorModel.shared.isConnected
             let cpb = ProcessorModel.shared.getCPB()
@@ -197,8 +206,10 @@ final class AmdPowerControlsModel: ObservableObject {
             let ocCap = kernelAnswered ? ProcessorModel.shared.getOcCapability() : nil
             // S8.2: frequency-override cache (cache only, no SMU traffic).
             let ocFreq = kernelAnswered ? ProcessorModel.shared.getOcFreqCache() : nil
+            // S9a: PM-table info (cache only, no SMU traffic).
+            let pmInfo = kernelAnswered ? ProcessorModel.shared.getPMTableInfo() : nil
             return (kernelAnswered, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
-                    smuVersion, activeScalar, ocCap, ocFreq)
+                    smuVersion, activeScalar, ocCap, ocFreq, pmInfo)
         }.value
         let profile = await ProcessorModel.shared.cpuProfile
         // S8.2 fallback for the per-CCD row count when the kext's register
@@ -269,7 +280,7 @@ final class AmdPowerControlsModel: ObservableObject {
         }
 
         // S8.2: publish the frequency-override cache. `ocFreqSupported` reads
-        // selector 49 [3] (0 on pre-1.29 kexts — controls stay hidden); the
+        // selector 49 [3] (0 on pre-1.30 kexts — controls stay hidden); the
         // kext's CCD count falls back to the app's own estimate when the
         // kext reports 0.
         ocFreqSupported = ocCap?.freqSupported ?? false
@@ -283,6 +294,23 @@ final class AmdPowerControlsModel: ObservableObject {
             ocFreqAllCoresMHz = 0
             ocFreqPerCcdMHz = []
             kextCcdCount = 0
+        }
+
+        // S9a: publish the PM-table plumbing info.
+        if let pmInfo {
+            pmTableVersionRaw = pmInfo.versionRaw
+            pmTableVersionPolled = pmInfo.versionPolled
+            pmTableSizeBytes = pmInfo.sizeBytes
+            pmTableBase = pmInfo.dramBase
+            pmTableValid = pmInfo.snapshotValid
+            pmTableAgeMs = pmInfo.snapshotAgeMs
+        } else {
+            pmTableVersionRaw = 0
+            pmTableVersionPolled = false
+            pmTableSizeBytes = 0
+            pmTableBase = 0
+            pmTableValid = false
+            pmTableAgeMs = 0
         }
 
         if profile.legacyPstateAllowed {

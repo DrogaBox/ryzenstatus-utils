@@ -2013,6 +2013,112 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
         
+        // Get PM-table info (S9a, read-only): [0] = table version word
+        // (0x08 response, BCD-style e.g. 0x380904 → 38.09.04), [1] = version
+        // polled flag, [2] = documented size in bytes for that version
+        // (0 = unknown version — fail closed), [3] = physical base low 32,
+        // [4] = physical base high 32, [5] = snapshot valid flag, [6] =
+        // snapshot age in ms (0 = never captured). Cache only — no SMU
+        // traffic (F-05); unsupported on pre-1.30 kexts.
+        case 56: {
+            if(!provider)
+                return kIOReturnNoDevice;
+
+            if (provider->rendezvousLock) IOLockLock(provider->rendezvousLock);
+            arguments->scalarOutputCount = 8;
+            arguments->scalarOutput[0] = provider->pmTableVersionRaw;
+            arguments->scalarOutput[1] = provider->pmTableVersionPolled ? 1 : 0;
+            arguments->scalarOutput[2] = provider->pmTableSize;
+            arguments->scalarOutput[3] = (uint32_t)(provider->pmDramBase & 0xFFFFFFFF);
+            arguments->scalarOutput[4] = (uint32_t)(provider->pmDramBase >> 32);
+            arguments->scalarOutput[5] = provider->pmMapValid ? 1 : 0;
+            {
+                uint64_t nowMs = 0;
+                if (provider->pmTableCapturedMs != 0) {
+                    nowMs = getCurrentTimeNs() / 1000000;
+                }
+                arguments->scalarOutput[6] = (provider->pmTableCapturedMs != 0 && nowMs > provider->pmTableCapturedMs)
+                    ? (uint64_t)(nowMs - provider->pmTableCapturedMs) : 0;
+            }
+            arguments->scalarOutput[7] = 0;
+            if (provider->rendezvousLock) IOLockUnlock(provider->rendezvousLock);
+
+            break;
+        }
+
+        // PM-table raw access (S9a): op 1 = read a chunk of the snapshot
+        // (structure output; [0] = byte offset, clamped so offset+count stay
+        // inside the captured table — never reads past pmTableSize, never
+        // touches the SMU); op 2 = force an immediate capture cycle (0x08
+        // once, then 0x05 → 0x06 → map → copy), privileged because it adds
+        // SMU mailbox traffic on demand.
+        case 57: {
+            if(!provider)
+                return kIOReturnNoDevice;
+
+            uint32_t op = (arguments->scalarInputCount >= 1)
+                ? (uint32_t)arguments->scalarInput[0] : 1;
+
+            if (op == 2) {
+                if(!hasPrivilege(57))
+                    return kIOReturnNotPrivileged;
+
+                if (provider->rendezvousLock) IOLockLock(provider->rendezvousLock);
+                int rc = provider->forcePMTableCapture();
+                if (provider->rendezvousLock) IOLockUnlock(provider->rendezvousLock);
+
+                IOLog("AMDRyzenCPUPMUserClient: selector 57 op 2 (forcePMTableCapture) pid=%d rc=%d\n",
+                      proc_selfpid(), rc);
+
+                if (rc < 0) {
+                    if (rc == -1 || rc == -11) return kIOReturnUnsupported;
+                    if (rc == -14) return kIOReturnUnsupported;   // unknown table version
+                    if (rc == -15) return kIOReturnIOError;
+                    if (rc == -10) return kIOReturnTimeout;
+                    if (rc == -13) return kIOReturnBusy;
+                    return kIOReturnError;
+                }
+                arguments->scalarOutputCount = 1;
+                arguments->scalarOutput[0] = 0;
+                break;
+            }
+
+            if (op != 1)
+                return kIOReturnBadArgument;
+
+            // op 1: chunked snapshot read. Serialize against the timer's
+            // capture path so callers never observe a partially-copied buffer.
+            arguments->scalarOutputCount = 0;
+            if (provider->rendezvousLock) IOLockLock(provider->rendezvousLock);
+
+            uint32_t offset = (arguments->scalarInputCount == 2)
+                ? (uint32_t)arguments->scalarInput[1] : 0;
+            uint32_t tableSize = provider->pmTableSize;
+            if (!provider->pmMapValid || tableSize == 0) {
+                if (provider->rendezvousLock) IOLockUnlock(provider->rendezvousLock);
+                return kIOReturnNotReady;
+            }
+            if (offset >= tableSize) {
+                if (provider->rendezvousLock) IOLockUnlock(provider->rendezvousLock);
+                return kIOReturnBadArgument;
+            }
+
+            uint32_t available = tableSize - offset;
+            uint32_t maxLen = arguments->structureOutputSize;
+            // AUDIT F-16: reject undersized output buffers; AUDIT F-12:
+            // report only what actually fits.
+            if (maxLen == 0 || arguments->structureOutput == nullptr) {
+                if (provider->rendezvousLock) IOLockUnlock(provider->rendezvousLock);
+                return kIOReturnBadArgument;
+            }
+            uint32_t copyCount = (maxLen < available) ? maxLen : available;
+            arguments->structureOutputSize = copyCount;
+            memcpy(arguments->structureOutput, provider->pmTableSnapshot + offset, copyCount);
+
+            if (provider->rendezvousLock) IOLockUnlock(provider->rendezvousLock);
+            break;
+        }
+
         // Set PBO limits: PPT mW, TDC mA, EDC mA. Privilege required.
         case 41: {
             if(!provider)

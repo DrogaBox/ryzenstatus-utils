@@ -44,6 +44,9 @@ struct AmdPowerSettingsView: View {
     @State private var ocFreqSeeded = false
     @State private var ocFreqStatusMessage: String?
     @State private var ocFreqStatusIsError = false
+    // S9a: PM-table export status (dedicated — never borrows the OC-freq slot).
+    @State private var pmStatusMessage: String?
+    @State private var pmStatusIsError = false
     @State private var isLoading = false
     @ObservedObject private var gaming = GamingModeService.shared
     @ObservedObject private var c6Service = C6ResidencyService.shared
@@ -440,6 +443,61 @@ struct AmdPowerSettingsView: View {
                     Text(l10n.amdPower.boostTelemetryHeader)
                 } footer: {
                     Text(l10n.amdPower.boostTelemetryFooter)
+                }
+
+                // S9a: SMU PM-table plumbing diagnostics (0x05/0x06/0x08).
+                // Read-only: the kext's timer captures the SMU's metrics
+                // table into a snapshot buffer; this section surfaces the
+                // version/size/base info and a bug-report export.
+                Section {
+                    if !controls.pmTableVersionPolled {
+                        Label(l10n.amdPower.pmTableUnavailable, systemImage: "info.circle")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        HStack {
+                            Text(l10n.amdPower.pmTableVersionLabel)
+                            Spacer()
+                            Text(AMDSmuPMTable.formatVersion(controls.pmTableVersionRaw))
+                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                .foregroundColor(.primary)
+                        }
+                        HStack {
+                            Text(l10n.amdPower.pmTableSizeLabel)
+                            Spacer()
+                            Text(controls.pmTableSizeBytes > 0
+                                 ? "\(controls.pmTableSizeBytes) B"
+                                 : l10n.amdPower.pmTableUnknownVersion)
+                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                .foregroundColor(controls.pmTableSizeBytes > 0 ? .primary : .orange)
+                        }
+                        if controls.pmTableValid {
+                            HStack {
+                                Text(l10n.amdPower.pmTableCaptureLabel)
+                                Spacer()
+                                Text("\(controls.pmTableAgeMs / 1000)s")
+                                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                    .foregroundColor(.green)
+                            }
+                            Button {
+                                exportPMTable()
+                            } label: {
+                                Label(l10n.amdPower.pmTableExport, systemImage: "square.and.arrow.up")
+                            }
+                            .buttonStyle(.bordered)
+                            if let message = pmStatusMessage {
+                                Text(message)
+                                    .font(.caption2)
+                                    .foregroundColor(pmStatusIsError ? .red : .green)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                } header: {
+                    Text(l10n.amdPower.pmTableHeader)
+                } footer: {
+                    Text(l10n.amdPower.pmTableFooter)
                 }
 
                 // S6: cHTC thermal limit (SMU 0x56) + fused capability bits
@@ -1474,6 +1532,34 @@ struct AmdPowerSettingsView: View {
             parts.append(String(format: l10n.amdPower.ocFreqPerCcdFormat, ccd) + " \(mhz) MHz")
         }
         return parts.joined(separator: " · ")
+    }
+
+    /// S9a: export the PM-table snapshot via a save panel (bug-report
+    /// capture). Runs the privileged force-capture first so the exported
+    /// bytes are as fresh as the kext can make them.
+    private func exportPMTable() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.data]
+        let v = controls.pmTableVersionRaw
+        let versionPart = AMDSmuPMTable.formatVersion(v).replacingOccurrences(of: ".", with: "")
+        panel.nameFieldStringValue = "pmtable_\(versionPart)_size\(controls.pmTableSizeBytes).bin"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            let captured = ProcessorModel.shared.forcePMTableCapture()
+            guard captured == KERN_SUCCESS, let data = ProcessorModel.shared.getPMTableSnapshot() else {
+                pmStatusIsError = true
+                pmStatusMessage = "PM table capture failed"
+                return
+            }
+            do {
+                try data.write(to: url)
+                pmStatusIsError = false
+                pmStatusMessage = nil
+            } catch {
+                pmStatusIsError = true
+                pmStatusMessage = "Export failed"
+            }
+        }
     }
 
     /// Maps the kext's selector-51 return codes to friendly messages (S8.2).

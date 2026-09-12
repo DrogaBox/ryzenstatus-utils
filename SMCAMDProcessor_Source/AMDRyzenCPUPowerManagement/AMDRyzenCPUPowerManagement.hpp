@@ -7,6 +7,7 @@
 #include <math.h>
 #include <IOKit/pci/IOPCIDevice.h>
 #include <IOKit/IOTimerEventSource.h>
+#include <IOKit/IOMemoryDescriptor.h>
 
 
 #include <i386/proc_reg.h>
@@ -102,7 +103,6 @@ static IOPMPowerState powerStates[kNrOfPowerStates] = {
    {1, kIOPMPowerOff, kIOPMPowerOff, kIOPMPowerOff, 0, 0, 0, 0, 0, 0, 0, 0},
    {1, kIOPMPowerOn, kIOPMPowerOn, kIOPMPowerOn, 0, 0, 0, 0, 0, 0, 0, 0}
 };
-
 
 class AMDRyzenCPUPowerManagement : public IOService {
     OSDeclareDefaultStructors(AMDRyzenCPUPowerManagement)
@@ -311,7 +311,7 @@ public:
     // word on OK, else 0. Rides the boost-telemetry throttle window; timer
     // command gate only (F-05).
     uint32_t pollSmuPBOScalar();
-    
+
     // S8: enable/disable Vermeer OC mode (RSMU 0x5A EnableOcMode / 0x5B
     // DisableOcMode — semantics pinned by ZenStates-Core, resolving the doc's
     // contradictory rows). Writes blocked under the same thermal interlock as
@@ -320,6 +320,20 @@ public:
     // that does not auto-reset it. Returns 0 on success; negative maps like
     // setPBOLimit.
     int setOcMode(bool enable, bool resetScalar);
+
+    // S9a: SMU PM-table plumbing (0x08 version → per-version size → 0x05
+    // transfer → 0x06 base → read-only map → snapshot copy). Called from the
+    // main timer command gate only (F-05), throttled to one 0x05 + re-map
+    // check per second. All state is diagnostic: user space reads the
+    // SNAPSHOT, never the live mapping, and nothing in this path writes to
+    // SMU-controlled memory. Read-only map is unmapped on sleep/shutdown
+    // (kext stop path) like every other ioremap in this kext.
+    void pollPMTable();
+    // S9a: immediate capture (selector 57 op 2). Returns 0 on success,
+    // else the mapped negative table from the S9a helpers. Runs under
+    // rendezvousLock (UserClient) or on the timer command gate (F-05) —
+    // the same policy as every other privileged SMU write path (CO/cHTC/PBO).
+    int forcePMTableCapture();
 
     // S8.2: program a frequency override via the Vermeer RSMU OC commands —
     // all-core (0x5C, one call) or per-CCD (0x5D, one round trip per CCD;
@@ -581,6 +595,21 @@ public:
     uint32_t ocFreqMHzAllCores {0};
     uint32_t ocFreqMHzPerCcd[kS8MaxCcds] {0};
 
+    // S9a: SMU PM-table plumbing (Vermeer RSMU 0x05/0x06/0x08 — the same
+    // table ryzen_smu/HWiNFO feed from). The table lives at a SMU-provided
+    // physical address in DRAM; the kext maps it read-only and snapshots it
+    // into a fixed buffer that user space reads through selector 57.
+    static constexpr uint32_t kPM_TABLE_MAX_SIZE = 0x2000;   // covers every documented Vermeer size (max 0x1BB0)
+    static constexpr uint64_t kPM_REFRESH_MIN_INTERVAL_MS = 1000; // one 0x05 + re-map check per second, worst case
+    uint64_t pmRefreshLastPollMs {0};
+    uint32_t pmTableVersionRaw {0};          // 0x08 response (BCD-style, e.g. 0x380904 → 38.09.04)
+    bool     pmTableVersionPolled {false};
+    uint64_t pmDramBase {0};                 // physical base from 0x06 (0 = unknown)
+    uint32_t pmTableSize {0};                // documented size for the detected version (0 = unknown version)
+    uint8_t  pmTableSnapshot[kPM_TABLE_MAX_SIZE] {0};
+    uint64_t pmTableCapturedMs {0};          // timestamp of the last successful capture
+    bool     pmMapValid {false};             // snapshot reflects a successful 0x05+capture cycle
+
     // S3-B: read-only view for the UserClient capability report (selector 35).
     // Exposes only the fields the CO capability needs; keeps the rest of the
     // mailbox (SMN register layout) private.
@@ -627,7 +656,13 @@ private:
     uint32_t smnRead32(uint32_t addr);
     void smnWrite32(uint32_t addr, uint32_t val);
     int smuSendCmd(uint32_t cmd, uint32_t arg);
-    int smuSendCmd(uint32_t cmd, uint32_t arg, uint32_t &outArg0);
+    int smuSendCmd(uint32_t cmd, uint32_t arg, uint32_t &outArg0, uint32_t *outElapsedUs = nullptr);
+    // S9a: two-argument variant returning both arg-window words after OK —
+    // GetDramBaseAddress (0x06) is called with Arg0=1/Arg1=1 on Vermeer and
+    // the 64-bit physical base assembles as arg0 | (arg1 << 32)
+    // (reference smu.c smu_get_dram_base_address, BASE_ADDR_CLASS_1).
+    int smuSendCmd2(uint32_t cmd, uint32_t arg0, uint32_t arg1,
+                    uint32_t &outArg0, uint32_t &outArg1, uint32_t *outElapsedUs = nullptr);
 
     struct SMUMailbox {
         uint32_t msgReg;

@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.30.0] — 2026-09-11
+
+### AMD Kernel: SMU PM-table plumbing (wave S9a)
+- **The kext now snapshots the SMU's own PM table** — the same metrics table ryzen_smu and HWiNFO read — through the documented Vermeer RSMU sequence: `GetPMTableVersion` (0x08, one-shot static read), `TransferTableSmu2Dram` (0x05, Arg0=0, the SMU copies the table to DRAM) and `GetDramBaseAddress` (0x06, Arg0=1/Arg1=1, 64-bit base assembled as `arg0 | arg1<<32` via a new two-argument mailbox variant `smuSendCmd2`). The whole cycle runs on the main timer's command gate (F-05), throttled to one transfer + re-map check per second.
+- **Read-only, snapshot-only**: the kext maps the SMU-provided physical region read-only with a short-lived `IOMemoryDescriptor` mapping, copies it into a fixed 0x2000-byte buffer and unmaps immediately — nothing persists, and nothing in this path writes to SMU-controlled memory. Table size comes from a per-version fail-closed table (10 documented Vermeer/Chagall versions, 0x594…0x1BB0 bytes); unknown versions refuse the mapping entirely rather than guess a size.
+- **Selector 56 (non-privileged)** reports the cached diagnostics: table version word, size, 64-bit physical base, snapshot validity, snapshot age and the CCD count. **Selector 57 (structure method)** reads the raw snapshot bytes chunked (app chooses chunk ≤ 0x1000) and supports a force-recapture op that runs one immediate capture cycle on the command gate.
+- **App**: new “SMU PM Table” diagnostics section — version rendered BCD-style (e.g. 38.09.04), documented size or a localized “unknown version” row, physical base address, snapshot age, and an **Export snapshot…** button writing the raw bytes through NSSavePanel for bug reports and offline analysis. Version-decode helpers are unit-tested.
+
+### Packaging
+- Kexts rebuilt at **3.34.11**: fixes the Vermeer RSMU mailbox registers (response 0x3B10570, args 0x3B10A40 — response/args were mis-pinned, so every SMU command silently timed out) and adds `kIOMapAnywhere` to the S9a PM-table kernel mapping (a fixed map at address 0 always failed → rc -15). Adds a boot-time `[SMU Diagnostic]` one-shot probe, per-command elapsed-time instrumentation, and failure logging across all SMU pollers and the S9a PM-table capture. Verified on hardware: SMU version 0x384c00, ProcessorParameters 0x3, boost 4950 MHz, PM-table version 0x380805 (2288 B). `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` refreshed and its SHA-256 repinned in `Tools/make-dmg.sh`. App 1.30.0 (70).
+
 ## [1.29.0] — 2026-09-11
 
 ### AMD Kernel: SMU frequency overrides behind the OC gate (wave S8, phase 2)

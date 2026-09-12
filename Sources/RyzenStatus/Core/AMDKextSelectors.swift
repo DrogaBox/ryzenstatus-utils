@@ -169,6 +169,20 @@ enum AMDKextSelector: UInt32 {
     /// = CCD, 0 = never written). Cache only, no SMU traffic (F-05).
     /// Unsupported on pre-1.29 kexts.
     case ocFreqCacheRead = 52
+    /// Read-only PM-table info (S9a): [0] = table version word (0x08
+    /// response, BCD-style e.g. 0x380904 → 38.09.04), [1] = version-polled
+    /// flag, [2] = documented size in bytes (0 = unknown version, fail
+    /// closed), [3]/[4] = physical base low/high 32, [5] = snapshot-valid
+    /// flag, [6] = snapshot age in ms (0 = never captured), [7] = reserved.
+    /// Cache only, no SMU traffic (F-05). Unsupported on pre-1.30 kexts.
+    case pmTableInfo = 56
+    /// PM-table raw access (S9a): op 1 = read a chunk of the kext's snapshot
+    /// (structure output; scalarInput [0] = op, [1] = byte offset; the kext
+    /// clamps to the captured table and never reads past its size — no SMU
+    /// traffic); op 2 = force an immediate capture cycle (0x08 once, then
+    /// 0x05 → 0x06 → read-only map → snapshot), privileged because it adds
+    /// SMU mailbox traffic on demand. Unsupported on pre-1.30 kexts.
+    case pmTableRaw = 57
 
     // MARK: — Fan Control (via SuperIO)
 

@@ -321,3 +321,32 @@ enum AMDOcFreq {
         return (ccd, core, mhz)
     }
 }
+
+// MARK: - SMU PM Table (S9a, selectors 56/57 — 0x05/0x06/0x08 plumbing)
+
+/// Decode/format helpers for the SMU PM-table plumbing wave. The version
+/// word from `GetPMTableVersion` (0x08) is BCD-style, e.g. 0x380904 renders
+/// as "38.09.04" (the reference treats it as three byte fields; unknown
+/// bytes stay honest in hex rather than guessed).
+enum AMDSmuPMTable {
+    /// BCD-ish rendering of the version word: three byte fields joined with
+    /// dots. Refuses nothing — unknown words still render field-by-field,
+    /// which is exactly what a bug report needs.
+    static func formatVersion(_ raw: UInt32) -> String {
+        String(format: "%02u.%02u.%02u",
+               (raw >> 16) & 0xFF, (raw >> 8) & 0xFF, raw & 0xFF)
+    }
+
+    /// Known Vermeer/Chagall table sizes (bytes) — mirrors the kext's
+    /// fail-closed size table (Ryzen-Master-sourced, reference smu.c).
+    /// Used app-side only to display "unknown" when the kext reports 0.
+    static func isKnownVersion(_ raw: UInt32) -> Bool {
+        switch raw {
+        case 0x2D0803, 0x2D0903, 0x380005, 0x380505, 0x380605,
+             0x380705, 0x380804, 0x380805, 0x380904, 0x380905:
+            return true
+        default:
+            return false
+        }
+    }
+}
