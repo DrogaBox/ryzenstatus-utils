@@ -374,7 +374,11 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
     });
     
 //    tempSamplePeriod = (int)((1.0f / (float)HF_TEMP_SAMPLE_FREQ) * 1000);
+    // S10 KRN-04b: seed the ring buffer only with a trustworthy value; the
+    // sentinel must never enter tempSamples[], whose average becomes
+    // PACKAGE_TEMPERATURE_perPackage[0] (selector 95 guard + SMC keys).
     float fillT = getPackageTemp();
+    if (!isTempValid(fillT)) fillT = 0.0f;
     tempNextSample = 0;
     for (int i = 0; i < HF_TEMP_SAMPLE_LEN; i++) tempSamples[i] = fillT;
     
@@ -383,8 +387,13 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
         if (!provider || !provider->serviceInitialized) return;
         
         int next_samp = provider->tempNextSample;
+        // S10 KRN-04b: hold the previous sample when the read fails, instead of
+        // averaging in the sentinel. A stale-but-plausible temperature is far
+        // safer here than a value that silently disarms every thermal clamp.
         float t = provider->getPackageTemp();
-        provider->tempSamples[next_samp] = t;
+        if (isTempValid(t)) {
+            provider->tempSamples[next_samp] = t;
+        }
         provider->tempNextSample = (next_samp + 1) % HF_TEMP_SAMPLE_LEN;
         
         for (uint8_t i = 0; i < provider->ccdCount; i++) {
@@ -1180,8 +1189,12 @@ bool AMDRyzenCPUPowerManagement::getCPBState(){
     return !((hwConfig >> 25) & 0x1);
 }
 
+// S10 KRN-04: returns kTEMP_INVALID (not 0.0f) when the reading cannot be
+// trusted. 0.0f was ambiguous with a genuine 0 C, and 0 C is the single most
+// dangerous value in this driver: it selects lut[0] (slowest duty) and makes
+// every ">= 85 C" guard test false. Callers must use isTempValid(), not "> 0".
 inline float AMDRyzenCPUPowerManagement::getPackageTemp() {
-    if (!fIOPCIDevice || !pciConfigLock) return 0.0f;
+    if (!fIOPCIDevice || !pciConfigLock) return kTEMP_INVALID;
     IOPCIAddressSpace space;
     space.bits = 0x00;
     
@@ -1207,10 +1220,11 @@ inline float AMDRyzenCPUPowerManagement::getPackageTemp() {
     if (tempOffsetFlag)
         t -= 49.0f;
     
-    if (t < -20.0f || t > 135.0f) {
-        return 0.0f;
+    // Reject NaN, infinities and anything outside the plausible Zen window.
+    if (!(t == t) || t < -20.0f || t > 135.0f) {
+        return kTEMP_INVALID;
     }
-    
+
     return t;
 }
 
@@ -2333,17 +2347,47 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
     uint64_t now = getCurrentTimeNs();
     
     // 2. Smooth temperature per curve once before evaluating fan loop (KRN-07, KRN-09)
+    //
+    // S10 KRN-01: the EMA is validated on both input and output.
+    //  - A non-finite or out-of-range sample is NEVER fed into the filter; it is
+    //    dropped and the slot unseeded, so the next good sample re-seeds
+    //    instantly instead of crawling back over ~11 s from a poisoned value.
+    //  - NaN used to be absorbing AND permanent (the seeded flag was never
+    //    cleared), pinning the fan at lut[0] with the 85 C guard disabled.
+    //  - The validity flag is consumed by the fan loop below, which applies
+    //    kFAILSAFE_PWM rather than trusting an absent reading.
     for (int c = 0; c < MAX_FAN_CURVES; c++) {
         FanCurveConfig &config = fanCurves[c];
-        float rawSourceTemp = (config.sourceSensor == 1 && gpuTemp > 0.0f) ? gpuTemp : cpuTemp;
+
+        float rawSourceTemp = cpuTemp;
+        if (config.sourceSensor == 1 && isTempValid(gpuTemp) && gpuTemp > 0.0f) {
+            rawSourceTemp = gpuTemp;
+        }
+
+        if (!isTempValid(rawSourceTemp)) {
+            curveSmoothedValid[c] = false;
+            curveSmoothedSeeded[c] = false;
+            continue;
+        }
+
         if (!curveSmoothedSeeded[c]) {
             curveSmoothedTemp[c] = rawSourceTemp;
             curveSmoothedSeeded[c] = true;
         } else {
-            float alpha = 0.2f;
+            const float alpha = 0.2f;
             float prev = curveSmoothedTemp[c];
-            curveSmoothedTemp[c] = (alpha * rawSourceTemp) + ((1.0f - alpha) * prev);
+            if (!isTempValid(prev)) {
+                curveSmoothedTemp[c] = rawSourceTemp;
+            } else {
+                curveSmoothedTemp[c] = (alpha * rawSourceTemp) + ((1.0f - alpha) * prev);
+            }
         }
+
+        if (!isTempValid(curveSmoothedTemp[c])) {
+            curveSmoothedTemp[c] = rawSourceTemp;
+        }
+        curveSmoothedValid[c] = true;
+        curveRawSourceTemp[c] = rawSourceTemp;
     }
 
     for (int fanIdx = 0; fanIdx < superIO->getNumberOfFans(); fanIdx++) {
@@ -2354,18 +2398,36 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
         
         FanCurveConfig &config = fanCurves[curveIdx];
         
-        float rawSourceTemp = cpuTemp;
-        if (config.sourceSensor == 1) {
-            rawSourceTemp = gpuTemp > 0.0f ? gpuTemp : cpuTemp; // Fallback to CPU if GPU not updated
+        // S10 KRN-02 (a): trust gate. curveSmoothedValid[] is published by the
+        // EMA stage; false means neither the configured source nor the CPU
+        // fallback produced a reading inside the valid Zen window this tick.
+        // An unreadable sensor used to decay to 0.0f, which selected lut[0] AND
+        // made the >= 85 C test false — the two worst outcomes at once.
+        if (!curveSmoothedValid[curveIdx]) {
+            superIO->overrideFanControl(fanIdx, kFAILSAFE_PWM);
+            lastAppliedPWM[fanIdx] = kFAILSAFE_PWM;
+            lastAppliedTempSeeded[curveIdx] = false;
+            lastPWMUpdateTime[fanIdx] = now;
+            continue;
         }
-        
+
+        float rawSourceTemp = curveRawSourceTemp[curveIdx];
         float smoothed = curveSmoothedTemp[curveIdx];
-        
-        // 4. Map temperature index (0 - 255) with proper rounding
+
+        // S10 KRN-02 (b): the emergency guard is a SYSTEM-WIDE limit, so it is
+        // armed from the hottest trustworthy sensor, never from the curve's own
+        // configured source. A GPU-sourced curve used to leave a 95 C CPU
+        // running at the (cool) GPU curve's low duty.
+        float guardTemp = rawSourceTemp;
+        if (isTempValid(cpuTemp) && cpuTemp > guardTemp) guardTemp = cpuTemp;
+        if (isTempValid(gpuTemp) && gpuTemp > guardTemp) guardTemp = gpuTemp;
+
+        // 4. Map temperature index (0 - 255) with proper rounding.
+        // smoothed is guaranteed finite and in (-20, 135) by the EMA stage.
         int tempIdx = (int)(smoothed + 0.5f);
         if (tempIdx < 0) tempIdx = 0;
         if (tempIdx > 255) tempIdx = 255;
-        
+
         // 5. Look up target PWM from LUT
         uint8_t targetPWM = config.lut[tempIdx];
         
@@ -2403,8 +2465,24 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
             }
         }
         
-        // 7.5. Apply Thermal Safety Guard (above kTHERMAL_GUARD_TEMP_C, force at least kTHERMAL_GUARD_PWM)
-        if (rawSourceTemp >= kTHERMAL_GUARD_TEMP_C) {
+        // 7.5. Apply the minimum-duty floor, then the emergency thermal guard.
+        //
+        // S10 KRN-02 (c): PWM 0 keeps its special meaning ("hand this fan back
+        // to BIOS/SmartFan"), but any non-zero request below
+        // kCURVE_MIN_ACTIVE_PWM is raised to it. Writing 1..39 produced a
+        // silently stalled rotor. The floor is applied AFTER hysteresis/ramp
+        // limiting so those stages cannot smuggle a sub-floor value through,
+        // and BEFORE the guard so the guard always wins.
+        // Cross-reference: Swift manual-mode floor is AMDFanSafety.minimumManualPWM
+        // (Sources/RyzenStatus/Services/AMD/FanCurveModels.swift) — keep in sync.
+        if (targetPWM != 0 && targetPWM < kCURVE_MIN_ACTIVE_PWM) {
+            targetPWM = kCURVE_MIN_ACTIVE_PWM;
+        }
+
+        // Emergency thermal guard, armed from the hottest trustworthy sensor.
+        // Last so it overrides the floor, the ramp limiter and the
+        // release-to-BIOS branch alike: a hot fan is never handed to BIOS.
+        if (guardTemp >= kTHERMAL_GUARD_TEMP_C) {
             targetPWM = (targetPWM < kTHERMAL_GUARD_PWM) ? kTHERMAL_GUARD_PWM : targetPWM;
         }
         

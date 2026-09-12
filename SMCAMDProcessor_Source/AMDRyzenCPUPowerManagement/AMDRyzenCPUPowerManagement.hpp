@@ -99,6 +99,35 @@ struct FanCurveConfig {
 static constexpr float    kTHERMAL_GUARD_TEMP_C = 85.0f;
 static constexpr uint8_t  kTHERMAL_GUARD_PWM    = 200;   // ~78.4% duty
 
+// S10 KRN-00: hardware safety bounds for curve-mode fan output.
+//
+// kCURVE_MIN_ACTIVE_PWM — minimum duty actually written to the Super I/O once a
+// fan is under curve control. PWM 0 keeps its special meaning ("release this fan
+// back to BIOS/SmartFan"), but ANY non-zero request below this floor is raised
+// to it. Rationale: this is a strictly open-loop controller (no RPM feedback),
+// so a duty below the rotor's start threshold yields a silently stalled fan
+// drawing locked-rotor current with zero airflow and zero detection.
+// Cross-reference: the Swift manual-mode floor is AMDFanSafety.minimumManualPWM
+// (Sources/RyzenStatus/Services/AMD/FanCurveModels.swift) — keep both in sync.
+static constexpr uint8_t  kCURVE_MIN_ACTIVE_PWM = 40;    // ~15.7% duty
+
+// kTEMP_INVALID — explicit sentinel for "temperature could not be read".
+// getPackageTemp() returned 0.0f for BOTH a genuine 0 C and a failed SMN/PCI
+// transaction; 0 C simultaneously selects lut[0] (coldest, slowest point) AND
+// makes the >= 85 C guard test false. That is fail-dangerous.
+static constexpr float    kTEMP_INVALID = -1000.0f;
+
+// kFAILSAFE_PWM — duty applied when the loop cannot trust its temperature
+// input. Deliberately audible: a loud fan is a self-announcing failure mode,
+// a silent stalled fan is not.
+static constexpr uint8_t  kFAILSAFE_PWM = 160;           // ~62.7% duty
+
+// Valid Zen package-temperature window. NaN and infinities fail by
+// construction. (t == t) is the NaN test; -ffast-math is not enabled here.
+static inline bool isTempValid(float t) {
+    return (t == t) && (t > -20.0f) && (t < 135.0f);
+}
+
 static IOPMPowerState powerStates[kNrOfPowerStates] = {
    {1, kIOPMPowerOff, kIOPMPowerOff, kIOPMPowerOff, 0, 0, 0, 0, 0, 0, 0, 0},
    {1, kIOPMPowerOn, kIOPMPowerOn, kIOPMPowerOn, 0, 0, 0, 0, 0, 0, 0, 0}
@@ -531,6 +560,12 @@ public:
     float gpuTempC;
     float curveSmoothedTemp[MAX_FAN_CURVES];
     bool curveSmoothedSeeded[MAX_FAN_CURVES] {};
+    // S10 KRN-01: per-curve trust flag for the smoothed temperature, plus the
+    // unsmoothed sample the emergency guard must be evaluated against.
+    // curveSmoothedValid[c] == false means "no trustworthy reading this tick"
+    // and forces kFAILSAFE_PWM instead of lut[0].
+    bool curveSmoothedValid[MAX_FAN_CURVES] {};
+    float curveRawSourceTemp[MAX_FAN_CURVES] {};
     // AUDIT F-14: per-curve anchor temperature for downward hysteresis
     float lastAppliedTemp[MAX_FAN_CURVES];
     bool lastAppliedTempSeeded[MAX_FAN_CURVES] {};
