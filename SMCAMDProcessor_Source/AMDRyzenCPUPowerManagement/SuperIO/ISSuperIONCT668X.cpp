@@ -116,7 +116,19 @@ uint8_t ISSuperIONCT668X::readByte(uint16_t addr){
 }
 
 uint16_t ISSuperIONCT668X::readWord(uint16_t addr){
-    return (readByte(addr) << 8) | readByte(addr + 1);
+    // S10 SIO-02: tear-resistant 16-bit read (same rationale as
+    // ISSuperIONCT67XXFamily::readWord): re-read the high byte after the low;
+    // persistent disagreement reports the 0xFFFF sentinel for the caller's
+    // plausibility filter (SIO-01) to reject.
+    for (int attempt = 0; attempt < 3; attempt++) {
+        uint8_t hi  = readByte(addr);
+        uint8_t lo  = readByte(addr + 1);
+        uint8_t hi2 = readByte(addr);
+        if (hi == hi2) {
+            return (uint16_t)((hi << 8) | lo);
+        }
+    }
+    return 0xFFFF;
 }
 
 void ISSuperIONCT668X::writeByte(uint16_t addr, uint8_t val){
@@ -153,16 +165,26 @@ uint8_t ISSuperIONCT668X::getFanThrottle(int fan){
 }
 
 void ISSuperIONCT668X::updateFanRPMS(){
-   
+    //
+    // S10 SIO-01: validate every tachometer word before publishing it
+    // (same rationale as ISSuperIONCT67XXFamily::updateFanRPMS).
+    //
+    static const int kMAX_PLAUSIBLE_RPM = 10500;
+
     for (int i = 0; i < activeFansOnSystem; i++) {
         int v = (int)readWord(FAN_RPM_REGS(i));
+
+        if (v == 0xFFFF || v < 0 || v > kMAX_PLAUSIBLE_RPM) {
+            fanRPMValid[i] = false;
+            continue;
+        }
+
         fanRPMs[i] = v;
-        
-        // Track peak RPM for PWM estimation in Auto mode
+        fanRPMValid[i] = true;
+
         if ((uint32_t)v > fanPeakRPMs[i]) {
             fanPeakRPMs[i] = (uint16_t)v;
         }
-//        IOLog("fan %d: %d\n", i, (int)v);
     }
 }
 
@@ -177,7 +199,8 @@ void ISSuperIONCT668X::updateFanControl(){
         
         // Fallback: if register reports 0 but fan is spinning,
         // estimate throttle from RPM/peakRPM ratio.
-        if (fanThrottles[i] == 0 && fanRPMs[i] > 100 && fanPeakRPMs[i] > 200) {
+        // S10 SIO-01: only estimate from a validated tach sample.
+        if (fanThrottles[i] == 0 && fanRPMValid[i] && fanRPMs[i] > 100 && fanPeakRPMs[i] > 200) {
             uint32_t est = (uint32_t)((uint64_t)fanRPMs[i] * 255 / fanPeakRPMs[i]);
             fanThrottles[i] = est > 255 ? 255 : (uint8_t)est;
         }

@@ -67,6 +67,10 @@ public:
     uint8_t fanThrottles[NCT67XX_MAX_NUMFAN];
     uint8_t fanControlMode[NCT67XX_MAX_NUMFAN];
     uint16_t fanPeakRPMs[NCT67XX_MAX_NUMFAN]{};
+    // S10 SIO-01: per-fan trust flag for the last tachometer read. False means
+    // the last word was implausible (0xFFFF / torn / out of range) and
+    // fanRPMs[i] holds a stale-but-good value instead.
+    bool fanRPMValid[NCT67XX_MAX_NUMFAN]{};
     
     int activeFansOnSystem = 0;
     

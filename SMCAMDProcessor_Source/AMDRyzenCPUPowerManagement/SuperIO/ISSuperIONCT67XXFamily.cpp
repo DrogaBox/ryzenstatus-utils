@@ -152,7 +152,28 @@ uint8_t ISSuperIONCT67XXFamily::readByte(uint16_t addr){
 }
 
 uint16_t ISSuperIONCT67XXFamily::readWord(uint16_t addr){
-    return (readByte(addr) << 8) | readByte(addr + 1);
+    //
+    // S10 SIO-02: tear-resistant 16-bit read.
+    //
+    // Each readByte() is its own bank-select + index + data sequence, so the
+    // chip can update the tachometer counter between the high and low byte and
+    // hand back a value stitched from two different samples. That is the
+    // physical origin of the implausible words SIO-01 filters.
+    //
+    // Re-read the high byte after the low byte: if it changed, the counter
+    // rolled between our accesses and the pair is inconsistent, so retry.
+    //
+    for (int attempt = 0; attempt < 3; attempt++) {
+        uint8_t hi  = readByte(addr);
+        uint8_t lo  = readByte(addr + 1);
+        uint8_t hi2 = readByte(addr);
+        if (hi == hi2) {
+            return (uint16_t)((hi << 8) | lo);
+        }
+    }
+    // Persistent disagreement: report the sentinel so the caller's
+    // plausibility check (SIO-01) rejects this sample.
+    return 0xFFFF;
 }
 
 void ISSuperIONCT67XXFamily::writeByte(uint16_t addr, uint8_t val){
@@ -187,16 +208,38 @@ uint8_t ISSuperIONCT67XXFamily::getFanThrottle(int fan){
 }
 
 void ISSuperIONCT67XXFamily::updateFanRPMS(){
-   
+    //
+    // S10 SIO-01: validate every tachometer word before publishing it.
+    //
+    // readWord() issues two independent bank/index sequences, so the high and
+    // low bytes can tear across a tach update. An unpopulated header, a torn
+    // read or a chip in reset all yield 0xFFFF, which used to be published
+    // verbatim as 65535 RPM AND latched into fanPeakRPMs — a high-water mark
+    // that only ever rises. Since fanPeakRPMs is the denominator of the
+    // Auto-mode PWM estimator in updateFanControl(), one bad read permanently
+    // pinned every later estimate to ~0 %, and that fabricated duty propagates
+    // through selector 94 into the app's manual set-point.
+    //
+    static const int kMAX_PLAUSIBLE_RPM = 10500;
+
     for (int i = 0; i < activeFansOnSystem; i++) {
         int v = (int)readWord(kFAN_RPM_REGS[i]);
+
+        if (v == 0xFFFF || v < 0 || v > kMAX_PLAUSIBLE_RPM) {
+            // Implausible: hold the previous good reading rather than
+            // publishing garbage, and mark the sample untrusted.
+            fanRPMValid[i] = false;
+            continue;
+        }
+
         fanRPMs[i] = v;
-        
-        // Track peak RPM for PWM estimation in Auto mode
+        fanRPMValid[i] = true;
+
+        // Track peak RPM for PWM estimation in Auto mode. Only trusted samples
+        // may raise the high-water mark.
         if ((uint32_t)v > fanPeakRPMs[i]) {
             fanPeakRPMs[i] = (uint16_t)v;
         }
-        //IOLog("fan %d: %d\n", i, (int)v);
     }
 }
 
@@ -211,7 +254,8 @@ void ISSuperIONCT67XXFamily::updateFanControl(){
         
         // Fallback: if the register reports 0 but fan is spinning,
         // estimate throttle from RPM/peakRPM ratio.
-        if (fanThrottles[i] == 0 && fanRPMs[i] > 100 && fanPeakRPMs[i] > 200) {
+        // S10 SIO-01: only estimate from a validated tach sample.
+        if (fanThrottles[i] == 0 && fanRPMValid[i] && fanRPMs[i] > 100 && fanPeakRPMs[i] > 200) {
             uint32_t est = (uint32_t)((uint64_t)fanRPMs[i] * 255 / fanPeakRPMs[i]);
             fanThrottles[i] = est > 255 ? 255 : (uint8_t)est;
         }
