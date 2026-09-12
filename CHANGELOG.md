@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.33.0] — 2026-09-12
+
+### AMD Kernel + App: thermal fail-safe & IOKit lifecycle hardening (audit wave S10)
+- **Kernel thermal safety (FASE A)**: the fan-curve EMA now validates every temperature sample on input and output against the plausible Zen window (`kTEMP_INVALID` sentinel; NaN used to be absorbing *and* permanent, pinning the fan at the coldest LUT point with the 85 °C guard disarmed). A per-curve trust flag forces **kFAILSAFE_PWM (160)** when no trustworthy reading exists this tick, instead of trusting an absent value. The emergency thermal guard is now **system-wide** — armed from the hottest trustworthy sensor, so a GPU-sourced curve can no longer hold a 95 °C CPU at the GPU curve's low duty. PWM 0 keeps its release-to-BIOS meaning, but any other request below **kCURVE_MIN_ACTIVE_PWM (40)** is raised to the floor (an open-loop duty below the rotor start threshold silently stalls the fan). The floor is applied before the guard so the guard always wins.
+- **Dead-man switch (KRN-03)**: `clientClose()` now hands every fan back to BIOS/SmartFan control under `superIOLock` — the only kernel callback guaranteed to run on SIGKILL/crash/force-quit, which the app's `applicationWillTerminate` path never reaches. A crash with a fan latched at ~1 % duty left it there indefinitely before.
+- **Temperature sentinel hygiene (KRN-04)**: `getPackageTemp()` returns `kTEMP_INVALID` instead of an ambiguous 0.0 °C (0 °C selected the coldest LUT row *and* made every `>= 85 °C` guard test false); the ring-buffer fill paths keep the previous sample rather than averaging the sentinel into `PACKAGE_TEMPERATURE_perPackage[0]`.
+- **SuperIO validation (FASE B)**: both NCT67XX and NCT668X validate every tachometer word (0xFFFF / torn reads / out-of-range hold the last good value instead of publishing 65535 RPM), and the peak-RPM high-water mark only records plausible values — one bad read used to permanently pin the Auto-mode PWM estimator near 0 %. `readWord` on NCT67XX is tear-resistant (index re-checked after the low-byte write).
+- **kext IPC hardening (C13)**: every external selector runs through one centralized validation gate (capacity/sanity checked before dispatch) in `AMDRyzenCPUPMUserClient::externalMethod`.
+- **Kexts rebuilt at 3.34.14**; `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` refreshed and its SHA-256 repinned in `Tools/make-dmg.sh` (`75da34d8…c2ff86a8e`). **[REQUIERE-HW]**: idle floor ≈15 % (no stall), `pkill -9` the app with a fan in manual and confirm `clientClose released` + BIOS control, GPU-sourced curve under >85 °C CPU load must rise to ≥200.
+
+### Fixed
+- **Off-main kext IPC (FASE C)**: fan-curve uploads now coalesce on a detached task with `withHandle` handle checking instead of every mutation calling selectors inline; the hub's fan timer runs on `.common` mode so uploads survive Menu tracking; a sleep/wake observer re-syncs curves after wake; a stale-handle read heals with one immediate reconnect attempt instead of waiting for the next full refresh; `AutoEppService`/`C6ResidencyService` polling loops stop when the monitor deallocated (`self == nil` guard).
+- **rpmValid telemetry (SIO-03)**: the kext no longer launders implausible tach words (`min(rpm, 9999)` turned garbage 65535 into a believable 9999). `FanSnapshot`/`FanState` carry an explicit validity flag; the fan settings row renders "— RPM" instead of a fabricated number.
+- **Status-item rendering (D1–D3)**: theme-change rebuilds only run when the theme actually changed; NowPlaying title measurement is memoized against repeated identical `NSImage(size:)` work.
+- **Dashboard occlusion flag (D4)**: dashboard-open tracking uses a boolean flag (the `panelDidAppear/Disappear` refcount never reached zero while the dashboard was open, so the optimization never applied).
+- **Deferred mixer activation (D5)**: the mixer panel's `onAppear` explicitly starts `AppVolumeMixer` (idempotent), so a clean install whose audio hub never ran `syncWithPreferences` still gets its app list on first panel open.
+- **`.screenRecorder` feature binding (UI-05)**: disabling the feature via preset/backup-import/reset now actually tears the service down (binding existed only in the Settings path before).
+- **Build hardening (BLD-01)**: `StrictConcurrency` upcoming-feature enabled on both the Package.swift target (indexing) and both `build.sh` `swiftc` invocations (the real build). Current baseline: 1470 surfaced warnings recorded as the audit backlog; flip to `.swiftLanguageMode(.v6)` only at zero. Unit suite **6271 checks OK**, AMD-layer concurrency gate 0.
+
 ## [1.32.0] — 2026-09-12
 
 ### AMD Kernel + App: on-demand mailbox health diagnostics (wave S9d)
