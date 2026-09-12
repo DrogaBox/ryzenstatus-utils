@@ -94,8 +94,17 @@ struct MenuPanelView: View {
 
     /// Cap the panel to the usable screen height so it never overflows the menu
     /// bar; taller content scrolls inside.
+    /// Margin accounting (measured from the live window, 2026-09-12): the
+    /// popover window = SwiftUI total + NSPopover chrome (~26 pt arrow/border).
+    /// SwiftUI total = scroll cap + section chrome (now includes the 14 pt of
+    /// outer .padding below) ⇒ at the cap the window is
+    /// `visibleFrame − margin + 26`; the margin must exceed 26 + a bottom gap,
+    /// so 40. The old 24 made every capped panel ~16 pt taller than the screen
+    /// and macOS flipped the whole popover beside the icon (reproduced on both
+    /// the SMU core disclosure and the iStats chart editor — any capped
+    /// content, not a specific section).
     private var maxHeight: CGFloat {
-        max(360, (NSScreen.main?.visibleFrame.height ?? 760) - 24)
+        max(360, (NSScreen.main?.visibleFrame.height ?? 760) - 40)
     }
 
     var body: some View {
@@ -355,14 +364,18 @@ struct MenuPanelView: View {
             ? (max(updateBannerHeight, 48) + 6)
             : 0
         let navHeight: CGFloat = accordionMode ? 0 : 38
-        return 74 + navHeight + bannerHeight
+        // 74 (header+footer) + the 14 pt of outer panel padding (4 top + 10
+        // bottom) — the padding must sit inside the chrome budget or the
+        // capped panel overflows the popover window by exactly that much.
+        return 88 + navHeight + bannerHeight
     }
 
     private var metricChromeHeight: CGFloat {
         let bannerHeight = updates.state.showsMenuPanelBanner
             ? (max(updateBannerHeight, 48) + 6)
             : 0
-        return 116 + bannerHeight
+        // 116 + the 14 pt of outer panel padding (see navigableChromeHeight).
+        return 130 + bannerHeight
     }
 
     private var estimatedNavigableContentHeight: CGFloat {

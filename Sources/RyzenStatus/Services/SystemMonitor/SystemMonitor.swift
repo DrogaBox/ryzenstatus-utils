@@ -1272,6 +1272,17 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         
         // Build CoreSnapshots in natural hardware processor order (interleaved)
         var cores: [CoreSnapshot] = []
+        // FREQ SOURCE: the kext's computed metric array (current-clocks
+        // semantics — what each core runs at right now). The SMU PM-table's
+        // CORE_FREQEFF is deliberately NOT promoted here: it is an *average
+        // over the kext's sample window*, so a core parked in CC6 decodes to
+        // single-digit MHz and would poison every aggregate consumer of
+        // snapshot.cores[] — the Settings min/max/avg rows, the popover CPU
+        // card, the menu bar avg/peak and the IPS estimate (all verified
+        // consumers). True per-physical-core SMU clocks live in the S9b
+        // disclosure (AmdPowerControlsModel) which renders them per-core with
+        // sleeping-core semantics; the SMU socket POWER promotion (S9c) is
+        // unaffected and stays in ProcessorModel.lastCPUPowerWatts.
         let numLogical = Int(cpuCount)
         if numLogical > 0 {
             let hasSMT = (numLogical == 2 * numPhysical)

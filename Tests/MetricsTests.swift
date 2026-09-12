@@ -7856,6 +7856,23 @@ struct MetricsTests {
         expect(kextCpp.contains("if (size == 0 || size > kPM_TABLE_MAX_SIZE)"),
                "forcePMTableCapture must keep rejecting size==0 (unknown version) before mapping")
 
+        // MARK: S9c promotion-source pins (app side)
+
+        // The SMU PM-table's CORE_FREQEFF is a window AVERAGE: a core parked
+        // in CC6 decodes to single-digit MHz, so promoting it into
+        // SystemMonitor's snapshot.cores[] poisoned the Settings min/max/avg
+        // rows, the popover CPU card, the menu bar avg/peak and the IPS
+        // estimate (all verified consumers). Live capture proof: idle fixture
+        // decodes to min 2 / max 597 / avg 205 MHz — real values, wrong
+        // semantics for "current clock" consumers. Pin the source so the
+        // override cannot silently return.
+        let monitorSwift = kextSource("Sources/RyzenStatus/Services/SystemMonitor/SystemMonitor.swift")
+        expect(!monitorSwift.isEmpty, "SystemMonitor source must be readable for the S9c promotion-pin checks (run tests from the repo root)")
+        expect(!monitorSwift.contains("freshCoreClocksMHz"),
+               "SystemMonitor must not promote SMU effective clocks into snapshot.cores[] (window-averaged values poison current-clock aggregates)")
+        expect(monitorSwift.range(of: "let freqIdx = physicalIdx \\+ 3", options: .regularExpression) != nil,
+               "core-grid frequency must keep the kext metric-array source (current-clock semantics)")
+
         // MARK: S4 AMDPBOLimits Helpers (gate, clamps, formatters)
 
         // Silicon gate mirrors the kext: Zen 3 Vermeer only, fail-closed.
