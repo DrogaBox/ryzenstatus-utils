@@ -958,6 +958,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var detachedWindowController: NSWindowController?
     // AUDIT A-06: token for the detached panel's willClose observer, removed on close.
     private var detachedCloseObserver: NSObjectProtocol?
+    /// S10 UI-03: occlusion observer token for the detached dashboard window,
+    /// plus the last known visibility so the refcount-style panelClients signal
+    /// is applied as a boolean edge (appear only on false→true), never as
+    /// increment/decrement — willClose and didChangeOcclusion can both fire.
+    private var detachedOcclusionObserver: NSObjectProtocol?
+    private var detachedWindowVisible = false
     
     @objc func detachPanel() {
         // If already detached, re-attach: close the window and reopen the popover
@@ -1000,10 +1006,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                     NotificationCenter.default.removeObserver(token)
                     self?.detachedCloseObserver = nil
                 }
+                // S10 UI-03: remove the occlusion observer before signalling the
+                // disappear, so a final occlusion callback cannot re-appear the
+                // panel client after the window is gone.
+                if let occToken = self?.detachedOcclusionObserver {
+                    NotificationCenter.default.removeObserver(occToken)
+                    self?.detachedOcclusionObserver = nil
+                }
+                self?.detachedWindowVisible = false
                 self?.detachedWindowController = nil
                 // Full monitor surface: a panel client, so the popover
                 // lifecycle cannot wipe these needs while the window is open.
                 SystemMonitor.shared.panelDidDisappear()
+            }
+
+            // S10 UI-03: stand down when the detached dashboard is not actually
+            // visible. The window is .floating + .canJoinAllSpaces, so it stays
+            // "open" while fully covered by another window or sitting on another
+            // Space — and panelDidDisappear() was only wired to
+            // willCloseNotification, so it kept sampling and re-rendering at
+            // full foreground cadence. AppKit computes occlusion for us.
+            //
+            // panelDidAppear/Disappear are refcount-style clients, so this edge
+            // is applied through a boolean: appear once on false→true, disappear
+            // once on true→false. A missing or non-window object is ignored.
+            detachedOcclusionObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didChangeOcclusionStateNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] note in
+                guard let win = note.object as? NSWindow else { return }
+                let visible = win.occlusionState.contains(.visible)
+                guard let self, visible != self.detachedWindowVisible else { return }
+                self.detachedWindowVisible = visible
+                if visible {
+                    SystemMonitor.shared.panelDidAppear()
+                } else {
+                    SystemMonitor.shared.panelDidDisappear()
+                }
             }
         }
         

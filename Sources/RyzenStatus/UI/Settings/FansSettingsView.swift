@@ -291,7 +291,9 @@ struct FanControlCard: View {
                 Spacer()
 
                 HStack(spacing: 6) {
-                    Text("\(fan.rpm) RPM")
+                    // S10 SIO-03: an untrusted tach reading renders as "—",
+                    // never as a fabricated number.
+                    Text(fan.rpmValid ? "\(fan.rpm) RPM" : "— RPM")
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(.cyan)
                     Text("·")

@@ -24,6 +24,8 @@ struct FanState: Identifiable, Sendable, Hashable {
     let id: Int                       // SuperIO fan index (0..<16)
     var name: String
     var rpm: UInt64                   // selector 93 (RPM)
+    /// S10 SIO-03: mirrors FanSnapshot.rpmValid.
+    var rpmValid: Bool = true
     var throttlePWM: UInt8            // selector 94 bits [15:8] (0-255 SMC scale)
     var isKextAuto: Bool              // selector 94 bit 0 (1 = Auto / SmartGuardian)
     var controlMode: FanControlMode   // derived from hardware state + intent
@@ -41,7 +43,8 @@ struct FanState: Identifiable, Sendable, Hashable {
          mappedCurveIndex: Int? = nil,
          manualPWM: UInt8? = nil,
          isHidden: Bool = false,
-         customName: String? = nil) {
+         customName: String? = nil,
+         rpmValid: Bool = true) {
         self.id = id
         self.name = name
         self.rpm = rpm
@@ -52,6 +55,7 @@ struct FanState: Identifiable, Sendable, Hashable {
         self.manualPWM = manualPWM
         self.isHidden = isHidden
         self.customName = customName
+        self.rpmValid = rpmValid
     }
 
     var pwmPercentage: Double {
@@ -72,6 +76,11 @@ struct FanSnapshot: Identifiable, Sendable, Hashable {
     let id: Int
     var name: String
     var rpm: UInt64
+    /// S10 SIO-03: false when the tachometer word was implausible (out of the
+    /// 0–10500 window). `rpm` is UInt64 so there is no in-band sentinel; the old
+    /// `min(rpm, 9999)` laundering hid the fault from the UI and any future
+    /// stall detection.
+    var rpmValid: Bool = true
     var throttle: UInt8
     var isOverridden: Bool
 

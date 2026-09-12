@@ -24,6 +24,8 @@ final class StatusItemController {
     /// Last combination applied by updateIconAppearance, so refresh ticks
     /// don't re-render an unchanged icon every 2 seconds.
     private var lastIconStateKey = ""
+    /// S10 UI-01: token for the system theme-change observer.
+    private var themeObserver: Any?
     /// Gaming Mode override: keeps the main item hidden even when the regular
     /// appearance logic would show it.
     private(set) var forceHidden = false
@@ -188,6 +190,24 @@ final class StatusItemController {
                                                                   queue: .main) { [weak self] _ in
             self?.scheduleSettingsSync()
         }
+
+        // S10 UI-01: force an immediate re-render when the user flips the system
+        // theme. Nothing in the app observed this, so the menu bar item kept its
+        // previously composed image until the next monitor tick — up to ~2 s
+        // with metrics pinned, and up to 30 s when only the keep-awake glyph is
+        // shown. AppleInterfaceThemeChangedNotification is undocumented but
+        // stable since 10.14; if it ever disappears the failure is benign (we
+        // simply fall back to refreshing on the next tick).
+        themeObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            // The notification can arrive marginally before
+            // NSApp.effectiveAppearance has settled, so re-render on the next
+            // main-loop turn.
+            DispatchQueue.main.async { self?.refresh() }
+        }
     }
 
     private var settingsSyncScheduled = false
@@ -215,6 +235,10 @@ final class StatusItemController {
         // a block observer that outlives this instance.
         titleTimer?.invalidate()
         if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
+        // S10 UI-01
+        if let themeObserver {
+            DistributedNotificationCenter.default().removeObserver(themeObserver)
+        }
         // AUDIT A-05: the main status item must be removed too, or a teardown
         // path leaks the idle glyph in the menu bar.
         if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
@@ -275,10 +299,20 @@ final class StatusItemController {
         // refresh() runs on every monitor tick and lands here; re-rendering
         // the same image every 2 seconds would be wasted composition, so the
         // image is only touched when some ingredient actually changed.
+        // S10 UI-01: the appearance name is part of the cache key.
+        //
+        // Without it, the non-template composites (attentionImage, tintedImage,
+        // micMutedImage) were generated once and never regenerated on a theme
+        // flip, because the key did not change. A blue "update available" glyph
+        // composed under Dark mode persisted unchanged into Light mode for the
+        // rest of the session. NowPlayingService already keys on appearance;
+        // this brings the main item in line.
+        let appearanceToken = (statusItem?.button?.effectiveAppearance
+                               ?? NSApp.effectiveAppearance).name.rawValue
         let stateKey = [String(hidden), String(mainItemHidden), String(updateAvailable),
                         String(keepAwakeActive), KeepAwakeIconTint.current.rawValue,
                         KeepAwakeActiveIcon.current.rawValue,
-                        String(micBadgeActive)].joined(separator: "|")
+                        String(micBadgeActive), appearanceToken].joined(separator: "|")
         guard stateKey != lastIconStateKey else { return }
         lastIconStateKey = stateKey
 

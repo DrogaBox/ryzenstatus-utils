@@ -637,7 +637,8 @@ final class FanCurveController: ObservableObject {
                         mappedCurveIndex: (mode == .curve) ? mappedIdx : nil,
                         manualPWM: (mode == .manual) ? snap.throttle : nil,
                         isHidden: savedHidden.contains(snap.id),
-                        customName: customName
+                        customName: customName,
+                        rpmValid: snap.rpmValid
                     ))
                 }
                 self.fans = newFans
@@ -693,6 +694,7 @@ final class FanCurveController: ObservableObject {
                 for i in 0..<currentSnapshots.count {
                     let snap = currentSnapshots[i]
                     self.fans[i].rpm = snap.rpm
+                    self.fans[i].rpmValid = snap.rpmValid
                     self.fans[i].throttlePWM = snap.throttle
                     self.fans[i].isKextAuto = !snap.isOverridden
                 }

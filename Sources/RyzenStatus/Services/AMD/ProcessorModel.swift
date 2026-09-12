@@ -1793,7 +1793,12 @@ actor ProcessorModel {
                 ? (UserDefaults.standard.string(forKey: "FanName_\(i)") ?? finalName)
                 : finalName
             
-            let rpm = (i < fanRpms.count) ? min(fanRpms[i], 9999) : 0
+            // S10 SIO-03: do not launder implausible tach values into plausible
+            // ones. `min(rpm, 9999)` turned a garbage 65535 into a believable
+            // 9999. Report validity out of band instead.
+            let rawRPM = (i < fanRpms.count) ? fanRpms[i] : 0
+            let rpmValid = rawRPM <= 10_500
+            let rpm = rpmValid ? rawRPM : 0
             
             // Selector 94 packs: (throttle << 8) | autoFlag
             // - Bits 15:8 = throttle/PWM value (0-255)
@@ -1802,7 +1807,7 @@ actor ProcessorModel {
             let throttle = UInt8((raw >> 8) & 0xFF)  // Extract actual throttle from bits 15:8
             let isAuto = (raw & 1) == 1               // Extract auto flag from bit 0
             
-            fans.append(FanSnapshot(id: i, name: customName, rpm: rpm, throttle: throttle, isOverridden: !isAuto))
+            fans.append(FanSnapshot(id: i, name: customName, rpm: rpm, rpmValid: rpmValid, throttle: throttle, isOverridden: !isAuto))
         }
         return fans
     }
