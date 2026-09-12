@@ -349,4 +349,194 @@ enum AMDSmuPMTable {
             return false
         }
     }
+
+    // MARK: — S9b: decoded per-core telemetry from a captured snapshot
+
+    /// One decoded core row of the 0x380805 Vermeer PM table. All raw SMU
+    /// floats, byte-for-byte what the table holds (ryzen_monitor's mapping,
+    /// pm_tables.c — validated on a 5900XT live capture).
+    struct CoreRow: Equatable {
+        /// Table slot index 0…15 (Vermeer topology order, not OS core number).
+        let slot: Int
+        /// CORE_POWER — watts.
+        let powerW: Float
+        /// CORE_VOLTAGE — raw SMU per-core voltage word (SVI2-ish; the
+        /// display voltage ryzen_monitor derives from telemetry differs).
+        let voltageRaw: Float
+        /// CORE_TEMP — °C.
+        let tempC: Float
+        /// CORE_FREQEFF × 1000 — effective clock in MHz (the value AMD
+        /// reports as the real average, vs CORE_FREQ the requested one).
+        let freqMHz: Float
+        /// CORE_C0 — % of time in C0 (0…100).
+        let c0Percent: Float
+        /// CORE_CC1 — % of time in CC1.
+        let cc1Percent: Float
+        /// CORE_CC6 — % of time in CC6 (package core-column entry).
+        let cc6Percent: Float
+
+        /// AMD/Ryzen Master sleeping threshold: a core that spent < 6% of
+        /// the sample window in C0 is considered parked.
+        var isSleeping: Bool { c0Percent < 6.0 }
+
+        /// A disabled (fused-off) slot decodes as all-zero on real silicon.
+        var isPresent: Bool {
+            powerW != 0 || tempC != 0 || freqMHz != 0 || c0Percent != 0
+        }
+    }
+
+    /// Package-level fields decoded from the table head (elements 0…51 + PC6).
+    struct Summary: Equatable {
+        let pptLimitW: Float
+        let pptValueW: Float
+        let tdcLimitA: Float
+        let tdcValueA: Float
+        let edcLimitA: Float
+        let edcValueA: Float
+        let thmLimitC: Float
+        /// VID_VALUE — core VRM voltage in V (limit is element 10).
+        let coreVoltageV: Float
+        let coreVoltageLimitV: Float
+        /// CPU_TELEMETRY_VOLTAGE — SVI2 telemetry V.
+        let cpuTelemetryV: Float
+        /// SOCKET_POWER — package socket power in W.
+        let socketPowerW: Float
+        /// FCLK/UCLK/MEMCLK in MHz.
+        let fclkMHz: Float
+        let uclkMHz: Float
+        let memclkMHz: Float
+        /// PEAK_TEMP — hottest sensor reading this window, °C.
+        let peakTempC: Float
+        /// PC6 — package C6 residency % (0 = unsupported/never sleeps).
+        let pc6Percent: Float
+    }
+
+    /// Decoded snapshot for one capture. `cores` has one slot per core the
+    /// version's layout defines: 16 for 0x380805 (Vermeer dual-CCD), 8 for
+    /// 0x380904/0x380905 (single-CCD parts like the 5600X). Disabled slots
+    /// carry `isPresent == false`.
+    struct Decoded: Equatable {
+        let summary: Summary
+        let cores: [CoreRow]
+    }
+
+    /// Package-head element map — identical across the Vermeer/Zen3 layout
+    /// family (verified element-by-element between `pm_table_0x380805`,
+    /// `pm_table_0x380904` and `pm_table_0x380905` in hattedsquirrel
+    /// ryzen_monitor pm_tables.c). 4-byte float stride.
+    private enum PmHead {
+        static let pptLimit = 0
+        static let pptValue = 1
+        static let tdcLimit = 2
+        static let tdcValue = 3
+        static let thmLimit = 4
+        static let edcLimit = 8
+        static let edcValue = 9
+        static let vidLimit = 10
+        static let vidValue = 11
+        static let socketPower = 29
+        static let fclk = 48
+        static let uclk = 50
+        static let memclk = 51
+        static let peakTemp = 140
+    }
+
+    /// Per-version deltas within the family: telemetry-voltage/PC6 head
+    /// positions, core count, and the per-core block bases (element of slot
+    /// 0; each block is `maxCores` consecutive elements).
+    private struct Layout {
+        let maxCores: Int
+        /// min_size from pm_tables.c (highest accessed element + 1) × 4 —
+        /// equals the kext size-table entry for the version.
+        let minBytes: Int
+        /// CPU_TELEMETRY_VOLTAGE (0x380805/0x380905: 40; 0x380904: 41).
+        let cpuTelemetryVoltage: Int
+        /// PC6 package residency (0x380805/0x380905: 155; 0x380904: 152).
+        let pc6: Int
+        let corePower: Int
+        let coreVoltage: Int
+        let coreTemp: Int
+        let coreFreqEff: Int
+        let coreC0: Int
+        let coreCC1: Int
+        let coreCC6: Int
+    }
+
+    /// Supported layouts. Provenance per pm_tables.c:
+    /// - 0x380805: tested upstream on a 5900X AND hardware-validated by us
+    ///   against two live 5900XT captures (Tests/Fixtures/PMTable).
+    /// - 0x380905: upstream "pure guess" derived from 0x380805/0x380904 for
+    ///   the 5600X; our synthetic tests exercise the mapping, silicon
+    ///   confirmation still pending a real capture.
+    /// - 0x380904: upstream loosely tested on a 5600X (older head: telemetry
+    ///   voltage at 41, PC6 at 152, core blocks from 169).
+    /// - 0x380804: tested upstream on a 5900X across several AGESA versions
+    ///   (older head like 0x380904; 16-core blocks from 169).
+    /// 0x380705 has NO public authoritative element map (verified: neither
+    /// hattedsquirrel pm_tables.c nor leogx9r monitor_cpu.c defines it),
+    /// so it stays fail-closed — the kext may capture it, the app must not
+    /// guess telemetry offsets.
+    private static let layouts: [UInt32: Layout] = [
+        0x380805: Layout(maxCores: 16, minBytes: 572 * 4, cpuTelemetryVoltage: 40, pc6: 155,
+                         corePower: 172, coreVoltage: 188, coreTemp: 204, coreFreqEff: 268,
+                         coreC0: 284, coreCC1: 300, coreCC6: 316),
+        0x380905: Layout(maxCores: 8, minBytes: 372 * 4, cpuTelemetryVoltage: 40, pc6: 155,
+                         corePower: 172, coreVoltage: 180, coreTemp: 188, coreFreqEff: 220,
+                         coreC0: 228, coreCC1: 236, coreCC6: 244),
+        0x380904: Layout(maxCores: 8, minBytes: 361 * 4, cpuTelemetryVoltage: 41, pc6: 152,
+                         corePower: 169, coreVoltage: 177, coreTemp: 185, coreFreqEff: 217,
+                         coreC0: 225, coreCC1: 233, coreCC6: 241),
+        0x380804: Layout(maxCores: 16, minBytes: 553 * 4, cpuTelemetryVoltage: 41, pc6: 152,
+                         corePower: 169, coreVoltage: 185, coreTemp: 201, coreFreqEff: 249,
+                         coreC0: 265, coreCC1: 281, coreCC6: 297),
+    ]
+
+    /// Decode a captured snapshot for one table version. Fail-closed:
+    /// returns nil for any version without a layout in `layouts` (e.g.
+    /// 0x380705 — the kext can capture it but the app cannot yet decode it)
+    /// or snapshots shorter than the layout's documented minimum.
+    static func decode(version: UInt32, data: Data) -> Decoded? {
+        guard let l = layouts[version], data.count >= l.minBytes else { return nil }
+
+        func f(_ element: Int) -> Float {
+            Float(bitPattern: data.withUnsafeBytes { raw in
+                raw.loadUnaligned(fromByteOffset: element * 4, as: UInt32.self)
+            })
+        }
+
+        let summary = Summary(
+            pptLimitW: f(PmHead.pptLimit),
+            pptValueW: f(PmHead.pptValue),
+            tdcLimitA: f(PmHead.tdcLimit),
+            tdcValueA: f(PmHead.tdcValue),
+            edcLimitA: f(PmHead.edcLimit),
+            edcValueA: f(PmHead.edcValue),
+            thmLimitC: f(PmHead.thmLimit),
+            coreVoltageV: f(PmHead.vidValue),
+            coreVoltageLimitV: f(PmHead.vidLimit),
+            cpuTelemetryV: f(l.cpuTelemetryVoltage),
+            socketPowerW: f(PmHead.socketPower),
+            fclkMHz: f(PmHead.fclk),
+            uclkMHz: f(PmHead.uclk),
+            memclkMHz: f(PmHead.memclk),
+            peakTempC: f(PmHead.peakTemp),
+            pc6Percent: f(l.pc6)
+        )
+
+        var cores = [CoreRow]()
+        cores.reserveCapacity(l.maxCores)
+        for slot in 0..<l.maxCores {
+            cores.append(CoreRow(
+                slot: slot,
+                powerW: f(l.corePower + slot),
+                voltageRaw: f(l.coreVoltage + slot),
+                tempC: f(l.coreTemp + slot),
+                freqMHz: f(l.coreFreqEff + slot) * 1000,
+                c0Percent: f(l.coreC0 + slot),
+                cc1Percent: f(l.coreCC1 + slot),
+                cc6Percent: f(l.coreCC6 + slot)
+            ))
+        }
+        return Decoded(summary: summary, cores: cores)
+    }
 }

@@ -616,6 +616,12 @@ enum Defaults {
         DefaultsKey.amdPpmEnabled: false,
         DefaultsKey.amdLpmEnabled: false,
         DefaultsKey.showFansInAmdPower: true,
+        // S9b: per-core PM-table telemetry collapsed by default; expands on demand.
+        DefaultsKey.showPmTableCoresInPanel: false,
+        // S9b: optional per-core columns default off — the base row stays minimal.
+        DefaultsKey.showPmCoreVoltage: false,
+        DefaultsKey.showPmCoreC0: false,
+        DefaultsKey.showPmCoreCC6: false,
         // Gaming Mode — off by default; hiding the icon is the default behavior.
         DefaultsKey.gamingModeActive: false,
         DefaultsKey.gamingModeHideMenuBar: true,

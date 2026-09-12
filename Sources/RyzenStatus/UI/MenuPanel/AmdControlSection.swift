@@ -21,6 +21,12 @@ struct AmdControlSection: View {
     @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 25
     @AppStorage(DefaultsKey.autoEppLoadThreshold) private var loadThreshold: Int = 50
     @AppStorage(DefaultsKey.showFansInAmdPower) private var showFansInAmdPower = false
+    // S9b: per-core PM-table telemetry disclosure in the panel (persisted).
+    @AppStorage(DefaultsKey.showPmTableCoresInPanel) private var showPmTableCores = false
+    // S9b: optional per-core columns, each persisted independently.
+    @AppStorage(DefaultsKey.showPmCoreVoltage) private var showsPmCoreVoltage = false
+    @AppStorage(DefaultsKey.showPmCoreC0) private var showsPmCoreC0 = false
+    @AppStorage(DefaultsKey.showPmCoreCC6) private var showsPmCoreCC6 = false
 
     private var eppLabel: String {
         if autoEpp.isActive {
@@ -143,6 +149,66 @@ struct AmdControlSection: View {
                                         .frame(height: 26)
                                 }
                             }
+                        }
+
+                        // S9b: live per-core SMU PM-table telemetry (clocks,
+                        // temps, power) decoded from the kext's 1 Hz snapshot
+                        // and refreshed by the same 3 s sync as everything else
+                        // in this section — no extra timers, no extra kext
+                        // traffic. Hidden on old kexts / undecoded table versions.
+                        if let decoded = controls.pmTableDecoded {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.2)) { showPmTableCores.toggle() }
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: showPmTableCores ? "chevron.down" : "chevron.right")
+                                            .font(.system(size: 9, weight: .semibold))
+                                            .foregroundColor(.secondary)
+                                        Text(L10n.shared.amdPower.panelPmTableCores)
+                                            .font(.system(size: 10, weight: .semibold))
+                                            .foregroundColor(.secondary)
+                                        Spacer()
+                                        // At-a-glance package state while collapsed.
+                                        Text(String(format: "%.0f W · %.0f °C", decoded.summary.socketPowerW, decoded.summary.peakTempC))
+                                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+
+                                if showPmTableCores {
+                                    // Per-field column toggles — icon-only and
+                                    // language-neutral (tooltips carry the meaning),
+                                    // matching the section's technical-label convention.
+                                    HStack(spacing: 12) {
+                                        pmColumnToggle("bolt.fill", color: .yellow,
+                                                       isOn: $showsPmCoreVoltage,
+                                                       help: "Per-core voltage (SMU)")
+                                        pmColumnToggle("cpu", color: .green,
+                                                       isOn: $showsPmCoreC0,
+                                                       help: "C0 residency (%)")
+                                        pmColumnToggle("moon.zzz.fill", color: .purple,
+                                                       isOn: $showsPmCoreCC6,
+                                                       help: "CC6 residency (%)")
+                                        Spacer()
+                                    }
+                                    .padding(.leading, 2)
+                                    VStack(spacing: 2) {
+                                        ForEach(decoded.cores.filter { $0.isPresent }, id: \.slot) { core in
+                                            AmdPmTableCoreRowView(core: core,
+                                                                  clockHistory: controls.pmCoreClockHistory[core.slot],
+                                                                  tempHistory: controls.pmCoreTempHistory[core.slot],
+                                                                  showsVoltage: showsPmCoreVoltage,
+                                                                  showsC0: showsPmCoreC0,
+                                                                  showsCC6: showsPmCoreCC6)
+                                        }
+                                    }
+                                    .transition(.opacity.combined(with: .move(edge: .top)))
+                                }
+                            }
+                            .padding(.vertical, 2)
                         }
 
                         VStack(spacing: 8) {
@@ -370,6 +436,29 @@ struct AmdControlSection: View {
         }
     }
 
+    // MARK: - S9b per-core column toggles (icon-only, language-neutral)
+
+    /// One icon toggle for an optional per-core column. On = colored chip,
+    /// off = dim; the meaning lives in the tooltip, the glyph in the row.
+    private func pmColumnToggle(_ icon: String, color: Color,
+                                isOn: Binding<Bool>, help: String) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) { isOn.wrappedValue.toggle() }
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(isOn.wrappedValue ? color : .secondary.opacity(0.45))
+                .frame(width: 22, height: 18)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(isOn.wrappedValue ? color.opacity(0.14) : Color.secondary.opacity(0.05))
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
     // MARK: - Power Presets (menu panel)
 
     private func presetButton(_ preset: AMDPowerPreset) -> some View {
@@ -400,5 +489,89 @@ struct AmdControlSection: View {
         // S2-T1: presets also drive EPP, so gate on Auto EPP like the EPP
         // picker above — otherwise the two systems fight over the same MSR.
         .disabled(gaming.isActive || autoEpp.isActive)
+    }
+}
+
+// MARK: - S9b per-core PM-table row (menu panel)
+
+/// One per-core telemetry row for the AMD Power panel section: SMU PM-table
+/// effective clock, temperature and power for a single core slot, plus two
+/// tiny sparklines fed by rolling windows in `AmdPowerControlsModel`
+/// (sampled on the model's 3 s sync tick — no timers here). Monospaced
+/// technical fields by design — same convention as the Settings PM Table
+/// diagnostics section (raw telemetry renders without localization).
+struct AmdPmTableCoreRowView: View {
+    let core: AMDSmuPMTable.CoreRow
+    /// Rolling windows from the model; nil/short windows render nothing.
+    let clockHistory: [Double]?
+    let tempHistory: [Double]?
+    /// Optional per-core columns, each toggled independently in the section.
+    /// Fixed frame widths keep the trailing columns row-aligned while a
+    /// column is on; the leading slot/clock/sparkline group never shifts.
+    let showsVoltage: Bool
+    let showsC0: Bool
+    let showsCC6: Bool
+
+    /// Fixed scales keep rows comparable across slots and over time:
+    /// clocks against a ceiling above Vermeer's ~5.15 GHz max boost,
+    /// temps against a sane 0–100 °C envelope.
+    private static let clockScaleMHz = 5400.0
+    private static let tempScaleC = 100.0
+
+    private var tempColor: Color {
+        if core.tempC >= 70 { return .red }
+        if core.tempC >= 50 { return .orange }
+        return .secondary
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(String(format: "%02d", core.slot))
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .foregroundColor(.secondary.opacity(0.6))
+                .frame(width: 18, alignment: .leading)
+            // Sleeping cores show a language-neutral dash instead of a clock.
+            Text(core.isSleeping ? "—" : String(format: "%.0f MHz", core.freqMHz))
+                .font(.system(size: 9.5, weight: core.isSleeping ? .medium : .semibold, design: .monospaced))
+                .foregroundColor(core.isSleeping ? Color.secondary.opacity(0.55) : .cyan)
+                .frame(width: 58, alignment: .leading)
+            VStack(spacing: 1) {
+                Sparkline(values: clockHistory ?? [], color: .cyan,
+                          maxValue: Self.clockScaleMHz, fillOpacity: 0.12, lineWidth: 0.8)
+                    .frame(width: 44, height: 8)
+                Sparkline(values: tempHistory ?? [], color: .orange,
+                          maxValue: Self.tempScaleC, fillOpacity: 0.12, lineWidth: 0.8)
+                    .frame(width: 44, height: 8)
+            }
+            Spacer(minLength: 8)
+            if showsVoltage {
+                Text(String(format: "%.2f V", core.voltageRaw))
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.yellow.opacity(0.85))
+                    .frame(width: 46, alignment: .trailing)
+            }
+            if showsC0 {
+                Text(String(format: "C0 %.0f%%", core.c0Percent))
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .frame(width: 52, alignment: .trailing)
+            }
+            if showsCC6 {
+                Text(String(format: "CC6 %.0f%%", core.cc6Percent))
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.purple.opacity(0.8))
+                    .frame(width: 58, alignment: .trailing)
+            }
+            Text(String(format: "%.0f °C", core.tempC))
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundColor(tempColor)
+                .frame(width: 46, alignment: .trailing)
+            Text(String(format: "%.1f W", core.powerW))
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundColor(.secondary)
+                .frame(width: 44, alignment: .trailing)
+        }
+        .help(String(format: "core %02d · %.0f MHz eff · %.1f °C · %.2f W · C0 %.1f%% · CC6 %.1f%%",
+                     core.slot, core.freqMHz, core.tempC, core.powerW, core.c0Percent, core.cc6Percent))
     }
 }

@@ -79,6 +79,15 @@ final class AmdPowerControlsModel: ObservableObject {
     @Published private(set) var pmTableBase: UInt64 = 0
     @Published private(set) var pmTableValid = false
     @Published private(set) var pmTableAgeMs: UInt64 = 0
+    // S9b: decoded per-core/package telemetry (nil until a known-version
+    // snapshot is captured — unknown versions stay unparsed, fail closed).
+    @Published private(set) var pmTableDecoded: AMDSmuPMTable.Decoded?
+    // S9b: per-core rolling windows for the panel sparklines — [slot → history],
+    // clock in MHz and temp in °C. Sampled on the same syncFromKext tick as
+    // every other history here (no new timers); cleared whenever the decode
+    // goes away (kext unload / undecodable version) so stale windows never show.
+    @Published private(set) var pmCoreClockHistory: [Int: [Double]] = [:]
+    @Published private(set) var pmCoreTempHistory: [Int: [Double]] = [:]
 
     /// Guard flag: true when updating published properties from kext reads
     /// to avoid trigger loops from `.onChange` handlers.
@@ -184,7 +193,7 @@ final class AmdPowerControlsModel: ObservableObject {
         recordTelemetrySample()
 
         let (kernelAnswered, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
-             smuVersion, activeScalar, ocCap, ocFreq, pmInfo) = await Task.detached(priority: .userInitiated) {
+             smuVersion, activeScalar, ocCap, ocFreq, pmInfo, pmData) = await Task.detached(priority: .userInitiated) {
             // AUDIT F-27: thread-safe connection check to avoid data races
             let kernelAnswered = ProcessorModel.shared.isConnected
             let cpb = ProcessorModel.shared.getCPB()
@@ -208,8 +217,12 @@ final class AmdPowerControlsModel: ObservableObject {
             let ocFreq = kernelAnswered ? ProcessorModel.shared.getOcFreqCache() : nil
             // S9a: PM-table info (cache only, no SMU traffic).
             let pmInfo = kernelAnswered ? ProcessorModel.shared.getPMTableInfo() : nil
+            // S9b: raw snapshot for decoding (cache-only chunk reads; one
+            // ≤4 KiB call covers every documented Vermeer table).
+            let pmData = (kernelAnswered && pmInfo?.snapshotValid == true)
+                ? ProcessorModel.shared.getPMTableSnapshot() : nil
             return (kernelAnswered, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
-                    smuVersion, activeScalar, ocCap, ocFreq, pmInfo)
+                    smuVersion, activeScalar, ocCap, ocFreq, pmInfo, pmData)
         }.value
         let profile = await ProcessorModel.shared.cpuProfile
         // S8.2 fallback for the per-CCD row count when the kext's register
@@ -312,6 +325,23 @@ final class AmdPowerControlsModel: ObservableObject {
             pmTableValid = false
             pmTableAgeMs = 0
         }
+        // S9b: decode the captured snapshot for the per-core rows. Nil for
+        // unknown table versions — the layout must never be guessed.
+        if let pmInfo, pmInfo.snapshotValid, let pmData {
+            pmTableDecoded = AMDSmuPMTable.decode(version: pmInfo.versionRaw, data: pmData)
+        } else {
+            pmTableDecoded = nil
+        }
+        // S9b: feed the per-core sparkline windows from the same decode.
+        if let decoded = pmTableDecoded {
+            for row in decoded.cores where row.isPresent {
+                appendPmCoreHistory(&pmCoreClockHistory, slot: row.slot, value: Double(row.freqMHz))
+                appendPmCoreHistory(&pmCoreTempHistory, slot: row.slot, value: Double(row.tempC))
+            }
+        } else {
+            pmCoreClockHistory = [:]
+            pmCoreTempHistory = [:]
+        }
 
         if profile.legacyPstateAllowed {
             let currentPState = await ProcessorModel.shared.getPState()
@@ -323,6 +353,18 @@ final class AmdPowerControlsModel: ObservableObject {
                 }
             }
         }
+    }
+
+    /// S9b: bounded append for one per-core sparkline window. Skips slots
+    /// whose row vanished (disabled slot) but keeps their history around
+    /// cheaply — a re-appearing slot continues its graph seamlessly.
+    private func appendPmCoreHistory(_ into: inout [Int: [Double]], slot: Int, value: Double) {
+        var window = into[slot] ?? []
+        window.append(value)
+        if window.count > Self.historyCapacity {
+            window.removeFirst(window.count - Self.historyCapacity)
+        }
+        into[slot] = window
     }
 
     private func recordTelemetrySample() {

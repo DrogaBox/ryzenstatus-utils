@@ -185,6 +185,7 @@ struct AMDPowerFeatureStrings {
     let c6DriftWarning: String
     // Menu-panel section (S2-T3).
     let panelSmcFanControl: String
+    let panelPmTableCores: String
     let panelManagedByGamingMode: String
     let autoEppToggle: String
     let panelCpbToggle: String
@@ -394,6 +395,7 @@ extension AMDPowerFeatureStrings {
         c6RuntimeRowTitle: "Runtime policy (kext)",
         c6DriftWarning: "NVRAM and the running kext disagree — reboot after changing boot-args, or update the AMD kext.",
         panelSmcFanControl: "SMC Fan Control (Advanced)",
+        panelPmTableCores: "Per-Core Telemetry (SMU)",
         panelManagedByGamingMode: "Managed by Gaming Mode",
         autoEppToggle: "Auto EPP (Zen 3)",
         panelCpbToggle: "Core Performance Boost",
@@ -572,6 +574,7 @@ extension AMDPowerFeatureStrings {
         c6RuntimeRowTitle: "Política en ejecución (kext)",
         c6DriftWarning: "La NVRAM y el kext en ejecución no coinciden — reiniciá después de cambiar los boot-args, o actualizá el kext AMD.",
         panelSmcFanControl: "Control de ventilador SMC (avanzado)",
+        panelPmTableCores: "Telemetría por núcleo (SMU)",
         panelManagedByGamingMode: "Administrado por Modo Gaming",
         autoEppToggle: "Auto EPP (Zen 3)",
         panelCpbToggle: "Core Performance Boost",
@@ -750,6 +753,7 @@ extension AMDPowerFeatureStrings {
         c6RuntimeRowTitle: "Política em execução (kext)",
         c6DriftWarning: "A NVRAM e o kext em execução divergem — reinicie após alterar os boot-args ou atualize o kext AMD.",
         panelSmcFanControl: "Controle de fan SMC (avançado)",
+        panelPmTableCores: "Telemetria por núcleo (SMU)",
         panelManagedByGamingMode: "Gerenciado pelo Modo Gaming",
         autoEppToggle: "Auto EPP (Zen 3)",
         panelCpbToggle: "Core Performance Boost",
@@ -928,6 +932,7 @@ extension AMDPowerFeatureStrings {
         c6RuntimeRowTitle: "Laufzeitrichtlinie (Kext)",
         c6DriftWarning: "NVRAM und laufender Kext widersprechen sich — nach dem Ändern der Boot-Args neu starten oder den AMD-Kext aktualisieren.",
         panelSmcFanControl: "SMC-Lüftersteuerung (erweitert)",
+        panelPmTableCores: "Kern-Telemetrie (SMU)",
         panelManagedByGamingMode: "Vom Gaming-Modus verwaltet",
         autoEppToggle: "Auto-EPP (Zen 3)",
         panelCpbToggle: "Core Performance Boost",
@@ -1106,6 +1111,7 @@ extension AMDPowerFeatureStrings {
         c6RuntimeRowTitle: "Politique d'exécution (kext)",
         c6DriftWarning: "La NVRAM et le kext en cours divergent — redémarrez après avoir modifié les boot-args, ou mettez à jour le kext AMD.",
         panelSmcFanControl: "Contrôle SMC des ventilateurs (avancé)",
+        panelPmTableCores: "Télémétrie par cœur (SMU)",
         panelManagedByGamingMode: "Géré par le Mode Gaming",
         autoEppToggle: "EPP auto (Zen 3)",
         panelCpbToggle: "Core Performance Boost",
@@ -1284,6 +1290,7 @@ extension AMDPowerFeatureStrings {
         c6RuntimeRowTitle: "Politica di runtime (kext)",
         c6DriftWarning: "NVRAM e kext in esecuzione non concordano — riavvia dopo aver modificato i boot-arg, o aggiorna il kext AMD.",
         panelSmcFanControl: "Controllo ventole SMC (avanzato)",
+        panelPmTableCores: "Telemetria per core (SMU)",
         panelManagedByGamingMode: "Gestito dalla Modalità Gaming",
         autoEppToggle: "EPP automatico (Zen 3)",
         panelCpbToggle: "Core Performance Boost",
@@ -1462,6 +1469,7 @@ extension AMDPowerFeatureStrings {
         c6RuntimeRowTitle: "Политика времени выполнения (kext)",
         c6DriftWarning: "NVRAM и работающий kext расходятся — перезагрузитесь после изменения boot-args или обновите AMD kext.",
         panelSmcFanControl: "Управление вентилятором SMC (дополнительно)",
+        panelPmTableCores: "Телеметрия по ядрам (SMU)",
         panelManagedByGamingMode: "Управляется игровым режимом",
         autoEppToggle: "Авто EPP (Zen 3)",
         panelCpbToggle: "Core Performance Boost",
@@ -1640,6 +1648,7 @@ extension AMDPowerFeatureStrings {
         c6RuntimeRowTitle: "Çalışma zamanı politikası (kext)",
         c6DriftWarning: "NVRAM ile çalışan kext çelişiyor — boot-arg değişikliğinden sonra yeniden başlatın veya AMD kext'i güncelleyin.",
         panelSmcFanControl: "SMC Fan Kontrolü (Gelişmiş)",
+        panelPmTableCores: "Çekirdek Telemetrisi (SMU)",
         panelManagedByGamingMode: "Gaming Modu tarafından yönetiliyor",
         autoEppToggle: "Otomatik EPP (Zen 3)",
         panelCpbToggle: "Core Performance Boost",
@@ -1818,6 +1827,7 @@ extension AMDPowerFeatureStrings {
         c6RuntimeRowTitle: "ランタイムポリシー（kext）",
         c6DriftWarning: "NVRAMと実行中のkextが一致しません — boot-arg変更後に再起動するか、AMD kextを更新してください。",
         panelSmcFanControl: "SMCファン制御（詳細）",
+        panelPmTableCores: "コアごとのテレメトリ（SMU）",
         panelManagedByGamingMode: "Gamingモードが管理中",
         autoEppToggle: "自動EPP（Zen 3）",
         panelCpbToggle: "Core Performance Boost",
@@ -1996,6 +2006,7 @@ extension AMDPowerFeatureStrings {
         c6RuntimeRowTitle: "런타임 정책 (kext)",
         c6DriftWarning: "NVRAM과 실행 중인 kext가 일치하지 않습니다 — boot-arg 변경 후 재부팅하거나 AMD kext를 업데이트하세요.",
         panelSmcFanControl: "SMC 팬 제어 (고급)",
+        panelPmTableCores: "코어별 텔레메트리 (SMU)",
         panelManagedByGamingMode: "게이밍 모드가 관리 중",
         autoEppToggle: "자동 EPP (Zen 3)",
         panelCpbToggle: "Core Performance Boost",
@@ -2174,6 +2185,7 @@ extension AMDPowerFeatureStrings {
         c6RuntimeRowTitle: "运行时策略（kext）",
         c6DriftWarning: "NVRAM 与运行中的 kext 不一致 — 修改 boot-args 后请重启，或更新 AMD kext。",
         panelSmcFanControl: "SMC 风扇控制（高级）",
+        panelPmTableCores: "每核心遥测（SMU）",
         panelManagedByGamingMode: "由游戏模式管理",
         autoEppToggle: "自动 EPP（Zen 3）",
         panelCpbToggle: "Core Performance Boost",
@@ -2352,6 +2364,7 @@ extension AMDPowerFeatureStrings {
         c6RuntimeRowTitle: "執行階段原則（kext）",
         c6DriftWarning: "NVRAM 與執行中的 kext 不一致 — 修改 boot-args 後請重新開機，或更新 AMD kext。",
         panelSmcFanControl: "SMC 風扇控制（進階）",
+        panelPmTableCores: "每核心遙測（SMU）",
         panelManagedByGamingMode: "由遊戲模式管理",
         autoEppToggle: "自動 EPP（Zen 3）",
         panelCpbToggle: "Core Performance Boost",

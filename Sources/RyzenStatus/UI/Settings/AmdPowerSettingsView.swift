@@ -492,6 +492,19 @@ struct AmdPowerSettingsView: View {
                                     .foregroundColor(pmStatusIsError ? .red : .green)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
+                            // S9b: decoded live rows. Only for known table
+                            // layouts (currently 0x380805) — unknown versions
+                            // keep the raw-export-only behavior, fail closed.
+                            if let decoded = controls.pmTableDecoded {
+                                Divider()
+                                pmTablePackageRows(decoded.summary)
+                                Divider()
+                                pmTableCoreRows(decoded.cores)
+                            } else {
+                                Text(l10n.amdPower.pmTableUnknownVersion)
+                                    .font(.caption2)
+                                    .foregroundColor(.orange)
+                            }
                         }
                     }
                 } header: {
@@ -1532,6 +1545,65 @@ struct AmdPowerSettingsView: View {
             parts.append(String(format: l10n.amdPower.ocFreqPerCcdFormat, ccd) + " \(mhz) MHz")
         }
         return parts.joined(separator: " · ")
+    }
+
+    /// S9b: package-level rows decoded from the PM-table snapshot. Monospace
+    /// technical labels, no localization — same convention as the S9a info
+    /// rows above (version/size render without locale strings).
+    private func pmTablePackageRows(_ s: AMDSmuPMTable.Summary) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            pmTablePair("PPT", String(format: "%6.1f / %.0f W", s.pptValueW, s.pptLimitW))
+            pmTablePair("TDC", String(format: "%6.1f / %.0f A", s.tdcValueA, s.tdcLimitA))
+            pmTablePair("EDC", String(format: "%6.1f / %.0f A", s.edcValueA, s.edcLimitA))
+            pmTablePair("THM", String(format: "%.0f C limit", s.thmLimitC))
+            pmTablePair("Core V", String(format: "%.3f V", s.coreVoltageV))
+            pmTablePair("Socket", String(format: "%6.1f W", s.socketPowerW))
+            pmTablePair("FCLK/UCLK/MEM", String(format: "%.0f / %.0f / %.0f MHz", s.fclkMHz, s.uclkMHz, s.memclkMHz))
+            pmTablePair("Peak temp", String(format: "%.1f C", s.peakTempC))
+            if s.pc6Percent > 0 {
+                pmTablePair("PC6", String(format: "%.1f %%", s.pc6Percent))
+            }
+        }
+    }
+
+    /// S9b: per-core grid — two cores per row to keep the section compact.
+    private func pmTableCoreRows(_ cores: [AMDSmuPMTable.CoreRow]) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(0..<(cores.count + 1) / 2, id: \.self) { pair in
+                HStack(spacing: 12) {
+                    pmTableCell(cores[pair * 2])
+                    if pair * 2 + 1 < cores.count {
+                        pmTableCell(cores[pair * 2 + 1])
+                    }
+                }
+            }
+        }
+    }
+
+    private func pmTableCell(_ c: AMDSmuPMTable.CoreRow) -> some View {
+        let sleeping = c.isSleeping && c.isPresent
+        return HStack(spacing: 5) {
+            Text(String(format: "C%02d", c.slot))
+                .foregroundColor(c.isPresent ? .primary : .secondary)
+            Text(sleeping
+                 ? String(format: "%5.1f W", c.powerW)
+                 : String(format: "%5.0f MHz %5.1f W %4.1f C", c.freqMHz, c.powerW, c.tempC))
+                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                .foregroundColor(c.isPresent ? (sleeping ? .secondary : .primary) : .secondary)
+            if !c.isPresent { Text("off").font(.caption2).foregroundColor(.secondary) }
+        }
+    }
+
+    private func pmTablePair(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundColor(.secondary)
+            Spacer()
+            Text(value)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundColor(.primary)
+        }
     }
 
     /// S9a: export the PM-table snapshot via a save panel (bug-report

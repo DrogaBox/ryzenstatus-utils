@@ -7565,6 +7565,297 @@ struct MetricsTests {
         expect(!AMDSmuPMTable.isKnownVersion(0x1234_5678), "unknown future versions must fail closed")
         expect(!AMDSmuPMTable.isKnownVersion(0x0037_0B01), "SMU firmware version (0x02) must not be confused with a PM-table version")
 
+        // MARK: S9b AMDSmuPMTable.decode (0x380805 Vermeer per-core layout)
+
+        // Repo-relative file resolver shared by the fixture loader (S9b
+        // decode checks) and the kernel-source pin checks below. Missing
+        // files surface as empty data/strings and fail the dependent
+        // checks loudly — fail closed, never skip silently.
+        var repoBase = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        if !FileManager.default.fileExists(atPath: repoBase.appendingPathComponent("Tests").path) {
+            let parent = repoBase.deletingLastPathComponent()
+            if FileManager.default.fileExists(atPath: parent.appendingPathComponent("Tests").path) {
+                repoBase = parent
+            }
+        }
+        func repoFileData(_ relative: String) -> Data {
+            return (try? Data(contentsOf: repoBase.appendingPathComponent(relative))) ?? Data()
+        }
+        func kextSource(_ relative: String) -> String {
+            return String(data: repoFileData(relative), encoding: .utf8) ?? ""
+        }
+
+        // Fixtures: real 5900XT captures from kext 3.34.11 (timer-maintained
+        // snapshot read back through selector 57 op 1), stored under
+        // Tests/Fixtures/PMTable — see that directory's README for the
+        // capture recipe and per-file machine state. Row format:
+        // "<4-hex byte offset>|32 hex chars" (16 bytes/row), 143 rows =
+        // 2288 bytes = exactly the documented 0x380805 size. The near-idle
+        // capture drives the exact-value anchors below; the second capture
+        // (a different machine state) cross-checks layout invariants.
+        func decodeFixture(_ name: String) -> Data? {
+            let text = String(data: repoFileData("Tests/Fixtures/PMTable/\(name)"), encoding: .utf8) ?? ""
+            guard !text.isEmpty else { return nil }
+            var data = Data()
+            var offset = 0
+            for line in text.split(whereSeparator: \.isNewline) {
+                let parts = line.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+                guard parts.count == 2, parts[1].count == 32 else { return nil }
+                expectEqual(String(parts[0]), String(format: "%04x", offset),
+                            "\(name): fixture rows must stay contiguous 16-byte hex rows")
+                var i = parts[1].startIndex
+                while i < parts[1].endIndex {
+                    let next = parts[1].index(i, offsetBy: 2)
+                    if let b = UInt8(parts[1][i..<next], radix: 16) { data.append(b) }
+                    i = next
+                }
+                offset += 16
+            }
+            return offset == data.count ? data : nil
+        }
+        // Missing/malformed fixture => empty data => the accepts-full-table
+        // check below fails loudly (fail closed, never skip silently).
+        let pmData = decodeFixture("vermeer-0x380805-idle-2026-09-11T2324.hex") ?? Data()
+        expect(pmData.count == 2288,
+               "idle PM-table fixture must load from Tests/Fixtures/PMTable and decode to 2288 bytes (run tests from the repo root), got \(pmData.count)")
+
+        // Fail-closed boundaries.
+        expect(AMDSmuPMTable.decode(version: 0x380805, data: pmData.prefix(2287)) == nil,
+               "decode must refuse snapshots shorter than the 0x380805 minimum")
+        expect(AMDSmuPMTable.decode(version: 0x380705, data: pmData) == nil,
+               "decode must fail closed for versions without a tested layout (0x380705, kext-capturable but undecodable)")
+        expect(AMDSmuPMTable.decode(version: 0, data: pmData) == nil,
+               "decode must refuse version 0 (never read)")
+
+        let pmDecoded = AMDSmuPMTable.decode(version: 0x380805, data: pmData)
+        expect(pmDecoded != nil, "decode must accept a full live 0x380805 capture")
+        if let d = pmDecoded {
+            func near(_ a: Float, _ b: Float, _ eps: Float) -> Bool { abs(a - b) < eps }
+            let s = d.summary
+            expect(near(s.pptLimitW, 115, 0.5), "PPT limit must decode 115 W, got \(s.pptLimitW)")
+            expect(near(s.pptValueW, 49.28, 0.5), "PPT value must decode ~49.3 W idle, got \(s.pptValueW)")
+            expect(near(s.tdcLimitA, 75, 0.5), "TDC limit must decode 75 A, got \(s.tdcLimitA)")
+            expect(near(s.tdcValueA, 17.12, 0.5), "TDC value must decode ~17.1 A idle, got \(s.tdcValueA)")
+            expect(near(s.edcLimitA, 110, 0.5), "EDC limit must decode 110 A, got \(s.edcLimitA)")
+            expect(near(s.thmLimitC, 80, 0.5), "THM limit must decode 80 C, got \(s.thmLimitC)")
+            expect(near(s.coreVoltageLimitV, 1.5, 0.02), "VID limit must decode ~1.5 V, got \(s.coreVoltageLimitV)")
+            expect(near(s.coreVoltageV, 1.28, 0.02), "VID value must decode ~1.28 V idle, got \(s.coreVoltageV)")
+            expect(near(s.cpuTelemetryV, 1.28, 0.02), "CPU telemetry voltage must decode ~1.28 V, got \(s.cpuTelemetryV)")
+            expect(near(s.socketPowerW, 49.25, 0.5), "socket power must decode ~49.3 W (tracks PPT value), got \(s.socketPowerW)")
+            expect(near(s.fclkMHz, 1667, 2), "FCLK must decode ~1667 MHz, got \(s.fclkMHz)")
+            expect(near(s.uclkMHz, 1667, 2), "UCLK must decode ~1667 MHz, got \(s.uclkMHz)")
+            expect(near(s.memclkMHz, 1667, 2), "MEMCLK must decode ~1667 MHz, got \(s.memclkMHz)")
+            expect(near(s.peakTempC, 65, 0.5), "peak temp must decode 65 C, got \(s.peakTempC)")
+            expect(s.pc6Percent == 0, "PC6 must be 0 while the kext keeps deep C6 disabled")
+
+            expect(d.cores.count == 16, "0x380805 exposes 16 core slots, got \(d.cores.count)")
+            let c0 = d.cores[0]
+            expect(near(c0.powerW, 2.547, 0.1), "core 0 power must decode ~2.55 W idle, got \(c0.powerW)")
+            expect(near(c0.tempC, 36.87, 0.3), "core 0 temp must decode ~36.9 C, got \(c0.tempC)")
+            expect(near(c0.c0Percent, 15.21, 0.3), "core 0 C0 must decode ~15.2%, got \(c0.c0Percent)")
+            expect(!c0.isSleeping, "core 0 at 15% C0 must not count as sleeping")
+            expect(c0.isPresent, "core 0 (populated slot) must read as present")
+            expect(near(c0.cc6Percent, 0, 0.01), "core 0 CC6 must be 0 while the kext keeps deep C6 disabled, got \(c0.cc6Percent)")
+            for row in d.cores {
+                expect(row.cc6Percent >= 0 && row.cc6Percent <= 100,
+                       "CC6 residency must decode within 0-100%, got \(row.cc6Percent)")
+            }
+        }
+
+        // Cross-check: the second capture (different machine state, 112
+        // bytes differ) must decode with the same layout and satisfy
+        // invariants — static limits, plausible dynamics.
+        if let ldData = decodeFixture("vermeer-0x380805-lightload-2026-09-12T0121.hex") {
+            expect(ldData.count == 2288, "light-load fixture must decode to 2288 bytes, got \(ldData.count)")
+            expect(ldData != pmData, "the two captures must differ (distinct machine states)")
+            if let d2 = AMDSmuPMTable.decode(version: 0x380805, data: ldData) {
+                let s2 = d2.summary
+                expect(abs(s2.pptLimitW - 115) < 0.5, "light-load PPT limit must decode 115 W, got \(s2.pptLimitW)")
+                expect(abs(s2.tdcLimitA - 75) < 0.5, "light-load TDC limit must decode 75 A, got \(s2.tdcLimitA)")
+                expect(abs(s2.edcLimitA - 110) < 0.5, "light-load EDC limit must decode 110 A, got \(s2.edcLimitA)")
+                expect(abs(s2.thmLimitC - 80) < 0.5, "light-load THM limit must decode 80 C, got \(s2.thmLimitC)")
+                expect(s2.pptValueW > 40 && s2.pptValueW < 115,
+                       "light-load PPT value must stay plausible, got \(s2.pptValueW)")
+                expect(d2.cores.count == 16, "light-load capture must expose 16 core slots, got \(d2.cores.count)")
+                for row in d2.cores {
+                    expect(row.tempC > 0 && row.tempC < 120,
+                           "light-load core temp must stay plausible, got \(row.tempC)")
+                    expect(row.powerW >= 0 && row.powerW < 200,
+                           "light-load core power must stay plausible, got \(row.powerW)")
+                    expect(row.c0Percent >= 0 && row.c0Percent <= 100,
+                           "light-load C0 must decode within 0-100%, got \(row.c0Percent)")
+                    expect(row.cc6Percent >= 0 && row.cc6Percent <= 100,
+                           "light-load CC6 must decode within 0-100%, got \(row.cc6Percent)")
+                }
+            } else {
+                expect(false, "light-load fixture must decode with the same 0x380805 layout")
+            }
+        } else {
+            expect(false, "light-load PM-table fixture must load from Tests/Fixtures/PMTable")
+        }
+
+        // MARK: S9b family layouts (0x380904 / 0x380905, 8-core Zen3)
+
+        // Synthetic captures: build a buffer of the version's documented
+        // size and write known float values at the pm_tables.c elements the
+        // decoder must read. Proves the head is shared (limits from the
+        // same elements) and each version's core-block deltas are honored.
+        func near(_ a: Float, _ b: Float, _ eps: Float) -> Bool { abs(a - b) < eps }
+        func syntheticTable(bytes: Int, elements: [Int: Float]) -> Data {
+            var d = Data(repeating: 0, count: bytes)
+            d.withUnsafeMutableBytes { raw in
+                for (e, v) in elements {
+                    raw.storeBytes(of: v.bitPattern, toByteOffset: e * 4, as: UInt32.self)
+                }
+            }
+            return d
+        }
+        let headValues: [Int: Float] = [0: 105, 1: 51.5, 2: 70, 3: 16.25, 8: 100, 9: 30.5,
+                                        11: 1.24, 29: 52.5, 48: 1600, 50: 1600, 51: 1600, 140: 71]
+
+        // 0x380905 — head matches 0x380805 (telemetry V at 40, PC6 at 155);
+        // 8 cores with CORE_POWER at 172, stride 8.
+        if let d905 = AMDSmuPMTable.decode(version: 0x380905, data: syntheticTable(
+            bytes: 372 * 4,
+            elements: headValues.merging([40: 1.19, 155: 3.5,
+                                          172: 4.25, 180: 123.0, 188: 44.5, 220: 3.9, 228: 12.5, 244: 55.0,
+                                          173: 0.75, 189: 31.25, 221: 3.1, 229: 1.5], uniquingKeysWith: { a, _ in a })))
+        {
+            expect(near(d905.summary.pptLimitW, 105, 0.01), "0x380905 head PPT limit must decode, got \(d905.summary.pptLimitW)")
+            expect(near(d905.summary.socketPowerW, 52.5, 0.01), "0x380905 socket power must decode, got \(d905.summary.socketPowerW)")
+            expect(near(d905.summary.cpuTelemetryV, 1.19, 0.001), "0x380905 telemetry V must decode from element 40, got \(d905.summary.cpuTelemetryV)")
+            expect(near(d905.summary.pc6Percent, 3.5, 0.001), "0x380905 PC6 must decode from element 155, got \(d905.summary.pc6Percent)")
+            expect(d905.cores.count == 8, "0x380905 must expose 8 core slots, got \(d905.cores.count)")
+            expect(near(d905.cores[0].powerW, 4.25, 0.01), "0x380905 core0 power from element 172, got \(d905.cores[0].powerW)")
+            expect(near(d905.cores[0].tempC, 44.5, 0.01), "0x380905 core0 temp from element 188, got \(d905.cores[0].tempC)")
+            expect(near(d905.cores[0].freqMHz, 3900, 0.5), "0x380905 core0 effective clock = element 220 × 1000, got \(d905.cores[0].freqMHz)")
+            expect(near(d905.cores[0].c0Percent, 12.5, 0.01), "0x380905 core0 C0 from element 228, got \(d905.cores[0].c0Percent)")
+            expect(near(d905.cores[0].cc6Percent, 55.0, 0.01), "0x380905 core0 CC6 from element 244, got \(d905.cores[0].cc6Percent)")
+            expect(near(d905.cores[1].tempC, 31.25, 0.01), "0x380905 core1 temp stride +1 from element 189, got \(d905.cores[1].tempC)")
+            expect(near(d905.cores[1].freqMHz, 3100, 0.5), "0x380905 core1 clock stride +1 from element 221, got \(d905.cores[1].freqMHz)")
+        } else {
+            expect(false, "0x380905 synthetic capture must decode with the family layout")
+        }
+        expect(AMDSmuPMTable.decode(version: 0x380905, data: syntheticTable(bytes: 372 * 4 - 1, elements: [:])) == nil,
+               "0x380905 decode must refuse snapshots below its 1488-byte minimum")
+
+        // 0x380904 — the OLDER head: CPU_TELEMETRY_VOLTAGE at 41 (40 is
+        // FIT_PRE_VOLTAGE territory), PC6 at 152; core blocks from 169.
+        if let d904 = AMDSmuPMTable.decode(version: 0x380904, data: syntheticTable(
+            bytes: 361 * 4,
+            elements: headValues.merging([41: 1.17, 152: 2.25,
+                                          169: 3.5, 177: 63.0, 185: 42.5, 217: 3.6, 225: 9.5, 241: 44.0,
+                                          170: 0.5, 186: 29.75], uniquingKeysWith: { a, _ in a })))
+        {
+            expect(near(d904.summary.pptLimitW, 105, 0.01), "0x380904 head PPT limit must decode, got \(d904.summary.pptLimitW)")
+            expect(near(d904.summary.cpuTelemetryV, 1.17, 0.001), "0x380904 telemetry V must decode from element 41 (older head), got \(d904.summary.cpuTelemetryV)")
+            expect(near(d904.summary.pc6Percent, 2.25, 0.001), "0x380904 PC6 must decode from element 152 (older head), got \(d904.summary.pc6Percent)")
+            expect(d904.cores.count == 8, "0x380904 must expose 8 core slots, got \(d904.cores.count)")
+            expect(near(d904.cores[0].powerW, 3.5, 0.01), "0x380904 core0 power from element 169, got \(d904.cores[0].powerW)")
+            expect(near(d904.cores[0].tempC, 42.5, 0.01), "0x380904 core0 temp from element 185, got \(d904.cores[0].tempC)")
+            expect(near(d904.cores[0].freqMHz, 3600, 0.5), "0x380904 core0 effective clock = element 217 × 1000, got \(d904.cores[0].freqMHz)")
+            expect(near(d904.cores[0].cc6Percent, 44.0, 0.01), "0x380904 core0 CC6 from element 241, got \(d904.cores[0].cc6Percent)")
+            expect(near(d904.cores[1].tempC, 29.75, 0.01), "0x380904 core1 temp stride +1 from element 186, got \(d904.cores[1].tempC)")
+        } else {
+            expect(false, "0x380904 synthetic capture must decode with the family layout")
+        }
+        expect(AMDSmuPMTable.decode(version: 0x380904, data: syntheticTable(bytes: 361 * 4 - 1, elements: [:])) == nil,
+               "0x380904 decode must refuse snapshots below its 1444-byte minimum")
+
+        // 0x380804 — old head (telemetry V at 41, PC6 at 152) but 16-core
+        // stride-16 blocks from 169, min 2212 bytes (matches the kext size
+        // table's 0x08A4).
+        if let d804 = AMDSmuPMTable.decode(version: 0x380804, data: syntheticTable(
+            bytes: 553 * 4,
+            elements: headValues.merging([41: 1.15, 152: 1.5,
+                                          169: 5.75, 185: 81.0, 201: 46.5, 249: 4.2, 265: 18.5, 297: 12.0,
+                                          170: 1.25, 202: 33.5], uniquingKeysWith: { a, _ in a })))
+        {
+            expect(near(d804.summary.pptLimitW, 105, 0.01), "0x380804 head PPT limit must decode, got \(d804.summary.pptLimitW)")
+            expect(near(d804.summary.socketPowerW, 52.5, 0.01), "0x380804 socket power must decode, got \(d804.summary.socketPowerW)")
+            expect(near(d804.summary.cpuTelemetryV, 1.15, 0.001), "0x380804 telemetry V must decode from element 41 (older head), got \(d804.summary.cpuTelemetryV)")
+            expect(near(d804.summary.pc6Percent, 1.5, 0.001), "0x380804 PC6 must decode from element 152 (older head), got \(d804.summary.pc6Percent)")
+            expect(d804.cores.count == 16, "0x380804 must expose 16 core slots, got \(d804.cores.count)")
+            expect(near(d804.cores[0].powerW, 5.75, 0.01), "0x380804 core0 power from element 169, got \(d804.cores[0].powerW)")
+            expect(near(d804.cores[0].tempC, 46.5, 0.01), "0x380804 core0 temp from element 201, got \(d804.cores[0].tempC)")
+            expect(near(d804.cores[0].freqMHz, 4200, 0.5), "0x380804 core0 effective clock = element 249 × 1000, got \(d804.cores[0].freqMHz)")
+            expect(near(d804.cores[0].c0Percent, 18.5, 0.01), "0x380804 core0 C0 from element 265, got \(d804.cores[0].c0Percent)")
+            expect(near(d804.cores[0].cc6Percent, 12.0, 0.01), "0x380804 core0 CC6 from element 297, got \(d804.cores[0].cc6Percent)")
+            expect(near(d804.cores[1].powerW, 1.25, 0.01), "0x380804 core1 power stride +1 from element 170, got \(d804.cores[1].powerW)")
+            expect(near(d804.cores[1].tempC, 33.5, 0.01), "0x380804 core1 temp stride +1 from element 202, got \(d804.cores[1].tempC)")
+        } else {
+            expect(false, "0x380804 synthetic capture must decode with the family layout")
+        }
+        expect(AMDSmuPMTable.decode(version: 0x380804, data: syntheticTable(bytes: 553 * 4 - 1, elements: [:])) == nil,
+               "0x380804 decode must refuse snapshots below its 2212-byte minimum")
+        expect(AMDSmuPMTable.decode(version: 0x380705, data: syntheticTable(bytes: 2288, elements: headValues)) == nil,
+               "0x380705 must stay fail-closed: no public authoritative element map exists (kext may capture it, the app must not guess)")
+
+        // MARK: S9a hardware-pin regression guards (kernel C++ source pins)
+
+        // The test binary cannot link the kext, so these checks pin the
+        // kernel source text itself: the three on-hardware fixes from the
+        // S9a debugging session must never silently regress. Paths resolve
+        // through the shared repo resolver defined in the S9b section;
+        // missing sources fail these checks (fail closed) instead of
+        // silently passing.
+        let kextCpp = kextSource("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.cpp")
+        expect(!kextCpp.isEmpty, "kernel source must be readable for the S9a pin checks (run tests from the repo root)")
+
+        // Pin 1 — Vermeer RSMU mailbox registers (the silent-timeout fix).
+        // The old contiguous layout {0x3B10524, 0x3B10528, 0x3B1052C} polled
+        // a response register that never changes, so every SMU command timed
+        // out invisibly. Canonical layout per ryzen_smu smu.c: cmd 0x3B10524,
+        // args 0x3B10A40, rsp 0x3B10570 (values+order pinned; whitespace-
+        // tolerant so reformatting does not false-fail).
+        expect(kextCpp.range(of: "smuMailbox\\s*=\\s*\\{\\s*0x3B10524,\\s*0x3B10A40,\\s*0x3B10570,\\s*0x3D,\\s*true\\s*\\}",
+                             options: .regularExpression) != nil,
+               "Vermeer mailbox must initialize cmd/args/rsp = 0x3B10524/0x3B10A40/0x3B10570 (supported)")
+        expect(!kextCpp.contains("0x3B10528") && !kextCpp.contains("0x3B1052C"),
+               "old wrong Vermeer registers 0x3B10528/0x3B1052C must never reappear")
+
+        // The positional initializer above relies on struct field order —
+        // pin it in the header so a field reorder cannot reinterpret values.
+        let kextHpp = kextSource("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.hpp")
+        expect(!kextHpp.isEmpty, "kernel header must be readable for the S9a pin checks")
+        if let m = kextHpp.range(of: "msgReg"), let a = kextHpp.range(of: "argReg"), let r = kextHpp.range(of: "rspReg") {
+            expect(m.lowerBound < a.lowerBound && a.lowerBound < r.lowerBound,
+                   "SMUMailbox field order must stay msgReg/argReg/rspReg (the positional initializers depend on it)")
+        } else {
+            expect(false, "SMUMailbox fields msgReg/argReg/rspReg must still exist in the kernel header")
+        }
+
+        // Pin 2 — PM-table DRAM mapping flags (the rc -15 fix). A fixed
+        // atAddress=0 mapping in the kernel map can never be satisfied, so
+        // kIOMapAnywhere is mandatory; read-only + inhibit-cache protect a
+        // live SMU-owned region.
+        expect(kextCpp.range(of: "createMappingInTask\\(kernel_task, 0,\\s*kIOMapAnywhere \\| kIOMapInhibitCache \\| kIOMapReadOnly",
+                             options: .regularExpression) != nil,
+               "PM table mapping must pass kIOMapAnywhere | kIOMapInhibitCache | kIOMapReadOnly to createMappingInTask")
+
+        // Pin 3 — PM-table size table (fail-closed). Every documented
+        // version must keep its reference size (smu.c smu_update_pmtablesize;
+        // Ryzen-Master-sourced), unknown versions must stay unreachable.
+        // The 0x380805 entry (2288 bytes) is additionally pinned end-to-end
+        // by the S9b decode fixture above, captured from a live 5900XT.
+        let kextSizes: [(UInt32, UInt32)] = [(0x2D0803, 0x0894), (0x2D0903, 0x0594),
+                                             (0x380005, 0x1BB0), (0x380505, 0x0F30),
+                                             (0x380605, 0x0C10), (0x380705, 0x08F0),
+                                             (0x380804, 0x08A4), (0x380805, 0x08F0),
+                                             (0x380904, 0x05A4), (0x380905, 0x05D0)]
+        expect(kextCpp.contains("static uint32_t pmTableSizeForVersion(uint32_t version)"),
+               "pmTableSizeForVersion must remain the single size authority")
+        for (version, size) in kextSizes {
+            // Zero-pad-tolerant: source may write 0x2D0803 or 0x002D0803.
+            let casePattern = String(format: "case\\s+0x0*%X\\s*:\\s*return\\s+0x0*%X\\s*;", version, size)
+            expect(kextCpp.range(of: casePattern, options: .regularExpression) != nil,
+                   "PM table size table must pin version 0x\(String(format: "%X", version)) -> \(size) bytes")
+        }
+        expect(kextCpp.range(of: "default:\\s*return 0;", options: .regularExpression) != nil,
+               "pmTableSizeForVersion must keep the fail-closed default (unknown version -> 0)")
+        expect(kextCpp.contains("if (size == 0 || size > kPM_TABLE_MAX_SIZE)"),
+               "forcePMTableCapture must keep rejecting size==0 (unknown version) before mapping")
+
         // MARK: S4 AMDPBOLimits Helpers (gate, clamps, formatters)
 
         // Silicon gate mirrors the kext: Zen 3 Vermeer only, fail-closed.
