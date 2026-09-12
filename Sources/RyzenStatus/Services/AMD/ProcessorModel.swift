@@ -14,24 +14,40 @@ actor ProcessorModel {
     static let shared = ProcessorModel()
 
 
-    nonisolated let iokitLock = NSLock()
+    // S10 IOK-01: `iokitLock` removed. It was declared for exactly this purpose
+    // but never locked anywhere in the codebase (only two stale comments
+    // referenced it). Serialization now lives in ConnectBox.withHandle.
     // Wave S3-A: locked connection box. The raw IOKit handle is guarded by its
     // own NSLock — every kext call path is nonisolated, so actor isolation can
-    // never cover this handle. The old `nonisolated(unsafe)` + external
-    // iokitLock pairing worked but kept an unsafe alias in scope.
+    // never cover this handle.
     final class ConnectBox: @unchecked Sendable {
         private let lock = NSLock()
         private var _handle: io_connect_t = 0
+        /// S10 IOK-03: consecutive transport failures on a non-zero handle.
+        private var _consecutiveFailures: Int = 0
+
         var handle: io_connect_t {
             lock.lock(); defer { lock.unlock() }; return _handle
         }
+
+        /// S10 IOK-01: runs `body` with the handle while holding the lock, so the
+        /// handle cannot be closed underneath an in-flight IOConnectCallMethod.
+        /// This also makes the kext channel serial, matching what the kext's
+        /// command gate already assumes.
+        func withHandle<T>(_ body: (io_connect_t) -> T) -> T {
+            lock.lock(); defer { lock.unlock() }
+            return body(_handle)
+        }
+
         /// Atomic swap: closes the previous handle if any, installs the new one.
+        /// The close happens under the lock so it cannot race an in-flight call.
         func install(_ new: io_connect_t) {
             lock.lock()
             let old = _handle
             _handle = new
-            lock.unlock()
+            _consecutiveFailures = 0
             if old != 0 { IOServiceClose(old) }  // defensive; normally 0 here
+            lock.unlock()
         }
         /// Atomic close-and-zero; returns whether a handle was open.
         @discardableResult
@@ -40,9 +56,24 @@ actor ProcessorModel {
             let was = _handle != 0
             let old = _handle
             _handle = 0
-            lock.unlock()
+            _consecutiveFailures = 0
             if old != 0 { IOServiceClose(old) }
+            lock.unlock()
             return was
+        }
+
+        // MARK: - S10 IOK-03 health tracking
+        // Called from inside withHandle (lock already held) — must NOT re-lock.
+        // NSLock is not reentrant; re-locking here would deadlock instantly.
+        fileprivate func noteSuccess() { _consecutiveFailures = 0 }
+        fileprivate func noteFailure() {
+            if _consecutiveFailures < Int.max { _consecutiveFailures += 1 }
+        }
+        /// True when the handle looks alive-but-dead: non-zero yet failing every
+        /// call. The watchdog uses this to force a reopen.
+        var isLikelyStale: Bool {
+            lock.lock(); defer { lock.unlock() }
+            return _handle != 0 && _consecutiveFailures >= 5
         }
     }
     nonisolated let connectBox = ConnectBox()
@@ -77,9 +108,36 @@ actor ProcessorModel {
         _ structureOutput: UnsafeMutableRawPointer!,
         _ structureOutputSize: UnsafeMutablePointer<Int>!
     ) -> kern_return_t {
-        let handle = connectBox.handle
-        if handle == 0 { return kIOReturnNoDevice }
-        return IOConnectCallMethod(handle, selector, scalarInput, scalarInputCount, structureInput, structureInputSize, scalarOutput, scalarOutputCount, structureOutput, structureOutputSize)
+        // S10 IOK-01: the call happens *while holding the handle lock*, fixing
+        // two defects at once.
+        //
+        //  1. Use-after-close. The handle used to be copied out under the lock
+        //     and then used outside it, so a concurrent watchdog
+        //     reconnect/teardown could close the port mid-flight. Mach port
+        //     names are recycled within a task, so the in-flight selector could
+        //     in principle land on an unrelated user client.
+        //
+        //  2. No serialization. There was no IOKit queue anywhere; the
+        //     MainActor, SystemMonitor's utility queue, the 5 s watchdog,
+        //     AutoEppService, C6ResidencyService and two detached fan readers
+        //     all called in concurrently, with shared out-params unprotected.
+        return connectBox.withHandle { handle in
+            if handle == 0 { return kIOReturnNoDevice }
+            let kr = IOConnectCallMethod(handle, selector, scalarInput, scalarInputCount, structureInput, structureInputSize, scalarOutput, scalarOutputCount, structureOutput, structureOutputSize)
+            // S10 IOK-03: track consecutive transport-level failures so a
+            // stale-but-non-zero handle can be recovered by the watchdog.
+            // kIOReturnBadArgument and kIOReturnNotPrivileged are deliberately
+            // NOT counted: they are the kext's normal answers to a size or
+            // privilege mismatch and say nothing about port health. Counting
+            // them would cause spurious reconnects on unprivileged sessions.
+            if kr == KERN_SUCCESS {
+                connectBox.noteSuccess()
+            } else if kr == kIOReturnNoDevice || kr == kIOReturnNotResponding
+                        || kr == kIOReturnNotAttached {
+                connectBox.noteFailure()
+            }
+            return kr
+        }
     }
 
 
@@ -477,6 +535,19 @@ actor ProcessorModel {
                     // unload, or we launched while the service was momentarily
                     // unmatchable. Reopen and refresh actor state instead of
                     // staying degraded until the app restarts.
+                    // S10 IOK-03: recover an "alive but dead" handle. The old
+                    // gate was `if !isConnected`, i.e. handle == 0. When the
+                    // user client died across sleep while the service still
+                    // matched, the handle stayed non-zero, isConnected stayed
+                    // true, attemptReconnect() was never reached, and every
+                    // selector failed forever with no recovery path.
+                    if self.connectBox.isLikelyStale {
+                        NSLog("ProcessorModel: handle appears stale (5+ consecutive failures); forcing reopen")
+                        self.connectBox.closeIfOpen()
+                        if self.attemptReconnect() {
+                            NSLog("ProcessorModel: stale-handle reconnect succeeded")
+                        }
+                    }
                     if !self.isConnected, self.attemptReconnect() {
                         // The unload path set isTerminating; clear it or every
                         // kernelGet* guard will keep returning empty arrays.
@@ -494,7 +565,7 @@ actor ProcessorModel {
 
     /// KEXT_WAVE C-9: re-opens a user-client connection to a (re)loaded
     /// AMDRyzenCPUPowerManagement service. Called only from the detached
-    /// watchdog task; connection state transitions stay under iokitLock.
+    /// watchdog task; connection state transitions stay under ConnectBox's lock.
     nonisolated private func attemptReconnect() -> Bool {
         let serviceObject = IOServiceGetMatchingService(kIOMainPortDefault,
                                                         IOServiceMatching("AMDRyzenCPUPowerManagement"))
@@ -526,19 +597,39 @@ actor ProcessorModel {
         var scalerOut: UInt64 = 0
         var outputCount: UInt32 = 0
 
-        let maxStrLength = 16
+        // S10 IOK-02: 64 bytes comfortably covers any semver plus pre-release
+        // and build metadata. The kext requires
+        // maxLen >= sizeof(xStringify(MODULE_VERSION)) including the NUL, so a
+        // 16-byte buffer made any 16+ character version string fail the call.
+        let maxStrLength = 64
         var outputStr: [CChar] = [CChar](repeating: 0, count: maxStrLength)
         var outputStrCount: Int = maxStrLength
         let versionResult = safeIOConnectCallMethod( AMDKextSelector.kextVersion.id, nil, 0, nil, 0,
                                                  &scalerOut, &outputCount,
                                                  &outputStr, &outputStrCount)
-        guard versionResult == KERN_SUCCESS, outputStrCount > 0 else {
-            NSLog("ProcessorModel: failed to read kext version, kr=0x%08x", versionResult)
-            identityCache.set(version: "")
-            return
+        // S10 IOK-02: the version string is diagnostic metadata, NOT a
+        // capability gate. This used to `return`, skipping loadCPUID(),
+        // loadMetric() and loadPStateDef() entirely while isKextAvailable had
+        // already been set to true — so the UI reported a healthy kext and
+        // displayed zeroes everywhere with no actionable error.
+        //
+        // Note the two hazards this branch must avoid:
+        //   1. outputStrCount == 0 would make the range 0...(-1) and CRASH.
+        //   2. An empty version makes the compatibility check below conclude
+        //      "outdated kext" and call alertAndQuit(), terminating the app.
+        // Both are handled by tracking whether the version is known.
+        var versionKnown = false
+        if versionResult == KERN_SUCCESS, outputStrCount > 0 {
+            let upper = min(outputStrCount - 1, outputStr.count - 1)
+            if upper >= 0 {
+                identityCache.set(version: String(cString: Array(outputStr[0...upper])))
+                versionKnown = true
+            }
         }
-        let resolvedVersion = String(cString: Array(outputStr[0...min(outputStrCount - 1, outputStr.count - 1)]))
-        identityCache.set(version: resolvedVersion)
+        if !versionKnown {
+            NSLog("ProcessorModel: kext version unreadable, kr=0x%08x — continuing init", versionResult)
+            identityCache.set(version: "")
+        }
 
         let compatVers = ["1.0.0"]
 
@@ -550,7 +641,11 @@ actor ProcessorModel {
             }
         }
 
-        if !isCompatible {
+        // S10 IOK-02: only refuse to run when the version is KNOWN to be
+        // incompatible. An unreadable version string must not terminate the
+        // app — telemetry does not depend on it, and quitting on a cosmetic
+        // read failure is a far worse outcome than running unversioned.
+        if !isCompatible && versionKnown {
             let fmt = NSLocalizedString("Your AMD Power Management kext version (%@) is outdated and no longer API compatible. Please use version 1.0.0 or newer and start this application again.", comment: "")
             alertAndQuit(message: String(format: fmt, kextVersion))
             return

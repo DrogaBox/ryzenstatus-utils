@@ -180,7 +180,36 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
     }
     
     provider->registerRequest();
-    
+
+    //
+    // S10 IOK-05: centralized pre-switch validation gate.
+    //
+    // This driver overrides externalMethod() directly and ignores the `dispatch`
+    // argument, so IOUserClient's own checkScalarInputCount /
+    // checkStructureInputSize / checkScalarOutputCount /
+    // checkStructureOutputSize are never applied. All ~70 cases below validate
+    // by hand and are currently correct — but there is no single place a
+    // reviewer can check, and each new selector re-litigates the question.
+    //
+    // This gate enforces the invariants that hold for EVERY selector, so an
+    // omission in a future case cannot reach a memcpy.
+    //
+    if (arguments->structureInputSize > 0 && !arguments->structureInput) {
+        IOLog("AMDRyzenCPUPMUserClient: selector %u declared %u input bytes with a null pointer\n",
+              selector, (unsigned)arguments->structureInputSize);
+        return kIOReturnBadArgument;
+    }
+    if (arguments->structureOutputSize > 0 && !arguments->structureOutput) {
+        IOLog("AMDRyzenCPUPMUserClient: selector %u declared %u output bytes with a null pointer\n",
+              selector, (unsigned)arguments->structureOutputSize);
+        return kIOReturnBadArgument;
+    }
+    if (arguments->scalarInputCount > 16 || arguments->scalarOutputCount > 16) {
+        // Defensive: IOKit caps these at 16, but the switch below indexes
+        // scalarInput[0..1] after only checking the count for equality.
+        return kIOReturnBadArgument;
+    }
+
     switch (selector) {
             
         //Get PStateDef raw values for core 0

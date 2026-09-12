@@ -53,10 +53,16 @@ final class AutoEppService: ObservableObject {
     func start() {
         guard pollTask == nil else { return }
         pollTask = Task.detached(priority: .background) { [weak self] in
-            await self?.poll()
+            // S10 CON-04: exit the loop when the owner is gone. Previously the
+            // `await self?.poll()` simply no-op'd and the loop kept waking every
+            // 1.5 s forever, because the only thing that cancels it is a method
+            // on the object that just went away.
+            guard let strong = self else { return }
+            await strong.poll()
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(Self.pollInterval * 1_000_000_000))
-                await self?.poll()
+                guard !Task.isCancelled, let strong = self else { break }
+                await strong.poll()
             }
         }
     }
