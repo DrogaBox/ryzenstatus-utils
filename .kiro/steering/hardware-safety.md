@@ -37,6 +37,52 @@ como silicio sobrecalentado.
   entonces `kextstat` no puede distinguirlos: ahí no hay forma de saber qué está
   corriendo. Ése es el argumento fuerte para bumpear antes de probar, no después.
 
+## `--sensors` NO es una herramienta de observación inocente
+
+`clientClose()` (`AMDRyzenCPUPMUserClient.cpp:82-118`) libera **los seis**
+ventiladores a BIOS en cuanto CUALQUIER cliente cierra — no solo los que ese
+cliente seteó:
+
+```cpp
+for (int i = 0; i < fanCount; i++) {
+    provider->fanToCurveMap[i] = -1;
+    provider->superIO->setDefaultFanControl(i);
+    provider->lastAppliedPWM[i] = 0;
+}
+IOLog("... clientClose released %d fan(s) to BIOS control\n", fanCount);
+```
+
+`./build/RyzenStatus --sensors` abre y cierra un cliente, así que cada corrida:
+
+1. **Destruye el estado del probe**: un ventilador en manual vuelve a BIOS, y una
+   curva activa se desmapea (se re-sube por los selectores 101/102 en la próxima
+   conexión). El experimento se reinicia en silencio.
+2. **Contamina la evidencia del probe 1**: escribe su propia línea
+   `clientClose released` en el log del kernel, indistinguible de la que produce
+   el `pkill -9`. Correr `--sensors` antes del SIGKILL fabrica un falso positivo.
+
+Regla: durante los probes 1-3, el duty y el RPM se leen en la UI de la app, nunca
+por CLI. `--sensors` sirve antes de empezar y después de cerrar, no en el medio.
+
+## Probe 2 tiene DOS rutas al mismo falso positivo
+
+La de privilegio ya está en la lista. La segunda existe mientras S11-a esté
+abierto: con el camino del duty roto, los seis ventiladores leen `pwm 0 (0.0%)`
+incluso en la UI, así que **no hay readout que confirme que la curva se aplicó**.
+Si el ralentí de BIOS del ventilador es parecido al que produce el piso
+(PWM 40 = 15.7 %), entonces "curva aplicada al piso" y "curva que nunca se subió"
+se ven idénticos.
+
+Mientras S11-a siga abierto, probe 2 se hace en dos tramos, en UNA sola sesión de
+la app y sin ningún cierre de cliente en el medio:
+
+- **2a** — ancla que a la temperatura de idle actual comande un duty ALTO (~80 %).
+  El ventilador debe despegar claramente de su ralentí. Si no se mueve, la curva
+  no llega al hardware y el test del piso no significa nada: PARAR.
+- **2b** — sin cerrar nada, bajar el ancla a 1 %. Como 2a ya demostró que la
+  curva se aplica, el RPM al que se estabilice es efecto del piso y no de BIOS.
+  Debe seguir girando, nunca detenerse.
+
 ## Dónde vive el estado de versión (verificado en este árbol)
 
 - Versión del kext: `SMCAMDProcessor_Source/Config/Version.xcconfig` líneas 10-11
