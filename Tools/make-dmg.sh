@@ -50,6 +50,10 @@ ln -s /Applications "$STAGING/Applications"
 # Include our kexts for EFI/OC/Kexts/
 KEXT_DRIVER="SMCAMDProcessor_Source/build/dmg-kexts/AMDRyzenCPUPowerManagement.kext"
 KEXT_PLUGIN="SMCAMDProcessor_Source/build/dmg-kexts/SMCAMDProcessor.kext"
+KEXT_SOURCE_LOCAL=""
+if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
+    KEXT_SOURCE_LOCAL="1"
+fi
 if [[ ! -d "$KEXT_DRIVER" || ! -d "$KEXT_PLUGIN" ]] && [[ -f "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" ]]; then
     EXPECTED_SHA="93c88a224fc37be5923aef19bf8375cd0306d27f4d19f2dd970387b5663abced"
     ACTUAL_SHA="$(shasum -a 256 "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" | awk '{print $1}')"
@@ -69,7 +73,33 @@ if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
     ditto "$KEXT_PLUGIN" "$STAGING/Kexts/SMCAMDProcessor.kext"
     rm -rf "$KEXT_TEMP"
     KEXT_TEMP=""
-    echo "  ✓ AMDRyzenCPUPowerManagement.kext added to DMG"
+    # S11: report provenance and version of what actually got packaged.
+    #
+    # The SHA-256 gate above only runs when SMCAMDProcessor_Source/build/dmg-kexts/
+    # is absent. On a maintainer machine that directory usually exists and is
+    # gitignored, so locally built kexts were packaged with no verification and no
+    # output saying so — `git status` clean, versioned state at one version, DMG
+    # shipping another. That local path is legitimate (it is how new kexts reach
+    # the test machine for hardware validation); what was wrong is that it was
+    # silent.
+    # PlistBuddy writes "File Doesn't Exist, Will Create:" to STDOUT (not stderr),
+    # so 2>/dev/null cannot suppress it — guard on the file instead, or a broken
+    # bundle would report that notice as its version string.
+    PACKAGED_KEXT_PLIST="$STAGING/Kexts/AMDRyzenCPUPowerManagement.kext/Contents/Info.plist"
+    if [[ -f "$PACKAGED_KEXT_PLIST" ]]; then
+        PACKAGED_KEXT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+            "$PACKAGED_KEXT_PLIST" 2>/dev/null || echo 'unknown')"
+    else
+        PACKAGED_KEXT_VERSION="unknown"
+    fi
+    echo "  ✓ AMDRyzenCPUPowerManagement.kext $PACKAGED_KEXT_VERSION added to DMG"
+    if [[ -n "$KEXT_SOURCE_LOCAL" ]]; then
+        echo "  ⚠ Source: LOCAL BUILD (SMCAMDProcessor_Source/build/dmg-kexts/) — SHA gate NOT applied."
+        echo "    These binaries are unverified. Do not publish this DMG until the"
+        echo "    hardware probes pass; see .kiro/steering/hardware-safety.md."
+    else
+        echo "    Source: ReleaseAssets zip, SHA-256 verified."
+    fi
     echo "  ✓ SMCAMDProcessor.kext added to DMG"
 else
     echo "  (Kexts not built — skipping)" >&2
