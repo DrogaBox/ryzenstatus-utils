@@ -40,6 +40,14 @@ tiene solo dos jobs: `Build & selftest` (macos-26 / Xcode 26, `ci.yml:10-11`) y
 en el repo. Todo lo que sea kernel se valida a mano en el hardware del
 mantenedor, nunca en CI.
 
+**Corolario del corolario — el verde del CI no dice qué kext lleva TU DMG.** El
+job `Package DMG` (`ci.yml:39`) corre sobre un clon limpio donde `build/` no
+existe, así que el CI siempre empaqueta desde el zip con SHA verificado. Un DMG
+generado localmente y uno generado por CI pueden llevar kexts distintos, y el
+verde del CI no lo detecta: valida el zip fijado, no tus artefactos locales. La
+línea de procedencia de `Tools/make-dmg.sh` es la única señal que cubre ese
+hueco. Leerla siempre antes de instalar o publicar.
+
 La salida cae en `SMCAMDProcessor_Source/build/`, que `Tools/make-dmg.sh` prefiere
 sobre el zip con SHA fijado. Ver la sección "TRAMPA de empaquetado" en
 `hardware-safety.md` antes de empaquetar.
