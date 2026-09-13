@@ -37,6 +37,15 @@ final class FanCurveController: ObservableObject {
     private var readTask: Task<Void, Never>?
     private var persistCurvesTask: Task<Void, Never>?
     private var persistMappingsTask: Task<Void, Never>?
+    /// S10 CON-01: coalescing upload tasks that keep kext IPC off the main actor.
+    private var curveUploadTask: Task<Void, Never>?
+    private var mappingUploadTask: Task<Void, Never>?
+    /// S10 CON-02: sleep-side observer, previously absent entirely.
+    private var sleepObserver: Any?
+    private var wasPollingBeforeSleep = false
+    /// S10 IOK-04: one-shot latch so the GPU-bridge diagnostic is logged once
+    /// per failure episode instead of on every 1.5 s poll tick.
+    private var gpuBridgeWarned = false
     private var wakeObserver: Any?
     private let logger = OSLog(subsystem: "com.ryzenstatus.fancurve", category: "Controller")
 
@@ -49,10 +58,24 @@ final class FanCurveController: ObservableObject {
     }
 
     deinit {
+        // NOTE: this class is a `static let shared` singleton, so deinit never
+        // actually runs. It is kept correct as defensive code and because Swift 6
+        // language mode will type-check it. Real teardown happens in
+        // AppDelegate.applicationWillTerminate via resetFansToAutoSync(), and in
+        // the kernel via clientClose() (S10 KRN-03).
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
         }
+        if let sleepObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(sleepObserver)
+        }
         pollTimer?.invalidate()
+        // S10 CON-04: these were previously leaked on teardown.
+        readTask?.cancel()
+        persistCurvesTask?.cancel()
+        persistMappingsTask?.cancel()
+        curveUploadTask?.cancel()
+        mappingUploadTask?.cancel()
     }
 
     // MARK: - State Loading & Defaults
@@ -116,14 +139,44 @@ final class FanCurveController: ObservableObject {
                 self?.handleWakeNotification()
             }
         }
+
+        // S10 CON-02: nothing in this app observed willSleepNotification, so the
+        // 1.5 s fan poll (plus AutoEppService, C6ResidencyService and the 5 s
+        // kext watchdog) stayed armed across suspend. Timers coalesce but fire
+        // immediately on wake, and the Task.sleep loops genuinely resume during
+        // dark wake and hit IOKit.
+        sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleSleepNotification()
+            }
+        }
+    }
+
+    private func handleSleepNotification() {
+        os_log("System will sleep; suspending fan telemetry", log: logger, type: .info)
+        // Remember whether we were polling so wake restores exactly this state
+        // rather than starting a timer the UI never asked for (startPolling is
+        // driven by FansSettingsView's lifecycle).
+        wasPollingBeforeSleep = (pollTimer != nil)
+        stopPolling()
     }
 
     private func handleWakeNotification() {
         os_log("System did wake; re-syncing fan curves and mappings to kernel", log: logger, type: .info)
         // AUDIT B-30: force on wake — the kext may have lost its slots across
         // sleep even though our persisted state is unchanged.
+        // S10 CON-01: these are now debounced and run off the main actor, so the
+        // wake path no longer performs 4+N blocking kernel writes on main.
         syncCurvesToKext(force: true)
         syncMappingsToKext(force: true)
+        if wasPollingBeforeSleep {
+            wasPollingBeforeSleep = false
+            startPolling()
+        }
     }
 
     // MARK: - Persistence
@@ -165,78 +218,151 @@ final class FanCurveController: ObservableObject {
     private var lastUploadedCurvesFingerprint: Int?
     private var lastUploadedMappingsFingerprint: Int?
 
+    // MARK: - S10 CON-01: coalesced, off-main-actor kext upload
+    //
+    // These two entry points keep their original names and signatures, so every
+    // existing call site (the two didSet observers, handleWakeNotification,
+    // setFanMode and refreshFansInitial) is unchanged. What changed is that the
+    // kernel IPC no longer runs synchronously on the main actor.
+    //
+    // Two defects were stacked in the old implementation. First, the uploads
+    // issue synchronous IOConnectCallMethod calls and this class is @MainActor,
+    // so every assignment blocked the main thread on kernel IPC (up to 4 LUT
+    // writes of 272 B, plus one call per fan). Second, they were invoked from a
+    // `didSet` and write @Published state back (kextMissing, privilegeError),
+    // mutating observable state *during* a SwiftUI publish cycle.
+    //
+    // A 120 ms debounce also coalesces bursts (a slider drag, a preset switch)
+    // into a single upload instead of one per assignment.
+
+    /// Sendable payload so nothing non-Sendable crosses into the detached task.
+    /// Note this is deliberately NOT `AMDFanCurveInput`-by-reference: the LUT is
+    /// a heap array, so it is snapshotted on the main actor first.
+    private struct CurveUploadPayload: Sendable {
+        let slot: UInt32
+        let sourceSensor: UInt32
+        let hysteresis: UInt32
+        let rampRate: UInt32
+        let lut: [UInt8]
+    }
+
+    private struct UploadOutcome: Sendable {
+        var privilegeMessage: String?
+    }
+
     /// Uploads custom curves into kernel curve slots 0..<min(4, curves.count) (selector 101).
     func syncCurvesToKext(force: Bool = false) {
-        // AUDIT F-27: thread-safe connection check to avoid data races
-        guard ProcessorModel.shared.isConnected else {
-            self.kextMissing = true
-            return
-        }
-        self.kextMissing = false
+        curveUploadTask?.cancel()
+        curveUploadTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled, let self else { return }
 
-        // AUDIT B-30: skip the write burst when nothing changed.
-        let fingerprint = customCurves.prefix(4).hashValue
-        if !force, fingerprint == lastUploadedCurvesFingerprint { return }
+            // --- main actor: gating and payload snapshot ---
+            guard ProcessorModel.shared.isConnected else {
+                self.kextMissing = true
+                return
+            }
+            self.kextMissing = false
 
-        var sawPrivilegeError = false
-        for (slot, curve) in customCurves.prefix(4).enumerated() {
-            let input = curve.makeKextInput(slot: slot)
-            let status = ProcessorModel.shared.setKextFanCurve(
-                index: UInt32(slot),
-                sourceSensor: input.sourceSensor,
-                hysteresis: input.hysteresis,
-                rampRate: input.rampRate,
-                lut: input.lut
-            )
-            if status == kIOReturnNotPrivileged {
-                self.privilegeError = ProcessorModel.privilegeHint(for: status)
-                sawPrivilegeError = true
+            // AUDIT B-30: skip the write burst when nothing changed.
+            let fingerprint = self.customCurves.prefix(4).hashValue
+            if !force, fingerprint == self.lastUploadedCurvesFingerprint { return }
+
+            var payloads: [CurveUploadPayload] = []
+            for (slot, curve) in self.customCurves.prefix(4).enumerated() {
+                let input = curve.makeKextInput(slot: slot)
+                payloads.append(CurveUploadPayload(slot: UInt32(slot),
+                                                   sourceSensor: input.sourceSensor,
+                                                   hysteresis: input.hysteresis,
+                                                   rampRate: input.rampRate,
+                                                   lut: input.lut))
+            }
+
+            // --- off the main actor: the actual kernel IPC ---
+            let outcome = await Task.detached(priority: .userInitiated) {
+                FanCurveController.performCurveUpload(payloads)
+            }.value
+
+            guard !Task.isCancelled else { return }
+            if let message = outcome.privilegeMessage {
+                self.privilegeError = message
+            } else {
+                // AUDIT B-30: remember success only — a failed upload retries on
+                // the next content change, never on unchanged refreshes.
+                self.lastUploadedCurvesFingerprint = fingerprint
             }
         }
-        // AUDIT B-30: remember success only — a failed upload retries on the
-        // next content change (never on unchanged refreshes, which is what
-        // caused the privilege-error spam).
-        if !sawPrivilegeError {
-            lastUploadedCurvesFingerprint = fingerprint
+    }
+
+    nonisolated private static func performCurveUpload(_ payloads: [CurveUploadPayload]) -> UploadOutcome {
+        var outcome = UploadOutcome()
+        for payload in payloads {
+            let status = ProcessorModel.shared.setKextFanCurve(
+                index: payload.slot,
+                sourceSensor: payload.sourceSensor,
+                hysteresis: payload.hysteresis,
+                rampRate: payload.rampRate,
+                lut: payload.lut
+            )
+            if status == kIOReturnNotPrivileged {
+                outcome.privilegeMessage = ProcessorModel.privilegeHint(for: status)
+            }
         }
+        return outcome
     }
 
     /// Maps each physical fan header to its designated curve slot or restores Auto (selector 102).
     func syncMappingsToKext(force: Bool = false) {
-        // AUDIT F-27: thread-safe connection check to avoid data races
-        guard ProcessorModel.shared.isConnected else {
-            self.kextMissing = true
-            return
-        }
-        self.kextMissing = false
+        mappingUploadTask?.cancel()
+        mappingUploadTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled, let self else { return }
 
-        // AUDIT B-30: skip the write burst when nothing changed. (Deterministic
-        // order — tuples aren't Hashable, so fold key/value pairs into a Hasher
-        // over sorted keys.)
-        var mappingHasher = Hasher()
-        for key in fanMappings.keys.sorted() {
-            mappingHasher.combine(key)
-            mappingHasher.combine(fanMappings[key] ?? -1)
-        }
-        let fingerprint = mappingHasher.finalize()
-        if !force, fingerprint == lastUploadedMappingsFingerprint { return }
+            guard ProcessorModel.shared.isConnected else {
+                self.kextMissing = true
+                return
+            }
+            self.kextMissing = false
 
-        var sawPrivilegeError = false
-        for (fanId, curveIdx) in fanMappings {
-            if curveIdx >= 0 && curveIdx < customCurves.count {
+            // AUDIT B-30: deterministic fingerprint over sorted keys.
+            var mappingHasher = Hasher()
+            for key in self.fanMappings.keys.sorted() {
+                mappingHasher.combine(key)
+                mappingHasher.combine(self.fanMappings[key] ?? -1)
+            }
+            let fingerprint = mappingHasher.finalize()
+            if !force, fingerprint == self.lastUploadedMappingsFingerprint { return }
+
+            // [Int: Int] is Sendable, so the snapshot crosses safely.
+            let mappings = self.fanMappings
+            let curveCount = self.customCurves.count
+
+            let outcome = await Task.detached(priority: .userInitiated) {
+                FanCurveController.performMappingUpload(mappings, curveCount: curveCount)
+            }.value
+
+            guard !Task.isCancelled else { return }
+            if let message = outcome.privilegeMessage {
+                self.privilegeError = message
+            } else {
+                self.lastUploadedMappingsFingerprint = fingerprint
+            }
+        }
+    }
+
+    nonisolated private static func performMappingUpload(_ mappings: [Int: Int], curveCount: Int) -> UploadOutcome {
+        var outcome = UploadOutcome()
+        for (fanId, curveIdx) in mappings {
+            if curveIdx >= 0 && curveIdx < curveCount {
                 let status = ProcessorModel.shared.mapKextFanToCurve(fanIndex: fanId, curveIndex: curveIdx)
                 if status == kIOReturnNotPrivileged {
-                    self.privilegeError = ProcessorModel.privilegeHint(for: status)
-                    sawPrivilegeError = true
+                    outcome.privilegeMessage = ProcessorModel.privilegeHint(for: status)
                 }
             } else {
                 _ = ProcessorModel.shared.mapKextFanToCurve(fanIndex: fanId, curveIndex: -1)
             }
         }
-        // AUDIT B-30: see syncCurvesToKext — success-only fingerprint.
-        if !sawPrivilegeError {
-            lastUploadedMappingsFingerprint = fingerprint
-        }
+        return outcome
     }
 
     /// Injects GPU temperature (selector 103) if any active curve uses GPU temp as its source.
@@ -249,8 +375,34 @@ final class FanCurveController: ObservableObject {
         let kextGPUTemp = ProcessorModel.shared.lastKextGPUTemperature
         let monitorGPUTemp = SystemMonitor.shared.snapshot.gpuTemperature ?? 0.0
         let tempToSend = kextGPUTemp > 0 ? kextGPUTemp : monitorGPUTemp
-        if tempToSend > 0 && tempToSend <= 120.0 {
-            _ = ProcessorModel.shared.setKextGPUTemp(Float(tempToSend))
+
+        guard tempToSend > 0, tempToSend <= 120.0, tempToSend.isFinite else {
+            // S10 IOK-04: no trustworthy GPU reading. Say so once instead of
+            // failing silently — the kext keeps its previous gpuTempC, and a
+            // GPU-sourced curve would otherwise evaluate against a frozen value
+            // with no user-visible explanation.
+            if !gpuBridgeWarned {
+                gpuBridgeWarned = true
+                os_log("GPU-sourced fan curve active but no valid GPU temperature available (kext=%{public}.1f monitor=%{public}.1f)",
+                       log: logger, type: .error, kextGPUTemp, monitorGPUTemp)
+            }
+            return
+        }
+
+        // S10 IOK-04: selector 103 is privilege-gated (root or -amdpnopchk).
+        // It used to be called with `_ =`, so a kIOReturnNotPrivileged silently
+        // froze every GPU-sourced curve. Selectors 101/102 already surface
+        // privilegeError; 103 was the inconsistent one.
+        let status = ProcessorModel.shared.setKextGPUTemp(Float(tempToSend))
+        if status == KERN_SUCCESS {
+            gpuBridgeWarned = false
+        } else if !gpuBridgeWarned {
+            gpuBridgeWarned = true
+            if status == kIOReturnNotPrivileged {
+                privilegeError = ProcessorModel.privilegeHint(for: status)
+            }
+            os_log("selector 103 (GPU temp bridge) failed kr=0x%08x; GPU-sourced curves fall back to CPU temperature",
+                   log: logger, type: .error, status)
         }
     }
 
@@ -485,7 +637,8 @@ final class FanCurveController: ObservableObject {
                         mappedCurveIndex: (mode == .curve) ? mappedIdx : nil,
                         manualPWM: (mode == .manual) ? snap.throttle : nil,
                         isHidden: savedHidden.contains(snap.id),
-                        customName: customName
+                        customName: customName,
+                        rpmValid: snap.rpmValid
                     ))
                 }
                 self.fans = newFans
@@ -499,11 +652,23 @@ final class FanCurveController: ObservableObject {
 
     func startPolling() {
         guard pollTimer == nil else { return }
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+        //
+        // S10 CON-03: schedule in `.common` mode, not `.default`.
+        //
+        // Timer.scheduledTimer installs into RunLoop.main in .default mode,
+        // which does NOT fire while a tracking run loop is up — an open menu bar
+        // menu, a slider drag, a tracking popover. This timer drives
+        // enforceManualThermalGuard(), so the manual-mode thermal guard silently
+        // stopped being applied exactly while the user was interacting with fan
+        // controls. SystemMonitor already gets this right.
+        //
+        let timer = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.pollHardwareState()
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        pollTimer = timer
     }
 
     func stopPolling() {
@@ -529,6 +694,7 @@ final class FanCurveController: ObservableObject {
                 for i in 0..<currentSnapshots.count {
                     let snap = currentSnapshots[i]
                     self.fans[i].rpm = snap.rpm
+                    self.fans[i].rpmValid = snap.rpmValid
                     self.fans[i].throttlePWM = snap.throttle
                     self.fans[i].isKextAuto = !snap.isOverridden
                 }
@@ -542,7 +708,14 @@ final class FanCurveController: ObservableObject {
         let temp = currentCPUOrPackageTemp
         for fan in fans {
             guard fan.controlMode == .manual, let userPWM = fan.manualPWM else { continue }
-            let effectivePWM = AMDFanSafety.effectiveManualPWM(userPWM: userPWM, currentTemp: temp)
+            // S10 D6: guardOnlyPWM, not effectiveManualPWM. `manualPWM` seeds
+            // from the hardware's current duty (often a fixed BIOS setpoint),
+            // so applying the user-commanded floor here would silently ramp
+            // BIOS-fixed fans up on the first poll after an update. The floor
+            // is enforced where the USER sets duty (setManualPWM and the
+            // slider); the enforcement loop only arms the emergency guard.
+            // Intentional divergence from effectiveManualPWM — do not "fix".
+            let effectivePWM = AMDFanSafety.guardOnlyPWM(userPWM: userPWM, currentTemp: temp)
             if fan.throttlePWM != effectivePWM {
                 _ = ProcessorModel.shared.setFanSpeed(pwm: Int(effectivePWM), fanIndex: fan.id)
             }

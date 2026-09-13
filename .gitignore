@@ -58,6 +58,10 @@ docs/superpowers/
 .system_generated/
 .research/
 
+# Kiro: local tooling preferences only. NOTE: .kiro/steering/ is deliberately
+# TRACKED (shared repo rules) — do not broaden this to .kiro/.
+.kiro/settings/
+
 # Upstream sync tooling (local-only: holds the upstream repo URL; never pushed)
 .upstream-sync/
 

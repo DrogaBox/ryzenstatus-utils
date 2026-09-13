@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
+import AppKit
 import Combine
 import Foundation
 
@@ -38,12 +39,44 @@ final class AutoEppService: ObservableObject {
     private static let pollInterval: TimeInterval = 1.5
     /// Sentinel (0xFF) means "never written". Used to skip redundant MSR writes.
     private var lastWrittenEPP: UInt8 = 0xFF
+    /// S10-T1: wake observer token. Without it the EPP was never restored after
+    /// sleep — see resetWriteSentinel().
+    private var wakeObserver: Any?
     /// Set by suspend()/resume() — blocks poll() writes without touching UserDefaults.
     private(set) var isSuspended: Bool = false
 
     @MainActor
     private init() {
         self.isActive = AmdSettingsStore.shared.autoEppEnabled
+        // S10-T1: this was the only AMD service with no wake handling
+        // (FanCurveController and C6ResidencyService both observe didWake).
+        // Pattern matches C6ResidencyService.swift:38-55.
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.resetWriteSentinel()
+            }
+        }
+    }
+
+    deinit {
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
+    }
+
+    /// S10-T1: clears the dedup sentinel so the next poll re-asserts the EPP.
+    ///
+    /// `poll()` skips the MSR write when `targetEPP == lastWrittenEPP`. That is
+    /// correct in steady state, but the SMU can lose the EPP across a suspend
+    /// while our target value is unchanged — in which case the write was skipped
+    /// forever and the EPP silently stayed at the firmware default until the
+    /// user happened to change presets. 0xFF means "never written".
+    private func resetWriteSentinel() {
+        lastWrittenEPP = 0xFF
     }
 
     // MARK: - Lifecycle
@@ -53,10 +86,16 @@ final class AutoEppService: ObservableObject {
     func start() {
         guard pollTask == nil else { return }
         pollTask = Task.detached(priority: .background) { [weak self] in
-            await self?.poll()
+            // S10 CON-04: exit the loop when the owner is gone. Previously the
+            // `await self?.poll()` simply no-op'd and the loop kept waking every
+            // 1.5 s forever, because the only thing that cancels it is a method
+            // on the object that just went away.
+            guard let strong = self else { return }
+            await strong.poll()
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(Self.pollInterval * 1_000_000_000))
-                await self?.poll()
+                guard !Task.isCancelled, let strong = self else { break }
+                await strong.poll()
             }
         }
     }
@@ -65,6 +104,13 @@ final class AutoEppService: ObservableObject {
     func stop() {
         pollTask?.cancel()
         pollTask = nil
+        // S10-T1: deinit never fires on a `static let shared` singleton, so the
+        // observer is released here — stop() is the real teardown point
+        // (AppDelegate.applicationWillTerminate).
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+            self.wakeObserver = nil
+        }
     }
 
     // MARK: - Gaming Mode coordination

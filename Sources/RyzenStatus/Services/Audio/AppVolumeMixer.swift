@@ -75,6 +75,13 @@ final class AppVolumeMixer: ObservableObject {
     private var buildingEngines = Set<String>()
     private var lastAudibleVolume: [String: Double] = [:]
     private var listenerInstalled = false
+    /// S10 D5: whether the per-app process-tracking machinery is active. The
+    /// process-list global listener plus one IsRunningOutput listener per live
+    /// audio process is the mixer's resident cost, and it only has a purpose
+    /// once the user has saved per-app state (or opened the mixer panel).
+    private var processTrackingActivated = false
+    /// Guards installListener(ProcessObjectList) so activation stays idempotent.
+    private var processListListenerInstalled = false
     /// The global HAL listeners (devices, default output, process list), kept
     /// so stop() can hand the blocks back to
     /// AudioObjectRemovePropertyListenerBlock when the mixer leaves the hub.
@@ -89,6 +96,15 @@ final class AppVolumeMixer: ObservableObject {
     private var refreshPending = false
     private var lastListenerRefreshAt: CFAbsoluteTime = 0
     private let buildQueue = DispatchQueue(label: "com.ryzenstatus.utils.mixer", qos: .userInitiated)
+
+    /// True when the user has at least one saved per-app volume or
+    /// output route, i.e. when the process-tracking machinery has a purpose.
+    private var hasSavedMixerState: Bool {
+        let volumes = UserDefaults.standard.dictionary(forKey: DefaultsKey.appVolumes) ?? [:]
+        if !volumes.isEmpty { return true }
+        let routes = UserDefaults.standard.dictionary(forKey: DefaultsKey.appOutputDevices) ?? [:]
+        return !routes.isEmpty
+    }
 
     private init() {}
 
@@ -115,10 +131,32 @@ final class AppVolumeMixer: ObservableObject {
         listenerInstalled = true
         installListener(selector: kAudioHardwarePropertyDevices)
         installListener(selector: kAudioHardwarePropertyDefaultOutputDevice)
-        if Self.isSupported {
-            installListener(selector: kAudioHardwarePropertyProcessObjectList)
+        // S10 D5: the per-app process machinery stays dormant until it has a
+        // purpose — saved per-app state exists (its re-apply needs the tracking)
+        // — and activates on demand from the mixer panel otherwise.
+        if hasSavedMixerState {
+            processTrackingActivated = true
+            installProcessListListenerIfNeeded()
         }
         refreshApps()
+    }
+
+    /// S10 D5: activates the per-app process-tracking machinery on demand.
+    /// Idempotent; safe before or after start(). The mixer panel calls this on
+    /// appear so a clean install without saved state still gets its app list.
+    func ensureProcessTracking() {
+        guard !stopped else { return }
+        start()
+        guard !processTrackingActivated else { return }
+        processTrackingActivated = true
+        installProcessListListenerIfNeeded()
+        refreshApps()
+    }
+
+    private func installProcessListListenerIfNeeded() {
+        guard Self.isSupported, !processListListenerInstalled else { return }
+        processListListenerInstalled = true
+        installListener(selector: kAudioHardwarePropertyProcessObjectList)
     }
 
     /// Tears every tap down so all apps return to untouched system output.
@@ -135,6 +173,8 @@ final class AppVolumeMixer: ObservableObject {
         stopAll()
         pruneRunningListeners(keeping: [])
         removeGlobalListeners()
+        processTrackingActivated = false
+        processListListenerInstalled = false
         if !apps.isEmpty { apps = [] }
         if !outputDevices.isEmpty { outputDevices = [] }
         if currentOutputDeviceUID != nil { currentOutputDeviceUID = nil }
@@ -475,6 +515,14 @@ final class AppVolumeMixer: ObservableObject {
             if !apps.isEmpty {
                 apps = []
             }
+            return
+        }
+
+        // S10 D5: dormant tracking — keep the app list empty and skip the
+        // process-object walk and per-object listener churn entirely. The
+        // device half above (output picker, headphone protection) still runs.
+        guard processTrackingActivated else {
+            if !apps.isEmpty { apps = [] }
             return
         }
 

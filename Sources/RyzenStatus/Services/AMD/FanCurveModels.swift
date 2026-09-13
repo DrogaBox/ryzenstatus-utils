@@ -24,6 +24,8 @@ struct FanState: Identifiable, Sendable, Hashable {
     let id: Int                       // SuperIO fan index (0..<16)
     var name: String
     var rpm: UInt64                   // selector 93 (RPM)
+    /// S10 SIO-03: mirrors FanSnapshot.rpmValid.
+    var rpmValid: Bool = true
     var throttlePWM: UInt8            // selector 94 bits [15:8] (0-255 SMC scale)
     var isKextAuto: Bool              // selector 94 bit 0 (1 = Auto / SmartGuardian)
     var controlMode: FanControlMode   // derived from hardware state + intent
@@ -41,7 +43,8 @@ struct FanState: Identifiable, Sendable, Hashable {
          mappedCurveIndex: Int? = nil,
          manualPWM: UInt8? = nil,
          isHidden: Bool = false,
-         customName: String? = nil) {
+         customName: String? = nil,
+         rpmValid: Bool = true) {
         self.id = id
         self.name = name
         self.rpm = rpm
@@ -52,6 +55,7 @@ struct FanState: Identifiable, Sendable, Hashable {
         self.manualPWM = manualPWM
         self.isHidden = isHidden
         self.customName = customName
+        self.rpmValid = rpmValid
     }
 
     var pwmPercentage: Double {
@@ -72,6 +76,11 @@ struct FanSnapshot: Identifiable, Sendable, Hashable {
     let id: Int
     var name: String
     var rpm: UInt64
+    /// S10 SIO-03: false when the tachometer word was implausible (out of the
+    /// 0–10500 window). `rpm` is UInt64 so there is no in-band sentinel; the old
+    /// `min(rpm, 9999)` laundering hid the fault from the UI and any future
+    /// stall detection.
+    var rpmValid: Bool = true
     var throttle: UInt8
     var isOverridden: Bool
 
@@ -257,8 +266,12 @@ typealias FanCurve = FanCurveDefinition
 // MARK: - Hardware Safety Bounds
 
 public enum AMDFanSafety {
-    /// Safe minimum hardware PWM duty floor (~1.18% duty) to prevent fan rotor stall.
-    public static let minimumManualPWM: UInt8 = 3
+    /// S10 D6 (finding #7): user-commanded manual duty floor. Raised from the
+    /// old value of 3 (~1.2 %) to close the asymmetry with the curve-mode
+    /// kCURVE_MIN_ACTIVE_PWM: a duty below the rotor's start threshold stalls
+    /// the fan silently. This clamp applies ONLY to duty the user commands;
+    /// see `guardOnlyPWM` for duty inherited from the hardware.
+    public static let minimumManualPWM: UInt8 = 40
     /// Temperature threshold at which emergency thermal guard activates.
     public static let thermalGuardTempC: Double = 85.0
     /// Emergency PWM floor (200 / 255 = ~78.4%) enforced at or above 85°C.
@@ -277,6 +290,18 @@ public enum AMDFanSafety {
             return max(safeUserPWM, thermalGuardPWM)
         }
         return safeUserPWM
+    }
+
+    /// S10 D6: emergency-guard-only variant, for PWM values inherited from the
+    /// hardware rather than commanded by the user.
+    ///
+    /// `FanState.manualPWM` is seeded from `snap.throttle`, i.e. from whatever
+    /// the Super I/O currently reports — typically a fixed duty configured in
+    /// the BIOS. Applying `minimumManualPWM` to that would raise a fan that is
+    /// demonstrably spinning fine at 4 % up to ~16 %, with no safety benefit:
+    /// the stall risk is at rotor START, not at maintain.
+    public static func guardOnlyPWM(userPWM: UInt8, currentTemp: Double) -> UInt8 {
+        currentTemp >= thermalGuardTempC ? max(userPWM, thermalGuardPWM) : userPWM
     }
 }
 

@@ -109,9 +109,19 @@ enum SelfTest {
 /// the sensor mapping to a new chip generation.
 enum SensorDump {
     static func runAndExit() -> Never {
+        // S10-T2: the AMD kext is the primary sensor source on this platform, so
+        // it is dumped first and unconditionally. Previously this command only
+        // read AppleSMC Tp/Te/Tg keys, which VirtualSMC does not populate on an
+        // AMD system — so `--sensors` printed nothing but its header on exactly
+        // the hardware the app targets.
+        printAMDTelemetry()
+
+        // AppleSMC section. Non-fatal now: its absence must not suppress the AMD
+        // dump above (the old `exit(1)` did precisely that).
         guard let smc = SMCClient() else {
-            print("AppleSMC unavailable")
-            exit(1)
+            print("")
+            print("AppleSMC unavailable — no SMC temperature keys to dump")
+            exit(0)
         }
         let keys = smc.keys { name in
             name.hasPrefix("Tp") || name.hasPrefix("Te") || name.hasPrefix("Tg")
@@ -119,6 +129,8 @@ enum SensorDump {
         }
         let cpuPlatform = TemperatureSensorSelector.currentPlatform()
         let hasCPUCoreSet = TemperatureSensorSelector.hasCPUCoreSet(platform: cpuPlatform)
+        print("")
+        print("== AppleSMC temperature keys ==")
         print("component    key   type   °C")
         for key in keys.sorted(by: { $0.name < $1.name }) {
             guard let value = smc.readValue(key), value > 1, value < 125 else { continue }
@@ -136,5 +148,77 @@ enum SensorDump {
                          component as NSString, key.name, key.dataType, value))
         }
         exit(0)
+    }
+
+    /// S10-T2: dumps the AMD kext's own telemetry — the authoritative sensor
+    /// source on this platform. Everything here is `nonisolated` on
+    /// ProcessorModel, so it is safe to call from this pre-NSApplication path.
+    private static func printAMDTelemetry() {
+        print("== AMD kext telemetry (AMDRyzenCPUPowerManagement) ==")
+
+        guard ProcessorModel.shared.isConnected else {
+            print("kext not loaded — no AMD telemetry available")
+            print("  (expected on Intel/Apple Silicon, or if the kext failed to load)")
+            return
+        }
+
+        guard let packet = ProcessorModel.shared.getTelemetry() else {
+            print("kext connected but selector 100 returned no packet")
+            print("  (privilege denied, or the kext's sampling timer has not run yet)")
+            return
+        }
+
+        print(String(format: "package      power   %8.2f W", packet.packagePowerW))
+        print(String(format: "package      temp    %8.2f °C", packet.packageTempC))
+        print("logical cores        \(packet.numLogicalCores)")
+        print("CCD count            \(packet.ccdCount)")
+
+        let ccdCount = Int(packet.ccdCount)
+        if ccdCount > 0 {
+            for i in 0..<min(ccdCount, packet.ccdTemperatures.count) {
+                let t = packet.ccdTemperatures[i]
+                guard t > 0 else { continue }
+                print(String(format: "ccd%-2d        temp    %8.2f °C", i, t))
+            }
+        }
+
+        // S10-T2b: the kext fills coreFrequenciesMHz[] indexed by LOGICAL core
+        // but sources every entry from effFreq_perCore[phys]
+        // (AMDRyzenCPUPMUserClient.cpp:586), so on an SMT part each physical
+        // core's clock appears twice. Printing all 32 entries on a 16C/32T part
+        // listed 16 phantom duplicates — actively misleading for the porting use
+        // case this command exists for.
+        let logicalCount = Int(packet.numLogicalCores)
+        let physicalCount = Int(ProcessorModel.sysctlInt64(key: "hw.physicalcpu"))
+        let smtActive = physicalCount > 0 && logicalCount == physicalCount * 2
+        let coreCount = smtActive ? physicalCount : logicalCount
+        if smtActive {
+            print("SMT                  on (\(logicalCount) threads / \(physicalCount) cores — sibling threads mirror the core clock)")
+        }
+        if coreCount > 0 {
+            var printed = 0
+            for i in 0..<min(coreCount, packet.coreFrequenciesMHz.count) {
+                let mhz = packet.coreFrequenciesMHz[i]
+                guard mhz > 0 else { continue }
+                print(String(format: "core%-2d       clock   %8.0f MHz", i, mhz))
+                printed += 1
+            }
+            if printed == 0 {
+                print("core clocks          none reported")
+            }
+        }
+
+        let fans = ProcessorModel.shared.getFans(includeNames: true)
+        if fans.isEmpty {
+            print("fans                 none detected (SuperIO not initialised?)")
+        } else {
+            for fan in fans {
+                let pct = (Double(fan.throttle) / 255.0) * 100.0
+                print(String(format: "fan%-2d  %-12@  %5d RPM  pwm %3d (%5.1f%%)%@",
+                             fan.id, fan.name as NSString, Int(fan.rpm),
+                             Int(fan.throttle), pct,
+                             (fan.rpmValid ? "" : "  [tach unreliable]") as NSString))
+            }
+        }
     }
 }

@@ -64,6 +64,13 @@ struct MixerSection: View {
         }
         .onAppear {
             soundOutputSwitcherUIDs = SoundOutputSwitcher.shared.selectedDeviceUIDs()
+            // S10 D5: activate the per-app process-tracking machinery when the
+            // mixer panel opens (a clean install whose hub never ran
+            // syncWithPreferences gets its app list here), and keep it alive on
+            // later visits. ensureProcessTracking is idempotent.
+            if AppFeature.mixer.isAvailable {
+                AppVolumeMixer.shared.ensureProcessTracking()
+            }
         }
     }
 

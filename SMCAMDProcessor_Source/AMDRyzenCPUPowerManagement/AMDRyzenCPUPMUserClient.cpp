@@ -80,6 +80,40 @@ void AMDRyzenCPUPMUserClient::stop(IOService *provider){
 }
 
 IOReturn AMDRyzenCPUPMUserClient::clientClose() {
+    //
+    // S10 KRN-03: dead-man switch.
+    //
+    // clientClose() is the ONLY kernel callback guaranteed to run when the
+    // userspace client goes away — including SIGKILL, a crash or a force quit,
+    // none of which reach AppDelegate.applicationWillTerminate and its
+    // resetFansToAutoSync().
+    //
+    // Why this matters: a fan in manual mode has fanToCurveMap[fan] == -1, so
+    // evaluateFanCurves() skips it entirely. Nothing in the kernel ever writes
+    // it again, and the manual-mode thermal guard lives in the app's 1.5 s
+    // timer. A crash while a fan sat at PWM 3 (~1 % duty) left that fan latched
+    // at 1 % indefinitely, with no guard and no airflow.
+    //
+    // Handing every fan back to BIOS/SmartFan is the correct failure mode: the
+    // firmware controller is always safe, never stalls and needs no client.
+    // Curve-mode fans are released too — they are re-uploaded and re-mapped on
+    // the next client connection (selectors 101/102).
+    //
+    AMDRyzenCPUPowerManagement *provider = fProvider;
+    if (provider && provider->superIOLock) {
+        IOLockLock(provider->superIOLock);
+        if (provider->superIO) {
+            int fanCount = provider->superIO->getNumberOfFans();
+            for (int i = 0; i < fanCount; i++) {
+                provider->fanToCurveMap[i] = -1;
+                provider->superIO->setDefaultFanControl(i);
+                provider->lastAppliedPWM[i] = 0;
+            }
+            IOLog("AMDRyzenCPUPMUserClient: clientClose released %d fan(s) to BIOS control\n", fanCount);
+        }
+        IOLockUnlock(provider->superIOLock);
+    }
+
     terminate();
     return kIOReturnSuccess;
 }
@@ -146,7 +180,36 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
     }
     
     provider->registerRequest();
-    
+
+    //
+    // S10 IOK-05: centralized pre-switch validation gate.
+    //
+    // This driver overrides externalMethod() directly and ignores the `dispatch`
+    // argument, so IOUserClient's own checkScalarInputCount /
+    // checkStructureInputSize / checkScalarOutputCount /
+    // checkStructureOutputSize are never applied. All ~70 cases below validate
+    // by hand and are currently correct — but there is no single place a
+    // reviewer can check, and each new selector re-litigates the question.
+    //
+    // This gate enforces the invariants that hold for EVERY selector, so an
+    // omission in a future case cannot reach a memcpy.
+    //
+    if (arguments->structureInputSize > 0 && !arguments->structureInput) {
+        IOLog("AMDRyzenCPUPMUserClient: selector %u declared %u input bytes with a null pointer\n",
+              selector, (unsigned)arguments->structureInputSize);
+        return kIOReturnBadArgument;
+    }
+    if (arguments->structureOutputSize > 0 && !arguments->structureOutput) {
+        IOLog("AMDRyzenCPUPMUserClient: selector %u declared %u output bytes with a null pointer\n",
+              selector, (unsigned)arguments->structureOutputSize);
+        return kIOReturnBadArgument;
+    }
+    if (arguments->scalarInputCount > 16 || arguments->scalarOutputCount > 16) {
+        // Defensive: IOKit caps these at 16, but the switch below indexes
+        // scalarInput[0..1] after only checking the count for equality.
+        return kIOReturnBadArgument;
+    }
+
     switch (selector) {
             
         //Get PStateDef raw values for core 0

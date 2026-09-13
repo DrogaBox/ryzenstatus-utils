@@ -558,8 +558,36 @@ final class NowPlayingService: ObservableObject {
         marqueeEngine.reset()
     }
 
+    // S10 UI-02: memoized text measurement.
+    //
+    // menuBarTextWidth is called up to 3x per composed frame and the marquee
+    // drives that at 20 Hz for as long as the title overflows — indefinitely
+    // for long track titles. Each call runs a full NSString layout pass. The
+    // measured width depends only on the string and the font; neither changes
+    // while the marquee scrolls, only the draw offset does. Memoizing removes
+    // ~60 layout passes per second at zero behavioural cost. Drop-in: same
+    // name, signature and return type, so no call site changes.
+    private struct MenuBarTextWidthKey: Hashable {
+        let text: String
+        let fontName: String
+        let fontSize: Double
+    }
+    private static var menuBarTextWidthCache: [MenuBarTextWidthKey: CGFloat] = [:]
+
     private static func menuBarTextWidth(_ text: String) -> CGFloat {
-        ceil((text as NSString).size(withAttributes: [.font: menuBarTextFont]).width)
+        let font = menuBarTextFont
+        let key = MenuBarTextWidthKey(text: text,
+                                      fontName: font.fontName,
+                                      fontSize: Double(font.pointSize))
+        if let hit = menuBarTextWidthCache[key] { return hit }
+        let width = ceil((text as NSString).size(withAttributes: [.font: font]).width)
+        // Bound the cache: track titles churn over a long listening session and
+        // an unbounded dictionary here would be a slow leak.
+        if menuBarTextWidthCache.count > 64 {
+            menuBarTextWidthCache.removeAll(keepingCapacity: true)
+        }
+        menuBarTextWidthCache[key] = width
+        return width
     }
 
     /// Draws the full status item in one pass so the icon, text and progress

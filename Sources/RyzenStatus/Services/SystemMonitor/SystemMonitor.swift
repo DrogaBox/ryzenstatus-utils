@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
+import AppKit
 import Combine
 import Darwin
 import Foundation
@@ -169,6 +170,8 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     // Running state
     private var previousCPUTicks: (busy: UInt64, total: UInt64)?
     private var previousCoreTicks: [(busy: UInt64, total: UInt64)] = []
+    /// S10-T4: wake observer token — see invalidateTickBaseline().
+    private var wakeObserver: Any?
     private var tickCount = 0
     /// Timer cadence in base ticks (GCD of the needed strides); 1 = every tick.
     private var scheduledWakeTicks = 1
@@ -240,11 +243,34 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         cpuFreqHistory = MetricHistory(capacity: historyCapacity)
         ipsHistory = MetricHistory(capacity: historyCapacity)
         installPowerSourceObserver()
+        // S10-T4: CPU utilisation is a delta between consecutive tick samples.
+        // Across a suspend those bases are stale, so the first post-wake sample
+        // is computed over the entire sleep interval and is meaningless.
+        // Dropping the bases makes that sample return nil instead, and the next
+        // tick re-seeds cleanly.
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.invalidateTickBaseline()
+        }
+    }
+
+    /// S10-T4: drops the CPU/core tick baselines so the first post-wake sample
+    /// is skipped rather than computed across the sleep discontinuity.
+    private func invalidateTickBaseline() {
+        previousCPUTicks = nil
+        previousCoreTicks = []
     }
 
     deinit {
         if let powerSourceRunLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), powerSourceRunLoopSource, .defaultMode)
+        }
+        // S10-T4
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
         }
     }
 

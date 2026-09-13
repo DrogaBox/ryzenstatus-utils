@@ -50,8 +50,12 @@ ln -s /Applications "$STAGING/Applications"
 # Include our kexts for EFI/OC/Kexts/
 KEXT_DRIVER="SMCAMDProcessor_Source/build/dmg-kexts/AMDRyzenCPUPowerManagement.kext"
 KEXT_PLUGIN="SMCAMDProcessor_Source/build/dmg-kexts/SMCAMDProcessor.kext"
+KEXT_SOURCE_LOCAL=""
+if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
+    KEXT_SOURCE_LOCAL="1"
+fi
 if [[ ! -d "$KEXT_DRIVER" || ! -d "$KEXT_PLUGIN" ]] && [[ -f "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" ]]; then
-    EXPECTED_SHA="93c88a224fc37be5923aef19bf8375cd0306d27f4d19f2dd970387b5663abced"
+    EXPECTED_SHA="34ca01941f5bc9900b147b10e8bb329565c7208927e9a90c2e81468aa85be08c"
     ACTUAL_SHA="$(shasum -a 256 "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" | awk '{print $1}')"
     if [[ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]]; then
         echo "✗ Error: ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip SHA-256 mismatch ($ACTUAL_SHA != $EXPECTED_SHA)" >&2
@@ -69,13 +73,59 @@ if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
     ditto "$KEXT_PLUGIN" "$STAGING/Kexts/SMCAMDProcessor.kext"
     rm -rf "$KEXT_TEMP"
     KEXT_TEMP=""
-    echo "  ✓ AMDRyzenCPUPowerManagement.kext added to DMG"
+    # S11: report provenance and version of what actually got packaged.
+    #
+    # The SHA-256 gate above only runs when SMCAMDProcessor_Source/build/dmg-kexts/
+    # is absent. On a maintainer machine that directory usually exists and is
+    # gitignored, so locally built kexts were packaged with no verification and no
+    # output saying so — `git status` clean, versioned state at one version, DMG
+    # shipping another. That local path is legitimate (it is how new kexts reach
+    # the test machine for hardware validation); what was wrong is that it was
+    # silent.
+    # PlistBuddy writes "File Doesn't Exist, Will Create:" to STDOUT (not stderr),
+    # so 2>/dev/null cannot suppress it — guard on the file instead, or a broken
+    # bundle would report that notice as its version string.
+    PACKAGED_KEXT_PLIST="$STAGING/Kexts/AMDRyzenCPUPowerManagement.kext/Contents/Info.plist"
+    if [[ -f "$PACKAGED_KEXT_PLIST" ]]; then
+        PACKAGED_KEXT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+            "$PACKAGED_KEXT_PLIST" 2>/dev/null || echo 'unknown')"
+    else
+        PACKAGED_KEXT_VERSION="unknown"
+    fi
+    echo "  ✓ AMDRyzenCPUPowerManagement.kext $PACKAGED_KEXT_VERSION added to DMG"
+    if [[ -n "$KEXT_SOURCE_LOCAL" ]]; then
+        echo "  ⚠ Source: LOCAL BUILD (SMCAMDProcessor_Source/build/dmg-kexts/) — SHA gate NOT applied."
+        echo "    These binaries are unverified. Do not publish this DMG until the"
+        echo "    hardware probes pass; see .kiro/steering/hardware-safety.md."
+    else
+        echo "    Source: ReleaseAssets zip, SHA-256 verified."
+    fi
     echo "  ✓ SMCAMDProcessor.kext added to DMG"
 else
     echo "  (Kexts not built — skipping)" >&2
 fi
 mkdir "$STAGING/.background"
 cp build/dmg-background.png "$STAGING/.background/background.png"
+# S11: seed the window layout from a checked-in .DS_Store.
+#
+# The Finder automation below is the only thing that positions the icons and
+# applies the background, and it needs Automation (Apple Events) permission for
+# Finder. A GitHub runner has no Finder session at all, and a local shell that
+# was never granted the permission gets `-10004 privilege violation`, so BOTH
+# produce an unstyled DMG while still exiting 0 — the branding silently
+# disappeared with no failure anywhere.
+#
+# Seeding the layout here makes styling the default rather than a side effect of
+# a permission: hdiutil bakes this .DS_Store into the image, and the AppleScript
+# then either succeeds and refines it or fails harmlessly on top of a volume that
+# already looks right. The alias inside resolves because the volume name is
+# always "$VOLUME" and the background always sits at .background/background.png.
+if [[ -f "Tools/dmg-layout.DS_Store" ]]; then
+    cp "Tools/dmg-layout.DS_Store" "$STAGING/.DS_Store"
+    echo "  ✓ Window layout seeded from Tools/dmg-layout.DS_Store"
+else
+    echo "  ⚠ Tools/dmg-layout.DS_Store missing — styling depends on Finder automation" >&2
+fi
 
 echo "▸ Creating writable image…"
 WORK="$(mktemp -d)"
