@@ -54,18 +54,45 @@ KEXT_SOURCE_LOCAL=""
 if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
     KEXT_SOURCE_LOCAL="1"
 fi
+# S11 A2: pin what SHIPS, not the container it arrived in.
+#
+# This replaced an EXPECTED_SHA on the zip archive. That pin had two problems.
+# It verified the container: a legitimate rebuild from byte-identical binaries
+# produced a different archive hash (proven — `ditto -c -k` is deterministic, but
+# the archive embeds each entry's mtime, so fresh build timestamps alone change
+# it), which trained whoever hit it to paste the new hash in and moved the gate
+# toward decoration. And it only ran on the zip path, so the local-build path it
+# could not see was the one that actually shipped.
+#
+# These four hashes are the two Mach-O binaries and the two Info.plists — the
+# bytes the kernel loads and the identity it loads them under. They survive any
+# repackaging and they cover BOTH provenance paths, because the check now runs on
+# the staged bundles rather than on the archive.
+KEXT_PIN_DRIVER_MACHO="4b3585b9d008d4ba18994818728640f1899b7c6689254bd7956b578fbf488389"
+KEXT_PIN_DRIVER_PLIST="71d923d3bdd3e59e27f390fe8bafb6b15e73445f2cab5090d0d46e3404aaa11e"
+KEXT_PIN_PLUGIN_MACHO="f7dfa57d0bfb8c6aa99f48a614f89a7ba13e825ae2ed17b781b4098933f5746a"
+KEXT_PIN_PLUGIN_PLIST="6183894d72ae2a3ab182436fe1af0dd9521116ca0c855af0b4cf029adadb10ca"
 if [[ ! -d "$KEXT_DRIVER" || ! -d "$KEXT_PLUGIN" ]] && [[ -f "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" ]]; then
-    EXPECTED_SHA="34ca01941f5bc9900b147b10e8bb329565c7208927e9a90c2e81468aa85be08c"
-    ACTUAL_SHA="$(shasum -a 256 "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" | awk '{print $1}')"
-    if [[ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]]; then
-        echo "✗ Error: ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip SHA-256 mismatch ($ACTUAL_SHA != $EXPECTED_SHA)" >&2
+    # Structural pre-check: assert the archive's top level is exactly the two
+    # kext bundles. Unlike a hash this never needs updating on a rebuild, and it
+    # catches the S9d bug — a zip refreshed with only the driver — here, with a
+    # message that names the cause, instead of downstream as a missing path.
+    ZIP_ROOTS="$(unzip -Z1 "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" \
+        | awk -F/ 'NF>0 {print $1}' | sort -u)"
+    EXPECTED_ROOTS="$(printf 'AMDRyzenCPUPowerManagement.kext\nSMCAMDProcessor.kext\n')"
+    if [[ "$ZIP_ROOTS" != "$EXPECTED_ROOTS" ]]; then
+        echo "✗ Error: ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip does not contain exactly the two expected kexts." >&2
+        echo "  expected at archive root:" >&2
+        printf '%s\n' "$EXPECTED_ROOTS" | sed 's/^/    /' >&2
+        echo "  found:" >&2
+        printf '%s\n' "$ZIP_ROOTS" | sed 's/^/    /' >&2
         exit 1
     fi
     KEXT_TEMP="$(mktemp -d)"
     ditto -x -k "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" "$KEXT_TEMP"
     KEXT_DRIVER="$KEXT_TEMP/AMDRyzenCPUPowerManagement.kext"
     KEXT_PLUGIN="$KEXT_TEMP/SMCAMDProcessor.kext"
-    echo "  ✓ Prebuilt AMD kexts verified and extracted from ReleaseAssets"
+    echo "  ✓ Prebuilt AMD kexts extracted from ReleaseAssets (2 bundles, as expected)"
 fi
 if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
     mkdir -p "$STAGING/Kexts"
@@ -93,16 +120,93 @@ if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
         PACKAGED_KEXT_VERSION="unknown"
     fi
     echo "  ✓ AMDRyzenCPUPowerManagement.kext $PACKAGED_KEXT_VERSION added to DMG"
+    # S11 A2: verify the CONTENT of what was staged, on both provenance paths.
+    #
+    # Strict on the ReleaseAssets path: a mismatch there means the reviewed
+    # binaries are not the ones about to ship, which must never be published.
+    # Reporting-only on the local path: a locally built kext is EXPECTED to differ
+    # (that is how a new revision reaches the test machine), so the hashes are
+    # printed to be recorded rather than compared. Printing them is the point —
+    # it is what makes an unverified build identifiable after the fact.
+    KEXT_CONTENT_OK="1"
+    check_pin() {  # $1 label, $2 path, $3 expected sha
+        local actual
+        actual="$(shasum -a 256 "$2" | awk '{print $1}')"
+        if [[ "$actual" == "$3" ]]; then
+            return 0
+        fi
+        KEXT_CONTENT_OK=""
+        echo "    $1: $actual" >&2
+        return 1
+    }
+    check_pin "driver Mach-O" "$STAGING/Kexts/AMDRyzenCPUPowerManagement.kext/Contents/MacOS/AMDRyzenCPUPowerManagement" "$KEXT_PIN_DRIVER_MACHO" || true
+    check_pin "driver Info.plist" "$STAGING/Kexts/AMDRyzenCPUPowerManagement.kext/Contents/Info.plist" "$KEXT_PIN_DRIVER_PLIST" || true
+    check_pin "plugin Mach-O" "$STAGING/Kexts/SMCAMDProcessor.kext/Contents/MacOS/SMCAMDProcessor" "$KEXT_PIN_PLUGIN_MACHO" || true
+    check_pin "plugin Info.plist" "$STAGING/Kexts/SMCAMDProcessor.kext/Contents/Info.plist" "$KEXT_PIN_PLUGIN_PLIST" || true
+    for signed in AMDRyzenCPUPowerManagement SMCAMDProcessor; do
+        if ! codesign --verify --deep --strict "$STAGING/Kexts/$signed.kext" 2>/dev/null; then
+            KEXT_CONTENT_OK=""
+            echo "    $signed.kext: code signature does not verify" >&2
+        fi
+    done
     if [[ -n "$KEXT_SOURCE_LOCAL" ]]; then
-        echo "  ⚠ Source: LOCAL BUILD (SMCAMDProcessor_Source/build/dmg-kexts/) — SHA gate NOT applied."
+        echo "  ⚠ Source: LOCAL BUILD (SMCAMDProcessor_Source/build/dmg-kexts/) — content pins NOT enforced."
         echo "    These binaries are unverified. Do not publish this DMG until the"
         echo "    hardware probes pass; see .kiro/steering/hardware-safety.md."
+        if [[ -z "$KEXT_CONTENT_OK" ]]; then
+            echo "    Content differs from the pinned release binaries (hashes above) — expected for a new kext revision."
+        else
+            echo "    Content matches the pinned release binaries."
+        fi
+    elif [[ -z "$KEXT_CONTENT_OK" ]]; then
+        echo "✗ Error: staged kext content does not match the pinned release binaries." >&2
+        echo "  The ReleaseAssets zip extracted successfully but its contents are not" >&2
+        echo "  the reviewed ones. Refusing to build a DMG from unrecognised binaries." >&2
+        echo "  If this is an intentional kext update, refresh the four KEXT_PIN_* values" >&2
+        echo "  in Tools/make-dmg.sh in the same commit as the new zip." >&2
+        exit 1
     else
-        echo "    Source: ReleaseAssets zip, SHA-256 verified."
+        echo "    Source: ReleaseAssets zip, content pins + code signature verified."
     fi
     echo "  ✓ SMCAMDProcessor.kext added to DMG"
+    # S11 A1: assert what actually landed, instead of trusting the echoes above.
+    #
+    # The two `ditto` calls are covered by `set -e`, but nothing verified that the
+    # staged bundles are intact — and every packaging bug found so far took the
+    # shape of a success message that was not tied to the work it described.
+    for staged in AMDRyzenCPUPowerManagement SMCAMDProcessor; do
+        if [[ ! -f "$STAGING/Kexts/$staged.kext/Contents/Info.plist" ]]; then
+            echo "✗ Error: $staged.kext was reported as added but is not present in the staged DMG" >&2
+            exit 1
+        fi
+    done
 else
-    echo "  (Kexts not built — skipping)" >&2
+    # S11 A1: a DMG with no kexts is a BROKEN artifact, not a warning.
+    #
+    # This branch used to `echo … >&2` and continue, so the script exited 0 and CI
+    # stayed green while publishing a DMG whose Kexts/ folder did not exist. That
+    # is exactly what happened between kext 3.34.13 and 3.34.14: the pinned zip had
+    # been refreshed with only AMDRyzenCPUPowerManagement.kext, so the extracted
+    # $KEXT_PLUGIN path never existed, this branch was taken on every clean clone,
+    # and the release workflow would have shipped the first kext-less DMG.
+    #
+    # Failing loudly here is the mechanism fix; refreshing the zip was only the
+    # symptom fix. Set ALLOW_NO_KEXTS=1 for the rare deliberate app-only image.
+    if [[ -n "${ALLOW_NO_KEXTS:-}" ]]; then
+        echo "  ⚠ No kexts staged — continuing because ALLOW_NO_KEXTS is set." >&2
+        echo "    This DMG installs the app only; users must supply their own kexts." >&2
+    else
+        echo "✗ Error: no kexts available, so the DMG would ship without them." >&2
+        echo "  Checked, and at least one is missing:" >&2
+        echo "    local driver : SMCAMDProcessor_Source/build/dmg-kexts/AMDRyzenCPUPowerManagement.kext" >&2
+        echo "    local plugin : SMCAMDProcessor_Source/build/dmg-kexts/SMCAMDProcessor.kext" >&2
+        echo "    zip fallback : ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" >&2
+        echo "  Most likely cause: the zip is present but does not contain BOTH kexts" >&2
+        echo "  at its archive root. Verify with:" >&2
+        echo "    unzip -l ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip | grep '\.kext/$'" >&2
+        echo "  To build an app-only image on purpose: ALLOW_NO_KEXTS=1 ./Tools/make-dmg.sh" >&2
+        exit 1
+    fi
 fi
 mkdir "$STAGING/.background"
 cp build/dmg-background.png "$STAGING/.background/background.png"
