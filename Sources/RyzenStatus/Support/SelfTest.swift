@@ -182,7 +182,19 @@ enum SensorDump {
             }
         }
 
-        let coreCount = Int(packet.numLogicalCores)
+        // S10-T2b: the kext fills coreFrequenciesMHz[] indexed by LOGICAL core
+        // but sources every entry from effFreq_perCore[phys]
+        // (AMDRyzenCPUPMUserClient.cpp:586), so on an SMT part each physical
+        // core's clock appears twice. Printing all 32 entries on a 16C/32T part
+        // listed 16 phantom duplicates — actively misleading for the porting use
+        // case this command exists for.
+        let logicalCount = Int(packet.numLogicalCores)
+        let physicalCount = Int(ProcessorModel.sysctlInt64(key: "hw.physicalcpu"))
+        let smtActive = physicalCount > 0 && logicalCount == physicalCount * 2
+        let coreCount = smtActive ? physicalCount : logicalCount
+        if smtActive {
+            print("SMT                  on (\(logicalCount) threads / \(physicalCount) cores — sibling threads mirror the core clock)")
+        }
         if coreCount > 0 {
             var printed = 0
             for i in 0..<min(coreCount, packet.coreFrequenciesMHz.count) {
