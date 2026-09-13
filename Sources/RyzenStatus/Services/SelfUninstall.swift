@@ -162,6 +162,31 @@ enum SelfUninstall {
             NSApp.terminate(nil)
         } catch {
             try? FileManager.default.removeItem(at: scriptURL)
+            // S11 A6: this used to return here, silently.
+            //
+            // By the time we reach this point the destructive steps have ALREADY
+            // run — TCC grants were reset and preferences removed — so a silent
+            // return leaves the app half uninstalled, still in /Applications,
+            // with nothing on screen to say the uninstall did not finish. The
+            // user clicked "uninstall completely" and got no result and no error.
+            //
+            // The helper script exists to move the bundle AFTER this process
+            // exits, which is tidier, but moving a running bundle works and is
+            // just as reversible (it goes to the Trash). So fall back to doing it
+            // in-process, and if even that fails, reveal the bundle so the user
+            // can finish by hand rather than being told nothing at all.
+            NSLog("SelfUninstall: uninstall helper could not be launched (\(error.localizedDescription)) — falling back to an in-process Trash move")
+            let bundleURL = URL(fileURLWithPath: app)
+            NSWorkspace.shared.recycle([bundleURL]) { _, recycleError in
+                DispatchQueue.main.async {
+                    if let recycleError = recycleError {
+                        NSLog("SelfUninstall: in-process Trash move also failed (\(recycleError.localizedDescription)) — revealing the bundle for manual removal")
+                        NSWorkspace.shared.activateFileViewerSelecting([bundleURL])
+                    } else {
+                        NSApp.terminate(nil)
+                    }
+                }
+            }
         }
     }
 }

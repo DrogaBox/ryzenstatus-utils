@@ -194,9 +194,19 @@ final class AutoQuitService: ObservableObject {
               let observer = observerRef else { return }
 
         let refcon = Unmanaged.passUnretained(self).toOpaque()
+        var registered = 0
         for notification in Self.appNotifications {
-            AXObserverAddNotification(observer, appElement, notification as CFString, refcon)
+            if AXObserverAddNotification(observer, appElement, notification as CFString, refcon) == .success {
+                registered += 1
+            }
         }
+        // S11 A6: the return values used to be discarded. If the target app
+        // refused every notification, the observer can never fire, yet the
+        // run-loop source was still added and the observer still stored — so
+        // auto-quit looked attached for that app and was silently inert, with
+        // `observers[pid] != nil` preventing any later attach from retrying.
+        // Bailing out leaves the slot empty, so the retry path can run again.
+        guard registered > 0 else { return }
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
         observers[pid] = observer
 
