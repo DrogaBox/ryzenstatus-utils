@@ -7348,6 +7348,127 @@ struct MetricsTests {
         expect(AMDFanSafety.guardOnlyPWM(userPWM: 220, currentTemp: 90.0) == 220,
                "guardOnlyPWM preserves duty already above the guard")
 
+        // MARK: S11 A4 — cross-language safety-constant pin
+        //
+        // The kernel and the app each hold their own copy of the fan-safety
+        // constants, in different languages, and until now nothing made them
+        // agree. This repo has already been bitten by two numbers that were meant
+        // to be the same drifting apart: S9d and S10 both shipped as kext
+        // 3.34.13, so kextstat could not tell the two binaries apart. These
+        // checks read the kernel header at test time and assert the Swift side
+        // matches it, so bumping one side and forgetting the other fails the
+        // suite instead of shipping.
+        //
+        // What this does NOT do: execute kernel code. It verifies that the two
+        // DECLARATIONS agree. The kernel's runtime behaviour — the floor actually
+        // reaching the Super I/O, the guard actually arming — is only provable on
+        // hardware; see .kiro/steering/hardware-safety.md for the probes.
+        let kernelHeaderPath = "SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.hpp"
+        let kernelHeaderText = (try? String(contentsOfFile: kernelHeaderPath, encoding: .utf8)) ?? ""
+        expect(!kernelHeaderText.isEmpty,
+               "kernel header readable at \(kernelHeaderPath) — every pin below depends on it")
+
+        // Parses `static constexpr <type> NAME = <value>;` ignoring a trailing
+        // comment and an `f` float suffix. Requires "constexpr" on the line so the
+        // prose above each declaration cannot be mistaken for it.
+        func kernelConstexpr(_ name: String, in text: String) -> Double? {
+            for raw in text.split(separator: "\n") {
+                let line = String(raw)
+                guard line.contains("constexpr"), line.contains(name),
+                      let eq = line.firstIndex(of: "=") else { continue }
+                var value = String(line[line.index(after: eq)...])
+                if let semi = value.firstIndex(of: ";") { value = String(value[..<semi]) }
+                value = value.trimmingCharacters(in: .whitespaces)
+                if value.hasSuffix("f") { value = String(value.dropLast()) }
+                return Double(value)
+            }
+            return nil
+        }
+
+        // `String.init` is overloaded enough to make `.map(String.init)` ambiguous
+        // here, so format the optional explicitly.
+        func showConst(_ value: Double?) -> String {
+            guard let value else { return "nil" }
+            return "\(value)"
+        }
+
+        let kCurveMinActivePWM = kernelConstexpr("kCURVE_MIN_ACTIVE_PWM", in: kernelHeaderText)
+        let kThermalGuardTempC = kernelConstexpr("kTHERMAL_GUARD_TEMP_C", in: kernelHeaderText)
+        let kThermalGuardPWM = kernelConstexpr("kTHERMAL_GUARD_PWM", in: kernelHeaderText)
+        let kTempInvalid = kernelConstexpr("kTEMP_INVALID", in: kernelHeaderText)
+        let kFailsafePWM = kernelConstexpr("kFAILSAFE_PWM", in: kernelHeaderText)
+
+        expect(kCurveMinActivePWM != nil, "kCURVE_MIN_ACTIVE_PWM found in the kernel header")
+        expect(kThermalGuardTempC != nil, "kTHERMAL_GUARD_TEMP_C found in the kernel header")
+        expect(kThermalGuardPWM != nil, "kTHERMAL_GUARD_PWM found in the kernel header")
+        expect(kTempInvalid != nil, "kTEMP_INVALID found in the kernel header")
+        expect(kFailsafePWM != nil, "kFAILSAFE_PWM found in the kernel header")
+
+        // The three constants that exist on BOTH sides must be identical. The
+        // kernel's floor is curve-mode; the Swift one is manual-mode. They are
+        // deliberately the same number because the hazard is the same — a duty
+        // below the rotor's start threshold — and a divergence would mean one
+        // control mode silently permits what the other forbids.
+        expect(kCurveMinActivePWM == Double(AMDFanSafety.minimumManualPWM),
+               "kernel kCURVE_MIN_ACTIVE_PWM (\(showConst(kCurveMinActivePWM))) == Swift minimumManualPWM (\(AMDFanSafety.minimumManualPWM))")
+        expect(kThermalGuardTempC == AMDFanSafety.thermalGuardTempC,
+               "kernel kTHERMAL_GUARD_TEMP_C (\(showConst(kThermalGuardTempC))) == Swift thermalGuardTempC (\(AMDFanSafety.thermalGuardTempC))")
+        expect(kThermalGuardPWM == Double(AMDFanSafety.thermalGuardPWM),
+               "kernel kTHERMAL_GUARD_PWM (\(showConst(kThermalGuardPWM))) == Swift thermalGuardPWM (\(AMDFanSafety.thermalGuardPWM))")
+
+        // Ordering invariants — these encode WHY the numbers are what they are,
+        // so an edit that keeps them numeric but inverts their relationship fails
+        // here rather than on silicon.
+        //
+        // The invalid-temperature sentinel must be physically impossible, not
+        // merely unusual. The whole point of kTEMP_INVALID is that a failed read
+        // can never be mistaken for a cold one: 0 °C used to serve as both, which
+        // selected the coldest LUT row AND made every `>= 85` guard test false in
+        // the same move. Below absolute zero, no sensor can ever produce it.
+        expect((kTempInvalid ?? 0) < -273.15,
+               "kTEMP_INVALID (\(showConst(kTempInvalid))) is below absolute zero, so no real reading can collide with it")
+        // A non-zero floor is the entire mechanism; zero would make it a no-op.
+        expect((kCurveMinActivePWM ?? 0) > 0,
+               "kCURVE_MIN_ACTIVE_PWM is non-zero — PWM 0 is reserved for release-to-BIOS")
+        // The failsafe duty is what runs when temperature cannot be trusted, so it
+        // must itself clear the stall threshold.
+        expect((kFailsafePWM ?? 0) >= (kCurveMinActivePWM ?? 0),
+               "kFAILSAFE_PWM (\(showConst(kFailsafePWM))) is at or above the floor — an untrusted-temperature fallback must not stall the rotor")
+        // The emergency guard must be strictly more aggressive than the failsafe,
+        // or crossing 85 °C would be a downgrade.
+        expect((kThermalGuardPWM ?? 0) > (kFailsafePWM ?? 0),
+               "kTHERMAL_GUARD_PWM (\(showConst(kThermalGuardPWM))) exceeds kFAILSAFE_PWM (\(showConst(kFailsafePWM)))")
+        expect((kThermalGuardPWM ?? 0) <= 255,
+               "kTHERMAL_GUARD_PWM fits in the uint8 the Super I/O register takes")
+
+        // The two Nuvoton drivers are twins and must agree on the plausibility
+        // ceiling that rejects a torn or dead tachometer word. The ITE driver has
+        // no equivalent (tracked as an S11 gap), so it is deliberately not pinned
+        // here — adding it to this check is part of that fix, not of this one.
+        let nctDriverPaths = [
+            "SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/SuperIO/ISSuperIONCT67XXFamily.cpp",
+            "SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/SuperIO/ISSuperIONCT668X.cpp",
+        ]
+        var nctRPMCeilings: [Double] = []
+        for path in nctDriverPaths {
+            let text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+            for raw in text.split(separator: "\n") {
+                let line = String(raw)
+                guard line.contains("kMAX_PLAUSIBLE_RPM"), line.contains("static const"),
+                      let eq = line.firstIndex(of: "=") else { continue }
+                var value = String(line[line.index(after: eq)...])
+                if let semi = value.firstIndex(of: ";") { value = String(value[..<semi]) }
+                if let parsed = Double(value.trimmingCharacters(in: .whitespaces)) {
+                    nctRPMCeilings.append(parsed)
+                }
+                break
+            }
+        }
+        expect(nctRPMCeilings.count == nctDriverPaths.count,
+               "kMAX_PLAUSIBLE_RPM found in both NCT drivers (found \(nctRPMCeilings.count) of \(nctDriverPaths.count))")
+        expect(Set(nctRPMCeilings).count <= 1,
+               "both NCT drivers use the same kMAX_PLAUSIBLE_RPM (found \(nctRPMCeilings))")
+
         // MARK: AMD Boot-Args Formatter & C-State Options
 
         expectEqual(
