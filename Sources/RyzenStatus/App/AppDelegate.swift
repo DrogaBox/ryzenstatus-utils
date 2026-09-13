@@ -7,6 +7,11 @@ import Combine
 import os.log
 import SwiftUI
 
+// E1 stage 1: this class only ever runs on the main thread — every entry point
+// is an AppKit delegate callback or a `queue: .main` notification — so stating
+// that isolation lets the compiler check it instead of assuming it. Clears 389
+// of the 2037 strict-concurrency diagnostics on its own; see the commit message.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSWindowDelegate {
     private var statusController: StatusItemController!
     private let popover = NSPopover()
@@ -450,8 +455,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             popoverDriftObservers.append(NotificationCenter.default.addObserver(
                 forName: name, object: window, queue: .main
             ) { [weak self, weak window] _ in
-                guard let window else { return }
-                self?.applyPopoverDriftFrame(window)
+                // Registered with `queue: .main` above, so this body always runs
+                // on the main thread; assumeIsolated states that to the compiler.
+                MainActor.assumeIsolated {
+                    guard let window else { return }
+                    self?.applyPopoverDriftFrame(window)
+                }
             })
         }
     }
@@ -1002,6 +1011,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             // AUDIT A-06: keep the observer token and remove it inside the close
             // handler; each detach cycle used to register a fresh block forever.
             detachedCloseObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+              MainActor.assumeIsolated {
                 if let token = self?.detachedCloseObserver {
                     NotificationCenter.default.removeObserver(token)
                     self?.detachedCloseObserver = nil
@@ -1018,6 +1028,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                 // Full monitor surface: a panel client, so the popover
                 // lifecycle cannot wipe these needs while the window is open.
                 SystemMonitor.shared.panelDidDisappear()
+              }
             }
 
             // S10 UI-03: stand down when the detached dashboard is not actually
@@ -1035,6 +1046,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                 object: window,
                 queue: .main
             ) { [weak self] note in
+              // Registered with `queue: .main`, so this body always runs on the
+              // main thread; assumeIsolated states that to the compiler.
+              MainActor.assumeIsolated {
                 guard let win = note.object as? NSWindow else { return }
                 let visible = win.occlusionState.contains(.visible)
                 guard let self, visible != self.detachedWindowVisible else { return }
@@ -1044,6 +1058,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                 } else {
                     SystemMonitor.shared.panelDidDisappear()
                 }
+              }
             }
         }
         
