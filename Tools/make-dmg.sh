@@ -106,6 +106,26 @@ else
 fi
 mkdir "$STAGING/.background"
 cp build/dmg-background.png "$STAGING/.background/background.png"
+# S11: seed the window layout from a checked-in .DS_Store.
+#
+# The Finder automation below is the only thing that positions the icons and
+# applies the background, and it needs Automation (Apple Events) permission for
+# Finder. A GitHub runner has no Finder session at all, and a local shell that
+# was never granted the permission gets `-10004 privilege violation`, so BOTH
+# produce an unstyled DMG while still exiting 0 — the branding silently
+# disappeared with no failure anywhere.
+#
+# Seeding the layout here makes styling the default rather than a side effect of
+# a permission: hdiutil bakes this .DS_Store into the image, and the AppleScript
+# then either succeeds and refines it or fails harmlessly on top of a volume that
+# already looks right. The alias inside resolves because the volume name is
+# always "$VOLUME" and the background always sits at .background/background.png.
+if [[ -f "Tools/dmg-layout.DS_Store" ]]; then
+    cp "Tools/dmg-layout.DS_Store" "$STAGING/.DS_Store"
+    echo "  ✓ Window layout seeded from Tools/dmg-layout.DS_Store"
+else
+    echo "  ⚠ Tools/dmg-layout.DS_Store missing — styling depends on Finder automation" >&2
+fi
 
 echo "▸ Creating writable image…"
 WORK="$(mktemp -d)"
