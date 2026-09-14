@@ -20,6 +20,7 @@ enum MenuPanelFocusTarget: Equatable {
     case metric(MetricDetailKind)
 }
 
+@MainActor
 final class MenuPanelFocus: ObservableObject {
     static let shared = MenuPanelFocus()
 
@@ -815,6 +816,18 @@ struct UtilitiesSection: View {
     @ViewBuilder
     private func itemView(_ item: UtilityPanelItem, editing: Bool) -> some View {
         switch item {
+        case .homebrew, .appUpdates, .media, .clipboard, .scratchpad, .quickLauncher:
+            utilityLauncherItemView(item, editing: editing)
+        case .windowLayout, .uninstaller, .cleaner, .cleanURL, .cleaning:
+            utilityMaintenanceItemView(item, editing: editing)
+        case .screenOCR, .screenshot, .colorPicker, .micMute, .cameraPreview:
+            utilityCaptureAndMediaItemView(item, editing: editing)
+        }
+    }
+
+    @ViewBuilder
+    private func utilityLauncherItemView(_ item: UtilityPanelItem, editing: Bool) -> some View {
+        switch item {
         case .homebrew:
             UtilityActionButton(title: l10n.s.homebrewName,
                                 caption: l10n.s.homebrewEnableCaption,
@@ -862,6 +875,42 @@ struct UtilitiesSection: View {
                                     PanelInteractionState.shared.keepsPopoverOpen = true
                                     showClipboardPanel = true
                                 })
+        case .scratchpad:
+            UtilityActionButton(title: FeatureStrings.scratchpad(l10n.language).pageTitle,
+                                caption: FeatureStrings.scratchpad(l10n.language).panelCaption,
+                                systemImage: "note.text",
+                                isEditing: editing,
+                                showsDragHandle: true,
+                                visibility: $showScratchpad,
+                                shortcutHint: shortcutHint(.scratchpad),
+                                action: {
+                                    appDelegate()?.closePopover()
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                        ScratchpadService.shared.show()
+                                    }
+                                })
+        case .quickLauncher:
+            UtilityActionButton(title: l10n.s.launcherName,
+                                caption: l10n.s.launcherCaption,
+                                systemImage: "square.grid.2x2",
+                                isEditing: editing,
+                                showsDragHandle: true,
+                                visibility: $showQuickLauncher,
+                                shortcutHint: shortcutHint(.quickLauncher),
+                                action: {
+                                    appDelegate()?.closePopover()
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                        QuickLauncherService.shared.show()
+                                    }
+                                })
+        default:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private func utilityMaintenanceItemView(_ item: UtilityPanelItem, editing: Bool) -> some View {
+        switch item {
         case .windowLayout:
             UtilityActionButton(title: FeatureStrings.windowLayout(l10n.language).title,
                                 caption: FeatureStrings.windowLayout(l10n.language).caption,
@@ -915,8 +964,16 @@ struct UtilitiesSection: View {
                                 visibility: $showCleaning,
                                 needsAttention: cleaningNeedsAccessibility,
                                 permissionButtonTitle: l10n.s.permissionRequest,
-                                permissionAction: cleaningNeedsAccessibility ? grantAccessibility : nil,
-                                action: startCleaning)
+                                permissionAction: cleaningNeedsAccessibility ? { grantAccessibility() } : nil,
+                                action: { startCleaning() })
+        default:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private func utilityCaptureAndMediaItemView(_ item: UtilityPanelItem, editing: Bool) -> some View {
+        switch item {
         case .screenOCR:
             UtilityActionButton(title: l10n.s.ocrName,
                                 caption: ocrCaption,
@@ -926,7 +983,7 @@ struct UtilitiesSection: View {
                                 visibility: $showScreenOCR,
                                 needsAttention: !permissions.screenRecording,
                                 permissionButtonTitle: l10n.s.permissionRequest,
-                                permissionAction: permissions.screenRecording ? nil : grantScreenRecordingPermission,
+                                permissionAction: permissions.screenRecording ? nil : { grantScreenRecordingPermission() },
                                 shortcutHint: shortcutHint(.screenOCR),
                                 action: {
                                     appDelegate()?.closePopover()
@@ -943,7 +1000,7 @@ struct UtilitiesSection: View {
                                 visibility: $showScreenshot,
                                 needsAttention: !permissions.screenRecording,
                                 permissionButtonTitle: l10n.s.permissionRequest,
-                                permissionAction: permissions.screenRecording ? nil : grantScreenRecordingPermission,
+                                permissionAction: permissions.screenRecording ? nil : { grantScreenRecordingPermission() },
                                 shortcutHint: shortcutHint(.screenshot),
                                 action: {
                                     appDelegate()?.closePopover()
@@ -995,34 +1052,8 @@ struct UtilitiesSection: View {
                                         CameraPreviewService.shared.show()
                                     }
                                 })
-        case .scratchpad:
-            UtilityActionButton(title: FeatureStrings.scratchpad(l10n.language).pageTitle,
-                                caption: FeatureStrings.scratchpad(l10n.language).panelCaption,
-                                systemImage: "note.text",
-                                isEditing: editing,
-                                showsDragHandle: true,
-                                visibility: $showScratchpad,
-                                shortcutHint: shortcutHint(.scratchpad),
-                                action: {
-                                    appDelegate()?.closePopover()
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                                        ScratchpadService.shared.show()
-                                    }
-                                })
-        case .quickLauncher:
-            UtilityActionButton(title: l10n.s.launcherName,
-                                caption: l10n.s.launcherCaption,
-                                systemImage: "square.grid.2x2",
-                                isEditing: editing,
-                                showsDragHandle: true,
-                                visibility: $showQuickLauncher,
-                                shortcutHint: shortcutHint(.quickLauncher),
-                                action: {
-                                    appDelegate()?.closePopover()
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                                        QuickLauncherService.shared.show()
-                                    }
-                                })
+        default:
+            EmptyView()
         }
     }
 
@@ -2162,7 +2193,7 @@ private final class HeightReportingHostingView<Content: View>: NSHostingView<Con
 }
 
 private struct MenuPanelHeightPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
+    static let defaultValue: CGFloat = 0
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
