@@ -1404,6 +1404,34 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             
             UInt32 snap94 = (UInt32)OSIncrementAtomic(&provider->fanUpdateCounter);
             if ((snap94 % 4) == 0) {
+                // S11-a: refresh the estimator's INPUTS in the same critical
+                // section that consumes them.
+                //
+                // updateFanControl()'s fallback estimator — which is what
+                // produces a duty reading at all while a fan is under BIOS
+                // SmartFan control, since the PWM command register genuinely
+                // reads 0 there — is gated on fanRPMValid[i] and
+                // fanPeakRPMs[i] > 200. Both of those are written ONLY by
+                // updateFanRPMS().
+                //
+                // fanUpdateCounter is a single shared counter and BOTH selector
+                // 93 (which calls updateFanRPMS) and this one increment it, so
+                // the producer and the consumer fired on different values of it
+                // and could never coincide. getFans() calls 93 then 94 back to
+                // back, consuming n and n+1: updateFanRPMS on n % 4 == 0 and
+                // updateFanControl on (n+1) % 4 == 0 are never the same tick.
+                // The only timer-driven path, evaluateFanCurves(), early-continues
+                // for every fan with fanToCurveMap[fan] < 0 — i.e. every fan under
+                // BIOS Auto — so nothing else ever seeded fanPeakRPMs for exactly
+                // the fans that need the estimator. The guard stayed false, the
+                // estimator never ran, and all six fans reported pwm 0 (0.0%)
+                // while physically spinning at 40-1683 RPM.
+                //
+                // Pairing them here is the fix: the estimator now always sees
+                // inputs written on this same tick, under this same lock. The
+                // %4 gate is deliberately kept — it rate-limits Super I/O port
+                // I/O, which is slow and shared with the firmware.
+                provider->superIO->updateFanRPMS();
                 provider->superIO->updateFanControl();
             }
             uint32_t copyCount = (maxLen / sizeof(uint64_t) < numFans) ? (maxLen / sizeof(uint64_t)) : numFans;
