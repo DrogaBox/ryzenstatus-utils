@@ -7372,6 +7372,53 @@ struct MetricsTests {
         let decLegacyOOB = AMDFanSafety.decodeSelector94(raw: (51 << 8) | 0x00 | 0x01, rawRPM: 65535, kextVersion: "3.34.14")
         expect(decLegacyOOB.rpmValid == false, "legacy kext still rejects implausible RPM > 10500")
 
+        // MARK: Pure Thermal Invariants & Frozen Tachometer Tests
+        expect(AMDFanSafety.isTempValid(Double.nan) == false, "isTempValid rejects NaN")
+        expect(AMDFanSafety.isTempValid(Double.infinity) == false, "isTempValid rejects +Inf")
+        expect(AMDFanSafety.isTempValid(-Double.infinity) == false, "isTempValid rejects -Inf")
+        expect(AMDFanSafety.isTempValid(-25.0) == false, "isTempValid rejects < -20°C")
+        expect(AMDFanSafety.isTempValid(-20.0) == false, "isTempValid rejects exactly -20°C (boundary)")
+        expect(AMDFanSafety.isTempValid(-19.9) == true, "isTempValid accepts -19.9°C")
+        expect(AMDFanSafety.isTempValid(0.0) == true, "isTempValid accepts 0.0°C")
+        expect(AMDFanSafety.isTempValid(55.5) == true, "isTempValid accepts typical operating temp")
+        expect(AMDFanSafety.isTempValid(134.9) == true, "isTempValid accepts 134.9°C")
+        expect(AMDFanSafety.isTempValid(135.0) == false, "isTempValid rejects 135.0°C (boundary)")
+        expect(AMDFanSafety.isTempValid(150.0) == false, "isTempValid rejects > 135°C")
+
+        // EMA smoothing: alpha = 0.2
+        let emaSeeded = AMDFanSafety.emaStep(previous: Double.nan, sample: 50.0)
+        expect(abs(emaSeeded - 50.0) < 0.001, "emaStep seeds immediately on invalid previous")
+        let emaHeld = AMDFanSafety.emaStep(previous: 50.0, sample: Double.nan)
+        expect(abs(emaHeld - 50.0) < 0.001, "emaStep holds previous on invalid sample")
+        let emaStep1 = AMDFanSafety.emaStep(previous: 50.0, sample: 60.0)
+        // 0.2 * 60 + 0.8 * 50 = 12 + 40 = 52.0
+        expect(abs(emaStep1 - 52.0) < 0.001, "emaStep calculates (0.2 * 60) + (0.8 * 50) == 52.0")
+
+        // Thermal guard sensor arbitration
+        expect(AMDFanSafety.hottestSensor(cpuTemp: 50.0, gpuTemp: 72.0) == 72.0, "hottestSensor selects higher GPU temp")
+        expect(AMDFanSafety.hottestSensor(cpuTemp: 86.0, gpuTemp: 65.0) == 86.0, "hottestSensor selects higher CPU temp")
+        expect(AMDFanSafety.hottestSensor(cpuTemp: Double.nan, gpuTemp: 68.0) == 68.0, "hottestSensor ignores NaN CPU temp")
+        expect(AMDFanSafety.hottestSensor(cpuTemp: 75.0, gpuTemp: Double.nan) == 75.0, "hottestSensor ignores NaN GPU temp")
+        expect(AMDFanSafety.hottestSensor(cpuTemp: Double.nan, gpuTemp: Double.nan) == 0.0, "hottestSensor returns 0.0 when both are invalid")
+
+        // Frozen tachometer detector (S11-b)
+        let staleTachSamples: [UInt64] = [40, 40, 40, 40, 40, 40, 40, 40]
+        expect(AMDFanSafety.isTachometerStale(samples: staleTachSamples) == true,
+               "isTachometerStale flags 8 identical non-zero RPM samples as stale")
+        let activeJitterSamples: [UInt64] = [851, 851, 838, 840, 850, 851, 852, 850]
+        expect(AMDFanSafety.isTachometerStale(samples: activeJitterSamples) == false,
+               "isTachometerStale does NOT flag active rotor with natural RPM jitter")
+        let stoppedFanSamples: [UInt64] = [0, 0, 0, 0, 0, 0, 0, 0]
+        expect(AMDFanSafety.isTachometerStale(samples: stoppedFanSamples) == false,
+               "isTachometerStale does NOT flag a stopped fan (0 RPM) as stale")
+        let insufficientSamples: [UInt64] = [40, 40, 40]
+        expect(AMDFanSafety.isTachometerStale(samples: insufficientSamples) == false,
+               "isTachometerStale requires at least threshold samples before flagging")
+        let suffixStaleSamples: [UInt64] = [1200, 1100, 40, 40, 40, 40, 40, 40, 40, 40]
+        expect(AMDFanSafety.isTachometerStale(samples: suffixStaleSamples) == true,
+               "isTachometerStale evaluates the sliding window suffix correctly")
+
+
 
         // MARK: Cross-language safety-constant pin
         //
@@ -7440,6 +7487,8 @@ struct MetricsTests {
                "kernel kTHERMAL_GUARD_TEMP_C (\(showConst(kThermalGuardTempC))) == Swift thermalGuardTempC (\(AMDFanSafety.thermalGuardTempC))")
         expect(kThermalGuardPWM == Double(AMDFanSafety.thermalGuardPWM),
                "kernel kTHERMAL_GUARD_PWM (\(showConst(kThermalGuardPWM))) == Swift thermalGuardPWM (\(AMDFanSafety.thermalGuardPWM))")
+        expect(kFailsafePWM == Double(AMDFanSafety.failsafePWM),
+               "kernel kFAILSAFE_PWM (\(showConst(kFailsafePWM))) == Swift failsafePWM (\(AMDFanSafety.failsafePWM))")
 
         // Ordering invariants — these encode WHY the numbers are what they are,
         // so an edit that keeps them numeric but inverts their relationship fails
