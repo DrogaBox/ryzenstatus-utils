@@ -6,6 +6,7 @@ import SwiftUI
 // MARK: - Native Activity Monitor / BTop Dashboard View
 struct BTopDashboardView: View {
     @ObservedObject var monitor: SystemMonitor
+    var showCpuOverview: Bool = true
     @State private var topProcesses: [ProcessUsage] = []
     @State private var procSortMode: ProcSortMode = .cpu
     @Environment(\.colorScheme) private var colorScheme
@@ -35,8 +36,9 @@ struct BTopDashboardView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            // --- TOP ROW: CPU & SYSTEM OVERVIEW ---
-            suiteBox(title: Self.cpuBoxTitle, icon: "cpu", accentColor: cpuColor) {
+            if showCpuOverview {
+                // --- TOP ROW: CPU & SYSTEM OVERVIEW ---
+                suiteBox(title: Self.cpuBoxTitle, icon: "cpu", accentColor: cpuColor) {
                 HStack(spacing: 16) {
                     // Left: Total Load gauge + Sparkline
                     VStack(alignment: .leading, spacing: 6) {
@@ -96,6 +98,7 @@ struct BTopDashboardView: View {
                     }
                 }
             }
+        }
 
             // --- MIDDLE ROW: MEMORY & NETWORK ---
             HStack(spacing: 12) {

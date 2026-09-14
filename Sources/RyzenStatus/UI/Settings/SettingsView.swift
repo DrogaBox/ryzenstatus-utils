@@ -68,6 +68,8 @@ struct SettingsView: View {
                                        l10n.s.monitorMemoryPressureDot]),
                 SidebarItem(page: .fans, title: FeatureStrings.fanControl(L10n.shared.language).sidebarTitle, icon: "fanblades.fill"),
                 SidebarItem(page: .amdPower, title: FeatureStrings.amdPower(L10n.shared.language).sidebarTitle, icon: "cpu.fill"),
+                SidebarItem(page: .amdOverclocking, title: "AMD Overclocking", icon: "flame.fill",
+                            keywords: ["overclock", "PBO", "curve optimizer", "voltage", "frequency", "cHTC", "smu", "undervolt"]),
                 SidebarItem(page: .sensors, title: FeatureStrings.fanControl(L10n.shared.language).sensorsSidebarTitle, icon: "thermometer.sun.fill"),
             ]),
             (categories.windowsControls, [
@@ -287,6 +289,7 @@ struct SettingsView: View {
         case .support: SupportSettings()
         case .fans: FansSettingsView()
         case .amdPower: AmdPowerSettingsView()
+        case .amdOverclocking: AmdOverclockingSettingsView()
         case .dashboard: PerformanceSuiteView(monitor: SystemMonitor.shared)
         case .sensors: SensorsView()
         }

@@ -42,17 +42,19 @@ struct SensorsView: View {
                 }
             }
             
-            Section(header: Text("Sensor verification"), footer: Text("Puts the CPU through three known load states and checks that the keys used for the cores respond like cores. The Mac will heat up and the fan will spin up: that is expected.")) {
+            Section(header: Text("SMC Sensor Export"), footer: Text("Export a snapshot of all active AppleSMC keys, data types, and values to a CSV file for analysis or hardware diagnostics.")) {
                 HStack {
-                    Button("Export sensor dump") {
+                    Button {
                         exportSensorDumpCSV()
+                    } label: {
+                        Label("Export Sensor Dump (CSV)", systemImage: "square.and.arrow.up")
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(.blue)
                     
                     Spacer()
                 }
-                .padding(.vertical, 8)
+                .padding(.vertical, 4)
             }
             
             if !showRawSMCSensors {
@@ -81,15 +83,27 @@ struct SensorsView: View {
                 
                 let cpuSensors = buildCPUSensors(from: filteredReadings)
                 
-                let gpuSensors = filteredReadings.filter { $0.key.hasPrefix("TG") }
-                let diskSensors = filteredReadings.filter { $0.key.hasPrefix("TH") }
-                let ramSensors = filteredReadings.filter { $0.key.hasPrefix("TM") }
-                let airSensors = filteredReadings.filter { $0.key.hasPrefix("TA") || $0.key.hasPrefix("Te") || $0.key.hasPrefix("TW") }
-                let batterySensors = filteredReadings.filter { $0.key.hasPrefix("TB") }
-                let fanSensors = filteredReadings.filter { $0.key.hasPrefix("F") }
-                let voltageSensors = filteredReadings.filter { $0.key.hasPrefix("V") }
-                let powerSensors = filteredReadings.filter { $0.key.hasPrefix("P") }
-                let currentSensors = filteredReadings.filter { $0.key.hasPrefix("I") }
+                let hasKextGpu = !monitor.snapshot.gpuDevices.isEmpty
+                let rawGpuSensors = filteredReadings.filter { $0.key.hasPrefix("TG") && $0.value > 0 }
+                // When kext GPU devices exist, filter out duplicate primary die temperature keys (TG0D/TG0P),
+                // but preserve supplemental sensors such as Hotspot (TG0H) and VRAM (TG0M/TG0V).
+                let gpuSensors = rawGpuSensors.filter { sensor in
+                    if hasKextGpu {
+                        let k = sensor.key
+                        if k == "TG0D" || k == "TG0d" || k == "TG0P" || k == "TG0p" {
+                            return false
+                        }
+                    }
+                    return true
+                }
+                let diskSensors = filteredReadings.filter { $0.key.hasPrefix("TH") && $0.value > 0 }
+                let ramSensors = filteredReadings.filter { $0.key.hasPrefix("TM") && $0.value > 0 }
+                let airSensors = filteredReadings.filter { ($0.key.hasPrefix("TA") || $0.key.hasPrefix("Te") || $0.key.hasPrefix("TW")) && $0.value > 0 }
+                let batterySensors = filteredReadings.filter { $0.key.hasPrefix("TB") && $0.value > 0 }
+                let fanSensors = filteredReadings.filter { $0.key.hasPrefix("F") && $0.value > 0 }
+                let voltageSensors = filteredReadings.filter { $0.key.hasPrefix("V") && $0.value > 0 }
+                let powerSensors = filteredReadings.filter { $0.key.hasPrefix("P") && $0.value > 0 }
+                let currentSensors = filteredReadings.filter { $0.key.hasPrefix("I") && $0.value > 0 }
                 
                 // 1. CPU Section
                 Section {
@@ -165,7 +179,7 @@ struct SensorsView: View {
                                         Image(systemName: "display")
                                             .foregroundColor(.orange)
                                             .frame(width: 24)
-                                        Text("GPU \(gpu.id) (Kext)")
+                                        Text("GPU \(gpu.id) (RadeonSensor / Kext)")
                                             .font(.subheadline)
                                         Spacer()
                                     }
@@ -192,13 +206,17 @@ struct SensorsView: View {
                                 }
                                 .padding(.vertical, 2)
                             }
+                        } else {
+                            // Fallback: show monitor snapshot GPU data ONLY when no discrete kext devices detected
+                            if let temp = monitor.snapshot.gpuTemperature, temp > 0 {
+                                SensorRow(name: "GPU Temperature", value: formatTemp(temp), icon: "thermometer.snowflake")
+                            }
+                            if let power = monitor.snapshot.gpuPower, power > 0 {
+                                SensorRow(name: "GPU Power", value: String(format: "%.1f W", power), icon: "bolt")
+                            }
                         }
                         
-                        // Fallback: show monitor snapshot GPU data
-                        SensorRow(name: "GPU Global Temp", value: formatTemp(monitor.snapshot.gpuTemperature ?? 0), icon: "thermometer.snowflake")
-                        SensorRow(name: "GPU Global Power", value: String(format: "%.1f W", monitor.snapshot.gpuPower ?? 0), icon: "bolt")
-                        
-                        // SMC TGxx sensors
+                        // Supplemental SMC TGxx sensors (Hotspot, VRAM, or fallback die)
                         ForEach(gpuSensors) { sensor in
                             SensorRow(name: sensorDisplayName(for: sensor.key), value: formatValue(sensor), icon: "thermometer.snowflake")
                         }
@@ -209,8 +227,9 @@ struct SensorsView: View {
                             Text("Graphics (GPU)")
                                 .font(.headline)
                             Spacer()
-                            let kextDeviceRows = monitor.snapshot.gpuDevices.reduce(0) { $0 + 1 + ($1.supportsPower ? 1 : 0) }
-                            Text("\(gpuSensors.count + 2 + kextDeviceRows) items")
+                            let kextCount = monitor.snapshot.gpuDevices.count
+                            let totalGpuCount = kextCount > 0 ? (kextCount + gpuSensors.count) : (gpuSensors.count + (monitor.snapshot.gpuTemperature != nil ? 1 : 0))
+                            Text("\(totalGpuCount) items")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -514,8 +533,9 @@ struct SensorsView: View {
             }
         }
         
-        let numPhysCores = Int(monitor.snapshot.numPhysicalCores > 0 ? monitor.snapshot.numPhysicalCores : 16)
-        let targetCoreCount = max(numPhysCores, 16)
+        let detectedCores = Int(monitor.snapshot.numPhysicalCores)
+        let maxExistingCore = existingPerCoreMap.keys.max().map { $0 + 1 } ?? 0
+        let targetCoreCount = detectedCores > 0 ? detectedCores : (maxExistingCore > 0 ? maxExistingCore : 8)
         
         var result: [SMCSensorReading] = []
         for i in 0..<targetCoreCount {
