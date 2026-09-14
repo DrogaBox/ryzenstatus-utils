@@ -18,6 +18,14 @@ public:
     virtual const char *getReadableStringForFan(int fan);
     
     virtual uint32_t getRPMForFan(int fan);
+    // S11: does getRPMForFan(fan) reflect a tachometer word the driver trusts?
+    //
+    // The NCT drivers already track this per fan to gate their PWM estimator,
+    // but it never left the driver, so neither the kext's own safety checks nor
+    // the app could tell a held-over stale reading from a fresh one. Default
+    // true for a family that does not track validity (ITE), which preserves its
+    // existing behaviour exactly: callers keep treating the reading as usable.
+    virtual bool getFanRPMValid(int fan) { return true; }
     virtual bool getFanAutoControlMode(int fan);
     virtual uint8_t getFanThrottle(int fan);
     

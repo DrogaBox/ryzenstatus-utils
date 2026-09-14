@@ -1436,7 +1436,32 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             }
             uint32_t copyCount = (maxLen / sizeof(uint64_t) < numFans) ? (maxLen / sizeof(uint64_t)) : numFans;
             for (uint32_t i = 0; i < copyCount; i++) {
-                dataOut[i] = provider->superIO->getFanThrottle(i) << 8 | (provider->superIO->getFanAutoControlMode(i) ? 1 : 0);
+                // S11-c: bit 1 carries per-fan tachometer validity.
+                //
+                // Wire format, per fan, one uint64_t: bits 15:8 throttle (a
+                // uint8_t, so it cannot spill), bit 0 auto-control mode, bit 1
+                // rpmValid, everything else zero. Bit 1 was previously written as
+                // zero, and the Swift reader masks only bits 15:8 and bit 0, so an
+                // OLDER app against this kext ignores the new bit and behaves
+                // exactly as before. The buffer size is unchanged, so nothing in
+                // the size negotiation on either side moves.
+                //
+                // Why it matters: the NCT drivers now hold the last good value
+                // when a tach read is untrustworthy, which is safer than
+                // publishing 65535 but LESS detectable — a dead sensor shows a
+                // plausible frozen RPM instead of an obviously wrong one. Without
+                // this bit the app has no way to tell the difference, and its own
+                // `rawRPM <= 10500` heuristic can never fire because the kext
+                // already filters above that threshold.
+                //
+                // The app-side consumption is deliberately NOT in this change: a
+                // kext revision costs a hardware validation cycle and an app
+                // revision costs nothing, so the expensive half ships now and the
+                // Swift reader (which needs a kext-version gate so a new app does
+                // not blank every fan against an old kext) follows separately.
+                dataOut[i] = provider->superIO->getFanThrottle(i) << 8
+                           | (provider->superIO->getFanRPMValid(i) ? 0x2 : 0)
+                           | (provider->superIO->getFanAutoControlMode(i) ? 1 : 0);
             }
             IOLockUnlock(provider->superIOLock);
             
@@ -1478,6 +1503,34 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             if (fanSel < 0 || fanSel >= provider->superIO->getNumberOfFans()) {
                 IOLockUnlock(provider->superIOLock);
                 return kIOReturnBadArgument;
+            }
+            // S11: floor a duty that would be commanded to a STOPPED rotor.
+            //
+            // The S10 floor (kCURVE_MIN_ACTIVE_PWM) lives only in
+            // evaluateFanCurves(), and overrideFanControl() writes whatever byte
+            // it is handed straight to the PWM register — so this privileged
+            // manual path could latch a rotor at duty 1-39, below its start
+            // threshold, on an open-loop controller with no RPM feedback. Below
+            // 85 C the thermal guard above does not fire, so nothing caught it.
+            //
+            // The floor is NOT applied unconditionally, and that is the whole
+            // point. The hazard is at rotor START, not at maintain: a fan the
+            // BIOS is holding at duty 20 and which is demonstrably turning is
+            // safe, and raising it to 40 would just make the machine louder for
+            // nothing. That is exactly why the Swift side splits
+            // clampManualPWM (user-commanded, floored) from guardOnlyPWM
+            // (hardware-inherited, guard only) — and why a blanket floor here
+            // would break the inherited path and ramp every BIOS-fixed fan on
+            // the first poll.
+            //
+            // So the kernel decides from the evidence it has rather than from a
+            // caller's claim: floor only when the tachometer is TRUSTED and says
+            // the fan is not turning. When validity is unknown the reading is not
+            // evidence, so behaviour is left exactly as before.
+            if (pwm != 0 && pwm < kCURVE_MIN_ACTIVE_PWM
+                && provider->superIO->getFanRPMValid(fanSel)
+                && provider->superIO->getRPMForFan(fanSel) < kFAN_STOPPED_RPM) {
+                pwm = kCURVE_MIN_ACTIVE_PWM;
             }
             provider->superIO->overrideFanControl(fanSel, pwm);
             IOLockUnlock(provider->superIOLock);

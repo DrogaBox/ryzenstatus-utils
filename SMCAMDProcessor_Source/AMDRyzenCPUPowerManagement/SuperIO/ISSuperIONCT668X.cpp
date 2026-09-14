@@ -154,6 +154,11 @@ uint32_t ISSuperIONCT668X::getRPMForFan(int fan){
     return fanRPMs[fan];
 }
 
+bool ISSuperIONCT668X::getFanRPMValid(int fan){
+    if(fan < 0 || fan >= activeFansOnSystem) return false;
+    return fanRPMValid[fan];
+}
+
 bool ISSuperIONCT668X::getFanAutoControlMode(int fan){
     if(fan < 0 || fan >= activeFansOnSystem) return 0;
     return fanControlMode[fan] != 0;

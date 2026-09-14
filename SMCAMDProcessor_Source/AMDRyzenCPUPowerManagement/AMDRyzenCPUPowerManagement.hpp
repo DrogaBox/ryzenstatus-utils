@@ -111,6 +111,14 @@ static constexpr uint8_t  kTHERMAL_GUARD_PWM    = 200;   // ~78.4% duty
 // (Sources/RyzenStatus/Services/AMD/FanCurveModels.swift) — keep both in sync.
 static constexpr uint8_t  kCURVE_MIN_ACTIVE_PWM = 40;    // ~15.7% duty
 
+// kFAN_STOPPED_RPM — below this, a fan with a TRUSTED tachometer reading is
+// treated as not turning. Used to decide whether a commanded duty is a rotor
+// START (dangerous below the floor) or merely maintaining a rotor that is
+// already turning (safe, and the case the floor must NOT touch — see
+// AMDFanSafety.guardOnlyPWM on the Swift side). Same threshold the Auto-mode
+// PWM estimator already uses to decide a fan is spinning.
+static constexpr uint32_t  kFAN_STOPPED_RPM = 100;
+
 // kTEMP_INVALID — explicit sentinel for "temperature could not be read".
 // getPackageTemp() returned 0.0f for BOTH a genuine 0 C and a failed SMN/PCI
 // transaction; 0 C simultaneously selects lut[0] (coldest, slowest point) AND

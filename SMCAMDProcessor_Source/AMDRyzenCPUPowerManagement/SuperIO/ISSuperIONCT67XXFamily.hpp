@@ -78,6 +78,7 @@ public:
     const char *getReadableStringForFan(int fan) override;
     
     uint32_t getRPMForFan(int fan) override;
+    bool getFanRPMValid(int fan) override;
     bool getFanAutoControlMode(int fan) override;
     uint8_t getFanThrottle(int fan) override;
     

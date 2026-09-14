@@ -197,6 +197,11 @@ uint32_t ISSuperIONCT67XXFamily::getRPMForFan(int fan){
     return fanRPMs[fan];
 }
 
+bool ISSuperIONCT67XXFamily::getFanRPMValid(int fan){
+    if(fan < 0 || fan >= activeFansOnSystem) return false;
+    return fanRPMValid[fan];
+}
+
 bool ISSuperIONCT67XXFamily::getFanAutoControlMode(int fan){
     if(fan < 0 || fan >= activeFansOnSystem) return 0;
     return fanControlMode[fan] != 0;
