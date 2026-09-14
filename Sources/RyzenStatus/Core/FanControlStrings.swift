@@ -66,6 +66,8 @@ struct FanControlFeatureStrings {
     let pwmFloorHint: String
     let sidebarTitle: String
     let sensorsSidebarTitle: String
+    let pumpBadge: String
+    let pumpWarning: String
 }
 
 extension FeatureStrings {
@@ -154,9 +156,11 @@ extension FanControlFeatureStrings {
         appliedCurveBadge: "Applied",
         revertChangesButton: "Revert",
         thermalGuardActiveHint: "Emergency cooling: CPU ≥ 85 °C — fan forced to at least 78%",
-        pwmFloorHint: "Slider floor is 1% — lower PWM would stall the fan rotor",
+        pwmFloorHint: "Hardware safety floor is 16% (PWM 40) — lower PWM is prevented to avoid rotor stall",
         sidebarTitle: "Fans & Cooling",
-        sensorsSidebarTitle: "Sensors"
+        sensorsSidebarTitle: "Sensors",
+        pumpBadge: "PUMP",
+        pumpWarning: "AIO / Water pump header: running below safe floor or stopping can cause thermal runaway or pump damage"
     )
 
     static let es = FanControlFeatureStrings(
@@ -218,9 +222,11 @@ extension FanControlFeatureStrings {
         appliedCurveBadge: "Aplicada",
         revertChangesButton: "Revertir",
         thermalGuardActiveHint: "Enfriamiento de emergencia: CPU ≥ 85 °C — ventilador forzado a al menos 78%",
-        pwmFloorHint: "El piso del deslizador es 1% — un PWM menor trabaría el rotor",
+        pwmFloorHint: "Límite de seguridad de hardware en 16% (PWM 40) — PWM menor bloqueado para evitar detención del rotor",
         sidebarTitle: "Ventiladores y refrigeración",
-        sensorsSidebarTitle: "Sensores"
+        sensorsSidebarTitle: "Sensores",
+        pumpBadge: "BOMBA",
+        pumpWarning: "Cabezal de bomba AIO / líquida: operar por debajo del umbral seguro o detenerla puede causar problemas térmicos"
     )
 
     static let ptBR = FanControlFeatureStrings(
@@ -282,9 +288,11 @@ extension FanControlFeatureStrings {
         appliedCurveBadge: "Aplicada",
         revertChangesButton: "Reverter",
         thermalGuardActiveHint: "Refrigeração de emergência: CPU ≥ 85 °C — fan forçado a pelo menos 78%",
-        pwmFloorHint: "O mínimo do controle é 1% — um PWM menor travaria o rotor",
+        pwmFloorHint: "Limite de segurança de hardware em 16% (PWM 40) — PWM menor bloqueado para evitar travamento do rotor",
         sidebarTitle: "Ventiladores e refrigeração",
-        sensorsSidebarTitle: "Sensores"
+        sensorsSidebarTitle: "Sensores",
+        pumpBadge: "BOMBA",
+        pumpWarning: "Conector de bomba AIO / líquida: operar abaixo do limite seguro ou parar pode causar superaquecimento"
     )
 
     static let de = FanControlFeatureStrings(
@@ -346,9 +354,11 @@ extension FanControlFeatureStrings {
         appliedCurveBadge: "Angewendet",
         revertChangesButton: "Zurücksetzen",
         thermalGuardActiveHint: "Notfallkühlung: CPU ≥ 85 °C — Lüfter auf mindestens 78 % erzwungen",
-        pwmFloorHint: "Untergrenze des Reglers ist 1 % — niedrigerer PWM würde den Lüfterrotor blockieren",
+        pwmFloorHint: "Hardware-Sicherheitsgrenze liegt bei 16 % (PWM 40) — niedrigere Werte werden verhindert, um Rotorstillstand zu vermeiden",
         sidebarTitle: "Lüfter & Kühlung",
-        sensorsSidebarTitle: "Sensoren"
+        sensorsSidebarTitle: "Sensoren",
+        pumpBadge: "PUMPE",
+        pumpWarning: "AIO- / Wasserpumpen-Anschluss: Ein Betrieb unterhalb der Sicherheitsschwelle kann zu Überhitzung führen"
     )
 
     static let fr = FanControlFeatureStrings(
@@ -410,9 +420,11 @@ extension FanControlFeatureStrings {
         appliedCurveBadge: "Appliquée",
         revertChangesButton: "Rétablir",
         thermalGuardActiveHint: "Refroidissement d'urgence : CPU ≥ 85 °C — ventilateur forcé à au moins 78 %",
-        pwmFloorHint: "Le plancher du curseur est 1 % — un PWM inférieur bloquerait le rotor",
+        pwmFloorHint: "Seuil de sécurité matériel à 16 % (PWM 40) — valeurs inférieures bloquées pour éviter le calage du rotor",
         sidebarTitle: "Ventilateurs & refroidissement",
-        sensorsSidebarTitle: "Capteurs"
+        sensorsSidebarTitle: "Capteurs",
+        pumpBadge: "POMPE",
+        pumpWarning: "Connecteur de pompe AIO / liquide : fonctionner en dessous du seuil de sécurité peut provoquer une surchauffe"
     )
 
     static let it = FanControlFeatureStrings(
@@ -474,9 +486,11 @@ extension FanControlFeatureStrings {
         appliedCurveBadge: "Applicata",
         revertChangesButton: "Ripristina",
         thermalGuardActiveHint: "Raffreddamento di emergenza: CPU ≥ 85 °C — ventola forzata ad almeno il 78%",
-        pwmFloorHint: "Il minimo dello slider è 1% — un PWM inferiore bloccherebbe il rotore",
+        pwmFloorHint: "Soglia minima di sicurezza hardware al 16% (PWM 40) — valori inferiori bloccati per evitare l'arresto del rotore",
         sidebarTitle: "Ventole e raffreddamento",
-        sensorsSidebarTitle: "Sensori"
+        sensorsSidebarTitle: "Sensori",
+        pumpBadge: "POMPA",
+        pumpWarning: "Connettore pompa AIO / liquido: operare sotto la soglia di sicurezza può causare surriscaldamento o danni"
     )
 
     static let ru = FanControlFeatureStrings(
@@ -538,9 +552,11 @@ extension FanControlFeatureStrings {
         appliedCurveBadge: "Применено",
         revertChangesButton: "Сбросить",
         thermalGuardActiveHint: "Аварийное охлаждение: CPU ≥ 85 °C — вентилятор принудительно на ≥78%",
-        pwmFloorHint: "Нижняя граница ползунка — 1%: меньший PWM застопорит ротор",
+        pwmFloorHint: "Аппаратный порог безопасности — 16% (ШИМ 40), значения ниже заблокированы во избежание остановки ротора",
         sidebarTitle: "Вентиляторы и охлаждение",
-        sensorsSidebarTitle: "Датчики"
+        sensorsSidebarTitle: "Датчики",
+        pumpBadge: "ПОМПА",
+        pumpWarning: "Разъем помпы СЖО: работа ниже безопасного порога или остановка может привести к перегреву"
     )
 
     static let tr = FanControlFeatureStrings(
@@ -602,9 +618,11 @@ extension FanControlFeatureStrings {
         appliedCurveBadge: "Uygulandı",
         revertChangesButton: "Geri Al",
         thermalGuardActiveHint: "Acil soğutma: CPU ≥ 85 °C — fan en az %78'e zorlanıyor",
-        pwmFloorHint: "Kaydırıcı alt sınırı %1 — daha düşük PWM fan rotorunu durdurur",
+        pwmFloorHint: "Donanım güvenlik tabanı %16 (PWM 40) — rotorun durmasını önlemek için daha düşük PWM engellenir",
         sidebarTitle: "Fanlar ve Soğutma",
-        sensorsSidebarTitle: "Sensörler"
+        sensorsSidebarTitle: "Sensörler",
+        pumpBadge: "POMPA",
+        pumpWarning: "Sıvı soğutma / AIO pompa başlığı: Güvenli eşiğin altında çalıştırma aşırı ısınmaya yol açabilir"
     )
 
     static let ja = FanControlFeatureStrings(
@@ -666,9 +684,11 @@ extension FanControlFeatureStrings {
         appliedCurveBadge: "適用済み",
         revertChangesButton: "元に戻す",
         thermalGuardActiveHint: "緊急冷却：CPU ≥ 85 °C — ファンを最低78%に強制中",
-        pwmFloorHint: "スライダーの下限は1% — それ未満のPWMではファンが失速します",
+        pwmFloorHint: "ハードウェア安全下限は16%（PWM 40）— ローター停止を防ぐためこれ未満は制限されます",
         sidebarTitle: "ファンと冷却",
-        sensorsSidebarTitle: "センサー"
+        sensorsSidebarTitle: "センサー",
+        pumpBadge: "ポンプ",
+        pumpWarning: "AIO / 水冷ポンプヘッダー: 安全下限未満での動作や停止は急激な温度上昇を招く恐れがあります"
     )
 
     static let ko = FanControlFeatureStrings(
@@ -730,9 +750,11 @@ extension FanControlFeatureStrings {
         appliedCurveBadge: "적용됨",
         revertChangesButton: "되돌리기",
         thermalGuardActiveHint: "긴급 냉각: CPU ≥ 85 °C — 팬이 최소 78%로 강제됨",
-        pwmFloorHint: "슬라이더 하한은 1% — 더 낮은 PWM에서는 팬 로터가 멈춥니다",
+        pwmFloorHint: "하드웨어 안전 하한선은 16%(PWM 40) — 로터 정지를 방지하기 위해 더 낮은 값은 차단됩니다",
         sidebarTitle: "팬 및 냉각",
-        sensorsSidebarTitle: "센서"
+        sensorsSidebarTitle: "센서",
+        pumpBadge: "펌프",
+        pumpWarning: "AIO / 수랭 펌프 헤더: 안전 기준치 미만으로 구동하거나 중지하면 급격한 과열이 발생할 수 있습니다"
     )
 
     static let zhHans = FanControlFeatureStrings(
@@ -794,9 +816,11 @@ extension FanControlFeatureStrings {
         appliedCurveBadge: "已应用",
         revertChangesButton: "还原",
         thermalGuardActiveHint: "紧急散热：CPU ≥ 85 °C — 风扇被强制至少 78%",
-        pwmFloorHint: "滑块下限为 1% — 更低的 PWM 会导致风扇转子停转",
+        pwmFloorHint: "硬件安全下限为 16% (PWM 40) — 阻止更低数值以防风扇转子停转",
         sidebarTitle: "风扇与散热",
-        sensorsSidebarTitle: "传感器"
+        sensorsSidebarTitle: "传感器",
+        pumpBadge: "水泵",
+        pumpWarning: "水冷 / AIO 水泵接口：低于安全阈值运行或停转可能导致温度急剧上升或损坏水泵"
     )
 
     static let zhTW = FanControlFeatureStrings(
@@ -858,9 +882,11 @@ extension FanControlFeatureStrings {
         appliedCurveBadge: "已套用",
         revertChangesButton: "復原",
         thermalGuardActiveHint: "緊急散熱：CPU ≥ 85 °C — 風扇被強制至少 78%",
-        pwmFloorHint: "滑桿下限為 1% — 更低的 PWM 會導致風扇轉子停轉",
+        pwmFloorHint: "硬體安全下限為 16% (PWM 40) — 阻止更低數值以防風扇轉子停轉",
         sidebarTitle: "風扇與散熱",
-        sensorsSidebarTitle: "感測器"
+        sensorsSidebarTitle: "感測器",
+        pumpBadge: "水泵",
+        pumpWarning: "水冷 / AIO 水泵接頭：低於安全閾值運行或停轉可能導致過熱或損壞水泵"
     )
 
     static let zhHK = zhTW

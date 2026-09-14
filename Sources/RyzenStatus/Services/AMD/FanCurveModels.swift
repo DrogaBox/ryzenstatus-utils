@@ -68,6 +68,14 @@ struct FanState: Identifiable, Sendable, Hashable {
         }
         return name.isEmpty ? "Fan \(id + 1)" : name
     }
+
+    /// True when this fan header is likely an AIO or water pump.
+    /// Matched against custom/hardware name ("pump", "bomba", "aio") or header index 5
+    /// (the dedicated AIO_PUMP header on the ASUS Crosshair VII Hero / IT8665E motherboard).
+    var isPumpHeader: Bool {
+        let n = effectiveDisplayName.lowercased()
+        return n.contains("pump") || n.contains("bomba") || n.contains("aio") || id == 5
+    }
 }
 
 // MARK: - Legacy / Telemetry Fan Snapshot
@@ -272,6 +280,9 @@ public enum AMDFanSafety {
     /// the fan silently. This clamp applies ONLY to duty the user commands;
     /// see `guardOnlyPWM` for duty inherited from the hardware.
     public static let minimumManualPWM: UInt8 = 40
+    /// Percentage representation of kCURVE_MIN_ACTIVE_PWM (40 / 255 * 100 ≈ 15.686%).
+    /// Enforced by the kernel's evaluateFanCurves() to protect against silent rotor stall.
+    public static let minimumCurvePWMPercent: Double = (Double(minimumManualPWM) / 255.0) * 100.0
     /// Temperature threshold at which emergency thermal guard activates.
     public static let thermalGuardTempC: Double = 85.0
     /// Emergency PWM floor (200 / 255 = ~78.4%) enforced at or above 85°C.
