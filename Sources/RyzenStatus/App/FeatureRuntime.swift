@@ -124,7 +124,11 @@ final class FeatureRuntime: ObservableObject {
             AppActivationTracker.shared.syncWithFeatures()
             AppSwitcher.shared.syncWithPreferences()
         },
-        .dockPreview: { DockPreviewService.shared.syncWithPreferences() },
+        .dockPreview: {
+            MainActor.assumeIsolated {
+                DockPreviewService.shared.syncWithPreferences()
+            }
+        },
         .dockClick: { DockClickService.shared.syncWithPreferences() },
         .windowMaximizer: { WindowMaximizer.shared.syncWithPreferences() },
         .windowLayout: {

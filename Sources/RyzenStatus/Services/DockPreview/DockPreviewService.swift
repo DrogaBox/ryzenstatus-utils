@@ -7,6 +7,7 @@ import Combine
 import CoreGraphics
 import SwiftUI
 
+@MainActor
 final class DockPreviewService: ObservableObject {
     static let shared = DockPreviewService()
 
@@ -340,7 +341,9 @@ final class DockPreviewService: ObservableObject {
             callback: { _, type, event, userInfo in
                 guard let userInfo else { return Unmanaged.passUnretained(event) }
                 let service = Unmanaged<DockPreviewService>.fromOpaque(userInfo).takeUnretainedValue()
-                return service.handle(type: type, event: event)
+                return MainActor.assumeIsolated {
+                    service.handle(type: type, event: event)
+                }
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
@@ -1228,12 +1231,14 @@ final class DockPreviewService: ObservableObject {
         // slow beat and the full (tap/session/pid) resync below only happens
         // when something actually changed.
         let timer = Timer(timeInterval: 10, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            let fresh = self.readDockPreferences()
-            // Resync on a real change — or while blocked, so a Dock that was
-            // restarting (or briefly unavailable) still brings the tap back.
-            if fresh != self.cachedPreferences || !self.isRunning {
-                self.syncWithPreferences()
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let fresh = self.readDockPreferences()
+                // Resync on a real change — or while blocked, so a Dock that was
+                // restarting (or briefly unavailable) still brings the tap back.
+                if fresh != self.cachedPreferences || !self.isRunning {
+                    self.syncWithPreferences()
+                }
             }
         }
         timer.tolerance = 2.5

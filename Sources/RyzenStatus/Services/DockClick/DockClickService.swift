@@ -82,7 +82,9 @@ final class DockClickService {
             callback: { _, type, event, userInfo in
                 guard let userInfo else { return Unmanaged.passUnretained(event) }
                 let service = Unmanaged<DockClickService>.fromOpaque(userInfo).takeUnretainedValue()
-                return service.handle(type: type, event: event)
+                return MainActor.assumeIsolated {
+                    service.handle(type: type, event: event)
+                }
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else { return }
@@ -109,6 +111,7 @@ final class DockClickService {
         pendingClick = nil
     }
 
+    @MainActor
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
