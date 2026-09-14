@@ -319,6 +319,19 @@ struct InteractiveFanCurveEditor: View {
                             }
                         }
 
+                        // Minimum Hardware Safety Floor Line (15.7% / PWM 40)
+                        let floorY = h - CGFloat(AMDFanSafety.minimumCurvePWMPercent / 100.0) * h
+                        Path { path in
+                            path.move(to: CGPoint(x: 0, y: floorY))
+                            path.addLine(to: CGPoint(x: w, y: floorY))
+                        }
+                        .stroke(Color.red.opacity(0.35), style: StrokeStyle(lineWidth: 1.0, dash: [4, 4]))
+
+                        Text("16% Floor")
+                            .font(.system(size: 7.5, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.red.opacity(0.6))
+                            .position(x: w - 30, y: max(8, floorY - 7))
+
                         // Gradient Area Fill under the curve
                         Path { path in
                             let sorted = curve.points.sorted { $0.temp < $1.temp }
@@ -424,79 +437,87 @@ struct InteractiveFanCurveEditor: View {
                                         let newX = max(0, min(w, val.location.x))
                                         let newY = max(0, min(h, val.location.y))
                                         let snappedTemp = round(Double(newX / w) * 100.0)
-                                        let snappedPWM = max(1.0, round(Double((h - newY) / h) * 100.0))
+                                        let rawPWM = round(Double((h - newY) / h) * 100.0)
+                                        let floorPWM = AMDFanSafety.minimumCurvePWMPercent.rounded()
+                                        let snappedPWM = max(floorPWM, min(100.0, rawPWM))
                                         draggingPoint = (index: ptIdx, temp: snappedTemp, pwm: snappedPWM)
                                     }
                                     .onEnded { _ in
                                         if let drag = draggingPoint {
-                                            mutateDraft { draft in
-                                                guard drag.index < draft.points.count else { return }
-                                                draft.points[drag.index].temp = drag.temp
-                                                draft.points[drag.index].pwm = drag.pwm
-                                                draft.points.sort { $0.temp < $1.temp }
-                                            }
-                                            draggingPoint = nil
-                                        }
-                                    }
-                            )
-                            .onTapGesture(count: 2) {
-                                if curve.points.count > 2 {
-                                    mutateDraft { draft in
-                                        guard ptIdx < draft.points.count else { return }
-                                        draft.points.remove(at: ptIdx)
-                                    }
-                                }
-                            }
-                            .onHover { hovering in
-                                hoveredPointIndex = hovering ? ptIdx : nil
-                            }
-                            .contextMenu {
-                                Button(l10n.fanControl.deletePointTooltip) {
-                                    if curve.points.count > 2 {
-                                        mutateDraft { draft in
-                                            guard ptIdx < draft.points.count else { return }
-                                            draft.points.remove(at: ptIdx)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    .background(Color.primary.opacity(0.02))
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                    )
-                    .gesture(
-                        SpatialTapGesture()
-                            .onEnded { val in
-                                let tapX = val.location.x
-                                let tapY = val.location.y
+                                             mutateDraft { draft in
+                                                 guard drag.index < draft.points.count else { return }
+                                                 draft.points[drag.index].temp = drag.temp
+                                                 draft.points[drag.index].pwm = drag.pwm
+                                                 draft.points.sort { $0.temp < $1.temp }
+                                             }
+                                             draggingPoint = nil
+                                         }
+                                     }
+                             )
+                             .onTapGesture(count: 2) {
+                                 if curve.points.count > 2 {
+                                     mutateDraft { draft in
+                                         guard ptIdx < draft.points.count else { return }
+                                         draft.points.remove(at: ptIdx)
+                                     }
+                                 }
+                             }
+                             .onHover { hovering in
+                                 hoveredPointIndex = hovering ? ptIdx : nil
+                             }
+                             .contextMenu {
+                                 Button(l10n.fanControl.deletePointTooltip) {
+                                     if curve.points.count > 2 {
+                                         mutateDraft { draft in
+                                             guard ptIdx < draft.points.count else { return }
+                                             draft.points.remove(at: ptIdx)
+                                         }
+                                     }
+                                 }
+                             }
+                         }
+                     }
+                     .background(Color.primary.opacity(0.02))
+                     .cornerRadius(8)
+                     .overlay(
+                         RoundedRectangle(cornerRadius: 8)
+                             .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                     )
+                     .gesture(
+                         SpatialTapGesture()
+                             .onEnded { val in
+                                 let tapX = val.location.x
+                                 let tapY = val.location.y
 
-                                let tooClose = curve.points.contains { pt in
-                                    let ptX = CGFloat(pt.temp / 100.0) * w
-                                    let ptY = h - CGFloat(pt.pwm / 100.0) * h
-                                    let dist = sqrt(pow(tapX - ptX, 2) + pow(tapY - ptY, 2))
-                                    return dist < 14
-                                }
+                                 let tooClose = curve.points.contains { pt in
+                                     let ptX = CGFloat(pt.temp / 100.0) * w
+                                     let ptY = h - CGFloat(pt.pwm / 100.0) * h
+                                     let dist = sqrt(pow(tapX - ptX, 2) + pow(tapY - ptY, 2))
+                                     return dist < 14
+                                 }
 
-                                if !tooClose && curve.points.count < 8 {
-                                    let newTemp = max(0.0, min(100.0, Double(tapX / w) * 100.0))
-                                    let newPWM = max(1.0, min(100.0, Double((h - tapY) / h) * 100.0))
-                                    mutateDraft { draft in
-                                        draft.points.append(FanCurvePoint(temp: newTemp, pwm: newPWM))
-                                        draft.points.sort { $0.temp < $1.temp }
-                                    }
-                                }
-                            }
-                    )
-                }
-                .frame(height: 180)
+                                 if !tooClose && curve.points.count < 8 {
+                                     let newTemp = max(0.0, min(100.0, Double(tapX / w) * 100.0))
+                                     let rawPWM = round(Double((h - tapY) / h) * 100.0)
+                                     let floorPWM = AMDFanSafety.minimumCurvePWMPercent.rounded()
+                                     let newPWM = max(floorPWM, min(100.0, rawPWM))
+                                     mutateDraft { draft in
+                                         draft.points.append(FanCurvePoint(temp: newTemp, pwm: newPWM))
+                                         draft.points.sort { $0.temp < $1.temp }
+                                     }
+                                 }
+                             }
+                     )
+                 }
+                 .frame(height: 180)
 
-                Text(l10n.fanControl.instructionsHint)
-                    .font(.system(size: 9.5))
-                    .foregroundColor(.secondary)
+                 HStack(spacing: 8) {
+                     Text(l10n.fanControl.instructionsHint)
+                     Spacer()
+                     Text(l10n.fanControl.pwmFloorHint)
+                 }
+                 .font(.system(size: 9.5))
+                 .foregroundColor(.secondary)
             }
             .onAppear {
                 if selectedCurveIndex < controller.customCurves.count {

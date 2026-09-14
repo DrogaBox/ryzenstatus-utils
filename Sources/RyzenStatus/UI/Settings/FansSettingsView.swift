@@ -273,8 +273,8 @@ struct FanControlCard: View {
         VStack(alignment: .leading, spacing: 12) {
             // --- Top row: Icon, Editable Name, Live RPM · % · Hide Button ---
             HStack {
-                Image(systemName: "fan")
-                    .foregroundColor(.cyan)
+                Image(systemName: fan.isPumpHeader ? "waveform.path" : "fan")
+                    .foregroundColor(fan.isPumpHeader ? .blue : .cyan)
                     .font(.system(size: 14))
 
                 TextField("", text: Binding(
@@ -287,6 +287,16 @@ struct FanControlCard: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.primary)
                 .frame(width: 150)
+
+                if fan.isPumpHeader {
+                    Text(l10n.fanControl.pumpBadge)
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .foregroundColor(.blue)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
+                        .background(Color.blue.opacity(0.15))
+                        .clipShape(Capsule())
+                }
 
                 Spacer()
 
@@ -384,6 +394,18 @@ struct FanControlCard: View {
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
+            }
+
+            if fan.isPumpHeader && fan.controlMode != .auto {
+                HStack(spacing: 5) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                        .font(.system(size: 10))
+                    Text(l10n.fanControl.pumpWarning)
+                        .font(.system(size: 9.5))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 2)
             }
 
             // --- Manual Override Slider & Reset Button (Visible ONLY in Manual Mode) ---

@@ -7573,7 +7573,9 @@ struct MetricsTests {
                 ("thermalGuardActiveHint", f.thermalGuardActiveHint),
                 ("pwmFloorHint", f.pwmFloorHint),
                 ("sidebarTitle", f.sidebarTitle),
-                ("sensorsSidebarTitle", f.sensorsSidebarTitle)
+                ("sensorsSidebarTitle", f.sensorsSidebarTitle),
+                ("pumpBadge", f.pumpBadge),
+                ("pumpWarning", f.pumpWarning)
             ]
             for (key, value) in fanKeys {
                 expect(!value.isEmpty, "Language \(lang.rawValue) fanControl.\(key) must not be empty")
