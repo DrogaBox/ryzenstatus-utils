@@ -13,6 +13,7 @@ import SwiftUI
 /// crossfades the two layouts. The detached window follows the house pattern
 /// for floating panels (borderless, non-activating, clear background),
 /// content-hosting the same popup view in its mini presentation.
+@MainActor
 final class NowPlayingPopupController: ObservableObject {
     static let shared = NowPlayingPopupController()
 
@@ -214,28 +215,30 @@ final class NowPlayingPopupController: ObservableObject {
         let startTime = CACurrentMediaTime()
 
         let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self, weak popover, weak window] timer in
-            guard let popover, let window else {
-                timer.invalidate()
-                self?.morphTimer = nil
-                return
-            }
-            let progress = min(1, (CACurrentMediaTime() - startTime) / Self.morphDuration)
-            let eased = CGFloat(Self.morphBezier.solve(progress))
-            let contentW = max(1, startContent.width + deltaW * eased)
-            let contentH = max(1, startContent.height + deltaH * eased)
-            popover.contentSize = NSSize(width: contentW, height: contentH)
-            let frameW = max(1, startFrame.width + deltaW * eased)
-            let frameH = max(1, startFrame.height + deltaH * eased)
-            // Top-center anchored: the card stays glued under the menu bar
-            // item while it grows or shrinks.
-            window.setFrame(NSRect(x: midX - frameW / 2,
-                                   y: topY - frameH,
-                                   width: frameW,
-                                   height: frameH),
-                            display: true)
-            if progress >= 1 {
-                timer.invalidate()
-                self?.morphTimer = nil
+            MainActor.assumeIsolated {
+                guard let popover, let window else {
+                    timer.invalidate()
+                    self?.morphTimer = nil
+                    return
+                }
+                let progress = min(1, (CACurrentMediaTime() - startTime) / Self.morphDuration)
+                let eased = CGFloat(Self.morphBezier.solve(progress))
+                let contentW = max(1, startContent.width + deltaW * eased)
+                let contentH = max(1, startContent.height + deltaH * eased)
+                popover.contentSize = NSSize(width: contentW, height: contentH)
+                let frameW = max(1, startFrame.width + deltaW * eased)
+                let frameH = max(1, startFrame.height + deltaH * eased)
+                // Top-center anchored: the card stays glued under the menu bar
+                // item while it grows or shrinks.
+                window.setFrame(NSRect(x: midX - frameW / 2,
+                                       y: topY - frameH,
+                                       width: frameW,
+                                       height: frameH),
+                                display: true)
+                if progress >= 1 {
+                    timer.invalidate()
+                    self?.morphTimer = nil
+                }
             }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -266,11 +269,13 @@ final class NowPlayingPopupController: ObservableObject {
         moveObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification, object: panel, queue: .main
         ) { note in
-            guard let window = note.object as? NSWindow, window.isVisible else { return }
-            UserDefaults.standard.set(Double(window.frame.origin.x),
-                                      forKey: DefaultsKey.nowPlayingDetachedOriginX)
-            UserDefaults.standard.set(Double(window.frame.origin.y),
-                                      forKey: DefaultsKey.nowPlayingDetachedOriginY)
+            MainActor.assumeIsolated {
+                guard let window = note.object as? NSWindow, window.isVisible else { return }
+                UserDefaults.standard.set(Double(window.frame.origin.x),
+                                          forKey: DefaultsKey.nowPlayingDetachedOriginX)
+                UserDefaults.standard.set(Double(window.frame.origin.y),
+                                          forKey: DefaultsKey.nowPlayingDetachedOriginY)
+            }
         }
         detachedPanel = panel
         return panel
@@ -309,7 +314,10 @@ final class NowPlayingPopupController: ObservableObject {
     }
 
     deinit {
-        tearDown()
+        morphTimer?.invalidate()
+        if let moveObserver {
+            NotificationCenter.default.removeObserver(moveObserver)
+        }
     }
 
     /// Where the detached window appears: the persisted origin once the user
@@ -358,9 +366,11 @@ final class NowPlayingPopupController: ObservableObject {
         frame.origin = clampToScreen(NSPoint(x: midX - size.width / 2, y: maxY - size.height),
                                      size: frame.size)
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().setFrame(frame, display: true)
+            MainActor.assumeIsolated {
+                context.duration = 0.2
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().setFrame(frame, display: true)
+            }
         }
     }
 }
