@@ -1,5 +1,85 @@
 # Changelog
 
+## [Unreleased] — kexts 3.34.15
+
+Kernel-side wave S11. **Not released, and not validated on silicon yet** — the
+version is bumped so `kextstat` can tell this build apart from 3.34.14 while
+testing, which is the whole reason the bump comes before the probes rather than
+after. `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` and its content pins in
+`Tools/make-dmg.sh` are deliberately untouched, so a DMG built from this tree
+reports `LOCAL BUILD — content pins NOT enforced` and must not be published.
+
+### Fixed
+
+- **All six fans reported `pwm 0 (0.0%)` while spinning (S11-a).** Observed at
+  40–1683 RPM across five sampling runs on a 5900XT, with `-amdpnopchk` active, so
+  never a privilege problem; the RPM path jittered normally throughout, which
+  isolated the fault to the duty path. `updateFanControl()`'s fallback estimator —
+  the only thing that produces a duty reading while a fan is under BIOS SmartFan
+  control, because the PWM command register genuinely reads 0 there — is gated on
+  `fanRPMValid[i]` and `fanPeakRPMs[i] > 200`, and **both are written only by
+  `updateFanRPMS()`**. `fanUpdateCounter` is a single shared field that *both*
+  selector 93 (calls `updateFanRPMS`) and selector 94 (calls `updateFanControl`)
+  increment before acting on `% 4 == 0`, and `getFans()` calls 93 then 94 back to
+  back — so the producer fired on `n % 4 == 0` and the consumer on
+  `(n+1) % 4 == 0` and the two could never be the same tick. The only
+  timer-driven path, `evaluateFanCurves()`, early-continues for every fan with
+  `fanToCurveMap[fan] < 0` — every fan under BIOS Auto — so nothing else ever
+  seeded `fanPeakRPMs` for exactly the fans that need the estimator. Fixed by
+  refreshing the estimator's inputs in the same critical section that consumes
+  them. The `% 4` gate is kept: it rate-limits Super I/O port I/O, which is slow
+  and shared with the firmware.
+- **A duty commanded to a stopped rotor is now floored (selector 95).**
+  `kCURVE_MIN_ACTIVE_PWM` lived only in `evaluateFanCurves()`, and
+  `overrideFanControl()` writes whatever byte it is handed straight to the PWM
+  register, so the privileged manual path could latch a rotor at duty 1–39 —
+  below its start threshold, on an open-loop controller with no RPM feedback, and
+  below 85 °C where the thermal guard does not fire. The floor is **not**
+  unconditional, which is the substance of the change: the hazard is at rotor
+  START, not at maintain, so a fan the BIOS is holding at duty 20 and which is
+  demonstrably turning is left alone — raising it would only add noise, and a
+  blanket floor would ramp every BIOS-fixed fan on the first poll, which is
+  exactly what `AMDFanSafety.guardOnlyPWM` exists to prevent. The kernel now
+  decides from evidence rather than from a caller's claim: it floors only when the
+  tachometer is trusted *and* reports the fan below `kFAN_STOPPED_RPM` (100, the
+  same threshold the estimator already uses). When validity is unknown, behaviour
+  is unchanged.
+
+### Added
+
+- **`getFanRPMValid(int fan)` on the Super I/O interface.** `fanRPMValid[]`
+  existed in both Nuvoton drivers but never left them, so neither the kext's own
+  checks nor the app could distinguish a held-over stale reading from a fresh one.
+  Declared on the base class with an inline default of `true`, so the ITE family —
+  which tracks no validity — keeps its current behaviour exactly.
+- **Selector 94 bit 1 now carries per-fan tachometer validity (S11-c, kernel
+  half).** Per fan, one `uint64_t`: bits 15:8 throttle, bit 0 auto mode, bit 1
+  `rpmValid`, rest zero. Bit 1 was previously written as zero and the Swift reader
+  masks only bits 15:8 and bit 0, so an **older app ignores it** and the buffer
+  size is unchanged. This matters because S10 made a dead sensor *less* detectable,
+  not more: the drivers now hold the last good value rather than publishing 65535,
+  so a dead tach shows a plausible frozen RPM, and the app's own
+  `rawRPM <= 10500` heuristic can never fire because the kext already filters
+  above that threshold. The app-side consumption is intentionally not included —
+  a kext revision costs a hardware validation cycle and an app revision costs
+  nothing, so the expensive half ships first.
+
+### Validation status
+
+Compile-verified only: both kext targets build with `** BUILD SUCCEEDED **`, zero
+errors and zero warnings from any file touched. **Nothing here has commanded a fan
+on silicon.** Before this can be released, on the reference 5900XT:
+
+0. `kextstat | grep -i ryzen` → expect **3.34.15** (this is what the bump is for).
+1. `--sensors` → the six fans should report a **non-zero** duty tracking their RPM
+   instead of `pwm 0 (0.0%)`. Baseline to compare against: fan0 1285 RPM, fan1
+   1674, fan2 1406, fan3 881, fan4 840, fan5 40 — all at 0.0 % on 3.34.14.
+2. A-FINAL probes 1–3, still outstanding from 3.34.14. S11-a makes probe 2 easier:
+   with a working duty readout there is again a signal confirming a curve was
+   applied.
+3. The rotor-start floor needs its own check: command a **stopped** fan to duty 20
+   and confirm it starts rather than sitting stalled.
+
 ## [1.33.0] — 2026-09-12
 
 ### AMD Kernel + App: thermal fail-safe & IOKit lifecycle hardening (audit wave S10)
