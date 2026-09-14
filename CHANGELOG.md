@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.35.0] — 2026-09-14 — kexts 3.34.17 (Sin cambios en kexts / No kext changes)
+
+Separación modular de Overclocking/PBO en Ajustes, deduplicación de telemetría en el Dashboard, clarificación de frecuencia efectiva/núcleos aparcados y saneamiento de sensores.
+
+> **Nota sobre Kexts**: Esta versión no introduce modificaciones en `AMDRyzenCPUPowerManagement.kext` ni en `SMCAMDProcessor.kext` (permanecen en la versión 3.34.17 de la entrega S11). Los cambios son exclusivamente a nivel de la aplicación macOS (UI, presentación y servicios de monitorización).
+
+### Added & Changed
+
+- **Separación de Overclocking y PBO en Ajustes**: Se extrajeron todos los controles de alto riesgo de hardware (interruptor maestro de OC Mode 0x5A/0x5B, límites PPT/TDC/EDC y escalar de PBO 0x57/0x58, compensaciones por núcleo de Curve Optimizer 0x3D, fijación de frecuencia all-core y por CCD 0x5C/0x5D, y límite térmico cHTC 0x56) de `AmdPowerSettingsView` hacia una página dedicada `AmdOverclockingSettingsView` con ícono de llama (`flame.fill`) en la barra lateral de Ajustes.
+- **Deduplicación de Telemetría en el Dashboard**: En la Suite de Rendimiento (Dashboard), el bloque BTop de 32 hilos de CPU se oculta automáticamente cuando la telemetría decodificada por la SMU (`pmTableDecoded`) está activa, evitando duplicar los datos de uso y frecuencia por núcleo.
+- **Clarificación de Frecuencia Efectiva y Estado Parked**: En la tabla monospaced de SMU PM-table, los núcleos que están en reposo profundo en estado CC6 ahora se etiquetan explícitamente como `parked` y se documenta técnicamente por qué su frecuencia efectiva decae a ~200 MHz o 0 MHz debido al clock gating ($CORE\_FREQEFF = \text{Freq} \times C_0\%$).
+- **Bucle de Refresco en Vivo**: Se implementó un bucle de refresco periódico (cada 3 segundos) con `controls.syncFromKext()` tanto en el panel de Overclocking como en la vista de energía para sincronizar lecturas en segundo plano sin requerir salir y volver a la vista.
+- **Limpieza en la Vista de Sensores**:
+  - Se eliminaron las filas redundantes globales de GPU cuando ya existen dispositivos GPU discretos mapeados.
+  - Se deduplicaron las claves SMC `TG0D`/`TG0P` (conservando Hotspot `TG0H` y VRAM `TG0M`).
+  - Se eliminó la síntesis forzada de 16 núcleos en procesadores de 6 u 8 núcleos, reflejando fielmente la topología física detectada.
+  - Se sustituyó la sección obsoleta de test de estrés por una exportación limpia en formato CSV de los sensores SMC.
+
 ## [1.34.0] — 2026-09-14 — kexts 3.34.17
 
 Wave S11 release: Super I/O dual register map, duty cycle estimator, tachometer validity, fan-curve hardware safety floor & AIO pump protection. **Hardware validated on reference AMD Ryzen 9 5900XT / ASUS ROG Crosshair VII Hero (ITE IT8665E).**
