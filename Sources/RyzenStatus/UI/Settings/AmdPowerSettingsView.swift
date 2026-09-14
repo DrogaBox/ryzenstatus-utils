@@ -9,49 +9,13 @@ struct AmdPowerSettingsView: View {
     @State private var cppcActiveMode: Bool = false
     @State private var cppcCurrentEPP: UInt8 = 0
     @State private var telemetryPacket: CPUSensorPacket?
-    @State private var coGeneration = AMDCpuGeneration.unknown
-    @State private var coSupported = false
-    @State private var coCoreCount = 16
-    @State private var curveOffsets: [Int8] = []
-    @State private var coStatusMessage: String?
-    @State private var coStatusIsError = false
-    @State private var pboSupported = false
-    @State private var pboCacheMilli: (ppt: Int, tdc: Int, edc: Int)?
-    @State private var pboScalarCacheX100: Int?
-    @State private var pboPPTWatts: Double = 142
-    @State private var pboTDCAmps: Double = 95
-    @State private var pboEDCAmps: Double = 140
-    @State private var pboScalarTenths: Double = 10  // 1.0x
-    @State private var pboStatusMessage: String?
-    @State private var pboStatusIsError = false
-    // S6: cHTC limit (0x56) — draft slider + applied badge + status message.
-    @State private var chtcDraftCelsius: Double = Double(AMDSmuParameters.defaultCHTCCelsius)
-    @State private var chtcAppliedCelsius: Int?
-    @State private var chtcStatusMessage: String?
-    @State private var chtcStatusIsError = false
-    @State private var chtcSeeded = false
-    // S8: OC mode — status message + reset-scalar draft. The mode itself is
-    // published by the ControlsModel from the kext's selector-49 cache.
-    @State private var ocStatusMessage: String?
-    @State private var ocStatusIsError = false
-    @State private var ocResetScalarDraft = true
-    @State private var showOcRiskConfirm = false
-    // S8.2: frequency-override drafts — local state seeded once from the
-    // kext cache (PBO-draft pattern) so mid-session edits survive the 3 s
-    // sync. Applied values come from the ControlsModel (selector 52).
-    @State private var ocFreqAllDraft: Double = 4000
-    @State private var ocFreqPerCcdDrafts: [Double] = []
-    @State private var ocFreqSeeded = false
-    @State private var ocFreqStatusMessage: String?
-    @State private var ocFreqStatusIsError = false
-    // PM-table export status (dedicated — never borrows the OC-freq slot).
+    // PM-table export status
     @State private var pmStatusMessage: String?
     @State private var pmStatusIsError = false
     @State private var isLoading = false
     @ObservedObject private var gaming = GamingModeService.shared
     @ObservedObject private var c6Service = C6ResidencyService.shared
 
-    @State private var showCopiedToast: Bool = false
     @ObservedObject private var autoEpp = AutoEppService.shared
     @ObservedObject private var presetCtrl = AmdPresetController.shared
     @ObservedObject private var nvramCState = CStateNvramService.shared
@@ -60,15 +24,10 @@ struct AmdPowerSettingsView: View {
     // selector-22 fallback). nil = kext unreachable.
     @State private var c6RuntimeDisabled: Bool?
     @State private var c6RuntimeAddr: UInt64 = 0
+    @State private var showCopiedToast = false
 
     @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 25
     @AppStorage(DefaultsKey.autoEppLoadThreshold) private var loadThreshold: Int = 50
-    @AppStorage("coUnlocked") private var coUnlocked: Bool = false
-    @AppStorage("pboUnlocked") private var pboUnlocked: Bool = false
-    @AppStorage("pboLastPPTWatts") private var pboLastPPTWatts: Double = 142
-    @AppStorage("pboLastTDCAmps") private var pboLastTDCAmps: Double = 95
-    @AppStorage("pboLastEDCAmps") private var pboLastEDCAmps: Double = 140
-    @AppStorage("pboLastScalarTenths") private var pboLastScalarTenths: Double = 10
 
     private var eppLabel: String {
         switch AMDPowerPreset.snapEPP(controls.selectedEpp) {
@@ -217,232 +176,29 @@ struct AmdPowerSettingsView: View {
                 // Hidden entirely when no AMD discrete GPU is detected (iGPU/NVIDIA).
                 AmdGpuTelemetrySection()
 
-                // Hardware-risk disclaimer: one banner ahead of every SMU write
-                // section (Curve Optimizer, PBO, cHTC, OC mode). Honest about the
-                // stakes — dead CPUs included — at the project owner's request.
+                // S4-T1: Dedicated navigation banner to AMD Overclocking & PBO Tuning
                 Section {
-                    Label(l10n.amdPower.hardwareRiskBanner, systemImage: "exclamationmark.octagon.fill")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                // AMD Curve Optimizer — per-core offsets (selectors 110/111).
-                // The kext only accepts writes on Zen 3 Vermeer; Zen 4/5 and the
-                // baseline profile get an explanatory message instead of a grid.
-                Section {
-                    if coGeneration.isZen4OrNewer {
-                        Label(l10n.amdPower.coUnsupportedZen4, systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption)
+                    HStack(spacing: 12) {
+                        Image(systemName: "flame.fill")
+                            .font(.system(size: 22))
                             .foregroundColor(.orange)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else if coSupported {
-                        Toggle(l10n.amdPower.coUnlockToggle, isOn: $coUnlocked)
-                            .padding(.bottom, 4)
-
-                        if coUnlocked {
-                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-                                ForEach(0..<coCoreCount, id: \.self) { core in
-                                    curveOptimizerCell(core)
-                                }
-                            }
-                            HStack(spacing: 10) {
-                                Button {
-                                    applyAllCurveOffsets()
-                                } label: {
-                                    Label(l10n.amdPower.coApplyAll, systemImage: "bolt.fill")
-                                }
-                                .buttonStyle(.borderedProminent)
-
-                                Button(l10n.amdPower.coResetZero) {
-                                    resetCurveOffsets()
-                                }
-                                .buttonStyle(.bordered)
-
-                                Spacer()
-
-                                if let message = coStatusMessage {
-                                    Text(message)
-                                        .font(.caption2)
-                                        .foregroundColor(coStatusIsError ? .red : .green)
-                                        .lineLimit(2)
-                                }
-                            }
-                        }
-                    } else {
-                        Label(l10n.amdPower.coDisabledLegacy, systemImage: "info.circle")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                } header: {
-                    Text(l10n.amdPower.coHeader)
-                } footer: {
-                    Text(l10n.amdPower.coFooter)
-                }
-
-                // S4: Precision Boost Overdrive limits + scalar (selectors 36-42).
-                // Same fail-closed Vermeer gate as Curve Optimizer; the kext
-                // reports the last programmed values for read-back.
-                Section {
-                    if coGeneration.isZen4OrNewer {
-                        Label(l10n.amdPower.pboUnsupportedZen4, systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else if pboSupported {
-                        Toggle(l10n.amdPower.pboUnlockToggle, isOn: $pboUnlocked)
-                            .padding(.bottom, 4)
-
-                        if pboUnlocked {
-                            Group {
-                                pboLimitRow(title: l10n.amdPower.pboPPTLabel,
-                                            value: $pboPPTWatts,
-                                            range: 20...500,
-                                            step: 1,
-                                            unit: l10n.amdPower.pboUnitWatts,
-                                            format: "%0.0f")
-                                pboLimitRow(title: l10n.amdPower.pboTDCLabel,
-                                            value: $pboTDCAmps,
-                                            range: 5...500,
-                                            step: 1,
-                                            unit: l10n.amdPower.pboUnitAmps,
-                                            format: "%0.0f")
-                                pboLimitRow(title: l10n.amdPower.pboEDCLabel,
-                                            value: $pboEDCAmps,
-                                            range: 5...500,
-                                            step: 1,
-                                            unit: l10n.amdPower.pboUnitAmps,
-                                            format: "%0.0f")
-                                pboLimitRow(title: l10n.amdPower.pboScalarLabel,
-                                            value: $pboScalarTenths,
-                                            range: 10...100,
-                                            step: 1,
-                                            unit: l10n.amdPower.pboUnitScalar,
-                                            format: "%0.1f")
-                            }
-                            .padding(.vertical, 2)
-
-                            HStack(spacing: 10) {
-                                Button {
-                                    applyPBOLimits()
-                                } label: {
-                                    Label(l10n.amdPower.pboApplyLimits, systemImage: "bolt.fill")
-                                }
-                                .buttonStyle(.borderedProminent)
-
-                                Button {
-                                    applyPBOScalar()
-                                } label: {
-                                    Label(l10n.amdPower.pboApplyScalar, systemImage: "gauge.with.needle")
-                                }
-                                .buttonStyle(.bordered)
-
-                                Spacer()
-
-                                if let message = pboStatusMessage {
-                                    Text(message)
-                                        .font(.caption2)
-                                        .foregroundColor(pboStatusIsError ? .red : .green)
-                                        .lineLimit(2)
-                                }
-                            }
-
-                            if let cache = pboCacheMilli {
-                                Text(String(format: l10n.amdPower.pboActiveLimitsFormat,
-                                            AMDPBOLimits.formatLimit(cache.ppt,
-                                                                     unitMilli: l10n.amdPower.pboUnitMilliwatts,
-                                                                     unitBase: l10n.amdPower.pboUnitWatts),
-                                            AMDPBOLimits.formatLimit(cache.tdc,
-                                                                     unitMilli: l10n.amdPower.pboUnitMilliamps,
-                                                                     unitBase: l10n.amdPower.pboUnitAmps),
-                                            AMDPBOLimits.formatLimit(cache.edc,
-                                                                     unitMilli: l10n.amdPower.pboUnitMilliamps,
-                                                                     unitBase: l10n.amdPower.pboUnitAmps)))
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-                            if let scalar = pboScalarCacheX100 {
-                                Text(String(format: l10n.amdPower.pboActiveScalarFormat,
-                                            AMDPBOLimits.formatScalar(scalar)))
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    } else {
-                        Label(l10n.amdPower.pboDisabledLegacy, systemImage: "info.circle")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                } header: {
-                    Text(l10n.amdPower.pboHeader)
-                } footer: {
-                    Text(l10n.amdPower.pboFooter)
-                }
-
-                // S5: SMU boost telemetry (selector 43). The kext's command-gate
-                // timer reads the silicon's own max-boost clock and fastest-core
-                // report; this section only renders the cached snapshot that
-                // `controls.syncFromKext()` publishes every 3 s.
-                Section {
-                    if controls.maxBoostFreqMHz == 0 && controls.fastestCoreRaw == 0 {
-                        Text(l10n.amdPower.boostTelemetryUnavailable)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else {
-                        if controls.maxBoostFreqMHz > 0 {
-                            HStack {
-                                Text(String(format: l10n.amdPower.boostMaxFreqFormat, controls.maxBoostFreqMHz))
-                                    .font(.system(.body, design: .monospaced))
-                                Spacer()
-                                Image(systemName: "bolt.horizontal.fill")
-                                    .foregroundColor(.cyan)
-                                    .font(.caption)
-                            }
-                        }
-                        if let coreIndex = controls.fastestCoreIndex {
-                            HStack {
-                                Text(String(format: l10n.amdPower.boostFastestCoreFormat, UInt32(coreIndex)))
-                                    .font(.system(.body, design: .monospaced))
-                                Spacer()
-                                Image(systemName: "crown.fill")
-                                    .foregroundColor(.yellow)
-                                    .font(.caption)
-                            }
-                        } else if controls.fastestCoreRaw != 0 {
-                            Text(String(format: "0x%08X", controls.fastestCoreRaw))
-                                .font(.caption2)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("AMD Overclocking & PBO Tuning")
+                                .font(.headline)
+                            Text("Precision Boost Overdrive, Curve Optimizer per-core undervolting, cHTC limit, and frequency overrides.")
+                                .font(.caption)
                                 .foregroundColor(.secondary)
                         }
-                    }
-                    // S7: what the SMU itself reports as the active PBO
-                        // scalar (0x6C float readback) — pairs with the 0x58
-                        // write cache shown in the PBO section. Hidden until
-                        // the timer populates the cache (pre-1.27 kexts: no
-                        // row at all).
-                    if let scalar = AMDSmuReadback.formatActiveScalar(controls.activeScalarRaw) {
-                        HStack {
-                            Text(String(format: l10n.amdPower.smuActiveScalarFormat, scalar))
-                                .font(.system(.body, design: .monospaced))
-                            Spacer()
-                            Image(systemName: "gauge.with.needle")
-                                .foregroundColor(.mint)
-                                .font(.caption)
+                        Spacer()
+                        Button {
+                            SettingsRouter.shared.page = .amdOverclocking
+                        } label: {
+                            Label("Open Overclocking", systemImage: "arrow.forward.circle.fill")
                         }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.orange)
                     }
-                    // S7: SMU firmware version (0x02, one-shot) — pure
-                    // diagnostics row for the About/bug-report workflow.
-                    if let version = AMDSmuReadback.formatSmuVersion(controls.smuVersionRaw) {
-                        Text(String(format: l10n.amdPower.smuVersionFormat, version))
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                } header: {
-                    Text(l10n.amdPower.boostTelemetryHeader)
-                } footer: {
-                    Text(l10n.amdPower.boostTelemetryFooter)
+                    .padding(.vertical, 4)
                 }
 
                 // SMU PM-table plumbing diagnostics (0x05/0x06/0x08).
@@ -542,248 +298,7 @@ struct AmdPowerSettingsView: View {
                     Text(l10n.amdPower.pmTableFooter)
                 }
 
-                // S6: cHTC thermal limit (SMU 0x56) + fused capability bits
-                // from GetProcessorParameters (0x6F). Same fail-closed Vermeer
-                // gate and write flow as the PBO limits; the kext reports the
-                // last programmed value for read-back.
-                Section {
-                    if coGeneration.isZen4OrNewer {
-                        Label(l10n.amdPower.chtcUnsupportedZen4, systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else if pboSupported {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(l10n.amdPower.chtcSliderLabel)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                Spacer()
-                                Text("\(Int(chtcDraftCelsius)) °C")
-                                    .font(.system(.body, design: .monospaced))
-                            }
-                            Slider(value: $chtcDraftCelsius,
-                                   in: Double(AMDSmuParameters.minCHTCCelsius)...Double(AMDSmuParameters.maxCHTCCelsius),
-                                   step: 1)
-                        }
-                        .padding(.vertical, 2)
 
-                        HStack(spacing: 10) {
-                            Button {
-                                applyCHTCLimit()
-                            } label: {
-                                Label(l10n.amdPower.chtcApply, systemImage: "thermometer.sun.fill")
-                            }
-                            .buttonStyle(.borderedProminent)
-
-                            Spacer()
-
-                            if let message = chtcStatusMessage {
-                                Text(message)
-                                    .font(.caption2)
-                                    .foregroundColor(chtcStatusIsError ? .red : .green)
-                                    .lineLimit(2)
-                            }
-                        }
-
-                        if let applied = chtcAppliedCelsius {
-                            Text(String(format: l10n.amdPower.chtcActiveFormat, applied))
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-
-                        // Fused capability bits (0x6F), read once by the kext
-                        // timer. The raw word renders only when undocumented
-                        // bits are set — honesty over guessing.
-                        if controls.procParamsPolled {
-                            HStack(spacing: 12) {
-                                capabilityBadge(l10n.amdPower.chtcOverclockable,
-                                                enabled: AMDSmuParameters.isOverclockable(controls.procParamsRaw))
-                                capabilityBadge(l10n.amdPower.chtcPBOSupport,
-                                                enabled: AMDSmuParameters.pboSupportFused(controls.procParamsRaw))
-                                if AMDSmuParameters.hasReservedBits(controls.procParamsRaw) {
-                                    Text(String(format: "0x%08X", controls.procParamsRaw))
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                    } else {
-                        Label(l10n.amdPower.chtcUnsupportedVermeer, systemImage: "info.circle")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                } header: {
-                    Text(l10n.amdPower.chtcHeader)
-                } footer: {
-                    Text(l10n.amdPower.chtcFooter)
-                }
-
-                // S8: OC mode master switch (RSMU 0x5A/0x5B, selectors 49/50).
-                // Semantics pinned by ZenStates-Core during S8 research; the
-                // SMU has no read-back, so the state row is this driver's
-                // write cache — "unknown" honestly means never touched this
-                // boot. Frequency (0x5C/0x5D) and VID (0x61) writes come only
-                // after owner hardware validation of this gate.
-                Section {
-                    if coGeneration.isZen4OrNewer {
-                        Label(l10n.amdPower.ocUnsupportedZen4, systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else if controls.ocSupported {
-                        HStack {
-                            Text(l10n.amdPower.ocModeLabel)
-                            Spacer()
-                            switch AMDOcMode.from(code: controls.ocModeCode) {
-                            case .enabled:
-                                Label(l10n.amdPower.ocStateEnabled, systemImage: "lock.open.fill")
-                                    .font(.caption)
-                                    .foregroundColor(.orange)
-                            case .disabled:
-                                Label(l10n.amdPower.ocStateDisabled, systemImage: "lock.fill")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            case .unknown:
-                                Label(l10n.amdPower.ocStateUnknown, systemImage: "questionmark.circle")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-
-                        Toggle(l10n.amdPower.ocResetScalarLabel, isOn: $ocResetScalarDraft)
-                            .font(.caption)
-
-                        HStack(spacing: 10) {
-                            Button {
-                                // S8: enabling OC mode is the gate every future
-                                // frequency/voltage write sits behind — confirm first.
-                                showOcRiskConfirm = true
-                            } label: {
-                                Label(l10n.amdPower.ocEnable, systemImage: "lock.open")
-                            }
-                            .buttonStyle(.borderedProminent)
-
-                            Button {
-                                applyOcMode(enable: false)
-                            } label: {
-                                Label(l10n.amdPower.ocDisable, systemImage: "lock")
-                            }
-                            .buttonStyle(.bordered)
-
-                            Spacer()
-
-                            if let message = ocStatusMessage {
-                                Text(message)
-                                    .font(.caption2)
-                                    .foregroundColor(ocStatusIsError ? .red : .green)
-                                    .lineLimit(2)
-                            }
-                        }
-                    } else {
-                        Label(l10n.amdPower.ocUnsupportedVermeer, systemImage: "info.circle")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                } header: {
-                    Text(l10n.amdPower.ocHeader)
-                } footer: {
-                    Text(l10n.amdPower.ocFooter)
-                }
-
-                // S8.2: frequency overrides (0x5C/0x5D) — hard-gated behind
-                // the OC-mode gate above. The kernel refuses unless THIS
-                // driver enabled OC mode this boot; the UI mirrors that by
-                // rendering guidance instead of controls (the kernel gate is
-                // law, this gate is UX).
-                Section {
-                    if coGeneration.isZen4OrNewer {
-                        Label(l10n.amdPower.ocUnsupportedZen4, systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else if controls.ocFreqSupported,
-                              AMDOcMode.from(code: controls.ocModeCode) == .enabled {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(l10n.amdPower.ocFreqAllCoreLabel)
-                                    .font(.caption)
-                                Spacer()
-                                Text("\(Int(ocFreqAllDraft)) MHz")
-                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                    .foregroundColor(.primary)
-                            }
-                            Slider(value: $ocFreqAllDraft,
-                                   in: Double(AMDOcFreq.minMHz)...Double(AMDOcFreq.maxMHz),
-                                   step: 25)
-                                .labelsHidden()
-                        }
-                        .padding(.bottom, 4)
-
-                        Button {
-                            applyOcFreqAllCores()
-                        } label: {
-                            Label(l10n.amdPower.ocFreqApply, systemImage: "bolt.horizontal")
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        ForEach(0..<controls.kextCcdCount, id: \.self) { ccd in
-                            if ccd < ocFreqPerCcdDrafts.count {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack {
-                                        Text(String(format: l10n.amdPower.ocFreqPerCcdFormat, ccd))
-                                            .font(.caption)
-                                        Spacer()
-                                        Text("\(Int(ocFreqPerCcdDrafts[ccd])) MHz")
-                                            .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                            .foregroundColor(.primary)
-                                    }
-                                    Slider(value: $ocFreqPerCcdDrafts[ccd],
-                                           in: Double(AMDOcFreq.minMHz)...Double(AMDOcFreq.maxMHz),
-                                           step: 25)
-                                        .labelsHidden()
-                                    Button {
-                                        applyOcFreqCcd(ccd)
-                                    } label: {
-                                        Label(l10n.amdPower.ocFreqApply, systemImage: "bolt.horizontal")
-                                    }
-                                    .buttonStyle(.bordered)
-                                }
-                                .padding(.top, 2)
-                            }
-                        }
-
-                        if let message = ocFreqStatusMessage {
-                            Text(message)
-                                .font(.caption2)
-                                .foregroundColor(ocFreqStatusIsError ? .red : .green)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-
-                        if !ocFreqCacheSummary.isEmpty {
-                            Text(ocFreqCacheSummary)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    } else if controls.ocFreqSupported {
-                        Label(l10n.amdPower.ocFreqBlockedNoOcMode, systemImage: "lock")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else {
-                        Label(l10n.amdPower.ocUnsupportedVermeer, systemImage: "info.circle")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                } header: {
-                    Text(l10n.amdPower.ocFreqHeader)
-                } footer: {
-                    Text(l10n.amdPower.ocFreqFooter)
-                }
 
                 if controls.cppcSupported {
                     Section {
@@ -1235,6 +750,11 @@ struct AmdPowerSettingsView: View {
             } else {
                 c6RuntimeDisabled = nil
             }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard !Task.isCancelled else { break }
+                await controls.syncFromKext()
+            }
         }
         .onDisappear {
             SystemMonitor.shared.panelDidDisappear()
@@ -1266,18 +786,6 @@ struct AmdPowerSettingsView: View {
         } message: {
             Text(controls.privilegeWarning ?? "")
         }
-        // S8: hardware-risk confirmation before enabling SMU OC mode.
-        .alert(
-            l10n.amdPower.ocRiskConfirmTitle,
-            isPresented: $showOcRiskConfirm
-        ) {
-            Button(l10n.amdPower.ocRiskConfirmAccept, role: .destructive) {
-                applyOcMode(enable: true)
-            }
-            Button(l10n.amdPower.ocRiskConfirmCancel, role: .cancel) {}
-        } message: {
-            Text(l10n.amdPower.ocRiskConfirmBody)
-        }
     }
 
     private var autoEppTargetColor: Color {
@@ -1286,294 +794,6 @@ struct AmdPowerSettingsView: View {
         if load < Float(idleThreshold) { return .green }
         if load > Float(loadThreshold) { return .red }
         return .orange
-    }
-
-    // MARK: - Curve Optimizer (selectors 110/111)
-
-    private func curveOptimizerCell(_ core: Int) -> some View {
-        let offset = core < curveOffsets.count ? curveOffsets[core] : 0
-        return VStack(spacing: 3) {
-            Text("Core \(core + 1)")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-            HStack(spacing: 8) {
-                Button {
-                    stepCurveOffset(core, delta: -1)
-                } label: {
-                    Image(systemName: "minus.circle.fill")
-                        .font(.system(size: 15))
-                        .foregroundColor(.cyan)
-                }
-                .buttonStyle(.plain)
-                .disabled(offset <= AMDCurveOptimizer.minOffset)
-
-                Text("\(offset)")
-                    .font(.system(size: 13, weight: .bold, design: .monospaced))
-                    .foregroundColor(curveOffsetColor(offset))
-                    .frame(minWidth: 24)
-
-                Button {
-                    stepCurveOffset(core, delta: 1)
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 15))
-                        .foregroundColor(.cyan)
-                }
-                .buttonStyle(.plain)
-                .disabled(offset >= AMDCurveOptimizer.maxOffset)
-            }
-        }
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.06)))
-    }
-
-    private func curveOffsetColor(_ offset: Int8) -> Color {
-        if offset < 0 { return .green }      // undervolt
-        if offset > 0 { return .orange }     // overvolt
-        return .secondary                    // stock
-    }
-
-    /// Optimistic UI update per tap; the kext write confirms (or reverts via
-    /// a reload from selector 110 on failure).
-    private func stepCurveOffset(_ core: Int, delta: Int) {
-        guard core < curveOffsets.count else { return }
-        let candidate = AMDCurveOptimizer.clamp(Int(curveOffsets[core]) + delta)
-        guard candidate != curveOffsets[core] else { return }
-        curveOffsets[core] = candidate
-        writeCurveOffset(core: core, offset: candidate)
-    }
-
-    private func writeCurveOffset(core: Int, offset: Int8) {
-        // Detached: the SMU 0x3D write can take 5–15 ms on Zen 3 (PLL
-        // reconfiguration) — keep it off the main thread, like Apply All.
-        // The UI already updated optimistically; on failure we reload from
-        // selector 110 so the grid reverts to the kext's real state.
-        Task.detached(priority: .userInitiated) {
-            let status = ProcessorModel.shared.setCurveOptimizerOffset(core: UInt8(core), offset: offset)
-            await MainActor.run {
-                if status == KERN_SUCCESS {
-                    coStatusMessage = "Core \(core + 1) → \(offset)"
-                    coStatusIsError = false
-                } else {
-                    reloadCurveOffsets()
-                    coStatusMessage = curveOptimizerError(status)
-                    coStatusIsError = true
-                }
-            }
-        }
-    }
-
-    private func applyAllCurveOffsets() {
-        let offsets = curveOffsets
-        coStatusMessage = nil
-        Task.detached(priority: .userInitiated) {
-            var firstError: kern_return_t = KERN_SUCCESS
-            var applied = 0
-            for (core, offset) in offsets.enumerated() {
-                let status = ProcessorModel.shared.setCurveOptimizerOffset(core: UInt8(core), offset: offset)
-                if status == KERN_SUCCESS {
-                    applied += 1
-                } else if firstError == KERN_SUCCESS {
-                    firstError = status
-                }
-            }
-            // Snapshot before hopping actors so the concurrent closure captures
-            // immutable lets (Swift 6 sendable-safe).
-            let reportError = firstError
-            let reportApplied = applied
-            await MainActor.run {
-                if reportError == KERN_SUCCESS {
-                    coStatusMessage = "Applied \(reportApplied) cores"
-                    coStatusIsError = false
-                } else {
-                    reloadCurveOffsets()
-                    coStatusMessage = curveOptimizerError(reportError)
-                    coStatusIsError = true
-                }
-            }
-        }
-    }
-
-    private func resetCurveOffsets() {
-        curveOffsets = [Int8](repeating: 0, count: coCoreCount)
-        applyAllCurveOffsets()
-    }
-
-    private func reloadCurveOffsets() {
-        let raw = ProcessorModel.shared.getCurveOptimizerOffsets()
-        if AMDCurveOptimizer.validOffsets(raw, coreCount: coCoreCount) {
-            curveOffsets = Array(raw.prefix(coCoreCount))
-        } else {
-            curveOffsets = [Int8](repeating: 0, count: coCoreCount)
-        }
-    }
-
-    // MARK: - S4: PBO limits + scalar
-
-    /// One slider row of the PBO section — label, live value, bounded slider.
-    private func pboLimitRow(title: String, value: Binding<Double>, range: ClosedRange<Double>,
-                             step: Double, unit: String, format: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(title)
-                    .font(.caption)
-                Spacer()
-                Text(String(format: format, value.wrappedValue) + " \(unit)")
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundColor(.secondary)
-            }
-            Slider(value: value, in: range, step: step)
-                .labelsHidden()
-        }
-    }
-
-    /// Programs PPT/TDC/EDC from the slider values (UI units → milli-units).
-    private func applyPBOLimits() {
-        let status = ProcessorModel.shared.setPBOLimits(
-            pptMilliwatts: AMDPBOLimits.milliFromBase(Int(pboPPTWatts)),
-            tdcMilliamps: AMDPBOLimits.milliFromBase(Int(pboTDCAmps)),
-            edcMilliamps: AMDPBOLimits.milliFromBase(Int(pboEDCAmps)))
-        handlePBOResult(status)
-        if status == KERN_SUCCESS {
-            pboLastPPTWatts = pboPPTWatts
-            pboLastTDCAmps = pboTDCAmps
-            pboLastEDCAmps = pboEDCAmps
-            refreshPBOReadback()
-        }
-    }
-
-    /// Programs the PBO scalar from the slider (1.0x…10.0x → %×100).
-    private func applyPBOScalar() {
-        let percentX100 = Int((pboScalarTenths * 10).rounded())
-        let status = ProcessorModel.shared.setPBOScalar(percentX100: percentX100)
-        handlePBOResult(status)
-        if status == KERN_SUCCESS {
-            pboLastScalarTenths = pboScalarTenths
-            refreshPBOReadback()
-        }
-    }
-
-    /// Live read-back of the kext caches after a successful write.
-    private func refreshPBOReadback() {
-        if let limits = ProcessorModel.shared.getPBOLimits() {
-            pboCacheMilli = (Int(limits.pptMilliwatts), Int(limits.tdcMilliamps), Int(limits.edcMilliamps))
-        }
-        if let scalar = ProcessorModel.shared.getPBOScalar() {
-            pboScalarCacheX100 = Int(scalar)
-        }
-    }
-
-    /// Maps selector 41/42 return codes to friendly messages. On success the
-    /// message is cleared — the read-back rows below confirm the new values.
-    private func handlePBOResult(_ status: kern_return_t) {
-        if status == KERN_SUCCESS {
-            pboStatusIsError = false
-            pboStatusMessage = nil
-            return
-        }
-        pboStatusIsError = true
-        if status == ProcessorModel.kIOReturnNotPrivilegedCode {
-            pboStatusMessage = "Requires root or -amdpnopchk"
-        } else if status == kIOReturnUnsupported {
-            pboStatusMessage = "Not supported by the kext on this CPU (Vermeer only)"
-        } else if status == kIOReturnNotReady {
-            pboStatusMessage = "Blocked: package temperature above 75 °C"
-        } else if status == kIOReturnBadArgument {
-            pboStatusMessage = "Value outside the safe range"
-        } else if status == kIOReturnTimeout {
-            pboStatusMessage = "SMU timeout — try again"
-        } else if status == kIOReturnBusy {
-            pboStatusMessage = "SMU busy — try again"
-        } else {
-            pboStatusMessage = "SMU command failed"
-        }
-    }
-
-    /// Small fused-capability badge: green check or muted cross.
-    private func capabilityBadge(_ title: String, enabled: Bool) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: enabled ? "checkmark.circle.fill" : "xmark.circle")
-                .foregroundColor(enabled ? .green : .secondary)
-                .font(.caption2)
-            Text(title)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-        }
-    }
-
-    /// Programs the cHTC thermal limit from the slider (°C). Same call-flow
-    /// and message mapping as the PBO writes; the read-back row below the
-    /// buttons confirms the programmed value from the kext cache.
-    private func applyCHTCLimit() {
-        let status = ProcessorModel.shared.setCHTCLimit(celsius: Int(chtcDraftCelsius.rounded()))
-        if status == KERN_SUCCESS {
-            chtcStatusIsError = false
-            chtcStatusMessage = nil
-            chtcAppliedCelsius = Int(chtcDraftCelsius.rounded())
-        } else {
-            chtcStatusIsError = true
-            if status == ProcessorModel.kIOReturnNotPrivilegedCode {
-                chtcStatusMessage = "Requires root or -amdpnopchk"
-            } else if status == kIOReturnUnsupported {
-                chtcStatusMessage = "Not supported by the kext on this CPU (Vermeer only)"
-            } else if status == kIOReturnNotReady {
-                chtcStatusMessage = "Blocked: package temperature above 75 °C"
-            } else if status == kIOReturnBadArgument {
-                chtcStatusMessage = "Value outside the safe range"
-            } else if status == kIOReturnTimeout {
-                chtcStatusMessage = "SMU timeout — try again"
-            } else if status == kIOReturnBusy {
-                chtcStatusMessage = "SMU busy — try again"
-            } else {
-                chtcStatusMessage = "SMU command failed"
-            }
-        }
-    }
-
-    /// Applies the OC-mode transition: enable → RSMU 0x5A (Arg0 1);
-    /// disable → 0x5B (Arg0 0), optionally re-programming the PBO scalar to
-    /// 1.0 via 0x58 (the pinned firmware quirk). The state row refreshes
-    /// from the kext's selector-49 cache on the next 3 s sync.
-    private func applyOcMode(enable: Bool) {
-        let status = ProcessorModel.shared.setOcMode(enable: enable,
-                                                     resetScalar: !enable && ocResetScalarDraft)
-        if status == KERN_SUCCESS {
-            ocStatusIsError = false
-            ocStatusMessage = nil
-        } else {
-            ocStatusIsError = true
-            if status == ProcessorModel.kIOReturnNotPrivilegedCode {
-                ocStatusMessage = "Requires root or -amdpnopchk"
-            } else if status == kIOReturnUnsupported {
-                ocStatusMessage = "Not supported by the kext on this CPU (Vermeer only)"
-            } else if status == kIOReturnNotReady {
-                ocStatusMessage = "Blocked: package temperature above 75 °C"
-            } else if status == kIOReturnBadArgument {
-                ocStatusMessage = "Invalid OC mode request"
-            } else if status == kIOReturnTimeout {
-                ocStatusMessage = "SMU timeout — try again"
-            } else if status == kIOReturnBusy {
-                ocStatusMessage = "SMU busy — try again"
-            } else {
-                ocStatusMessage = "SMU command failed"
-            }
-        }
-    }
-
-    /// S8.2: one-line read-back of the frequency-override cache (selector
-    /// 52). Slots never written this boot are omitted — the summary only
-    /// ever states what THIS driver actually programmed.
-    private var ocFreqCacheSummary: String {
-        var parts: [String] = []
-        if controls.ocFreqAllCoresMHz > 0 {
-            parts.append(String(format: l10n.amdPower.ocFreqCacheFormat, controls.ocFreqAllCoresMHz))
-        }
-        for (ccd, mhz) in controls.ocFreqPerCcdMHz.enumerated()
-        where mhz > 0 && ccd < controls.kextCcdCount {
-            parts.append(String(format: l10n.amdPower.ocFreqPerCcdFormat, ccd) + " \(mhz) MHz")
-        }
-        return parts.joined(separator: " · ")
     }
 
     /// Package-level rows decoded from the PM-table snapshot. Monospace
@@ -1598,6 +818,16 @@ struct AmdPowerSettingsView: View {
     /// Per-core grid — two cores per row to keep the section compact.
     private func pmTableCoreRows(_ cores: [AMDSmuPMTable.CoreRow]) -> some View {
         VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text("Cores (Effective Clock / CC6)")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text("Effective Clock = active rate × C0%")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.bottom, 2)
             ForEach(0..<(cores.count + 1) / 2, id: \.self) { pair in
                 HStack(spacing: 12) {
                     pmTableCell(cores[pair * 2])
@@ -1615,7 +845,7 @@ struct AmdPowerSettingsView: View {
             Text(String(format: "C%02d", c.slot))
                 .foregroundColor(c.isPresent ? .primary : .secondary)
             Text(sleeping
-                 ? String(format: "%5.1f W", c.powerW)
+                 ? String(format: "   park  %5.1f W", c.powerW)
                  : String(format: "%5.0f MHz %5.1f W %4.1f C", c.freqMHz, c.powerW, c.tempC))
                 .font(.system(size: 11, weight: .regular, design: .monospaced))
                 .foregroundColor(c.isPresent ? (sleeping ? .secondary : .primary) : .secondary)
@@ -1631,7 +861,7 @@ struct AmdPowerSettingsView: View {
         VStack(alignment: .leading, spacing: 3) {
             ForEach(l3, id: \.id) { row in
                 HStack(spacing: 5) {
-                    Text("L3\\(row.id)")
+                    Text("L3[\(row.id)]")
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundColor(.secondary)
                     Text(String(format: "%4.0f MHz  %4.1f C  %4.2f + %.2f W  EDC %.0f A",
@@ -1683,73 +913,7 @@ struct AmdPowerSettingsView: View {
         }
     }
 
-    /// Maps the kext's selector-51 return codes to friendly messages (S8.2).
-    /// The OC-gate refusal is spelled out because it is the likely first
-    /// mistake: the kext only accepts frequency writes after IT enabled OC
-    /// mode this boot (another tool's enable does not count).
-    private func ocFreqError(_ status: kern_return_t) -> String {
-        if status == ProcessorModel.kIOReturnNotPrivilegedCode {
-            return "Requires root or -amdpnopchk"
-        }
-        if status == kIOReturnNotPermitted { return "Enable OC mode first (this driver must open the gate itself)" }
-        if status == kIOReturnUnsupported { return "Not supported by the kext on this CPU (Vermeer only)" }
-        if status == kIOReturnNotReady { return "Blocked: package temperature above 75 °C" }
-        if status == kIOReturnBadArgument { return "Invalid frequency request" }
-        if status == kIOReturnTimeout { return "SMU timeout — try again" }
-        if status == kIOReturnBusy { return "SMU busy — try again" }
-        return "SMU command failed"
-    }
 
-    /// S8.2: apply the all-core frequency target (0x5C, selector 51 mode 0).
-    private func applyOcFreqAllCores() {
-        let mhz = Int(ocFreqAllDraft.rounded())
-        guard AMDOcFreq.isValidMHz(mhz) else {
-            ocFreqStatusIsError = true
-            ocFreqStatusMessage = "Invalid frequency request"
-            return
-        }
-        let status = ProcessorModel.shared.setOverclockFreq(allCoresMHz: mhz)
-        if status == KERN_SUCCESS {
-            ocFreqStatusIsError = false
-            ocFreqStatusMessage = nil
-        } else {
-            ocFreqStatusIsError = true
-            ocFreqStatusMessage = ocFreqError(status)
-        }
-    }
-
-    /// S8.2: apply a single CCD's frequency target (0x5D, selector 51 mode 1
-    /// with a one-entry window) — limits blast radius to that CCD.
-    private func applyOcFreqCcd(_ ccd: Int) {
-        guard ccd < ocFreqPerCcdDrafts.count else { return }
-        let mhz = Int(ocFreqPerCcdDrafts[ccd].rounded())
-        guard AMDOcFreq.isValidMHz(mhz) else {
-            ocFreqStatusIsError = true
-            ocFreqStatusMessage = "Invalid frequency request"
-            return
-        }
-        let status = ProcessorModel.shared.setOverclockFreq(perCcdMHz: [ccd: mhz])
-        if status == KERN_SUCCESS {
-            ocFreqStatusIsError = false
-            ocFreqStatusMessage = nil
-        } else {
-            ocFreqStatusIsError = true
-            ocFreqStatusMessage = ocFreqError(status)
-        }
-    }
-
-    /// Maps the kext's selector-111 return codes to friendly messages.
-    private func curveOptimizerError(_ status: kern_return_t) -> String {
-        if status == ProcessorModel.kIOReturnNotPrivilegedCode {
-            return "Requires root or -amdpnopchk"
-        }
-        if status == kIOReturnUnsupported { return "Not supported by the kext on this CPU (Vermeer only)" }
-        if status == kIOReturnNotReady { return "Blocked: package temperature above 75 °C" }
-        if status == kIOReturnBadArgument { return "Invalid core index" }
-        if status == kIOReturnTimeout { return "SMU timeout — try again" }
-        if status == kIOReturnBusy { return "SMU busy — try again" }
-        return ProcessorModel.privilegeHint(for: status) ?? "Failed (0x\(String(status, radix: 16)))"
-    }
 
     private func loadColor(for load: Float) -> Color {
         if load < Float(idleThreshold) { return .green }
@@ -1841,29 +1005,13 @@ struct AmdPowerSettingsView: View {
         let lpm: Bool
         let profile: ProcessorModel.CPUProfile
         let packet: CPUSensorPacket?
-        let generation: AMDCpuGeneration
-        let supportsCurveOptimizer: Bool
-        let coreCount: Int
-        let offsets: [Int8]
         let currentPState: Int?
         let pStateLabels: [String]
-        // S4: PBO capability + kext caches for read-back seeding.
-        let supportsPBO: Bool
-        let pboLimitsCache: (ppt: Int, tdc: Int, edc: Int)?
-        let pboScalarCache: Int?
-        // S6: cHTC limit cache (0 = never written this boot).
-        let chtcCache: Int?
-        // S8.2: frequency-override cache for draft seeding (0 = never
-        // written by this driver this boot) + the kext's CCD count.
-        let ocFreqAllCores: UInt32
-        let ocFreqPerCcd: [UInt32]
-        let kextCcdCount: UInt32
     }
 
     private func fetchState() async {
         isLoading = true
         let worker = Task.detached(priority: .userInitiated) {
-            // Thread-safe connection check to avoid data races
             let kernelAnswered = ProcessorModel.shared.isConnected
             let cpb = ProcessorModel.shared.getCPB()
             let cppcState: (active: Bool, epp: UInt8) = kernelAnswered
@@ -1873,34 +1021,7 @@ struct AmdPowerSettingsView: View {
             let lpm = kernelAnswered ? ProcessorModel.shared.getLPM() : false
             let profile = await ProcessorModel.shared.cpuProfile
             let packet = ProcessorModel.shared.getTelemetry()
-            let family = await ProcessorModel.shared.cpuFamily
-            let model = await ProcessorModel.shared.cpuModel
-            let physicalCores = await ProcessorModel.shared.physicalCoreCount
-            let generation = AMDCpuGeneration.classify(family: family, model: model)
-            // S3-B: the kext is the single source of truth for CO support —
-            // its capability report (selector 35) already encodes family gate
-            // + SMU mailbox state. Fall back to the app-side family/model gate
-            // only on pre-1.22 kexts that don't implement the selector.
-            let supportsCurveOptimizer = ProcessorModel.shared.getCurveOptimizerCapability()?.supported
-                ?? AMDCurveOptimizer.supported(family: family, model: model)
-            // S4: same dual-source pattern — kext capability first, app-side
-            // family/model gate as fallback for pre-1.24 kexts.
-            let supportsPBO = ProcessorModel.shared.getPBOCapability()?.supported
-                ?? AMDPBOLimits.supported(family: family, model: model)
-            let pboLimitsCache = supportsPBO ? ProcessorModel.shared.getPBOLimits() : nil
-            let pboLimitsTuple: (ppt: Int, tdc: Int, edc: Int)? = pboLimitsCache.map {
-                (Int($0.pptMilliwatts), Int($0.tdcMilliamps), Int($0.edcMilliamps))
-            }
-            let pboScalarCache = supportsPBO ? ProcessorModel.shared.getPBOScalar().map(Int.init) : nil
-            // S8.2: frequency-override cache (same Vermeer gate as PBO).
-            let ocFreqCache = supportsPBO ? ProcessorModel.shared.getOcFreqCache() : nil
-            let coreCount = physicalCores > 0 ? min(physicalCores, 32) : 16
-            let rawCurveOffsets = supportsCurveOptimizer
-                ? ProcessorModel.shared.getCurveOptimizerOffsets()
-                : []
-            let offsets = AMDCurveOptimizer.validOffsets(rawCurveOffsets, coreCount: coreCount)
-                ? Array(rawCurveOffsets.prefix(coreCount))
-                : [Int8](repeating: 0, count: coreCount)
+
             let currentPState: Int?
             let pStateLabels: [String]
             if profile.legacyPstateAllowed {
@@ -1915,25 +1036,14 @@ struct AmdPowerSettingsView: View {
             }
 
             return PowerLoadState(kernelAnswered: kernelAnswered,
-                                   cpb: cpb,
-                                   cppcState: cppcState,
-                                   ppm: ppm,
-                                   lpm: lpm,
-                                   profile: profile,
-                                   packet: packet,
-                                   generation: generation,
-                                   supportsCurveOptimizer: supportsCurveOptimizer,
-                                   coreCount: coreCount,
-                                   offsets: offsets,
-                                   currentPState: currentPState,
-                                   pStateLabels: pStateLabels,
-                                   supportsPBO: supportsPBO,
-                                   pboLimitsCache: pboLimitsTuple,
-                                   pboScalarCache: pboScalarCache,
-                                   chtcCache: supportsPBO ? ProcessorModel.shared.getCHTCLimit().map(Int.init) : nil,
-                                   ocFreqAllCores: ocFreqCache?.allCoresMHz ?? 0,
-                                   ocFreqPerCcd: ocFreqCache?.perCcdMHz ?? [],
-                                   kextCcdCount: ocFreqCache?.kextCcdCount ?? 0)
+                                  cpb: cpb,
+                                  cppcState: cppcState,
+                                  ppm: ppm,
+                                  lpm: lpm,
+                                  profile: profile,
+                                  packet: packet,
+                                  currentPState: currentPState,
+                                  pStateLabels: pStateLabels)
         }
         let state = await withTaskCancellationHandler(operation: {
             await worker.value
@@ -1947,60 +1057,6 @@ struct AmdPowerSettingsView: View {
         cppcCurrentEPP = state.cppcState.epp
         cpuProfile = state.profile
         telemetryPacket = state.packet
-        coGeneration = state.generation
-        coSupported = state.supportsCurveOptimizer
-        coCoreCount = state.coreCount
-        curveOffsets = state.offsets
-        // S4: seed PBO state — sliders default to the last values the user
-        // applied (persisted), overridden by the kext cache when available.
-        pboSupported = state.supportsPBO
-        if let cache = state.pboLimitsCache, cache.ppt > 0 {
-            pboPPTWatts = Double(cache.ppt / 1000)
-            pboTDCAmps = Double(cache.tdc / 1000)
-            pboEDCAmps = Double(cache.edc / 1000)
-            pboCacheMilli = cache
-        } else {
-            pboPPTWatts = pboLastPPTWatts
-            pboTDCAmps = pboLastTDCAmps
-            pboEDCAmps = pboLastEDCAmps
-        }
-        if let scalar = state.pboScalarCache, scalar > 0 {
-            pboScalarTenths = Double(scalar / 10)
-            pboScalarCacheX100 = scalar
-        } else {
-            pboScalarTenths = pboLastScalarTenths
-        }
-        // S6: seed the cHTC slider — kext cache when present, else the AMD
-        // stock ceiling. Only the first sync drafts the slider; later syncs
-        // just refresh the applied badge so mid-session edits survive.
-        if let chtc = state.chtcCache {
-            chtcAppliedCelsius = chtc
-            if !chtcSeeded {
-                chtcDraftCelsius = Double(chtc)
-                chtcSeeded = true
-            }
-        } else if !chtcSeeded {
-            chtcDraftCelsius = Double(AMDSmuParameters.defaultCHTCCelsius)
-            chtcSeeded = true
-        }
-        // S8.2: seed the frequency-override drafts — per-CCD rows sized to
-        // the kext's CCD count (fallback: cores/8), all-core and per-CCD
-        // drafts from the kext cache when written, else a neutral 4000 MHz.
-        // Only the first sync drafts the sliders; later syncs leave them
-        // alone so mid-session edits survive.
-        if !ocFreqSeeded {
-            let ccdCount = state.kextCcdCount > 0 ? Int(state.kextCcdCount) : max(1, state.coreCount / 8)
-            var drafts = [Double](repeating: 4000, count: ccdCount)
-            if state.ocFreqAllCores > 0 {
-                ocFreqAllDraft = Double(state.ocFreqAllCores)
-                for i in drafts.indices { drafts[i] = Double(state.ocFreqAllCores) }
-            }
-            for i in 0..<min(ccdCount, state.ocFreqPerCcd.count) where state.ocFreqPerCcd[i] > 0 {
-                drafts[i] = Double(state.ocFreqPerCcd[i])
-            }
-            ocFreqPerCcdDrafts = drafts
-            ocFreqSeeded = true
-        }
         isLoading = false
     }
 }

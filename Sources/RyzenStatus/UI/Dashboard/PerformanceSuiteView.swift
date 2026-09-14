@@ -182,7 +182,7 @@ struct PerformanceSuiteView: View {
             }
 
             // Activity Monitor Matrix & Process Manager
-            BTopDashboardView(monitor: monitor)
+            BTopDashboardView(monitor: monitor, showCpuOverview: amdControls.pmTableDecoded == nil)
         }
     }
 

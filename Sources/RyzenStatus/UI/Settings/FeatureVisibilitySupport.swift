@@ -10,7 +10,7 @@ enum SettingsPage: Hashable {
     case mouse, switcher, keyDebounce, cutPaste, autoQuit, cleaner, uninstaller, urlCleaner, homebrew, appUpdates, media, clipboard, windowLayout, shelf, quickTools, textSnippets, screenshot, screenRecorder, radialMenu, nowPlaying
     case mouseButtonShortcuts, superKey
     case whatsAppDownloads
-    case shortcuts, advanced, about, releaseNotes, support, fans, amdPower, sensors, dashboard
+    case shortcuts, advanced, about, releaseNotes, support, fans, amdPower, amdOverclocking, sensors, dashboard
 }
 
 /// Which hub features keep each Settings page alive. A page with several
@@ -51,7 +51,7 @@ enum FeatureVisibilitySupport {
         case .screenRecorder: return [.screenRecorder]
         case .radialMenu: return [.radialMenu]
         case .nowPlaying: return [.nowPlaying]
-        case .general, .features, .shortcuts, .advanced, .about, .releaseNotes, .support, .fans, .amdPower, .sensors, .dashboard:
+        case .general, .features, .shortcuts, .advanced, .about, .releaseNotes, .support, .fans, .amdPower, .amdOverclocking, .sensors, .dashboard:
             return []
         }
     }
