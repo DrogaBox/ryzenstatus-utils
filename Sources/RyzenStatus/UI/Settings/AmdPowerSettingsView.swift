@@ -44,13 +44,13 @@ struct AmdPowerSettingsView: View {
     @State private var ocFreqSeeded = false
     @State private var ocFreqStatusMessage: String?
     @State private var ocFreqStatusIsError = false
-    // S9a: PM-table export status (dedicated — never borrows the OC-freq slot).
+    // PM-table export status (dedicated — never borrows the OC-freq slot).
     @State private var pmStatusMessage: String?
     @State private var pmStatusIsError = false
     @State private var isLoading = false
     @ObservedObject private var gaming = GamingModeService.shared
     @ObservedObject private var c6Service = C6ResidencyService.shared
-    
+
     @State private var showCopiedToast: Bool = false
     @ObservedObject private var autoEpp = AutoEppService.shared
     @ObservedObject private var presetCtrl = AmdPresetController.shared
@@ -79,13 +79,13 @@ struct AmdPowerSettingsView: View {
         }
     }
 
-    // AUDIT F-17: Move 1 Hz live telemetry out of the root Form into focused
+    // Move 1 Hz live telemetry out of the root Form into focused
     // subviews so the 1,000-line controls and settings tree does not re-render each second.
 
     var body: some View {
         Form {
             AmdLiveTelemetrySection()
-            
+
             if isLoading {
                 Section {
                     HStack(spacing: 8) {
@@ -239,7 +239,7 @@ struct AmdPowerSettingsView: View {
                     } else if coSupported {
                         Toggle(l10n.amdPower.coUnlockToggle, isOn: $coUnlocked)
                             .padding(.bottom, 4)
-                        
+
                         if coUnlocked {
                             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                                 ForEach(0..<coCoreCount, id: \.self) { core in
@@ -445,7 +445,7 @@ struct AmdPowerSettingsView: View {
                     Text(l10n.amdPower.boostTelemetryFooter)
                 }
 
-                // S9a: SMU PM-table plumbing diagnostics (0x05/0x06/0x08).
+                // SMU PM-table plumbing diagnostics (0x05/0x06/0x08).
                 // Read-only: the kext's timer captures the SMU's metrics
                 // table into a snapshot buffer; this section surfaces the
                 // version/size/base info and a bug-report export.
@@ -486,7 +486,7 @@ struct AmdPowerSettingsView: View {
                                 Label(l10n.amdPower.pmTableExport, systemImage: "square.and.arrow.up")
                             }
                             .buttonStyle(.bordered)
-                            // S9d: run the mailbox health probes and copy a
+                            // Run the mailbox health probes and copy a
                             // paste-able diagnostics bundle. Privileged — the
                             // kext refuses without root/-amdpnopchk.
                             Button {
@@ -517,7 +517,7 @@ struct AmdPowerSettingsView: View {
                                     .foregroundColor(pmStatusIsError ? .red : .green)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
-                            // S9b/S9c: decoded live rows. Only for known table
+                            // Decoded live rows. Only for known table
                             // layouts — unknown versions keep the raw-export-only
                             // behavior, fail closed.
                             if let decoded = controls.pmTableDecoded {
@@ -901,7 +901,7 @@ struct AmdPowerSettingsView: View {
                             }
 
                             Picker("", selection: Binding(
-                                get: { 
+                                get: {
                                     if autoEpp.isActive {
                                         return AMDPowerPreset.snapEPP(autoEpp.currentEPP)
                                     } else {
@@ -1531,7 +1531,7 @@ struct AmdPowerSettingsView: View {
         }
     }
 
-    /// Applies the OC-mode transition (S8): enable → RSMU 0x5A (Arg0 1);
+    /// Applies the OC-mode transition: enable → RSMU 0x5A (Arg0 1);
     /// disable → 0x5B (Arg0 0), optionally re-programming the PBO scalar to
     /// 1.0 via 0x58 (the pinned firmware quirk). The state row refreshes
     /// from the kext's selector-49 cache on the next 3 s sync.
@@ -1576,8 +1576,8 @@ struct AmdPowerSettingsView: View {
         return parts.joined(separator: " · ")
     }
 
-    /// S9b: package-level rows decoded from the PM-table snapshot. Monospace
-    /// technical labels, no localization — same convention as the S9a info
+    /// Package-level rows decoded from the PM-table snapshot. Monospace
+    /// Technical labels, no localization — same convention as the info
     /// rows above (version/size render without locale strings).
     private func pmTablePackageRows(_ s: AMDSmuPMTable.Summary) -> some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -1595,7 +1595,7 @@ struct AmdPowerSettingsView: View {
         }
     }
 
-    /// S9b: per-core grid — two cores per row to keep the section compact.
+    /// Per-core grid — two cores per row to keep the section compact.
     private func pmTableCoreRows(_ cores: [AMDSmuPMTable.CoreRow]) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             ForEach(0..<(cores.count + 1) / 2, id: \.self) { pair in
@@ -1623,7 +1623,7 @@ struct AmdPowerSettingsView: View {
         }
     }
 
-    /// S9c: L3 (GameCache) rows decoded from the PM-table snapshot — one
+    /// L3 (GameCache) rows decoded from the PM-table snapshot — one
     /// compact line per cache. Monospace technical labels, same convention
     /// as the package/core rows (raw telemetry renders without locale
     /// strings).
@@ -1655,7 +1655,7 @@ struct AmdPowerSettingsView: View {
         }
     }
 
-    /// S9a: export the PM-table snapshot via a save panel (bug-report
+    /// Export the PM-table snapshot via a save panel (bug-report
     /// capture). Runs the privileged force-capture first so the exported
     /// bytes are as fresh as the kext can make them.
     private func exportPMTable() {
@@ -1863,7 +1863,7 @@ struct AmdPowerSettingsView: View {
     private func fetchState() async {
         isLoading = true
         let worker = Task.detached(priority: .userInitiated) {
-            // AUDIT F-27: thread-safe connection check to avoid data races
+            // Thread-safe connection check to avoid data races
             let kernelAnswered = ProcessorModel.shared.isConnected
             let cpb = ProcessorModel.shared.getCPB()
             let cppcState: (active: Bool, epp: UInt8) = kernelAnswered
@@ -2005,7 +2005,7 @@ struct AmdPowerSettingsView: View {
     }
 }
 
-// MARK: - Dedicated Telemetry Subviews (AUDIT F-17)
+// MARK: - Dedicated Telemetry Subviews
 
 private struct AmdLiveTelemetrySection: View {
     @ObservedObject private var monitor = SystemMonitor.shared
@@ -2047,7 +2047,7 @@ private struct AmdLiveTelemetrySection: View {
             Text(l10n.amdPower.telemetrySourceMonitor)
                 .font(.caption2)
                 .foregroundColor(.secondary)
-            
+
             if !monitor.snapshot.cores.isEmpty {
                 HStack {
                     Text(l10n.s.amdMinFrequency)

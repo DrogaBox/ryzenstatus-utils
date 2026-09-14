@@ -31,7 +31,7 @@ printf 'APPL????' > "$STAGE/Contents/PkgInfo"
 cp build/AppIcon.icns "$STAGE/Contents/Resources/AppIcon.icns"
 cp build/MenuBarIcon.png build/MenuBarIcon@2x.png build/BrandMark.png "$STAGE/Contents/Resources/"
 cp CHANGELOG.md "$STAGE/Contents/Resources/CHANGELOG.md"
-# AUDIT A-11: ship the same resources as build.sh — the Dock-preview
+# ship the same resources as build.sh — the Dock-preview
 # onboarding movie and highlight images were missing from this bundle,
 # which made SwiftPM builds behave differently from release builds.
 if [[ -f Resources/Gifs/dockPreview.gif ]]; then
@@ -44,6 +44,6 @@ if [[ -d Resources/Images ]]; then
 fi
 
 echo "Signing App Bundle..."
-# AUDIT A-11: sign with the same entitlements the official bundle uses.
+# sign with the same entitlements the official bundle uses.
 codesign --force --sign - --entitlements Resources/ZenStatus.entitlements "$STAGE"
 echo "Done! The app is at $STAGE"

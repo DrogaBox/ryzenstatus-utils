@@ -3,7 +3,7 @@
 Real captures from a Ryzen 9 5900XT (Vermeer, Family 19h) running kext
 3.34.11, read back through UserClient selector 57 op 1 from the snapshot
 the kext's 1 Hz timer maintains. These are the reference inputs for the
-S9b parser tests in `Tests/MetricsTests.swift` (`AMDSmuPMTable.decode`).
+parser tests in `Tests/MetricsTests.swift` (`AMDSmuPMTable.decode`).
 
 ## Row format
 

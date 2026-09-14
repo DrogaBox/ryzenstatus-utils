@@ -71,8 +71,8 @@ struct AMDPowerFeatureStrings {
     let copyAmdArgsGuidance: String
     let copiedToastText: String
 
-    // AMD Polish S2-T2/T3/T4: telemetry labels, Curve Optimizer, runtime C6 policy.
-    // S4: Precision Boost Overdrive limits + scalar (Vermeer).
+    // AMD Polish: telemetry labels, Curve Optimizer, runtime C6 policy.
+    // Precision Boost Overdrive limits + scalar (Vermeer).
     let packagePowerLabel: String
     let packageTempLabel: String
     let telemetryPacketHeader: String
@@ -108,13 +108,13 @@ struct AMDPowerFeatureStrings {
     // Read-back rows: three formatted PPT/TDC/EDC values, then the scalar.
     let pboActiveLimitsFormat: String
     let pboActiveScalarFormat: String
-    // S5: SMU boost telemetry — max boost clock and which physical core hits it.
+    // SMU boost telemetry — max boost clock and which physical core hits it.
     let boostTelemetryHeader: String
     let boostTelemetryFooter: String
     let boostMaxFreqFormat: String
     let boostFastestCoreFormat: String
     let boostTelemetryUnavailable: String
-    // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+    // cHTC limit (SMU 0x56) + fused capability bits (0x6F).
     let chtcHeader: String
     let chtcFooter: String
     let chtcSliderLabel: String
@@ -124,11 +124,11 @@ struct AMDPowerFeatureStrings {
     let chtcPBOSupport: String
     let chtcUnsupportedZen4: String
     let chtcUnsupportedVermeer: String
-    // S7: SMU readback rows — firmware version word and the SMU's own active
+    // SMU readback rows — firmware version word and the SMU's own active
     // PBO scalar (both pre-formatted by AMDSmuReadback).
     let smuVersionFormat: String
     let smuActiveScalarFormat: String
-    // S8: OC mode master switch (0x5A/0x5B) — header, state row, buttons.
+    // OC mode master switch (0x5A/0x5B) — header, state row, buttons.
     let ocHeader: String
     let ocFooter: String
     let ocModeLabel: String
@@ -140,7 +140,7 @@ struct AMDPowerFeatureStrings {
     let ocDisable: String
     let ocUnsupportedZen4: String
     let ocUnsupportedVermeer: String
-    // S8.2: frequency-override section (0x5C/0x5D behind the OC-mode gate).
+    // Frequency-override section (0x5C/0x5D behind the OC-mode gate).
     // ocFreqPerCcdFormat carries one %u (CCD index); ocFreqCacheFormat one
     // %u (MHz) — both tested with their own formatSpecifiers expectations.
     let ocFreqHeader: String
@@ -150,7 +150,7 @@ struct AMDPowerFeatureStrings {
     let ocFreqApply: String
     let ocFreqBlockedNoOcMode: String
     let ocFreqCacheFormat: String
-    // S9a: PM-table diagnostics section (0x05/0x06/0x08 plumbing) — no
+    // PM-table diagnostics section (0x05/0x06/0x08 plumbing) — no
     // specifiers anywhere; the age row renders without localization.
     let pmTableHeader: String
     let pmTableFooter: String
@@ -160,12 +160,12 @@ struct AMDPowerFeatureStrings {
     let pmTableCaptureLabel: String
     let pmTableExport: String
     let pmTableUnavailable: String
-    // S9d: mailbox health diagnostics (selector 58) — bundle button, copied
+    // Mailbox health diagnostics (selector 58) — bundle button, copied
     // confirmation and the privilege-denied hint. No format specifiers.
     let diagBundleButton: String
     let diagBundleCopied: String
     let diagBundleDenied: String
-    // Hardware-risk disclaimer (S8): one banner above all SMU write sections
+    // Hardware-risk disclaimer: one banner above all SMU write sections
     // and the confirmation shown before enabling OC mode. No format specifiers.
     let hardwareRiskBanner: String
     let ocRiskConfirmTitle: String
@@ -188,10 +188,10 @@ struct AMDPowerFeatureStrings {
     let runtimeC6EnabledBadge: String
     let c6RuntimeRowTitle: String
     let c6DriftWarning: String
-    // Menu-panel section (S2-T3).
+    // Menu-panel section.
     let panelSmcFanControl: String
     let panelPmTableCores: String
-    /// S9c: dashboard (Performance Suite) header over the SMU PM-table
+    /// Dashboard (Performance Suite) header over the SMU PM-table
     /// telemetry card row. Rendered only when a table version decodes.
     let smuPmTableTelemetryHeader: String
     let panelManagedByGamingMode: String
@@ -343,7 +343,7 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "Max boost frequency: %u MHz",
         boostFastestCoreFormat: "Fastest core: #%u",
         boostTelemetryUnavailable: "Waiting for the first SMU read this boot…",  // S5
-        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        // cHTC limit (SMU 0x56) + fused capability bits (0x6F).
         chtcHeader: "cHTC Thermal Limit (SMU)",
         chtcFooter: "Writes the package cHTC thermal limit (SMU 0x56) with the same Vermeer validation and thermal interlock as the PBO limits. The SMU has no read command: the shown value is the last one programmed this boot.",
         chtcSliderLabel: "cHTC limit",
@@ -526,7 +526,7 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "Frecuencia máx. de boost: %u MHz",
         boostFastestCoreFormat: "Núcleo más rápido: n.º %u",
         boostTelemetryUnavailable: "Esperando la primera lectura de la SMU en este arranque…",  // S5
-        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        // cHTC limit (SMU 0x56) + fused capability bits (0x6F).
         chtcHeader: "Límite térmico cHTC (SMU)",
         chtcFooter: "Escribe el límite térmico cHTC del paquete (SMU 0x56) con la misma validación Vermeer y el mismo interbloqueo térmico que los límites de PBO. No hay comando de lectura en la SMU: el valor mostrado es el último programado en este arranque.",
         chtcSliderLabel: "Límite cHTC",
@@ -709,7 +709,7 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "Frequência máx. de boost: %u MHz",
         boostFastestCoreFormat: "Núcleo mais rápido: n.º %u",
         boostTelemetryUnavailable: "Aguardando a primeira leitura da SMU nesta inicialização…",  // S5
-        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        // cHTC limit (SMU 0x56) + fused capability bits (0x6F).
         chtcHeader: "Limite térmico cHTC (SMU)",
         chtcFooter: "Grava o limite térmico cHTC do pacote (SMU 0x56) com a mesma validação Vermeer e o mesmo intertravamento térmico dos limites de PBO. Não há comando de leitura na SMU: o valor exibido é o último programado nesta inicialização.",
         chtcSliderLabel: "Limite cHTC",
@@ -892,7 +892,7 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "Max. Boost-Frequenz: %u MHz",
         boostFastestCoreFormat: "Schnellster Kern: Nr. %u",
         boostTelemetryUnavailable: "Warte auf die erste SMU-Lesung in dieser Sitzung…",  // S5
-        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        // cHTC limit (SMU 0x56) + fused capability bits (0x6F).
         chtcHeader: "cHTC-Thermallimit (SMU)",
         chtcFooter: "Schreibt das cHTC-Thermallimit des Pakets (SMU 0x56) mit derselben Vermeer-Validierung und thermischen Verriegelung wie die PBO-Limits. Die SMU bietet keinen Lesebefehl: Der angezeigte Wert ist der zuletzt in dieser Sitzung programmierte.",
         chtcSliderLabel: "cHTC-Limit",
@@ -1075,7 +1075,7 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "Fréquence de boost max : %u MHz",
         boostFastestCoreFormat: "Cœur le plus rapide : n° %u",
         boostTelemetryUnavailable: "En attente de la première lecture SMU de cette session…",  // S5
-        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        // cHTC limit (SMU 0x56) + fused capability bits (0x6F).
         chtcHeader: "Limite thermique cHTC (SMU)",
         chtcFooter: "Écrit la limite thermique cHTC du paquet (SMU 0x56) avec la même validation Vermeer et le même verrouillage thermique que les limites PBO. La SMU n'offre pas de commande de lecture : la valeur affichée est la dernière programmée durant cette session.",
         chtcSliderLabel: "Limite cHTC",
@@ -1258,7 +1258,7 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "Frequenza di boost massima: %u MHz",
         boostFastestCoreFormat: "Core più veloce: n. %u",
         boostTelemetryUnavailable: "In attesa della prima lettura SMU di questa sessione…",  // S5
-        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        // cHTC limit (SMU 0x56) + fused capability bits (0x6F).
         chtcHeader: "Limite termico cHTC (SMU)",
         chtcFooter: "Scrive il limite termico cHTC del pacchetto (SMU 0x56) con la stessa validazione Vermeer e lo stesso interblocco termico dei limiti PBO. La SMU non offre un comando di lettura: il valore mostrato è l'ultimo programmato in questa sessione.",
         chtcSliderLabel: "Limite cHTC",
@@ -1441,7 +1441,7 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "Макс. частота разгона: %u МГц",
         boostFastestCoreFormat: "Самое быстрое ядро: № %u",
         boostTelemetryUnavailable: "Ожидание первого считывания SMU в этом сеансе…",  // S5
-        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        // cHTC limit (SMU 0x56) + fused capability bits (0x6F).
         chtcHeader: "Термолимит cHTC (SMU)",
         chtcFooter: "Записывает термолимит cHTC пакета (SMU 0x56) с той же проверкой Vermeer и тем же термоблокировщиком, что и лимиты PBO. Команды чтения в SMU нет: показанное значение — последнее, записанное в этом сеансе.",
         chtcSliderLabel: "Лимит cHTC",
@@ -1624,7 +1624,7 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "Maks. boost frekansı: %u MHz",
         boostFastestCoreFormat: "En hızlı çekirdek: #%u",
         boostTelemetryUnavailable: "Bu oturumda ilk SMU okuma bekleniyor…",  // S5
-        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        // cHTC limit (SMU 0x56) + fused capability bits (0x6F).
         chtcHeader: "cHTC Isı Sınırı (SMU)",
         chtcFooter: "Paketin cHTC ısı sınırını (SMU 0x56) PBO sınırlarıyla aynı Vermeer doğrulaması ve termik kilidi ile yazar. SMU'da okuma komutu yoktur: gösterilen değer bu oturumda programlanan son değerdir.",
         chtcSliderLabel: "cHTC sınırı",
@@ -1807,7 +1807,7 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "最大ブースト周波数: %u MHz",
         boostFastestCoreFormat: "最速コア: #%u",
         boostTelemetryUnavailable: "このセッションの最初の SMU 読み取りを待っています…",  // S5
-        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        // cHTC limit (SMU 0x56) + fused capability bits (0x6F).
         chtcHeader: "cHTC 温度上限（SMU）",
         chtcFooter: "パッケージの cHTC 温度上限（SMU 0x56）を、PBO 上限と同じ Vermeer 検証およびサーマルインターロック付きで書き込みます。SMU には読み出しコマンドがないため、表示値はこのセッションで最後に書き込んだ値です。",
         chtcSliderLabel: "cHTC 上限",
@@ -1990,7 +1990,7 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "최대 부스트 클럭: %u MHz",
         boostFastestCoreFormat: "가장 빠른 코어: #%u",
         boostTelemetryUnavailable: "이 세션의 첫 SMU 읽기를 기다리는 중…",  // S5
-        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        // cHTC limit (SMU 0x56) + fused capability bits (0x6F).
         chtcHeader: "cHTC 온도 한계 (SMU)",
         chtcFooter: "패키지의 cHTC 온도 한계(SMU 0x56)를 PBO 한계와 동일한 Vermeer 검증 및 열 인터락과 함께 기록합니다. SMU에는 읽기 명령이 없으므로 표시되는 값은 이 세션에서 마지막으로 기록한 값입니다.",
         chtcSliderLabel: "cHTC 한계",
@@ -2173,7 +2173,7 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "最大加速频率：%u MHz",
         boostFastestCoreFormat: "最快核心：#%u",
         boostTelemetryUnavailable: "等待本次会话的首次 SMU 读取…",  // S5
-        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        // cHTC limit (SMU 0x56) + fused capability bits (0x6F).
         chtcHeader: "cHTC 温度上限（SMU）",
         chtcFooter: "写入封装的 cHTC 温度上限（SMU 0x56），沿用与 PBO 上限相同的 Vermeer 校验和热保护联锁。SMU 没有读取命令：显示值是本次会话中最后写入的值。",
         chtcSliderLabel: "cHTC 上限",
@@ -2356,7 +2356,7 @@ extension AMDPowerFeatureStrings {
         boostMaxFreqFormat: "最大加速頻率：%u MHz",
         boostFastestCoreFormat: "最快核心：#%u",
         boostTelemetryUnavailable: "等待本次工作階段的首次 SMU 讀取…",  // S5
-        // S6: cHTC limit (SMU 0x56) + fused capability bits (0x6F).
+        // cHTC limit (SMU 0x56) + fused capability bits (0x6F).
         chtcHeader: "cHTC 溫度上限（SMU）",
         chtcFooter: "寫入封裝的 cHTC 溫度上限（SMU 0x56），沿用與 PBO 上限相同的 Vermeer 驗證與熱保護聯鎖。SMU 沒有讀取命令：顯示值是本次工作階段中最後寫入的值。",
         chtcSliderLabel: "cHTC 上限",

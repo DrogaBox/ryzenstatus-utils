@@ -733,7 +733,7 @@ final class HomebrewManager: ObservableObject {
                     let allowed = min(data.count, maxOutputBytes - output.count)
                     output.append(data.prefix(allowed))
                 }
-                // AUDIT D-29: only decode up to the last complete UTF-8
+                // Only decode up to the last complete UTF-8
                 // boundary; a multi-byte character split across pipe reads
                 // used to make String(data:) return nil and the chunk (or a
                 // garbled fragment) was dropped from the live log.

@@ -200,7 +200,7 @@ final class AutoQuitService: ObservableObject {
                 registered += 1
             }
         }
-        // S11 A6: the return values used to be discarded. If the target app
+        // The return values used to be discarded. If the target app
         // refused every notification, the observer can never fire, yet the
         // run-loop source was still added and the observer still stored — so
         // auto-quit looked attached for that app and was silently inert, with
@@ -776,7 +776,7 @@ final class AutoQuitService: ObservableObject {
 
     private func elementAt(point: CGPoint) -> AXUIElement? {
         let system = AXUIElementCreateSystemWide()
-        // AUDIT F-22: enforce strict AX timeout inside event tap to prevent WindowServer input freeze
+        // Enforce strict AX timeout inside event tap to prevent WindowServer input freeze
         AXUIElementSetMessagingTimeout(system, Self.tapAXTimeout)
         var element: AXUIElement?
         guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &element) == .success

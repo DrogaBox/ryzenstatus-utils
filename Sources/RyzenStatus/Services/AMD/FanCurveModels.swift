@@ -24,7 +24,7 @@ struct FanState: Identifiable, Sendable, Hashable {
     let id: Int                       // SuperIO fan index (0..<16)
     var name: String
     var rpm: UInt64                   // selector 93 (RPM)
-    /// S10 SIO-03: mirrors FanSnapshot.rpmValid.
+    /// Mirrors FanSnapshot.rpmValid.
     var rpmValid: Bool = true
     var throttlePWM: UInt8            // selector 94 bits [15:8] (0-255 SMC scale)
     var isKextAuto: Bool              // selector 94 bit 0 (1 = Auto / SmartGuardian)
@@ -76,7 +76,7 @@ struct FanSnapshot: Identifiable, Sendable, Hashable {
     let id: Int
     var name: String
     var rpm: UInt64
-    /// S10 SIO-03: false when the tachometer word was implausible (out of the
+    /// False when the tachometer word was implausible (out of the
     /// 0–10500 window). `rpm` is UInt64 so there is no in-band sentinel; the old
     /// `min(rpm, 9999)` laundering hid the fault from the UI and any future
     /// stall detection.
@@ -266,7 +266,7 @@ typealias FanCurve = FanCurveDefinition
 // MARK: - Hardware Safety Bounds
 
 public enum AMDFanSafety {
-    /// S10 D6 (finding #7): user-commanded manual duty floor. Raised from the
+    /// User-commanded manual duty floor. Raised from the
     /// old value of 3 (~1.2 %) to close the asymmetry with the curve-mode
     /// kCURVE_MIN_ACTIVE_PWM: a duty below the rotor's start threshold stalls
     /// the fan silently. This clamp applies ONLY to duty the user commands;
@@ -292,7 +292,7 @@ public enum AMDFanSafety {
         return safeUserPWM
     }
 
-    /// S10 D6: emergency-guard-only variant, for PWM values inherited from the
+    /// Emergency-guard-only variant, for PWM values inherited from the
     /// hardware rather than commanded by the user.
     ///
     /// `FanState.manualPWM` is seeded from `snap.throttle`, i.e. from whatever

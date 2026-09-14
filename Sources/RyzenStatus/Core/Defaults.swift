@@ -616,13 +616,13 @@ enum Defaults {
         DefaultsKey.amdPpmEnabled: false,
         DefaultsKey.amdLpmEnabled: false,
         DefaultsKey.showFansInAmdPower: true,
-        // S9b: per-core PM-table telemetry collapsed by default; expands on demand.
+        // Per-core PM-table telemetry collapsed by default; expands on demand.
         DefaultsKey.showPmTableCoresInPanel: false,
-        // S9b: optional per-core columns default off — the base row stays minimal.
+        // Optional per-core columns default off — the base row stays minimal.
         DefaultsKey.showPmCoreVoltage: false,
         DefaultsKey.showPmCoreC0: false,
         DefaultsKey.showPmCoreCC6: false,
-        // S9c: classic core grid renders load (the classic fill) until the
+        // Classic core grid renders load (the classic fill) until the
         // user switches the card to an SMU metric.
         DefaultsKey.panelCoreGridMetric: "load",
         // Gaming Mode — off by default; hiding the icon is the default behavior.

@@ -197,7 +197,7 @@ final class TextSnippetService {
                         deleteCount: Int,
                         trailingKeyCode: CGKeyCode?,
                         trailingFlags: CGEventFlags) {
-        // AUDIT D-18: the {{clipboard}} substitution used to read the pasteboard
+        // The {{clipboard}} substitution used to read the pasteboard
         // inline on the tap thread. A pasteboard server wedged behind a password
         // prompt then froze every event tap of this app system-wide (issues
         // #887/#189). needsClipboard() gates the read (no {{clipboard}} means no
@@ -244,7 +244,7 @@ final class TextSnippetService {
 
         // Typed injection instead of pasting: the clipboard stays untouched.
         // Keystroke events carry at most ~20 UTF-16 units reliably.
-        // AUDIT D-19: chunk on Character boundaries — a fixed 20-UTF-16-unit
+        // Chunk on Character boundaries — a fixed 20-UTF-16-unit
         // split could cut a surrogate pair or combining sequence in half and
         // type a replacement character (\u{FFFD}) for emoji/accented text.
         var index = text.startIndex

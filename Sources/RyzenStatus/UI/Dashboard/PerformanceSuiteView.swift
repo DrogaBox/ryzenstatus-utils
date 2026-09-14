@@ -48,7 +48,7 @@ struct PerformanceSuiteView: View {
     @State private var cachedAdapters: [NetworkAdapterInfo] = []
     @State private var lastAdaptersRefresh = Date.distantPast
     @State private var refreshInFlight = false
-    /// S9c: observed mirror of the three PM-column toggle keys. Plain
+    /// Observed mirror of the three PM-column toggle keys. Plain
     /// UserDefaults writes don't re-render SwiftUI, so the toggles bump
     /// this counter to repaint the grid instantly (the popover's own
     /// @AppStorage observes the same keys — both surfaces stay in sync).
@@ -56,7 +56,7 @@ struct PerformanceSuiteView: View {
 
     @ObservedObject var l10n = L10n.shared
     @ObservedObject private var runtime = FeatureRuntime.shared
-    /// S9c: live SMU PM-table decode (kext 3.34.11+, Vermeer 0x380804/05/904/905).
+    /// Live SMU PM-table decode (kext 3.34.11+, Vermeer 0x380804/05/904/905).
     /// Synced on the same 3 s cadence the AMD section uses; nil on old kexts
     /// or undecodable table versions — the whole section then stays hidden.
     @ObservedObject private var amdControls = AmdPowerControlsModel.shared
@@ -131,7 +131,7 @@ struct PerformanceSuiteView: View {
         .onAppear {
             SystemMonitor.shared.panelDidAppear()
             refreshData()
-            // S9c: keep the SMU decode fresh while the dashboard is visible
+            // Keep the SMU decode fresh while the dashboard is visible
             // (same 3 s cadence as the AMD panel section; torn down on exit).
             Task { await amdControls.syncFromKext() }
             amdSyncTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
@@ -173,7 +173,7 @@ struct PerformanceSuiteView: View {
             // Headline Metric Cards Row
             headlineMetricCardsGrid(strings: strings)
 
-            // S9c: SMU PM-table telemetry — socket power, peak temp, fabric
+            // SMU PM-table telemetry — socket power, peak temp, fabric
             // clocks and the per-core effective-clock grid, straight from the
             // kext's 1 Hz snapshot. Zero new polling on top of the shared
             // 3 s sync tick.
@@ -301,7 +301,7 @@ struct PerformanceSuiteView: View {
         .suiteCard(padding: 10)
     }
 
-    // MARK: - 1b. SMU PM-table Telemetry (S9c)
+    // MARK: - 1b. SMU PM-table Telemetry
 
     /// SMU-native telemetry row: package power / peak temp / fabric clocks
     /// cards plus the per-core effective-clock grid. Values come straight

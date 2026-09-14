@@ -43,7 +43,7 @@
 
 class ISSuperIONCT668X : public ISSuperIOSMCFamily {
 
-    
+
 public:
     // Generic NCT668X header labels (chip maps vary by board; user can rename in GUI).
     static constexpr const char *kFAN_READABLE_STRS[] = {
@@ -56,51 +56,51 @@ public:
         "Pump",
         "AUX",
     };
-    // AUDIT F-15: mirror NCT67XX allowUnlock privilege gating
+    // Mirror NCT67XX allowUnlock privilege gating
     static ISSuperIONCT668X* getDevice(uint16_t *chipIntel, bool allowUnlock = true);
-    
-    
+
+
     ISSuperIONCT668X(int psel, uint16_t addr, uint16_t chipIntel);
-    
+
     int fanRPMs[NCT668X_MAX_NUMFAN];
     uint8_t fanThrottles[NCT668X_MAX_NUMFAN];
     uint8_t fanControlMode[NCT668X_MAX_NUMFAN];
     uint16_t fanPeakRPMs[NCT668X_MAX_NUMFAN]{};
-    // S10 SIO-01: per-fan trust flag for the last tachometer read. False means
+    // Per-fan trust flag for the last tachometer read. False means
     // the last word was implausible (0xFFFF / torn / out of range) and
     // fanRPMs[i] holds a stale-but-good value instead.
     bool fanRPMValid[NCT668X_MAX_NUMFAN]{};
-    
+
     int activeFansOnSystem = 0;
-    
+
     int getNumberOfFans() override;
     const char *getReadableStringForFan(int fan) override;
-    
+
     uint32_t getRPMForFan(int fan) override;
     bool getFanRPMValid(int fan) override;
     bool getFanAutoControlMode(int fan) override;
     uint8_t getFanThrottle(int fan) override;
-    
+
     void updateFanRPMS() override;
     void updateFanControl() override;
-    
+
     void overrideFanControl(int fan, uint8_t thr) override;
     void setDefaultFanControl(int fan) override;
-    
+
     uint8_t readReg(uint16_t reg) override { return readByte(reg); }
     void writeReg(uint16_t reg, uint8_t val) override { writeByte(reg, val); }
-    
+
 private:
-    
-    
+
+
     int lpcPortSel = 0;
-    
+
     uint16_t chipAddr = 0;
     uint8_t fanDefaultControlMode[NCT668X_MAX_NUMFAN];
-    
+
     uint8_t readByte(uint16_t addr);
     uint16_t readWord(uint16_t addr);
-    
+
     void writeByte(uint16_t addr, uint8_t val);
 };
 

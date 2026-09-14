@@ -1,7 +1,7 @@
 import Foundation
 
 struct SMCSensorReading: Identifiable {
-    // AUDIT B-15: the SMC key is the stable identity. A per-refresh UUID forced
+    // The SMC key is the stable identity. A per-refresh UUID forced
     // SwiftUI to diff every row as insert+delete on each readAll() (flicker +
     // lost selection/scroll anchor).
     let id: String
@@ -59,14 +59,14 @@ private final class SMCDumpReader: @unchecked Sendable {
 @MainActor
 class SMCDumpService: ObservableObject {
     static let shared = SMCDumpService()
-    
+
     @Published var readings: [SMCSensorReading] = []
     private let workQueue = DispatchQueue(label: "com.ryzenstatus.smc-dump", qos: .utility)
     private let reader = SMCDumpReader()
     private var refreshInFlight = false
-    
+
     private init() {}
-    
+
     func refresh() {
         guard !refreshInFlight else { return }
         refreshInFlight = true

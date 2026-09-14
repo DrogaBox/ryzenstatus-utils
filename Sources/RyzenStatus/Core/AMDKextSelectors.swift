@@ -73,9 +73,9 @@ enum AMDKextSelector: UInt32 {
 
     /// C6 residency percentage (package-level).
     case c6Residency       = 31
-    /// Per-core C6 residency %% — one UInt16 (0…100) per logical core (KEXT_WAVE 1.20.0 C-1).
+    /// Per-core C6 residency %% — one UInt16 (0…100) per logical core (kext 1.20.0+).
     case coreC6Residency   = 32
-    /// Per-core instructions-retired delta — one UInt32 per logical core (KEXT_WAVE 1.20.0 C-2).
+    /// Per-core instructions-retired delta — one UInt32 per logical core (kext 1.20.0+).
     case coreInstRetired   = 33
     /// Read-only C-state policy: [0] = 1 if the kext disables deep C-States
     /// (amdcstate=1 or default), [1] = raw cstateAddrConfig. Added in kext 1.21.0 (S2-T4).
@@ -133,7 +133,7 @@ enum AMDKextSelector: UInt32 {
     /// encoding than the 0x58 write!), [1] = 1 once the kext timer has read
     /// it successfully this boot. Unsupported on pre-1.27 kexts.
     case activeScalarRead = 48
-    /// Read-only OC capability report (S8): [0] = 1 when the kext accepts
+    /// Read-only OC capability report: [0] = 1 when the kext accepts
     /// OC-mode and frequency/VID commands (Vermeer + SMU mailbox, same
     /// verdict policy as selector 38), [1] = cached ProcessorParameters
     /// (0x6F) bitfield for context (bit 0 IsOverclockable fuse), [2] =
@@ -166,24 +166,24 @@ enum AMDKextSelector: UInt32 {
     /// (0 = never written by this driver this boot), [1] = kext's CCD count
     /// from its start-time register probe (0 = not ready / no AMD host —
     /// fall back to the app's own estimate), [2..9] = per-CCD caches (index
-    /// = CCD, 0 = never written). Cache only, no SMU traffic (F-05).
+    /// = CCD, 0 = never written). Cache only, no SMU traffic.
     /// Unsupported on pre-1.29 kexts.
     case ocFreqCacheRead = 52
-    /// Read-only PM-table info (S9a): [0] = table version word (0x08
+    /// Read-only PM-table info: [0] = table version word (0x08
     /// response, BCD-style e.g. 0x380904 → 38.09.04), [1] = version-polled
     /// flag, [2] = documented size in bytes (0 = unknown version, fail
     /// closed), [3]/[4] = physical base low/high 32, [5] = snapshot-valid
     /// flag, [6] = snapshot age in ms (0 = never captured), [7] = reserved.
-    /// Cache only, no SMU traffic (F-05). Unsupported on pre-1.30 kexts.
+    /// Cache only, no SMU traffic. Unsupported on pre-1.30 kexts.
     case pmTableInfo = 56
-    /// PM-table raw access (S9a): op 1 = read a chunk of the kext's snapshot
+    /// PM-table raw access: op 1 = read a chunk of the kext's snapshot
     /// (structure output; scalarInput [0] = op, [1] = byte offset; the kext
     /// clamps to the captured table and never reads past its size — no SMU
     /// traffic); op 2 = force an immediate capture cycle (0x08 once, then
     /// 0x05 → 0x06 → read-only map → snapshot), privileged because it adds
     /// SMU mailbox traffic on demand. Unsupported on pre-1.30 kexts.
     case pmTableRaw = 57
-    /// Mailbox health diagnostics (S9d, privileged): runs the kext's three
+    /// Mailbox health diagnostics (privileged): runs the kext's three
     /// boot-diagnostic probes on demand — SMN aperture (Tctl word), TestMessage
     /// echo (0x01 arg 0x42 → 0x43) and GetSMUVersion (0x02) — and returns a
     /// 48-byte structure report (decoded in `AMDSmuDiagnostics.Report`).

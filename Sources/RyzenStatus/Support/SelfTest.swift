@@ -109,7 +109,7 @@ enum SelfTest {
 /// the sensor mapping to a new chip generation.
 enum SensorDump {
     static func runAndExit() -> Never {
-        // S10-T2: the AMD kext is the primary sensor source on this platform, so
+        // The AMD kext is the primary sensor source on this platform, so
         // it is dumped first and unconditionally. Previously this command only
         // read AppleSMC Tp/Te/Tg keys, which VirtualSMC does not populate on an
         // AMD system — so `--sensors` printed nothing but its header on exactly
@@ -150,7 +150,7 @@ enum SensorDump {
         exit(0)
     }
 
-    /// S10-T2: dumps the AMD kext's own telemetry — the authoritative sensor
+    /// Dumps the AMD kext's own telemetry — the authoritative sensor
     /// source on this platform. Everything here is `nonisolated` on
     /// ProcessorModel, so it is safe to call from this pre-NSApplication path.
     private static func printAMDTelemetry() {
@@ -182,7 +182,7 @@ enum SensorDump {
             }
         }
 
-        // S10-T2b: the kext fills coreFrequenciesMHz[] indexed by LOGICAL core
+        // The kext fills coreFrequenciesMHz[] indexed by LOGICAL core
         // but sources every entry from effFreq_perCore[phys]
         // (AMDRyzenCPUPMUserClient.cpp:586), so on an SMT part each physical
         // core's clock appears twice. Printing all 32 entries on a 16C/32T part

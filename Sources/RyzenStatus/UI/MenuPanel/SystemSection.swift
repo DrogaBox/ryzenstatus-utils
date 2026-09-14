@@ -14,7 +14,7 @@ enum BreakdownKind {
 struct SystemSection: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var monitor = SystemMonitor.shared
-    /// S9c: live SMU PM-table decode for the reinvented core grid — the
+    /// Live SMU PM-table decode for the reinvented core grid — the
     /// same single-owner model the AMD section and dashboard consume. The
     /// model only syncs while some view drives it; the AMD control section
     /// (same panel) runs that 3 s timer, so this stays a passive consumer
@@ -22,7 +22,7 @@ struct SystemSection: View {
     @ObservedObject private var amdControls = AmdPowerControlsModel.shared
     @Environment(\.colorScheme) private var colorScheme
     var collapsible = true
-    /// S9c: core-grid metric mode, persisted ("load" = classic fill).
+    /// Core-grid metric mode, persisted ("load" = classic fill).
     @AppStorage(DefaultsKey.panelCoreGridMetric) private var coreGridMetricRaw = "load"
     @State private var expandedKinds: Set<BreakdownKind> = []
     @State private var alertsExpanded = false
@@ -239,7 +239,7 @@ struct SystemSection: View {
         }
     }
 
-    // MARK: SMU core-grid metric mode (S9c)
+    // MARK: SMU core-grid metric mode
 
     private var coreGridMetric: PanelCoreGridMetric {
         PanelCoreGridMetric(rawValue: coreGridMetricRaw) ?? .load
@@ -315,12 +315,12 @@ struct SystemSection: View {
 
     private func refreshBreakdown(force: Bool = false) {
         guard !expandedKinds.isEmpty else { return }
-        
+
         let now = Date()
         if !force {
             guard now.timeIntervalSince(lastBreakdownRefresh) >= max(0.5, processListRefreshInterval) else { return }
         }
-        
+
         lastBreakdownRefresh = now
         for kind in expandedKinds {
             updateBreakdown(for: kind)
@@ -430,7 +430,7 @@ struct SystemSection: View {
             }
         }
     }
-    
+
     private var averageCPUFreq: Double {
         let cores = monitor.snapshot.cores
         guard !cores.isEmpty else { return 0 }
@@ -498,7 +498,7 @@ struct SystemSection: View {
                     .frame(width: 220)
                 }
             }
-            
+
             if panelViewStyle == "istats" {
                 IStatsPopoverWidgetsView(monitor: monitor, editing: editing)
                     .padding(.vertical, 4)
@@ -506,14 +506,14 @@ struct SystemSection: View {
                 if sysCPU, cpuAvailable {
                 usageRow(label: l10n.s.cpuLabel, fraction: monitor.snapshot.cpuUsage,
                          kind: .cpu, editing: editing, visible: $sysCPU)
-                
+
                 if editing {
                     Toggle(l10n.s.monitorShowCPU, isOn: $graphCPU)
                         .toggleStyle(.checkbox)
                         .font(.system(size: 10))
                         .padding(.leading, 18)
                         .padding(.bottom, 2)
-                        
+
                     Toggle("Per-Core Grid", isOn: $graphCPUMode)
                         .toggleStyle(.checkbox)
                         .font(.system(size: 10))
@@ -526,7 +526,7 @@ struct SystemSection: View {
                         // KEXT_WAVE C-1: overlay per-core C6 residency dots (from
                         // selector 32) and favorite-core badges (C-5) on the grid.
                         // Empty residency (kext pre-3.34.2 or no kext) renders no dots.
-                        // S9c: when the SMU PM table decodes, a mode switch offers
+                        // When the SMU PM table decodes, a mode switch offers
                         // per-physical-core clock/temp/power cells; "load" keeps
                         // the classic grid exactly as it was.
                         CPUCoreGridView(cores: monitor.snapshot.cores,
@@ -554,7 +554,7 @@ struct SystemSection: View {
             if sysGPU, gpuAvailable {
                 usageRow(label: l10n.s.gpuLabel, fraction: monitor.snapshot.gpuUsage,
                          kind: .gpu, editing: editing, visible: $sysGPU)
-                
+
                 if editing {
                     Toggle(l10n.s.monitorShowGPU, isOn: $graphGPU)
                         .toggleStyle(.checkbox)
@@ -562,7 +562,7 @@ struct SystemSection: View {
                         .padding(.leading, 18)
                         .padding(.bottom, 4)
                 }
-                
+
                 if graphGPU, monitor.snapshot.gpuHistory.count >= 2 {
                     Sparkline(values: monitor.snapshot.gpuHistory,
                               color: PanelMetricColor.orange(for: colorScheme),
@@ -794,7 +794,7 @@ struct SystemSection: View {
                     }
                     .buttonStyle(.plain)
                 }
-                
+
                 memorySecondaryRow(l10n.s.memoryCompressed, monitor.snapshot.memoryCompressed)
                 memorySecondaryRow(l10n.s.memoryCachedFiles, monitor.snapshot.memoryCached)
                 memorySecondaryRow(l10n.s.memorySwapUsed, monitor.snapshot.memorySwapUsed)
@@ -812,7 +812,7 @@ struct SystemSection: View {
                             .monospacedDigit()
                     }
                 }
-                
+
                 breakdownList(for: .memory)
             }
         }
@@ -981,7 +981,7 @@ struct PanelSquareCard: View {
     let power: Double?
     let accentColor: Color
     let backgroundColor: Color
-    
+
     var body: some View {
         let tempStr: String = {
             guard let temp, temp > 0 else { return "--" }
@@ -1001,17 +1001,17 @@ struct PanelSquareCard: View {
                     .frame(width: 24, height: 24)
                     .background(accentColor.opacity(0.15))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
-                
+
                 Text(title)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.primary)
             }
-            
+
             Text(MetricFormat.percent(usage))
                 .font(.system(size: 28, weight: .bold))
                 .foregroundColor(accentColor)
                 .padding(.vertical, 2)
-            
+
             VStack(alignment: .leading, spacing: 6) {
                 PanelStatRow(icon: "thermometer", value: tempStr, color: .red)
                 PanelStatRow(icon: "waveform.path.ecg", value: freq.isEmpty ? "--" : freq, color: accentColor)
@@ -1033,7 +1033,7 @@ struct PanelStatRow: View {
     let icon: String
     let value: String
     let color: Color
-    
+
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: icon)

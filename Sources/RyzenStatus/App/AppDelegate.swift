@@ -212,7 +212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             ClipboardHistoryService.shared.flushBeforeTermination()
         }
         KeepAwakeManager.shared.deactivate(reason: .quit)
-        // AUDIT F-27 residual: close the kext connection and cancel the watchdog task.
+        // Close the kext connection and cancel the watchdog task.
         // Must run AFTER every other kext user above (FanCurveController.resetFansToAutoSync(),
         // C6ResidencyService.stop(), etc.) — closing the connection kills all later IPC.
         ProcessorModel.shared.closeDriver()
@@ -953,9 +953,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         if popover === nowPlayingPopover { return true }
         return popoverIsClosing || !PanelInteractionState.shared.keepsPopoverOpen
     }
-    
+
     // MARK: - Popover Detachment
-    
+
     /// Whether the menu panel is inside the popover (as opposed to a detached window).
     /// Checks `detachedWindowController != nil` instead of `window.isVisible` because
     /// the window is created before it's shown, so isVisible would be false during
@@ -963,17 +963,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     var isPanelInPopover: Bool {
         detachedWindowController == nil
     }
-    
+
     private var detachedWindowController: NSWindowController?
-    // AUDIT A-06: token for the detached panel's willClose observer, removed on close.
+    // Token for the detached panel's willClose observer, removed on close.
     private var detachedCloseObserver: NSObjectProtocol?
-    /// S10 UI-03: occlusion observer token for the detached dashboard window,
+    /// Occlusion observer token for the detached dashboard window,
     /// plus the last known visibility so the refcount-style panelClients signal
     /// is applied as a boolean edge (appear only on false→true), never as
     /// increment/decrement — willClose and didChangeOcclusion can both fire.
     private var detachedOcclusionObserver: NSObjectProtocol?
     private var detachedWindowVisible = false
-    
+
     @objc func detachPanel() {
         // If already detached, re-attach: close the window and reopen the popover
         // The willCloseNotification observer handles cleanup (detachedWindowController=nil, monitor stop)
@@ -990,7 +990,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             }
             return
         }
-        
+
         if detachedWindowController == nil {
             let panelView = MenuPanelView(isDetachedWindow: true)
             let hostingController = NSHostingController(rootView: panelView)
@@ -1007,8 +1007,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             window.contentViewController = hostingController
             window.isReleasedWhenClosed = false
             detachedWindowController = NSWindowController(window: window)
-            
-            // AUDIT A-06: keep the observer token and remove it inside the close
+
+            // Keep the observer token and remove it inside the close
             // handler; each detach cycle used to register a fresh block forever.
             detachedCloseObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
               MainActor.assumeIsolated {
@@ -1016,7 +1016,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                     NotificationCenter.default.removeObserver(token)
                     self?.detachedCloseObserver = nil
                 }
-                // S10 UI-03: remove the occlusion observer before signalling the
+                // Remove the occlusion observer before signalling the
                 // disappear, so a final occlusion callback cannot re-appear the
                 // panel client after the window is gone.
                 if let occToken = self?.detachedOcclusionObserver {
@@ -1031,7 +1031,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
               }
             }
 
-            // S10 UI-03: stand down when the detached dashboard is not actually
+            // Stand down when the detached dashboard is not actually
             // visible. The window is .floating + .canJoinAllSpaces, so it stays
             // "open" while fully covered by another window or sitting on another
             // Space — and panelDidDisappear() was only wired to
@@ -1061,7 +1061,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
               }
             }
         }
-        
+
         closePopoverNow(animated: true, completion: { [weak self] in
             guard let self else { return }
             self.detachedWindowController?.showWindow(nil)
@@ -1994,7 +1994,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     private func markSupportUpdateIntroSeenIfCurrentUpdate() {
-        // AUDIT A-07: mirror markUpdateShowcaseIntroSeenIfCurrentUpdate — without
+        // Mirror markUpdateShowcaseIntroSeenIfCurrentUpdate — without
         // the version guard, completing onboarding on any release pre-seeds the
         // "seen" key and permanently silences a future support intro bump for
         // exactly the audience it was made for.

@@ -1,34 +1,66 @@
 # Changelog
 
-## [Unreleased] — kexts 3.34.15
+## [Unreleased] — kexts 3.34.17
 
-Kernel-side wave S11. **Not released, and not validated on silicon yet** — the
-version is bumped so `kextstat` can tell this build apart from 3.34.14 while
-testing, which is the whole reason the bump comes before the probes rather than
-after. `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` and its content pins in
-`Tools/make-dmg.sh` are deliberately untouched, so a DMG built from this tree
-reports `LOCAL BUILD — content pins NOT enforced` and must not be published.
+Kernel-side fan work. **Not released.** The duty-path fix below is confirmed on
+silicon; the Super I/O register-map fix is not yet. The version is bumped on every
+test build so `kextstat` can tell one binary from another while probing, which is
+the whole reason the bump comes before the probes rather than after — see
+`docs/SUPERIO.md`. `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` and its
+content pins in `Tools/make-dmg.sh` are deliberately untouched, so a DMG built from
+this tree reports `LOCAL BUILD — content pins NOT enforced` and must not be
+published.
+
+Also new: `docs/SUPERIO.md`, which documents the Super I/O fan layer —
+the two ITE register maps, how to tell a pump channel from a fan channel, why duty
+and RPM come from different registers, and the hardware-validation rules.
 
 ### Fixed
 
-- **All six fans reported `pwm 0 (0.0%)` while spinning (S11-a).** Observed at
-  40–1683 RPM across five sampling runs on a 5900XT, with `-amdpnopchk` active, so
-  never a privilege problem; the RPM path jittered normally throughout, which
-  isolated the fault to the duty path. `updateFanControl()`'s fallback estimator —
-  the only thing that produces a duty reading while a fan is under BIOS SmartFan
-  control, because the PWM command register genuinely reads 0 there — is gated on
-  `fanRPMValid[i]` and `fanPeakRPMs[i] > 200`, and **both are written only by
-  `updateFanRPMS()`**. `fanUpdateCounter` is a single shared field that *both*
-  selector 93 (calls `updateFanRPMS`) and selector 94 (calls `updateFanControl`)
-  increment before acting on `% 4 == 0`, and `getFans()` calls 93 then 94 back to
-  back — so the producer fired on `n % 4 == 0` and the consumer on
-  `(n+1) % 4 == 0` and the two could never be the same tick. The only
-  timer-driven path, `evaluateFanCurves()`, early-continues for every fan with
-  `fanToCurveMap[fan] < 0` — every fan under BIOS Auto — so nothing else ever
-  seeded `fanPeakRPMs` for exactly the fans that need the estimator. Fixed by
-  refreshing the estimator's inputs in the same critical section that consumes
-  them. The `% 4` gate is kept: it rate-limits Super I/O port I/O, which is slow
-  and shared with the firmware.
+- **Selector 94's rate-limit gate was unreachable, so `updateFanControl()` never
+  ran at all.** Confirmed on a Ryzen 9 5900XT: before the fix all six channels
+  reported `pwm 0 (0.0%)` while spinning at 40–1695 RPM; after it they report the
+  firmware's real duty (49.8 %, 37.6 %, 20.0 %, 20.0 %, 20.0 %, 100.0 %), stable
+  across five sampling runs.
+
+  `OSIncrementAtomic` returns the pre-increment value, and `getFans()` calls
+  selector 93 then selector 94 in one pass, so each pass consumed exactly two
+  values from the single shared `fanUpdateCounter` and the parity each selector
+  observed never changed. From a start of 0, selector 93 always read an even value
+  and selector 94 always an odd one; the gate is `% 4 == 0`, which only an even
+  value satisfies. Selector 94's branch was therefore dead from boot and
+  `fanThrottles` was never written after initialisation — which is why the reading
+  was an exact `0` rather than a stale or wrong duty. Fixed with a dedicated
+  `fanCtrlUpdateCounter`.
+
+  This supersedes the explanation recorded in the previous revision of this
+  entry, which was wrong in two ways worth stating rather than quietly deleting.
+  It blamed the estimator's inputs being stale, and it claimed separate counters
+  would only "improve the cadence" and were not a correctness fix; separate
+  counters *are* the correctness fix, and pairing the estimator's producer with
+  its consumer could not help because the gate that pairing sits inside never
+  ran. It also assumed the restored readings would come from the RPM/peak
+  estimator. They do not: the duty stays fixed while RPM jitters by a few counts,
+  which an estimate could not do, so the chip's duty register does hold the real
+  value under SmartGuardian control — it simply was never read.
+
+- **The ITE driver used one register map for four chips that need two.** Linux's
+  `it87` driver carries `IT87_REG_FAN`/`IT87_REG_PWM` for IT8686E/IT8688E/IT8689E
+  and `IT87_REG_FAN_8665`/`IT87_REG_PWM_8665` for IT8665E/IT8655E/IT8625E, and
+  selects per chip. This driver had only the first, applied unconditionally.
+
+  On an IT8665E that misread the sixth tachometer from `0x4c/0x4d` — registers
+  that hold something else there — and, more seriously, made
+  `overrideFanControl()` and `setDefaultFanControl()` **write** the control-mode
+  byte of channels 3–5 into `0x7f/0xa7/0xaf` instead of `0x1e/0x1f/0x92`, i.e.
+  arbitrary writes into EC registers of unknown function. Duty readings were
+  unaffected on every chip because the duty table has no per-chip variant.
+
+  Both tables are now present and three pointers are resolved in the constructor
+  from the `chipIntel` value `getDevice()` already reads off the hardware, before
+  the loop that snapshots the firmware's control-mode bytes through them. A chip
+  that is not an IT8665E keeps byte-identical behaviour.
+
 - **A duty commanded to a stopped rotor is now floored (selector 95).**
   `kCURVE_MIN_ACTIVE_PWM` lived only in `evaluateFanCurves()`, and
   `overrideFanControl()` writes whatever byte it is handed straight to the PWM
@@ -52,11 +84,11 @@ reports `LOCAL BUILD — content pins NOT enforced` and must not be published.
   checks nor the app could distinguish a held-over stale reading from a fresh one.
   Declared on the base class with an inline default of `true`, so the ITE family —
   which tracks no validity — keeps its current behaviour exactly.
-- **Selector 94 bit 1 now carries per-fan tachometer validity (S11-c, kernel
-  half).** Per fan, one `uint64_t`: bits 15:8 throttle, bit 0 auto mode, bit 1
+- **Selector 94 bit 1 now carries per-fan tachometer validity (kernel half).**
+  Per fan, one `uint64_t`: bits 15:8 throttle, bit 0 auto mode, bit 1
   `rpmValid`, rest zero. Bit 1 was previously written as zero and the Swift reader
   masks only bits 15:8 and bit 0, so an **older app ignores it** and the buffer
-  size is unchanged. This matters because S10 made a dead sensor *less* detectable,
+  size is unchanged. This matters because the previous release made a dead sensor *less* detectable,
   not more: the drivers now hold the last good value rather than publishing 65535,
   so a dead tach shows a plausible frozen RPM, and the app's own
   `rawRPM <= 10500` heuristic can never fire because the kext already filters
@@ -66,50 +98,70 @@ reports `LOCAL BUILD — content pins NOT enforced` and must not be published.
 
 ### Validation status
 
-Compile-verified only: both kext targets build with `** BUILD SUCCEEDED **`, zero
-errors and zero warnings from any file touched. **Nothing here has commanded a fan
-on silicon.** Before this can be released, on the reference 5900XT:
+Both kext targets build with `** BUILD SUCCEEDED **`, zero errors and zero warnings
+from any file touched.
 
-0. `kextstat | grep -i ryzen` → expect **3.34.15** (this is what the bump is for).
-1. `--sensors` → the six fans should report a **non-zero** duty tracking their RPM
-   instead of `pwm 0 (0.0%)`. Baseline to compare against: fan0 1285 RPM, fan1
-   1674, fan2 1406, fan3 881, fan4 840, fan5 40 — all at 0.0 % on 3.34.14.
-2. A-FINAL probes 1–3, still outstanding from 3.34.14. S11-a makes probe 2 easier:
-   with a working duty readout there is again a signal confirming a curve was
-   applied.
+**Confirmed on the reference 5900XT (ASUS ROG Crosshair VII Hero, ITE Super I/O):**
+
+- `kextstat` reported 3.34.16, so the measurement is known to be of the new binary.
+- The duty path works. All six channels moved from `pwm 0 (0.0%)` to the firmware's
+  real duty — 127 (49.8 %), 96 (37.6 %), 51, 51, 51 (20.0 %), 255 (100.0 %) — and
+  held across five sampling runs while RPM jittered, which is what identifies these
+  as register reads rather than estimates.
+
+**Still outstanding, and required before release:**
+
+0. `kextstat | grep -i ryzen` → expect **3.34.17**. Two EFI partitions exist on the
+   reference machine, so confirm the version rather than assuming the edited EFI is
+   the one that booted.
+1. The Super I/O register-map fix is unvalidated. On an IT8665E the sixth
+   tachometer should move from an implausible reading to a credible one; on the
+   reference machine that channel is the AIO pump, which read 40 RPM and should
+   read roughly 2870. On any other ITE chip nothing should change at all, which is
+   equally worth confirming.
+2. The three fan-safety probes still outstanding from 3.34.14. The working duty readout
+   makes probe 2 meaningful again: there is finally a signal that confirms a curve
+   reached the hardware.
 3. The rotor-start floor needs its own check: command a **stopped** fan to duty 20
-   and confirm it starts rather than sitting stalled.
+   and confirm it starts rather than sitting stalled. Do not use the pump channel
+   for this.
+
+**Configuration note for the reference machine, not a code issue:** one Super I/O
+channel is wired to `AIO_PUMP` and the driver's channel names are hardcoded generic
+strings, so nothing in the UI marks it as a pump. A pump belongs at full duty; do
+not map a fan curve onto it. `docs/SUPERIO.md` explains how to identify the channel
+and why the existing PWM floor does not protect it.
 
 ## [1.33.0] — 2026-09-12
 
-### AMD Kernel + App: thermal fail-safe & IOKit lifecycle hardening (audit wave S10)
-- **Kernel thermal safety (FASE A)**: the fan-curve EMA now validates every temperature sample on input and output against the plausible Zen window (`kTEMP_INVALID` sentinel; NaN used to be absorbing *and* permanent, pinning the fan at the coldest LUT point with the 85 °C guard disarmed). A per-curve trust flag forces **kFAILSAFE_PWM (160)** when no trustworthy reading exists this tick, instead of trusting an absent value. The emergency thermal guard is now **system-wide** — armed from the hottest trustworthy sensor, so a GPU-sourced curve can no longer hold a 95 °C CPU at the GPU curve's low duty. PWM 0 keeps its release-to-BIOS meaning, but any other request below **kCURVE_MIN_ACTIVE_PWM (40)** is raised to the floor (an open-loop duty below the rotor start threshold silently stalls the fan). The floor is applied before the guard so the guard always wins.
-- **Dead-man switch (KRN-03)**: `clientClose()` now hands every fan back to BIOS/SmartFan control under `superIOLock` — the only kernel callback guaranteed to run on SIGKILL/crash/force-quit, which the app's `applicationWillTerminate` path never reaches. A crash with a fan latched at ~1 % duty left it there indefinitely before.
-- **Temperature sentinel hygiene (KRN-04)**: `getPackageTemp()` returns `kTEMP_INVALID` instead of an ambiguous 0.0 °C (0 °C selected the coldest LUT row *and* made every `>= 85 °C` guard test false); the ring-buffer fill paths keep the previous sample rather than averaging the sentinel into `PACKAGE_TEMPERATURE_perPackage[0]`.
-- **SuperIO validation (FASE B)**: both NCT67XX and NCT668X validate every tachometer word (0xFFFF / torn reads / out-of-range hold the last good value instead of publishing 65535 RPM), and the peak-RPM high-water mark only records plausible values — one bad read used to permanently pin the Auto-mode PWM estimator near 0 %. `readWord` on NCT67XX is tear-resistant (index re-checked after the low-byte write).
-- **kext IPC hardening (C13)**: every external selector runs through one centralized validation gate (capacity/sanity checked before dispatch) in `AMDRyzenCPUPMUserClient::externalMethod`.
-- **Kexts 3.34.14, shipped with A-FINAL incomplete**: FASE A/B touched kernel code, and the packaged kexts move to **3.34.14** (`ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip`, SHA-256 repinned to `34ca0194…a85be08c`). Hardware validation on the reference 5900XT covered two of the four mandatory A-FINAL steps: `kextstat` confirmed 3.34.14 loaded, and the dead-man switch passed (`pkill -9` with a fan in manual produced `clientClose released 6 fan(s) to BIOS control`, and the fan returned to its BIOS idle). **The remaining two probes were not run**: the curve floor under a 1 % idle anchor, and the emergency guard armed from a GPU-sourced curve with the CPU above 85 °C. Those two behaviours therefore ship as reviewed code that has not been observed on silicon. If you run a custom fan curve on this build, watch your temperatures on the first boot.
+### AMD Kernel + App: thermal fail-safe & IOKit lifecycle hardening
+- **Kernel thermal safety**: the fan-curve EMA now validates every temperature sample on input and output against the plausible Zen window (`kTEMP_INVALID` sentinel; NaN used to be absorbing *and* permanent, pinning the fan at the coldest LUT point with the 85 °C guard disarmed). A per-curve trust flag forces **kFAILSAFE_PWM (160)** when no trustworthy reading exists this tick, instead of trusting an absent value. The emergency thermal guard is now **system-wide** — armed from the hottest trustworthy sensor, so a GPU-sourced curve can no longer hold a 95 °C CPU at the GPU curve's low duty. PWM 0 keeps its release-to-BIOS meaning, but any other request below **kCURVE_MIN_ACTIVE_PWM (40)** is raised to the floor (an open-loop duty below the rotor start threshold silently stalls the fan). The floor is applied before the guard so the guard always wins.
+- **Dead-man switch**: `clientClose()` now hands every fan back to BIOS/SmartFan control under `superIOLock` — the only kernel callback guaranteed to run on SIGKILL/crash/force-quit, which the app's `applicationWillTerminate` path never reaches. A crash with a fan latched at ~1 % duty left it there indefinitely before.
+- **Temperature sentinel hygiene**: `getPackageTemp()` returns `kTEMP_INVALID` instead of an ambiguous 0.0 °C (0 °C selected the coldest LUT row *and* made every `>= 85 °C` guard test false); the ring-buffer fill paths keep the previous sample rather than averaging the sentinel into `PACKAGE_TEMPERATURE_perPackage[0]`.
+- **SuperIO validation**: both NCT67XX and NCT668X validate every tachometer word (0xFFFF / torn reads / out-of-range hold the last good value instead of publishing 65535 RPM), and the peak-RPM high-water mark only records plausible values — one bad read used to permanently pin the Auto-mode PWM estimator near 0 %. `readWord` on NCT67XX is tear-resistant (index re-checked after the low-byte write).
+- **kext IPC hardening**: every external selector runs through one centralized validation gate (capacity/sanity checked before dispatch) in `AMDRyzenCPUPMUserClient::externalMethod`.
+- **Kexts 3.34.14, shipped with hardware validation incomplete**: the kernel thermal-safety and SuperIO changes touched kernel code, and the packaged kexts move to **3.34.14** (`ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip`, SHA-256 repinned to `34ca0194…a85be08c`). Hardware validation on the reference 5900XT covered two of the four mandatory validation steps: `kextstat` confirmed 3.34.14 loaded, and the dead-man switch passed (`pkill -9` with a fan in manual produced `clientClose released 6 fan(s) to BIOS control`, and the fan returned to its BIOS idle). **The remaining two probes were not run**: the curve floor under a 1 % idle anchor, and the emergency guard armed from a GPU-sourced curve with the CPU above 85 °C. Those two behaviours therefore ship as reviewed code that has not been observed on silicon. If you run a custom fan curve on this build, watch your temperatures on the first boot.
 
 ### Packaging
-- **The DMG's `Kexts/` folder was empty since 3.34.13**: `AMDRyzenCPUPowerManagement-Kexts.zip` was refreshed for wave S9d with only the driver — `SMCAMDProcessor.kext` was left out entirely. Because the plugin's extracted path did not exist, the packaging guard fell through to `(Kexts not built — skipping)` and produced a DMG with **no kexts at all**, two lines after printing `Prebuilt AMD kexts verified` and still exiting 0. No published release was affected (v1.31.0 predates the bad zip and carries both kexts at 3.34.12), but this release would have been the first to ship without them. The zip now contains both kexts, and packaging reports the version staged plus whether it came from the SHA-verified zip or an unverified local build.
+- **The DMG's `Kexts/` folder was empty since 3.34.13**: `AMDRyzenCPUPowerManagement-Kexts.zip` was refreshed with only the driver — `SMCAMDProcessor.kext` was left out entirely. Because the plugin's extracted path did not exist, the packaging guard fell through to `(Kexts not built — skipping)` and produced a DMG with **no kexts at all**, two lines after printing `Prebuilt AMD kexts verified` and still exiting 0. No published release was affected (v1.31.0 predates the bad zip and carries both kexts at 3.34.12), but this release would have been the first to ship without them. The zip now contains both kexts, and packaging reports the version staged plus whether it came from the SHA-verified zip or an unverified local build.
 - **DMG window layout no longer depends on Finder Automation**: icon positions and the background came solely from an AppleScript that needs Apple Events permission for Finder, and a shell without that grant produced an unstyled DMG while still exiting 0. The layout is now seeded from a checked-in `.DS_Store` that `hdiutil` bakes in beforehand, so the AppleScript is a refinement rather than the only path. Release and CI builds were unaffected — their runners can drive Finder.
 
 ### Fixed
-- **Off-main kext IPC (FASE C)**: fan-curve uploads now coalesce on a detached task with `withHandle` handle checking instead of every mutation calling selectors inline; the hub's fan timer runs on `.common` mode so uploads survive Menu tracking; a sleep/wake observer re-syncs curves after wake; a stale-handle read heals with one immediate reconnect attempt instead of waiting for the next full refresh; `AutoEppService`/`C6ResidencyService` polling loops stop when the monitor deallocated (`self == nil` guard).
-- **rpmValid telemetry (SIO-03)**: the kext no longer launders implausible tach words (`min(rpm, 9999)` turned garbage 65535 into a believable 9999). `FanSnapshot`/`FanState` carry an explicit validity flag; the kext holds the last good value instead. `FanSnapshot`/`FanState` carry a validity flag and the fan row is ready to render "— RPM", but note the honest limitation: the kext's per-fan validity flag is internal to the SuperIO drivers and is not yet propagated across the IOKit boundary, so the app-side `rpm <= 10500` heuristic never trips in practice — a dead sensor currently shows a frozen but plausible RPM rather than an obviously wrong 65535. Propagating the flag through selector 94 (bit 1 is free) is tracked for the next wave.
-- **Manual-mode duty floor raised 3 → 40 (D6 finding #7)**: closes the asymmetry with the kernel's curve-mode floor — the manual slider could previously command PWM 3 (~1.2 %), which stalls a rotor exactly like the bug the kernel floor fixed. `AMDFanSafety.minimumManualPWM` is now 40 and is enforced where the **user** commits duty (`setManualPWM`'s `clampManualPWM`, slider range). Hardware-**inherited** duty is exempt on purpose: the enforcement loop now applies `guardOnlyPWM` (emergency guard only, no floor) because `manualPWM` seeds from the Super I/O's current setpoint — typically a fixed BIOS duty that may legitimately sit below 40, and ramping those up on the first poll would make every update noisier with no safety gain (stall risk is at rotor start, not maintain). The slider starts at 40 while its numeric readout tracks the real duty (F-22k), with a source comment pinning the intentional divergence.
-- **Status-item rendering (D1–D3)**: theme-change rebuilds only run when the theme actually changed; NowPlaying title measurement is memoized against repeated identical `NSImage(size:)` work.
-- **Dashboard occlusion flag (D4)**: dashboard-open tracking uses a boolean flag (the `panelDidAppear/Disappear` refcount never reached zero while the dashboard was open, so the optimization never applied).
-- **Deferred mixer process tracking (D5)**: the mixer's resident-without-use energy cost is gone — the per-app process machinery (process-list global listener + one `IsRunningOutput` listener per live audio process) now stays **dormant** until it has a purpose: it activates automatically when saved per-app state exists (its re-apply needs the tracking), or on demand the first time the mixer panel opens (`ensureProcessTracking()`, idempotent). A clean install with no saved state and no panel visit runs only the lightweight device half (output picker, headphone protection) — no process listeners at all.
-- **`.screenRecorder` feature binding (UI-05)**: disabling the feature via preset/backup-import/reset now actually tears the service down (binding existed only in the Settings path before).
-- **Auto EPP now survives sleep (S10-T1)**: `AutoEppService` was the only AMD service with no wake handling. It skips the MSR write whenever the target EPP equals the last written value — correct in steady state, but if the SMU lost the EPP across a suspend while the target was unchanged, the write was skipped forever and the EPP silently stayed at the firmware default until the user happened to change presets. A `didWakeNotification` observer now clears the dedup sentinel so the next poll re-asserts it.
-- **`--sensors` reports AMD telemetry (S10-T2)**: the diagnostic dump only read AppleSMC `Tp`/`Te`/`Tg` keys, which VirtualSMC does not populate on an AMD system — so the command printed nothing but its header on exactly the hardware the app targets, despite being documented alongside `--selftest` as a troubleshooting tool. It now dumps the kext's own selector-100 packet first and unconditionally (package power and temperature, per-CCD temperatures, per-core effective clocks) plus per-fan RPM and duty, and the AppleSMC section is no longer fatal when unavailable. Physical core clocks are de-duplicated under SMT: the kext fills `coreFrequenciesMHz[]` indexed by logical core but sources every entry from the physical core, so a 16C/32T part previously listed 16 phantom duplicates.
-- **Post-wake CPU sample (S10-T4)**: `SystemMonitor` computes CPU utilisation as a delta between consecutive tick samples, and those bases were stale across a suspend — the first post-wake sample was computed over the entire sleep interval. The bases are now dropped on wake, which skips that one sample instead of reporting a meaningless value.
+- **Off-main kext IPC**: fan-curve uploads now coalesce on a detached task with `withHandle` handle checking instead of every mutation calling selectors inline; the hub's fan timer runs on `.common` mode so uploads survive Menu tracking; a sleep/wake observer re-syncs curves after wake; a stale-handle read heals with one immediate reconnect attempt instead of waiting for the next full refresh; `AutoEppService`/`C6ResidencyService` polling loops stop when the monitor deallocated (`self == nil` guard).
+- **rpmValid telemetry**: the kext no longer launders implausible tach words (`min(rpm, 9999)` turned garbage 65535 into a believable 9999). `FanSnapshot`/`FanState` carry an explicit validity flag; the kext holds the last good value instead. `FanSnapshot`/`FanState` carry a validity flag and the fan row is ready to render "— RPM", but note the honest limitation: the kext's per-fan validity flag is internal to the SuperIO drivers and is not yet propagated across the IOKit boundary, so the app-side `rpm <= 10500` heuristic never trips in practice — a dead sensor currently shows a frozen but plausible RPM rather than an obviously wrong 65535. Propagating the flag through selector 94 (bit 1 is free) is tracked for the next wave.
+- **Manual-mode duty floor raised 3 → 40**: closes the asymmetry with the kernel's curve-mode floor — the manual slider could previously command PWM 3 (~1.2 %), which stalls a rotor exactly like the bug the kernel floor fixed. `AMDFanSafety.minimumManualPWM` is now 40 and is enforced where the **user** commits duty (`setManualPWM`'s `clampManualPWM`, slider range). Hardware-**inherited** duty is exempt on purpose: the enforcement loop now applies `guardOnlyPWM` (emergency guard only, no floor) because `manualPWM` seeds from the Super I/O's current setpoint — typically a fixed BIOS duty that may legitimately sit below 40, and ramping those up on the first poll would make every update noisier with no safety gain (stall risk is at rotor start, not maintain). The slider starts at 40 while its numeric readout tracks the real duty, with a source comment pinning the intentional divergence.
+- **Status-item rendering**: theme-change rebuilds only run when the theme actually changed; NowPlaying title measurement is memoized against repeated identical `NSImage(size:)` work.
+- **Dashboard occlusion flag**: dashboard-open tracking uses a boolean flag (the `panelDidAppear/Disappear` refcount never reached zero while the dashboard was open, so the optimization never applied).
+- **Deferred mixer process tracking**: the mixer's resident-without-use energy cost is gone — the per-app process machinery (process-list global listener + one `IsRunningOutput` listener per live audio process) now stays **dormant** until it has a purpose: it activates automatically when saved per-app state exists (its re-apply needs the tracking), or on demand the first time the mixer panel opens (`ensureProcessTracking()`, idempotent). A clean install with no saved state and no panel visit runs only the lightweight device half (output picker, headphone protection) — no process listeners at all.
+- **`.screenRecorder` feature binding**: disabling the feature via preset/backup-import/reset now actually tears the service down (binding existed only in the Settings path before).
+- **Auto EPP now survives sleep**: `AutoEppService` was the only AMD service with no wake handling. It skips the MSR write whenever the target EPP equals the last written value — correct in steady state, but if the SMU lost the EPP across a suspend while the target was unchanged, the write was skipped forever and the EPP silently stayed at the firmware default until the user happened to change presets. A `didWakeNotification` observer now clears the dedup sentinel so the next poll re-asserts it.
+- **`--sensors` reports AMD telemetry**: the diagnostic dump only read AppleSMC `Tp`/`Te`/`Tg` keys, which VirtualSMC does not populate on an AMD system — so the command printed nothing but its header on exactly the hardware the app targets, despite being documented alongside `--selftest` as a troubleshooting tool. It now dumps the kext's own selector-100 packet first and unconditionally (package power and temperature, per-CCD temperatures, per-core effective clocks) plus per-fan RPM and duty, and the AppleSMC section is no longer fatal when unavailable. Physical core clocks are de-duplicated under SMT: the kext fills `coreFrequenciesMHz[]` indexed by logical core but sources every entry from the physical core, so a 16C/32T part previously listed 16 phantom duplicates.
+- **Post-wake CPU sample**: `SystemMonitor` computes CPU utilisation as a delta between consecutive tick samples, and those bases were stale across a suspend — the first post-wake sample was computed over the entire sleep interval. The bases are now dropped on wake, which skips that one sample instead of reporting a meaningless value.
 - **Tests**: suite grew to **6274 checks OK** (manual-floor vectors updated to 40 + 3 new `guardOnlyPWM` rules); `./build.sh` completes with **0 warnings** and `--selftest` OK, keeping the repo's warning-free contribution contract intact.
 
 ## [1.32.0] — 2026-09-12
 
-### AMD Kernel + App: on-demand mailbox health diagnostics (wave S9d)
+### AMD Kernel + App: on-demand mailbox health diagnostics
 - **New selector 58 (privileged)**: runs the kext's boot-diagnostic probes on demand — SMN aperture (raw Tctl word through the PCI 0x60/0x64 window), TestMessage echo (0x01, arg 0x42 must return 0x43) and `GetSMUVersion` (0x02) — and returns the full 48-byte raw report (all response codes, arg-window words and per-probe elapsed times) through structure output. Privileged because it adds real SMU mailbox traffic on demand (same policy as the selector-57 force-recapture); serialized under `rendezvousLock` like the capture path, `smuCmdLock` stays the inner leaf. Wire layout is pinned by a kernel `static_assert` and a fail-closed app-side size check.
 - **Diagnostics bundle button** in the SMU PM Table section: runs the probes and copies a paste-able ASCII bundle (app/kext versions, SMU firmware, PM-table state, mailbox health lines, boost/scalar/OC caches) for bug reports — no more asking users to run `log show`. The rendered health lines appear under the button (green when all three probes pass, orange with the failing probe named otherwise), with a localized privilege-denied hint. Button/copy/denied strings added across all 13 locales.
 - **Kexts rebuilt at 3.34.13** (kernel changes: selector 58 dispatch in `AMDRyzenCPUPMUserClient`, `runMailboxDiagnostics` on the provider, no changes to any existing command path). `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` refreshed and its SHA-256 repinned in `Tools/make-dmg.sh` (`93c88a22…63abced`).
@@ -117,9 +169,9 @@ on silicon.** Before this can be released, on the reference 5900XT:
 
 ## [1.31.0] — 2026-09-12
 
-### AMD App: L3 decode + SMU-native value promotion (wave S9c)
+### AMD App: L3 decode + SMU-native value promotion
 - **L3 (GameCache) telemetry decoded** from the PM-table snapshot: per-cache effective clock, temperature, logic/VDDM power and EDC limit, from the `pm_tables.c` L3 tail blocks (0x380805/0x380804: 2 caches; 0x380904/0x380905: 1). Every layout's documented minimum size already bounds the L3 block, so the existing fail-closed size gate protects it; provenance kept honest — the two upstream-tested maps are hardware-validated against the live 5900XT fixtures, the 8-core maps stay synthetic-tested until a silicon capture lands. GameCache clocks are stored in GHz like core clocks and scale ×1000.
-- **SMU-native promotion (the S9c mandate: computed estimates give way to SMU values)**: `ProcessorModel` is now the **single owner** of the PM-table fetch+decode, refreshed on the telemetry tick into a thread-safe cache with a 6 s freshness gate (a stopped kext timer cleanly falls back to the old path). `lastCPUPowerWatts` prefers SMU SOCKET_POWER while fresh — menu bar and panel package power now come from the SMU itself instead of the kext-computed selector-100 estimate. The PM-table's per-core CORE_FREQEFF is deliberately **not** promoted into the SystemMonitor core snapshot: it is a window average (a CC6-parked core decodes to single-digit MHz) and would corrupt every current-clock aggregate — the Settings min/max/avg rows, the popover CPU card, the menu bar avg/peak and the IPS estimate; true per-core SMU clocks remain in the S9b disclosure and the dashboard grid, which render them with sleeping-core semantics. CPU temperature deliberately stays on its existing instantaneous sources: the PM table's PEAK_TEMP is a window peak, not an instantaneous reading.
+- **SMU-native promotion (the goal was: computed estimates give way to SMU values)**: `ProcessorModel` is now the **single owner** of the PM-table fetch+decode, refreshed on the telemetry tick into a thread-safe cache with a 6 s freshness gate (a stopped kext timer cleanly falls back to the old path). `lastCPUPowerWatts` prefers SMU SOCKET_POWER while fresh — menu bar and panel package power now come from the SMU itself instead of the kext-computed selector-100 estimate. The PM-table's per-core CORE_FREQEFF is deliberately **not** promoted into the SystemMonitor core snapshot: it is a window average (a CC6-parked core decodes to single-digit MHz) and would corrupt every current-clock aggregate — the Settings min/max/avg rows, the popover CPU card, the menu bar avg/peak and the IPS estimate; true per-core SMU clocks remain in the per-core disclosure and the dashboard grid, which render them with sleeping-core semantics. CPU temperature deliberately stays on its existing instantaneous sources: the PM table's PEAK_TEMP is a window peak, not an instantaneous reading.
 - **Settings**: the SMU PM Table section renders an L3 row per cache (clock, temp, logic+VDDM power, EDC limit) under the same monospace technical-label convention.
 - **Menu panel**: the per-core disclosure gains one compact L3 row per cache (clock/temp/power, full fields on hover) sized to the audited 308 pt row budget.
 - **Dashboard**: the Performance Suite dashboard gains an "SMU Telemetry (PM Table)" section — socket-power and package-temperature cards with trend charts (domain scaled to the PPT limit), a fabric-clock card (FCLK/UCLK/MEMCLK), and a 4-column per-core effective-clock grid fed by the same single-owner decode on the shared 3 s sync. One new localized key across all 13 locales; the section hides entirely on old kexts or undecodable table versions.
@@ -128,32 +180,32 @@ on silicon.** Before this can be released, on the reference 5900XT:
 
 ### Fixed
 - **Menu popover no longer flips beside the icon** when tall content hits the panel's scroll cap (SMU per-core disclosure, iStats chart editor — any capped content). The height budget now subtracts the real chrome: 40 pt margin, outer panel padding inside the section accounting — a capped window always fits the visible frame.
-- **Frequency aggregates keep current-clock semantics**: the SMU PM-table's per-core CORE_FREQEFF is a window average (a CC6-parked core decodes to single-digit MHz), and an earlier S9c draft promoted it into the core snapshot, feeding impossible values (1/894/339 MHz) to the Settings min/max/avg rows, the popover CPU card, the menu bar avg/peak and the IPS estimate. The core snapshot keeps the kext metric array; per-core SMU clocks render where sleeping-core semantics exist. A source-pin test fails the build if the override silently returns.
+- **Frequency aggregates keep current-clock semantics**: the SMU PM-table's per-core CORE_FREQEFF is a window average (a CC6-parked core decodes to single-digit MHz), and an earlier draft promoted it into the core snapshot, feeding impossible values (1/894/339 MHz) to the Settings min/max/avg rows, the popover CPU card, the menu bar avg/peak and the IPS estimate. The core snapshot keeps the kext metric array; per-core SMU clocks render where sleeping-core semantics exist. A source-pin test fails the build if the override silently returns.
 
 ## [1.30.0] — 2026-09-11
 
-### AMD Kernel: SMU PM-table plumbing (wave S9a)
-- **The kext now snapshots the SMU's own PM table** — the same metrics table ryzen_smu and HWiNFO read — through the documented Vermeer RSMU sequence: `GetPMTableVersion` (0x08, one-shot static read), `TransferTableSmu2Dram` (0x05, Arg0=0, the SMU copies the table to DRAM) and `GetDramBaseAddress` (0x06, Arg0=1/Arg1=1, 64-bit base assembled as `arg0 | arg1<<32` via a new two-argument mailbox variant `smuSendCmd2`). The whole cycle runs on the main timer's command gate (F-05), throttled to one transfer + re-map check per second.
+### AMD Kernel: SMU PM-table plumbing
+- **The kext now snapshots the SMU's own PM table** — the same metrics table ryzen_smu and HWiNFO read — through the documented Vermeer RSMU sequence: `GetPMTableVersion` (0x08, one-shot static read), `TransferTableSmu2Dram` (0x05, Arg0=0, the SMU copies the table to DRAM) and `GetDramBaseAddress` (0x06, Arg0=1/Arg1=1, 64-bit base assembled as `arg0 | arg1<<32` via a new two-argument mailbox variant `smuSendCmd2`). The whole cycle runs on the main timer's command gate, throttled to one transfer + re-map check per second.
 - **Read-only, snapshot-only**: the kext maps the SMU-provided physical region read-only with a short-lived `IOMemoryDescriptor` mapping, copies it into a fixed 0x2000-byte buffer and unmaps immediately — nothing persists, and nothing in this path writes to SMU-controlled memory. Table size comes from a per-version fail-closed table (10 documented Vermeer/Chagall versions, 0x594…0x1BB0 bytes); unknown versions refuse the mapping entirely rather than guess a size.
 - **Selector 56 (non-privileged)** reports the cached diagnostics: table version word, size, 64-bit physical base, snapshot validity, snapshot age and the CCD count. **Selector 57 (structure method)** reads the raw snapshot bytes chunked (app chooses chunk ≤ 0x1000) and supports a force-recapture op that runs one immediate capture cycle on the command gate.
 - **App**: new “SMU PM Table” diagnostics section — version rendered BCD-style (e.g. 38.09.04), documented size or a localized “unknown version” row, physical base address, snapshot age, and an **Export snapshot…** button writing the raw bytes through NSSavePanel for bug reports and offline analysis. Version-decode helpers are unit-tested.
 
-### AMD App: SMU PM-table decode + per-core telemetry (wave S9b)
+### AMD App: SMU PM-table decode + per-core telemetry
 - **The app now decodes the captured PM table** into live telemetry: package metrics (PPT/TDC/EDC/THM limits and values, VID, socket power, FCLK/UCLK/MEMCLK, peak temp, PC6) and per-core rows (effective clock, temperature, power, C0/CC6 residency). Layout family from hattedsquirrel `pm_tables.c`: **0x380805** (16-core Vermeer, hardware-validated against two live 5900XT captures committed under `Tests/Fixtures/PMTable`), plus **0x380804 / 0x380904 / 0x380905** (old-head and 8-core siblings, proven by synthetic-capture tests at the documented elements). Fail-closed: versions without an authoritative public map (0x380705 among them) stay undecoded — a negative-control test pins that, so the app never guesses telemetry offsets.
 - **Menu panel**: the AMD Power section gains a “Per-Core Telemetry (SMU)” disclosure — per-core clock/temperature/power rows with rolling 3-minute sparklines fed by the existing 3 s sync (no new timers, no extra kext traffic), an at-a-glance package summary while collapsed, and per-field column toggles (voltage, C0, CC6) persisted to defaults. Row width budget audited against the 308 pt panel: every optional column combination fits without wrapping.
 - **Settings**: the SMU PM Table diagnostics section now renders the decoded package metrics and per-core rows next to the raw-hex export flow.
-- **Regression pins**: the unit-test suite reads the kernel C++ sources at test time and fails the build if the S9a on-hardware fixes ever silently regress — Vermeer RSMU mailbox registers (0x3B10524/0x3B10A40/0x3B10570), the `kIOMapAnywhere` mapping flags, and every entry of the fail-closed PM-table size table. Suite grew to **6131 checks OK**.
+- **Regression pins**: the unit-test suite reads the kernel C++ sources at test time and fails the build if the on-hardware fixes ever silently regress — Vermeer RSMU mailbox registers (0x3B10524/0x3B10A40/0x3B10570), the `kIOMapAnywhere` mapping flags, and every entry of the fail-closed PM-table size table. Suite grew to **6131 checks OK**.
 
 ### Packaging
-- Kexts rebuilt at **3.34.11**: fixes the Vermeer RSMU mailbox registers (response 0x3B10570, args 0x3B10A40 — response/args were mis-pinned, so every SMU command silently timed out) and adds `kIOMapAnywhere` to the S9a PM-table kernel mapping (a fixed map at address 0 always failed → rc -15). Adds a boot-time `[SMU Diagnostic]` one-shot probe, per-command elapsed-time instrumentation, and failure logging across all SMU pollers and the S9a PM-table capture. Verified on hardware: SMU version 0x384c00, ProcessorParameters 0x3, boost 4950 MHz, PM-table version 0x380805 (2288 B). `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` refreshed and its SHA-256 repinned in `Tools/make-dmg.sh`. App 1.30.0 (70).
-- Refreshed again for wave S9b: kexts rebuilt at **3.34.12** (same on-hardware-verified S9a fixes; version bump only, so the fixed load is unambiguous in `kextstat`), `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` re-signed with SHA-256 `cd14787b…cf81de6` repinned in `Tools/make-dmg.sh`. App 1.30.0 (71).
+- Kexts rebuilt at **3.34.11**: fixes the Vermeer RSMU mailbox registers (response 0x3B10570, args 0x3B10A40 — response/args were mis-pinned, so every SMU command silently timed out) and adds `kIOMapAnywhere` to the PM-table kernel mapping (a fixed map at address 0 always failed → rc -15). Adds a boot-time `[SMU Diagnostic]` one-shot probe, per-command elapsed-time instrumentation, and failure logging across all SMU pollers and the PM-table capture. Verified on hardware: SMU version 0x384c00, ProcessorParameters 0x3, boost 4950 MHz, PM-table version 0x380805 (2288 B). `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` refreshed and its SHA-256 repinned in `Tools/make-dmg.sh`. App 1.30.0 (70).
+- Refreshed again: kexts rebuilt at **3.34.12** (same on-hardware-verified fixes; version bump only, so the fixed load is unambiguous in `kextstat`), `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` re-signed with SHA-256 `cd14787b…cf81de6` repinned in `Tools/make-dmg.sh`. App 1.30.0 (71).
 
 ### Packaging (1.31.0)
 - App **1.31.0 (74)**; kexts unchanged at **3.34.12** (app-only release, no kernel changes — the EFI kexts from 3.34.12 keep working).
 
 ## [1.29.0] — 2026-09-11
 
-### AMD Kernel: SMU frequency overrides behind the OC gate (wave S8, phase 2)
+### AMD Kernel: SMU frequency overrides behind the OC gate
 - **All-core frequency override**: privileged **selector 51** programs an absolute core-clock target through the Vermeer RSMU `SetOverclockFreqAllCores` command (0x5C, `freq & 0xFFFFF` MHz). The kernel validates the 400…8000 MHz envelope (doc MIN/MAX), and — new for phase 2 — **refuses unless this driver enabled OC mode itself earlier this boot** (`kIOReturnNotPermitted`): the kext only sends frequency writes after observing its own 0x5A succeed, so an OC gate opened by the BIOS or another tool never silently unlocks this path. Same thermal interlock and mapped-error policy as every write selector.
 - **Per-CCD frequency overrides**: `SetOverclockFreqPerCore` (0x5D) with the pinned Vermeer mask `(ccd << 28) | ((core % 8) << 20) | freq` — which collapses to `(ccd << 28) | freq` because Vermeer has one CCX per CCD and the CCX-uniformity rule makes the CCD the SMU's real frequency granularity. The UI therefore presents **CCD rows**, not per-core sliders that would all write the same value. One mailbox round trip per CCD; a mid-sequence failure leaves earlier CCDs programmed and the cache tells the truth. The kernel builds the mask — user space never ships packed masks.
 - **Selector 52 (read-only)**: the frequency-override cache — all-core plus per-CCD values last programmed by this driver this boot (0 = never written; the SMU has no read-back). Also reports the kext's start-time CCD count so the UI sizes its rows from real silicon topology.
@@ -164,24 +216,24 @@ on silicon.** Before this can be released, on the reference 5900XT:
 
 ## [1.28.0] — 2026-09-11
 
-### AMD Kernel: OC-mode gate (wave S8, phase 1) + hardware-risk warnings
+### AMD Kernel: OC-mode gate + hardware-risk warnings
 - **Overclocking Mode master switch**: the kext now drives the Vermeer RSMU OC-mode gate — `EnableOcMode` (0x5A) / `DisableOcMode` (0x5B), semantics pinned by two independent sources (the public-record command table and irusanov/ZenStates-Core, which untangled the doc's contradictory rows). **Selector 49** returns an OC capability report (fused overclocking bit from the 0x6F read, OC-mode cache and its state); privileged **selector 50** enables/disables the gate behind the same root/`-amdpnopchk` + 75 °C thermal interlock as every other write. The SMU has no read-back for the gate: the state row reflects the kext's write cache, and disabling optionally resets the PBO scalar to 1.0x (some SMU firmware does not do it automatically — documented ZenStates-Core quirk).
-- **Frequency (0x5C/0x5D) and VID (0x61) writes are deliberately absent** — they land only after this gate is validated on real hardware (see the S-series roadmap; encodings already pinned by research).
+- **Frequency (0x5C/0x5D) and VID (0x61) writes are deliberately absent** — they land only after this gate is validated on real hardware (encodings already pinned by research).
 - **Hardware-risk disclaimer**: AMD Power Settings now opens the SMU write area with a red warning banner that names the real stakes — overclocking, voltage and power-limit changes can permanently damage or kill the CPU, motherboard or memory, and the authors take no responsibility for damaged hardware (nor for anything else, including alien invasions). Enabling OC mode additionally requires an explicit confirmation dialog accepting responsibility. All 13 locales.
 - **13-locale sweep** for the new strings, with format-specifier invariant tests; the strict-concurrency gate stays at 0 diagnostics.
 - Kexts rebuilt at **3.34.6**; `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` refreshed and its SHA-256 repinned in `Tools/make-dmg.sh`. App 1.28.0 (67).
 
 ## [1.27.0] — 2026-09-11
 
-### AMD Kernel: SMU firmware version + active scalar readback (wave S7)
+### AMD Kernel: SMU firmware version + active scalar readback
 - **SMU firmware version diagnostics**: the kext's command-gate timer performs a one-shot read of the global `GetSMUVersion` command (0x02 — per the public record, "consistent with all platforms"). **Selector 47** exposes the raw byte-packed version word plus a "polled" flag; the app decodes it in the unit-tested `AMDSmuReadback.formatSmuVersion` helper (24-bit `A.B.C`, or 32-bit `A.B.C.D` when byte 3 ≠ 0 — the same rendering the reference libsmu uses). The version shows as a diagnostics row in AMD Power Settings for the bug-report workflow.
 - **Active PBO scalar readback**: the timer also polls the Vermeer RSMU `GetPBOScalar` command (0x6C) inside the boost-telemetry throttle window. **Selector 48** exposes the raw response — an IEEE-754 float in the 1.0–10.0 range (a different encoding than the 0x58 write!) — decoded app-side in `AMDSmuReadback.formatActiveScalar`. This is what the SMU itself reports as active, complementing the 0x58 write cache in the PBO section with real drift detection; out-of-range words refuse to render rather than invent a value.
-- Both selectors are read-only and served exclusively from the timer cache — user-space reads never touch the SMU (F-05 policy). All 13 locales carry the two new rows; format-specifier invariant tests extended.
+- Both selectors are read-only and served exclusively from the timer cache — user-space reads never touch the SMU. All 13 locales carry the two new rows; format-specifier invariant tests extended.
 - Kexts rebuilt at **3.34.5**; `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` refreshed and its SHA-256 repinned in `Tools/make-dmg.sh`. App 1.27.0 (66).
 
 ## [1.26.0] — 2026-09-11
 
-### AMD Kernel: cHTC thermal limit + fused capability bits (wave S6)
+### AMD Kernel: cHTC thermal limit + fused capability bits
 - **cHTC limit control**: the kext now programs the package cHTC thermal limit via the Vermeer SMU `SetcHTCLimit` command (0x56, Arg0 = °C), behind the same capability gate and 85 °C package-temperature interlock as the PBO limits. New privileged **selector 46** validates the target into a 40…95 °C window (Tjmax on Vermeer); **selector 45** reads back the last value programmed this boot — the SMU has no read command for cHTC, so the kext caches on write success, exactly like the PBO limits.
 - **ProcessorParameters capability bits**: the command-gate timer performs a one-shot read of the Vermeer RSMU `GetProcessorParameters` command (0x6F) — static silicon configuration, never re-issued after the first successful answer. **Selector 44** exposes the raw bitfield (bit 0 IsOverclockable, bit 1 PBO support) plus a "polled" flag, so a genuine 0-bitfield is distinguishable from "not read yet". The word is cached raw and decoded app-side in the unit-tested `AMDSmuParameters` helpers; any undocumented bits surface as raw hex instead of being silently dropped.
 - **Settings UI**: a new "cHTC Thermal Limit (SMU)" section in AMD Power Settings with the slider/apply/status flow shared with the PBO controls, an applied read-back row, and fused-capability badges (overclocking unlocked, PBO support). Fail-closed banners for Zen 4 and non-Vermeer silicon.
@@ -190,7 +242,7 @@ on silicon.** Before this can be released, on the reference 5900XT:
 
 ## [1.25.0] — 2026-09-11
 
-### AMD Kernel: SMU boost telemetry (wave S5)
+### AMD Kernel: SMU boost telemetry
 - **Max boost frequency & fastest core, straight from the SMU**: the kext's command-gate timer now polls the Vermeer RSMU read commands documented in the public record — `GetMaxFrequency` (0x6E) and `GetFastestCoreOfSocket` (0x59) — through the same mailbox the kext already drives. Results are cached kernel-side; user-space reads never touch the SMU (same off-the-hot-path policy as the 1.20.0 GPU fix).
 - **New read-only selector 43**: returns the cached max boost frequency in MHz, the raw 0x59 response word, and a "cache valid" flag. The 0x59 word is decoded app-side in the single, unit-tested `AMDSmuBoost.decodeFastestCore` helper — the public record's decode expression is ambiguous, so the kext caches the raw word and refuses to guess.
 - **Settings UI**: a new "Boost Telemetry (SMU)" section in AMD Power Settings shows the silicon's own max boost clock and which physical core is currently hitting it, refreshed every 3 s with the rest of the control sync. A fail-quiet placeholder row shows while the kext cache is cold (first poll after boot); undecodable raw words render as hex instead of a wrong core number.
@@ -199,7 +251,7 @@ on silicon.** Before this can be released, on the reference 5900XT:
 
 ## [1.24.0] — 2026-09-11
 
-### AMD Kernel: Precision Boost Overdrive Limits (wave S4)
+### AMD Kernel: Precision Boost Overdrive Limits
 - **Precision Boost Overdrive (PBO) limits & scalar control**: added kernel-level support for adjusting PPT (Package Power Tracking in mW), TDC (Thermal Design Current in mA), EDC (Electrical Design Current in mA), and PBO Scalar (1.0x–10.0x) on AMD Zen 3 Vermeer CPUs via RSMU commands (`0x53`, `0x54`, `0x55`, `0x58`).
 - **UserClient selectors 40, 41, 42**:
   - Selector 40: reports PBO capability, safe envelopes, and cached values.
@@ -213,7 +265,7 @@ on silicon.** Before this can be released, on the reference 5900XT:
 
 ## [1.23.0] — 2026-09-11
 
-### AMD Kernel & Concurrency (wave S3)
+### AMD Kernel & Concurrency
 - **Zero `nonisolated(unsafe)` in the kext bridge**: all six unsafe actor-isolation escape hatches in `ProcessorModel` were replaced with lock-guarded boxes in the project's established `PowerCache` pattern — an atomic `ConnectBox` for the IOKit handle (per-call handle snapshot in every kext call), a `WatchdogBox` for the reload-reconnect task, an `IdentityCache` for the About-panel kext version and baseboard strings, and a `FavoriteThreadsCache` for the menu-panel core-grid badges. The strict-concurrency gate remains at zero diagnostics; behavior is unchanged.
 - **Curve Optimizer capability report (new read-only selector 35)**: the kext — not the app — is now the single source of truth for whether Curve Optimizer writes are accepted, exposing {supported, active SMU command ID, safe offset range}. The settings UI gates on this report first and only falls back to the app-side family/model check on pre-1.22 kexts. Curve Optimizer behavior is unchanged on Vermeer (Zen 3) and stays fail-closed on Zen 4/5; a future kernel-side enablement will no longer require an app update. New tests cover the selector's sign-extension decode of the offset range.
 - Under the hood: this wave also fixed a latent kext-build breakage in the selector-34 access path by promoting the SMU-mailbox capability accessors to public members.
@@ -245,18 +297,18 @@ on silicon.** Before this can be released, on the reference 5900XT:
 ## [1.20.0] — 2026-09-05
 
 ### AMD Kernel Extensions & Audit Remediation (v3.34.2)
-- **F-05 — GPU telemetry off the hot path**: the SMC plugin's `RGPUTempValue`/`RGPUPowerValue` keys and the UserClient GPU selectors (28/29) now serve the provider's cached snapshot instead of issuing live SMU-mailbox reads. The old path could busy-wait up to 100 ms holding `gpuLock` **on any process's thread** that merely read the SMC key.
-- **F-07 — user-client task lifetime**: `AMDRyzenCPUPMUserClient` now retains its owning task (`task_reference`/`task_deallocate`), closing the use-after-free window in per-call privilege re-validation.
-- **N-01 — zero-initialized GPU outputs**: selectors 28/29 no longer copy uninitialized stack bytes to userspace when a per-GPU read fails.
-- **C-1 — per-core C6 residency (new selector 32)**: the kext now exports per-logical-core idle residency derived from its existing per-CPU accounting; `C6ResidencyService` publishes a per-core snapshot on the same cadence as the package metric.
-- **C-9 — kext reload self-healing (fixes audit B-25)**: the watchdog now detects a reloaded kext service, reopens the user-client connection, re-runs initialization and posts `KextReconnected` — previously the app stayed degraded until a manual restart.
+- **GPU telemetry off the hot path**: the SMC plugin's `RGPUTempValue`/`RGPUPowerValue` keys and the UserClient GPU selectors (28/29) now serve the provider's cached snapshot instead of issuing live SMU-mailbox reads. The old path could busy-wait up to 100 ms holding `gpuLock` **on any process's thread** that merely read the SMC key.
+- **User-client task lifetime**: `AMDRyzenCPUPMUserClient` now retains its owning task (`task_reference`/`task_deallocate`), closing the use-after-free window in per-call privilege re-validation.
+- **Zero-initialized GPU outputs**: selectors 28/29 no longer copy uninitialized stack bytes to userspace when a per-GPU read fails.
+- **Per-core C6 residency (new selector 32)**: the kext now exports per-logical-core idle residency derived from its existing per-CPU accounting; `C6ResidencyService` publishes a per-core snapshot on the same cadence as the package metric.
+- **Kext reload self-healing**: the watchdog now detects a reloaded kext service, reopens the user-client connection, re-runs initialization and posts `KextReconnected` — previously the app stayed degraded until a manual restart.
 - **Kexts rebuilt from audited sources at 3.34.2** and bundled in the DMG.
 
-### App Concurrency & Correctness (F-27…F-30)
-- **Thread-safe kext connection checks** (F-27): replaced all 6 external `connect != 0` reads with the lock-guarded `isConnected` accessor across `AutoEppService`, `FanCurveController`, `AmdPowerControlsModel`, and `AmdPowerSettingsView`.
-- **Blocking kext IPC off MainActor** (F-28): `C6ResidencyService.poll()` now wraps the kext read + uptime timestamp in `Task.detached`; `AmdPowerControlsModel.syncFromKext()` batches 5 IPC calls in a single detached task with re-entrancy guard.
-- **Fan picker hardware names** (F-29): menu-panel fan picker now shows hardware-reported or user-custom fan names via `getFans(includeNames: true)` instead of synthesized "Fan N" labels.
-- **GPU temperature doc comment** (F-30): corrected `getKextGPUTemperatures()` doc comment — kext selector 28 returns integer °C directly, not SP78 fixed-point.
+### App Concurrency & Correctness
+- **Thread-safe kext connection checks**: replaced all 6 external `connect != 0` reads with the lock-guarded `isConnected` accessor across `AutoEppService`, `FanCurveController`, `AmdPowerControlsModel`, and `AmdPowerSettingsView`.
+- **Blocking kext IPC off MainActor**: `C6ResidencyService.poll()` now wraps the kext read + uptime timestamp in `Task.detached`; `AmdPowerControlsModel.syncFromKext()` batches 5 IPC calls in a single detached task with re-entrancy guard.
+- **Fan picker hardware names**: menu-panel fan picker now shows hardware-reported or user-custom fan names via `getFans(includeNames: true)` instead of synthesized "Fan N" labels.
+- **GPU temperature doc comment**: corrected `getKextGPUTemperatures()` doc comment — kext selector 28 returns integer °C directly, not SP78 fixed-point.
 - **`closeDriver()` wired into termination**: `ProcessorModel.shared.closeDriver()` is now called from `applicationWillTerminate` as the final kext teardown step, ensuring the watchdog task is actually cancelled and the IOKit connection is closed cleanly on quit.
 - **Sendable conformances** (strict-concurrency): `TerminationState`, `PowerCache`, and `GPUCache` are now `@unchecked Sendable`; `IOAcceleratorCache` now returns a `GPUStatsSnapshot` wrapper instead of bare `[String: Any]`, eliminating all 20 AMD-layer diagnostics under `-strict-concurrency=complete`.
 - **AMD concurrency ratchet gate** (`Tools/concurrency-gate.sh`): new CI step enforces zero strict-concurrency diagnostics in the AMD layer; added to `.github/workflows/ci.yml`.
@@ -265,18 +317,18 @@ on silicon.** Before this can be released, on the reference 5900XT:
 ## [1.18.0] — 2026-09-03
 
 ### AMD Kernel Extensions & Telemetry Hardening (v3.34.1)
-- **Kernel Heap Bounds Protection**: Added strict bounds guards across CPU instruction delta, clock speed calculation, and rendezvous initialization routines on systems with >64 cores, eliminating heap out-of-bounds writes (F-13).
-- **Fan Curve Downward Hysteresis Anchor**: Seeded and anchored downward fan curve hysteresis tracking against last applied duty cycle temperatures, preventing erratic PWM jitter and rapid fan cycling (F-14).
-- **SuperIO NCT668X Privilege Gating**: Gated configuration register 0x30 I/O-space decode unlocking behind driver privilege checks, securing LPC bus address decoding from unprivileged mutation (F-15).
-- **User-Client Buffer Underrun Rejection**: Enforced mandatory output buffer size validation across all 25 struct-output method selectors, rejecting undersized user buffers with `kIOReturnBadArgument` to prevent uninitialized kernel memory disclosure (F-16).
-- **SuperIO IT86XX Probe Port Cleanup**: Completed proper close sequence (`outb(regport, 0xAA)` / `outb(regport, 0x02)`) on failed SuperIO chip identification, preventing dangling enter-state conditions on ports 0x4E/0x2E (F-18).
-- **Core Metric Telemetry & Read-Side OOB Guard**: Capped selector 4 effective cores at `CPUInfo::MaxCpus`, bounding required buffer size to ≤268 B across all processors and eliminating read-side kernel heap infoleaks on >64-physical-core machines (F-26).
+- **Kernel Heap Bounds Protection**: Added strict bounds guards across CPU instruction delta, clock speed calculation, and rendezvous initialization routines on systems with >64 cores, eliminating heap out-of-bounds writes.
+- **Fan Curve Downward Hysteresis Anchor**: Seeded and anchored downward fan curve hysteresis tracking against last applied duty cycle temperatures, preventing erratic PWM jitter and rapid fan cycling.
+- **SuperIO NCT668X Privilege Gating**: Gated configuration register 0x30 I/O-space decode unlocking behind driver privilege checks, securing LPC bus address decoding from unprivileged mutation.
+- **User-Client Buffer Underrun Rejection**: Enforced mandatory output buffer size validation across all 25 struct-output method selectors, rejecting undersized user buffers with `kIOReturnBadArgument` to prevent uninitialized kernel memory disclosure.
+- **SuperIO IT86XX Probe Port Cleanup**: Completed proper close sequence (`outb(regport, 0xAA)` / `outb(regport, 0x02)`) on failed SuperIO chip identification, preventing dangling enter-state conditions on ports 0x4E/0x2E.
+- **Core Metric Telemetry & Read-Side OOB Guard**: Capped selector 4 effective cores at `CPUInfo::MaxCpus`, bounding required buffer size to ≤268 B across all processors and eliminating read-side kernel heap infoleaks on >64-physical-core machines.
 
 ### Application Stability, Privacy & Architecture
-- **Event Tap AX Messaging Timeouts**: Implemented strict 50 ms accessibility messaging timeouts and keystroke shortcut gating across `FinderCutPaste` and `AutoQuitService`, preventing CGEventTap auto-disablement and main thread UI hangs (F-22).
-- **Pasteboard Privacy & Secret Exclusion**: Excluded reverse-DNS transient and auto-generated types (`org.nspasteboard.TransientType`, `org.nspasteboard.AutoGeneratedType`) from clipboard history, safeguarding password manager entries (F-23).
-- **Thread-Safe Driver Lifecycle**: Protected IOKit driver connection checks with synchronized locking and ensured clean watchdog task cancellation on teardown, preventing background polling leaks and races (F-24).
-- **Platform Alignment**: Updated release documentation and minimum system requirements to explicitly target macOS 14 Sonoma and above (F-25).
+- **Event Tap AX Messaging Timeouts**: Implemented strict 50 ms accessibility messaging timeouts and keystroke shortcut gating across `FinderCutPaste` and `AutoQuitService`, preventing CGEventTap auto-disablement and main thread UI hangs.
+- **Pasteboard Privacy & Secret Exclusion**: Excluded reverse-DNS transient and auto-generated types (`org.nspasteboard.TransientType`, `org.nspasteboard.AutoGeneratedType`) from clipboard history, safeguarding password manager entries.
+- **Thread-Safe Driver Lifecycle**: Protected IOKit driver connection checks with synchronized locking and ensured clean watchdog task cancellation on teardown, preventing background polling leaks and races.
+- **Platform Alignment**: Updated release documentation and minimum system requirements to explicitly target macOS 14 Sonoma and above.
 
 ## [1.17.0] — 2026-09-02
 

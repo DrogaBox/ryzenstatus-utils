@@ -54,7 +54,7 @@ KEXT_SOURCE_LOCAL=""
 if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
     KEXT_SOURCE_LOCAL="1"
 fi
-# S11 A2: pin what SHIPS, not the container it arrived in.
+# Pin what SHIPS, not the container it arrived in.
 #
 # This replaced an EXPECTED_SHA on the zip archive. That pin had two problems.
 # It verified the container: a legitimate rebuild from byte-identical binaries
@@ -75,7 +75,7 @@ KEXT_PIN_PLUGIN_PLIST="6183894d72ae2a3ab182436fe1af0dd9521116ca0c855af0b4cf029ad
 if [[ ! -d "$KEXT_DRIVER" || ! -d "$KEXT_PLUGIN" ]] && [[ -f "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" ]]; then
     # Structural pre-check: assert the archive's top level is exactly the two
     # kext bundles. Unlike a hash this never needs updating on a rebuild, and it
-    # catches the S9d bug — a zip refreshed with only the driver — here, with a
+    # catches the driver-only bug — a zip refreshed with only the driver — here, with a
     # message that names the cause, instead of downstream as a missing path.
     ZIP_ROOTS="$(unzip -Z1 "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" \
         | awk -F/ 'NF>0 {print $1}' | sort -u)"
@@ -100,7 +100,7 @@ if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
     ditto "$KEXT_PLUGIN" "$STAGING/Kexts/SMCAMDProcessor.kext"
     rm -rf "$KEXT_TEMP"
     KEXT_TEMP=""
-    # S11: report provenance and version of what actually got packaged.
+    # Report provenance and version of what actually got packaged.
     #
     # The SHA-256 gate above only runs when SMCAMDProcessor_Source/build/dmg-kexts/
     # is absent. On a maintainer machine that directory usually exists and is
@@ -120,7 +120,7 @@ if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
         PACKAGED_KEXT_VERSION="unknown"
     fi
     echo "  ✓ AMDRyzenCPUPowerManagement.kext $PACKAGED_KEXT_VERSION added to DMG"
-    # S11 A2: verify the CONTENT of what was staged, on both provenance paths.
+    # Verify the CONTENT of what was staged, on both provenance paths.
     #
     # Strict on the ReleaseAssets path: a mismatch there means the reviewed
     # binaries are not the ones about to ship, which must never be published.
@@ -169,7 +169,7 @@ if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
         echo "    Source: ReleaseAssets zip, content pins + code signature verified."
     fi
     echo "  ✓ SMCAMDProcessor.kext added to DMG"
-    # S11 A1: assert what actually landed, instead of trusting the echoes above.
+    # Assert what actually landed, instead of trusting the echoes above.
     #
     # The two `ditto` calls are covered by `set -e`, but nothing verified that the
     # staged bundles are intact — and every packaging bug found so far took the
@@ -181,7 +181,7 @@ if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
         fi
     done
 else
-    # S11 A1: a DMG with no kexts is a BROKEN artifact, not a warning.
+    # A DMG with no kexts is a BROKEN artifact, not a warning.
     #
     # This branch used to `echo … >&2` and continue, so the script exited 0 and CI
     # stayed green while publishing a DMG whose Kexts/ folder did not exist. That
@@ -210,7 +210,7 @@ else
 fi
 mkdir "$STAGING/.background"
 cp build/dmg-background.png "$STAGING/.background/background.png"
-# S11: seed the window layout from a checked-in .DS_Store.
+# Seed the window layout from a checked-in .DS_Store.
 #
 # The Finder automation below is the only thing that positions the icons and
 # applies the background, and it needs Automation (Apple Events) permission for

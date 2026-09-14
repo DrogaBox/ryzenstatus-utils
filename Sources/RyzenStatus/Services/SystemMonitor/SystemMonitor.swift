@@ -42,7 +42,7 @@ struct SystemSnapshot {
     var memoryCached: UInt64?
     var memorySwapUsed: UInt64?
     var memoryPressure: MemoryPressure = .unknown
-    
+
     // GPU VRAM
     var gpuMemoryUsed: UInt64?
     var gpuMemoryTotal: UInt64?
@@ -170,7 +170,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     // Running state
     private var previousCPUTicks: (busy: UInt64, total: UInt64)?
     private var previousCoreTicks: [(busy: UInt64, total: UInt64)] = []
-    /// S10-T4: wake observer token — see invalidateTickBaseline().
+    /// Wake observer token — see invalidateTickBaseline().
     private var wakeObserver: Any?
     private var tickCount = 0
     /// Timer cadence in base ticks (GCD of the needed strides); 1 = every tick.
@@ -243,7 +243,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         cpuFreqHistory = MetricHistory(capacity: historyCapacity)
         ipsHistory = MetricHistory(capacity: historyCapacity)
         installPowerSourceObserver()
-        // S10-T4: CPU utilisation is a delta between consecutive tick samples.
+        // CPU utilisation is a delta between consecutive tick samples.
         // Across a suspend those bases are stale, so the first post-wake sample
         // is computed over the entire sleep interval and is meaningless.
         // Dropping the bases makes that sample return nil instead, and the next
@@ -257,7 +257,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         }
     }
 
-    /// S10-T4: drops the CPU/core tick baselines so the first post-wake sample
+    /// Drops the CPU/core tick baselines so the first post-wake sample
     /// is skipped rather than computed across the sleep discontinuity.
     private func invalidateTickBaseline() {
         previousCPUTicks = nil
@@ -268,7 +268,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         if let powerSourceRunLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), powerSourceRunLoopSource, .defaultMode)
         }
-        // S10-T4
+        // Release the wake observer.
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
         }
@@ -776,7 +776,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                         self.lastCPUUsage = cpu
                         self.missedCPUUsageSamples = 0
                         self.cpuHistory.push(cpu)
-                        
+
                         let freqs = self.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
                         let rawAvg = freqs.isEmpty ? 0 : freqs.reduce(0, +) / Double(freqs.count)
                         let freq = rawAvg / 1000.0
@@ -790,7 +790,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                         self.lastCPUUsage = cpuLoad
                         self.missedCPUUsageSamples = 0
                         self.cpuHistory.push(cpuLoad)
-                        
+
                         let freqs = self.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
                         let rawAvg = freqs.isEmpty ? 0 : freqs.reduce(0, +) / Double(freqs.count)
                         let freq = rawAvg / 1000.0
@@ -1261,15 +1261,15 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         var numCpuInfo: mach_msg_type_number_t = 0
         let host = mach_host_self()
         defer { mach_port_deallocate(mach_task_self_, host) }
-        
+
         var coreLoads: [Float] = []
         let kr = host_processor_info(host, PROCESSOR_CPU_LOAD_INFO, &cpuCount, &cpuInfo, &numCpuInfo)
-        
+
         if kr == KERN_SUCCESS, let cpuInfo = cpuInfo {
             let cpuLoadInfo = cpuInfo.withMemoryRebound(to: integer_t.self, capacity: Int(numCpuInfo)) { ptr in
                 UnsafeBufferPointer(start: ptr, count: Int(numCpuInfo))
             }
-            
+
             var newTicks: [(busy: UInt64, total: UInt64)] = []
             for i in 0..<Int(cpuCount) {
                 let offset = i * Int(CPU_STATE_MAX)
@@ -1280,7 +1280,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 let busy = user + system + nice
                 let total = busy + idle
                 newTicks.append((busy, total))
-                
+
                 var load: Float = 0
                 if previousCoreTicks.count > i {
                     let prev = previousCoreTicks[i]
@@ -1290,12 +1290,12 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 }
                 coreLoads.append(load * 100.0)
             }
-            
+
             previousCoreTicks = newTicks
             let deallocSize = vm_size_t(numCpuInfo) * vm_size_t(MemoryLayout<integer_t>.size)
             vm_deallocate(mach_task_self_, vm_address_t(bitPattern: cpuInfo), deallocSize)
         }
-        
+
         // Build CoreSnapshots in natural hardware processor order (interleaved)
         var cores: [CoreSnapshot] = []
         // FREQ SOURCE: the kext's computed metric array (current-clocks
@@ -1305,9 +1305,9 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         // single-digit MHz and would poison every aggregate consumer of
         // snapshot.cores[] — the Settings min/max/avg rows, the popover CPU
         // card, the menu bar avg/peak and the IPS estimate (all verified
-        // consumers). True per-physical-core SMU clocks live in the S9b
+        // Consumers). True per-physical-core SMU clocks live in the per-core
         // disclosure (AmdPowerControlsModel) which renders them per-core with
-        // sleeping-core semantics; the SMU socket POWER promotion (S9c) is
+        // Sleeping-core semantics; the SMU socket POWER promotion is
         // unaffected and stays in ProcessorModel.lastCPUPowerWatts.
         let numLogical = Int(cpuCount)
         if numLogical > 0 {
@@ -1331,9 +1331,9 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 ))
             }
         }
-        
+
         let ccdTemps = amdSnap.ccdTemperatures
-        
+
         return (cores, ccdTemps)
     }
 

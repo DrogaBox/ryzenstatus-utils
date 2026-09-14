@@ -18,7 +18,7 @@ public:
     virtual const char *getReadableStringForFan(int fan);
     
     virtual uint32_t getRPMForFan(int fan);
-    // S11: does getRPMForFan(fan) reflect a tachometer word the driver trusts?
+    // Does getRPMForFan(fan) reflect a tachometer word the driver trusts?
     //
     // The NCT drivers already track this per fan to gate their PWM estimator,
     // but it never left the driver, so neither the kext's own safety checks nor

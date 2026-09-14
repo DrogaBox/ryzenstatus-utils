@@ -162,7 +162,7 @@ enum SelfUninstall {
             NSApp.terminate(nil)
         } catch {
             try? FileManager.default.removeItem(at: scriptURL)
-            // S11 A6: this used to return here, silently.
+            // This used to return here, silently.
             //
             // By the time we reach this point the destructive steps have ALREADY
             // run — TCC grants were reset and preferences removed — so a silent

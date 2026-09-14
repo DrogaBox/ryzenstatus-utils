@@ -208,7 +208,7 @@ extension AppFeature {
         case .whatsAppDownloads: return [.filesAndFolders, .notifications]
         case .mixer: return [.audioCapture]
         case .monitorCPU, .monitorMemory, .monitorDisk, .monitorPower: return [.notifications]
-        // AUDIT A-01: GPU alerts send notifications (MonitorAlertService.evaluate
+        // GPU alerts send notifications (MonitorAlertService.evaluate
         // handles both GPU keys), so the feature must advertise them or the
         // permissions portal and activeFeatures stay blind to GPU alerting.
         case .monitorGPU: return [.notifications]
@@ -279,7 +279,7 @@ extension AppFeature {
                 return boolFor(DefaultsKey.monitorAlertDisk)
             case (.monitorPower, .notifications):
                 return boolFor(DefaultsKey.monitorAlertBattery)
-            // AUDIT A-01: GPU alert toggles must register as active notification
+            // GPU alert toggles must register as active notification
             // consumers just like the other monitor families.
             case (.monitorGPU, .notifications):
                 return boolFor(DefaultsKey.monitorAlertGPUTemperature)
@@ -306,7 +306,7 @@ extension AppFeature {
         (DefaultsKey.monitorAlertMemory, .monitorMemory),
         (DefaultsKey.monitorAlertDisk, .monitorDisk),
         (DefaultsKey.monitorAlertBattery, .monitorPower),
-        // AUDIT A-01: without these pairs, enabling only GPU alerts left
+        // Without these pairs, enabling only GPU alerts left
         // anyEnabled() == false, so MonitorAlertService.syncWithPreferences()
         // stopped the snapshot sink and the Settings toggles did nothing.
         (DefaultsKey.monitorAlertGPUTemperature, .monitorGPU),

@@ -199,7 +199,7 @@ final class MiddleClickService: ObservableObject {
         }
     }
 
-    /// AUDIT E-12: shared teardown for a relayed middle press whose physical
+    /// Shared teardown for a relayed middle press whose physical
     /// release never arrived (tap torn down, or the 10 s lost-release timeout).
     private func releaseStuckMiddleButton() {
         let position = CGEvent(source: nil)?.location ?? .zero
@@ -411,7 +411,7 @@ final class MiddleClickService: ObservableObject {
                 // A lost release must not swallow the user's clicks forever.
                 if now - middleButtonHeldSince > 10 {
                     middleButtonHeld = false
-                    // AUDIT E-12: the timeout used to only clear the flag — the
+                    // The timeout used to only clear the flag — the
                     // app that received the synthetic middle-down never got a
                     // middle-up and kept a wedged selection/drag state. Close
                     // the relay out exactly like stop() does.

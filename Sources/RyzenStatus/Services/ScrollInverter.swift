@@ -152,7 +152,7 @@ final class ScrollInverter: ObservableObject {
             )
             if plan.vertical {
                 event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: -verticalLine)
-                // AUDIT E-09: high-resolution wheels emit discrete events whose
+                // High-resolution wheels emit discrete events whose
                 // motion lives only in the fixed-point field (line reads 0).
                 // Negating the captured fields whenever they are non-zero keeps
                 // inversion lossless for those mice too; for events where the

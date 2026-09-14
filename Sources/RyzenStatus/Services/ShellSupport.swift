@@ -15,7 +15,7 @@ enum Shell {
         p.standardError = pipe
         do { try p.run() } catch { return (-1, "") }
 
-        // AUDIT B-06: Add deadline + drain queue with SIGTERM->SIGKILL escalation
+        // Add deadline + drain queue with SIGTERM->SIGKILL escalation
         // so a hung subprocess (e.g. ps, nettop) cannot permanently stall process monitoring.
         let group = DispatchGroup()
         group.enter()
@@ -114,7 +114,7 @@ enum Sudoers {
     // Rule files written under earlier names; removed whenever the rule is
     // (re)installed or removed, so the closed-lid permission migrates without an
     // extra password prompt.
-    // AUDIT D-07: the current rule path must NOT appear here — the duplicate
+    // The current rule path must NOT appear here — the duplicate
     // made ruleFilesPresent()/rm list the same file twice.
     private static let legacyRulePaths = [
         "/etc/sudoers.d/ryzenstatus-utils-clamshell",
@@ -155,7 +155,7 @@ enum Sudoers {
         // Clear any earlier-named rule first, then write and validate the new one
         // (a failed check rolls back). Same password prompt either way.
         let legacy = legacyRulePaths.joined(separator: " ")
-        // AUDIT D-07 / SEC-08: no more `chmod 0755 /etc/sudoers.d` and atomic 0440 file installation
+        // No more `chmod 0755 /etc/sudoers.d` and atomic 0440 file installation
         let command = "mkdir -p /etc/sudoers.d && rm -f \(legacy) && (umask 077 && /bin/echo '\(rule)' | /usr/bin/install -m 0440 /dev/stdin \(rulePath)) && /usr/sbin/visudo -c -f \(rulePath) || { rm -f \(rulePath); exit 1; }"
         AdminShell.run(command, prompt: L10n.shared.s.adminPromptSudoersInstall) { ok in
             completion(ok && isConfigured())

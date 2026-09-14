@@ -61,7 +61,7 @@ enum URLCleaning {
             return nil
         }
 
-        // AUDIT D-25: splice the percent-encoded query instead of round-tripping
+        // Splice the percent-encoded query instead of round-tripping
         // through `queryItems`. Reading `queryItems` decodes percent-escapes and
         // writing them back re-encodes with the query-allowed set, which turned
         // "q=C%2B%2B" into "q=C++" (and "q=a+b" lost its plus) — silently

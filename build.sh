@@ -223,7 +223,7 @@ xattr -c -r build/AppIcon.iconset build/AppIcon.icns build/MenuBarIcon.png build
 echo "▸ Assembling and signing bundle…"
 STAGE_ROOT="$(mktemp -d)"
 STAGE="$STAGE_ROOT/$APP_NAME.app"
-# AUDIT A-10: remove the mktemp staging bundle on exit — every build used to
+# remove the mktemp staging bundle on exit — every build used to
 # leave a full signed .app behind in $TMPDIR until the OS purged it.
 trap 'rm -rf "$STAGE_ROOT"' EXIT
 mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources"
