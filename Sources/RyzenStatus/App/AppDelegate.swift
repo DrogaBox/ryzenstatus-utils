@@ -715,8 +715,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             window.animator().alphaValue = 0
         } completionHandler: { [weak self, weak window] in
-            window?.alphaValue = 1
-            self?.finishPopoverClose()
+            // AppKit delivers an animation completion handler on the main thread,
+            // but the newer SDK does not type it as main-actor-isolated, so the
+            // call below needs the isolation stated. Only visible when building
+            // against Xcode's SDK, not the Command Line Tools one — see the
+            // commit message.
+            MainActor.assumeIsolated {
+                window?.alphaValue = 1
+                self?.finishPopoverClose()
+            }
         }
     }
 

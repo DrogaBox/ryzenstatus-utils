@@ -6,6 +6,11 @@ import Combine
 
 /// Owns the menu bar presence: the black hole glyph, the optional countdown
 /// title and the tooltip. Click handling is delegated back to the AppDelegate.
+// E1 stage 2: main-only by construction — every Combine pipeline in here uses
+// `.receive(on: DispatchQueue.main)` and every dispatch is `DispatchQueue.main`,
+// with no private queue, no `.global`, no `Task` and no OperationQueue. Stating
+// the isolation lets the compiler check that instead of assuming it.
+@MainActor
 final class StatusItemController {
     /// Set by AppDelegate after construction so services (Gaming Mode) can
     /// force-hide the icon without owning the controller.
@@ -66,7 +71,9 @@ final class StatusItemController {
         bind()
 
         titleTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            self?.refresh()
+            // Scheduled from this @MainActor init, so it lands on the main run
+            // loop and fires there; assumeIsolated states that to the compiler.
+            MainActor.assumeIsolated { self?.refresh() }
         }
         titleTimer?.tolerance = 5
     }
@@ -188,7 +195,8 @@ final class StatusItemController {
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
                                                                   object: nil,
                                                                   queue: .main) { [weak self] _ in
-            self?.scheduleSettingsSync()
+            // Registered with `queue: .main`, so delivery is on the main thread.
+            MainActor.assumeIsolated { self?.scheduleSettingsSync() }
         }
 
         // S10 UI-01: force an immediate re-render when the user flips the system
