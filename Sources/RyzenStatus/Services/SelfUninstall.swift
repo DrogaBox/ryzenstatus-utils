@@ -60,6 +60,7 @@ enum SelfUninstall {
     /// keyboard and clicks (only the mouse cursor keeps moving). Each `stop`/
     /// `suspend`/`deactivate` is idempotent, so calling it when a service is
     /// already off is a no-op.
+    @MainActor
     private static func suspendInputInterceptors() {
         ScrollInverter.shared.suspend()
         SmoothScrollService.shared.suspend()
