@@ -303,5 +303,25 @@ public enum AMDFanSafety {
     public static func guardOnlyPWM(userPWM: UInt8, currentTemp: Double) -> UInt8 {
         currentTemp >= thermalGuardTempC ? max(userPWM, thermalGuardPWM) : userPWM
     }
-}
 
+    /// Decodes selector 94 wire response (UInt64 per fan) together with tachometer reading:
+    /// - Bits 15:8 = throttle/PWM value (0-255)
+    /// - Bit 1     = tachometer validity (1 = hardware tach valid, 0 = implausible / torn / untrusted)
+    /// - Bit 0     = autoFlag (1 = Auto/SmartGuardian, 0 = Manual/Override)
+    ///
+    /// Gated against kext >= 3.34.15 where bit 1 was introduced. Older kexts wrote bit 1 as 0,
+    /// so un-gated decoding against older kexts would invalidate every fan.
+    public static func decodeSelector94(raw: UInt64, rawRPM: UInt64, kextVersion: String) -> (throttle: UInt8, isAuto: Bool, rpmValid: Bool, rpm: UInt64) {
+        let throttle = UInt8((raw >> 8) & 0xFF)
+        let isAuto = (raw & 0x01) != 0
+        let kextSupportsRpmValid = !kextVersion.isEmpty && kextVersion.compare("3.34.15", options: .numeric) != .orderedAscending
+        let rpmValid: Bool
+        if kextSupportsRpmValid {
+            rpmValid = ((raw & 0x02) != 0) && (rawRPM <= 10_500)
+        } else {
+            rpmValid = rawRPM <= 10_500
+        }
+        let rpm = rpmValid ? rawRPM : 0
+        return (throttle, isAuto, rpmValid, rpm)
+    }
+}

@@ -7348,6 +7348,31 @@ struct MetricsTests {
         expect(AMDFanSafety.guardOnlyPWM(userPWM: 220, currentTemp: 90.0) == 220,
                "guardOnlyPWM preserves duty already above the guard")
 
+        // MARK: Selector 94 wire decoding & tachometer validity tests
+        // Wire: (throttle << 8) | (rpmValid ? 2 : 0) | (auto ? 1 : 0)
+        let decModernValid = AMDFanSafety.decodeSelector94(raw: (127 << 8) | 0x02 | 0x01, rawRPM: 1303, kextVersion: "3.34.17")
+        expect(decModernValid.throttle == 127, "modern decode extracts throttle 127")
+        expect(decModernValid.isAuto == true, "modern decode extracts auto mode")
+        expect(decModernValid.rpmValid == true, "modern decode accepts valid tach bit 1")
+        expect(decModernValid.rpm == 1303, "modern decode preserves RPM on valid sample")
+
+        let decModernUntrusted = AMDFanSafety.decodeSelector94(raw: (96 << 8) | 0x00 | 0x01, rawRPM: 1500, kextVersion: "3.34.17")
+        expect(decModernUntrusted.throttle == 96, "modern decode extracts throttle 96")
+        expect(decModernUntrusted.rpmValid == false, "modern decode rejects sample when bit 1 is clear (untrusted tach)")
+        expect(decModernUntrusted.rpm == 0, "modern decode zeroes RPM when invalid to prevent stale laundering")
+
+        let decModernOOB = AMDFanSafety.decodeSelector94(raw: (51 << 8) | 0x02 | 0x01, rawRPM: 15_000, kextVersion: "3.34.17")
+        expect(decModernOOB.rpmValid == false, "modern decode rejects RPM > 10500 ceiling even with bit 1 set")
+
+        // Backward compatibility: kext < 3.34.15 wrote bit 1 as 0, must not invalidate fans on old kexts
+        let decLegacy = AMDFanSafety.decodeSelector94(raw: (51 << 8) | 0x00 | 0x01, rawRPM: 1200, kextVersion: "3.34.14")
+        expect(decLegacy.rpmValid == true, "legacy kext (< 3.34.15) falls back to plausible range check without failing on bit 1")
+        expect(decLegacy.rpm == 1200, "legacy kext preserves plausible RPM")
+
+        let decLegacyOOB = AMDFanSafety.decodeSelector94(raw: (51 << 8) | 0x00 | 0x01, rawRPM: 65535, kextVersion: "3.34.14")
+        expect(decLegacyOOB.rpmValid == false, "legacy kext still rejects implausible RPM > 10500")
+
+
         // MARK: Cross-language safety-constant pin
         //
         // The kernel and the app each hold their own copy of the fan-safety
