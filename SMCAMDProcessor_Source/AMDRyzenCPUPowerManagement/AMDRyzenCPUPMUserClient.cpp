@@ -1402,7 +1402,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             // trap (or, on older kernels, over-copied).
             arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
             
-            UInt32 snap94 = (UInt32)OSIncrementAtomic(&provider->fanUpdateCounter);
+            UInt32 snap94 = (UInt32)OSIncrementAtomic(&provider->fanCtrlUpdateCounter);
             if ((snap94 % 4) == 0) {
                 // S11-a: refresh the estimator's INPUTS in the same critical
                 // section that consumes them.

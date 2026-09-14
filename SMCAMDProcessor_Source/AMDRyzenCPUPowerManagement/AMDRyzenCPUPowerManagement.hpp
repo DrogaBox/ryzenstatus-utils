@@ -229,6 +229,15 @@ public:
     
     void fetchOEMBaseBoardInfo();
     volatile SInt32 fanUpdateCounter = 0;
+    // S11-a: selector 94 needs its OWN counter. Sharing fanUpdateCounter with
+    // selector 93 was not merely a cadence quirk — it made 94's rate-limit gate
+    // unreachable. getFans() calls 93 then 94, so each pass consumes exactly two
+    // values and the parity each selector sees never changes. The counter starts
+    // at 0, OSIncrementAtomic returns the PRE-increment value, so 93 always reads
+    // an even value and 94 always reads an odd one — and `% 4 == 0` can only ever
+    // be true of an even value. updateFanControl() was therefore never called at
+    // all, from boot, which is why every fan reported pwm 0.
+    volatile SInt32 fanCtrlUpdateCounter = 0;
 
     bool read_msr(uint32_t addr, uint64_t *value);
     bool write_msr(uint32_t addr, uint64_t value);
