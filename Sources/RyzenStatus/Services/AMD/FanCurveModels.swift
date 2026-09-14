@@ -335,4 +335,62 @@ public enum AMDFanSafety {
         let rpm = rpmValid ? rawRPM : 0
         return (throttle, isAuto, rpmValid, rpm)
     }
+
+    /// Kernel fallback PWM applied when a curve source sensor is invalid or missing (~62.7% duty).
+    /// Mirrors `kFAILSAFE_PWM` in `AMDRyzenCPUPowerManagement.hpp`.
+    public static let failsafePWM: UInt8 = 160
+
+    /// Pure mirror of kernel `isTempValid(float t)`.
+    /// Valid Zen temperature window is (-20°C, 135°C). NaN and infinities fail.
+    public static func isTempValid(_ celsius: Double) -> Bool {
+        !celsius.isNaN && !celsius.isInfinite && (celsius > -20.0) && (celsius < 135.0)
+    }
+
+    /// Pure mirror of kernel exponential moving average (EMA) smoothing step (`alpha = 0.2`).
+    /// If previous smoothed value is invalid, seeds immediately with current sample.
+    /// If current sample is invalid, holds the previous valid smoothed value.
+    public static func emaStep(previous: Double, sample: Double, alpha: Double = 0.2) -> Double {
+        let prevValid = isTempValid(previous)
+        let sampleValid = isTempValid(sample)
+        if !prevValid && sampleValid {
+            return sample
+        }
+        if prevValid && !sampleValid {
+            return previous
+        }
+        guard prevValid && sampleValid else {
+            return sample
+        }
+        return (alpha * sample) + ((1.0 - alpha) * previous)
+    }
+
+    /// Pure mirror of kernel thermal guard source arbitration between CPU and GPU temperatures.
+    /// Evaluates the maximum valid temperature to drive the system-wide emergency thermal guard.
+    public static func hottestSensor(cpuTemp: Double, gpuTemp: Double) -> Double {
+        var guardTemp: Double = 0.0
+        if isTempValid(cpuTemp) && cpuTemp > guardTemp {
+            guardTemp = cpuTemp
+        }
+        if isTempValid(gpuTemp) && gpuTemp > guardTemp {
+            guardTemp = gpuTemp
+        }
+        return guardTemp
+    }
+
+    /// Detects whether consecutive tachometer RPM readings indicate a frozen/stale sensor.
+    ///
+    /// When an unconnected fan header or noisy Super I/O channel reports an unchanging
+    /// non-zero value across repeated polling intervals without any natural physical jitter,
+    /// it indicates an electrical residue / floating reading rather than an active rotor.
+    ///
+    /// - Parameters:
+    ///   - samples: Consecutive historical RPM samples for a specific fan.
+    ///   - threshold: Minimum consecutive identical non-zero readings to declare stale (default: 8).
+    /// - Returns: True if at least `threshold` samples are present, all > 0, and all identical.
+    public static func isTachometerStale(samples: [UInt64], threshold: Int = 8) -> Bool {
+        guard samples.count >= threshold else { return false }
+        let window = samples.suffix(threshold)
+        guard let first = window.first, first > 0 else { return false }
+        return window.allSatisfy { $0 == first }
+    }
 }

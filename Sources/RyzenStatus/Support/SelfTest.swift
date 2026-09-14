@@ -8,8 +8,10 @@ import IOKit.pwr_mgt
 /// Core capabilities fail the test; hardware-dependent readings only warn.
 enum SelfTest {
     static func runAndExit() -> Never {
-        var failures: [String] = []
+        var passed: [String] = []
+        var skipped: [String] = []
         var warnings: [String] = []
+        var failures: [String] = []
 
         var assertionID = IOPMAssertionID(0)
         let result = IOPMAssertionCreateWithName("PreventUserIdleSystemSleep" as CFString,
@@ -18,6 +20,7 @@ enum SelfTest {
                                                  &assertionID)
         if result == kIOReturnSuccess {
             IOPMAssertionRelease(assertionID)
+            passed.append("power assertion")
         } else {
             failures.append("power assertion (\(result))")
         }
@@ -28,76 +31,130 @@ enum SelfTest {
                 failures.append("memory bounds")
             } else if memory.used == 0 {
                 // Virtualized hosts can transiently report every page as
-                // speculative or purgeable while idle; treat as a warning.
-                warnings.append("zero memory used")
+                // speculative or purgeable while idle; treat as warning.
+                warnings.append("memory reading (virtualized host reported 0 used bytes)")
+            } else {
+                passed.append("memory bounds (\(memory.total / (1024 * 1024 * 1024)) GB total)")
             }
         } else {
             failures.append("memory reading")
         }
 
-        _ = SystemInfo.batterySnapshot() // may be nil on desktops
+        if let battery = SystemInfo.batterySnapshot() {
+            passed.append("battery snapshot (\(battery.percent)%)")
+        } else {
+            skipped.append("battery snapshot (desktop Mac without battery)")
+        }
 
-        if SystemInfo.wallClockUptimeSeconds() == nil {
+        if let uptime = SystemInfo.wallClockUptimeSeconds() {
+            passed.append("uptime reading (\(Int(uptime)) s)")
+        } else {
             failures.append("uptime reading")
         }
 
         if let smc = SMCClient() {
             let keys = smc.keys { $0.hasPrefix("Tp") || $0.hasPrefix("Te") || $0.hasPrefix("Tg") }
             if keys.isEmpty {
-                warnings.append("no SMC temperature keys")
+                skipped.append("AppleSMC temperature keys (none exposed by SMC)")
             } else if keys.compactMap({ smc.readValue($0) }).isEmpty {
-                warnings.append("SMC keys found but unreadable")
+                warnings.append("AppleSMC temperature keys found but unreadable on this host")
+            } else {
+                passed.append("AppleSMC temperature keys")
             }
         } else {
-            warnings.append("AppleSMC unavailable")
+            skipped.append("AppleSMC (unavailable on AMD Hackintosh / host)")
         }
 
         // Network counters should be readable and never run backwards.
         let net1 = NetworkSampler.readCounters()
         let net2 = NetworkSampler.readCounters()
         if net1 == NetworkCounters(), net2 == NetworkCounters() {
-            warnings.append("network counters unavailable")
+            skipped.append("network counters unavailable")
         } else if net2.received < net1.received || net2.sent < net1.sent {
             failures.append("network counters decreased")
+        } else {
+            passed.append("network counters")
         }
 
         let diskCounters = DiskSampler.readCounters()
         let disks = DiskSampler().sample(now: ProcessInfo.processInfo.systemUptime)
         if diskCounters.isEmpty {
-            warnings.append("disk counters unavailable")
+            skipped.append("disk counters unavailable")
+        } else {
+            passed.append("disk counters")
         }
         if disks.isEmpty {
-            warnings.append("no mounted disk volumes found")
+            skipped.append("no mounted disk volumes found")
+        } else {
+            passed.append("mounted disk volumes (\(disks.devices.count) volumes)")
         }
 
         // Power: laptops report battery/adapter flow; some desktops report nothing.
         if PowerSampler(smc: SMCClient()).sample().isEmpty {
-            warnings.append("no power metrics on this Mac")
+            skipped.append("power metrics (unavailable on desktop Mac)")
+        } else {
+            passed.append("power metrics")
         }
 
         UserDefaults.standard.set("ok", forKey: "selftest")
         if UserDefaults.standard.string(forKey: "selftest") != "ok" {
             failures.append("UserDefaults")
+        } else {
+            passed.append("UserDefaults round-trip")
         }
         UserDefaults.standard.removeObject(forKey: "selftest")
 
+        var glyphsValid = true
         for style in KeepAwakeActiveIcon.allCases {
             guard let image = BlackHoleGlyph.activeImage(style: style, tint: .orange) else {
                 failures.append("Keep Awake icon \(style.rawValue)")
+                glyphsValid = false
                 continue
             }
             if image.size != NSSize(width: 20, height: 14) {
                 failures.append("Keep Awake icon size \(style.rawValue)")
+                glyphsValid = false
             }
         }
-
-        for warning in warnings {
-            print("SELFTEST WARNING: \(warning)")
+        if glyphsValid {
+            passed.append("Keep Awake icon glyphs (\(KeepAwakeActiveIcon.allCases.count) styles)")
         }
+
+        // AMD fan safety pure invariants verification
+        let safeFloorValid = AMDFanSafety.clampManualPWM(0) == 40
+        let guardTripValid = AMDFanSafety.effectiveManualPWM(userPWM: 50, currentTemp: 90.0) == 200
+        let tempValidationValid = AMDFanSafety.isTempValid(50.0) && !AMDFanSafety.isTempValid(Double.nan)
+        if safeFloorValid && guardTripValid && tempValidationValid {
+            passed.append("AMDFanSafety pure invariants (hardware safety floor, thermal guard, temp validator)")
+        } else {
+            failures.append("AMDFanSafety pure invariants mismatch")
+        }
+
+        // AMD kext telemetry probe
+        if ProcessorModel.shared.isConnected {
+            passed.append("AMD kext connection (AMDRyzenCPUPowerManagement active)")
+        } else {
+            skipped.append("AMD kext connection (kext not loaded on this host)")
+        }
+
+        print("SELFTEST REPORT: \(passed.count) passed, \(skipped.count) skipped (hardware/platform dependent), \(warnings.count) warnings, \(failures.count) failures")
+        for item in passed {
+            print("  ✓ [PASS] \(item)")
+        }
+        for item in skipped {
+            print("  ⚠ [SKIP] \(item)")
+        }
+        for item in warnings {
+            print("  ! [WARN] \(item)")
+        }
+
         if failures.isEmpty {
             print("SELFTEST OK")
             exit(0)
         } else {
+            for item in failures {
+                print("  ✗ [FAIL] \(item)")
+            }
             print("SELFTEST FAILED: \(failures.joined(separator: ", "))")
             exit(1)
         }
