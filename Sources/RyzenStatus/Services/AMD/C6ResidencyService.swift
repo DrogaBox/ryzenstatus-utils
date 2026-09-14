@@ -57,7 +57,7 @@ final class C6ResidencyService: ObservableObject {
     func start() {
         guard pollTask == nil else { return }
         pollTask = Task.detached(priority: .background) { [weak self] in
-            // S10 CON-04: exit the loop when the owner is gone. Previously the
+            // Exit the loop when the owner is gone. Previously the
             // `await self?.poll()` simply no-op'd and the loop kept waking every
             // 1.5 s forever, because the only thing that cancels it is a method
             // on the object that just went away.
@@ -82,7 +82,7 @@ final class C6ResidencyService: ObservableObject {
         lastTimestamp = 0
     }
 
-    // AUDIT F-28: move blocking kext IPC off MainActor
+    // Move blocking kext IPC off MainActor
     private func poll() async {
         let (raw, now, corePct, coreInst) = await Task.detached(priority: .background) {
             (ProcessorModel.shared.getPackageC6Residency(),

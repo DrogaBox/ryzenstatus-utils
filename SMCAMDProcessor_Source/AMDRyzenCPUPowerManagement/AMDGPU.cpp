@@ -443,7 +443,7 @@ bool AMDGPUDevice::initFromDevice(IOPCIDevice *device) {
         return false;
     }
 
-    // AUDIT F-06: the matching-services iterator hands out a reference we do
+    // The matching-services iterator hands out a reference we do
     // not own; if the PCI service terminates (GPU rebind) the stored raw
     // pointer would dangle inside ensureRMMIOMapped(). Own our reference.
     dev = device;
@@ -543,7 +543,7 @@ void AMDGPUDevice::free() {
         gpuLock = nullptr;
     }
 
-    // AUDIT F-06: balance the retain() taken in initFromDevice.
+    // Balance the retain() taken in initFromDevice.
     OSSafeReleaseNULL(dev);
     OSObject::free();
 }

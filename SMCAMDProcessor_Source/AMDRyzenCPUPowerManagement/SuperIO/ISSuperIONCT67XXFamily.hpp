@@ -46,7 +46,7 @@
 
 class ISSuperIONCT67XXFamily : public ISSuperIOSMCFamily {
 
-    
+
 public:
     static constexpr const char *kFAN_READABLE_STRS[] = {
         "Pump",
@@ -57,55 +57,56 @@ public:
         "AUX_3",
         "PECI"
     };
-    
+
     static ISSuperIONCT67XXFamily* getDevice(uint16_t *chipIntel, bool allowUnlock = true);
-    
-    
+
+
     ISSuperIONCT67XXFamily(int psel, uint16_t addr, uint16_t chipIntel);
-    
+
     int fanRPMs[NCT67XX_MAX_NUMFAN];
     uint8_t fanThrottles[NCT67XX_MAX_NUMFAN];
     uint8_t fanControlMode[NCT67XX_MAX_NUMFAN];
     uint16_t fanPeakRPMs[NCT67XX_MAX_NUMFAN]{};
-    // S10 SIO-01: per-fan trust flag for the last tachometer read. False means
+    // Per-fan trust flag for the last tachometer read. False means
     // the last word was implausible (0xFFFF / torn / out of range) and
     // fanRPMs[i] holds a stale-but-good value instead.
     bool fanRPMValid[NCT67XX_MAX_NUMFAN]{};
-    
+
     int activeFansOnSystem = 0;
-    
+
     int getNumberOfFans() override;
     const char *getReadableStringForFan(int fan) override;
-    
+
     uint32_t getRPMForFan(int fan) override;
+    bool getFanRPMValid(int fan) override;
     bool getFanAutoControlMode(int fan) override;
     uint8_t getFanThrottle(int fan) override;
-    
+
     void updateFanRPMS() override;
     void updateFanControl() override;
-    
+
     void overrideFanControl(int fan, uint8_t thr) override;
     void setDefaultFanControl(int fan) override;
-    
+
     uint8_t readReg(uint16_t reg) override { return readByte(reg); }
     void writeReg(uint16_t reg, uint8_t val) override { writeByte(reg, val); }
-    
+
 private:
-    
+
     static constexpr uint16_t kFAN_RPM_REGS[] = { 0x4c0, 0x4c2, 0x4c4, 0x4c6, 0x4c8, 0x4ca, 0x4ce };
     static constexpr uint16_t kFAN_PWMCMD_REGS[] = { 0x109, 0x209, 0x309, 0x809, 0x909, 0xA09, 0xB09 };
     static constexpr uint16_t kFAN_CTRL_MODE_REGS[] = { 0x102, 0x202, 0x302, 0x802, 0x902, 0xA02, 0xB02 };
-    
-    
-    
+
+
+
     int lpcPortSel = 0;
-    
+
     uint16_t chipAddr = 0;
     uint8_t fanDefaultControlMode[NCT67XX_MAX_NUMFAN];
-    
+
     uint8_t readByte(uint16_t addr);
     uint16_t readWord(uint16_t addr);
-    
+
     void writeByte(uint16_t addr, uint8_t val);
 };
 

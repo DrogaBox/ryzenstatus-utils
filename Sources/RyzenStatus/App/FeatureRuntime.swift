@@ -177,7 +177,7 @@ final class FeatureRuntime: ObservableObject {
         .monitorDisk: { FeatureRuntime.syncMonitor() },
         .monitorPower: { FeatureRuntime.syncMonitor() },
         .appUpdates: { AppUpdatesService.shared.syncWithPreferences() },
-        // S10 UI-05: .screenRecorder is declared in FeatureCatalog but had no
+        // .screenRecorder is declared in FeatureCatalog but had no
         // binding here, so only the Settings UI ever tore it down. Disabling the
         // feature via a preset, a settings-backup import or a reset left the
         // service running.

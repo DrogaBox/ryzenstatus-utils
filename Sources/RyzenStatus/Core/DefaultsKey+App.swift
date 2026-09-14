@@ -424,7 +424,7 @@ extension DefaultsKey {
     static let amdPpmEnabled = "amdPpmEnabled"                   // Bool, last PPM state
     static let amdLpmEnabled = "amdLpmEnabled"                   // Bool, last LPM state
     static let showFansInAmdPower = "showFansInAmdPower"         // Bool, fan picker DisclosureGroup expanded in the panel
-    static let showPmTableCoresInPanel = "showPmTableCoresInPanel" // Bool, S9b per-core clock/temp/power disclosure in the AMD Power panel section
+    static let showPmTableCoresInPanel = "showPmTableCoresInPanel" // Bool, per-core clock/temp/power disclosure in the AMD Power panel section
     static let showPmCoreVoltage = "showPmCoreVoltage"           // Bool, per-core SMU voltage column in the panel rows
     static let showPmCoreC0 = "showPmCoreC0"                     // Bool, per-core C0 residency column in the panel rows
     static let showPmCoreCC6 = "showPmCoreCC6"                   // Bool, per-core CC6 residency column in the panel rows

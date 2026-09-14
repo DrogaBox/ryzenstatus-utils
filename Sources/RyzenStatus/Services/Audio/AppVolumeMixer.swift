@@ -75,7 +75,7 @@ final class AppVolumeMixer: ObservableObject {
     private var buildingEngines = Set<String>()
     private var lastAudibleVolume: [String: Double] = [:]
     private var listenerInstalled = false
-    /// S10 D5: whether the per-app process-tracking machinery is active. The
+    /// Whether the per-app process-tracking machinery is active. The
     /// process-list global listener plus one IsRunningOutput listener per live
     /// audio process is the mixer's resident cost, and it only has a purpose
     /// once the user has saved per-app state (or opened the mixer panel).
@@ -131,7 +131,7 @@ final class AppVolumeMixer: ObservableObject {
         listenerInstalled = true
         installListener(selector: kAudioHardwarePropertyDevices)
         installListener(selector: kAudioHardwarePropertyDefaultOutputDevice)
-        // S10 D5: the per-app process machinery stays dormant until it has a
+        // The per-app process machinery stays dormant until it has a
         // purpose — saved per-app state exists (its re-apply needs the tracking)
         // — and activates on demand from the mixer panel otherwise.
         if hasSavedMixerState {
@@ -141,7 +141,7 @@ final class AppVolumeMixer: ObservableObject {
         refreshApps()
     }
 
-    /// S10 D5: activates the per-app process-tracking machinery on demand.
+    /// Activates the per-app process-tracking machinery on demand.
     /// Idempotent; safe before or after start(). The mixer panel calls this on
     /// appear so a clean install without saved state still gets its app list.
     func ensureProcessTracking() {
@@ -518,7 +518,7 @@ final class AppVolumeMixer: ObservableObject {
             return
         }
 
-        // S10 D5: dormant tracking — keep the app list empty and skip the
+        // Dormant tracking — keep the app list empty and skip the
         // process-object walk and per-object listener churn entirely. The
         // device half above (output picker, headphone protection) still runs.
         guard processTrackingActivated else {
@@ -628,7 +628,7 @@ final class AppVolumeMixer: ObservableObject {
             if systemOutputMuted != sysMuted { systemOutputMuted = sysMuted }
         }
 
-        // AUDIT E-18: reconciliation must run on every refresh. The early return
+        // Reconciliation must run on every refresh. The early return
         // skipped it whenever the app list was unchanged, so an engine left
         // inconsistent by a failed build never recovered until a slider moved.
         // The publish below stays deduplicated; reconcile is a no-op when the
@@ -745,7 +745,7 @@ final class AppVolumeMixer: ObservableObject {
             applyRouting(for: app)
         }
 
-        // AUDIT E-01: Check for wedged engines whose aggregate IO proc never
+        // Check for wedged engines whose aggregate IO proc never
         // ran or stopped rendering while the app was actively playing (e.g. after sleep/wake).
         let now = Date().timeIntervalSinceReferenceDate
         for app in apps {
@@ -1197,7 +1197,7 @@ private final class TapGainEngine: GainEngine {
                 let frames = min(Int(inputBuffer.mDataByteSize),
                                  Int(outputBuffers[index].mDataByteSize)) / MemoryLayout<Float>.size
                 vDSP_vsmul(source, 1, &gain, destination, 1, vDSP_Length(frames))
-                // AUDIT E-02: Peak-limit when boosting above 100% to keep audio
+                // Peak-limit when boosting above 100% to keep audio
                 // clean and natural (issue #326) without hard square-wave crackle,
                 // and keep vDSP_vclip as final safety ceiling.
                 if boosting {

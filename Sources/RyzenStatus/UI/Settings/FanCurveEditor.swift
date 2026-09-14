@@ -12,7 +12,7 @@ struct InteractiveFanCurveEditor: View {
     @State private var selectedCurveIndex: Int = 0
     @State private var draftCurve: FanCurveDefinition? = nil
     @State private var showAppliedConfirmation: Bool = false
-    // AUDIT F-21: hold the hide task so a second apply cancels the first one;
+    // Hold the hide task so a second apply cancels the first one;
     // previously two quick applies made the first (uncancelled) sleep hide the
     // second confirmation immediately.
     @State private var appliedConfirmationTask: Task<Void, Never>?

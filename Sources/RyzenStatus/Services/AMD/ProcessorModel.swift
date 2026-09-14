@@ -14,23 +14,23 @@ actor ProcessorModel {
     static let shared = ProcessorModel()
 
 
-    // S10 IOK-01: `iokitLock` removed. It was declared for exactly this purpose
+    // `iokitLock` removed. It was declared for exactly this purpose
     // but never locked anywhere in the codebase (only two stale comments
     // referenced it). Serialization now lives in ConnectBox.withHandle.
-    // Wave S3-A: locked connection box. The raw IOKit handle is guarded by its
+    // Locked connection box. The raw IOKit handle is guarded by its
     // own NSLock — every kext call path is nonisolated, so actor isolation can
     // never cover this handle.
     final class ConnectBox: @unchecked Sendable {
         private let lock = NSLock()
         private var _handle: io_connect_t = 0
-        /// S10 IOK-03: consecutive transport failures on a non-zero handle.
+        /// Consecutive transport failures on a non-zero handle.
         private var _consecutiveFailures: Int = 0
 
         var handle: io_connect_t {
             lock.lock(); defer { lock.unlock() }; return _handle
         }
 
-        /// S10 IOK-01: runs `body` with the handle while holding the lock, so the
+        /// Runs `body` with the handle while holding the lock, so the
         /// handle cannot be closed underneath an in-flight IOConnectCallMethod.
         /// This also makes the kext channel serial, matching what the kext's
         /// command gate already assumes.
@@ -62,7 +62,7 @@ actor ProcessorModel {
             return was
         }
 
-        // MARK: - S10 IOK-03 health tracking
+        // MARK: - Handle health tracking
         // Called from inside withHandle (lock already held) — must NOT re-lock.
         // NSLock is not reentrant; re-locking here would deadlock instantly.
         fileprivate func noteSuccess() { _consecutiveFailures = 0 }
@@ -77,7 +77,7 @@ actor ProcessorModel {
         }
     }
     nonisolated let connectBox = ConnectBox()
-    /// Wave S3-A: locked Task box for the watchdog. Writers: init (main thread),
+    /// Locked Task box for the watchdog. Writers: init (main thread),
     /// closeDriver (main thread, after watchdog start is long past) — but the
     /// compiler cannot prove it, so the lock documents and enforces the contract.
     final class WatchdogBox: @unchecked Sendable {
@@ -92,7 +92,7 @@ actor ProcessorModel {
     }
     nonisolated let watchdogBox = WatchdogBox()
 
-    // AUDIT F-24: thread-safe connection check to avoid data races with watchdog/closeDriver
+    // Thread-safe connection check to avoid data races with watchdog/closeDriver
     nonisolated var isConnected: Bool {
         connectBox.handle != 0
     }
@@ -108,7 +108,7 @@ actor ProcessorModel {
         _ structureOutput: UnsafeMutableRawPointer!,
         _ structureOutputSize: UnsafeMutablePointer<Int>!
     ) -> kern_return_t {
-        // S10 IOK-01: the call happens *while holding the handle lock*, fixing
+        // The call happens *while holding the handle lock*, fixing
         // two defects at once.
         //
         //  1. Use-after-close. The handle used to be copied out under the lock
@@ -124,7 +124,7 @@ actor ProcessorModel {
         return connectBox.withHandle { handle in
             if handle == 0 { return kIOReturnNoDevice }
             let kr = IOConnectCallMethod(handle, selector, scalarInput, scalarInputCount, structureInput, structureInputSize, scalarOutput, scalarOutputCount, structureOutput, structureOutputSize)
-            // S10 IOK-03: track consecutive transport-level failures so a
+            // Track consecutive transport-level failures so a
             // stale-but-non-zero handle can be recovered by the watchdog.
             // kIOReturnBadArgument and kIOReturnNotPrivileged are deliberately
             // NOT counted: they are the kext's normal answers to a size or
@@ -160,7 +160,7 @@ actor ProcessorModel {
     nonisolated let terminationState = TerminationState()
     nonisolated var isTerminating: Bool { terminationState.isTerminating }
 
-    /// Wave S3-A: locked snapshot box for the About-panel identity fields
+    /// Locked snapshot box for the About-panel identity fields
     /// (kext version + baseboard strings). Replaces 4 `nonisolated(unsafe)`
     /// vars: the actor writes at connect/reconnect and SwiftUI reads
     /// synchronously from the main thread — same class-wrapper pattern as
@@ -206,7 +206,7 @@ actor ProcessorModel {
     }
     nonisolated let identityCache = IdentityCache()
 
-    /// Wave S3-A: locked snapshot box for the About-panel identity fields
+    /// Locked snapshot box for the About-panel identity fields
     /// (kextVersion, baseboard). Replaces 4 `nonisolated(unsafe)` vars: the
     /// actor writes once at connect/reconnect and SwiftUI reads synchronously
     /// from the main thread — same class-wrapper pattern as PowerCache.
@@ -225,7 +225,7 @@ actor ProcessorModel {
     private var emulatedPState : Int = 0
     private var isEmulatingPStates : Bool = false
     private var emulatedPStateDefClock : [Float] = []
-    
+
     // Performance optimization: cache for expensive kernel calls
     private var cachedGPUStats: (temp: Float, power: Float, util: Float, vram: Float, fan: Float, freq: Float, lastUpdate: Date) = (0, 0, 0, 0, 0, 0, .distantPast)
     // gpuStatsCacheInterval removed — IOAcceleratorCache owns the 500ms refresh cadence.
@@ -265,7 +265,7 @@ actor ProcessorModel {
     }
     nonisolated let powerCache = PowerCache()
 
-    /// S9c: thread-safe SMU PM-table decode + freshness, maintained by
+    /// Thread-safe SMU PM-table decode + freshness, maintained by
     /// `loadMetric()` on the telemetry tick (the same cadence that feeds
     /// `powerCache`). Single owner of the fetch+decode — the AMD settings
     /// model and the dashboard are consumers. `@unchecked Sendable` matches
@@ -304,9 +304,9 @@ actor ProcessorModel {
     nonisolated let pmTableBox = PMTableBox()
 
     /// Latest CPU package power in Watts. Thread-safe, no await needed.
-    /// S9c: prefers the SMU-native SOCKET_POWER while the kext's 1 Hz
+    /// Prefers the SMU-native SOCKET_POWER while the kext's 1 Hz
     /// snapshot is fresh; falls back to the kext-computed selector-100
-    /// estimate otherwise. Both sources are F-05-clean (timer caches).
+    /// Estimate otherwise. Both sources read only timer caches.
     nonisolated var lastCPUPowerWatts: Double {
         let smu = pmTableBox.freshSocketPowerW
         return smu > 0 ? smu : powerCache.cpuWatts
@@ -413,7 +413,7 @@ actor ProcessorModel {
     var physicalCoreCount: Int {
         return cpuidBasic.count > 2 ? Int(cpuidBasic[2]) : 0
     }
-    
+
     // CPU profile: architecture name and capability flags from the kext.
     // Populated by loadCPUProfile().
     struct CPUProfile {
@@ -421,11 +421,11 @@ actor ProcessorModel {
         var pmDispatchAllowed: Bool = false // Full PM dispatch (Zen 1/2)
         var legacyPstateAllowed: Bool = false
         var supportsCPPC: Bool = false
-        
+
         var modeDescription: String {
             pmDispatchAllowed ? "Full PM Dispatch" : "Telemetry-only"
         }
-        
+
         var availableFeatures: [String] {
             var features: [String] = []
             if pmDispatchAllowed { features.append("PM Dispatch") }
@@ -435,25 +435,25 @@ actor ProcessorModel {
             return features
         }
     }
-    
+
     private(set) var cpuProfile = CPUProfile()
-    
+
     private func loadCPUProfile() {
         guard isConnected else { return }
         let nameSize = 16
         let flagsSize = MemoryLayout<UInt64>.size
         let totalSize = nameSize + flagsSize
-        
+
         var output = [UInt8](repeating: 0, count: totalSize)
         var outputSize = totalSize
-        
+
         let res: kern_return_t = safeIOConnectCallMethod( AMDKextSelector.cpuPowerProfile.id, nil, 0, nil, 0,
                                                       nil, nil,
                                                       &output, &outputSize)
         guard res == KERN_SUCCESS, outputSize >= nameSize else {
             return
         }
-        
+
         // Read architecture name (null-terminated within first 16 bytes)
         let nameBytes = output[0..<nameSize]
         let name = nameBytes.withUnsafeBufferPointer { buf -> String in
@@ -462,7 +462,7 @@ actor ProcessorModel {
             }
             return String(decoding: buf, as: UTF8.self).trimmingCharacters(in: .whitespaces)
         }
-        
+
         // Read flags
         var flags: UInt64 = 0
         if outputSize >= totalSize {
@@ -473,7 +473,7 @@ actor ProcessorModel {
                 }
             }
         }
-        
+
         cpuProfile = CPUProfile(
             archName: name,
             pmDispatchAllowed: (flags & (1 << 0)) != 0,
@@ -481,7 +481,7 @@ actor ProcessorModel {
             supportsCPPC: (flags & (1 << 2)) != 0
         )
     }
-    
+
     var isLegacyPStateSupported: Bool {
         // Use kext profile when available, fallback to family heuristic
         if !cpuProfile.archName.isEmpty {
@@ -515,7 +515,7 @@ actor ProcessorModel {
         // This avoids Swift 6 warnings about calling actor-isolated methods from
         // a nonisolated init() context.
         Task { await self._finishInit() }
-        
+
         self.watchdogBox.set(Task.detached(priority: .background) { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
@@ -530,12 +530,12 @@ actor ProcessorModel {
                     }
                 } else {
                     IOObjectRelease(serviceObject)
-                    // KEXT_WAVE C-9 (fixes AUDIT B-25): the service is present but
+                    // The service is present but
                     // we hold no connection — the kext was (re)loaded after an
                     // unload, or we launched while the service was momentarily
                     // unmatchable. Reopen and refresh actor state instead of
                     // staying degraded until the app restarts.
-                    // S10 IOK-03: recover an "alive but dead" handle. The old
+                    // Recover an "alive but dead" handle. The old
                     // gate was `if !isConnected`, i.e. handle == 0. When the
                     // user client died across sleep while the service still
                     // matched, the handle stayed non-zero, isConnected stayed
@@ -563,7 +563,7 @@ actor ProcessorModel {
 
     private(set) var isKextAvailable: Bool = false
 
-    /// KEXT_WAVE C-9: re-opens a user-client connection to a (re)loaded
+    /// Re-opens a user-client connection to a (re)loaded
     /// AMDRyzenCPUPowerManagement service. Called only from the detached
     /// watchdog task; connection state transitions stay under ConnectBox's lock.
     nonisolated private func attemptReconnect() -> Bool {
@@ -589,7 +589,7 @@ actor ProcessorModel {
         }
         isKextAvailable = true
 
-        // KEXT_WAVE C-5: badge favorite cores once at connect (scores are
+        // Badge favorite cores once at connect (scores are
         // static per silicon). Re-run after a kext reconnect via _finishInit.
         let threads = Int(ProcessorModel.sysctlInt64(key: "hw.logicalcpu"))
         refreshFavoriteThreads(logicalThreadCount: threads)
@@ -597,7 +597,7 @@ actor ProcessorModel {
         var scalerOut: UInt64 = 0
         var outputCount: UInt32 = 0
 
-        // S10 IOK-02: 64 bytes comfortably covers any semver plus pre-release
+        // 64 bytes comfortably covers any semver plus pre-release
         // and build metadata. The kext requires
         // maxLen >= sizeof(xStringify(MODULE_VERSION)) including the NUL, so a
         // 16-byte buffer made any 16+ character version string fail the call.
@@ -607,7 +607,7 @@ actor ProcessorModel {
         let versionResult = safeIOConnectCallMethod( AMDKextSelector.kextVersion.id, nil, 0, nil, 0,
                                                  &scalerOut, &outputCount,
                                                  &outputStr, &outputStrCount)
-        // S10 IOK-02: the version string is diagnostic metadata, NOT a
+        // The version string is diagnostic metadata, NOT a
         // capability gate. This used to `return`, skipping loadCPUID(),
         // loadMetric() and loadPStateDef() entirely while isKextAvailable had
         // already been set to true — so the UI reported a healthy kext and
@@ -641,7 +641,7 @@ actor ProcessorModel {
             }
         }
 
-        // S10 IOK-02: only refuse to run when the version is KNOWN to be
+        // Only refuse to run when the version is KNOWN to be
         // incompatible. An unreadable version string must not terminate the
         // app — telemetry does not depend on it, and quitting on a cosmetic
         // read failure is a far worse outcome than running unversioned.
@@ -677,7 +677,7 @@ actor ProcessorModel {
     }
 
     nonisolated func closeDriver() {
-        // AUDIT F-24: cancel watchdog task to prevent background poll leak on teardown
+        // Cancel watchdog task to prevent background poll leak on teardown
         watchdogBox.task?.cancel()
         watchdogBox.set(nil)
         terminationState.isTerminating = true
@@ -893,16 +893,16 @@ actor ProcessorModel {
             }
         }
 
-        // S9c: single-owner SMU PM-table refresh on the telemetry tick. The
-        // kext's 1 Hz timer maintains the snapshot (F-05 — no SMU traffic
+        // Single-owner SMU PM-table refresh on the telemetry tick. The
+        // Kext's 1 Hz timer maintains the snapshot (no SMU traffic
         // here); we only read the kext's caches and decode app-side.
         refreshPMTableBox()
 
         lastMLoad = ProcessInfo.processInfo.systemUptime
     }
 
-    /// S9c: refresh the PM-table box from the kext's timer caches. All calls
-    /// are cache-only (F-05); the decode is a few hundred float loads. The
+    /// Refresh the PM-table box from the kext's timer caches. All calls
+    /// Are cache-only; the decode is a few hundred float loads. The
     /// box keeps the last good decode with its snapshot age, so a transient
     /// IPC failure degrades to "stale" (freshness-gated) rather than
     /// clearing the promoted values outright.
@@ -929,7 +929,7 @@ actor ProcessorModel {
         var numCPUs: mach_msg_type_number_t = 0
         var infoArray: processor_info_array_t?
         var infoCount: mach_msg_type_number_t = 0
-        
+
         // mach_host_self() returns a send right the caller owns; release it or
         // each call leaks a mach port (this runs on every sampling tick).
         let host = mach_host_self()
@@ -938,27 +938,27 @@ actor ProcessorModel {
         guard kr == KERN_SUCCESS, let info = infoArray else {
             return
         }
-        
+
         let count = Int(numCPUs)
         var newLoads = [Float](repeating: 0.0, count: count)
-        
+
         let cpuLoadData = info.withMemoryRebound(to: processor_cpu_load_info.self, capacity: count) { $0 }
-        
+
         defer {
             let size = vm_size_t(infoCount) * vm_size_t(MemoryLayout<integer_t>.size)
             vm_deallocate(mach_task_self_, vm_address_t(bitPattern: info), size)
         }
-        
+
         if previousCpuLoadInfo.count == count {
             for i in 0..<count {
                 let prev = previousCpuLoadInfo[i]
                 let curr = cpuLoadData[i]
-                
+
                 let userDiff   = max(0.0, Double(curr.cpu_ticks.0 &- prev.cpu_ticks.0))
                 let systemDiff = max(0.0, Double(curr.cpu_ticks.1 &- prev.cpu_ticks.1))
                 let idleDiff   = max(0.0, Double(curr.cpu_ticks.2 &- prev.cpu_ticks.2))
                 let niceDiff   = max(0.0, Double(curr.cpu_ticks.3 &- prev.cpu_ticks.3))
-                
+
                 let total = userDiff + systemDiff + idleDiff + niceDiff
                 if total > 0 {
                     newLoads[i] = Float(userDiff + systemDiff + niceDiff) / Float(total)
@@ -967,9 +967,9 @@ actor ProcessorModel {
                 }
             }
         }
-        
+
         previousCpuLoadInfo = (0..<count).map { cpuLoadData[$0] }
-        
+
         loadIndex = newLoads
     }
 
@@ -1024,8 +1024,8 @@ actor ProcessorModel {
             return
         }
 
-        // AUDIT B-13: the kext exports exactly kMSR_PSTATE_LEN = 8 P-state clocks
-        // (selector 1). Requesting 10 used to rely on the F-12 clamp to trim the
+        // The kext exports exactly kMSR_PSTATE_LEN = 8 P-state clocks
+        // (selector 1). Requesting 10 used to rely on a clamp to trim the
         // answer; ask for the real table size instead of masking the mismatch.
         PStateDefClock = kernelGetFloats(count: 8, selector: AMDKextSelector.pStateDefClock)
 
@@ -1373,11 +1373,11 @@ actor ProcessorModel {
                     let reg = IOIteratorNext(iter)
                     guard reg != 0 else { break }
                     defer { IOObjectRelease(reg) }
-                    
+
                     var serviceDictionary: Unmanaged<CFMutableDictionary>?
                     let e = IORegistryEntryCreateCFProperties(reg, &serviceDictionary, kCFAllocatorDefault, .zero)
                     guard e == kIOReturnSuccess, let dic = serviceDictionary?.takeRetainedValue() as? NSDictionary else { continue }
-                    
+
                     if let type = dic.object(forKey: "IOName") as? String, type == "display" {
                         if let model = dic.object(forKey: "model") as? Data {
                             let rawStr = String(data: model, encoding: .ascii) ?? String(data: model, encoding: .utf8) ?? "Unknown GPU"
@@ -1407,7 +1407,7 @@ actor ProcessorModel {
     }
 
     /// GPU temperatures from kext in integer degrees Celsius (selector 28, no conversion needed).
-    /// AUDIT F-30: kext returns integer °C directly, no SP78 conversion
+    /// Kext returns integer °C directly, no SP78 conversion
     nonisolated func getKextGPUTemperatures() -> [UInt16] {
         return kernelGetUInt16s(count: 16, selector: AMDKextSelector.gpuStats1.id)
     }
@@ -1455,14 +1455,14 @@ actor ProcessorModel {
         let vram  = (s["inUseVidMemoryBytes"] as? NSNumber)?.floatValue ?? 0
         let freq  = (s["Core Clock(MHz)"] as? NSNumber)?.floatValue ?? 0
         let rawFan = (s["Fan Speed(RPM)"] as? NSNumber)?.floatValue ?? 0
-        // AUDIT B-03: show the real reading whenever it is plausible.
+        // Show the real reading whenever it is plausible.
         // The old temp<50 gate fabricated "0 RPM" for GPUs idling below 50 °C.
         let fan   = (rawFan > 0 && rawFan < 10_000) ? rawFan : 0
 
         cachedGPUStats = (temp, power, util, vram, fan, freq, Date())
         powerCache.setGPU(Double(power))
     }
-    
+
     func getGPUTemp() async -> Float {
         await updateGPUStatsCache()
         return cachedGPUStats.temp
@@ -1499,20 +1499,20 @@ actor ProcessorModel {
         let maxCCDs = 8
         var outputStr: [Float] = [Float](repeating: 0.0, count: maxCCDs)
         var outputStrCount: Int = MemoryLayout<Float>.size * maxCCDs
-        
+
         let res = safeIOConnectCallMethod( AMDKextSelector.ccdTopology.id, nil, 0, nil, 0,
                                       &scalerOut, &outputCount,
                                       &outputStr, &outputStrCount)
-                                      
+
         if res != KERN_SUCCESS {
             return []
         }
-        
+
         let actualCCDCount = Int(scalerOut)
         guard actualCCDCount > 0 else {
             return []
         }
-        
+
         return Array(outputStr[0..<min(actualCCDCount, maxCCDs, outputStrCount / MemoryLayout<Float>.size)])
     }
 
@@ -1522,23 +1522,23 @@ actor ProcessorModel {
         let maxLogicalCores = 64
         var outputStr: [UInt8] = [UInt8](repeating: 0, count: maxLogicalCores)
         var outputStrCount: Int = MemoryLayout<UInt8>.size * maxLogicalCores
-        
+
         let res = safeIOConnectCallMethod( AMDKextSelector.coreRanking.id, nil, 0, nil, 0,
                                       &scalerOut, &outputCount,
                                       &outputStr, &outputStrCount)
-                                      
+
         if res != KERN_SUCCESS || scalerOut != 1 {
             return (false, [])
         }
-        
+
         return (true, Array(outputStr[0..<maxLogicalCores]))
     }
 
-    /// KEXT_WAVE C-5: last computed favorite-thread set (see
+    /// Last computed favorite-thread set (see
     /// `refreshFavoriteThreads()`), readable nonisolated so the per-core grid
     /// can badge them without awaiting the actor. Written only from
     /// `_finishInit()` (actor-isolated); UI reads are best-effort snapshots.
-    /// Wave S3-A: NSLock box instead of `nonisolated(unsafe)`.
+    /// NSLock box instead of `nonisolated(unsafe)`.
     final class FavoriteThreadsCache: @unchecked Sendable {
         private let lock = NSLock()
         private var _threads: Set<Int> = []
@@ -1551,7 +1551,7 @@ actor ProcessorModel {
     }
     nonisolated let favoriteThreadsCache = FavoriteThreadsCache()
 
-    /// KEXT_WAVE C-5: computes the favorite cores from the CPPC ranking
+    /// Computes the favorite cores from the CPPC ranking
     /// (selector 21) using the pure, unit-tested `AMDCoreRanking` logic and
     /// caches them for the menu-panel grid.
     func refreshFavoriteThreads(logicalThreadCount: Int) {
@@ -1568,14 +1568,14 @@ actor ProcessorModel {
         return o.first ?? 0
     }
 
-    /// Per-core C6 residency percentage (KEXT_WAVE 1.20.0, selector 32).
+    /// Per-core C6 residency percentage (kext 1.20.0+, selector 32).
     /// One entry per logical core, 0–100. Empty array = kext without the
     /// selector (pre-3.34.2) or kext absent.
     nonisolated func getCoreC6Residency(logicalCores: Int = 64) -> [UInt16] {
         return kernelGetUInt16s(count: logicalCores, selector: AMDKextSelector.coreC6Residency.id)
     }
 
-    /// Per-core instructions-retired delta (KEXT_WAVE 1.20.0, selector 33).
+    /// Per-core instructions-retired delta (kext 1.20.0+, selector 33).
     /// Units: instructions retired in the kext's last telemetry window, per
     /// logical core. Divide by the window length × effFreq to derive IPC.
     nonisolated func getCoreInstRetired(logicalCores: Int = 64) -> [UInt32] {
@@ -1640,11 +1640,11 @@ actor ProcessorModel {
     nonisolated func getCStateAddress() -> UInt64 {
         var scalerOut: UInt64 = 0
         var outputCount: UInt32 = 1
-        
+
         let res = safeIOConnectCallMethod( AMDKextSelector.cStateAddress.id, nil, 0, nil, 0,
                                       &scalerOut, &outputCount,
                                       nil, nil)
-                                      
+
         if res != KERN_SUCCESS {
             return 0
         }
@@ -1719,9 +1719,9 @@ actor ProcessorModel {
         await updateGPUStatsCache()  // updates powerCache.gpu via setGPU
         refreshKextGPUStats()    // updates gpuCache via kext selectors 27-30
     }
-    
+
     // MARK: - CPU Details (sysctl)
-    
+
     struct CPUDetails {
         let name: String
         let vendor: String
@@ -1738,7 +1738,7 @@ actor ProcessorModel {
         let extFeatures: String
         let microcodeVersion: Int64
     }
-    
+
     nonisolated func getCPUDetails() -> CPUDetails {
         return CPUDetails(
             name: ProcessorModel.sysctlString(key: "machdep.cpu.brand_string"),
@@ -1761,11 +1761,11 @@ actor ProcessorModel {
     nonisolated func getCurveOptimizerOffsets() -> [Int8] {
         var output = [Int8](repeating: 0, count: 64) // MaxCpus is typically 64
         var outputSize = output.count
-        
+
         let res = safeIOConnectCallMethod( AMDKextSelector.curveOptimizerRead.id, nil, 0, nil, 0,
                                       nil, nil,
                                       &output, &outputSize)
-        
+
         if res == KERN_SUCCESS {
             return Array(output.prefix(Int(outputSize)))
         } else {
@@ -1773,16 +1773,17 @@ actor ProcessorModel {
             return []
         }
     }
-    
+
     nonisolated func getFans(includeNames: Bool = true) -> [FanSnapshot] {
         let fansRes = kernelGetUInt64(count: 1, selector: AMDKextSelector.fanCountRead.id)
         guard fansRes.count > 0 else { return [] }
         let numFans = min(Int(fansRes[0]), 16) // Cap at 16 to prevent unbounded allocation
         guard numFans > 0 else { return [] }
-        
+
         let fanRpms = kernelGetUInt64(count: numFans, selector: AMDKextSelector.fanSpeedRead.id)
         let fanCtrls = kernelGetUInt64(count: numFans, selector: AMDKextSelector.fanCtrlRead)
-        
+
+        let kextVer = identityCache.kextVersion
         var fans: [FanSnapshot] = []
         for i in 0..<numFans {
             let name = includeNames
@@ -1792,28 +1793,18 @@ actor ProcessorModel {
             let customName = includeNames
                 ? (UserDefaults.standard.string(forKey: "FanName_\(i)") ?? finalName)
                 : finalName
-            
-            // S10 SIO-03: do not launder implausible tach values into plausible
-            // ones. `min(rpm, 9999)` turned a garbage 65535 into a believable
-            // 9999. Report validity out of band instead.
+
             let rawRPM = (i < fanRpms.count) ? fanRpms[i] : 0
-            let rpmValid = rawRPM <= 10_500
-            let rpm = rpmValid ? rawRPM : 0
-            
-            // Selector 94 packs: (throttle << 8) | autoFlag
-            // - Bits 15:8 = throttle/PWM value (0-255)
-            // - Bit 0    = autoFlag (1 = Auto/SmartGuardian, 0 = Manual/Override)
             let raw = (i < fanCtrls.count) ? fanCtrls[i] : 0
-            let throttle = UInt8((raw >> 8) & 0xFF)  // Extract actual throttle from bits 15:8
-            let isAuto = (raw & 1) == 1               // Extract auto flag from bit 0
-            
-            fans.append(FanSnapshot(id: i, name: customName, rpm: rpm, rpmValid: rpmValid, throttle: throttle, isOverridden: !isAuto))
+            let decoded = AMDFanSafety.decodeSelector94(raw: raw, rawRPM: rawRPM, kextVersion: kextVer)
+
+            fans.append(FanSnapshot(id: i, name: customName, rpm: decoded.rpm, rpmValid: decoded.rpmValid, throttle: decoded.throttle, isOverridden: !decoded.isAuto))
         }
         return fans
     }
-    
+
     // MARK: - SMC Fan Control
-    
+
     nonisolated func setFanMode(auto: Bool, fanIndex: Int = 0) -> Bool {
         if auto {
             // Selector 96 = setDefaultFanControl(fanSel)
@@ -1822,13 +1813,13 @@ actor ProcessorModel {
         }
         return true
     }
-    
+
     nonisolated func setFanSpeed(pwm: Int, fanIndex: Int = 0) -> Bool {
         // Selector 95 = overrideFanControl(fanSel, pwm)
         let res = kernelSetUInt64Status(selector: AMDKextSelector.fanSpeedWrite, args: [UInt64(fanIndex), UInt64(pwm)])
         return res == KERN_SUCCESS
     }
-    
+
     // MARK: - Kext Fan Curves (selectors 101/102)
 
     /// Uploads a 256-point fan curve LUT plus its parameters to the kext
@@ -1865,7 +1856,7 @@ actor ProcessorModel {
     /// Injects the latest GPU temperature into the kext (selector 103) for GPU-sourced fan curves.
     /// Clamped to [0.0, 120.0] °C. Requires privilege (-amdpnopchk or root).
     ///
-    /// AUDIT B-01: the kext converts the incoming scalar by VALUE
+    /// The kext converts the incoming scalar by VALUE
     /// (`float t = (float)scalarInput[0]`), so the scalar must carry the
     /// temperature itself. Sending the IEEE-754 bit pattern made every
     /// value decode as ~1e9 and clamp to 120 °C, pinning GPU-sourced fan
@@ -2074,7 +2065,7 @@ actor ProcessorModel {
     /// read-back), plus the kext's start-time CCD count for the per-CCD UI
     /// (0 = probe not ready / no AMD host — callers fall back to their own
     /// estimate). Returns nil on pre-1.29 kexts or when the connection is
-    /// down. Cache only — no SMU traffic (F-05).
+    /// Down. Cache only — no SMU traffic.
     nonisolated func getOcFreqCache() -> (allCoresMHz: UInt32,
                                           kextCcdCount: UInt32,
                                           perCcdMHz: [UInt32])? {
@@ -2129,12 +2120,12 @@ actor ProcessorModel {
         return safeIOConnectCallMethod(AMDKextSelector.ocFreqWrite.id, &input, 12, nil, 0, nil, nil, nil, nil)
     }
 
-    // MARK: — S9a: SMU PM-table plumbing (selectors 56/57)
+    // MARK: — SMU PM-table plumbing (selectors 56/57)
 
     /// Read the kext's PM-table info (selector 56): version word + polled
     /// flag, documented size for that version (0 = unknown — fail closed),
     /// physical base, snapshot validity and age. Cache only — no SMU
-    /// traffic (F-05). Returns nil on pre-1.30 kexts or when the connection
+    /// Traffic. Returns nil on pre-1.30 kexts or when the connection
     /// is down.
     nonisolated func getPMTableInfo() -> (versionRaw: UInt32,
                                           versionPolled: Bool,

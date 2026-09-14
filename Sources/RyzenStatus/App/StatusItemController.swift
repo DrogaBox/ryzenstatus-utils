@@ -29,7 +29,7 @@ final class StatusItemController {
     /// Last combination applied by updateIconAppearance, so refresh ticks
     /// don't re-render an unchanged icon every 2 seconds.
     private var lastIconStateKey = ""
-    /// S10 UI-01: token for the system theme-change observer.
+    /// Token for the system theme-change observer.
     private var themeObserver: Any?
     /// Gaming Mode override: keeps the main item hidden even when the regular
     /// appearance logic would show it.
@@ -199,7 +199,7 @@ final class StatusItemController {
             MainActor.assumeIsolated { self?.scheduleSettingsSync() }
         }
 
-        // S10 UI-01: force an immediate re-render when the user flips the system
+        // Force an immediate re-render when the user flips the system
         // theme. Nothing in the app observed this, so the menu bar item kept its
         // previously composed image until the next monitor tick — up to ~2 s
         // with metrics pinned, and up to 30 s when only the keep-awake glyph is
@@ -221,7 +221,7 @@ final class StatusItemController {
     private var settingsSyncScheduled = false
     private var isRefreshing = false
     private var refreshRequestedWhileRunning = false
-    // AUDIT A-03: consecutive empty renders per metric item feed the documented
+    // Consecutive empty renders per metric item feed the documented
     // grace window (MenuBarSpacingSupport.emptyMetricRendersBeforeRemoval).
     private var metricEmptyRenders: [String: Int] = [:]
 
@@ -243,11 +243,10 @@ final class StatusItemController {
         // a block observer that outlives this instance.
         titleTimer?.invalidate()
         if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
-        // S10 UI-01
         if let themeObserver {
             DistributedNotificationCenter.default().removeObserver(themeObserver)
         }
-        // AUDIT A-05: the main status item must be removed too, or a teardown
+        // The main status item must be removed too, or a teardown
         // path leaks the idle glyph in the menu bar.
         if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
         for item in metricStatusItems.values {
@@ -307,7 +306,7 @@ final class StatusItemController {
         // refresh() runs on every monitor tick and lands here; re-rendering
         // the same image every 2 seconds would be wasted composition, so the
         // image is only touched when some ingredient actually changed.
-        // S10 UI-01: the appearance name is part of the cache key.
+        // The appearance name is part of the cache key.
         //
         // Without it, the non-template composites (attentionImage, tintedImage,
         // micMutedImage) were generated once and never regenerated on a theme
@@ -539,7 +538,7 @@ final class StatusItemController {
                                                    metrics: group.metrics,
                                                    allowStacked: false)
             guard title.length > 0 else {
-                // AUDIT A-03: keep the item installed through short sample gaps.
+                // Keep the item installed through short sample gaps.
                 // Removing and reinstalling on every transient nil reading forces
                 // a full status-bar re-layout and rewrites the placement defaults
                 // once per monitor tick — exactly the churn the grace window in
@@ -607,7 +606,7 @@ final class StatusItemController {
         for metric in metrics {
             switch metric {
             case .cpu, .cpuTemperature:
-                // AUDIT A-02: Only .cpu and .cpuTemperature combine into the paired group.
+                // Only .cpu and .cpuTemperature combine into the paired group.
                 appendComponentGroup(id: "cpu",
                                      primary: .cpu,
                                      temperature: .cpuTemperature,
@@ -625,7 +624,7 @@ final class StatusItemController {
             case .cpuPower, .cpuFrequency, .cpuTempPower,
                  .gpuPower, .gpuTempPower,
                  .memory, .network, .diskUsage, .diskActivity, .batteryTime, .peripheralBattery, .power:
-                // AUDIT A-02: Co-family metrics (power, frequency, temp+power)
+                // Co-family metrics (power, frequency, temp+power)
                 // must be emitted as their own individual MetricStatusGroup rather
                 // than being silently swallowed by the component pairing logic.
                 let id = metric.rawValue

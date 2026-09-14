@@ -49,7 +49,7 @@ extern "C" {
 
 #include "Headers/osfmk/i386/pmCPU.h"
 #include "Headers/osfmk/i386/cpu_topology.h"
-    
+
 
 int cpu_number(void);
 void mp_rendezvous_no_intrs(void (*action_func)(void *), void *arg);
@@ -99,7 +99,7 @@ struct FanCurveConfig {
 static constexpr float    kTHERMAL_GUARD_TEMP_C = 85.0f;
 static constexpr uint8_t  kTHERMAL_GUARD_PWM    = 200;   // ~78.4% duty
 
-// S10 KRN-00: hardware safety bounds for curve-mode fan output.
+// Hardware safety bounds for curve-mode fan output.
 //
 // kCURVE_MIN_ACTIVE_PWM — minimum duty actually written to the Super I/O once a
 // fan is under curve control. PWM 0 keeps its special meaning ("release this fan
@@ -110,6 +110,14 @@ static constexpr uint8_t  kTHERMAL_GUARD_PWM    = 200;   // ~78.4% duty
 // Cross-reference: the Swift manual-mode floor is AMDFanSafety.minimumManualPWM
 // (Sources/RyzenStatus/Services/AMD/FanCurveModels.swift) — keep both in sync.
 static constexpr uint8_t  kCURVE_MIN_ACTIVE_PWM = 40;    // ~15.7% duty
+
+// kFAN_STOPPED_RPM — below this, a fan with a TRUSTED tachometer reading is
+// treated as not turning. Used to decide whether a commanded duty is a rotor
+// START (dangerous below the floor) or merely maintaining a rotor that is
+// already turning (safe, and the case the floor must NOT touch — see
+// AMDFanSafety.guardOnlyPWM on the Swift side). Same threshold the Auto-mode
+// PWM estimator already uses to decide a fan is spinning.
+static constexpr uint32_t  kFAN_STOPPED_RPM = 100;
 
 // kTEMP_INVALID — explicit sentinel for "temperature could not be read".
 // getPackageTemp() returned 0.0f for BOTH a genuine 0 C and a failed SMN/PCI
@@ -135,11 +143,11 @@ static IOPMPowerState powerStates[kNrOfPowerStates] = {
 
 class AMDRyzenCPUPowerManagement : public IOService {
     OSDeclareDefaultStructors(AMDRyzenCPUPowerManagement)
-    
+
 public:
-    
+
     char kMODULE_VERSION[12]{};
-    
+
     /**
      *  MSRs supported by AMD 17h/19h/1Ah CPU from:
      *  https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/blob/master/LibreHardwareMonitorLib/Hardware/Cpu/Amd17Cpu.cs
@@ -147,7 +155,7 @@ public:
      * Processor Programming Reference for AMD Family 17h/19h/1Ah CPUs,
      * Linux kernel k10temp driver (drivers/hwmon/k10temp.c)
      */
-    
+
     static constexpr uint32_t kCOFVID_STATUS = 0xC0010071;
     static constexpr uint32_t k17H_M01H_SVI = 0x0005A000;
     static constexpr uint32_t kF17H_M01H_THM_TCON_CUR_TMP = 0x00059800;
@@ -157,7 +165,7 @@ public:
     static constexpr uint8_t kFAMILY_17H_PCI_CONTROL_REGISTER = 0x60;
     static constexpr uint8_t kFAMILY_1AH_PCI_CONTROL_REGISTER = 0x60;   // Zen 5 — confirm against PPR
     static constexpr uint16_t kAMD_HOST_BRIDGE_VENDOR = 0x1022;
-    
+
     /**
      *  CCD (Core Complex Die) temperature register offsets.
      *  These offsets are added to kF17H_M01H_THM_TCON_CUR_TMP (0x59800)
@@ -172,7 +180,7 @@ public:
     static constexpr uint8_t  kMAX_CCD_COUNT = 16;
     static constexpr uint32_t kZEN_CCD_TEMP_VALID_BIT = (1 << 11);
     static constexpr uint32_t kZEN_CCD_TEMP_MASK = 0x7FF;
-    
+
     enum SMUResponse : uint32_t {
         SMU_RSP_OK           = 1,
         SMU_RSP_INVALID_CMD  = 0xFF,
@@ -180,7 +188,7 @@ public:
         SMU_RSP_BUSY         = 0xFD,
         SMU_RSP_TIMEOUT      = 0,
     };
-    
+
     static constexpr uint32_t kMSR_HWCR = 0xC0010015;
     static constexpr uint32_t kMSR_CORE_ENERGY_STAT = 0xC001029A;
     static constexpr uint32_t kMSR_HARDWARE_PSTATE_STATUS = 0xC0010293;
@@ -202,39 +210,48 @@ public:
     static constexpr uint32_t kMSR_AMD_CPPC_CAP2 = 0xC00102B2;
     static constexpr uint32_t kMSR_AMD_CPPC_REQ = 0xC00102B3;
     static constexpr uint32_t kMSR_AMD_CPPC_STATUS = 0xC00102B4;
-    
+
 //    static constexpr uint32_t EF = 0x88;
-    
+
     static constexpr uint32_t kEFI_VARIABLE_NON_VOLATILE = 0x00000001;
     static constexpr uint32_t kEFI_VARIABLE_BOOTSERVICE_ACCESS = 0x00000002;
     static constexpr uint32_t kEFI_VARIABLE_RUNTIME_ACCESS = 0x00000004;
-    
-    
+
+
 
     virtual bool init(OSDictionary *dictionary = 0) override;
     virtual void free(void) override;
-    
+
     virtual bool start(IOService *provider) override;
     virtual void stop(IOService *provider) override;
-    
+
     virtual IOReturn setPowerState(unsigned long powerStateOrdinal, IOService* whatDevice) override;
-    
+
     void fetchOEMBaseBoardInfo();
     volatile SInt32 fanUpdateCounter = 0;
+    // Selector 94 needs its OWN counter. Sharing fanUpdateCounter with
+    // selector 93 was not merely a cadence quirk — it made 94's rate-limit gate
+    // unreachable. getFans() calls 93 then 94, so each pass consumes exactly two
+    // values and the parity each selector sees never changes. The counter starts
+    // at 0, OSIncrementAtomic returns the PRE-increment value, so 93 always reads
+    // an even value and 94 always reads an odd one — and `% 4 == 0` can only ever
+    // be true of an even value. updateFanControl() was therefore never called at
+    // all, from boot, which is why every fan reported pwm 0.
+    volatile SInt32 fanCtrlUpdateCounter = 0;
 
     bool read_msr(uint32_t addr, uint64_t *value);
     bool write_msr(uint32_t addr, uint64_t value);
-    
-    
+
+
     void updateClockSpeed(uint8_t physical);
     void calculateEffectiveFrequency(uint8_t physical);
     void updateInstructionDelta(uint8_t physical);
     void applyPowerControl();
     void applyEPPControl();
-    
+
     void setCPBState(bool enabled);
     bool getCPBState();
-    
+
 #define HF_TEMP_SAMPLE_SECS 3
 #define HF_TEMP_SAMPLE_FREQ 2
 #define HF_TEMP_SAMPLE_LEN (HF_TEMP_SAMPLE_SECS * HF_TEMP_SAMPLE_FREQ)
@@ -245,27 +262,27 @@ public:
     float getCCDTemp(uint8_t ccd);
     uint32_t readCCDRegisterRaw(uint8_t ccd);
     void updatePackageTemp();
-    
+
     void updatePackageEnergy();
-    
+
     void registerRequest();
-    
+
     void dumpPstate();
     void reinitHwState();
     void writePstate(const uint64_t *buf);
-    
+
     bool initSuperIO(uint16_t* chipIntel, bool allowUnlock = true);
     void evaluateFanCurves();
-    
+
     uint32_t getPMPStateLimit();
     void setPMPStateLimit(uint32_t);
-    
+
     uint32_t getHPcpus();
     int setCurveOptimizer(uint8_t core, int8_t offset);
-    
+
     uint32_t totalNumberOfPhysicalCores;
     uint32_t totalNumberOfLogicalCores;
-    
+
     bool cppcSupported {false};
     bool cppcActiveMode {false};
     uint8_t cppcEPPValue {0x3F};
@@ -274,21 +291,21 @@ public:
     bool disableCStates = true;
     uint64_t cstateAddrConfig {0};
     uint64_t packageC6Residency {0};
-    
+
     uint8_t cpuFamily;
     uint8_t cpuModel;
     uint8_t cpuSupportedByCurrentVersion;
-    
+
     uint32_t ccdOffset = kZEN_CCD_OFFSET_LEGACY;
     uint8_t  ccdCount = 0;
     float    ccdTemperatures[kMAX_CCD_COUNT] {};
     char     cpuArchName[16] {};
     pmRyzen_idle_strategy_t cpuIdleStrategy{PMRYZEN_IDLE_STRATEGY_SIMPLE};
-    
+
     // Curve Optimizer (Phase 13)
     int8_t curveOptimizerOffsets[CPUInfo::MaxCpus] {};
-    
-    // S4: Precision Boost Overdrive limits (Vermeer-only SMU commands).
+
+    // Precision Boost Overdrive limits (Vermeer-only SMU commands).
     // Values are the last successfully-programmed limits, cached for read-back
     // (the SMU has no read command for these — same approach as the CO cache).
     // Defaults of 0 mean "unknown / never set this boot"; the capability
@@ -298,8 +315,8 @@ public:
     uint32_t pboTDCMilliamps  {0};
     uint32_t pboEDCMilliamps  {0};
     uint32_t pboScalarPercentX100 {0};  // e.g. 200 = 2x
-    
-    // S4: returns true only when the silicon matches the Vermeer RSMU command
+
+    // Returns true only when the silicon matches the Vermeer RSMU command
     // set documented in ryzen_smu rsmu_commands.md (family 0x19, 0x21-0x2F) —
     // the same gate as Curve Optimizer. Fail-closed everywhere else.
     bool pboLimitsSupported() const {
@@ -310,38 +327,38 @@ public:
     // PPT/TDC/EDC/scalar; negative return maps like setCurveOptimizer.
     int setPBOLimit(uint32_t smuCmd, uint32_t arg, uint32_t &cacheSlot);
 
-    // S5: one RSMU read command polled from the main timer (no arg in,
+    // One RSMU read command polled from the main timer (no arg in,
     // result arrives in the mailbox arg register after SMU_RSP_OK). Returns
     // the raw result word, or 0 on failure / unsupported silicon.
     uint32_t pollSmuRead(uint32_t smuCmd);
-    // S5: refresh both boost-telemetry caches; throttled to one SMU round trip
+    // Refresh both boost-telemetry caches; throttled to one SMU round trip
     // per kSMU_BOOST_POLL_MIN_INTERVAL_MS (the main timer cadence is shorter).
     void pollBoostTelemetry();
-    
-    // S6: shared write path for the Vermeer cHTC thermal limit (SMU 0x56,
+
+    // Shared write path for the Vermeer cHTC thermal limit (SMU 0x56,
     // Arg0 = degrees Celsius). Same capability gate + thermal interlock policy
     // as setPBOLimit; on success the new limit is cached for read-back.
     // Negative return maps like setPBOLimit (-1 unsupported, -4 hot, -5 SMU
     // error, -10 timeout, -11 invalid cmd, -12 invalid args, -13 busy).
     int setCHTCLimit(uint32_t arg);
-    
-    // S6: one-shot read of the Vermeer ProcessorParameters bitfield (SMU 0x6F:
+
+    // One-shot read of the Vermeer ProcessorParameters bitfield (SMU 0x6F:
     // bit 0 IsOverclockable, bit 1 PBO support). Returns the raw word on OK,
-    // else 0. Timer command gate only — never from user threads (F-05).
+    // Else 0. Timer command gate only — never from user threads.
     uint32_t pollProcessorParameters();
-    
-    // S7: one-shot read of the SMU firmware version (global TestMessage-family
+
+    // One-shot read of the SMU firmware version (global TestMessage-family
     // command 0x02, works on every mailbox). Returns the raw byte-packed
-    // version word on OK, else 0. Timer command gate only (F-05).
+    // Version word on OK, else 0. Timer command gate only.
     uint32_t pollSmuVersion();
-    
-    // S7: read of the SMU's active PBO scalar (Vermeer RSMU 0x6C — response
+
+    // Read of the SMU's active PBO scalar (Vermeer RSMU 0x6C — response
     // is an IEEE-754 float, unlike the 0x58 write encoding). Returns the raw
     // word on OK, else 0. Rides the boost-telemetry throttle window; timer
-    // command gate only (F-05).
+    // Command gate only.
     uint32_t pollSmuPBOScalar();
 
-    // S8: enable/disable Vermeer OC mode (RSMU 0x5A EnableOcMode / 0x5B
+    // Enable/disable Vermeer OC mode (RSMU 0x5A EnableOcMode / 0x5B
     // DisableOcMode — semantics pinned by ZenStates-Core, resolving the doc's
     // contradictory rows). Writes blocked under the same thermal interlock as
     // the PBO/CO/cHTC paths. On the disable path `resetScalar` additionally
@@ -350,21 +367,21 @@ public:
     // setPBOLimit.
     int setOcMode(bool enable, bool resetScalar);
 
-    // S9a: SMU PM-table plumbing (0x08 version → per-version size → 0x05
+    // SMU PM-table plumbing (0x08 version → per-version size → 0x05
     // transfer → 0x06 base → read-only map → snapshot copy). Called from the
-    // main timer command gate only (F-05), throttled to one 0x05 + re-map
+    // Main timer command gate only, throttled to one 0x05 + re-map
     // check per second. All state is diagnostic: user space reads the
     // SNAPSHOT, never the live mapping, and nothing in this path writes to
     // SMU-controlled memory. Read-only map is unmapped on sleep/shutdown
     // (kext stop path) like every other ioremap in this kext.
     void pollPMTable();
-    // S9a: immediate capture (selector 57 op 2). Returns 0 on success,
-    // else the mapped negative table from the S9a helpers. Runs under
-    // rendezvousLock (UserClient) or on the timer command gate (F-05) —
+    // Immediate capture (selector 57 op 2). Returns 0 on success,
+    // Else the mapped negative table from the PM-table helpers. Runs under
+    // RendezvousLock (UserClient) or on the timer command gate —
     // the same policy as every other privileged SMU write path (CO/cHTC/PBO).
     int forcePMTableCapture();
 
-    // S8.2: program a frequency override via the Vermeer RSMU OC commands —
+    // Program a frequency override via the Vermeer RSMU OC commands —
     // all-core (0x5C, one call) or per-CCD (0x5D, one round trip per CCD;
     // Vermeer mask = (ccd << 28) | freq, see S_SERIES_ROADMAP.md §1.1).
     // Hard-gated: refuses with -3 unless THIS driver enabled OC mode via
@@ -388,43 +405,43 @@ public:
     uint32_t cpuCacheL1_perCore;
     uint32_t cpuCacheL2_perCore;
     uint32_t cpuCacheL3;
-    
+
     char boardVendor[BASEBOARD_STRING_MAX]{};
     char boardName[BASEBOARD_STRING_MAX]{};
     bool boardInfoValid = false;
-    
-    
+
+
     /**
      *  Hard allocate space for cached readings.
      */
     float effFreq_perCore[CPUInfo::MaxCpus] {};
     float PACKAGE_TEMPERATURE_perPackage[CPUInfo::MaxCpus] {};
-    
+
     uint64_t lastMPERF_perCore[CPUInfo::MaxCpus] {};
     uint64_t lastAPERF_perCore[CPUInfo::MaxCpus] {};
     uint64_t deltaMPERF_perCore[CPUInfo::MaxCpus] {};
-    
+
     uint64_t instructionDelta_perCore[CPUInfo::MaxCpus] {};
     uint64_t lastInstructionDelta_perCore[CPUInfo::MaxCpus] {};
-    
+
     float loadIndex_perCore[CPUInfo::MaxCpus] {};
-    
+
     float PStateStepUpRatio = 0.36;
     float PStateStepDownRatio = 0.05;
-    
+
     uint8_t PStateCur_perCore[CPUInfo::MaxCpus] {};
     uint8_t PStateCtl = 0;
     uint64_t PStateDef_perCore[8] {};
     uint8_t PStateEnabledLen = 0;
     float PStateDefClock_perCore[8];
     bool cpbSupported;
-    
-    
+
+
     uint64_t lastUpdateTime;
     uint64_t lastUpdateEnergyValue;
-    
+
     double uniPackagePowerW;   // Average package power in watts (energy delta / time delta)
-    
+
 #pragma pack(push, 1)
     struct CPUSensorPacket {
         float packagePowerW;
@@ -532,41 +549,41 @@ public:
     uint16_t savedSMCChipIntel = 0;
     SInt32 kextloadAlerts = 0;
     /// Ensures kunc_alert modal is shown at most once until the user dismisses/clears it.
-    /// SInt32 for OSCompareAndSwap (audit R-6).
+    /// SInt32 for OSCompareAndSwap.
     SInt32 kextAlertDisplayed = 0;
 
     kern_return_t (*kunc_alert)(int,unsigned,const char*,const char*,const char*,
                                 const char*,const char*,const char*,const char*,const char*,unsigned*) {nullptr};
-    
-    
+
+
     ISSuperIOSMCFamily *superIO{nullptr};
     IOLock *superIOLock{nullptr};   // Protects multi-step SuperIO I/O port sequences from concurrent UserClient calls
-    IOLock *smuCmdLock{nullptr};    // Serializes full SMU command sequences (audit R-8).
-                                    // Lock order: rendezvousLock → smuCmdLock (S5 timer boost-telemetry
+    IOLock *smuCmdLock{nullptr};    // Serializes full SMU command sequences.
+                                    // Lock order: rendezvousLock → smuCmdLock (timer boost-telemetry
                                     // poll) and controlLock → smuCmdLock (CO/PBO writes). smuCmdLock is
                                     // always a leaf — never take another lock while holding it.
     IOLock *rendezvousLock{nullptr}; // Serializes all mp_rendezvous calls (timer + UserClient control ops)
-    IOLock *controlLock{nullptr};   // Serializes provider state writes (PStateCtl, CPPC) from concurrent UserClients (audit K-2)
-    
+    IOLock *controlLock{nullptr};   // Serializes provider state writes (PStateCtl, CPPC) from concurrent UserClients
+
     static constexpr size_t kMAX_FANS = 16;
     FanCurveConfig fanCurves[MAX_FAN_CURVES];
     int8_t fanToCurveMap[kMAX_FANS]; // Maps each physical fan index to a curve index (-1 = Auto)
     uint8_t lastAppliedPWM[kMAX_FANS];
     uint64_t lastPWMUpdateTime[kMAX_FANS];
-    
+
     static_assert(sizeof(fanToCurveMap) / sizeof(fanToCurveMap[0]) == kMAX_FANS, "fan array size mismatch");
     static_assert(sizeof(lastAppliedPWM) / sizeof(lastAppliedPWM[0]) == kMAX_FANS, "fan array size mismatch");
     static_assert(sizeof(lastPWMUpdateTime) / sizeof(lastPWMUpdateTime[0]) == kMAX_FANS, "fan array size mismatch");
     float gpuTempC;
     float curveSmoothedTemp[MAX_FAN_CURVES];
     bool curveSmoothedSeeded[MAX_FAN_CURVES] {};
-    // S10 KRN-01: per-curve trust flag for the smoothed temperature, plus the
+    // Per-curve trust flag for the smoothed temperature, plus the
     // unsmoothed sample the emergency guard must be evaluated against.
     // curveSmoothedValid[c] == false means "no trustworthy reading this tick"
     // and forces kFAILSAFE_PWM instead of lut[0].
     bool curveSmoothedValid[MAX_FAN_CURVES] {};
     float curveRawSourceTemp[MAX_FAN_CURVES] {};
-    // AUDIT F-14: per-curve anchor temperature for downward hysteresis
+    // Per-curve anchor temperature for downward hysteresis
     float lastAppliedTemp[MAX_FAN_CURVES];
     bool lastAppliedTempSeeded[MAX_FAN_CURVES] {};
 
@@ -581,7 +598,7 @@ public:
     IOReturn getGPUPower(uint32_t index, float *data);
     bool gpuSupportsPower(uint32_t index);
 
-    // S5: cached boost telemetry (Vermeer RSMU read commands 0x6E/0x59).
+    // Cached boost telemetry (Vermeer RSMU read commands 0x6E/0x59).
     // Refreshed from the main command-gate timer; 0 = unknown / never read
     // this boot. Raw SMU response words are cached byte-identically (no
     // kernel-side decode) so the app owns the decode — keep it that way and
@@ -590,7 +607,7 @@ public:
     uint32_t smuFastestCoreRaw {0};
     uint64_t smuBoostTelemetryLastPollMs {0};
 
-    // S6: cached ProcessorParameters bitfield (Vermeer RSMU 0x6F). Static
+    // Cached ProcessorParameters bitfield (Vermeer RSMU 0x6F). Static
     // silicon configuration, so it is read once from the timer command gate
     // and cached; smuProcParamsPolled distinguishes a real 0 response from
     // "never read this boot". Raw word cached byte-identically — decode in
@@ -598,12 +615,12 @@ public:
     uint32_t smuProcessorParametersRaw {0};
     bool smuProcParamsPolled {false};
 
-    // S6: cHTC limit cache — the last value successfully programmed via SMU
+    // CHTC limit cache — the last value successfully programmed via SMU
     // 0x56 this boot (0 = never set). The SMU has no read command for cHTC;
     // the kext caches on success, same as the PBO limits.
     uint32_t smuCHTCLimitCelsius {0};
 
-    // S7: cached SMU readbacks. The 0x02 firmware version is static — read
+    // Cached SMU readbacks. The 0x02 firmware version is static — read
     // once and kept. The 0x6C PBO scalar reflects live SMU state (what Ryzen
     // Master / the firmware actually apply), so it re-reads inside the boost
     // poll's 500 ms throttle window and pairs with the 0x58 write cache for
@@ -613,14 +630,14 @@ public:
     bool smuVersionPolled {false};
     uint32_t smuActiveScalarRaw {0};
 
-    // S8: OC-mode state cache — mirrors the last 0x5A/0x5B outcome this boot
+    // OC-mode state cache — mirrors the last 0x5A/0x5B outcome this boot
     // (0 = never touched by this driver, 1 = enabled via 0x5A, 2 = disabled
     // via 0x5B). The SMU has no read-back for OC mode; the cache is written
     // only on SMU_OK, and 0 honestly means "unknown" (another tool may have
     // flipped the mode before we loaded).
     uint32_t smuOcModeState {0};
 
-    // S8.2: frequency-override caches (0x5C all-core / 0x5D per-CCD). 0 =
+    // Frequency-override caches (0x5C all-core / 0x5D per-CCD). 0 =
     // never written by this driver this boot; on success each slot holds the
     // absolute MHz last acknowledged by the SMU. Driver-local truth only:
     // the SMU has no read-back for these commands.
@@ -630,7 +647,7 @@ public:
     uint32_t ocFreqMHzAllCores {0};
     uint32_t ocFreqMHzPerCcd[kS8MaxCcds] {0};
 
-    // S9a: SMU PM-table plumbing (Vermeer RSMU 0x05/0x06/0x08 — the same
+    // SMU PM-table plumbing (Vermeer RSMU 0x05/0x06/0x08 — the same
     // table ryzen_smu/HWiNFO feed from). The table lives at a SMU-provided
     // physical address in DRAM; the kext maps it read-only and snapshots it
     // into a fixed buffer that user space reads through selector 57.
@@ -645,13 +662,13 @@ public:
     uint64_t pmTableCapturedMs {0};          // timestamp of the last successful capture
     bool     pmMapValid {false};             // snapshot reflects a successful 0x05+capture cycle
 
-    // S3-B: read-only view for the UserClient capability report (selector 35).
+    // Read-only view for the UserClient capability report (selector 35).
     // Exposes only the fields the CO capability needs; keeps the rest of the
     // mailbox (SMN register layout) private.
     bool smuMailboxSupported() const { return smuMailbox.supported; }
     uint32_t smuCurveOptimizerCmd() const { return smuMailbox.curveOptimizerCmd; }
 
-    // S9d: on-demand mailbox health report (UserClient selector 58). Runs the
+    // On-demand mailbox health report (UserClient selector 58). Runs the
     // same three probes the boot diagnostic does — SMN aperture read (Tctl),
     // TestMessage round-trip (0x01: documented Res0 = Arg0 + 1, so arg
     // 0x42 expects 0x43 back) and GetSMUVersion
@@ -681,44 +698,44 @@ private:
     IOWorkLoop *workLoop;
     IOTimerEventSource *timerEvent_main;
     IOTimerEventSource *timerEvent_tempe;
-    
+
     bool serviceInitialized = false;
-    
+
     uint32_t updateTimeInterval = 1000;
     uint32_t actualUpdateTimeInterval = 1;
     uint64_t timeOfLastUpdate = 0;
     uint64_t estimatedRequestTimeInterval = 0;
     uint64_t timeOfLastMissedRequest = 0;
-    
+
     int tempNextSample = 0;
     float tempSamples[HF_TEMP_SAMPLE_LEN];
     float tempOffset = 0;
     double pwrTimeUnit = 0;
     double pwrEnergyUnit = 0;
     uint64_t pwrLastTSC = 0;
-    
+
     uint64_t xnuTSCFreq = 1;
     int (*wrmsr_carefully)(uint32_t, uint32_t, uint32_t) {nullptr};
-    
+
     CPUInfo::CpuTopology cpuTopology {};
-    
+
     IOPCIDevice *fIOPCIDevice{nullptr};
     IOSimpleLock *pciConfigLock{nullptr};
-    
+
     KernelPatcher *liluKernelPatcher;
-    
+
     bool getPCIService();
     void enumerateGPUs();
     bool wentToSleep{false};
     /// Set by resumeWorkLoop() on S3 wake. The main timer processes it on its
     /// first tick (workLoop thread) so reinitHwState() never runs on the PM thread.
     bool pendingReinit{false};
-    
+
     uint32_t smnRead32(uint32_t addr);
     void smnWrite32(uint32_t addr, uint32_t val);
     int smuSendCmd(uint32_t cmd, uint32_t arg);
     int smuSendCmd(uint32_t cmd, uint32_t arg, uint32_t &outArg0, uint32_t *outElapsedUs = nullptr);
-    // S9a: two-argument variant returning both arg-window words after OK —
+    // Two-argument variant returning both arg-window words after OK —
     // GetDramBaseAddress (0x06) is called with Arg0=1/Arg1=1 on Vermeer and
     // the 64-bit physical base assembles as arg0 | (arg1 << 32)
     // (reference smu.c smu_get_dram_base_address, BASE_ADDR_CLASS_1).
@@ -734,10 +751,10 @@ private:
     };
     SMUMailbox smuMailbox{};
 
-    // S5: SMU read commands ride the main timer's command gate. The throttle
+    // SMU read commands ride the main timer's command gate. The throttle
     // keeps the added SMU traffic to ~2 round trips per second worst case.
     static constexpr uint64_t kSMU_BOOST_POLL_MIN_INTERVAL_MS = 500;
-    
+
     void initWorkLoop();
     void stopWorkLoop();
     void resumeWorkLoop();

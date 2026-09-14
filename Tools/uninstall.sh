@@ -35,7 +35,7 @@ rm -rf "$APP" "$LEGACY_APP"
 defaults delete "$BUNDLE" >/dev/null 2>&1 || true
 rm -f "$HOME/Library/Preferences/$BUNDLE.plist"
 rm -rf "$HOME/Library/Saved Application State/$BUNDLE.savedState"
-# AUDIT A-13: the private data container (PrivateFileStore) holds the
+# the private data container (PrivateFileStore) holds the
 # clipboard history, shelf items, scratchpad and snippet library — the
 # most important leftover for an uninstaller that promises a clean sweep.
 rm -rf "$HOME/Library/Application Support/$BUNDLE"

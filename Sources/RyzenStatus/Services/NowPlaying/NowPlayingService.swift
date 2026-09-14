@@ -494,8 +494,8 @@ final class NowPlayingService: ObservableObject {
         button.toolTip = hasTrack
             ? "\(snapshot.displayTitle) — \(snapshot.displayArtist)"
             : nil
-        button.setAccessibilityLabel(hasTrack 
-            ? "\(snapshot.displayTitle) — \(snapshot.displayArtist)" 
+        button.setAccessibilityLabel(hasTrack
+            ? "\(snapshot.displayTitle) — \(snapshot.displayArtist)"
             : FeatureStrings.nowPlaying(L10n.shared.language).emptyState)
     }
 
@@ -558,7 +558,7 @@ final class NowPlayingService: ObservableObject {
         marqueeEngine.reset()
     }
 
-    // S10 UI-02: memoized text measurement.
+    // Memoized text measurement.
     //
     // menuBarTextWidth is called up to 3x per composed frame and the marquee
     // drives that at 20 Hz for as long as the title overflows — indefinitely

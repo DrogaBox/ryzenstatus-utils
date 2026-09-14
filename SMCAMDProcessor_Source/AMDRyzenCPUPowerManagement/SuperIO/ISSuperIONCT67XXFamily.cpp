@@ -10,27 +10,27 @@
 ISSuperIONCT67XXFamily::ISSuperIONCT67XXFamily(int psel, uint16_t addr, uint16_t chipIntel){
     lpcPortSel = psel;
     chipAddr = addr;
-    
+
     switch (chipIntel) {
         case CHIP_NCT6779D:
             activeFansOnSystem = 5;
             break;
-        
+
         case CHIP_NCT6797D:
         case CHIP_NCT6798D:
             activeFansOnSystem = 7;
             break;
-            
+
         case CHIP_NCT6799D:
         case CHIP_NCT6701D:
             activeFansOnSystem = 7;
             break;
-            
+
         default:
             activeFansOnSystem = 6;
             break;
     }
-    
+
     //backup default ctrl mode
     for (int i = 0; i < activeFansOnSystem; i++) {
         fanDefaultControlMode[i] = readByte(kFAN_CTRL_MODE_REGS[i]);
@@ -38,25 +38,25 @@ ISSuperIONCT67XXFamily::ISSuperIONCT67XXFamily(int psel, uint16_t addr, uint16_t
 }
 
 ISSuperIONCT67XXFamily* ISSuperIONCT67XXFamily::getDevice(uint16_t *chipIntel, bool allowUnlock){
-    
+
     i386_ioport_t regport = 0;
     uint8_t deviceID=0, revision=0;
     bool found = false;
     int portSel = 0;
     IOLog("probe NCT67XX\n");
-    
+
     for (; portSel < 2; portSel++) {
         regport = ISLPCPort::kREGISTER_PORTS[portSel];
-        
+
         //open port
         outb(regport, CHIP_SIO_OPEN);
         outb(regport, CHIP_SIO_OPEN);
-        
-        
+
+
         deviceID = ISLPCPort::readByte(portSel, ISLPCPort::kCHIP_ID_REG);
         revision = ISLPCPort::readByte(portSel, ISLPCPort::kCHIP_REVISION_REG);
         found = false;
-        
+
         switch ((deviceID << 8) | revision) {
             case CHIP_NCT6779D:
             case CHIP_NCT6791D:
@@ -74,13 +74,13 @@ ISSuperIONCT67XXFamily* ISSuperIONCT67XXFamily::getDevice(uint16_t *chipIntel, b
                 found = true;
                 IOLog("NCT67XX chip identified\n");
                 break;
-                
+
             default:
                 IOLog("NCT67XX chip not identified\n");
                 break;
         }
-        
-        
+
+
         if(found) break;
         else{
             //close port
@@ -89,25 +89,25 @@ ISSuperIONCT67XXFamily* ISSuperIONCT67XXFamily::getDevice(uint16_t *chipIntel, b
     }
     *chipIntel = (deviceID << 8) | revision;
     if(!found) return nullptr;
-    
+
     IOLog("SMC Chip id:%X revision:%X \n", deviceID, revision);
     ISLPCPort::select(portSel, CHIP_HWM_LDN);
-    
+
     uint16_t devAddr = ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER) & (~7);
-    
+
     //verify addr
     IODelay(10);
     if((ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER) & (~7)) != devAddr){
         IOLog("NCT67XX address verify failed");
-        // AUDIT F-11: failure paths here used to skip the 0xAA close, leaving
+        // Failure paths here used to skip the 0xAA close, leaving
         // the SIO in PnP config mode until the next power cycle. Close the port
         // like the probe loop's not-found branch does.
         outb(ISLPCPort::kREGISTER_PORTS[portSel], CHIP_SIO_CLOSE);
         return nullptr;
     }
-    
+
     IOLog("Chip address: 0x%X\n", devAddr);
-    
+
     //Now that the present of chip is confirmed, disable IO address space lock.
     uint8_t conf = 0;
     switch (*chipIntel) {
@@ -125,7 +125,7 @@ ISSuperIONCT67XXFamily* ISSuperIONCT67XXFamily::getDevice(uint16_t *chipIntel, b
         case CHIP_NCT6799D:
         case CHIP_NCT6701D:
             conf = ISLPCPort::readByte(portSel, CHIP_IO_SPACE_LOCK);
-            // AUDIT F-03: clearing the I/O-space lock is a firmware protection
+            // Clearing the I/O-space lock is a firmware protection
             // change. Only privileged callers (root / -amdpnopchk) — the ones
             // that can drive fan control anyway — may clear it; the read-only
             // probe stays available to everyone.
@@ -133,14 +133,14 @@ ISSuperIONCT67XXFamily* ISSuperIONCT67XXFamily::getDevice(uint16_t *chipIntel, b
                 ISLPCPort::writeByte(portSel, CHIP_IO_SPACE_LOCK, conf & ~0x10);
             }
             break;
-            
+
         default:
             break;
     }
-    
+
     //close port
     outb(regport, 0xaa);
-    
+
     return new ISSuperIONCT67XXFamily(portSel, devAddr, *chipIntel);
 }
 
@@ -153,12 +153,12 @@ uint8_t ISSuperIONCT67XXFamily::readByte(uint16_t addr){
 
 uint16_t ISSuperIONCT67XXFamily::readWord(uint16_t addr){
     //
-    // S10 SIO-02: tear-resistant 16-bit read.
+    // Tear-resistant 16-bit read.
     //
     // Each readByte() is its own bank-select + index + data sequence, so the
     // chip can update the tachometer counter between the high and low byte and
     // hand back a value stitched from two different samples. That is the
-    // physical origin of the implausible words SIO-01 filters.
+    // Physical origin of the implausible words the plausibility check filters.
     //
     // Re-read the high byte after the low byte: if it changed, the counter
     // rolled between our accesses and the pair is inconsistent, so retry.
@@ -172,7 +172,7 @@ uint16_t ISSuperIONCT67XXFamily::readWord(uint16_t addr){
         }
     }
     // Persistent disagreement: report the sentinel so the caller's
-    // plausibility check (SIO-01) rejects this sample.
+    // Plausibility check rejects this sample.
     return 0xFFFF;
 }
 
@@ -197,6 +197,11 @@ uint32_t ISSuperIONCT67XXFamily::getRPMForFan(int fan){
     return fanRPMs[fan];
 }
 
+bool ISSuperIONCT67XXFamily::getFanRPMValid(int fan){
+    if(fan < 0 || fan >= activeFansOnSystem) return false;
+    return fanRPMValid[fan];
+}
+
 bool ISSuperIONCT67XXFamily::getFanAutoControlMode(int fan){
     if(fan < 0 || fan >= activeFansOnSystem) return 0;
     return fanControlMode[fan] != 0;
@@ -209,7 +214,7 @@ uint8_t ISSuperIONCT67XXFamily::getFanThrottle(int fan){
 
 void ISSuperIONCT67XXFamily::updateFanRPMS(){
     //
-    // S10 SIO-01: validate every tachometer word before publishing it.
+    // Validate every tachometer word before publishing it.
     //
     // readWord() issues two independent bank/index sequences, so the high and
     // low bytes can tear across a tach update. An unpopulated header, a torn
@@ -246,15 +251,15 @@ void ISSuperIONCT67XXFamily::updateFanRPMS(){
 void ISSuperIONCT67XXFamily::updateFanControl(){
     for (int i = 0; i < activeFansOnSystem; i++) {
         fanControlMode[i] = readByte(kFAN_CTRL_MODE_REGS[i]);
-        
+
         // kFAN_PWMCMD_REGS contains the manual PWM duty cycle.
         // In SmartFan mode (auto), the chip may not update this register
         // with the actual duty cycle being applied.
         fanThrottles[i] = readByte(kFAN_PWMCMD_REGS[i]);
-        
+
         // Fallback: if the register reports 0 but fan is spinning,
         // estimate throttle from RPM/peakRPM ratio.
-        // S10 SIO-01: only estimate from a validated tach sample.
+        // Only estimate from a validated tach sample.
         if (fanThrottles[i] == 0 && fanRPMValid[i] && fanRPMs[i] > 100 && fanPeakRPMs[i] > 200) {
             uint32_t est = (uint32_t)((uint64_t)fanRPMs[i] * 255 / fanPeakRPMs[i]);
             fanThrottles[i] = est > 255 ? 255 : (uint8_t)est;

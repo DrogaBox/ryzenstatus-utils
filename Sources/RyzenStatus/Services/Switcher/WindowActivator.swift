@@ -773,7 +773,7 @@ fileprivate final class SwitcherWindowMinimizeRestore {
     private func scheduleMinimizeCompletionRestore() {
         guard !minimizeCompletionRestoreScheduled else { return }
         minimizeCompletionRestoreScheduled = true
-        // AUDIT E-03: the 3 ms ladder queued ~150 restore probes (each an AX
+        // The 3 ms ladder queued ~150 restore probes (each an AX
         // round-trip with a 0.35 s messaging timeout) on the main thread per
         // minimize; against a busy or hung target app that serialized into
         // minutes of main-thread stalls shared with every other tap. A capped

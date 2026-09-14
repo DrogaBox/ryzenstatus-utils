@@ -32,7 +32,7 @@ final class SmoothScrollService: ObservableObject {
     /// thread (tap callback and timer both live on the main run loop).
     private var remainingVertical: Double = 0
     private var remainingHorizontal: Double = 0
-    // AUDIT E-10: Carry forward sub-pixel fractions so low-speed glides
+    // Carry forward sub-pixel fractions so low-speed glides
     // and high-resolution wheel ticks never drop distance to frame rounding.
     private var carryVertical: Double = 0
     private var carryHorizontal: Double = 0

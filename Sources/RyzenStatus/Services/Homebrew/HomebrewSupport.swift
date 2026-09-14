@@ -203,7 +203,7 @@ enum HomebrewCommandBuilder {
 
     static func search(brewPath: String, kind: HomebrewPackageKind, query: String) -> HomebrewCommand {
         let flag = kind == .formula ? "--formula" : "--cask"
-        // AUDIT D-06: a "-"-leading query is consumed by brew as an option
+        // A "-"-leading query is consumed by brew as an option
         // ("search requires a token"), never as a search term. Stripping the
         // leading dashes keeps the user's intent while always passing a token.
         let token = query.trimmingCharacters(in: .whitespacesAndNewlines)

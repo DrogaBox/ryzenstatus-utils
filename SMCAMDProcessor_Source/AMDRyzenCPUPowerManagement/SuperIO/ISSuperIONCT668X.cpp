@@ -10,46 +10,46 @@
 ISSuperIONCT668X::ISSuperIONCT668X(int psel, uint16_t addr, uint16_t chipIntel){
     lpcPortSel = psel;
     chipAddr = addr;
-    
+
     activeFansOnSystem = NCT668X_MAX_NUMFAN;
-    
+
     // Removed: fanDefaultControlMode backup not needed — control mode is
     // restored to Auto per-request in setDefaultFanControl().
 }
 
 ISSuperIONCT668X* ISSuperIONCT668X::getDevice(uint16_t *chipIntel, bool allowUnlock){
-    
+
     i386_ioport_t regport = 0;
     uint8_t deviceID=0, revision=0;
     bool found = false;
     int portSel = 0;
     IOLog("probe NCT668X\n");
-    
+
     for (; portSel < 2; portSel++) {
         regport = ISLPCPort::kREGISTER_PORTS[portSel];
-        
+
         //open port
         outb(regport, CHIP_SIO_OPEN);
         outb(regport, CHIP_SIO_OPEN);
-        
-        
+
+
         deviceID = ISLPCPort::readByte(portSel, ISLPCPort::kCHIP_ID_REG);
         revision = ISLPCPort::readByte(portSel, ISLPCPort::kCHIP_REVISION_REG);
         found = false;
-        
+
         switch (((deviceID << 8) | revision) & 0xfff0) {
             case CHIP_NCT6681:
             case CHIP_NCT6683:
                 found = true;
                 IOLog("NCT668X chip identified\n");
                 break;
-                
+
             default:
-                
+
                 break;
         }
-        
-        
+
+
         if(found) break;
         else{
             //close port
@@ -61,32 +61,32 @@ ISSuperIONCT668X* ISSuperIONCT668X::getDevice(uint16_t *chipIntel, bool allowUnl
     }
     *chipIntel = (deviceID << 8) | revision;
     if(!found) return nullptr;
-    
+
     IOLog("SMC Chip id:%X revision:%X \n", deviceID, revision);
     ISLPCPort::select(portSel, CHIP_HWM_LDN);
-    
+
     uint16_t devAddr = ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER) & (~7);
-    
+
     IOLog("Chip address: 0x%X\n", devAddr);
-    
+
     IODelay(10);
     uint16_t devAddrVerify = ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER) & (~7);
     if (devAddrVerify != devAddr) {
         IOLog("NCT668X address verification failed: 0x%X != 0x%X\n", devAddrVerify, devAddr);
-        // AUDIT F-11: close the config port before bailing out.
+        // Close the config port before bailing out.
         outb(ISLPCPort::kREGISTER_PORTS[portSel], CHIP_SIO_CLOSE);
         outb(ISLPCPort::kREGISTER_PORTS[portSel], 0x02);
         outb(ISLPCPort::kREGISTER_PORTS[portSel], 0x02);
         return nullptr;
     }
-    
+
     //Now that the present of chip is confirmed, disable IO address space lock.
     uint8_t conf = 0;
     switch (*chipIntel) {
         // In short, these are all the chips we currently support.
         case CHIP_NCT6681:
         case CHIP_NCT6683:
-            // AUDIT F-15: clearing the I/O-space lock is a firmware protection
+            // Clearing the I/O-space lock is a firmware protection
             // change — only privileged callers (or safe-mode probes) may clear it.
             if (allowUnlock) {
                 conf = ISLPCPort::readByte(portSel, 0x30);
@@ -95,16 +95,16 @@ ISSuperIONCT668X* ISSuperIONCT668X::getDevice(uint16_t *chipIntel, bool allowUnl
                 }
             }
             break;
-            
+
         default:
             break;
     }
-    
+
     //close port
     outb(regport, CHIP_SIO_CLOSE);
     outb(regport, 0x02);
     outb(regport, 0x02);
-    
+
     return new ISSuperIONCT668X(portSel, devAddr, *chipIntel);
 }
 
@@ -116,10 +116,10 @@ uint8_t ISSuperIONCT668X::readByte(uint16_t addr){
 }
 
 uint16_t ISSuperIONCT668X::readWord(uint16_t addr){
-    // S10 SIO-02: tear-resistant 16-bit read (same rationale as
+    // Tear-resistant 16-bit read (same rationale as
     // ISSuperIONCT67XXFamily::readWord): re-read the high byte after the low;
     // persistent disagreement reports the 0xFFFF sentinel for the caller's
-    // plausibility filter (SIO-01) to reject.
+    // Plausibility filter to reject.
     for (int attempt = 0; attempt < 3; attempt++) {
         uint8_t hi  = readByte(addr);
         uint8_t lo  = readByte(addr + 1);
@@ -154,6 +154,11 @@ uint32_t ISSuperIONCT668X::getRPMForFan(int fan){
     return fanRPMs[fan];
 }
 
+bool ISSuperIONCT668X::getFanRPMValid(int fan){
+    if(fan < 0 || fan >= activeFansOnSystem) return false;
+    return fanRPMValid[fan];
+}
+
 bool ISSuperIONCT668X::getFanAutoControlMode(int fan){
     if(fan < 0 || fan >= activeFansOnSystem) return 0;
     return fanControlMode[fan] != 0;
@@ -166,7 +171,7 @@ uint8_t ISSuperIONCT668X::getFanThrottle(int fan){
 
 void ISSuperIONCT668X::updateFanRPMS(){
     //
-    // S10 SIO-01: validate every tachometer word before publishing it
+    // Validate every tachometer word before publishing it
     // (same rationale as ISSuperIONCT67XXFamily::updateFanRPMS).
     //
     static const int kMAX_PLAUSIBLE_RPM = 10500;
@@ -196,10 +201,10 @@ void ISSuperIONCT668X::updateFanControl(){
         // In Auto mode this register should be updated by the EC firmware,
         // but some firmware versions don't update it -> read 0.
         fanThrottles[i] = readByte(FAN_PWM_REGS(i));
-        
+
         // Fallback: if register reports 0 but fan is spinning,
         // estimate throttle from RPM/peakRPM ratio.
-        // S10 SIO-01: only estimate from a validated tach sample.
+        // Only estimate from a validated tach sample.
         if (fanThrottles[i] == 0 && fanRPMValid[i] && fanRPMs[i] > 100 && fanPeakRPMs[i] > 200) {
             uint32_t est = (uint32_t)((uint64_t)fanRPMs[i] * 255 / fanPeakRPMs[i]);
             fanThrottles[i] = est > 255 ? 255 : (uint8_t)est;

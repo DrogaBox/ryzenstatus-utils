@@ -39,7 +39,7 @@ final class AutoEppService: ObservableObject {
     private static let pollInterval: TimeInterval = 1.5
     /// Sentinel (0xFF) means "never written". Used to skip redundant MSR writes.
     private var lastWrittenEPP: UInt8 = 0xFF
-    /// S10-T1: wake observer token. Without it the EPP was never restored after
+    /// Wake observer token. Without it the EPP was never restored after
     /// sleep — see resetWriteSentinel().
     private var wakeObserver: Any?
     /// Set by suspend()/resume() — blocks poll() writes without touching UserDefaults.
@@ -48,7 +48,7 @@ final class AutoEppService: ObservableObject {
     @MainActor
     private init() {
         self.isActive = AmdSettingsStore.shared.autoEppEnabled
-        // S10-T1: this was the only AMD service with no wake handling
+        // This was the only AMD service with no wake handling
         // (FanCurveController and C6ResidencyService both observe didWake).
         // Pattern matches C6ResidencyService.swift:38-55.
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -68,7 +68,7 @@ final class AutoEppService: ObservableObject {
         }
     }
 
-    /// S10-T1: clears the dedup sentinel so the next poll re-asserts the EPP.
+    /// Clears the dedup sentinel so the next poll re-asserts the EPP.
     ///
     /// `poll()` skips the MSR write when `targetEPP == lastWrittenEPP`. That is
     /// correct in steady state, but the SMU can lose the EPP across a suspend
@@ -86,7 +86,7 @@ final class AutoEppService: ObservableObject {
     func start() {
         guard pollTask == nil else { return }
         pollTask = Task.detached(priority: .background) { [weak self] in
-            // S10 CON-04: exit the loop when the owner is gone. Previously the
+            // Exit the loop when the owner is gone. Previously the
             // `await self?.poll()` simply no-op'd and the loop kept waking every
             // 1.5 s forever, because the only thing that cancels it is a method
             // on the object that just went away.
@@ -104,7 +104,7 @@ final class AutoEppService: ObservableObject {
     func stop() {
         pollTask?.cancel()
         pollTask = nil
-        // S10-T1: deinit never fires on a `static let shared` singleton, so the
+        // Deinit never fires on a `static let shared` singleton, so the
         // observer is released here — stop() is the real teardown point
         // (AppDelegate.applicationWillTerminate).
         if let wakeObserver {
@@ -155,7 +155,7 @@ final class AutoEppService: ObservableObject {
 
     func poll() async {
         guard !isSuspended else { return }
-        // AUDIT F-27: thread-safe connection check to avoid data races
+        // Thread-safe connection check to avoid data races
         let isConnected = ProcessorModel.shared.isConnected
         guard isConnected else {
             await MainActor.run {

@@ -219,7 +219,7 @@ struct FansSettingsView: View {
         .formStyle(.grouped)
         .environment(\.defaultMinListRowHeight, 4)
         .onAppear {
-            // AUDIT F-19: register as a panel client with the depth-counter API.
+            // Register as a panel client with the depth-counter API.
             // setMenuPanelNeeds(.none) unconditionally wiped the panel's needs,
             // silently stopping CPU/temp sampling for a detached menu panel until
             // it was reopened — the AMD/Sensors pages already use this API.
@@ -291,7 +291,7 @@ struct FanControlCard: View {
                 Spacer()
 
                 HStack(spacing: 6) {
-                    // S10 SIO-03: an untrusted tach reading renders as "—",
+                    // An untrusted tach reading renders as "—",
                     // never as a fabricated number.
                     Text(fan.rpmValid ? "\(fan.rpm) RPM" : "— RPM")
                         .font(.system(size: 11, design: .monospaced))
@@ -458,10 +458,10 @@ struct FanControlCard: View {
                 .stroke(fan.controlMode == .manual ? Color.orange.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: 1)
         )
         .onAppear {
-            // S10 D6: the slider floor (minimumManualPWM = 40) is deliberately
+            // The slider floor (minimumManualPWM = 40) is deliberately
             // stricter than the enforcement loop: onAppear seeds from the live
             // hardware duty (often a fixed BIOS setpoint below 40) and the
-            // F-22k onChange tracking below keeps the readout glued to it, so
+            // onChange tracking below keeps the readout glued to it, so
             // the slider's numeric display reports the REAL duty while its
             // range starts at 40. The floor is enforced when the user commits a
             // value (setManualPWM's clampManualPWM). Nobody should "fix" this
@@ -470,7 +470,7 @@ struct FanControlCard: View {
             sliderValue = max(Double(AMDFanSafety.minimumManualPWM), Double(fan.throttlePWM))
         }
         .onChange(of: fan.throttlePWM) { _, newVal in
-            // AUDIT F-22k fix: while a manual override is active, `throttlePWM`
+            // While a manual override is active, `throttlePWM`
             // IS the live duty we commanded — keep the slider glued to it even
             // when not dragging. The old `!= .manual` guard froze the slider at
             // the value from the moment manual mode was entered, so it stopped

@@ -227,7 +227,7 @@ enum AMDSmuReadback {
     }
 }
 
-// MARK: - Mailbox Diagnostics (S9d, selector 58)
+// MARK: - Mailbox Diagnostics (selector 58)
 
 /// Decode + formatting for the kext's on-demand mailbox health report
 /// (selector 58, kext 3.34.13+). The kext runs the same three probes as its
@@ -427,7 +427,7 @@ enum AMDOcFreq {
     }
 }
 
-// MARK: - SMU PM Table (S9a, selectors 56/57 — 0x05/0x06/0x08 plumbing)
+// MARK: - SMU PM Table (selectors 56/57 — 0x05/0x06/0x08 plumbing)
 
 /// Decode/format helpers for the SMU PM-table plumbing wave. The version
 /// word from `GetPMTableVersion` (0x08) is BCD-style, e.g. 0x380904 renders
@@ -455,7 +455,7 @@ enum AMDSmuPMTable {
         }
     }
 
-    // MARK: — S9b: decoded per-core telemetry from a captured snapshot
+    // MARK: — Decoded per-core telemetry from a captured snapshot
 
     /// One decoded core row of the 0x380805 Vermeer PM table. All raw SMU
     /// floats, byte-for-byte what the table holds (ryzen_monitor's mapping,
@@ -517,7 +517,7 @@ enum AMDSmuPMTable {
     }
 
     /// One decoded L3 (GameCache) cache row. Fields mirror the L3 block of
-    /// `pm_tables.c` (S9c): 16 elements per cache, field arrays of `l3Count`
+    /// `pm_tables.c`: 16 elements per cache, field arrays of `l3Count`
     /// consecutive elements — element(field j, cache i) = base + j·l3Count + i.
     /// Validated upstream (0x380805/0x380804) and against two live 5900XT
     /// captures; 0x380904/0x380905 inherit their head's guess caveat.
@@ -549,7 +549,7 @@ enum AMDSmuPMTable {
         let l3: [L3Row]
     }
 
-    /// S9c freshness gate for promoting SMU-native values over the kext's
+    /// Freshness gate for promoting SMU-native values over the kext's
     /// computed estimates: the kext's 1 Hz timer must have published the
     /// snapshot within the promotion window (older ⇒ the timer stopped and
     /// SMU values are stale — callers fall back to the estimate path).
@@ -687,7 +687,7 @@ enum AMDSmuPMTable {
             ))
         }
 
-        // S9c: L3 (GameCache) block. Element(field j, cache i) =
+        // L3 (GameCache) block. Element(field j, cache i) =
         // base + j·l3Count + i (field arrays are l3Count consecutive
         // elements). Display fields only — FIT/CKS_FDD/CCA/… stay raw.
         var l3 = [L3Row]()

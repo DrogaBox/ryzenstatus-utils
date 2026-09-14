@@ -496,7 +496,7 @@ final class ProcessUsageService {
 
     private var previousGPUSample: (time: TimeInterval, perPid: [pid_t: Double])?
     private let gpuSampleLock = NSLock()
-    
+
     /// BUG-14 fix: totalGPUUtilPct was an instance var mutated on a global queue without a lock.
     /// Removed — callers use a local variable inside topGPU instead.
 
@@ -506,7 +506,7 @@ final class ProcessUsageService {
     private static var windowServerPID: pid_t? {
         windowServerLock.lock()
         defer { windowServerLock.unlock() }
-        // AUDIT B-08: WindowServer restarts on logout/login; a cached PID must be
+        // WindowServer restarts on logout/login; a cached PID must be
         // re-validated before reuse or GPU time is billed to a dead/reused PID forever.
         if let cached = _windowServerPID {
             if kill(cached, 0) == 0 { return cached }
@@ -582,7 +582,7 @@ final class ProcessUsageService {
         } // Close DispatchQueue
         return cached
     }
-    
+
     /// Reads the global GPU utilization (%) from IOAcceleratorCache (single shared IOKit iterator).
     private static func readTotalGPUUtilization() async -> Double {
         return await IOAcceleratorCache.shared.utilization() ?? 0
@@ -692,7 +692,7 @@ final class ProcessUsageService {
             "AMDRadeonX6000_AMDAcceleratedVKDriver",
             "AMDGPUAccelerator"
         ]
-        
+
         for className in classes {
             var accelIterator = io_iterator_t()
             guard IOServiceGetMatchingServices(kIOMainPortDefault,
@@ -740,7 +740,7 @@ final class ProcessUsageService {
                         }
                     }
                 } else {
-                    // AUDIT B-05: Targeted property reads instead of materializing
+                    // Targeted property reads instead of materializing
                     // the entire IORegistry properties dictionary for every user client.
                     let keys = ["accumulatedGPUTime", "gpuTime", "accumulatedTime", "CommandQueueGPUTime"]
                     var rawTime: Double = 0

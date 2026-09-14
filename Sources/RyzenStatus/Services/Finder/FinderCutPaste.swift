@@ -243,7 +243,7 @@ final class FinderCutPaste: ObservableObject {
 
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
 
-        // AUDIT F-22: gate AX isEditingText IPC to ⌘X/⌘C/⌘V shortcuts only, dodging IPC on every Finder keystroke
+        // Gate AX isEditingText IPC to ⌘X/⌘C/⌘V shortcuts only, dodging IPC on every Finder keystroke
         guard [Key.x, Key.c, Key.v].contains(keyCode),
               NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Self.finderBundleID,
               AXIsProcessTrusted(),
@@ -286,7 +286,7 @@ final class FinderCutPaste: ObservableObject {
     /// paste shortcuts must be left to the system (e.g. renaming a file).
     private func isEditingText() -> Bool {
         let system = AXUIElementCreateSystemWide()
-        // AUDIT F-22: enforce strict AX timeout inside event tap to prevent WindowServer input freeze
+        // Enforce strict AX timeout inside event tap to prevent WindowServer input freeze
         AXUIElementSetMessagingTimeout(system, Self.tapAXTimeout)
         var focused: CFTypeRef?
         guard AXUIElementCopyAttributeValue(system, "AXFocusedUIElement" as CFString, &focused) == .success,
@@ -437,7 +437,7 @@ final class FinderCutPaste: ObservableObject {
               let tiffData = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
               let pngData = bitmap.representation(using: .png, properties: [:]) else { return false }
-        
+
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
         let timestamp = formatter.string(from: Date())
@@ -448,7 +448,7 @@ final class FinderCutPaste: ObservableObject {
             targetURL = dir.appendingPathComponent("Pasted Image \(timestamp) \(counter).png")
             counter += 1
         }
-        
+
         do {
             try pngData.write(to: targetURL)
             return true

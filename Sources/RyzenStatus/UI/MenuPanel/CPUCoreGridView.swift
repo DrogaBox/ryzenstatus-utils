@@ -5,7 +5,7 @@ import SwiftUI
 
 /// Which value the panel's core grid renders. `load` is the classic
 /// CPU-usage fill (kext metric array, per logical thread). The other three
-/// are SMU-native per-physical-core values from the PM table (S9c); they
+/// Are SMU-native per-physical-core values from the PM table; they
 /// fall back to the classic grid whenever the table does not decode.
 public enum PanelCoreGridMetric: String {
     case load
@@ -30,7 +30,7 @@ public struct CPUCoreGridView: View {
     /// KEXT_WAVE C-5: logical-thread indices on the CPU's favorite cores
     /// (CPPC ranking, selector 21). Empty set hides the badge.
     let favoriteThreads: Set<Int>
-    /// S9c: SMU per-physical-core rows (PM-table decode, present slots only).
+    /// SMU per-physical-core rows (PM-table decode, present slots only).
     /// Empty when the table doesn't decode — the SMU metric modes then fall
     /// back to the classic load grid instead of rendering an empty shell.
     let smuCores: [AMDSmuPMTable.CoreRow]
@@ -167,7 +167,7 @@ public struct CPUCoreGridView: View {
         }
     }
 
-    // MARK: - SMU per-physical-core grid (S9c)
+    // MARK: - SMU per-physical-core grid
 
     /// True per-physical-core cells from the PM table — no SMT duplication.
     /// Fill height encodes the selected metric against a fixed ceiling so

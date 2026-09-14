@@ -37,13 +37,13 @@ final class FanCurveController: ObservableObject {
     private var readTask: Task<Void, Never>?
     private var persistCurvesTask: Task<Void, Never>?
     private var persistMappingsTask: Task<Void, Never>?
-    /// S10 CON-01: coalescing upload tasks that keep kext IPC off the main actor.
+    /// Coalescing upload tasks that keep kext IPC off the main actor.
     private var curveUploadTask: Task<Void, Never>?
     private var mappingUploadTask: Task<Void, Never>?
-    /// S10 CON-02: sleep-side observer, previously absent entirely.
+    /// Sleep-side observer, previously absent entirely.
     private var sleepObserver: Any?
     private var wasPollingBeforeSleep = false
-    /// S10 IOK-04: one-shot latch so the GPU-bridge diagnostic is logged once
+    /// One-shot latch so the GPU-bridge diagnostic is logged once
     /// per failure episode instead of on every 1.5 s poll tick.
     private var gpuBridgeWarned = false
     private var wakeObserver: Any?
@@ -62,7 +62,7 @@ final class FanCurveController: ObservableObject {
         // actually runs. It is kept correct as defensive code and because Swift 6
         // language mode will type-check it. Real teardown happens in
         // AppDelegate.applicationWillTerminate via resetFansToAutoSync(), and in
-        // the kernel via clientClose() (S10 KRN-03).
+        // The kernel via clientClose().
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
         }
@@ -70,7 +70,7 @@ final class FanCurveController: ObservableObject {
             NSWorkspace.shared.notificationCenter.removeObserver(sleepObserver)
         }
         pollTimer?.invalidate()
-        // S10 CON-04: these were previously leaked on teardown.
+        // These were previously leaked on teardown.
         readTask?.cancel()
         persistCurvesTask?.cancel()
         persistMappingsTask?.cancel()
@@ -140,7 +140,7 @@ final class FanCurveController: ObservableObject {
             }
         }
 
-        // S10 CON-02: nothing in this app observed willSleepNotification, so the
+        // Nothing in this app observed willSleepNotification, so the
         // 1.5 s fan poll (plus AutoEppService, C6ResidencyService and the 5 s
         // kext watchdog) stayed armed across suspend. Timers coalesce but fire
         // immediately on wake, and the Task.sleep loops genuinely resume during
@@ -167,9 +167,9 @@ final class FanCurveController: ObservableObject {
 
     private func handleWakeNotification() {
         os_log("System did wake; re-syncing fan curves and mappings to kernel", log: logger, type: .info)
-        // AUDIT B-30: force on wake — the kext may have lost its slots across
+        // Force on wake — the kext may have lost its slots across
         // sleep even though our persisted state is unchanged.
-        // S10 CON-01: these are now debounced and run off the main actor, so the
+        // These are now debounced and run off the main actor, so the
         // wake path no longer performs 4+N blocking kernel writes on main.
         syncCurvesToKext(force: true)
         syncMappingsToKext(force: true)
@@ -208,7 +208,7 @@ final class FanCurveController: ObservableObject {
 
     // MARK: - Kext Native Synchronization (Selectors 101 / 102 / 103)
 
-    /// AUDIT B-30: fingerprints of the last curve/mapping set successfully
+    /// Fingerprints of the last curve/mapping set successfully
     /// uploaded to the kext. `didSet` on the published properties fires on every
     /// UI refresh cycle, and each call re-issued 4 LUT writes + N mapping
     /// writes; under a non-root session every one of those logs a privilege
@@ -218,7 +218,7 @@ final class FanCurveController: ObservableObject {
     private var lastUploadedCurvesFingerprint: Int?
     private var lastUploadedMappingsFingerprint: Int?
 
-    // MARK: - S10 CON-01: coalesced, off-main-actor kext upload
+    // MARK: - coalesced, off-main-actor kext upload
     //
     // These two entry points keep their original names and signatures, so every
     // existing call site (the two didSet observers, handleWakeNotification,
@@ -264,7 +264,7 @@ final class FanCurveController: ObservableObject {
             }
             self.kextMissing = false
 
-            // AUDIT B-30: skip the write burst when nothing changed.
+            // Skip the write burst when nothing changed.
             let fingerprint = self.customCurves.prefix(4).hashValue
             if !force, fingerprint == self.lastUploadedCurvesFingerprint { return }
 
@@ -287,7 +287,7 @@ final class FanCurveController: ObservableObject {
             if let message = outcome.privilegeMessage {
                 self.privilegeError = message
             } else {
-                // AUDIT B-30: remember success only — a failed upload retries on
+                // Remember success only — a failed upload retries on
                 // the next content change, never on unchanged refreshes.
                 self.lastUploadedCurvesFingerprint = fingerprint
             }
@@ -324,7 +324,7 @@ final class FanCurveController: ObservableObject {
             }
             self.kextMissing = false
 
-            // AUDIT B-30: deterministic fingerprint over sorted keys.
+            // Deterministic fingerprint over sorted keys.
             var mappingHasher = Hasher()
             for key in self.fanMappings.keys.sorted() {
                 mappingHasher.combine(key)
@@ -377,7 +377,7 @@ final class FanCurveController: ObservableObject {
         let tempToSend = kextGPUTemp > 0 ? kextGPUTemp : monitorGPUTemp
 
         guard tempToSend > 0, tempToSend <= 120.0, tempToSend.isFinite else {
-            // S10 IOK-04: no trustworthy GPU reading. Say so once instead of
+            // No trustworthy GPU reading. Say so once instead of
             // failing silently — the kext keeps its previous gpuTempC, and a
             // GPU-sourced curve would otherwise evaluate against a frozen value
             // with no user-visible explanation.
@@ -389,7 +389,7 @@ final class FanCurveController: ObservableObject {
             return
         }
 
-        // S10 IOK-04: selector 103 is privilege-gated (root or -amdpnopchk).
+        // Selector 103 is privilege-gated (root or -amdpnopchk).
         // It used to be called with `_ =`, so a kIOReturnNotPrivileged silently
         // froze every GPU-sourced curve. Selectors 101/102 already surface
         // privilegeError; 103 was the inconsistent one.
@@ -596,7 +596,7 @@ final class FanCurveController: ObservableObject {
         isLoadingFans = true
         readTask?.cancel()
         readTask = Task.detached(priority: .userInitiated) {
-            // AUDIT F-27: thread-safe connection check to avoid data races
+            // Thread-safe connection check to avoid data races
             let kernelConnected = ProcessorModel.shared.isConnected
             guard kernelConnected else {
                 await MainActor.run {
@@ -642,7 +642,7 @@ final class FanCurveController: ObservableObject {
                     ))
                 }
                 self.fans = newFans
-                // AUDIT B-30: force — after a fan-count change / kext reload the
+                // Force — after a fan-count change / kext reload the
                 // kext-side slots may be stale even when our state is identical.
                 self.syncCurvesToKext(force: true)
                 self.syncMappingsToKext(force: true)
@@ -653,7 +653,7 @@ final class FanCurveController: ObservableObject {
     func startPolling() {
         guard pollTimer == nil else { return }
         //
-        // S10 CON-03: schedule in `.common` mode, not `.default`.
+        // Schedule in `.common` mode, not `.default`.
         //
         // Timer.scheduledTimer installs into RunLoop.main in .default mode,
         // which does NOT fire while a tracking run loop is up — an open menu bar
@@ -708,7 +708,7 @@ final class FanCurveController: ObservableObject {
         let temp = currentCPUOrPackageTemp
         for fan in fans {
             guard fan.controlMode == .manual, let userPWM = fan.manualPWM else { continue }
-            // S10 D6: guardOnlyPWM, not effectiveManualPWM. `manualPWM` seeds
+            // guardOnlyPWM, not effectiveManualPWM. `manualPWM` seeds
             // from the hardware's current duty (often a fixed BIOS setpoint),
             // so applying the user-commanded floor here would silently ramp
             // BIOS-fixed fans up on the first poll after an update. The floor

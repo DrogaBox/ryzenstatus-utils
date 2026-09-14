@@ -374,7 +374,7 @@ final class RecorderEditorModel: ObservableObject, BackdropEditing {
         previewTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 120_000_000)
             guard !Task.isCancelled, let self, let item = self.player.currentItem else { return }
-            // AUDIT C-01: Offload whole-recording plan compilation (resampling,
+            // Offload whole-recording plan compilation (resampling,
             // zero-phase filtfilt, spring sweeps) to a detached worker task so
             // timeline/slider drags remain silky smooth on the main thread.
             guard let plan = await Task.detached(priority: .userInitiated, operation: { () -> RecorderComposer.Plan? in

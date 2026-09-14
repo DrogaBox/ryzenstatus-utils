@@ -4,7 +4,7 @@
 import Foundation
 
 /// Pure C6 residency sampling math, extracted from C6ResidencyService.poll()
-/// (AUDIT F-28) so it can be unit tested without a kext connection.
+/// so it can be unit tested without a kext connection.
 enum C6Sampling {
     /// Folds one kext sample into the baseline state.
     /// - Parameters:

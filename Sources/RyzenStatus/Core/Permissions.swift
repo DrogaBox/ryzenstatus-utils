@@ -103,7 +103,7 @@ final class Permissions: ObservableObject {
 
     /// Full refresh including Full Disk Access. Runs at launch and on activation.
     func refresh() {
-        // AUDIT A-12: the FDA probe lists up to six TCC-gated directories plus a
+        // The FDA probe lists up to six TCC-gated directories plus a
         // TCC.db touch — a synchronous main-thread stall at every launch and
         // activation. The result is applied via a main-async hop anyway, so run
         // the probe on a utility queue like requestFullDiskAccess() does.

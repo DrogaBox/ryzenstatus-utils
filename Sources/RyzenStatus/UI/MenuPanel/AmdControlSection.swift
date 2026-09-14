@@ -12,7 +12,7 @@ struct AmdControlSection: View {
     @ObservedObject private var presetCtrl = AmdPresetController.shared
     @State private var loadTimer: Timer?
     @State private var showThresholds: Bool = false
-    
+
     // Fan state
     @State private var availableFans: [(id: Int, name: String)] = []
     @State private var selectedFanId: Int = 0
@@ -21,9 +21,9 @@ struct AmdControlSection: View {
     @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 25
     @AppStorage(DefaultsKey.autoEppLoadThreshold) private var loadThreshold: Int = 50
     @AppStorage(DefaultsKey.showFansInAmdPower) private var showFansInAmdPower = false
-    // S9b: per-core PM-table telemetry disclosure in the panel (persisted).
+    // Per-core PM-table telemetry disclosure in the panel (persisted).
     @AppStorage(DefaultsKey.showPmTableCoresInPanel) private var showPmTableCores = false
-    // S9b: optional per-core columns, each persisted independently.
+    // Optional per-core columns, each persisted independently.
     @AppStorage(DefaultsKey.showPmCoreVoltage) private var showsPmCoreVoltage = false
     @AppStorage(DefaultsKey.showPmCoreC0) private var showsPmCoreC0 = false
     @AppStorage(DefaultsKey.showPmCoreCC6) private var showsPmCoreCC6 = false
@@ -76,9 +76,9 @@ struct AmdControlSection: View {
                             .onChange(of: selectedFanId) { _, _ in
                                 Task { @MainActor in updateFanRpm() }
                             }
-                            
+
                             Spacer()
-                            
+
                             Text("\(selectedFanRpm) RPM")
                                 .font(.system(size: 13, weight: .semibold, design: .monospaced))
                                 .foregroundColor(.secondary)
@@ -90,7 +90,7 @@ struct AmdControlSection: View {
                     }
                     Divider().padding(.top, -6).padding(.bottom, -6)
                 }
-                
+
                 if !controls.cppcSupported && !controls.legacyPstateAllowed && !controls.cpbSupported {
                     Text(L10n.shared.amdPower.amdPowerControlUnsupported)
                         .font(.system(size: 11))
@@ -151,7 +151,7 @@ struct AmdControlSection: View {
                             }
                         }
 
-                        // S9b: live per-core SMU PM-table telemetry (clocks,
+                        // Live per-core SMU PM-table telemetry (clocks,
                         // temps, power) decoded from the kext's 1 Hz snapshot
                         // and refreshed by the same 3 s sync as everything else
                         // in this section — no extra timers, no extra kext
@@ -195,7 +195,7 @@ struct AmdControlSection: View {
                                         Spacer()
                                     }
                                     .padding(.leading, 2)
-                                    // S9c UX fix: bounded core list. Unbounded, 16 rows
+                                    // UX fix: bounded core list. Unbounded, 16 rows
                                     // grew the panel past the screen below the status
                                     // item, and macOS re-anchored the whole popover to
                                     // the side of the icon. Taller than the cap ⇒ the
@@ -220,7 +220,7 @@ struct AmdControlSection: View {
                                     .frame(height: min(listCap, CGFloat(presentCores.count) * 17 + 2))
                                     .transition(.opacity.combined(with: .move(edge: .top)))
 
-                                    // S9c: one compact row per L3 cache (temp +
+                                    // One compact row per L3 cache (temp +
                                     // effective clock only — the 308 pt row budget is
                                     // nearly full; full fields live in Settings and
                                     // the tooltip).
@@ -254,7 +254,7 @@ struct AmdControlSection: View {
 
                         VStack(spacing: 8) {
                             Picker("", selection: Binding(
-                                get: { 
+                                get: {
                                     if autoEpp.isActive {
                                         return AMDPowerPreset.snapEPP(autoEpp.currentEPP)
                                     } else {
@@ -356,11 +356,11 @@ struct AmdControlSection: View {
                             Text(L10n.shared.amdPower.panelLegacyProfiles)
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundColor(.cyan)
-                            
+
                             Text(L10n.shared.amdPower.panelPstateOverrides)
                                 .font(.system(size: 10))
                                 .foregroundColor(.secondary)
-                            
+
                             if !controls.validPStateLabels.isEmpty {
                                 Picker("", selection: Binding(
                                     get: { controls.selectedPState },
@@ -448,8 +448,8 @@ struct AmdControlSection: View {
             }
         }
     }
-    
-    // AUDIT F-29: use getFans(includeNames: true) to fetch hardware/custom fan names
+
+    // Use getFans(includeNames: true) to fetch hardware/custom fan names
     private func loadFanPicker() {
         Task.detached(priority: .userInitiated) {
             let snapshots = ProcessorModel.shared.getFans(includeNames: true)
@@ -477,7 +477,7 @@ struct AmdControlSection: View {
         }
     }
 
-    // MARK: - S9b per-core column toggles (icon-only, language-neutral)
+    // MARK: - Per-core column toggles (icon-only, language-neutral)
 
     /// One icon toggle for an optional per-core column. On = colored chip,
     /// off = dim; the meaning lives in the tooltip, the glyph in the row.
@@ -533,7 +533,7 @@ struct AmdControlSection: View {
     }
 }
 
-// MARK: - S9b per-core PM-table row (menu panel)
+// MARK: - Per-core PM-table row (menu panel)
 
 /// One per-core telemetry row for the AMD Power panel section: SMU PM-table
 /// effective clock, temperature and power for a single core slot, plus two

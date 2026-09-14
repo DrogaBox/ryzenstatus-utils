@@ -15,9 +15,19 @@ ISSuperIOIT86XXEFamily::ISSuperIOIT86XXEFamily(int psel, uint16_t addr, uint16_t
 
     switch (chipIntel)
     {
+        case CHIP_IT8665E:
+            //
+            // Selected BEFORE the backup loop below, which reads the control-mode
+            // bytes through regPwmCtrl. Getting this order wrong would snapshot
+            // the wrong registers and then restore them on top of the real ones.
+            //
+            regFanRPM = kFAN_RPM_REGS_8665;
+            regFanRPMExt = kFAN_RPM_EXT_REGS_8665;
+            regPwmCtrl = kFAN_PWM_CTRL_REGS_8665;
+            activeFansOnSystem = 6;
+            break;
         case CHIP_IT8688E:
         case CHIP_IT8686E:
-        case CHIP_IT8665E:
         case CHIP_IT8689E:
         default:
             activeFansOnSystem = 6;
@@ -30,7 +40,7 @@ ISSuperIOIT86XXEFamily::ISSuperIOIT86XXEFamily(int psel, uint16_t addr, uint16_t
     // backup default ctrl mode
     for (int i = 0; i < activeFansOnSystem; i++)
     {
-        fanDefaultControlMode[i] = readByte(kFAN_PWM_CTRL_REGS[i]);
+        fanDefaultControlMode[i] = readByte(regPwmCtrl[i]);
         fanDefaultExtControlMode[i] = readByte(kFAN_PWM_CTRL_EXT_REGS[i]);
     }
 }
@@ -90,7 +100,7 @@ ISSuperIOIT86XXEFamily* ISSuperIOIT86XXEFamily::getDevice(uint16_t* chipIntel)
         else
         {
             // close port
-            // AUDIT F-18: ensure port 0x4E is closed with 0xAA close sequence, matching exit paths
+            // Ensure port 0x4E is closed with 0xAA close sequence, matching exit paths
             if (regport == 0x4E)
             {
                 outb(regport, 0xAA);
@@ -116,7 +126,7 @@ ISSuperIOIT86XXEFamily* ISSuperIOIT86XXEFamily::getDevice(uint16_t* chipIntel)
     if (ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER) != devAddr)
     {
         IOLog("IT%X%XE address verify failed", deviceID, revision);
-        // AUDIT F-11: close the config port before bailing out.
+        // Close the config port before bailing out.
         if (regport == 0x4E) { outb(regport, 0xAA); } else { outb(regport, 0x02); }
         return nullptr;
     }
@@ -129,7 +139,7 @@ ISSuperIOIT86XXEFamily* ISSuperIOIT86XXEFamily::getDevice(uint16_t* chipIntel)
     if (ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER + 2) != gpioAddress)
     {
         IOLog("IT%X%XE gpio address verify failed", deviceID, revision);
-        // AUDIT F-11: close the config port before bailing out.
+        // Close the config port before bailing out.
         if (regport == 0x4E) { outb(regport, 0xAA); } else { outb(regport, 0x02); }
         return nullptr;
     }
@@ -184,7 +194,7 @@ bool ISSuperIOIT86XXEFamily::getFanAutoControlMode(int fan)
 {
     if (fan < 0 || fan >= activeFansOnSystem)
         return 0;
-    // kFAN_PWM_CTRL_REGS[fan] (0x15-0x17): bit 7 = SmartGuardian mode
+    // RegPwmCtrl[fan] (0x15-0x17 on channels 0-2, chip-dependent above): bit 7 = SmartGuardian mode
     // In SmartGuardian mode: fan is controlled by SmartGuardian firmware (Auto).
     // In Manual mode (bit 7 = 0): fan is overridden by software.
     return (fanControlMode[fan] & 0x80) != 0;
@@ -201,8 +211,8 @@ void ISSuperIOIT86XXEFamily::updateFanRPMS()
 {
     for (int i = 0; i < activeFansOnSystem; i++)
     {
-        int value = readByte(kFAN_RPM_REGS[i]);
-        value |= readByte(kFAN_RPM_EXT_REGS[i]) << 8;
+        int value = readByte(regFanRPM[i]);
+        value |= readByte(regFanRPMExt[i]) << 8;
 
         if (value > 0x3f)
         {
@@ -212,7 +222,7 @@ void ISSuperIOIT86XXEFamily::updateFanRPMS()
         {
             fanRPMs[i] = 0;
         }
-        
+
         // Track peak RPM for PWM estimation in Auto mode
         if ((uint32_t)fanRPMs[i] > fanPeakRPMs[i]) {
             fanPeakRPMs[i] = (uint16_t)fanRPMs[i];
@@ -225,13 +235,13 @@ void ISSuperIOIT86XXEFamily::updateFanControl()
     for (int i = 0; i < activeFansOnSystem; i++)
     {
         // kFAN_PWM_CTRL_REGS: contains the PWM control mode byte (bit 7 = SmartGuardian/auto)
-        fanControlMode[i] = readByte(kFAN_PWM_CTRL_REGS[i]);
+        fanControlMode[i] = readByte(regPwmCtrl[i]);
         // kFAN_PWM_CTRL_EXT_REGS: contains the PWM duty cycle register.
         // In manual mode (bit 7 clear): this register holds the user-set duty cycle.
         // In SmartGuardian mode (bit 7 set): this register may not reflect the
         // actual PWM being output — SmartGuardian controls the fan independently.
         fanThrottles[i]   = readByte(kFAN_PWM_CTRL_EXT_REGS[i]);
-        
+
         // Fallback: if the register reports 0 but the fan is clearly spinning
         // (RPM > 100), the chip is in SmartGuardian mode and doesn't update
         // the ext register. Estimate the throttle from RPM/peakRPM ratio
@@ -252,7 +262,7 @@ void ISSuperIOIT86XXEFamily::overrideFanControl(int fan, uint8_t thr)
     } else {
         writeByte(0x14, (readByte(0x14) | (1 << (fan - 3))));
     }
-    writeByte(kFAN_PWM_CTRL_REGS[fan], (fanDefaultControlMode[fan] & 0x7F));
+    writeByte(regPwmCtrl[fan], (fanDefaultControlMode[fan] & 0x7F));
     writeByte(kFAN_PWM_CTRL_EXT_REGS[fan], thr);
 }
 
@@ -266,6 +276,6 @@ void ISSuperIOIT86XXEFamily::setDefaultFanControl(int fan)
     } else {
         writeByte(0x14, readByte(0x14) & ~(1 << (fan - 3)));
     }
-    writeByte(kFAN_PWM_CTRL_REGS[fan], fanDefaultControlMode[fan]);
+    writeByte(regPwmCtrl[fan], fanDefaultControlMode[fan]);
     writeByte(kFAN_PWM_CTRL_EXT_REGS[fan], fanDefaultExtControlMode[fan]);
 }

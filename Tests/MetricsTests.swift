@@ -7315,7 +7315,7 @@ struct MetricsTests {
 
         // MARK: AMD Fan Safety & Thermal Guard
 
-        // S10 D6 finding #7: user-commanded floor is 40 (matches the kernel's
+        // User-commanded floor is 40 (matches the kernel's
         // curve-mode kCURVE_MIN_ACTIVE_PWM); PWM 0 keeps its release-to-BIOS
         // meaning at the kext layer, and hardware-inherited duty is exempt via
         // guardOnlyPWM below.
@@ -7339,7 +7339,7 @@ struct MetricsTests {
         expect(AMDFanSafety.effectiveManualPWM(userPWM: 1, currentTemp: 50.0) == 40,
                "effectiveManualPWM applies floor clamp even below 85°C")
 
-        // S10 D6: guard-only variant for hardware-inherited duty — no floor,
+        // Guard-only variant for hardware-inherited duty — no floor,
         // emergency guard armed from the hottest reading only.
         expect(AMDFanSafety.guardOnlyPWM(userPWM: 10, currentTemp: 50.0) == 10,
                "guardOnlyPWM below 85°C preserves inherited duty (no floor)")
@@ -7348,12 +7348,37 @@ struct MetricsTests {
         expect(AMDFanSafety.guardOnlyPWM(userPWM: 220, currentTemp: 90.0) == 220,
                "guardOnlyPWM preserves duty already above the guard")
 
-        // MARK: S11 A4 — cross-language safety-constant pin
+        // MARK: Selector 94 wire decoding & tachometer validity tests
+        // Wire: (throttle << 8) | (rpmValid ? 2 : 0) | (auto ? 1 : 0)
+        let decModernValid = AMDFanSafety.decodeSelector94(raw: (127 << 8) | 0x02 | 0x01, rawRPM: 1303, kextVersion: "3.34.17")
+        expect(decModernValid.throttle == 127, "modern decode extracts throttle 127")
+        expect(decModernValid.isAuto == true, "modern decode extracts auto mode")
+        expect(decModernValid.rpmValid == true, "modern decode accepts valid tach bit 1")
+        expect(decModernValid.rpm == 1303, "modern decode preserves RPM on valid sample")
+
+        let decModernUntrusted = AMDFanSafety.decodeSelector94(raw: (96 << 8) | 0x00 | 0x01, rawRPM: 1500, kextVersion: "3.34.17")
+        expect(decModernUntrusted.throttle == 96, "modern decode extracts throttle 96")
+        expect(decModernUntrusted.rpmValid == false, "modern decode rejects sample when bit 1 is clear (untrusted tach)")
+        expect(decModernUntrusted.rpm == 0, "modern decode zeroes RPM when invalid to prevent stale laundering")
+
+        let decModernOOB = AMDFanSafety.decodeSelector94(raw: (51 << 8) | 0x02 | 0x01, rawRPM: 15_000, kextVersion: "3.34.17")
+        expect(decModernOOB.rpmValid == false, "modern decode rejects RPM > 10500 ceiling even with bit 1 set")
+
+        // Backward compatibility: kext < 3.34.15 wrote bit 1 as 0, must not invalidate fans on old kexts
+        let decLegacy = AMDFanSafety.decodeSelector94(raw: (51 << 8) | 0x00 | 0x01, rawRPM: 1200, kextVersion: "3.34.14")
+        expect(decLegacy.rpmValid == true, "legacy kext (< 3.34.15) falls back to plausible range check without failing on bit 1")
+        expect(decLegacy.rpm == 1200, "legacy kext preserves plausible RPM")
+
+        let decLegacyOOB = AMDFanSafety.decodeSelector94(raw: (51 << 8) | 0x00 | 0x01, rawRPM: 65535, kextVersion: "3.34.14")
+        expect(decLegacyOOB.rpmValid == false, "legacy kext still rejects implausible RPM > 10500")
+
+
+        // MARK: Cross-language safety-constant pin
         //
         // The kernel and the app each hold their own copy of the fan-safety
         // constants, in different languages, and until now nothing made them
         // agree. This repo has already been bitten by two numbers that were meant
-        // to be the same drifting apart: S9d and S10 both shipped as kext
+        // to be the same drifting apart: two separate kext builds both shipped as
         // 3.34.13, so kextstat could not tell the two binaries apart. These
         // checks read the kernel header at test time and assert the Swift side
         // matches it, so bumping one side and forgetting the other fails the
@@ -7443,7 +7468,7 @@ struct MetricsTests {
 
         // The two Nuvoton drivers are twins and must agree on the plausibility
         // ceiling that rejects a torn or dead tachometer word. The ITE driver has
-        // no equivalent (tracked as an S11 gap), so it is deliberately not pinned
+        // no equivalent (a known gap), so it is deliberately not pinned
         // here — adding it to this check is part of that fix, not of this one.
         let nctDriverPaths = [
             "SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/SuperIO/ISSuperIONCT67XXFamily.cpp",
@@ -7660,7 +7685,7 @@ struct MetricsTests {
                 ("ocFreqAllCoreLabel", a.ocFreqAllCoreLabel),
                 ("ocFreqApply", a.ocFreqApply),
                 ("ocFreqBlockedNoOcMode", a.ocFreqBlockedNoOcMode),
-                // S9a PM-table diagnostics (read-only plumbing; no specifiers).
+                // PM-table diagnostics (read-only plumbing; no specifiers).
                 ("pmTableHeader", a.pmTableHeader),
                 ("pmTableFooter", a.pmTableFooter),
                 ("pmTableVersionLabel", a.pmTableVersionLabel),
@@ -7669,7 +7694,7 @@ struct MetricsTests {
                 ("pmTableCaptureLabel", a.pmTableCaptureLabel),
                 ("pmTableExport", a.pmTableExport),
                 ("pmTableUnavailable", a.pmTableUnavailable),
-                // S9d mailbox-health diagnostics (selector 58; no specifiers).
+                // Mailbox-health diagnostics (selector 58; no specifiers).
                 ("diagBundleButton", a.diagBundleButton),
                 ("diagBundleCopied", a.diagBundleCopied),
                 ("diagBundleDenied", a.diagBundleDenied)
@@ -7685,7 +7710,7 @@ struct MetricsTests {
                    "Language \(lang.rawValue) ocFreqCacheFormat must keep exactly 1 %u specifier: \(a.ocFreqCacheFormat)")
         }
 
-        // MARK: S9a AMDSmuPMTable (0x08 version word — BCD-ish fields)
+        // MARK: AMDSmuPMTable (0x08 version word — BCD-ish fields)
 
         // formatVersion renders the three byte fields dotted, zero-padded.
         expectEqual(AMDSmuPMTable.formatVersion(0x0037_0B01), "55.11.01",
@@ -7703,9 +7728,9 @@ struct MetricsTests {
         expect(!AMDSmuPMTable.isKnownVersion(0x1234_5678), "unknown future versions must fail closed")
         expect(!AMDSmuPMTable.isKnownVersion(0x0037_0B01), "SMU firmware version (0x02) must not be confused with a PM-table version")
 
-        // MARK: S9b AMDSmuPMTable.decode (0x380805 Vermeer per-core layout)
+        // MARK: AMDSmuPMTable.decode (0x380805 Vermeer per-core layout)
 
-        // Repo-relative file resolver shared by the fixture loader (S9b
+        // Repo-relative file resolver shared by the fixture loader (the decode
         // decode checks) and the kernel-source pin checks below. Missing
         // files surface as empty data/strings and fail the dependent
         // checks loudly — fail closed, never skip silently.
@@ -7832,7 +7857,7 @@ struct MetricsTests {
             expect(false, "light-load PM-table fixture must load from Tests/Fixtures/PMTable")
         }
 
-        // MARK: S9b family layouts (0x380904 / 0x380905, 8-core Zen3)
+        // MARK: family layouts (0x380904 / 0x380905, 8-core Zen3)
 
         // Synthetic captures: build a buffer of the version's documented
         // size and write known float values at the pm_tables.c elements the
@@ -7929,7 +7954,7 @@ struct MetricsTests {
         expect(AMDSmuPMTable.decode(version: 0x380705, data: syntheticTable(bytes: 2288, elements: headValues)) == nil,
                "0x380705 must stay fail-closed: no public authoritative element map exists (kext may capture it, the app must not guess)")
 
-        // MARK: S9c L3 (GameCache) block + promotion freshness gate
+        // MARK: L3 (GameCache) block + promotion freshness gate
 
         // Synthetic L3 vectors: the block is the tail of every layout (each
         // table's min_size = highest L3 element + 1), so a full-size
@@ -8009,7 +8034,7 @@ struct MetricsTests {
             expect(near(d.l3[1].tempC, 38.295, 0.01), "idle-fixture L3[1] temp pin, got \(d.l3[1].tempC)")
         }
 
-        // Freshness gate for the SMU-native promotion (S9c Part 2).
+        // Freshness gate for the SMU-native promotion.
         expect(AMDSmuPMTable.isFresh(ageMs: 0), "age 0 must count as fresh")
         expect(AMDSmuPMTable.isFresh(ageMs: 5_999), "just under the default window must count as fresh")
         expect(AMDSmuPMTable.isFresh(ageMs: 6_000), "boundary age == limit must count as fresh")
@@ -8017,16 +8042,16 @@ struct MetricsTests {
         expect(AMDSmuPMTable.isFresh(ageMs: 4_000, limitMs: 5_000), "custom limit must be honored")
         expect(!AMDSmuPMTable.isFresh(ageMs: 5_001, limitMs: 5_000), "custom limit boundary must go stale")
 
-        // MARK: S9a hardware-pin regression guards (kernel C++ source pins)
+        // MARK: hardware-pin regression guards (kernel C++ source pins)
 
         // The test binary cannot link the kext, so these checks pin the
-        // kernel source text itself: the three on-hardware fixes from the
-        // S9a debugging session must never silently regress. Paths resolve
-        // through the shared repo resolver defined in the S9b section;
+        // kernel source text itself: the three on-hardware fixes
+        // must never silently regress. Paths resolve
+        // through the shared repo resolver defined in the decode-fixture section;
         // missing sources fail these checks (fail closed) instead of
         // silently passing.
         let kextCpp = kextSource("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.cpp")
-        expect(!kextCpp.isEmpty, "kernel source must be readable for the S9a pin checks (run tests from the repo root)")
+        expect(!kextCpp.isEmpty, "kernel source must be readable for the pin checks (run tests from the repo root)")
 
         // Pin 1 — Vermeer RSMU mailbox registers (the silent-timeout fix).
         // The old contiguous layout {0x3B10524, 0x3B10528, 0x3B1052C} polled
@@ -8043,7 +8068,7 @@ struct MetricsTests {
         // The positional initializer above relies on struct field order —
         // pin it in the header so a field reorder cannot reinterpret values.
         let kextHpp = kextSource("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.hpp")
-        expect(!kextHpp.isEmpty, "kernel header must be readable for the S9a pin checks")
+        expect(!kextHpp.isEmpty, "kernel header must be readable for the pin checks")
         if let m = kextHpp.range(of: "msgReg"), let a = kextHpp.range(of: "argReg"), let r = kextHpp.range(of: "rspReg") {
             expect(m.lowerBound < a.lowerBound && a.lowerBound < r.lowerBound,
                    "SMUMailbox field order must stay msgReg/argReg/rspReg (the positional initializers depend on it)")
@@ -8063,7 +8088,7 @@ struct MetricsTests {
         // version must keep its reference size (smu.c smu_update_pmtablesize;
         // Ryzen-Master-sourced), unknown versions must stay unreachable.
         // The 0x380805 entry (2288 bytes) is additionally pinned end-to-end
-        // by the S9b decode fixture above, captured from a live 5900XT.
+        // by the decode fixture above, captured from a live 5900XT.
         let kextSizes: [(UInt32, UInt32)] = [(0x2D0803, 0x0894), (0x2D0903, 0x0594),
                                              (0x380005, 0x1BB0), (0x380505, 0x0F30),
                                              (0x380605, 0x0C10), (0x380705, 0x08F0),
@@ -8082,7 +8107,7 @@ struct MetricsTests {
         expect(kextCpp.contains("if (size == 0 || size > kPM_TABLE_MAX_SIZE)"),
                "forcePMTableCapture must keep rejecting size==0 (unknown version) before mapping")
 
-        // MARK: S9c promotion-source pins (app side)
+        // MARK: promotion-source pins (app side)
 
         // The SMU PM-table's CORE_FREQEFF is a window AVERAGE: a core parked
         // in CC6 decodes to single-digit MHz, so promoting it into
@@ -8093,13 +8118,13 @@ struct MetricsTests {
         // semantics for "current clock" consumers. Pin the source so the
         // override cannot silently return.
         let monitorSwift = kextSource("Sources/RyzenStatus/Services/SystemMonitor/SystemMonitor.swift")
-        expect(!monitorSwift.isEmpty, "SystemMonitor source must be readable for the S9c promotion-pin checks (run tests from the repo root)")
+        expect(!monitorSwift.isEmpty, "SystemMonitor source must be readable for the promotion-pin checks (run tests from the repo root)")
         expect(!monitorSwift.contains("freshCoreClocksMHz"),
                "SystemMonitor must not promote SMU effective clocks into snapshot.cores[] (window-averaged values poison current-clock aggregates)")
         expect(monitorSwift.range(of: "let freqIdx = physicalIdx \\+ 3", options: .regularExpression) != nil,
                "core-grid frequency must keep the kext metric-array source (current-clock semantics)")
 
-        // MARK: S9d mailbox diagnostics (selector 58) — decode + kernel wire pins
+        // MARK: mailbox diagnostics (selector 58) — decode + kernel wire pins
 
         // Wire decode: build the exact 48-byte little-endian layout the
         // kernel's SMUDiagWire struct emits and require a lossless round-trip.
@@ -8154,7 +8179,7 @@ struct MetricsTests {
         // Kernel-side pins: the UserClient must keep the privilege gate, the
         // 48-byte wire assertion and the rendezvous serialization.
         let userClientCpp = kextSource("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPMUserClient.cpp")
-        expect(!userClientCpp.isEmpty, "UserClient source must be readable for the S9d pin checks")
+        expect(!userClientCpp.isEmpty, "UserClient source must be readable for the pin checks")
         expect(userClientCpp.range(of: "case 58:\\s*\\{[\\s\\S]*?hasPrivilege\\(58\\)", options: .regularExpression) != nil,
                "selector 58 must keep the hasPrivilege(58) gate (SMU traffic on demand)")
         expect(userClientCpp.contains("static_assert(sizeof(SMUDiagWire) == 48"),

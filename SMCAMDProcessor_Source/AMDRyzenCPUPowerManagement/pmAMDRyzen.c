@@ -83,12 +83,12 @@ void pmRyzen_init_PState(void){
 
     uint64_t p0 = pmRyzen_rdmsr_safe(pmRyzen_io_service_handle, MSR_PSTATE_0);
     if (!(p0 & (1ULL << 63))) return;
-    
+
     uint64_t p0dfsid = (p0 >> 8) & 0x3f;
     if (p0dfsid == 0) return;
-    
+
     float p0spd = ((float)(p0 & 0xff) / (float)p0dfsid) * 200.0f;
-    
+
     uint64_t p1 = pmRyzen_rdmsr_safe(pmRyzen_io_service_handle, MSR_PSTATE_0 + 1);
     uint64_t p1dfsid = (p1 >> 8) & 0x3f;
     if (p1dfsid == 0) return;
@@ -97,7 +97,7 @@ void pmRyzen_init_PState(void){
     if (fid_raw > 0xFF) fid_raw = 0xFF;
     if (fid_raw < 0x10) fid_raw = 0x10;
     uint64_t p1fid = (uint64_t)fid_raw;
-    
+
     pmRyzen_wrmsr_safe(pmRyzen_io_service_handle, MSR_PSTATE_0 + 1, (p1 & ~0xFFULL) | p1fid | (1ULL << 63));
 }
 
@@ -106,12 +106,12 @@ inline void set_PState(pmProcessor_t *cpu, uint8_t state){
     if (state >= 8) state = 7;
     state = min((uint8_t)pmRyzen_pstatelimit, state);
     if(cpu->PState == state) return;
-    
+
     boolean_t from_hpstate = !cpu->PState;
-    
+
     pmRyzen_wrmsr_safe(pmRyzen_io_service_handle, MSR_PSTATE_CTL, state);
     cpu->PState = state;
-    
+
     if(!state){
         __asm__ volatile("lock incl (%0)"::"r"(&pmRyzen_hpcpus):"memory");
     } else if(from_hpstate) {
@@ -121,7 +121,7 @@ inline void set_PState(pmProcessor_t *cpu, uint8_t state){
 
 void pmRyzen_doPState_reset(void *arg){
     uint32_t cn = cpu_number();
-    // AUDIT F-02: this rendezvous runs on EVERY CPU. Every other entry point
+    // This rendezvous runs on EVERY CPU. Every other entry point
     // guards cn against XNU_MAX_CPU; on >64-logical-CPU systems the unguarded
     // index wrote past pmRyzen_cpus[] with interrupts disabled.
     if (cn >= XNU_MAX_CPU) return;
@@ -139,17 +139,17 @@ void pmRyzen_PState_reset(void){
 #pragma mark - Init / Stop
 
 void pmRyzen_init(void *handle, int allowDispatch){
-    
+
     pmRyzen_io_service_handle = handle;
     IOLog("AMDRyzenCPUPowerManagement::pmRyzen_init sizeof(pmProcessor_t) = %lu bytes (cacheline aligned)\n", (unsigned long)sizeof(pmProcessor_t));
-    
-    
+
+
     if (!pmRyzen_symtable._pmDispatch || !pmRyzen_symtable._pmUnRegister ||
         !pmRyzen_symtable._tscFreq) {
         IOLog("pmRyzen_init: critical symbols not resolved, aborting\n");
         return;
     }
-    
+
     void **kernelDisp = pmRyzen_symtable._pmDispatch;
     pmRyzen_pmUnRegister = (void(*)(pmDispatch_t*))pmRyzen_symtable._pmUnRegister;
     pmRyzen_cpu_NMI = pmRyzen_symtable._cpu_NMI_interrupt
@@ -159,9 +159,9 @@ void pmRyzen_init(void *handle, int allowDispatch){
     pmRyzen_cpu_IPI = pmRyzen_symtable._i386_cpu_IPI
         ? (void(*)(int))pmRyzen_symtable._i386_cpu_IPI : NULL;
     pmRyzen_tsc_freq = *((uint64_t*)pmRyzen_symtable._tscFreq);
-    
-    
-    
+
+
+
     pmCallBacks_t cb;
     if (allowDispatch) {
         if(*kernelDisp)(*pmRyzen_pmUnRegister)(*kernelDisp);
@@ -169,23 +169,23 @@ void pmRyzen_init(void *handle, int allowDispatch){
     } else {
         pmKextRegister(PM_DISPATCH_VERSION, NULL, &cb);
     }
-    
+
     x86_pkg_t * pkg = cb.GetPkgRoot();
     int pkgCount = 0;
-    
+
     pmRyzen_num_phys = 0;
     pmRyzen_num_logi = 0;
     pmRyzen_hpcpus = 0;
     pmRyzen_pstatelimit = PSTATE_LIMIT;
-    
+
     while(pkg){
         pkgCount++;
         x86_core_t *core = pkg->cores;
-        
+
         while (core) {
             pmRyzen_num_phys++;
             x86_lcpu_t *lcpu = core->lcpus;
-            
+
             while (lcpu) {
                 pmRyzen_num_logi++;
                 if (lcpu->cpu_num >= XNU_MAX_CPU) {
@@ -197,44 +197,44 @@ void pmRyzen_init(void *handle, int allowDispatch){
                     lcpu = lcpu->next_in_core;
                     continue;
                 }
-                
+
                 pmRyzen_cpunum_to_lcpu[lcpu->cpu_num] = lcpu;
-                
+
                 pmProcessor_t *cpu = &pmRyzen_cpus[lcpu->cpu_num];
                 cpu->lcpu = lcpu;
                 cpu->stat_exit_idle = 0;
                 cpu->arm_flag = 0;
                 cpu->cpu_awake = 1;
-                
+
                 lcpu = lcpu->next_in_core;
             }
-            
+
             core = core->next_in_pkg;
         }
-        
+
         pkg = pkg->next;
     }
     // Removed: package count debug log not needed in production
 
-    
+
     pmRyzen_effective_timetsc = ((double)pmRyzen_tsc_freq * EFF_INTERVAL);
     pmRyzen_p_sdtsc = (uint64_t)((double)pmRyzen_effective_timetsc * PSTATE_STEPDOWN_THRE);
     pmRyzen_p_sutsc = (uint64_t)((double)pmRyzen_effective_timetsc * PSTATE_STEPUP_THRE);
-    
+
     if (allowDispatch) {
         pmRyzen_init_PState();
         pmRyzen_PState_reset();
     }
-    
+
     cb.initComplete();
 }
 
 void pmRyzen_stop(void){
-    
+
     if (pmRyzen_pmUnRegister) {
         (*pmRyzen_pmUnRegister)(&pmRyzen_cpuFuncs);
     }
-    
+
     // Make sure all managed cores exited idle thread.
     // With the SIMPLE (sti;hlt) strategy, exit is immediate — just set arm_flag.
     for (int i = 0; i < pmRyzen_num_logi && i < XNU_MAX_CPU; i++) {
@@ -251,7 +251,7 @@ float pmRyzen_avgload_pcpu(uint32_t cpu){
     if (cpu >= XNU_MAX_CPU || !pmRyzen_cpunum_to_lcpu[cpu]) return 0.0f;
     float loadacc = 0;
     int num_lcpus = 0;
-    
+
     x86_lcpu_t *lcpu = pmRyzen_cpunum_to_lcpu[cpu]->core->lcpus;
     while (lcpu) {
         if (lcpu->cpu_num < XNU_MAX_CPU) {
@@ -263,7 +263,7 @@ float pmRyzen_avgload_pcpu(uint32_t cpu){
         }
         lcpu = lcpu->next_in_core;
     }
-    
+
     if (num_lcpus == 0) return 0.0f;
     return loadacc / (float)num_lcpus;
 }
@@ -274,34 +274,34 @@ volatile uint32_t pmRyzen_last_woken_cpu=0;
 uint64_t pmRyzen_machine_idle(uint64_t maxDur){
 
     __asm__ volatile("cli;");
-    
+
     uint32_t cn = cpu_number();
     if (cn >= XNU_MAX_CPU) {
         __asm__ volatile("sti;hlt;");
         return 0;
     }
     pmProcessor_t *self = &pmRyzen_cpus[cn];
-    
-    
+
+
     self->cpu_awake = 0;
     self->arm_flag = 0;
-    
+
     uint64_t tscnow = rdtsc64();
 
     self->last_idle_tsc = tscnow;
     // Removed: last_running_time calculation replaced by eff_timeacc tracking
-    
+
     // Only idle strategy: sti; hlt — safe on all AMD CPUs.
     // Intel-style MONITOR/MWAIT was removed (unsafe on AMD).
     // AMD MONITORX/MWAITX may be added as a future enhancement.
     __asm__ volatile("sti;hlt;");
 
-    
+
     self->cpu_awake = 1;
     if(!self->arm_flag)
         pmRyzen_exit_idle_false_c++;
-    
-    
+
+
     tscnow = rdtsc64();
 
     uint64_t tscela = tscnow - self->last_idle_tsc;
@@ -311,7 +311,7 @@ uint64_t pmRyzen_machine_idle(uint64_t maxDur){
     if(self->eff_timeacc > pmRyzen_effective_timetsc){
         // Removed: float-based eff_load replaced by integer threshold comparison (avoids FPU in kernel)
         uint64_t rt = self->eff_timeacc - self->eff_idleacc;
-        
+
         //Avoid using xmm registers shared within same core.
         if(rt > pmRyzen_p_sutsc){
             set_PState(self, 0);
@@ -323,20 +323,20 @@ uint64_t pmRyzen_machine_idle(uint64_t maxDur){
                 set_PState(self, self->PState+1);
             }
         }
-        
+
         self->eff_idleaccd = self->eff_idleacc;
         self->eff_timeaccd = self->eff_timeacc;
         self->eff_timeacc = 0;
         self->eff_idleacc = 0;
 
-        
+
         // Removed: float-based eff_load P-state stepping replaced by integer threshold comparison above.
 
     }
 
     self->last_start_tsc = tscnow;
     self->last_idle_length = tscela;
-    
+
     pmRyzen_last_woken_cpu = cn;
     return 0;
 }
@@ -353,7 +353,7 @@ int pmRyzen_choose_cpu(int startCPU, int endCPU, int preferredCPU){
         && pmRyzen_cpunum_to_lcpu[pmRyzen_last_woken_cpu]
         && pmRyzen_cpus[pmRyzen_last_woken_cpu].cpu_awake)
         return pmRyzen_last_woken_cpu;
-        
+
     return preferredCPU;
 }
 
