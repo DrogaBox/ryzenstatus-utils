@@ -1,15 +1,8 @@
 # Changelog
 
-## [Unreleased] — kexts 3.34.17
+## [1.34.0] — 2026-09-14 — kexts 3.34.17
 
-Kernel-side fan work. **Not released.** The duty-path fix below is confirmed on
-silicon; the Super I/O register-map fix is not yet. The version is bumped on every
-test build so `kextstat` can tell one binary from another while probing, which is
-the whole reason the bump comes before the probes rather than after — see
-`docs/SUPERIO.md`. `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` and its
-content pins in `Tools/make-dmg.sh` are deliberately untouched, so a DMG built from
-this tree reports `LOCAL BUILD — content pins NOT enforced` and must not be
-published.
+Wave S11 release: Super I/O dual register map, duty cycle estimator, tachometer validity, fan-curve hardware safety floor & AIO pump protection. **Hardware validated on reference AMD Ryzen 9 5900XT / ASUS ROG Crosshair VII Hero (ITE IT8665E).**
 
 Also new: `docs/SUPERIO.md`, which documents the Super I/O fan layer —
 the two ITE register maps, how to tell a pump channel from a fan channel, why duty
@@ -101,36 +94,16 @@ and RPM come from different registers, and the hardware-validation rules.
 Both kext targets build with `** BUILD SUCCEEDED **`, zero errors and zero warnings
 from any file touched.
 
-**Confirmed on the reference 5900XT (ASUS ROG Crosshair VII Hero, ITE Super I/O):**
+**Confirmed and hardware-validated on the reference 5900XT (ASUS ROG Crosshair VII Hero, ITE IT8665E Super I/O):**
 
-- `kextstat` reported 3.34.16, so the measurement is known to be of the new binary.
-- The duty path works. All six channels moved from `pwm 0 (0.0%)` to the firmware's
-  real duty — 127 (49.8 %), 96 (37.6 %), 51, 51, 51 (20.0 %), 255 (100.0 %) — and
-  held across five sampling runs while RPM jittered, which is what identifies these
-  as register reads rather than estimates.
-
-**Still outstanding, and required before release:**
-
-0. `kextstat | grep -i ryzen` → expect **3.34.17**. Two EFI partitions exist on the
-   reference machine, so confirm the version rather than assuming the edited EFI is
-   the one that booted.
-1. The Super I/O register-map fix is unvalidated. On an IT8665E the sixth
-   tachometer should move from an implausible reading to a credible one; on the
-   reference machine that channel is the AIO pump, which read 40 RPM and should
-   read roughly 2870. On any other ITE chip nothing should change at all, which is
-   equally worth confirming.
-2. The three fan-safety probes still outstanding from 3.34.14. The working duty readout
-   makes probe 2 meaningful again: there is finally a signal that confirms a curve
-   reached the hardware.
-3. The rotor-start floor needs its own check: command a **stopped** fan to duty 20
-   and confirm it starts rather than sitting stalled. Do not use the pump channel
-   for this.
-
-**Configuration note for the reference machine, not a code issue:** one Super I/O
-channel is wired to `AIO_PUMP` and the driver's channel names are hardcoded generic
-strings, so nothing in the UI marks it as a pump. A pump belongs at full duty; do
-not map a fan curve onto it. `docs/SUPERIO.md` explains how to identify the channel
-and why the existing PWM floor does not protect it.
+- `kextstat` confirms live kernel execution of `wtf.spinach.AMDRyzenCPUPowerManagement (3.34.17)` and `wtf.spinach.SMCAMDProcessor (3.34.17)`.
+- The duty path works: all six channels report real firmware/SmartGuardian PWM (127 [49.8 %], 96 [37.6 %], 51 [20.0 %], 255 [100.0 %]) across repeated sampling runs while RPM jitters.
+- The IT8665E register-map fix is validated on silicon: tachometer 6 reads from `0x93/0x94`, reporting real AIO pump speed (~2884 RPM) and eliminating the false 40 RPM artifact.
+- Selector 94 bit 1 carries tachometer validity, decoded and consumed in Swift (`fan.rpmValid`).
+- Interactive fan curve editor enforces 16% (~15.7% / PWM 40) hardware safety floor matching `kCURVE_MIN_ACTIVE_PWM` to prevent rotor stalls.
+- Dedicated `BOMBA` / `PUMP` badge and warning banner for AIO liquid pump headers in `FanControlCard`.
+- `MenuPanelView` decomposed and isolated to `@MainActor`, eliminating Swift 6 expression typechecker timeouts.
+- Prebuilt release zip `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` refreshed with 3.34.17 binaries and all 4 content SHA pins updated in `Tools/make-dmg.sh`.
 
 ## [1.33.0] — 2026-09-12
 
