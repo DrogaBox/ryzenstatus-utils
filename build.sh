@@ -147,6 +147,8 @@ if (( TEST )); then
         Sources/RyzenStatus/Services/AMD/AMDCpuGeneration.swift \
         Sources/RyzenStatus/Services/AMD/C6Sampling.swift \
         Sources/RyzenStatus/Services/AMD/CStateNvramService.swift \
+        Sources/RyzenStatus/Services/AMD/HardwareValidation.swift \
+        Sources/RyzenStatus/Core/ValidationStrings.swift \
         Sources/RyzenStatus/Services/DockPreview/DockPreviewSupport.swift \
         Sources/RyzenStatus/Services/Homebrew/HomebrewSupport.swift \
         Sources/RyzenStatus/Services/AppUpdates/AppUpdatesSupport.swift \

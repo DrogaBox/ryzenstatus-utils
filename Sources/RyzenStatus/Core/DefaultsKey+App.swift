@@ -431,6 +431,9 @@ extension DefaultsKey {
     static let fanCurvesEditorEnabled = "fanCurvesEditorEnabled"   // Bool, Fans & Cooling curve editor toggle (persisted)
     static let customCurvesV2 = "customCurves_v2"                 // Data: [FanCurveDefinition] JSON
     static let fanMappingsV2 = "fanMappings_v2"                   // Data: [Int: Int] JSON (fanId -> curveSlot, -1 = auto)
+    // Hardware validation (Wave V) — probe checklist statuses + recorded samples
+    // as one JSON blob, so a probe cycle that spans reboots keeps its evidence.
+    static let validationRecord = "hardwareValidationRecord"       // String: HardwareValidation.Record JSON
     // Gaming Mode — Extreme preset + Keep Awake + hidden menu bar icon.
     static let gamingModeActive = "gamingModeActive"             // Bool, persisted across launches
     static let gamingModeHideMenuBar = "gamingModeHideMenuBar"   // Bool, hide the status icon while active

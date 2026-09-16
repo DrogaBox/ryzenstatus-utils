@@ -71,6 +71,8 @@ struct SettingsView: View {
                 SidebarItem(page: .amdOverclocking, title: "AMD Overclocking", icon: "flame.fill",
                             keywords: ["overclock", "PBO", "curve optimizer", "voltage", "frequency", "cHTC", "smu", "undervolt"]),
                 SidebarItem(page: .sensors, title: FeatureStrings.fanControl(L10n.shared.language).sensorsSidebarTitle, icon: "thermometer.sun.fill"),
+                SidebarItem(page: .amdValidation, title: FeatureStrings.validation(L10n.shared.language).sidebarTitle, icon: "checkmark.seal",
+                            keywords: ["validation", "probe", "kextstat", "hardware", "selftest", "validación"]),
             ]),
             (categories.windowsControls, [
                 SidebarItem(page: .mouse, title: l10n.s.tabMouse, icon: "computermouse",
@@ -290,6 +292,7 @@ struct SettingsView: View {
         case .fans: FansSettingsView()
         case .amdPower: AmdPowerSettingsView()
         case .amdOverclocking: AmdOverclockingSettingsView()
+        case .amdValidation: AmdValidationSettingsView()
         case .dashboard: PerformanceSuiteView(monitor: SystemMonitor.shared)
         case .sensors: SensorsView()
         }
