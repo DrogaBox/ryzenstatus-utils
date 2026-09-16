@@ -284,9 +284,12 @@ enum MediaRemoteBridge {
 
     /// Explicitly triggers the TCC prompt for Apple Events to the target app.
     /// MediaRemote / AppleScript automation requires this permission under the hood.
+    /// Dispatched asynchronously to prevent blocking the main thread or launch sequence.
     static func triggerTCCPrompt(for bundleIdentifier: String) {
-        let target = NSAppleEventDescriptor(bundleIdentifier: bundleIdentifier)
-        _ = AEDeterminePermissionToAutomateTarget(target.aeDesc, typeWildCard, typeWildCard, true)
+        DispatchQueue.global(qos: .utility).async {
+            let target = NSAppleEventDescriptor(bundleIdentifier: bundleIdentifier)
+            _ = AEDeterminePermissionToAutomateTarget(target.aeDesc, typeWildCard, typeWildCard, true)
+        }
     }
 
     /// Resolves the bundle identifier of the app that owns the media session,

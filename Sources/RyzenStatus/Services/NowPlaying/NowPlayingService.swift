@@ -95,17 +95,26 @@ final class NowPlayingService: ObservableObject {
         let provider = NowPlayingProvider(rawValue: UserDefaults.standard
             .integer(forKey: DefaultsKey.nowPlayingPreferredProvider)) ?? .auto
         if MediaRemoteBridge.readsBlockedBySystem {
-            if provider == .auto || provider == .music {
+            if (provider == .auto || provider == .music),
+               NSWorkspace.shared.urlForApplication(withBundleIdentifier: NowPlayingAutomation.musicBundleID) != nil {
                 MediaRemoteBridge.triggerTCCPrompt(for: NowPlayingAutomation.musicBundleID)
             }
-            if provider == .auto || provider == .spotify {
+            if (provider == .auto || provider == .spotify),
+               NSWorkspace.shared.urlForApplication(withBundleIdentifier: NowPlayingAutomation.spotifyBundleID) != nil {
                 MediaRemoteBridge.triggerTCCPrompt(for: NowPlayingAutomation.spotifyBundleID)
             }
             if provider == .auto || provider == .kaset {
-                MediaRemoteBridge.triggerTCCPrompt(for: NowPlayingAutomation.kasetBundleID)
+                let kasetID = NSWorkspace.shared.urlForApplication(withBundleIdentifier: NowPlayingAutomation.kasetBundleID) != nil
+                    ? NowPlayingAutomation.kasetBundleID
+                    : (NSWorkspace.shared.urlForApplication(withBundleIdentifier: NowPlayingAutomation.kasetBundleIDLower) != nil ? NowPlayingAutomation.kasetBundleIDLower : nil)
+                if let kasetID {
+                    MediaRemoteBridge.triggerTCCPrompt(for: kasetID)
+                }
             }
         } else {
-            MediaRemoteBridge.triggerTCCPrompt(for: NowPlayingAutomation.musicBundleID)
+            if NSWorkspace.shared.urlForApplication(withBundleIdentifier: NowPlayingAutomation.musicBundleID) != nil {
+                MediaRemoteBridge.triggerTCCPrompt(for: NowPlayingAutomation.musicBundleID)
+            }
         }
         installStatusItem()
         syncShortcuts()
