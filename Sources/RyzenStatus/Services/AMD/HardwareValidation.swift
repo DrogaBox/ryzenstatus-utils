@@ -43,7 +43,7 @@ enum HardwareValidation {
 
     /// The app release that introduced this harness. Informational — the app
     /// version coming from the bundle is what gets reported.
-    static let expectedAppVersion = "1.36.0"
+    static let expectedAppVersion = "1.36.1"
 
     /// The reference machine's Super I/O family. The probe expectations (the
     /// ~15.7 % rotor-start floor, the six ITE channels) are calibrated for it;

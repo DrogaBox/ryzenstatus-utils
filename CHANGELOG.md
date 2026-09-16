@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.36.1] — 2026-09-16 — kexts 3.34.17 (No kext changes)
+
+Bug fix for the hardware validation kext revision gate resolution.
+
+> **Kext Note**: This release introduces no changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext` (both remain on version 3.34.17 from the S11 drop). **No kext updates in EFI or driver reinstalls are required.**
+
+### Fixed
+
+- **Kext Revision Validation Gate (`3.34.17` vs `6`)**: Resolved a false-positive `FAIL: 6 != expected 3.34.17` in the Hardware Validation settings page. Kext selector 8 historically returned macro-expanded `MODULE_VERSION` (`"6"`, internal module ABI) rather than the marketing bundle version `3.34.17`. `ProcessorModel` and `HardwareValidation` now query the macOS kernel via `KextManagerCopyLoadedKextInfo` for the true `CFBundleVersion` / `CFBundleShortVersionString` of `wtf.spinach.AMDRyzenCPUPowerManagement`, properly evaluating the gate to `PASS`.
+
 ## [1.36.0] — 2026-09-16 — kexts 3.34.17 (No kext changes)
 
 Hardware validation evidence surface to close pending silicon probes, frozen tachometer detector wiring, native Kaset player integration in Now Playing, and resolution of the launch hang caused by synchronous TCC prompts.
