@@ -180,6 +180,7 @@ enum NowPlayingProvider: Int, CaseIterable {
     case auto = 0
     case music = 1
     case spotify = 2
+    case kaset = 3
 
     /// Bundle identifiers the pinned providers accept. Auto accepts all.
     func accepts(_ bundleID: String?) -> Bool {
@@ -187,6 +188,7 @@ enum NowPlayingProvider: Int, CaseIterable {
         case .auto: return true
         case .music: return bundleID == "com.apple.Music"
         case .spotify: return bundleID == "com.spotify.client"
+        case .kaset: return NowPlayingAutomation.isKaset(bundleID)
         }
     }
 }
@@ -397,6 +399,82 @@ struct NowPlayingMarqueeEngine {
                 return StepResult(offset: 0, shouldTick: false, nextHoldDelay: Self.holdDuration)
             }
             return StepResult(offset: offset, shouldTick: true, nextHoldDelay: nil)
+        }
+    }
+}
+
+/// The provider-aware search lane: the query goes to the app owning the
+/// current session, falling back to the preferred-provider setting. Music
+/// searches and plays the library via AppleScript (PlayStatus's behavior),
+/// Spotify opens its in-app search through the spotify: URL scheme, and
+/// Kaset plays YouTube videos directly or searches YouTube Music.
+enum NowPlayingSearch {
+    /// Which provider the lane targets for the current session.
+    static func resolvedProvider(snapshot: NowPlayingSnapshot) -> NowPlayingProvider {
+        if snapshot.appBundleID == NowPlayingAutomation.spotifyBundleID { return .spotify }
+        if snapshot.appBundleID == NowPlayingAutomation.musicBundleID { return .music }
+        if NowPlayingAutomation.isKaset(snapshot.appBundleID) { return .kaset }
+        let preferred = NowPlayingProvider(rawValue: UserDefaults.standard
+            .integer(forKey: DefaultsKey.nowPlayingPreferredProvider)) ?? .auto
+        switch preferred {
+        case .spotify: return .spotify
+        case .kaset: return .kaset
+        case .music, .auto: return .music
+        }
+    }
+
+    static func run(query: String, provider: NowPlayingProvider) {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        switch provider {
+        case .music, .auto:
+            NowPlayingAutomation.searchMusicLibrary(query: trimmed)
+        case .spotify:
+            openSpotifySearch(query: trimmed)
+        case .kaset:
+            openKasetSearch(query: trimmed)
+        }
+    }
+
+    private static func openSpotifySearch(query: String) {
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        if let appURL = URL(string: "spotify:search:\(encoded)"),
+           NSWorkspace.shared.open(appURL) {
+            return
+        }
+        guard let webURL = URL(string: "https://open.spotify.com/search/\(encoded)") else { return }
+        NSWorkspace.shared.open(webURL)
+    }
+
+    private static func openKasetSearch(query: String) {
+        // If it's a YouTube video ID (11 characters alphanum_-):
+        if query.count == 11 && query.range(of: "^[a-zA-Z0-9_-]{11}$", options: .regularExpression) != nil {
+            let scriptSource = "tell application \"Kaset\" to play video \"\(query)\""
+            DispatchQueue.global(qos: .userInitiated).async {
+                if let script = NSAppleScript(source: scriptSource) {
+                    var error: NSDictionary?
+                    script.executeAndReturnError(&error)
+                }
+            }
+            return
+        }
+        if query.hasPrefix("kaset://") || query.hasPrefix("https://youtu.be/") || query.hasPrefix("https://www.youtube.com/") || query.hasPrefix("https://music.youtube.com/") {
+            if let url = URL(string: query) {
+                if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: NowPlayingAutomation.kasetBundleID) {
+                    NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+                    return
+                }
+                NSWorkspace.shared.open(url)
+                return
+            }
+        }
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        if let searchURL = URL(string: "https://music.youtube.com/search?q=\(encoded)") {
+            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: NowPlayingAutomation.kasetBundleID) {
+                NSWorkspace.shared.open([searchURL], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+                return
+            }
+            NSWorkspace.shared.open(searchURL)
         }
     }
 }

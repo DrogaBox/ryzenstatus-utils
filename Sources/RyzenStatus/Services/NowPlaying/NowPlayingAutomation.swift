@@ -11,6 +11,25 @@ import Carbon
 enum NowPlayingAutomation {
     static let musicBundleID = "com.apple.Music"
     static let spotifyBundleID = "com.spotify.client"
+    static let kasetBundleID = "com.sertacozercan.Kaset"
+    static let kasetBundleIDLower = "com.sertacozercan.kaset"
+    static let kasetAppName = "Kaset"
+
+    static func isKaset(_ bundleID: String?) -> Bool {
+        guard let bundleID else { return false }
+        return bundleID.caseInsensitiveCompare(kasetBundleID) == .orderedSame
+            || bundleID.caseInsensitiveCompare(kasetBundleIDLower) == .orderedSame
+    }
+
+    static func isKasetRunning() -> Bool {
+        if isRunning(bundleID: kasetBundleID) || isRunning(bundleID: kasetBundleIDLower) {
+            return true
+        }
+        return NSWorkspace.shared.runningApplications.contains { app in
+            if let id = app.bundleIdentifier, isKaset(id) { return true }
+            return app.localizedName == kasetAppName
+        }
+    }
 
     private static let musicTrackScript: NSAppleScript? = {
         let src = """
@@ -108,9 +127,28 @@ enum NowPlayingAutomation {
         return NSAppleScript(source: src)
     }()
 
+    private static let kasetTrackScript: NSAppleScript? = {
+        let src = """
+        tell application "Kaset"
+            if it is running then
+                try
+                    return (get player info)
+                on error
+                    return ""
+                end try
+            end if
+            return ""
+        end tell
+        """
+        return NSAppleScript(source: src)
+    }()
+
     // Artwork cache keyed by track ID to avoid fetching artwork on every poll tick.
     private static var lastTrackID: String?
     private static var cachedArtworkData: Data?
+
+    private static var lastKasetTrackID: String?
+    private static var cachedKasetArtworkData: Data?
 
     /// Checks if target application is running without launching it.
     static func isRunning(bundleID: String) -> Bool {
@@ -129,24 +167,52 @@ enum NowPlayingAutomation {
             case .spotify:
                 let snap = fetchSpotifySnapshot()
                 completion(snap)
+            case .kaset:
+                let snap = fetchKasetSnapshot()
+                completion(snap)
             case .auto:
                 let musicRunning = isRunning(bundleID: musicBundleID)
                 let spotifyRunning = isRunning(bundleID: spotifyBundleID)
+                let kasetRunning = isKasetRunning()
+
+                var candidates: [NowPlayingSnapshot] = []
 
                 if musicRunning {
                     let musicSnap = fetchMusicSnapshot()
                     if musicSnap.hasTrack {
-                        completion(musicSnap)
-                        return
+                        if musicSnap.isPlaying {
+                            completion(musicSnap)
+                            return
+                        }
+                        candidates.append(musicSnap)
                     }
                 }
 
                 if spotifyRunning {
                     let spotifySnap = fetchSpotifySnapshot()
                     if spotifySnap.hasTrack {
-                        completion(spotifySnap)
-                        return
+                        if spotifySnap.isPlaying {
+                            completion(spotifySnap)
+                            return
+                        }
+                        candidates.append(spotifySnap)
                     }
+                }
+
+                if kasetRunning {
+                    let kasetSnap = fetchKasetSnapshot()
+                    if kasetSnap.hasTrack {
+                        if kasetSnap.isPlaying {
+                            completion(kasetSnap)
+                            return
+                        }
+                        candidates.append(kasetSnap)
+                    }
+                }
+
+                if let firstCandidate = candidates.first {
+                    completion(firstCandidate)
+                    return
                 }
 
                 completion(.empty)
@@ -299,6 +365,90 @@ enum NowPlayingAutomation {
         )
     }
 
+    // MARK: - Kaset AppleScript
+
+    /// Pure JSON parser for Kaset's `get player info` output.
+    static func parseKasetJSON(_ jsonString: String, fetchArtwork: Bool = true) -> NowPlayingSnapshot? {
+        guard let data = jsonString.data(using: .utf8),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return nil
+        }
+        guard let track = json["currentTrack"] as? [String: Any] else {
+            return nil
+        }
+        let title = track["name"] as? String ?? ""
+        guard !title.isEmpty else { return nil }
+
+        let artist = track["artist"] as? String
+        let album = track["album"] as? String
+        let videoId = track["videoId"] as? String ?? ""
+        let artUrlStr = track["artworkURL"] as? String
+
+        let isPlaying = json["isPlaying"] as? Bool ?? false
+        let position = json["position"] as? Double ?? 0.0
+        let duration = (track["duration"] as? Double) ?? (json["duration"] as? Double) ?? 0.0
+        let isShuffleEnabled = json["shuffling"] as? Bool ?? false
+        let repeatModeStr = json["repeating"] as? String ?? "off"
+        let repeatMode = NowPlayingRepeatMode.musicAppleScriptMode(from: repeatModeStr)
+
+        var artworkData: Data? = nil
+        let trackKey = !videoId.isEmpty ? videoId : "\(title)|\(artist ?? "")"
+        if fetchArtwork && !trackKey.isEmpty {
+            if trackKey == lastKasetTrackID {
+                artworkData = cachedKasetArtworkData
+            } else {
+                lastKasetTrackID = trackKey
+                if let artUrlStr = artUrlStr, !artUrlStr.isEmpty,
+                   let url = URL(string: artUrlStr) {
+                    var req = URLRequest(url: url)
+                    req.timeoutInterval = 3.0
+                    if let imgData = try? Data(contentsOf: url) {
+                        cachedKasetArtworkData = imgData
+                        artworkData = imgData
+                    } else {
+                        cachedKasetArtworkData = nil
+                    }
+                } else {
+                    cachedKasetArtworkData = nil
+                }
+            }
+        }
+
+        return NowPlayingSnapshot(
+            title: title,
+            artist: artist,
+            album: album,
+            appName: kasetAppName,
+            appBundleID: kasetBundleID,
+            artworkData: artworkData,
+            isPlaying: isPlaying,
+            elapsed: position > 0 ? position : nil,
+            duration: duration > 0 ? duration : nil,
+            albumArtist: nil,
+            composer: nil,
+            genre: nil,
+            year: nil,
+            trackNumber: nil,
+            isShuffleEnabled: isShuffleEnabled,
+            repeatMode: repeatMode
+        )
+    }
+
+    private static func fetchKasetSnapshot() -> NowPlayingSnapshot {
+        guard isKasetRunning(),
+              let script = kasetTrackScript else {
+            return .empty
+        }
+
+        var error: NSDictionary?
+        let desc = script.executeAndReturnError(&error)
+        guard error == nil, let jsonString = desc.stringValue, !jsonString.isEmpty else {
+            return .empty
+        }
+
+        return parseKasetJSON(jsonString) ?? .empty
+    }
+
     private static func emptyToNil(_ value: String?) -> String? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !value.isEmpty else { return nil }
@@ -372,15 +522,27 @@ enum NowPlayingAutomation {
 
     static func sendTransportCommand(_ command: String, bundleID: String?) {
         var targetID = bundleID
-        if targetID == nil || !isRunning(bundleID: targetID ?? "") {
+        if targetID == nil || (!isRunning(bundleID: targetID ?? "") && !isKaset(targetID)) {
             if isRunning(bundleID: spotifyBundleID) {
                 targetID = spotifyBundleID
             } else if isRunning(bundleID: musicBundleID) {
                 targetID = musicBundleID
+            } else if isKasetRunning() {
+                targetID = kasetBundleID
             }
         }
-        guard let finalID = targetID, isRunning(bundleID: finalID) else { return }
-        let appName = (finalID == spotifyBundleID) ? "Spotify" : "Music"
+        guard let finalID = targetID else { return }
+        let appName: String
+        if finalID == spotifyBundleID {
+            guard isRunning(bundleID: finalID) else { return }
+            appName = "Spotify"
+        } else if isKaset(finalID) {
+            guard isKasetRunning() else { return }
+            appName = kasetAppName
+        } else {
+            guard isRunning(bundleID: finalID) else { return }
+            appName = "Music"
+        }
         let scriptSource = "tell application \"\(appName)\" to \(command)"
         DispatchQueue.global(qos: .userInitiated).async {
             if let script = NSAppleScript(source: scriptSource) {
@@ -403,6 +565,10 @@ enum NowPlayingAutomation {
     }
 
     static func seek(to seconds: TimeInterval, bundleID: String?) {
+        if isKaset(bundleID) {
+            MediaRemoteBridge.seek(to: seconds)
+            return
+        }
         sendTransportCommand("set player position to \(seconds)", bundleID: bundleID)
     }
 
@@ -429,7 +595,35 @@ enum NowPlayingAutomation {
     /// Reads the live shuffle/repeat state of a provider session; nil when
     /// the app is not running or automation fails.
     static func fetchPlaybackModes(bundleID: String?) -> (shuffle: Bool, repeatMode: NowPlayingRepeatMode)? {
-        guard let bundleID, isRunning(bundleID: bundleID) else { return nil }
+        guard let bundleID else { return nil }
+        if isKaset(bundleID) {
+            guard isKasetRunning() else { return nil }
+            let src = """
+            tell application "Kaset"
+                if it is running then
+                    try
+                        return (get player info)
+                    on error
+                        return ""
+                    end try
+                end if
+                return ""
+            end tell
+            """
+            guard let script = NSAppleScript(source: src) else { return nil }
+            var error: NSDictionary?
+            let desc = script.executeAndReturnError(&error)
+            guard error == nil, let jsonString = desc.stringValue,
+                  let data = jsonString.data(using: .utf8),
+                  let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                return nil
+            }
+            let shuffle = json["shuffling"] as? Bool ?? false
+            let repeatStr = json["repeating"] as? String ?? "off"
+            let repeatMode = NowPlayingRepeatMode.musicAppleScriptMode(from: repeatStr)
+            return (shuffle, repeatMode)
+        }
+        guard isRunning(bundleID: bundleID) else { return nil }
         let src: String
         if bundleID == spotifyBundleID {
             src = """
@@ -470,7 +664,37 @@ enum NowPlayingAutomation {
     /// nil when the app is not running or the command failed.
     @discardableResult
     static func setShuffleEnabled(_ isEnabled: Bool, bundleID: String?) -> Bool? {
-        guard let bundleID, isRunning(bundleID: bundleID) else { return nil }
+        guard let bundleID else { return nil }
+        if isKaset(bundleID) {
+            guard isKasetRunning() else { return nil }
+            let current = fetchPlaybackModes(bundleID: bundleID)?.shuffle
+            if let current = current, current == isEnabled {
+                return current
+            }
+            let src = """
+            tell application "Kaset"
+                if it is running then
+                    try
+                        toggle shuffle
+                        return (get player info)
+                    on error
+                        return ""
+                    end try
+                end if
+                return ""
+            end tell
+            """
+            guard let script = NSAppleScript(source: src) else { return nil }
+            var error: NSDictionary?
+            let desc = script.executeAndReturnError(&error)
+            guard error == nil, let jsonString = desc.stringValue,
+                  let data = jsonString.data(using: .utf8),
+                  let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                return isEnabled
+            }
+            return json["shuffling"] as? Bool ?? isEnabled
+        }
+        guard isRunning(bundleID: bundleID) else { return nil }
         let targetValue = isEnabled ? "true" : "false"
         let appName = (bundleID == spotifyBundleID) ? "Spotify" : "Music"
         let property = (bundleID == spotifyBundleID) ? "shuffling" : "shuffle enabled"
@@ -499,7 +723,43 @@ enum NowPlayingAutomation {
     /// Spotify only understands on/off, so any enabled mode lands on `.all`.
     @discardableResult
     static func setRepeatMode(_ mode: NowPlayingRepeatMode, bundleID: String?) -> NowPlayingRepeatMode? {
-        guard let bundleID, isRunning(bundleID: bundleID) else { return nil }
+        guard let bundleID else { return nil }
+        if isKaset(bundleID) {
+            guard isKasetRunning() else { return nil }
+            let current = fetchPlaybackModes(bundleID: bundleID)?.repeatMode ?? .off
+            if current == mode {
+                return current
+            }
+            var stepMode = current
+            for _ in 0..<3 {
+                guard stepMode != mode else { break }
+                let src = """
+                tell application "Kaset"
+                    if it is running then
+                        try
+                            cycle repeat
+                            return (get player info)
+                        on error
+                            return ""
+                        end try
+                    end if
+                    return ""
+                end tell
+                """
+                guard let script = NSAppleScript(source: src) else { break }
+                var error: NSDictionary?
+                let desc = script.executeAndReturnError(&error)
+                guard error == nil, let jsonString = desc.stringValue,
+                      let data = jsonString.data(using: .utf8),
+                      let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                    break
+                }
+                let repeatStr = json["repeating"] as? String ?? "off"
+                stepMode = NowPlayingRepeatMode.musicAppleScriptMode(from: repeatStr)
+            }
+            return stepMode
+        }
+        guard isRunning(bundleID: bundleID) else { return nil }
         let appName = (bundleID == spotifyBundleID) ? "Spotify" : "Music"
         let src: String
         if bundleID == spotifyBundleID {

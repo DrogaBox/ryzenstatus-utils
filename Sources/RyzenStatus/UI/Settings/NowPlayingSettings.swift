@@ -60,6 +60,7 @@ struct NowPlayingSettings: View {
                         Text(strings.providerAuto).tag(NowPlayingProvider.auto.rawValue)
                         Text(strings.providerMusic).tag(NowPlayingProvider.music.rawValue)
                         Text(strings.providerSpotify).tag(NowPlayingProvider.spotify.rawValue)
+                        Text(strings.providerKaset).tag(NowPlayingProvider.kaset.rawValue)
                     }
                     .onChange(of: provider) { _, _ in NowPlayingService.shared.applyPreferenceChanges() }
                     Toggle(strings.openInAppToggle, isOn: $openInApp)

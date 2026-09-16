@@ -264,7 +264,9 @@ struct MetricsTests {
                    && !npStrings.providerLabel.isEmpty
                    && !npStrings.providerAuto.isEmpty
                    && !npStrings.providerMusic.isEmpty
-                   && !npStrings.providerSpotify.isEmpty,
+                   && !npStrings.providerSpotify.isEmpty
+                   && !npStrings.providerKaset.isEmpty
+                   && !npStrings.searchKasetPlaceholder.isEmpty,
                    "\(language.rawValue) Now Playing strings are localized")
 
             let amdStrings = FeatureStrings.amdPower(language)
@@ -7230,6 +7232,102 @@ struct MetricsTests {
                    "migrateLegacyNowPlayingMenuBarMode is idempotent")
 
             testDefaults.removePersistentDomain(forName: testSuiteName)
+        }
+
+        // 6. Kaset Integration & JSON Protocol
+        do {
+            // Provider acceptance
+            let kasetProvider = NowPlayingProvider.kaset
+            expect(kasetProvider.accepts("com.sertacozercan.Kaset"), "Kaset provider accepts standard bundle ID")
+            expect(kasetProvider.accepts("com.sertacozercan.kaset"), "Kaset provider accepts lowercase bundle ID")
+            expect(!kasetProvider.accepts("com.apple.Music"), "Kaset provider rejects Apple Music")
+            expect(!kasetProvider.accepts("com.spotify.client"), "Kaset provider rejects Spotify")
+            expect(!kasetProvider.accepts(nil), "Kaset provider rejects nil bundle ID")
+
+            // isKaset bundle helper
+            expect(NowPlayingAutomation.isKaset("com.sertacozercan.Kaset"), "isKaset matches standard ID")
+            expect(NowPlayingAutomation.isKaset("com.sertacozercan.kaset"), "isKaset matches lowercase ID")
+            expect(NowPlayingAutomation.isKaset("COM.SERTACOZERCAN.KASET"), "isKaset is case-insensitive")
+            expect(!NowPlayingAutomation.isKaset("com.apple.Music"), "isKaset rejects Music")
+            expect(!NowPlayingAutomation.isKaset(nil), "isKaset rejects nil")
+
+            // JSON decoding with playing track
+            let sampleKasetPlaying = """
+            {
+              "isPlaying": true,
+              "isPaused": false,
+              "position": 45.2,
+              "duration": 180.0,
+              "volume": 75,
+              "shuffling": true,
+              "repeating": "all",
+              "muted": false,
+              "likeStatus": "liked",
+              "currentTrack": {
+                "name": "Starboy",
+                "artist": "The Weeknd, Daft Punk",
+                "album": "Starboy",
+                "duration": 230,
+                "videoId": "34Na4j8AVgA",
+                "artworkURL": "https://lh3.googleusercontent.com/test-artwork"
+              }
+            }
+            """
+            let snapPlaying = NowPlayingAutomation.parseKasetJSON(sampleKasetPlaying, fetchArtwork: false)
+            expect(snapPlaying != nil, "parseKasetJSON decodes valid playing track")
+            expect(snapPlaying?.title == "Starboy", "Kaset track title decoded accurately")
+            expect(snapPlaying?.artist == "The Weeknd, Daft Punk", "Kaset track artist decoded accurately")
+            expect(snapPlaying?.album == "Starboy", "Kaset track album decoded accurately")
+            expect(snapPlaying?.isPlaying == true, "Kaset isPlaying true decoded accurately")
+            expect(snapPlaying?.isShuffleEnabled == true, "Kaset shuffling decoded accurately")
+            expect(snapPlaying?.repeatMode == .all, "Kaset repeating 'all' decoded accurately")
+            expect(snapPlaying?.appName == "Kaset", "Kaset appName set to Kaset")
+            expect(snapPlaying?.appBundleID == NowPlayingAutomation.kasetBundleID, "Kaset appBundleID set to Kaset bundle ID")
+            expectClose(snapPlaying?.elapsed ?? 0, 45.2, "Kaset position decoded accurately")
+            expectClose(snapPlaying?.duration ?? 0, 230.0, "Kaset duration decoded accurately")
+            expect(snapPlaying?.hasTrack == true, "Kaset snapshot hasTrack is true")
+
+            // JSON decoding with repeat modes: "one" and "off"
+            let sampleKasetRepeatOne = """
+            {
+              "isPlaying": false,
+              "shuffling": false,
+              "repeating": "one",
+              "currentTrack": { "name": "Song", "artist": "Artist" }
+            }
+            """
+            let snapRepeatOne = NowPlayingAutomation.parseKasetJSON(sampleKasetRepeatOne, fetchArtwork: false)
+            expect(snapRepeatOne?.repeatMode == .one, "Kaset repeating 'one' mapped to .one")
+            expect(snapRepeatOne?.isShuffleEnabled == false, "Kaset shuffling false mapped accurately")
+
+            let sampleKasetRepeatOff = """
+            {
+              "isPlaying": false,
+              "shuffling": false,
+              "repeating": "off",
+              "currentTrack": { "name": "Song", "artist": "Artist" }
+            }
+            """
+            let snapRepeatOff = NowPlayingAutomation.parseKasetJSON(sampleKasetRepeatOff, fetchArtwork: false)
+            expect(snapRepeatOff?.repeatMode == .off, "Kaset repeating 'off' mapped to .off")
+
+            // Invalid / empty JSON returns nil
+            expect(NowPlayingAutomation.parseKasetJSON("", fetchArtwork: false) == nil, "Empty string yields nil")
+            expect(NowPlayingAutomation.parseKasetJSON("{}", fetchArtwork: false) == nil, "Empty JSON object yields nil")
+            expect(NowPlayingAutomation.parseKasetJSON("{\"isPlaying\": false}", fetchArtwork: false) == nil, "JSON without currentTrack yields nil")
+            expect(NowPlayingAutomation.parseKasetJSON("{\"currentTrack\": {\"name\": \"\"}}", fetchArtwork: false) == nil, "JSON with empty name yields nil")
+
+            // Repeat cycle for Kaset (3-stage cycle)
+            expect(NowPlayingRepeatMode.off.next(for: NowPlayingAutomation.kasetBundleID) == .all, "Kaset repeat cycles off -> all")
+            expect(NowPlayingRepeatMode.all.next(for: NowPlayingAutomation.kasetBundleID) == .one, "Kaset repeat cycles all -> one")
+            expect(NowPlayingRepeatMode.one.next(for: NowPlayingAutomation.kasetBundleID) == .off, "Kaset repeat cycles one -> off")
+
+            // Search resolution
+            var kasetSnap = NowPlayingSnapshot()
+            kasetSnap.appBundleID = NowPlayingAutomation.kasetBundleID
+            expect(NowPlayingSearch.resolvedProvider(snapshot: kasetSnap) == .kaset, "NowPlayingSearch resolves Kaset provider")
+
+            checks += 28
         }
 
         // MARK: C6 residency sampling
