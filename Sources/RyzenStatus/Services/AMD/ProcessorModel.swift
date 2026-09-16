@@ -8,6 +8,7 @@
 import Cocoa
 import Darwin
 import Metal
+import IOKit.kext
 
 
 actor ProcessorModel {
@@ -205,6 +206,20 @@ actor ProcessorModel {
         }
     }
     nonisolated let identityCache = IdentityCache()
+
+    /// Queries the kernel for the true marketing bundle version of AMDRyzenCPUPowerManagement.
+    /// Kext selector 8 historically returns MODULE_VERSION (internal module ABI = "6"),
+    /// whereas KextManager retrieves the true CFBundleVersion / CFBundleShortVersionString ("3.34.17").
+    static func queryLoadedKextVersion() -> String? {
+        let bundleIDs = ["wtf.spinach.AMDRyzenCPUPowerManagement"] as CFArray
+        guard let dict = KextManagerCopyLoadedKextInfo(bundleIDs, nil)?.takeRetainedValue() as? [String: [String: Any]],
+              let kextInfo = dict["wtf.spinach.AMDRyzenCPUPowerManagement"],
+              let version = (kextInfo["CFBundleShortVersionString"] as? String) ?? (kextInfo["CFBundleVersion"] as? String),
+              !version.isEmpty else {
+            return nil
+        }
+        return version
+    }
 
     /// Locked snapshot box for the About-panel identity fields
     /// (kextVersion, baseboard). Replaces 4 `nonisolated(unsafe)` vars: the
@@ -619,7 +634,10 @@ actor ProcessorModel {
         //      "outdated kext" and call alertAndQuit(), terminating the app.
         // Both are handled by tracking whether the version is known.
         var versionKnown = false
-        if versionResult == KERN_SUCCESS, outputStrCount > 0 {
+        if let bundleVersion = Self.queryLoadedKextVersion() {
+            identityCache.set(version: bundleVersion)
+            versionKnown = true
+        } else if versionResult == KERN_SUCCESS, outputStrCount > 0 {
             let upper = min(outputStrCount - 1, outputStr.count - 1)
             if upper >= 0 {
                 identityCache.set(version: String(cString: Array(outputStr[0...upper])))
