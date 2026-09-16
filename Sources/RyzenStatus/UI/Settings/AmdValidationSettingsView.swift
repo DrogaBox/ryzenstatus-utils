@@ -357,7 +357,14 @@ extension HardwareValidation {
 
         snapshot.appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         snapshot.appBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
-        snapshot.kextVersion = ProcessorModel.shared.identityCache.kextVersion
+        let cachedKextVersion = ProcessorModel.shared.identityCache.kextVersion
+        if !cachedKextVersion.isEmpty && cachedKextVersion != "6" {
+            snapshot.kextVersion = cachedKextVersion
+        } else if let liveKextVersion = ProcessorModel.queryLoadedKextVersion() {
+            snapshot.kextVersion = liveKextVersion
+        } else {
+            snapshot.kextVersion = cachedKextVersion
+        }
         snapshot.kextConnected = ProcessorModel.shared.isConnected
 
         let packet = ProcessorModel.shared.getTelemetry()
