@@ -1,10 +1,10 @@
 # Changelog
 
-## [1.36.0] — 2026-09-15 — kexts 3.34.17 (Sin cambios en kexts / No kext changes)
+## [1.36.0] — 2026-09-16 — kexts 3.34.17 (Sin cambios en kexts / No kext changes)
 
-Superficie de evidencia para cerrar los probes pendientes en hardware, y cableado del detector de tacómetro congelado.
+Superficie de evidencia para cerrar los probes pendientes en hardware, cableado del detector de tacómetro congelado, integración nativa del reproductor Kaset en Now Playing y resolución de cuelgue de arranque por TCC.
 
-> **Nota sobre Kexts**: Esta versión no introduce modificaciones en `AMDRyzenCPUPowerManagement.kext` ni en `SMCAMDProcessor.kext` (permanecen en 3.34.17). Todo el ciclo de validación que habilita esta versión se corre con los selectores que ya existen, así que **no invalida el artefacto empaquetado ni obliga a revalidar el DMG**.
+> **Nota sobre Kexts**: Esta versión no introduce modificaciones en `AMDRyzenCPUPowerManagement.kext` ni en `SMCAMDProcessor.kext` (permanecen en la versión 3.34.17 de la entrega S11). Todo el ciclo de validación que habilita esta versión se corre con los selectores que ya existen en el kext, y la integración de Now Playing opera enteramente en la capa de usuario de macOS, por lo que **no se requiere actualizar kexts en la EFI ni reinstalar drivers**.
 
 ### Added
 
@@ -13,14 +13,22 @@ Superficie de evidencia para cerrar los probes pendientes en hardware, y cablead
 - **Lista de probes P0–P6 con estado persistido y muestras registrables**: un ciclo de validación que abarca reinicios conserva su historial. *Registrar muestra* guarda una línea por muestreo (temperatura y potencia del paquete del kext + duty %, RPM y validez de tacómetro por canal), acotada a 400 líneas descartando las más viejas — la evidencia más nueva es la que se juzga.
 - **Informe de validación ASCII copiable**, con precondiciones, canales (modo, duty real del chip, RPM, validez, marca de bomba), curvas con su sensor fuente y sus ventiladores, la lectura del paquete y los tres constantes de seguridad a los que se juzga un probe (`floor=PWM40`, `guard=85 °C/PWM200`, `failsafe=PWM160`). Un artesano sin localizar a propósito: dos corridas tienen que ser comparables. El mismo bloque viaja dentro del bundle de diagnóstico SMU, así un informe de bug y un veredicto de probe no pueden discrepar.
 - **`HARDWARE_VALIDATION.md`** (documento de trabajo local, gitignoreado): runbook con los siete probes en orden, criterio de PASS por probe, falsos positivos conocidos y el formato de cierre de cada fila del roadmap.
+- **Integración nativa del reproductor Kaset en Now Playing**: soporte completo para el cliente nativo de YouTube Music / YouTube para macOS ([sozercan/kaset](https://github.com/sozercan/kaset)):
+  - Detección de bundles `com.sertacozercan.Kaset` y `com.sertacozercan.kaset` con prioridad automática para reproductor activo frente a reproductores en pausa.
+  - Decodificación completa del protocolo JSON `get player info` (título, artista, álbum, duración, posición, ID de video de YouTube y URL de carátula).
+  - Controles interactivos completos (`playpause`, `next`, `previous`, `seek`).
+  - Sincronización de modos de reproducción: alternancia de `shuffle` y ciclado de repetición en 3 fases (`off` → `all` → `one` → `off`).
+  - Enrutamiento inteligente de búsqueda: detección de IDs de video de YouTube (11 caracteres), URLs de YouTube/Kaset y búsqueda en YouTube Music.
+  - Localización completa del proveedor y placeholder de búsqueda en los 13 idiomas soportados.
 
 ### Fixed
 
 - **El detector de tacómetro congelado ahora está cableado.** `AMDFanSafety.isTachometerStale` se shipeó en 1.34.0 probado y **sin un solo llamador** — un mecanismo de seguridad inerte, exactamente el patrón que la auditoría marca como el más peligroso porque *parece* un fix. `FanCurveController` mantiene ahora una ventana de RPM por canal y marca `rpmValid = false` cuando ocho muestras consecutivas no nulas son idénticas (un cabezal desconectado, o un canal que lee residuo eléctrico, reporta el mismo valor plausible para siempre y toda heurística basada en RPM lo lee como un rotor sano — incluido el piso de arranque del kernel, que entonces se niega a socorrer a un ventilador realmente calado). El detector **solo quita** confianza, nunca la otorga: la fila pasa a mostrar `— RPM` en lugar de un número que no puede ser cierto. Las ventanas se resetean cuando se reconstruye la lista de canales.
+- **Cuelgue de arranque por permisos TCC**: En macOS 15.4+, `MediaRemoteBridge.triggerTCCPrompt(for:)` ejecutaba `AEDeterminePermissionToAutomateTarget` sincrónicamente sobre el hilo principal (`com.apple.main-thread`) durante `applicationDidFinishLaunching`. Dado que la API bloquea el hilo llamador esperando al daemon `tccd` antes de que el bucle de eventos (`[NSApplication run]`) se inicie, la aplicación se congelaba en el lanzamiento. Se trasladó la solicitud a una cola de utilidad en segundo plano (`DispatchQueue.global(qos: .utility).async`) y se añadió una validación previa para solicitar permisos únicamente a aplicaciones multimedia que se encuentren efectivamente instaladas.
 
 ### Tests
 
-- Suite de **6274 → 6982 checks OK**. Nuevos: tope y descarte por antigüedad del registro de probes (un blob ausente, truncado o ajeno decodifica a un registro vacío en vez de perder la página), matriz de compuertas (un canal solo-bomba falla topología; un tacómetro no confiable falla validez; todos los canales en 0 RPM es UNKNOWN, nunca PASS; una versión de kext distinta del pin falla identidad), inferencia de familia de Super I/O, formato y secciones del informe, formato fijo del timestamp y de las líneas de muestra, contratos de string ×13 locales con los tokens `PASS`/`FAIL`/`UNKNOWN` sin traducir, y pins de fuente que atan las tres tablas de nombres a los `kFAN_READABLE_STRS` reales de los drivers, `expectedKextVersion` a `Version.xcconfig` y `expectedAppVersion` a `Resources/Info.plist`. El cableado del detector también queda pinneado por test de fuente: un helper puro sin llamador vuelve a romper la suite.
+- Suite de **6274 → 7043 checks OK** (+769 tests). Nuevos: tope y descarte por antigüedad del registro de probes, matriz de compuertas, inferencia de familia Super I/O, formato y secciones del informe ASCII, contratos de localización ×13 idiomas, pins de fuente de controladores y constantes, decodificación del protocolo JSON de Kaset (estados de reproducción, pausa, modos de repetición y shuffle), tolerancia a JSONs inválidos y enrutamiento de búsqueda.
 
 ## [1.35.0] — 2026-09-14 — kexts 3.34.17 (Sin cambios en kexts / No kext changes)
 
