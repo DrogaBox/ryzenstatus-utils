@@ -1,52 +1,52 @@
 # Changelog
 
-## [1.36.0] — 2026-09-16 — kexts 3.34.17 (Sin cambios en kexts / No kext changes)
+## [1.36.0] — 2026-09-16 — kexts 3.34.17 (No kext changes)
 
-Superficie de evidencia para cerrar los probes pendientes en hardware, cableado del detector de tacómetro congelado, integración nativa del reproductor Kaset en Now Playing y resolución de cuelgue de arranque por TCC.
+Hardware validation evidence surface to close pending silicon probes, frozen tachometer detector wiring, native Kaset player integration in Now Playing, and resolution of the launch hang caused by synchronous TCC prompts.
 
-> **Nota sobre Kexts**: Esta versión no introduce modificaciones en `AMDRyzenCPUPowerManagement.kext` ni en `SMCAMDProcessor.kext` (permanecen en la versión 3.34.17 de la entrega S11). Todo el ciclo de validación que habilita esta versión se corre con los selectores que ya existen en el kext, y la integración de Now Playing opera enteramente en la capa de usuario de macOS, por lo que **no se requiere actualizar kexts en la EFI ni reinstalar drivers**.
+> **Kext Note**: This release introduces no changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext` (both remain on version 3.34.17 from the S11 drop). The full hardware validation cycle enabled by this release operates on existing kernel selectors, and the Now Playing integration operates entirely in the macOS user space layer. **No kext updates in EFI or driver reinstalls are required.**
 
 ### Added
 
-- **Página "Validación de hardware" en Ajustes** (`checkmark.seal`): el cuello de botella de las filas `[REQUIERE-HW]` no era falta de código, era que la evidencia no tenía dónde vivir. El log del kernel no es legible para las herramientas del repo (`log show` está sandboxeado) y `--sensors`/`--selftest` no se pueden usar durante un probe: cada uno abre y cierra un cliente del kext, y `clientClose()` devuelve **los seis** ventiladores a BIOS, reseteando en silencio el estado que se está midiendo. La app pasa a ser la superficie de evidencia.
-- **Matriz de precondiciones con veredicto PASS/FAIL/UNKNOWN**, cada una con su hint de arreglo y su razón técnica documentada: revisión del kext contra el pin (3.34.17), telemetría del selector 100, acceso privilegiado, canales de ventilador con el de bomba identificado, confianza de tacómetros por canal, y familia de Super I/O. El botón *Comprobar precondiciones* resuelve la compuerta de privilegio corriendo el selector 58 (privilegiado, solo lectura: no escribe ventilador, voltaje ni límite). Dos falsos positivos documentados quedan ahora explícitos en la UI como compuertas: sin privilegio la BIOS ronda el 15 % —idéntico al piso que el probe 2 quiere demostrar—, y un tacómetro congelado hace parecer calado un ventilador sano.
-- **Lista de probes P0–P6 con estado persistido y muestras registrables**: un ciclo de validación que abarca reinicios conserva su historial. *Registrar muestra* guarda una línea por muestreo (temperatura y potencia del paquete del kext + duty %, RPM y validez de tacómetro por canal), acotada a 400 líneas descartando las más viejas — la evidencia más nueva es la que se juzga.
-- **Informe de validación ASCII copiable**, con precondiciones, canales (modo, duty real del chip, RPM, validez, marca de bomba), curvas con su sensor fuente y sus ventiladores, la lectura del paquete y los tres constantes de seguridad a los que se juzga un probe (`floor=PWM40`, `guard=85 °C/PWM200`, `failsafe=PWM160`). Un artesano sin localizar a propósito: dos corridas tienen que ser comparables. El mismo bloque viaja dentro del bundle de diagnóstico SMU, así un informe de bug y un veredicto de probe no pueden discrepar.
-- **`HARDWARE_VALIDATION.md`** (documento de trabajo local, gitignoreado): runbook con los siete probes en orden, criterio de PASS por probe, falsos positivos conocidos y el formato de cierre de cada fila del roadmap.
-- **Integración nativa del reproductor Kaset en Now Playing**: soporte completo para el cliente nativo de YouTube Music / YouTube para macOS ([sozercan/kaset](https://github.com/sozercan/kaset)):
-  - Detección de bundles `com.sertacozercan.Kaset` y `com.sertacozercan.kaset` con prioridad automática para reproductor activo frente a reproductores en pausa.
-  - Decodificación completa del protocolo JSON `get player info` (título, artista, álbum, duración, posición, ID de video de YouTube y URL de carátula).
-  - Controles interactivos completos (`playpause`, `next`, `previous`, `seek`).
-  - Sincronización de modos de reproducción: alternancia de `shuffle` y ciclado de repetición en 3 fases (`off` → `all` → `one` → `off`).
-  - Enrutamiento inteligente de búsqueda: detección de IDs de video de YouTube (11 caracteres), URLs de YouTube/Kaset y búsqueda en YouTube Music.
-  - Localización completa del proveedor y placeholder de búsqueda en los 13 idiomas soportados.
+- **"Hardware Validation" Page in Settings** (`checkmark.seal`): The bottleneck for `[REQUIERE-HW]` milestone items was not missing code, but that evidence had no home. Kernel logs are sandboxed from repository tooling (`log show`), and CLI utilities (`--sensors` / `--selftest`) cannot be used during a probe cycle because closing a kext client triggers `clientClose()`, returning all six fan channels to BIOS and silently clearing the state being measured. The app itself is now the structured evidence surface.
+- **Preconditions Matrix with PASS/FAIL/UNKNOWN Verdicts**: Real-time diagnostic gates with actionable fix hints and technical rationale: kext revision check against pin (3.34.17), selector 100 telemetry, privileged access, fan channel topology with AIO pump identification, per-channel tachometer trust, and Super I/O family inference. The *Run Preconditions Check* button evaluates selector 58 (privileged, read-only: writes no fan, voltage, or limit). Two documented false positives are now surfaced as explicit UI gates: unprivileged runs fall back to BIOS (~15% duty, mimicking the curve floor), and frozen tachometers make a stalled fan look healthy.
+- **P0–P6 Probe Checklist with Persisted State & Telemetry Sampling**: Retains validation history across reboot cycles. *Record Sample* captures a single-line snapshot (kext package temperature & power, per-channel duty %, RPM, and tachometer validity), capped at 400 bounded lines with FIFO eviction so the freshest evidence is evaluated.
+- **Copyable ASCII Evidence Report**: Formatted diagnostic report containing preconditions, fan channels (mode, chip duty %, RPM, validity, pump mark), curves (source sensor and fan mapping), package power readings, and the three core safety invariants (`floor=PWM40`, `guard=85 °C/PWM200`, `failsafe=PWM160`). The block is also embedded into the SMU diagnostics bundle to ensure bug reports and probe verdicts align.
+- **`HARDWARE_VALIDATION.md`** (local work document, gitignored): Step-by-step runbook for all seven probes, PASS criteria per probe, documented false positives, and roadmap checklist.
+- **Native Kaset Player Integration in Now Playing**: Full support for Kaset ([sozercan/kaset](https://github.com/sozercan/kaset)), the native macOS YouTube Music and YouTube client:
+  - Bundle detection for both `com.sertacozercan.Kaset` and `com.sertacozercan.kaset` with active-player priority in Auto mode over paused background sessions.
+  - JSON protocol parser for `get player info` (title, artist, album, duration, position, YouTube `videoId`, and artwork URL).
+  - Interactive transport controls (`playpause`, `next`, `previous`, `seek`).
+  - Playback mode synchronization: shuffle toggle and 3-stage repeat cycling (`off` → `all` → `one` → `off`).
+  - Intelligent search routing: recognition of 11-character YouTube video IDs, YouTube/Kaset URLs, and targeted YouTube Music web search.
+  - Complete localization across all 13 supported languages.
 
 ### Fixed
 
-- **El detector de tacómetro congelado ahora está cableado.** `AMDFanSafety.isTachometerStale` se shipeó en 1.34.0 probado y **sin un solo llamador** — un mecanismo de seguridad inerte, exactamente el patrón que la auditoría marca como el más peligroso porque *parece* un fix. `FanCurveController` mantiene ahora una ventana de RPM por canal y marca `rpmValid = false` cuando ocho muestras consecutivas no nulas son idénticas (un cabezal desconectado, o un canal que lee residuo eléctrico, reporta el mismo valor plausible para siempre y toda heurística basada en RPM lo lee como un rotor sano — incluido el piso de arranque del kernel, que entonces se niega a socorrer a un ventilador realmente calado). El detector **solo quita** confianza, nunca la otorga: la fila pasa a mostrar `— RPM` en lugar de un número que no puede ser cierto. Las ventanas se resetean cuando se reconstruye la lista de canales.
-- **Cuelgue de arranque por permisos TCC**: En macOS 15.4+, `MediaRemoteBridge.triggerTCCPrompt(for:)` ejecutaba `AEDeterminePermissionToAutomateTarget` sincrónicamente sobre el hilo principal (`com.apple.main-thread`) durante `applicationDidFinishLaunching`. Dado que la API bloquea el hilo llamador esperando al daemon `tccd` antes de que el bucle de eventos (`[NSApplication run]`) se inicie, la aplicación se congelaba en el lanzamiento. Se trasladó la solicitud a una cola de utilidad en segundo plano (`DispatchQueue.global(qos: .utility).async`) y se añadió una validación previa para solicitar permisos únicamente a aplicaciones multimedia que se encuentren efectivamente instaladas.
+- **Wired Frozen Tachometer Detector**: `AMDFanSafety.isTachometerStale` was introduced tested in 1.34.0 but lacked an active caller. `FanCurveController` now maintains a rolling per-channel RPM window and sets `rpmValid = false` when eight consecutive non-zero readings are identical (detecting disconnected headers or electrical residue that report static plausible values). The detector only revokes trust (rendering `— RPM`), never grants it, preventing the kernel stall-recovery floor from being suppressed.
+- **Resolved Launch Hang on macOS 15.4+**: `MediaRemoteBridge.triggerTCCPrompt(for:)` previously executed `AEDeterminePermissionToAutomateTarget` synchronously on `@MainActor` during `applicationDidFinishLaunching`. Because this API blocks the calling thread waiting for `tccd` before the main run loop (`[NSApplication run]`) spins, the app deadlocked during launch. Calls are now dispatched to a background utility queue (`DispatchQueue.global(qos: .utility).async`) and pre-flighted with `NSWorkspace.shared.urlForApplication(withBundleIdentifier:)` to prompt only for installed media players.
 
 ### Tests
 
-- Suite de **6274 → 7043 checks OK** (+769 tests). Nuevos: tope y descarte por antigüedad del registro de probes, matriz de compuertas, inferencia de familia Super I/O, formato y secciones del informe ASCII, contratos de localización ×13 idiomas, pins de fuente de controladores y constantes, decodificación del protocolo JSON de Kaset (estados de reproducción, pausa, modos de repetición y shuffle), tolerancia a JSONs inválidos y enrutamiento de búsqueda.
+- Test suite expanded to **7,043 checks OK** (up from 6,274, +769 checks). New coverage: probe record bounded FIFO buffer, precondition gate matrix rules, Super I/O family inference, ASCII report formatting, 13-language localized string contracts, driver table pins, Kaset JSON parser unit tests (playing, paused, 3-phase repeat, shuffle), invalid payload handling, and search routing.
 
-## [1.35.0] — 2026-09-14 — kexts 3.34.17 (Sin cambios en kexts / No kext changes)
+## [1.35.0] — 2026-09-14 — kexts 3.34.17 (No kext changes)
 
-Separación modular de Overclocking/PBO en Ajustes, deduplicación de telemetría en el Dashboard, clarificación de frecuencia efectiva/núcleos aparcados y saneamiento de sensores.
+Modular separation of Overclocking/PBO in Settings, Dashboard telemetry deduplication, clarification on effective frequency/parked cores, and sensor cleanup.
 
-> **Nota sobre Kexts**: Esta versión no introduce modificaciones en `AMDRyzenCPUPowerManagement.kext` ni en `SMCAMDProcessor.kext` (permanecen en la versión 3.34.17 de la entrega S11). Los cambios son exclusivamente a nivel de la aplicación macOS (UI, presentación y servicios de monitorización).
+> **Kext Note**: This release introduces no changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext` (both remain on version 3.34.17 from the S11 drop). All changes are strictly within the macOS application layer (UI, presentation, and monitoring services).
 
 ### Added & Changed
 
-- **Separación de Overclocking y PBO en Ajustes**: Se extrajeron todos los controles de alto riesgo de hardware (interruptor maestro de OC Mode 0x5A/0x5B, límites PPT/TDC/EDC y escalar de PBO 0x57/0x58, compensaciones por núcleo de Curve Optimizer 0x3D, fijación de frecuencia all-core y por CCD 0x5C/0x5D, y límite térmico cHTC 0x56) de `AmdPowerSettingsView` hacia una página dedicada `AmdOverclockingSettingsView` con ícono de llama (`flame.fill`) en la barra lateral de Ajustes.
-- **Deduplicación de Telemetría en el Dashboard**: En la Suite de Rendimiento (Dashboard), el bloque BTop de 32 hilos de CPU se oculta automáticamente cuando la telemetría decodificada por la SMU (`pmTableDecoded`) está activa, evitando duplicar los datos de uso y frecuencia por núcleo.
-- **Clarificación de Frecuencia Efectiva y Estado Parked**: En la tabla monospaced de SMU PM-table, los núcleos que están en reposo profundo en estado CC6 ahora se etiquetan explícitamente como `parked` y se documenta técnicamente por qué su frecuencia efectiva decae a ~200 MHz o 0 MHz debido al clock gating ($CORE\_FREQEFF = \text{Freq} \times C_0\%$).
-- **Bucle de Refresco en Vivo**: Se implementó un bucle de refresco periódico (cada 3 segundos) con `controls.syncFromKext()` tanto en el panel de Overclocking como en la vista de energía para sincronizar lecturas en segundo plano sin requerir salir y volver a la vista.
-- **Limpieza en la Vista de Sensores**:
-  - Se eliminaron las filas redundantes globales de GPU cuando ya existen dispositivos GPU discretos mapeados.
-  - Se deduplicaron las claves SMC `TG0D`/`TG0P` (conservando Hotspot `TG0H` y VRAM `TG0M`).
-  - Se eliminó la síntesis forzada de 16 núcleos en procesadores de 6 u 8 núcleos, reflejando fielmente la topología física detectada.
-  - Se sustituyó la sección obsoleta de test de estrés por una exportación limpia en formato CSV de los sensores SMC.
+- **Overclocking and PBO Separation in Settings**: Extracted all high-risk hardware controls (OC Mode master switch `0x5A` / `0x5B`, PPT/TDC/EDC limits and PBO scalar `0x57` / `0x58`, per-core Curve Optimizer offsets `0x3D`, all-core and per-CCD clock locking `0x5C` / `0x5D`, and cHTC thermal limit `0x56`) from `AmdPowerSettingsView` into a dedicated `AmdOverclockingSettingsView` page featuring a flame icon (`flame.fill`) in the Settings sidebar.
+- **Telemetry Deduplication in the Dashboard**: In the Performance Suite (Dashboard), the 32-thread BTop CPU block is now automatically hidden whenever SMU-decoded telemetry (`pmTableDecoded`) is active, avoiding duplicate per-core usage and clock frequency metrics.
+- **Effective Frequency & Parked State Clarification**: In the monospaced SMU PM-table view, cores in deep CC6 sleep are now explicitly labeled as `parked`, with technical documentation clarifying why effective clock rates drop to ~200 MHz or 0 MHz due to clock gating ($CORE\_FREQEFF = \text{Freq} \times C_0\%$).
+- **Live Refresh Loop**: Implemented a periodic refresh loop (every 3 seconds) using `controls.syncFromKext()` in both the Overclocking panel and Power view to synchronize readings in the background without requiring navigation away from and back to the view.
+- **Sensors View Cleanup**:
+  - Removed redundant global GPU rows when discrete GPU devices are already mapped.
+  - Deduplicated SMC keys `TG0D` / `TG0P` (retaining Hotspot `TG0H` and VRAM `TG0M`).
+  - Removed forced 16-core synthesis on 6- or 8-core processors to accurately reflect detected physical topology.
+  - Replaced the obsolete stress test section with a clean CSV export utility for SMC sensors.
 
 ## [1.34.0] — 2026-09-14 — kexts 3.34.17
 
