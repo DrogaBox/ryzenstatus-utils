@@ -383,18 +383,33 @@ final class AmdPowerControlsModel: ObservableObject {
     /// ASCII on purpose (paste-able into an issue); the UI button that
     /// copies it is localized, the artifact is not.
     func buildDiagnosticsBundle() -> String {
-        var lines: [String] = []
         let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+        var lines: [String] = []
         lines.append("RyzenStatus SMU diagnostics — app \(short) (\(build)), kext \(ProcessorModel.shared.identityCache.kextVersion)")
+        lines.append(contentsOf: smuStateLines())
+        // The hardware-validation record rides along: a bug report and a probe
+        // verdict are judged on the same numbers, so shipping two artifacts
+        // that could disagree would be a trap. One button, one document.
+        lines.append("")
+        let record = HardwareValidation.Record.decode(
+            UserDefaults.standard.string(forKey: DefaultsKey.validationRecord)
+        )
+        lines.append(HardwareValidation.report(HardwareValidation.liveSnapshot(from: self),
+                                              samples: record.samples,
+                                              now: Date()))
+        return lines.joined(separator: "\n")
+    }
+
+    /// SMU/mailbox state as ASCII lines. Shared by the diagnostics bundle and
+    /// the hardware-validation report so the two can never drift apart.
+    func smuStateLines() -> [String] {
+        var lines: [String] = []
         if let fw = AMDSmuReadback.formatSmuVersion(smuVersionRaw) {
             lines.append("smu firmware: \(fw)")
         }
-        if pmTableVersionPolled {
-            let size = pmTableSizeBytes > 0 ? " \(pmTableSizeBytes) B" : ""
-            lines.append(String(format: "pm-table: 0x%08X%@ valid=%@ age=%lums",
-                                pmTableVersionRaw, size,
-                                pmTableValid ? "1" : "0", pmTableAgeMs))
+        if let pm = pmTableSummaryLine() {
+            lines.append("pm-table: \(pm)")
         }
         if let diag = smuDiagnostics {
             lines.append("mailbox-health:")
@@ -410,7 +425,18 @@ final class AmdPowerControlsModel: ObservableObject {
         }
         lines.append(String(format: "oc: mode=%u freqSupported=%@ allCores=%u MHz",
                             ocModeCode, ocFreqSupported ? "1" : "0", ocFreqAllCoresMHz))
-        return lines.joined(separator: "\n")
+        return lines
+    }
+
+    /// One line of PM-table plumbing state, or nil before the kext timer's
+    /// first successful capture (`pmTableVersionPolled` false is "never read",
+    /// not "version zero").
+    func pmTableSummaryLine() -> String? {
+        guard pmTableVersionPolled else { return nil }
+        let size = pmTableSizeBytes > 0 ? " \(pmTableSizeBytes) B" : ""
+        return String(format: "0x%08X%@ valid=%@ age=%lums",
+                      pmTableVersionRaw, size,
+                      pmTableValid ? "1" : "0", pmTableAgeMs)
     }
 
     /// Bounded append for one per-core sparkline window. Skips slots

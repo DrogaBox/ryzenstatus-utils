@@ -47,6 +47,14 @@ final class FanCurveController: ObservableObject {
     /// per failure episode instead of on every 1.5 s poll tick.
     private var gpuBridgeWarned = false
     private var wakeObserver: Any?
+    /// Rolling RPM window per fan, feeding the frozen-tachometer detector
+    /// (S11-b). Reset whenever the fan list is rebuilt, since a rebuild means
+    /// the channel set changed and the old windows describe other headers.
+    private var rpmWindows: [Int: [UInt64]] = [:]
+    /// 12 polls at the 1.5 s cadence: eight identical non-zero readings is the
+    /// detector's threshold, and the extra four keep the judgement from being
+    /// made on a window that is all there is.
+    private static let rpmWindowLength = 12
     private let logger = OSLog(subsystem: "com.ryzenstatus.fancurve", category: "Controller")
 
     // MARK: - Initialization
@@ -642,6 +650,7 @@ final class FanCurveController: ObservableObject {
                     ))
                 }
                 self.fans = newFans
+                self.rpmWindows.removeAll()
                 // Force — after a fan-count change / kext reload the
                 // kext-side slots may be stale even when our state is identical.
                 self.syncCurvesToKext(force: true)
@@ -693,8 +702,17 @@ final class FanCurveController: ObservableObject {
 
                 for i in 0..<currentSnapshots.count {
                     let snap = currentSnapshots[i]
+                    let frozen = self.recordRPM(snap.rpm, for: snap.id)
                     self.fans[i].rpm = snap.rpm
-                    self.fans[i].rpmValid = snap.rpmValid
+                    // The detector only ever REMOVES trust, never grants it: an
+                    // unconnected header (or a channel reading electrical
+                    // residue) reports the same plausible non-zero count
+                    // forever, and every RPM-based heuristic reads that as a
+                    // healthy rotor — including the kernel's rotor-start
+                    // floor, which then declines to help a genuinely stalled
+                    // fan. Untrusted readings render as "— RPM" rather than a
+                    // number that cannot be true.
+                    self.fans[i].rpmValid = snap.rpmValid && !frozen
                     self.fans[i].throttlePWM = snap.throttle
                     self.fans[i].isKextAuto = !snap.isOverridden
                 }
@@ -702,6 +720,19 @@ final class FanCurveController: ObservableObject {
                 self.enforceManualThermalGuard()
             }
         }
+    }
+
+    /// Folds one RPM reading into a fan's window and answers whether the
+    /// channel now looks frozen (`AMDFanSafety.isTachometerStale`, already
+    /// unit-tested; this is where it finally gets wired in).
+    private func recordRPM(_ rpm: UInt64, for fanId: Int) -> Bool {
+        var window = rpmWindows[fanId] ?? []
+        window.append(rpm)
+        if window.count > Self.rpmWindowLength {
+            window.removeFirst(window.count - Self.rpmWindowLength)
+        }
+        rpmWindows[fanId] = window
+        return AMDFanSafety.isTachometerStale(samples: window)
     }
 
     private func enforceManualThermalGuard() {

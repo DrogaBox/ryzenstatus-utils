@@ -8411,6 +8411,366 @@ struct MetricsTests {
         expect(AMDOcFreq.decode(mask: 0x8000_0FA0) == nil, "decode must refuse CCD 8 (mask bit 31 set)")
         expect(AMDOcFreq.decode(mask: 0x0000_0000) == nil, "decode must refuse 0 MHz (never-written cache)")
 
+        // MARK: Hardware validation — probe record
+        //
+        // The validation page carries a probe cycle across reboots, so its
+        // state has to survive a missing, truncated or foreign value without
+        // losing the page (or worse, silently forgetting the samples).
+
+        let emptyRecord = HardwareValidation.Record.decode(nil)
+        expect(emptyRecord.samples.isEmpty && emptyRecord.statuses.isEmpty,
+               "decode(nil) yields an empty record")
+        expect(HardwareValidation.Record.decode("not json at all").samples.isEmpty,
+               "decode of garbage yields an empty record instead of throwing")
+        expect(HardwareValidation.Record.decode("{\"statuses\":").samples.isEmpty,
+               "decode of a truncated blob yields an empty record")
+
+        var record = HardwareValidation.Record()
+        expect(HardwareValidation.Probe.allCases.allSatisfy { record.status(of: $0) == .pending },
+               "every probe starts pending")
+        expect(record.pendingCount == HardwareValidation.Probe.allCases.count,
+               "pendingCount counts every probe before any verdict")
+        record.setStatus(.pass, for: .pwmFloor)
+        record.setStatus(.fail, for: .thermalGuard)
+        expect(record.status(of: .pwmFloor) == .pass, "a stored PASS survives the record")
+        expect(record.status(of: .thermalGuard) == .fail, "a stored FAIL survives the record")
+        expect(record.status(of: .deadMan) == .pending, "an unstored probe stays pending")
+        expect(record.failedProbes == [.thermalGuard], "failedProbes names exactly the failed probes")
+        expect(record.pendingCount == HardwareValidation.Probe.allCases.count - 2,
+               "pendingCount drops with each verdict")
+
+        let roundTripped = HardwareValidation.Record.decode(record.encoded())
+        expect(roundTripped == record, "record JSON round-trips byte-for-byte")
+
+        for i in 0..<(HardwareValidation.Record.maxSamples + 25) {
+            record.appendSample("sample \(i)")
+        }
+        expect(record.samples.count == HardwareValidation.Record.maxSamples,
+               "samples are capped at maxSamples")
+        expect(record.samples.last == "sample \(HardwareValidation.Record.maxSamples + 24)",
+               "the cap drops the OLDEST samples — the newest evidence is what a probe is judged on")
+        expect(record.samples.first == "sample 25", "the cap keeps a contiguous newest window")
+        record.clearSamples()
+        expect(record.samples.isEmpty, "clearSamples empties the window")
+        expect(record.status(of: .pwmFloor) == .pass,
+               "clearing samples must not clear probe verdicts")
+
+        // MARK: Hardware validation — precondition gates
+
+        func fan(_ id: Int, _ name: String, rpm: UInt64 = 1200, rpmValid: Bool = true,
+                 throttle: UInt8 = 128, pump: Bool = false, auto: Bool = true)
+            -> HardwareValidation.FanEvidence {
+            HardwareValidation.FanEvidence(id: id, name: name, isPump: pump, rpm: rpm,
+                                           rpmValid: rpmValid, throttle: throttle, isAuto: auto)
+        }
+
+        func gate(_ results: [HardwareValidation.GateResult],
+                  _ target: HardwareValidation.Gate) -> HardwareValidation.Verdict? {
+            results.first { $0.gate == target }?.verdict
+        }
+
+        var snapshot = HardwareValidation.Snapshot()
+        snapshot.kextVersion = HardwareValidation.expectedKextVersion
+        snapshot.kextConnected = true
+        snapshot.hasTelemetryPacket = true
+        snapshot.packageTempC = 48.5
+        snapshot.packagePowerW = 37.2
+        snapshot.privilegeChecked = true
+        snapshot.privilegeReported = true
+        snapshot.fans = [
+            fan(0, "CPU Fan"), fan(1, "System 1 Fan"), fan(2, "System 2 Fan"),
+            fan(3, "PCH Fan"), fan(4, "CPU OPT Fan"), fan(5, "System 3 Fan", pump: true),
+        ]
+
+        let healthy = HardwareValidation.gates(snapshot)
+        expect(healthy.count == HardwareValidation.Gate.allCases.count,
+               "the matrix evaluates every gate exactly once")
+        expect(healthy.allSatisfy { $0.verdict == .pass },
+               "a clean reference-machine snapshot passes every gate: "
+               + healthy.map { "\($0.gate.rawValue)=\($0.verdict.rawValue)" }.joined(separator: " "))
+
+        // Version pin: a mismatch is a failure, not a warning — a probe run
+        // against a binary the runbook was not written for measures nothing.
+        var wrongVersion = snapshot
+        wrongVersion.kextVersion = "3.34.16"
+        expect(gate(HardwareValidation.gates(wrongVersion), .kextVersion) == .fail,
+               "a kext revision other than the pinned one fails the identity gate")
+        var noVersion = snapshot
+        noVersion.kextVersion = ""
+        expect(gate(HardwareValidation.gates(noVersion), .kextVersion) == .unknown,
+               "an unreported kext version is unknown, never a pass")
+
+        var noPacket = snapshot
+        noPacket.hasTelemetryPacket = false
+        expect(gate(HardwareValidation.gates(noPacket), .kextTelemetry) == .fail,
+               "a missing selector-100 packet fails the telemetry gate")
+        var disconnected = snapshot
+        disconnected.kextConnected = false
+        expect(gate(HardwareValidation.gates(disconnected), .kextTelemetry) == .fail,
+               "a closed kext connection fails the telemetry gate")
+
+        var unchecked = snapshot
+        unchecked.privilegeChecked = false
+        unchecked.privilegeReported = false
+        expect(gate(HardwareValidation.gates(unchecked), .privilege) == .unknown,
+               "privilege stays UNKNOWN until the probe is actually run")
+        var denied = snapshot
+        denied.privilegeReported = false
+        denied.privilegeDenied = true
+        expect(gate(HardwareValidation.gates(denied), .privilege) == .fail,
+               "a refused privileged probe fails the gate — this is probe 2's perfect false positive")
+        var writeDenied = snapshot
+        writeDenied.privilegeReported = false
+        writeDenied.privilegeMessage = "Root privileges required"
+        expect(gate(HardwareValidation.gates(writeDenied), .privilege) == .fail,
+               "a denial recorded on any write path fails the gate")
+        expect(unchecked.privilegeMessage == nil,
+               "an untouched snapshot carries no fabricated denial message")
+
+        var onlyPump = snapshot
+        onlyPump.fans = [fan(5, "System 3 Fan", pump: true)]
+        expect(gate(HardwareValidation.gates(onlyPump), .fanTopology) == .fail,
+               "a channel set with no curve-safe member fails the topology gate")
+        var noFans = snapshot
+        noFans.fans = []
+        expect(gate(HardwareValidation.gates(noFans), .fanTopology) == .fail,
+               "an empty channel set fails the topology gate")
+
+        var frozenTach = snapshot
+        frozenTach.fans[5] = fan(5, "System 3 Fan", rpm: 40, rpmValid: false, pump: true)
+        expect(gate(HardwareValidation.gates(frozenTach), .tachValidity) == .fail,
+               "an untrusted channel fails the tachometer gate")
+        var allStopped = snapshot
+        allStopped.fans = snapshot.fans.map { fan($0.id, $0.name, rpm: 0, pump: $0.isPump) }
+        expect(gate(HardwareValidation.gates(allStopped), .tachValidity) == .unknown,
+               "an all-zero-RPM snapshot cannot demonstrate a live tachometer (UNKNOWN, not PASS)")
+
+        // MARK: Hardware validation — Super I/O family fingerprint
+
+        expect(HardwareValidation.superIOFamily(for: snapshot.fans)
+               == HardwareValidation.referenceSuperIOFamily,
+               "the reference machine's driver header names identify ITE")
+        expect(gate(healthy, .superIOFamily) == .pass,
+               "the reference Super I/O passes the family gate")
+        let nct668xFans = [fan(0, "CPU"), fan(1, "SYS_1"), fan(6, "Pump", pump: true)]
+        expect(HardwareValidation.superIOFamily(for: nct668xFans) == "Nuvoton NCT668X",
+               "NCT668X header names are recognised")
+        let nct67xxFans = [fan(0, "Pump", pump: true), fan(1, "CPU"), fan(2, "AUX_0")]
+        expect(HardwareValidation.superIOFamily(for: nct67xxFans) == "Nuvoton NCT67XX",
+               "NCT67XX header names are recognised")
+        expect(HardwareValidation.superIOFamily(for: [fan(0, "CPU"), fan(1, "Pump", pump: true)])
+               == "Nuvoton (unidentified)",
+               "labels shared by both NCT families identify a Nuvoton without picking one")
+        expect(HardwareValidation.superIOFamily(for: [fan(0, "Fan 1")]) == "unrecognized (Fan 1)",
+               "an unknown label set is reported, not guessed")
+        expect(HardwareValidation.superIOFamily(for: [fan(0, "")]).isEmpty,
+               "unnamed channels report no family at all")
+        expect(gate(HardwareValidation.gates({ var s = snapshot; s.fans = nct668xFans; return s }()),
+                    .superIOFamily) == .unknown,
+               "a non-reference family is UNKNOWN: the runbook's expected values are calibrated for ITE")
+
+        // The three label tables are transcribed from the drivers, so they are
+        // pinned against the drivers themselves. A renamed label in a header
+        // would otherwise turn the fingerprint into a guess.
+        func driverHeaderNames(_ path: String) -> [String] {
+            guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return [] }
+            var names: [String] = []
+            var collecting = false
+            for raw in text.split(separator: "\n") {
+                let line = String(raw)
+                if !collecting {
+                    if line.contains("kFAN_READABLE_STRS") && line.contains("{") { collecting = true }
+                    continue
+                }
+                if line.contains("};") { break }
+                guard let open = line.firstIndex(of: "\""),
+                      let close = line[line.index(after: open)...].firstIndex(of: "\"") else { continue }
+                names.append(String(line[line.index(after: open)..<close]))
+            }
+            return names
+        }
+
+        let superIODir = "SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/SuperIO/"
+        let iteNames = driverHeaderNames(superIODir + "ISSuperIOIT86XXEFamily.hpp")
+        let nct67xxNames = driverHeaderNames(superIODir + "ISSuperIONCT67XXFamily.hpp")
+        let nct668xNames = driverHeaderNames(superIODir + "ISSuperIONCT668X.hpp")
+        expect(iteNames == HardwareValidation.iteHeaderNames,
+               "ITE label table matches ISSuperIOIT86XXEFamily.hpp: got \(iteNames)")
+        expect(!iteNames.isEmpty && !nct67xxNames.isEmpty && !nct668xNames.isEmpty,
+               "all three Super I/O label tables were parsed from their headers")
+        expect(Set(HardwareValidation.nct67xxDistinctiveNames).isSubset(of: Set(nct67xxNames)),
+               "every NCT67XX distinctive label exists in ISSuperIONCT67XXFamily.hpp")
+        expect(Set(HardwareValidation.nct668xDistinctiveNames).isSubset(of: Set(nct668xNames)),
+               "every NCT668X distinctive label exists in ISSuperIONCT668X.hpp")
+        expect(Set(HardwareValidation.nctSharedNames).isSubset(of: Set(nct67xxNames))
+               && Set(HardwareValidation.nctSharedNames).isSubset(of: Set(nct668xNames)),
+               "the shared labels really are shared by both NCT families")
+        expect(Set(HardwareValidation.nct67xxDistinctiveNames)
+                .isDisjoint(with: Set(HardwareValidation.nct668xDistinctiveNames)),
+               "the two NCT distinctive sets are disjoint — the inference order cannot matter")
+        expect(Set(HardwareValidation.iteHeaderNames).isDisjoint(with: Set(HardwareValidation.nctSharedNames)),
+               "no ITE label doubles as a Nuvoton label")
+
+        // MARK: Hardware validation — version pin
+        //
+        // A version bump is this project's debugging tool: two builds sharing a
+        // number are indistinguishable in kextstat. The pin has to follow the
+        // single source of truth, or the checklist silently points backwards.
+
+        let xcconfigText = (try? String(contentsOfFile: "SMCAMDProcessor_Source/Config/Version.xcconfig",
+                                        encoding: .utf8)) ?? ""
+        expect(!xcconfigText.isEmpty, "Version.xcconfig is readable — the pin below depends on it")
+        var marketingVersion: String?
+        for raw in xcconfigText.split(separator: "\n") {
+            let line = String(raw).trimmingCharacters(in: .whitespaces)
+            guard line.hasPrefix("MARKETING_VERSION") else { continue }
+            marketingVersion = line.components(separatedBy: "=").last?
+                .trimmingCharacters(in: .whitespaces)
+        }
+        expect(marketingVersion != nil, "MARKETING_VERSION found in Version.xcconfig")
+        expect(marketingVersion == HardwareValidation.expectedKextVersion,
+               "expectedKextVersion (\(HardwareValidation.expectedKextVersion)) tracks the kext's own "
+               + "MARKETING_VERSION (\(marketingVersion ?? "nil"))")
+
+        let infoPlistText = (try? String(contentsOfFile: "Resources/Info.plist",
+                                        encoding: .utf8)) ?? ""
+        expect(infoPlistText.contains("<string>\(HardwareValidation.expectedAppVersion)</string>"),
+               "expectedAppVersion (\(HardwareValidation.expectedAppVersion)) matches Resources/Info.plist")
+
+        // MARK: Hardware validation — evidence report
+
+        snapshot.expectedKextVersion = HardwareValidation.expectedKextVersion
+        snapshot.curves = [HardwareValidation.CurveEvidence(name: "Silent", sourceSensor: "cpu",
+                                                            fanIds: [0, 1]),
+                           HardwareValidation.CurveEvidence(name: "GPU ramp", sourceSensor: "gpu",
+                                                            fanIds: [])]
+        snapshot.smuLines = ["smu firmware: 38.49.00", "oc: mode=1 freqSupported=1 allCores=4200 MHz"]
+        snapshot.pmTableLine = "0x380805 2288 B valid=1 age=480ms"
+        let reportDate = Date(timeIntervalSince1970: 1_760_000_000)
+        let report = HardwareValidation.report(snapshot,
+                                               samples: ["P2 t0 temp=48.5C pkg=37.2W f0=41/16.1%/1285v"],
+                                               now: reportDate)
+
+        expect(report.contains("RyzenStatus hardware validation — app"),
+               "the report identifies itself instead of pasting bare numbers")
+        expect(report.contains(HardwareValidation.expectedKextVersion)
+               && report.contains("expected \(HardwareValidation.expectedKextVersion)"),
+               "the report carries both the loaded and the expected kext revision")
+        expect(report.contains("preconditions:") && report.contains("fans:")
+               && report.contains("curves:") && report.contains("package:")
+               && report.contains("smu:") && report.contains("pm-table:")
+               && report.contains("samples (1):"),
+               "every evidence section is present")
+        for result in HardwareValidation.gates(snapshot) {
+            expect(report.contains(result.gate.rawValue),
+                   "the report names the \(result.gate.rawValue) gate")
+            expect(report.contains(result.detail),
+                   "the report carries the \(result.gate.rawValue) gate's measured detail")
+        }
+        expect(report.contains("fan5 System 3 Fan") && report.contains("pump=1"),
+               "the report marks the pump channel so a probe cannot be run on it by accident")
+        expect(report.contains("valid=1"), "channel validity is rendered explicitly")
+        expect(report.contains("floor=PWM\(AMDFanSafety.minimumManualPWM)")
+               && report.contains("guard=85.0 C/PWM\(AMDFanSafety.thermalGuardPWM)")
+               && report.contains("failsafe=PWM\(AMDFanSafety.failsafePWM)"),
+               "the report pins the three safety constants a probe is judged against")
+        expect(report.contains("\"Silent\" source=cpu fans=[0,1]"),
+               "a curve's fans are listed in order")
+        expect(report.contains("\"GPU ramp\" source=gpu unmapped"),
+               "an unmapped curve says so rather than showing an empty list")
+        expect(report.contains("0x380805 2288 B"), "the PM-table line rides along verbatim")
+        expect(report.contains("P2 t0 temp=48.5C"), "recorded samples ride along verbatim")
+
+        let emptyReport = HardwareValidation.report(HardwareValidation.Snapshot(), samples: [], now: reportDate)
+        expect(emptyReport.contains("(no channels reported)")
+               && emptyReport.contains("(no curves configured)")
+               && emptyReport.contains("(none recorded)")
+               && emptyReport.contains("(no SMU state available)")
+               && emptyReport.contains("not available"),
+               "an empty snapshot renders as explicit absences, never as blank sections")
+        expect(emptyReport.contains("kext not connected (expected \(HardwareValidation.expectedKextVersion))"),
+               "a missing connection is stated, not rendered as an empty version")
+
+        let timestamp = HardwareValidation.timestamp(reportDate)
+        expect(timestamp.count == 23 && timestamp[timestamp.index(timestamp.startIndex, offsetBy: 10)] == " ",
+               "timestamps use one fixed, locale-independent format: \(timestamp)")
+
+        let sampleLine = HardwareValidation.sampleLine(probe: .pwmFloor,
+                                                       at: reportDate,
+                                                       packageTempC: 48.5,
+                                                       packagePowerW: 37.2,
+                                                       fans: [fan(0, "CPU Fan", rpm: 1285, throttle: 41),
+                                                              fan(5, "System 3 Fan", rpm: 40,
+                                                                   rpmValid: false, pump: true)])
+        expect(sampleLine.hasPrefix("P2 " + timestamp),
+               "a sample line leads with its probe and a fixed timestamp: \(sampleLine)")
+        expect(sampleLine.contains("temp=48.5C pkg=37.2W"), "a sample line carries the package reading")
+        expect(sampleLine.contains("f0=41/16.1%/1285v"), "a sample line carries duty, percent and RPM")
+        expect(sampleLine.contains("f5=") && sampleLine.contains("40v!"),
+               "an untrusted channel is marked in the sample, not silently trusted")
+
+        // MARK: Hardware validation — strings
+
+        for lang in AppLanguage.allCases {
+            let v = ValidationFeatureStrings.current(lang)
+            let keys: [(String, String)] = [
+                ("sidebarTitle", v.sidebarTitle), ("header", v.header), ("footer", v.footer),
+                ("gatesHeader", v.gatesHeader),
+                ("gateKextVersion", v.gateKextVersion), ("gateKextTelemetry", v.gateKextTelemetry),
+                ("gatePrivilege", v.gatePrivilege), ("gateFanTopology", v.gateFanTopology),
+                ("gateTachValidity", v.gateTachValidity), ("gateSuperIOFamily", v.gateSuperIOFamily),
+                ("verdictPass", v.verdictPass), ("verdictFail", v.verdictFail),
+                ("verdictUnknown", v.verdictUnknown),
+                ("hintKextVersion", v.hintKextVersion), ("hintKextTelemetry", v.hintKextTelemetry),
+                ("hintPrivilege", v.hintPrivilege), ("hintFanTopology", v.hintFanTopology),
+                ("hintTachValidity", v.hintTachValidity), ("hintSuperIOFamily", v.hintSuperIOFamily),
+                ("checkButton", v.checkButton), ("checkHint", v.checkHint),
+                ("probesHeader", v.probesHeader), ("probesFooter", v.probesFooter),
+                ("statusPending", v.statusPending), ("statusPass", v.statusPass),
+                ("statusFail", v.statusFail),
+                ("probeIdentity", v.probeIdentity), ("probeDeadMan", v.probeDeadMan),
+                ("probePwmFloor", v.probePwmFloor), ("probeThermalGuard", v.probeThermalGuard),
+                ("probeSmuControls", v.probeSmuControls), ("probeTelemetry", v.probeTelemetry),
+                ("probeSurfaces", v.probeSurfaces),
+                ("samplesHeader", v.samplesHeader), ("samplesEmpty", v.samplesEmpty),
+                ("sampleButton", v.sampleButton), ("clearButton", v.clearButton),
+                ("reportHeader", v.reportHeader), ("copyButton", v.copyButton),
+                ("capturedFormat", v.capturedFormat),
+            ]
+            for (key, value) in keys {
+                expect(!value.isEmpty, "Language \(lang.rawValue) validation.\(key) must not be empty")
+            }
+            // These four are status tokens rendered inside the ASCII artifact and
+            // the gate matrix, where a translated token would make two runs
+            // incomparable — the English spelling is the contract.
+            expect(v.verdictPass == "PASS" && v.verdictFail == "FAIL" && v.verdictUnknown == "UNKNOWN",
+                   "Language \(lang.rawValue) keeps the PASS/FAIL/UNKNOWN tokens untranslated")
+            expect(formatSpecifiers(in: v.capturedFormat) == ["@"],
+                   "Language \(lang.rawValue) capturedFormat keeps exactly 1 %@ specifier")
+        }
+        expect(ValidationFeatureStrings.current(.zhHK).sidebarTitle
+               == ValidationFeatureStrings.current(.zhTW).sidebarTitle,
+               "zh-HK reuses the zh-TW table, as every other feature does")
+
+        // MARK: Hardware validation — the detector is actually wired
+        //
+        // AMDFanSafety.isTachometerStale shipped tested but unwired. A pure
+        // helper nobody calls is dead "safety" code, which is the most
+        // dangerous smell this codebase has an audit finding for, so the
+        // wiring itself is pinned here.
+
+        let controllerSource = (try? String(contentsOfFile:
+            "Sources/RyzenStatus/Services/AMD/FanCurveController.swift", encoding: .utf8)) ?? ""
+        expect(!controllerSource.isEmpty, "FanCurveController.swift is readable")
+        expect(controllerSource.contains("AMDFanSafety.isTachometerStale(samples: window)"),
+               "the frozen-tachometer detector is called from the poll path")
+        expect(controllerSource.contains("snap.rpmValid && !frozen"),
+               "a frozen channel removes trust from the fan row instead of showing a plausible RPM")
+        expect(!controllerSource.contains("snap.rpmValid || "),
+               "the detector must never GRANT trust to an invalid reading")
+        expect(controllerSource.contains("self.rpmWindows.removeAll()"),
+               "RPM windows are reset when the channel set is rebuilt")
+
         // MARK: Result
 
         if failures.isEmpty {

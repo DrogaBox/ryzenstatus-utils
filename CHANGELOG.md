@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.36.0] — 2026-09-15 — kexts 3.34.17 (Sin cambios en kexts / No kext changes)
+
+Superficie de evidencia para cerrar los probes pendientes en hardware, y cableado del detector de tacómetro congelado.
+
+> **Nota sobre Kexts**: Esta versión no introduce modificaciones en `AMDRyzenCPUPowerManagement.kext` ni en `SMCAMDProcessor.kext` (permanecen en 3.34.17). Todo el ciclo de validación que habilita esta versión se corre con los selectores que ya existen, así que **no invalida el artefacto empaquetado ni obliga a revalidar el DMG**.
+
+### Added
+
+- **Página "Validación de hardware" en Ajustes** (`checkmark.seal`): el cuello de botella de las filas `[REQUIERE-HW]` no era falta de código, era que la evidencia no tenía dónde vivir. El log del kernel no es legible para las herramientas del repo (`log show` está sandboxeado) y `--sensors`/`--selftest` no se pueden usar durante un probe: cada uno abre y cierra un cliente del kext, y `clientClose()` devuelve **los seis** ventiladores a BIOS, reseteando en silencio el estado que se está midiendo. La app pasa a ser la superficie de evidencia.
+- **Matriz de precondiciones con veredicto PASS/FAIL/UNKNOWN**, cada una con su hint de arreglo y su razón técnica documentada: revisión del kext contra el pin (3.34.17), telemetría del selector 100, acceso privilegiado, canales de ventilador con el de bomba identificado, confianza de tacómetros por canal, y familia de Super I/O. El botón *Comprobar precondiciones* resuelve la compuerta de privilegio corriendo el selector 58 (privilegiado, solo lectura: no escribe ventilador, voltaje ni límite). Dos falsos positivos documentados quedan ahora explícitos en la UI como compuertas: sin privilegio la BIOS ronda el 15 % —idéntico al piso que el probe 2 quiere demostrar—, y un tacómetro congelado hace parecer calado un ventilador sano.
+- **Lista de probes P0–P6 con estado persistido y muestras registrables**: un ciclo de validación que abarca reinicios conserva su historial. *Registrar muestra* guarda una línea por muestreo (temperatura y potencia del paquete del kext + duty %, RPM y validez de tacómetro por canal), acotada a 400 líneas descartando las más viejas — la evidencia más nueva es la que se juzga.
+- **Informe de validación ASCII copiable**, con precondiciones, canales (modo, duty real del chip, RPM, validez, marca de bomba), curvas con su sensor fuente y sus ventiladores, la lectura del paquete y los tres constantes de seguridad a los que se juzga un probe (`floor=PWM40`, `guard=85 °C/PWM200`, `failsafe=PWM160`). Un artesano sin localizar a propósito: dos corridas tienen que ser comparables. El mismo bloque viaja dentro del bundle de diagnóstico SMU, así un informe de bug y un veredicto de probe no pueden discrepar.
+- **`HARDWARE_VALIDATION.md`** (documento de trabajo local, gitignoreado): runbook con los siete probes en orden, criterio de PASS por probe, falsos positivos conocidos y el formato de cierre de cada fila del roadmap.
+
+### Fixed
+
+- **El detector de tacómetro congelado ahora está cableado.** `AMDFanSafety.isTachometerStale` se shipeó en 1.34.0 probado y **sin un solo llamador** — un mecanismo de seguridad inerte, exactamente el patrón que la auditoría marca como el más peligroso porque *parece* un fix. `FanCurveController` mantiene ahora una ventana de RPM por canal y marca `rpmValid = false` cuando ocho muestras consecutivas no nulas son idénticas (un cabezal desconectado, o un canal que lee residuo eléctrico, reporta el mismo valor plausible para siempre y toda heurística basada en RPM lo lee como un rotor sano — incluido el piso de arranque del kernel, que entonces se niega a socorrer a un ventilador realmente calado). El detector **solo quita** confianza, nunca la otorga: la fila pasa a mostrar `— RPM` en lugar de un número que no puede ser cierto. Las ventanas se resetean cuando se reconstruye la lista de canales.
+
+### Tests
+
+- Suite de **6274 → 6982 checks OK**. Nuevos: tope y descarte por antigüedad del registro de probes (un blob ausente, truncado o ajeno decodifica a un registro vacío en vez de perder la página), matriz de compuertas (un canal solo-bomba falla topología; un tacómetro no confiable falla validez; todos los canales en 0 RPM es UNKNOWN, nunca PASS; una versión de kext distinta del pin falla identidad), inferencia de familia de Super I/O, formato y secciones del informe, formato fijo del timestamp y de las líneas de muestra, contratos de string ×13 locales con los tokens `PASS`/`FAIL`/`UNKNOWN` sin traducir, y pins de fuente que atan las tres tablas de nombres a los `kFAN_READABLE_STRS` reales de los drivers, `expectedKextVersion` a `Version.xcconfig` y `expectedAppVersion` a `Resources/Info.plist`. El cableado del detector también queda pinneado por test de fuente: un helper puro sin llamador vuelve a romper la suite.
+
 ## [1.35.0] — 2026-09-14 — kexts 3.34.17 (Sin cambios en kexts / No kext changes)
 
 Separación modular de Overclocking/PBO en Ajustes, deduplicación de telemetría en el Dashboard, clarificación de frecuencia efectiva/núcleos aparcados y saneamiento de sensores.
