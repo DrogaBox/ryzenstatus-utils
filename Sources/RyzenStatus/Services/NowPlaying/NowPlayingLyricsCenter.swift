@@ -320,39 +320,3 @@ final class NowPlayingLyricsCenter: ObservableObject {
         }
     }
 }
-
-/// The provider-aware search lane: the query goes to the app owning the
-/// current session, falling back to the preferred-provider setting. Music
-/// searches and plays the library via AppleScript (PlayStatus's behavior),
-/// Spotify opens its in-app search through the spotify: URL scheme.
-enum NowPlayingSearch {
-    /// Which provider the lane targets for the current session.
-    static func resolvedProvider(snapshot: NowPlayingSnapshot) -> NowPlayingProvider {
-        if snapshot.appBundleID == NowPlayingAutomation.spotifyBundleID { return .spotify }
-        if snapshot.appBundleID == NowPlayingAutomation.musicBundleID { return .music }
-        let preferred = NowPlayingProvider(rawValue: UserDefaults.standard
-            .integer(forKey: DefaultsKey.nowPlayingPreferredProvider)) ?? .auto
-        return preferred == .spotify ? .spotify : .music
-    }
-
-    static func run(query: String, provider: NowPlayingProvider) {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        switch provider {
-        case .music, .auto:
-            NowPlayingAutomation.searchMusicLibrary(query: trimmed)
-        case .spotify:
-            openSpotifySearch(query: trimmed)
-        }
-    }
-
-    private static func openSpotifySearch(query: String) {
-        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
-        if let appURL = URL(string: "spotify:search:\(encoded)"),
-           NSWorkspace.shared.open(appURL) {
-            return
-        }
-        guard let webURL = URL(string: "https://open.spotify.com/search/\(encoded)") else { return }
-        NSWorkspace.shared.open(webURL)
-    }
-}

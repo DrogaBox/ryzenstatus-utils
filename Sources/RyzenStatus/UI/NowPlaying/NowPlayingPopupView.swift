@@ -1004,9 +1004,19 @@ private struct NowPlayingDetailsPane: View {
     // MARK: - Search lane
 
     private var searchLane: some View {
-        let isSpotify = searchProvider == .spotify
-        let placeholder = isSpotify ? strings.searchSpotifyPlaceholder : strings.searchMusicPlaceholder
-        let actionTitle = isSpotify ? strings.searchOpenAction : strings.searchPlayAction
+        let placeholder: String
+        let actionTitle: String
+        switch searchProvider {
+        case .spotify:
+            placeholder = strings.searchSpotifyPlaceholder
+            actionTitle = strings.searchOpenAction
+        case .kaset:
+            placeholder = strings.searchKasetPlaceholder
+            actionTitle = strings.searchOpenAction
+        case .music, .auto:
+            placeholder = strings.searchMusicPlaceholder
+            actionTitle = strings.searchPlayAction
+        }
         let hasQuery = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         return HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")

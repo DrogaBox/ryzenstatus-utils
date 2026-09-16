@@ -95,14 +95,26 @@ final class NowPlayingService: ObservableObject {
         let provider = NowPlayingProvider(rawValue: UserDefaults.standard
             .integer(forKey: DefaultsKey.nowPlayingPreferredProvider)) ?? .auto
         if MediaRemoteBridge.readsBlockedBySystem {
-            if provider == .auto || provider == .music {
+            if (provider == .auto || provider == .music),
+               NSWorkspace.shared.urlForApplication(withBundleIdentifier: NowPlayingAutomation.musicBundleID) != nil {
                 MediaRemoteBridge.triggerTCCPrompt(for: NowPlayingAutomation.musicBundleID)
             }
-            if provider == .auto || provider == .spotify {
+            if (provider == .auto || provider == .spotify),
+               NSWorkspace.shared.urlForApplication(withBundleIdentifier: NowPlayingAutomation.spotifyBundleID) != nil {
                 MediaRemoteBridge.triggerTCCPrompt(for: NowPlayingAutomation.spotifyBundleID)
             }
+            if provider == .auto || provider == .kaset {
+                let kasetID = NSWorkspace.shared.urlForApplication(withBundleIdentifier: NowPlayingAutomation.kasetBundleID) != nil
+                    ? NowPlayingAutomation.kasetBundleID
+                    : (NSWorkspace.shared.urlForApplication(withBundleIdentifier: NowPlayingAutomation.kasetBundleIDLower) != nil ? NowPlayingAutomation.kasetBundleIDLower : nil)
+                if let kasetID {
+                    MediaRemoteBridge.triggerTCCPrompt(for: kasetID)
+                }
+            }
         } else {
-            MediaRemoteBridge.triggerTCCPrompt(for: NowPlayingAutomation.musicBundleID)
+            if NSWorkspace.shared.urlForApplication(withBundleIdentifier: NowPlayingAutomation.musicBundleID) != nil {
+                MediaRemoteBridge.triggerTCCPrompt(for: NowPlayingAutomation.musicBundleID)
+            }
         }
         installStatusItem()
         syncShortcuts()
@@ -196,7 +208,8 @@ final class NowPlayingService: ObservableObject {
                 // MediaRemote never reports shuffle/repeat; the scriptable
                 // providers answer for themselves on the same queue.
                 if bundleID == NowPlayingAutomation.musicBundleID
-                    || bundleID == NowPlayingAutomation.spotifyBundleID,
+                    || bundleID == NowPlayingAutomation.spotifyBundleID
+                    || NowPlayingAutomation.isKaset(bundleID),
                    let modes = NowPlayingAutomation.fetchPlaybackModes(bundleID: bundleID) {
                     next.isShuffleEnabled = modes.shuffle
                     next.repeatMode = modes.repeatMode
@@ -253,7 +266,7 @@ final class NowPlayingService: ObservableObject {
 
     func togglePlayPause() {
         let bundleID = snapshot.appBundleID
-        if bundleID == NowPlayingAutomation.spotifyBundleID || bundleID == NowPlayingAutomation.musicBundleID {
+        if bundleID == NowPlayingAutomation.spotifyBundleID || bundleID == NowPlayingAutomation.musicBundleID || NowPlayingAutomation.isKaset(bundleID) {
             NowPlayingAutomation.togglePlayPause(bundleID: bundleID)
         } else if MediaRemoteBridge.sendCommand != nil {
             MediaRemoteBridge.send(.togglePlayPause)
@@ -267,7 +280,7 @@ final class NowPlayingService: ObservableObject {
 
     func nextTrack() {
         let bundleID = snapshot.appBundleID
-        if bundleID == NowPlayingAutomation.spotifyBundleID || bundleID == NowPlayingAutomation.musicBundleID {
+        if bundleID == NowPlayingAutomation.spotifyBundleID || bundleID == NowPlayingAutomation.musicBundleID || NowPlayingAutomation.isKaset(bundleID) {
             NowPlayingAutomation.nextTrack(bundleID: bundleID)
         } else if MediaRemoteBridge.sendCommand != nil {
             MediaRemoteBridge.send(.nextTrack)
@@ -281,7 +294,7 @@ final class NowPlayingService: ObservableObject {
 
     func previousTrack() {
         let bundleID = snapshot.appBundleID
-        if bundleID == NowPlayingAutomation.spotifyBundleID || bundleID == NowPlayingAutomation.musicBundleID {
+        if bundleID == NowPlayingAutomation.spotifyBundleID || bundleID == NowPlayingAutomation.musicBundleID || NowPlayingAutomation.isKaset(bundleID) {
             NowPlayingAutomation.previousTrack(bundleID: bundleID)
         } else if MediaRemoteBridge.sendCommand != nil {
             MediaRemoteBridge.send(.previousTrack)
@@ -295,7 +308,7 @@ final class NowPlayingService: ObservableObject {
 
     func seek(to seconds: TimeInterval) {
         let bundleID = snapshot.appBundleID
-        if bundleID == NowPlayingAutomation.spotifyBundleID || bundleID == NowPlayingAutomation.musicBundleID {
+        if bundleID == NowPlayingAutomation.spotifyBundleID || bundleID == NowPlayingAutomation.musicBundleID || NowPlayingAutomation.isKaset(bundleID) {
             NowPlayingAutomation.seek(to: seconds, bundleID: bundleID)
         } else {
             MediaRemoteBridge.seek(to: seconds)
@@ -329,6 +342,7 @@ final class NowPlayingService: ObservableObject {
     var supportsPlaybackModes: Bool {
         snapshot.appBundleID == NowPlayingAutomation.musicBundleID
             || snapshot.appBundleID == NowPlayingAutomation.spotifyBundleID
+            || NowPlayingAutomation.isKaset(snapshot.appBundleID)
     }
 
     /// Toggles shuffle through the provider's AppleScript, flipping the
