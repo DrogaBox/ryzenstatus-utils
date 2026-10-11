@@ -21,6 +21,7 @@ struct DiskIOCounters: Equatable {
 /// Everything here depends only on Foundation — no IOKit, no AppKit, no UI — so
 /// it compiles and runs standalone in the unit-test target (`./build.sh --test`).
 enum MetricFormat {
+    static var locale: Locale = .current
     // MARK: Memory
 
     /// Matches Activity Monitor's "Memory Used": physical RAM minus pages that
@@ -178,6 +179,57 @@ enum MetricFormat {
             return String(format: "%.1f%@", rounded, units[index])
         }
         return "\(Int(value.rounded()))\(units[index])"
+    }
+
+    static var networkSpeedInBits: Bool {
+        UserDefaults.standard.string(forKey: DefaultsKey.networkSpeedUnit) == NetworkSpeedUnit.bits.rawValue
+    }
+
+    /// A network speed in the chosen unit. Used in the panel.
+    static func networkRate(_ bytesPerSecond: Double, inBits: Bool = networkSpeedInBits) -> String {
+        inBits ? bitsPerSec(bytesPerSecond) : bytesPerSec(bytesPerSecond)
+    }
+
+    /// A compact network speed in the chosen unit, for the menu bar and lists.
+    static func networkRateCompact(_ bytesPerSecond: Double, inBits: Bool = networkSpeedInBits) -> String {
+        inBits ? bitsPerSecCompact(bytesPerSecond) : bytesPerSecCompact(bytesPerSecond)
+    }
+
+    /// A network bit rate, e.g. "12 Mbps". Takes bytes per second and uses
+    /// decimal (1000) steps. Used in the panel.
+    static func bitsPerSec(_ bytesPerSecond: Double) -> String {
+        let units = ["bps", "Kbps", "Mbps", "Gbps", "Tbps", "Pbps"]
+        var value = bytesPerSecond.isFinite ? max(0, bytesPerSecond) * 8 : 0
+        var index = 0
+        while index < units.count - 1, value.rounded() >= 1000 {
+            value /= 1000
+            index += 1
+        }
+        if index == 0 {
+            return String(format: "%.0f %@", locale: Self.locale, value, units[index])
+        }
+        return value < 10 ? String(format: "%.1f %@", locale: Self.locale, value, units[index])
+            : String(format: "%.0f %@", locale: Self.locale, value, units[index])
+    }
+
+    /// A compact network bit rate for the menu bar, e.g. "9.6Mb", "320Kb",
+    /// "0b". Takes bytes per second and uses decimal (1000) steps, matching
+    /// how link speeds are quoted. Never wider than "999Kb".
+    static func bitsPerSecCompact(_ bytesPerSecond: Double) -> String {
+        let units = ["b", "Kb", "Mb", "Gb", "Tb", "Pb"]
+        var value = bytesPerSecond.isFinite ? max(0, bytesPerSecond) * 8 : 0
+        var index = 0
+        while index < units.count - 1 {
+            let shown = value < 10 && index > 0 ? (value * 10).rounded() / 10 : value.rounded()
+            guard shown >= 1000 else { break }
+            value /= 1000
+            index += 1
+        }
+        if index == 0 {
+            return "\(Int(value.rounded()))b"
+        }
+        return value < 10 ? String(format: "%.1f%@", locale: Self.locale, value, units[index])
+            : "\(Int(value.rounded()))\(units[index])"
     }
 
     // MARK: Watts & percentages
@@ -338,4 +390,13 @@ struct MetricHistory {
             count += 1
         }
     }
+}
+
+/// How live network speeds read: bytes ("1.5 MB/s"), the default, or bits
+/// ("12 Mbps"), the way connection speeds are usually quoted.
+enum NetworkSpeedUnit: String, CaseIterable, Identifiable {
+    case bytes
+    case bits
+
+    var id: String { rawValue }
 }

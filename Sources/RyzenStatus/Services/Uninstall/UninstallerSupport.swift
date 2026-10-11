@@ -17,6 +17,15 @@ enum UninstallerSupport {
         let inode: UInt64
     }
 
+    /// An app the uninstaller has agreed to take: its verified bundle
+    /// identifier, standardized path, and identities rechecked before removal.
+    struct Selection {
+        let bundleID: String
+        let url: URL
+        let identity: FileIdentity
+        let infoIdentity: FileIdentity
+    }
+
     /// Tokens that identify one selected app. Bundle identifiers stay exact;
     /// display names are compared after stripping punctuation so "App Name"
     /// and "AppName.plist" can meet without turning the name into a path.
@@ -69,11 +78,37 @@ enum UninstallerSupport {
         let requiresSignedGroup: Bool
     }
 
+    /// Cancellation shared between the UI thread and one background scan.
+    final class ScanCancellation {
+        private let lock = NSLock()
+        private var cancelled = false
+
+        var isCancelled: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return cancelled
+        }
+
+        func cancel() {
+            lock.lock()
+            cancelled = true
+            lock.unlock()
+        }
+    }
+
     /// The symbol a finished removal shows. A tick is for a removal that took
     /// everything; anything left behind gets a warning, so a done state cannot
     /// report success over its own survivors.
     static func doneSymbol(hasLeftovers: Bool) -> String {
         hasLeftovers ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+    }
+
+    /// Only these sandboxed locations are likely to succeed after Full Disk
+    /// Access is granted; other failures have a different cause.
+    static func failureNeedsFullDiskAccess(paths: [String]) -> Bool {
+        let protected = ["/Library/Containers/", "/Library/Group Containers/",
+                         "/Library/Application Scripts/"]
+        return paths.contains { path in protected.contains { path.contains($0) } }
     }
 
     static func verifiedBundleID(_ rawValue: String?) -> String? {
@@ -83,10 +118,52 @@ enum UninstallerSupport {
         return rawValue
     }
 
+    /// The one answer for "will the uninstaller take this app": the picker
+    /// offers only what this accepts, and a drop of anything else is refused.
+    static func selection(for appURL: URL) -> Selection? {
+        // Browser links are not bundles on disk and must be refused before
+        // loading one; system apps are SIP-protected and their support data is
+        // live OS state, so removing either would be wrong.
+        guard appURL.isFileURL,
+              let bundle = Bundle(url: appURL),
+              !InstalledApps.isSystemApplication(at: appURL),
+              let bundleID = verifiedBundleID(bundle.bundleIdentifier) else { return nil }
+        let selectedURL = appURL.standardizedFileURL
+        guard selectedURL == selectedURL.resolvingSymlinksInPath(),
+              selectedURL != Bundle.main.bundleURL.standardizedFileURL,
+              !isSymbolicLink(appURL),
+              let selectedIdentity = fileIdentity(at: selectedURL) else { return nil }
+        let infoURL = selectedURL.appendingPathComponent("Contents/Info.plist")
+        guard let selectedInfoIdentity = fileIdentity(at: infoURL),
+              removalPathIsSafe(infoURL, within: selectedURL) else { return nil }
+        return Selection(bundleID: bundleID, url: selectedURL,
+                         identity: selectedIdentity, infoIdentity: selectedInfoIdentity)
+    }
+
+    /// What the pickers list. An app that `selection(for:)` would refuse is
+    /// left out rather than offered and then silently turned down.
+    static func offeredApplications() -> [InstalledApps.InstalledApp] {
+        InstalledApps.installedApplications().filter { selection(for: $0.url) != nil }
+    }
+
+    /// The listed apps the same check accepts, for a list built on the main
+    /// thread. Each check reads the disk, so it runs once with the background
+    /// scan that found the apps.
+    static func acceptedApplicationIDs(_ apps: [InstalledApps.InstalledApp]) -> Set<String> {
+        Set(apps.lazy.filter { !$0.isSystem && selection(for: $0.url) != nil }.map(\.id))
+    }
+
     static func fileIdentity(at url: URL) -> FileIdentity? {
         var info = stat()
         guard lstat(url.path, &info) == 0 else { return nil }
         return FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino))
+    }
+
+    /// lstat distinguishes confirmed absence from unreadable paths and dangling symlinks.
+    static func isConfirmedAbsent(at url: URL) -> Bool {
+        var info = stat()
+        guard lstat(url.path, &info) != 0 else { return false }
+        return errno == ENOENT
     }
 
     /// A removal path must still exist below the root that produced it and no
@@ -125,16 +202,16 @@ enum UninstallerSupport {
     static func sharedDataIsExclusive(selectedURL: URL,
                                       bundleID: String,
                                       knownApplications: [(url: URL, bundleID: String)]) -> Bool {
-        let selectedPath = selectedURL.standardizedFileURL.path
-        let conflicts = knownApplications.filter { app in
-            app.bundleID.caseInsensitiveCompare(bundleID) == .orderedSame
-                && app.url.standardizedFileURL.path != selectedPath
-                && !isNestedBundle(app.url, in: selectedURL)
+        let selectedPath = selectedURL.resolvingSymlinksInPath().standardizedFileURL.path
+        return !knownApplications.contains { application in
+            let applicationPath = application.url.resolvingSymlinksInPath().standardizedFileURL.path
+            return application.bundleID.caseInsensitiveCompare(bundleID) == .orderedSame
+                && applicationPath != selectedPath
+                && !applicationPath.hasPrefix(selectedPath + "/")
         }
-        return conflicts.isEmpty
     }
 
-    static func exclusiveBundleIDs(candidates: Set<String>,
+    static func exclusiveBundleIDs(_ candidates: Set<String>,
                                    selectedURL: URL,
                                    knownApplications: [(url: URL, bundleID: String)]) -> Set<String> {
         Set(candidates.filter {
@@ -206,9 +283,6 @@ enum UninstallerSupport {
     }
 
 
-    private static let crashDumpDateRegex1 = try? NSRegularExpression(pattern: "_\\d{4}-\\d{2}-\\d{2}")
-    private static let crashDumpDateRegex2 = try? NSRegularExpression(pattern: "-\\d{4}-\\d{2}-\\d{2}")
-
     static func leftoverMatch(_ rawName: String,
                               identity: Identity,
                               crashReporter: Bool = false) -> LeftoverMatch {
@@ -255,9 +329,8 @@ enum UninstallerSupport {
         // Crash dumps are handled only in crash-reporter folders, by prefix.
         let looksLikeIdentifier = CleanerSupport.looksLikeBundleID(stripped)
             || CleanerSupport.looksLikeBundleID(rawName)
-        let rawNameRange = NSRange(location: 0, length: rawName.utf16.count)
-        let looksLikeCrashDump = (crashDumpDateRegex1?.firstMatch(in: rawName, range: rawNameRange) != nil)
-            || (crashDumpDateRegex2?.firstMatch(in: rawName, range: rawNameRange) != nil)
+        let looksLikeCrashDump = rawName.range(of: #"_\d{4}-\d{2}-\d{2}"#, options: .regularExpression) != nil
+            || rawName.range(of: #"-\d{4}-\d{2}-\d{2}"#, options: .regularExpression) != nil
         if !looksLikeIdentifier, !looksLikeCrashDump {
             for token in identity.nameTokens where token.count >= 5 {
                 if normalizedStripped.hasPrefix(token) || normalizedRaw.hasPrefix(token) {
@@ -457,8 +530,12 @@ enum UninstallerSupport {
     /// Spotlight spans the whole Library and must preserve the stricter rules
     /// used by direct scans for shared containers and privileged locations.
     static func spotlightIdentity(for path: String, identity: Identity) -> Identity {
+        if path.contains("/Group Containers/") {
+            return Identity(bundleIDs: [], nameTokens: [], teamIDs: [],
+                            groupIDs: identity.groupIDs)
+        }
         let technicalSegments = [
-            "/Group Containers/", "/Application Scripts/", "/LaunchAgents/",
+            "/Containers/", "/Application Scripts/", "/LaunchAgents/",
             "/LaunchDaemons/", "/HTTPStorages/", "/WebKit/",
             "/SyncedPreferences/", "/Preferences/ByHost/",
             "/PrivilegedHelperTools/", "/Extensions/", "/StartupItems/",
@@ -470,8 +547,14 @@ enum UninstallerSupport {
     }
 
 
-    private static let trailingVersionRegex = try? NSRegularExpression(
-        pattern: "\\s+(?:\\d+(\\.\\d+)*|nightly|beta|alpha|dev|canary|preview|insider|stable|release|rc|lts|developer edition|technology preview)\\s*$",
+    /// The version words an app puts after its name. Kept in one place so the
+    /// pattern below cannot drift from the list.
+    private static let trailingVersionSuffixes = #"\d+(\.\d+)*|nightly|beta|alpha|dev|canary|preview|insider|stable|release|rc|lts|developer edition|technology preview"#
+
+    /// Compiled once: the pattern is fixed, and every name in a scan runs
+    /// through it.
+    private static let trailingVersionRegex: NSRegularExpression? = try? NSRegularExpression(
+        pattern: "\\s+(?:\(trailingVersionSuffixes))\\s*$",
         options: [.caseInsensitive]
     )
 

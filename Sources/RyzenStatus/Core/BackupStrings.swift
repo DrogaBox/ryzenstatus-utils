@@ -34,6 +34,8 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -195,5 +197,29 @@ extension BackupFeatureStrings {
         importConfirmBody: "目前設定將被檔案中的設定取代,App 會重新啟動。這台 Mac 上的其他內容不受影響。",
         importAction: "匯入並重新啟動",
         invalidFile: "此檔案不是有效嘅 RyzenStatus 備份。"
+    )
+
+    static let sk = BackupFeatureStrings(
+        title: "Záloha",
+        description: "Preneste svoje nastavenie na iný Mac: exportujte všetky predvoľby do súboru a tam ich importujte. Súbor obsahuje aj text z vašich poznámok v Poznámkovom bloku. História schránky, položky na Polici a systémové povolenia nikdy neopustia tento Mac.",
+        exportButton: "Exportovať nastavenia…",
+        importButton: "Importovať nastavenia…",
+        exported: "Záloha uložená",
+        importConfirmTitle: "Importovať tieto nastavenia?",
+        importConfirmBody: "Vaše aktuálne nastavenia sa nahradia nastaveniami zo súboru a aplikácia sa reštartuje. Nič iné na tomto Macu sa nezmení.",
+        importAction: "Importovať a reštartovať",
+        invalidFile: "Tento súbor nie je platná záloha RyzenStatusu."
+    )
+
+    static let uk = BackupFeatureStrings(
+        title: "Резервна копія",
+        description: "Перенесіть свої налаштування на інший Mac: експортуйте всі параметри у файл та імпортуйте їх там. Файл містить і текст ваших нотаток із Нотатника. Історія буфера обміну, елементи Полиці та системні дозволи ніколи не залишають цей Mac.",
+        exportButton: "Експортувати налаштування…",
+        importButton: "Імпортувати налаштування…",
+        exported: "Резервну копію збережено",
+        importConfirmTitle: "Імпортувати ці налаштування?",
+        importConfirmBody: "Ваші поточні налаштування буде замінено налаштуваннями з файлу, і програма перезапуститься. Більше нічого на цьому Mac не змінюється.",
+        importAction: "Імпортувати й перезапустити",
+        invalidFile: "Цей файл не є дійсною резервною копією RyzenStatus."
     )
 }

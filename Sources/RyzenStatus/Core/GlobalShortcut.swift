@@ -143,6 +143,16 @@ struct GlobalShortcut: Equatable, Hashable {
         kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
     ] as [Int]).map(Int64.init))
 
+    /// Function-row keys are safe without modifiers: unlike a bare letter,
+    /// taking one never makes ordinary typing impossible. This also lets F2
+    /// serve as Finder's familiar Rename key.
+    private static let standaloneFunctionKeys: Set<Int64> = Set(([
+        kVK_F1, kVK_F2, kVK_F3, kVK_F4, kVK_F5, kVK_F6, kVK_F7, kVK_F8, kVK_F9, kVK_F10,
+        kVK_F11, kVK_F12, kVK_F13, kVK_F14, kVK_F15, kVK_F16, kVK_F17, kVK_F18, kVK_F19, kVK_F20,
+    ] as [Int]).map(Int64.init))
+
+    static let finderRenameDefault = GlobalShortcut(keyCode: Int64(kVK_F2), modifiers: [])
+
     static let keepAwakeDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_K),
                                                  modifiers: [.control, .option, .command])
     static let shelfDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_D),
@@ -212,6 +222,9 @@ struct GlobalShortcut: Equatable, Hashable {
                                                           modifiers: [.control, .option, .command])
     static let screenshotLastCaptureDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_E),
                                                            modifiers: [.control, .option, .command])
+    // H opens capture history, on the same free control-option-command layer.
+    static let recentCapturesDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_H),
+                                                      modifiers: [.control, .option, .command])
     // P opens a copied image in the editor, beside the other screenshot tools.
     static let screenshotClipboardDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_P),
                                                            modifiers: [.control, .option, .command])
@@ -227,6 +240,13 @@ struct GlobalShortcut: Equatable, Hashable {
     // N for notes, on the same free control-option-command layer.
     static let scratchpadDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_N),
                                                   modifiers: [.control, .option, .command])
+
+    // Option-Space, the combination mature launchers settled on: one thumb
+    // and one finger, mirroring the system search's Command-Space without
+    // fighting it for the key. Registered as a hotkey it never types the
+    // narrow space some layouts put on that combination.
+    static let commandBarDefault = GlobalShortcut(keyCode: Int64(kVK_Space),
+                                                  modifiers: [.option])
 
     // Now Playing popup surfaces, following PlayStatus's defaults (MIT):
     // O toggles the anchored popover, D the detached window. The D layer is
@@ -250,7 +270,8 @@ struct GlobalShortcut: Equatable, Hashable {
     }
 
     var isValid: Bool {
-        modifiers.hasPrimaryModifier && keyLabel != nil
+        (modifiers.hasPrimaryModifier || Self.standaloneFunctionKeys.contains(keyCode))
+            && keyLabel != nil
     }
 
     var displayString: String {
@@ -289,6 +310,10 @@ struct GlobalShortcut: Equatable, Hashable {
                  tolerating extra: GlobalShortcutModifiers = []) -> Bool {
         guard event.getIntegerValueField(.keyboardEventKeycode) == keyCode else { return false }
         return modifiersMatch(event: event, allowingExtraShift: allowingExtraShift, tolerating: extra)
+    }
+
+    func matches(keyCode: Int64, modifiers actual: GlobalShortcutModifiers) -> Bool {
+        keyCode == self.keyCode && actual == modifiers
     }
 
     /// Layout-tolerant match: true when the pressed key would type the same
@@ -518,8 +543,10 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     case radialMenu
     case snippetLibrary
     case scratchpad
+    case commandBar
     case nowPlayingPopup
     case nowPlayingDetached
+    case finderRename
 
     var id: String { storageKey }
 
@@ -545,8 +572,10 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .radialMenu: return DefaultsKey.radialMenuShortcut
         case .snippetLibrary: return DefaultsKey.snippetLibraryShortcut
         case .scratchpad: return DefaultsKey.scratchpadShortcut
+        case .commandBar: return DefaultsKey.commandBarShortcut
         case .nowPlayingPopup: return DefaultsKey.nowPlayingPopupShortcut
         case .nowPlayingDetached: return DefaultsKey.nowPlayingDetachedShortcut
+        case .finderRename: return DefaultsKey.finderRenameShortcut
         }
     }
 
@@ -572,8 +601,10 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .radialMenu: return .radialMenuDefault
         case .snippetLibrary: return .snippetLibraryDefault
         case .scratchpad: return .scratchpadDefault
+        case .commandBar: return .commandBarDefault
         case .nowPlayingPopup: return .nowPlayingPopupDefault
         case .nowPlayingDetached: return .nowPlayingDetachedDefault
+        case .finderRename: return .finderRenameDefault
         }
     }
 
@@ -598,14 +629,22 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .screenRecorder: return FeatureStrings.recorder(L10n.shared.language).pageTitle
         case .cameraPreview: return FeatureStrings.cameraPreview(L10n.shared.language).pageTitle
         case .radialMenu: return FeatureStrings.radialMenu(L10n.shared.language).pageTitle
-        case .snippetLibrary: return FeatureStrings.snippets(L10n.shared.language).pageTitle
+        case .snippetLibrary: return FeatureStrings.snippets(L10n.shared.language).libraryTitle
         case .scratchpad: return FeatureStrings.scratchpad(L10n.shared.language).pageTitle
+        // The bar's own strings file is not part of the harness' frozen compile
+        // list, so this one title stays untranslated, exactly as the feature hub
+        // and the notch controls already do while the port lands.
+        case .commandBar: return "Command Bar"
         case .nowPlayingPopup: return FeatureStrings.nowPlaying(L10n.shared.language).popupShortcutLabel
         case .nowPlayingDetached: return FeatureStrings.nowPlaying(L10n.shared.language).detachedShortcutLabel
+        case .finderRename: return FeatureStrings.finderRename(L10n.shared.language).hubTitle
         }
     }
 
-    static func conflict(for shortcut: GlobalShortcut, excluding role: GlobalShortcutRole) -> GlobalShortcutRole? {
+    /// `excluding` is optional so a caller with no field of its own (the
+    /// command bar's row shortcuts) can ask about every role at once.
+    static func conflict(for shortcut: GlobalShortcut,
+                         excluding role: GlobalShortcutRole? = nil) -> GlobalShortcutRole? {
         allCases.first { candidate in
             candidate != role && candidate.savedShortcut == shortcut
         }
@@ -637,10 +676,12 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .radialMenu: return [DefaultsKey.radialMenuEnabled]
         case .snippetLibrary: return [DefaultsKey.snippetLibraryEnabled]
         case .scratchpad: return [DefaultsKey.scratchpadShortcutEnabled]
+        case .commandBar: return [DefaultsKey.commandBarShortcutEnabled]
         case .nowPlayingPopup: return [DefaultsKey.nowPlayingEnabled,
                                        DefaultsKey.nowPlayingPopupShortcutEnabled]
         case .nowPlayingDetached: return [DefaultsKey.nowPlayingEnabled,
                                           DefaultsKey.nowPlayingDetachedShortcutEnabled]
+        case .finderRename: return [DefaultsKey.finderRenameEnabled]
         }
     }
 
@@ -665,7 +706,9 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .radialMenu: return .radialMenu
         case .snippetLibrary: return .textSnippets
         case .scratchpad: return .scratchpad
+        case .commandBar: return .commandBar
         case .nowPlayingPopup, .nowPlayingDetached: return .nowPlaying
+        case .finderRename: return .finderRename
         }
     }
 
@@ -675,7 +718,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     static var featuresToSilenceWhileRecording: [AppFeature] {
         [.switcher, .windowLayout, .shelf, .clipboardHistory, .soundOutputSwitcher,
          .quickLauncher, .colorPicker, .screenOCR, .screenshot, .cameraPreview,
-         .radialMenu, .scratchpad, .nowPlaying]
+         .radialMenu, .scratchpad, .commandBar, .nowPlaying]
     }
 
     /// Roles whose shortcut is live given a defaults reader, for the keyboard

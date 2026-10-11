@@ -90,11 +90,12 @@ enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
         case .utilities: return [.quickLauncher, .cleaner, .homebrew, .appUpdates, .mediaTools,
                                  .clipboardHistory,
                                  .windowLayout, .uninstaller, .urlCleaner, .cleaningMode, .screenOCR,
-                                 .colorPicker, .micMute, .screenshot, .cameraPreview, .scratchpad]
+                                 .colorPicker, .micMute, .screenshot, .cameraPreview, .scratchpad,
+                                 .commandBar]
         case .controls: return [.scrollInverter, .mouseNavigation, .mouseButtonShortcuts, .switcher,
                                 .finderCutPaste, .autoQuit,
                                 .shelf, .windowMaximizer, .dockPreview, .keyboardDebounce, .dockClick,
-                                .middleClick, .textSnippets, .superKey, .radialMenu]
+                                .middleClick, .textSnippets, .superKey, .radialMenu, .notch]
         case .toggles: return [.quickToggles]
         }
     }

@@ -41,6 +41,8 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 
@@ -59,6 +61,8 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -127,6 +131,16 @@ extension KeepAwakeDisplaySleepStrings {
     static let zhHK = KeepAwakeDisplaySleepStrings(
         allowDisplaySleep: "允許顯示器進入睡眠",
         allowDisplaySleepCaption: "Mac 保持喚醒，顯示器仍會按正常時間關閉。"
+    )
+
+    static let sk = KeepAwakeDisplaySleepStrings(
+        allowDisplaySleep: "Povoliť uspanie displeja",
+        allowDisplaySleepCaption: "Mac ostane bdelý a displej sa uspí podľa svojho bežného časovača."
+    )
+
+    static let uk = KeepAwakeDisplaySleepStrings(
+        allowDisplaySleep: "Дозволити дисплею вимикатися",
+        allowDisplaySleepCaption: "Mac залишається активним, а дисплей вимикається за звичайним таймером."
     )
 }
 
@@ -272,5 +286,27 @@ extension KeepAwakeAutomationStrings {
         powerToggle: "電源",
         powerActive: "連接電源期間保持喚醒",
         automationActive: "因符合自動條件而保持喚醒"
+    )
+
+    static let sk = KeepAwakeAutomationStrings(
+        automationSection: "Automatizácia",
+        automationCaption: "Spustí sa, keď je splnená ktorákoľvek vybraná podmienka.",
+        automationOff: "Vypnuté",
+        externalDisplayToggle: "Externý displej",
+        externalDisplayActive: "Aktívne, kým je pripojený externý displej",
+        powerToggle: "Napájanie",
+        powerActive: "Aktívne, kým je pripojené napájanie",
+        automationActive: "Aktívne, pretože je splnená automatická podmienka"
+    )
+
+    static let uk = KeepAwakeAutomationStrings(
+        automationSection: "Автоматизація",
+        automationCaption: "Запускається, коли виконується будь-яка вибрана умова.",
+        automationOff: "Вимк.",
+        externalDisplayToggle: "Зовнішній дисплей",
+        externalDisplayActive: "Активно, поки підключено зовнішній дисплей",
+        powerToggle: "Живлення",
+        powerActive: "Активно, поки підключено живлення",
+        automationActive: "Активно, бо виконано автоматичну умову"
     )
 }

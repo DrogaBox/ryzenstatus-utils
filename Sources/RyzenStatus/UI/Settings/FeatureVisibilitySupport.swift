@@ -5,12 +5,13 @@ import Foundation
 
 /// The Settings pages. Lives here (Foundation-only) so the visibility rules
 /// below and the unit tests can reason about pages without pulling SwiftUI in.
-enum SettingsPage: Hashable {
+enum SettingsPage: Hashable, CaseIterable {
     case general, features, energy, monitor
     case mouse, switcher, keyDebounce, cutPaste, autoQuit, cleaner, uninstaller, urlCleaner, homebrew, appUpdates, media, clipboard, windowLayout, shelf, quickTools, textSnippets, screenshot, screenRecorder, radialMenu, nowPlaying
     case mouseButtonShortcuts, superKey
     case whatsAppDownloads
     case shortcuts, advanced, about, releaseNotes, support, fans, amdPower, amdOverclocking, sensors, dashboard, amdValidation
+    case killProcess, notch, commandBar
 }
 
 /// Which hub features keep each Settings page alive. A page with several
@@ -51,6 +52,9 @@ enum FeatureVisibilitySupport {
         case .screenRecorder: return [.screenRecorder]
         case .radialMenu: return [.radialMenu]
         case .nowPlaying: return [.nowPlaying]
+        case .killProcess: return [.killProcess]
+        case .commandBar: return [.commandBar]
+        case .notch: return [.notch]
         case .general, .features, .shortcuts, .advanced, .about, .releaseNotes, .support, .fans, .amdPower, .amdOverclocking, .sensors, .dashboard, .amdValidation:
             return []
         }

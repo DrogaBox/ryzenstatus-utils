@@ -19,6 +19,8 @@ enum FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 
@@ -37,6 +39,8 @@ enum FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 
@@ -55,6 +59,8 @@ enum FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 
@@ -73,6 +79,8 @@ enum FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 
@@ -91,8 +99,59 @@ enum FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
+
+    static func mixer(_ language: AppLanguage) -> MixerFeatureStrings {
+        switch language {
+        case .enUS: return .enUS
+        case .ptBR: return .ptBR
+        case .tr: return .tr
+        case .ru: return .ru
+        case .es: return .es
+        case .sk: return .sk
+        case .de: return .de
+        case .fr: return .fr
+        case .it: return .it
+        case .ja: return .ja
+        case .ko: return .ko
+        case .zhHans: return .zhHans
+        case .zhTW: return .zhTW
+        case .zhHK: return .zhHK
+        case .uk: return .uk
+        }
+    }
+}
+
+struct MixerFeatureStrings {
+    let hideInactiveApps: String
+    let pin: String
+    let unpin: String
+    let moveUp: String
+    let moveDown: String
+    let pinFirst: String
+    let moveLeft: String
+    let moveRight: String
+    let arrange: String
+    let actions: String
+
+    static let enUS = MixerFeatureStrings(hideInactiveApps: "Hide inactive apps", pin: "Pin to Top", unpin: "Unpin", moveUp: "Move Up", moveDown: "Move Down", pinFirst: "Pin to Front", moveLeft: "Move Left", moveRight: "Move Right", arrange: "Hold Command and drag to reorder", actions: "Actions")
+    static let ptBR = MixerFeatureStrings(hideInactiveApps: "Ocultar apps inativos", pin: "Fixar no topo", unpin: "Desafixar", moveUp: "Mover para cima", moveDown: "Mover para baixo", pinFirst: "Fixar no início", moveLeft: "Mover para a esquerda", moveRight: "Mover para a direita", arrange: "Segure Command e arraste para reorganizar", actions: "Ações")
+    static let tr = MixerFeatureStrings(hideInactiveApps: "Etkin olmayan uygulamaları gizle", pin: "En üste sabitle", unpin: "Sabitlemeyi kaldır", moveUp: "Yukarı taşı", moveDown: "Aşağı taşı", pinFirst: "Başa sabitle", moveLeft: "Sola taşı", moveRight: "Sağa taşı", arrange: "Sıralamak için Command tuşunu basılı tutup sürükleyin", actions: "Eylemler")
+    static let ru = MixerFeatureStrings(hideInactiveApps: "Скрывать неактивные приложения", pin: "Закрепить сверху", unpin: "Открепить", moveUp: "Переместить вверх", moveDown: "Переместить вниз", pinFirst: "Закрепить в начале", moveLeft: "Переместить влево", moveRight: "Переместить вправо", arrange: "Удерживайте Command и перетащите для изменения порядка", actions: "Действия")
+    static let es = MixerFeatureStrings(hideInactiveApps: "Ocultar apps inactivas", pin: "Fijar arriba", unpin: "Desfijar", moveUp: "Mover hacia arriba", moveDown: "Mover hacia abajo", pinFirst: "Fijar al principio", moveLeft: "Mover a la izquierda", moveRight: "Mover a la derecha", arrange: "Mantén pulsado Command y arrastra para reordenar", actions: "Acciones")
+    static let sk = MixerFeatureStrings(hideInactiveApps: "Skryť neaktívne aplikácie", pin: "Pripnúť navrch", unpin: "Odopnúť", moveUp: "Presunúť nahor", moveDown: "Presunúť nadol", pinFirst: "Pripnúť dopredu", moveLeft: "Presunúť doľava", moveRight: "Presunúť doprava", arrange: "Podržte Command a presuňte myšou pre zmenu poradia", actions: "Akcie")
+    static let uk = MixerFeatureStrings(hideInactiveApps: "Ховати неактивні програми", pin: "Закріпити вгорі", unpin: "Відкріпити", moveUp: "Перемістити вгору", moveDown: "Перемістити вниз", pinFirst: "Закріпити на початку", moveLeft: "Перемістити ліворуч", moveRight: "Перемістити праворуч", arrange: "Утримуйте Command і перетягніть, щоб змінити порядок", actions: "Дії")
+    static let de = MixerFeatureStrings(hideInactiveApps: "Inaktive Apps ausblenden", pin: "Oben anheften", unpin: "Loslösen", moveUp: "Nach oben bewegen", moveDown: "Nach unten bewegen", pinFirst: "Vorne anheften", moveLeft: "Nach links bewegen", moveRight: "Nach rechts bewegen", arrange: "Zum Anordnen Command gedrückt halten und ziehen", actions: "Aktionen")
+    static let fr = MixerFeatureStrings(hideInactiveApps: "Masquer les apps inactives", pin: "Épingler en haut", unpin: "Désépingler", moveUp: "Déplacer vers le haut", moveDown: "Déplacer vers le bas", pinFirst: "Épingler au début", moveLeft: "Déplacer vers la gauche", moveRight: "Déplacer vers la droite", arrange: "Maintenez Command et faites glisser pour réorganiser", actions: "Actions")
+    static let it = MixerFeatureStrings(hideInactiveApps: "Nascondi le app inattive", pin: "Fissa in alto", unpin: "Rimuovi fissaggio", moveUp: "Sposta su", moveDown: "Sposta giù", pinFirst: "Fissa all’inizio", moveLeft: "Sposta a sinistra", moveRight: "Sposta a destra", arrange: "Tieni premuto Command e trascina per riordinare", actions: "Azioni")
+    static let ja = MixerFeatureStrings(hideInactiveApps: "非アクティブなアプリを隠す", pin: "一番上に固定", unpin: "固定を解除", moveUp: "上に移動", moveDown: "下に移動", pinFirst: "先頭に固定", moveLeft: "左に移動", moveRight: "右に移動", arrange: "Commandキーを押しながらドラッグして並べ替え", actions: "アクション")
+    static let ko = MixerFeatureStrings(hideInactiveApps: "비활성 앱 숨기기", pin: "맨 위에 고정", unpin: "고정 해제", moveUp: "위로 이동", moveDown: "아래로 이동", pinFirst: "맨 앞에 고정", moveLeft: "왼쪽으로 이동", moveRight: "오른쪽으로 이동", arrange: "Command 키를 누른 채 드래그하여 순서 변경", actions: "동작")
+    static let zhHans = MixerFeatureStrings(hideInactiveApps: "隐藏不活跃的 App", pin: "置顶", unpin: "取消置顶", moveUp: "上移", moveDown: "下移", pinFirst: "置于最前", moveLeft: "左移", moveRight: "右移", arrange: "按住 Command 并拖移以重新排列", actions: "操作")
+    static let zhTW = MixerFeatureStrings(hideInactiveApps: "隱藏非活躍的 App", pin: "置頂", unpin: "取消置頂", moveUp: "上移", moveDown: "下移", pinFirst: "置於最前", moveLeft: "左移", moveRight: "右移", arrange: "按住 Command 並拖移以重新排列", actions: "動作")
+    static let zhHK = MixerFeatureStrings(hideInactiveApps: "隱藏非活躍的 App", pin: "置頂", unpin: "取消置頂", moveUp: "上移", moveDown: "下移", pinFirst: "置於最前", moveLeft: "左移", moveRight: "右移", arrange: "按住 Command 並拖移以重新排列", actions: "動作")
 }
 
 extension SettingsCategoryStrings {
@@ -363,6 +422,24 @@ struct SettingsCategoryStrings {
         utilities: "工具",
         app: "App",
         appManagement: "App 管理"
+    )
+
+    static let sk = SettingsCategoryStrings(
+        essentials: "Základy",
+        windowsControls: "Ovládanie okien",
+        files: "Súbory",
+        utilities: "Nástroje",
+        app: "Aplikácia",
+        appManagement: "Správa aplikácií"
+    )
+
+    static let uk = SettingsCategoryStrings(
+        essentials: "Основне",
+        windowsControls: "Керування вікнами",
+        files: "Файли",
+        utilities: "Утиліти",
+        app: "Програма",
+        appManagement: "Керування програмами"
     )
 }
 
@@ -987,6 +1064,102 @@ struct ClipboardFeatureStrings {
         edit: "編輯",
         cancel: "取消",
         save: "儲存"
+    )
+
+    static let sk = ClipboardFeatureStrings(
+        title: "Schránka",
+        enable: "Ukladať históriu schránky",
+        caption: "Ukladá skopírovaný text, aby ste ho mohli neskôr znova použiť. Všetko ostáva lokálne a dá sa kedykoľvek vymazať.",
+        localNote: "Všetko ostáva na tomto Macu. Veľmi veľké položky sa ignorujú.",
+        skipSensitive: "Vynechať text, ktorý vyzerá citlivo",
+        skipSensitiveCaption: "Neukladá krátke reťazce bez medzier, ktoré vyzerajú ako heslá, tokeny alebo kľúče.",
+        limit: "Limit",
+        limitUnlimited: "Neobmedzene",
+        showInPanel: "Zobraziť v paneli",
+        shortcut: "Skratka histórie",
+        shortcutCaption: "Otvorí rýchle okno s hľadaním, pripnutými položkami a skratkami ⌘1 až ⌘9 na vloženie do predchádzajúcej aplikácie.",
+        shortcutHint: "Kliknutím na riadok ho vložíte do predchádzajúcej aplikácie. ⌘-kliknutím vyberiete viac položiek; ⌘C kopíruje bez vloženia.",
+        clickRowShortcut: "Kliknúť na riadok",
+        commandClickShortcut: "⌘ kliknutie",
+        pinned: "Pripnuté",
+        recent: "Nedávne",
+        pin: "Pripnúť",
+        unpin: "Odopnúť",
+        clearRecent: "Vymazať nedávne",
+        clearAll: "Vymazať nepripnuté",
+        empty: "Žiadny uložený text",
+        disabled: "Zapnite históriu, aby sa skopírovaný text začal ukladať.",
+        search: "Hľadať v skopírovanom texte",
+        copy: "Kopírovať",
+        copied: "Skopírované",
+        delete: "Odstrániť položku",
+        selectMultiple: "Pridať do kôpky",
+        unselectMultiple: "Odobrať z kôpky",
+        selectShortcutAction: "Vybrať",
+        pasteSelectedFormat: "Vložiť (%d)",
+        copySelectedFormat: "Kopírovať (%d)",
+        clearSelection: "Zrušiť výber",
+        moveUp: "Posunúť nahor",
+        moveDown: "Posunúť nadol",
+        noResults: "Žiadne výsledky",
+        newestFirst: "Najnovšie prvé",
+        active: "Ukladá sa nový text",
+        includeImagesFiles: "Ukladať aj skopírované obrázky a súbory",
+        includeImagesFilesCaption: "Obrázky sa pridajú do histórie a súbory sa zapamätajú ako odkazy na ich umiestnenie. Pripínajte a vkladajte ich ako ktorúkoľvek textovú položku.",
+        imageEntryLabel: "Obrázok",
+        fileCountFormat: "Súbory: %d",
+        previewLabel: "Náhľad",
+        edit: "Upraviť",
+        cancel: "Zrušiť",
+        save: "Uložiť"
+    )
+
+    static let uk = ClipboardFeatureStrings(
+        title: "Буфер обміну",
+        enable: "Зберігати історію буфера обміну",
+        caption: "Зберігає скопійований текст, щоб ви могли використати його пізніше. Усе залишається локально, і його можна будь-коли очистити.",
+        localNote: "Усе залишається на цьому Mac. Дуже великі елементи ігноруються.",
+        skipSensitive: "Пропускати текст, схожий на конфіденційний",
+        skipSensitiveCaption: "Не зберігає короткі рядки без пробілів, схожі на паролі, токени або ключі.",
+        limit: "Ліміт",
+        limitUnlimited: "Без обмежень",
+        showInPanel: "Показувати в панелі",
+        shortcut: "Скорочення для історії",
+        shortcutCaption: "Відкриває швидке вікно з пошуком, закріпленими елементами та скороченнями від ⌘1 до ⌘9 для вставлення в попередню програму.",
+        shortcutHint: "Клацніть рядок, щоб вставити його в попередню програму. ⌘-клацання вибирає кілька; ⌘C копіює без вставлення.",
+        clickRowShortcut: "Клацнути рядок",
+        commandClickShortcut: "⌘-клацання",
+        pinned: "Закріплені",
+        recent: "Нещодавні",
+        pin: "Закріпити",
+        unpin: "Відкріпити",
+        clearRecent: "Очистити нещодавні",
+        clearAll: "Очистити незакріплені",
+        empty: "Немає збереженого тексту",
+        disabled: "Увімкніть історію, щоб почати зберігати скопійований текст.",
+        search: "Пошук у скопійованому тексті",
+        copy: "Скопіювати",
+        copied: "Скопійовано",
+        delete: "Видалити елемент",
+        selectMultiple: "Додати до добірки",
+        unselectMultiple: "Прибрати з добірки",
+        selectShortcutAction: "Вибрати",
+        pasteSelectedFormat: "Вставити (%d)",
+        copySelectedFormat: "Скопіювати (%d)",
+        clearSelection: "Скинути вибір",
+        moveUp: "Перемістити вгору",
+        moveDown: "Перемістити вниз",
+        noResults: "Немає результатів",
+        newestFirst: "Спочатку новіші",
+        active: "Зберігається новий текст",
+        includeImagesFiles: "Також зберігати скопійовані зображення та файли",
+        includeImagesFilesCaption: "Зображення додаються до історії, а файли запам’ятовуються як посилання на їхнє розташування. Закріплюйте та вставляйте їх як будь-який текстовий елемент.",
+        imageEntryLabel: "Зображення",
+        fileCountFormat: "Файлів: %d",
+        previewLabel: "Перегляд",
+        edit: "Редагувати",
+        cancel: "Скасувати",
+        save: "Зберегти"
     )
 }
 
@@ -1664,6 +1837,110 @@ struct WindowLayoutFeatureStrings {
         nextDisplay: "下一部顯示器",
         restore: "還原"
     )
+
+    static let sk = WindowLayoutFeatureStrings(
+        title: "Rozloženie okien",
+        caption: "Usporiadajte okná do častí obrazovky alebo ich presúvajte a meňte ich veľkosť trackpadom či myšou.",
+        showInPanel: "Zobraziť v paneli",
+        gestureSection: "Ťahanie okien",
+        gestureEnable: "Presúvať a meniť veľkosť ťahaním",
+        gestureCaption: "Na trackpade alebo myši podržte zobrazené modifikačné klávesy a ťahajte kdekoľvek vnútri okna.",
+        gestureModifiers: "Klávesy na presun",
+        gestureMove: "Ťahaním presuniete",
+        gestureResize: "Pridajte Shift a ťahaním zmeníte veľkosť",
+        gestureResizeHint: "Počiatočný bod určí najbližší okraj alebo roh. Na myši mení veľkosť aj ťahanie pravým tlačidlom.",
+        gestureRaiseWindow: "Presunúť ťahané okno do popredia",
+        shortcuts: "Skratky",
+        shortcutsCaption: "Globálnymi skratkami usporiadate aktívne okno bez otvárania panela.",
+        permissionCaption: "Prístupnosť používa iba na presúvanie okien a zmenu ich veľkosti.",
+        noWindow: "Nenašlo sa žiadne aktívne okno.",
+        missingPermission: "Na presúvanie okien udeľte Prístupnosť.",
+        failed: "Toto okno sa nepodarilo presunúť.",
+        done: "Okno je usporiadané.",
+        restored: "Okno je obnovené.",
+        noRestore: "Nie je žiadne predchádzajúce rozloženie na obnovenie.",
+        target: "Aktívne okno",
+        halves: "Polovice",
+        thirds: "Tretiny",
+        sixths: "Šestiny",
+        corners: "Rohy",
+        other: "Akcie",
+        leftHalf: "Vľavo",
+        rightHalf: "Vpravo",
+        topHalf: "Hore",
+        bottomHalf: "Dole",
+        leftThird: "Ľavá 1/3",
+        centerThird: "Stredná 1/3",
+        rightThird: "Pravá 1/3",
+        leftTwoThirds: "Ľavé 2/3",
+        rightTwoThirds: "Pravé 2/3",
+        topLeftSixth: "Hore vľavo 1/6",
+        topCenterSixth: "Hore v strede 1/6",
+        topRightSixth: "Hore vpravo 1/6",
+        bottomLeftSixth: "Dole vľavo 1/6",
+        bottomCenterSixth: "Dole v strede 1/6",
+        bottomRightSixth: "Dole vpravo 1/6",
+        topLeft: "Hore vľavo",
+        topRight: "Hore vpravo",
+        bottomLeft: "Dole vľavo",
+        bottomRight: "Dole vpravo",
+        maximize: "Maximalizovať",
+        center: "Na stred",
+        nextDisplay: "Ďalší displej",
+        restore: "Obnoviť"
+    )
+
+    static let uk = WindowLayoutFeatureStrings(
+        title: "Розташування вікон",
+        caption: "Розміщуйте вікна в частинах екрана або переміщуйте та змінюйте їхній розмір трекпедом чи мишею.",
+        showInPanel: "Показувати в панелі",
+        gestureSection: "Перетягування вікон",
+        gestureEnable: "Переміщувати й змінювати розмір перетягуванням",
+        gestureCaption: "На трекпеді або миші утримуйте показані клавіші-модифікатори й перетягуйте будь-де всередині вікна.",
+        gestureModifiers: "Клавіші для переміщення",
+        gestureMove: "Перетягніть, щоб перемістити",
+        gestureResize: "Додайте Shift і перетягніть, щоб змінити розмір",
+        gestureResizeHint: "Початкова точка визначає найближчий край або кут. На миші розмір також змінює перетягування правою кнопкою.",
+        gestureRaiseWindow: "Виводити перетягуване вікно на передній план",
+        shortcuts: "Скорочення",
+        shortcutsCaption: "Використовуйте глобальні скорочення, щоб розміщувати активне вікно, не відкриваючи панель.",
+        permissionCaption: "Використовує Доступність лише для переміщення та зміни розміру вікон.",
+        noWindow: "Активне вікно не знайдено.",
+        missingPermission: "Надайте Доступність, щоб переміщувати вікна.",
+        failed: "Не вдалося перемістити це вікно.",
+        done: "Вікно розміщено.",
+        restored: "Вікно відновлено.",
+        noRestore: "Немає попереднього розташування для відновлення.",
+        target: "Активне вікно",
+        halves: "Половини",
+        thirds: "Третини",
+        sixths: "Шостини",
+        corners: "Кути",
+        other: "Дії",
+        leftHalf: "Ліворуч",
+        rightHalf: "Праворуч",
+        topHalf: "Угорі",
+        bottomHalf: "Унизу",
+        leftThird: "Ліва 1/3",
+        centerThird: "Центральна 1/3",
+        rightThird: "Права 1/3",
+        leftTwoThirds: "Ліві 2/3",
+        rightTwoThirds: "Праві 2/3",
+        topLeftSixth: "Угорі ліворуч 1/6",
+        topCenterSixth: "Угорі по центру 1/6",
+        topRightSixth: "Угорі праворуч 1/6",
+        bottomLeftSixth: "Унизу ліворуч 1/6",
+        bottomCenterSixth: "Унизу по центру 1/6",
+        bottomRightSixth: "Унизу праворуч 1/6",
+        topLeft: "Угорі ліворуч",
+        topRight: "Угорі праворуч",
+        bottomLeft: "Унизу ліворуч",
+        bottomRight: "Унизу праворуч",
+        maximize: "Розгорнути",
+        center: "По центру",
+        nextDisplay: "Наступний дисплей",
+        restore: "Відновити"
+    )
 }
 
 struct MonitorAlertFeatureStrings {
@@ -2144,6 +2421,80 @@ struct MonitorAlertFeatureStrings {
         gpuPowerBodyFormat: "GPU 功耗達到 %.0f W。",
         thermalThrottleTitle: "熱節流",
         thermalThrottleBodyFormat: "CPU 在重負載下持續 %.0f °C 超過 30 秒"
+    )
+
+    static let sk = MonitorAlertFeatureStrings(
+        section: "Upozornenia",
+        caption: "Upozornenia sa spustia pri dosiahnutí zvolených limitov. Vysoké využitie CPU ignoruje špičky kratšie ako približne 12 sekúnd. Nastavenie opakovania obmedzuje iba opakovanie toho istého upozornenia.",
+        notificationsDenied: "Hlásenia pre RyzenStatus sú vypnuté v Systémových nastaveniach, takže upozornenia sa nemôžu zobraziť.",
+        cpu: "Vysoké využitie CPU",
+        cpuTemperature: "Vysoká teplota CPU",
+        memory: "Kritické zaťaženie pamäte",
+        disk: "Málo miesta na disku",
+        battery: "Slabá batéria",
+        cpuThreshold: "CPU nad",
+        cpuTemperatureThreshold: "Teplota nad",
+        diskThreshold: "Voľné miesto pod",
+        batteryThreshold: "Batéria pod",
+        cooldown: "Interval opakovania toho istého upozornenia",
+        cooldown2: "2 minúty",
+        cooldown5: "5 minút",
+        cooldown15: "15 minút",
+        cooldown30: "30 minút",
+        cooldown60: "1 hodina",
+        cpuTitle: "Vysoké využitie CPU",
+        cpuBodyFormat: "CPU ostalo niekoľko sekúnd nad %d %%.",
+        cpuTemperatureTitle: "Horúce CPU",
+        cpuTemperatureBodyFormat: "CPU dosiahlo %d °C.",
+        memoryTitle: "Kritická pamäť",
+        memoryBody: "Zaťaženie pamäte dosiahlo kritickú úroveň.",
+        diskTitle: "Málo miesta na disku",
+        diskBodyFormat: "Na %@ je voľných menej ako %d %%.",
+        batteryTitle: "Slabá batéria",
+        batteryBodyFormat: "Batéria je na %d %%.",
+        gpuTemperatureTitle: "Horúce GPU",
+        gpuTemperatureBodyFormat: "GPU dosiahlo %d °C.",
+        gpuPowerTitle: "Vysoký príkon GPU",
+        gpuPowerBodyFormat: "Príkon GPU dosiahol %.0f W.",
+        thermalThrottleTitle: "Tepelné obmedzovanie",
+        thermalThrottleBodyFormat: "Trvalá teplota CPU %.0f °C pri vysokej záťaži dlhšie ako 30 s"
+    )
+
+    static let uk = MonitorAlertFeatureStrings(
+        section: "Сповіщення",
+        caption: "Сповіщення спрацьовують, коли досягнуто вибраних меж. Високе навантаження CPU ігнорує сплески, коротші за приблизно 12 секунд. Параметр повтору обмежує лише повтори того самого сповіщення.",
+        notificationsDenied: "Сповіщення для RyzenStatus вимкнено в Системних параметрах, тому вони не можуть з’являтися.",
+        cpu: "Високе навантаження CPU",
+        cpuTemperature: "Висока температура CPU",
+        memory: "Критичний тиск пам’яті",
+        disk: "Мало місця на диску",
+        battery: "Низький заряд акумулятора",
+        cpuThreshold: "CPU понад",
+        cpuTemperatureThreshold: "Температура понад",
+        diskThreshold: "Вільного місця менше ніж",
+        batteryThreshold: "Заряд нижче",
+        cooldown: "Інтервал повтору того самого сповіщення",
+        cooldown2: "2 хвилини",
+        cooldown5: "5 хвилин",
+        cooldown15: "15 хвилин",
+        cooldown30: "30 хвилин",
+        cooldown60: "1 година",
+        cpuTitle: "Високе навантаження CPU",
+        cpuBodyFormat: "CPU кілька секунд утримувався вище %d%%.",
+        cpuTemperatureTitle: "Гарячий CPU",
+        cpuTemperatureBodyFormat: "CPU досяг %d °C.",
+        memoryTitle: "Критичний стан пам’яті",
+        memoryBody: "Тиск пам’яті досяг критичного рівня.",
+        diskTitle: "Мало місця на диску",
+        diskBodyFormat: "На %@ вільно менше ніж %d%%.",
+        batteryTitle: "Низький заряд",
+        batteryBodyFormat: "Заряд акумулятора: %d%%.",
+        gpuTemperatureTitle: "Гарячий GPU",
+        gpuTemperatureBodyFormat: "GPU досяг %d °C.",
+        gpuPowerTitle: "Висока потужність GPU",
+        gpuPowerBodyFormat: "Потужність GPU досягла %.0f Вт.",
+        thermalThrottleTitle: "Теплове тротлінгування",
+        thermalThrottleBodyFormat: "Стійка температура CPU %.0f °C під великим навантаженням понад 30 с"
     )
 }
 
@@ -2735,6 +3086,92 @@ extension PerformanceSuiteFeatureStrings {
         killConfirmTitle: "Завершить процесс",
         killConfirmMessage: "Вы действительно хотите завершить %@ (PID %d)?",
         killCancel: "Отмена",
+        threadsTitle: "Потоки"
+    )
+
+    static let sk = PerformanceSuiteFeatureStrings(
+        title: "RyzenStatus Performance Suite",
+        dashboardTab: "Prehľad",
+        insightsTab: "Poznatky",
+        analyticsTab: "Analýza",
+        energyTab: "Energia",
+        networkTab: "Sieť",
+        cpuUtilization: "Využitie CPU",
+        cpuTotal: "CPU celkom",
+        memoryFootprint: "Využitá RAM",
+        networkIO: "Priepustnosť siete",
+        diskActivity: "Aktivita disku",
+        powerDraw: "Príkon",
+        battery: "Batéria",
+        insightsTitle: "Diagnostické poznatky",
+        insightsSubtitle: "Automatický diagnostický nástroj analyzuje stav behu a anomálie.",
+        filterAll: "Všetko",
+        noInsights: "Žiadne aktívne diagnostické zistenia",
+        noInsightsSubtitle: "Systém funguje optimálne, bez únikov pamäte či neobvyklej spotreby prostriedkov.",
+        analyticsTitle: "Analýza telemetrie",
+        analyticsSubtitle: "Živé grafy viacerých metrík pre CPU, GPU, pamäť a teplotné senzory.",
+        energyTitle: "Energetický dopad procesov",
+        energySubtitle: "Vypočítaný dopad na príkon podľa využitia CPU a GPU.",
+        networkTitle: "Sieťové adaptéry a prenos",
+        networkSubtitle: "Aktívne sieťové rozhrania a aktuálne prenosové rýchlosti.",
+        noNetworkAdapters: "Žiadne aktívne sieťové adaptéry",
+        pidColumn: "PID",
+        processColumn: "Proces",
+        typeColumn: "Typ",
+        cpuColumn: "CPU %",
+        memoryColumn: "Pamäť",
+        energyScoreColumn: "Energetické skóre",
+        rxColumn: "Sťahovanie",
+        txColumn: "Odosielanie",
+        actionColumn: "Akcia",
+        inspectButton: "Preskúmať",
+        killButton: "Ukončiť proces",
+        killConfirmTitle: "Ukončiť proces",
+        killConfirmMessage: "Naozaj chcete ukončiť %@ (PID %d)?",
+        killCancel: "Zrušiť",
+        threadsTitle: "Vlákna"
+    )
+
+    static let uk = PerformanceSuiteFeatureStrings(
+        title: "RyzenStatus Performance Suite",
+        dashboardTab: "Огляд",
+        insightsTab: "Висновки",
+        analyticsTab: "Аналітика",
+        energyTab: "Енергія",
+        networkTab: "Мережа",
+        cpuUtilization: "Навантаження CPU",
+        cpuTotal: "CPU загалом",
+        memoryFootprint: "Використано RAM",
+        networkIO: "Пропускна здатність мережі",
+        diskActivity: "Активність диска",
+        powerDraw: "Споживання енергії",
+        battery: "Акумулятор",
+        insightsTitle: "Діагностичні висновки",
+        insightsSubtitle: "Автоматичний діагностичний модуль аналізує стан роботи та аномалії.",
+        filterAll: "Усі",
+        noInsights: "Немає активних діагностичних знахідок",
+        noInsightsSubtitle: "Система працює оптимально, без витоків пам’яті чи аномального споживання ресурсів.",
+        analyticsTitle: "Аналітика телеметрії",
+        analyticsSubtitle: "Живі графіки кількох метрик для CPU, GPU, пам’яті та датчиків температури.",
+        energyTitle: "Енергетичний вплив процесів",
+        energySubtitle: "Розрахований вплив на споживання енергії за навантаженням CPU і GPU.",
+        networkTitle: "Мережеві адаптери та трафік",
+        networkSubtitle: "Активні мережеві інтерфейси та поточна швидкість передавання даних.",
+        noNetworkAdapters: "Немає активних мережевих адаптерів",
+        pidColumn: "PID",
+        processColumn: "Процес",
+        typeColumn: "Тип",
+        cpuColumn: "CPU %",
+        memoryColumn: "Пам’ять",
+        energyScoreColumn: "Енергетична оцінка",
+        rxColumn: "Отримання",
+        txColumn: "Надсилання",
+        actionColumn: "Дія",
+        inspectButton: "Переглянути",
+        killButton: "Завершити процес",
+        killConfirmTitle: "Завершити процес",
+        killConfirmMessage: "Справді завершити %@ (PID %d)?",
+        killCancel: "Скасувати",
         threadsTitle: "Потоки"
     )
 }

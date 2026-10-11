@@ -51,6 +51,8 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -358,5 +360,51 @@ extension SuperKeyStrings {
         soloInputSource: "切換輸入法；長撳切換大寫鎖定",
         mappingForeignMapping: "另一個 App 嘅按鍵對應用咗所選按鍵。請喺嗰個 App 度移除對應：淨係結束佢唔夠。",
         mappingSystemRefused: "macOS 拒絕咗按鍵對應。請重新接駁鍵盤或者重新啟動 Mac，然後重新開啟呢個功能。"
+    )
+
+    static let sk = SuperKeyStrings(
+        pageTitle: "Super kláves",
+        hubDescription: "Zmení jeden kláves na vami zvolenú kombináciu modifikátorov.",
+        enableToggle: "Používať tento kláves ako super kláves",
+        enableCaption: "Podržte ho a stlačte ľubovoľný kláves. Nižšie vyberte jeden alebo viac modifikátorov.",
+        modifierKeysNote: "V Systémových nastaveniach › Klávesnica › Modifikačné klávesy nechajte tomuto klávesu predvolenú akciu.",
+        sourceKey: "Kláves na podržanie",
+        capsLockKey: "Caps Lock",
+        rightKeyFormat: "Pravý %@",
+        holdHint: "Podržať",
+        soloSection: "Samostatné ťuknutie",
+        soloCaption: "Čo urobí rýchle ťuknutie, keď nie je stlačený žiadny iný kláves.",
+        soloNothing: "Nič",
+        soloCapsLock: "Zapnúť a vypnúť veľké písmená",
+        soloEscape: "Stlačiť Escape",
+        activeNow: "Práve funguje",
+        panelCaptionFormat: "%1$@ drží %2$@.",
+        manageButton: "Nastaviť…",
+        soloInputSource: "Prepnúť zdroj vstupu; podržaním zapnete Caps Lock",
+        mappingForeignMapping: "Vybraný kláves používa mapovanie klávesov inej aplikácie. Odstráňte ho v tej aplikácii: nestačí ju ukončiť.",
+        mappingSystemRefused: "macOS mapovanie klávesu odmietol. Znova pripojte klávesnicu alebo reštartujte Mac a potom túto voľbu znova zapnite."
+    )
+
+    static let uk = SuperKeyStrings(
+        pageTitle: "Суперклавіша",
+        hubDescription: "Перетворює одну клавішу на вибране вами поєднання модифікаторів.",
+        enableToggle: "Використовувати цю клавішу як суперклавішу",
+        enableCaption: "Утримуйте її та натисніть будь-яку клавішу. Виберіть один або кілька модифікаторів нижче.",
+        modifierKeysNote: "Залиште для цієї клавіші типову дію в Системні параметри › Клавіатура › Клавіші-модифікатори.",
+        sourceKey: "Клавіша для утримання",
+        capsLockKey: "Caps Lock",
+        rightKeyFormat: "Правий %@",
+        holdHint: "Утримувати",
+        soloSection: "Окреме натискання",
+        soloCaption: "Що робить швидке натискання, коли жодна інша клавіша не натиснута.",
+        soloNothing: "Нічого",
+        soloCapsLock: "Вмикати й вимикати великі літери",
+        soloEscape: "Натиснути Escape",
+        activeNow: "Зараз працює",
+        panelCaptionFormat: "%1$@ утримує %2$@.",
+        manageButton: "Налаштувати…",
+        soloInputSource: "Перемкнути джерело введення; утримання — Caps Lock",
+        mappingForeignMapping: "Вибрану клавішу використовує перепризначення клавіш іншої програми. Видаліть його в тій програмі: просто закрити її недостатньо.",
+        mappingSystemRefused: "macOS відхилила перепризначення клавіші. Перепідключіть клавіатуру або перезапустіть Mac, а потім увімкніть це знову."
     )
 }

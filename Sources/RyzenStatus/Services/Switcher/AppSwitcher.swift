@@ -53,7 +53,23 @@ final class AppSwitcher: ObservableObject {
     /// Written only on the main thread.
     private var sessionActive: Bool {
         get { routeLock.withLock { routeSessionActive } }
-        set { routeLock.withLock { routeSessionActive = newValue } }
+        set {
+            routeLock.withLock {
+                if newValue && !routeSessionActive { routeSessionGeneration &+= 1 }
+                routeSessionActive = newValue
+            }
+        }
+    }
+
+    /// Whether a session holds the keyboard, and which session that is. Quit
+    /// Protection yields Command-Q and Command-W to an open session (they are
+    /// the switcher's own Q and W then) and drops a confirmation that started
+    /// before the current session began. A Settings shortcut field that is
+    /// recording owns nothing here.
+    var keyboardInputOwnership: (isOwned: Bool, generation: UInt64) {
+        routeLock.withLock {
+            (!routeCapturing && routeSessionActive, routeSessionGeneration)
+        }
     }
     private var panel: NSPanel?
     private var sessionItems: [SwitcherItem] = []
@@ -78,6 +94,7 @@ final class AppSwitcher: ObservableObject {
     /// touching the main thread; mutated only under `routeLock`.
     private let routeLock = NSLock()
     private var routeSessionActive = false
+    private var routeSessionGeneration: UInt64 = 0
     private var routeShortcut = GlobalShortcut.switcherDefault
     private var routeWindowShortcut = GlobalShortcut.switcherWindowDefault
     private var routeCapturing = false

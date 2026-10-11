@@ -168,6 +168,7 @@ struct FeatureHubSettings: View {
         case .energyDisplay: return hub.groupEnergyDisplay
         case .tools: return hub.groupTools
         case .monitor: return hub.groupMonitor
+        case .dynamicIsland: return NotchStrings.notch(L10n.shared.language).title
         }
     }
 }
@@ -382,6 +383,8 @@ private struct PermissionsPortalSections: View {
             case .denied, .undetermined: return .missing
             case .unknown: return .unknown
             }
+        case .calendar:
+            return permissions.calendarAccess == .fullAccess ? .granted : .missing
         }
     }
 
@@ -494,6 +497,7 @@ private struct PermissionPortalRow: View {
         case .notifications: return Permissions.shared.notifications == .undetermined
         case .camera: return Permissions.shared.camera == .undetermined
         case .microphone: return Permissions.shared.microphone == .undetermined
+        case .calendar: return Permissions.shared.calendarAccess == .notDetermined
         case .filesAndFolders, .automationFinder, .automationTerminal, .audioCapture: return false
         }
     }
@@ -510,6 +514,7 @@ private struct PermissionPortalRow: View {
             }
         case .camera: Permissions.shared.requestCamera()
         case .microphone: Permissions.shared.requestMicrophone()
+        case .calendar: Permissions.shared.requestCalendar()
         case .filesAndFolders, .automationFinder, .automationTerminal, .audioCapture:
             break
         }
@@ -526,6 +531,7 @@ private struct PermissionPortalRow: View {
         case .filesAndFolders: Permissions.shared.openFullDiskAccessSettings()
         case .microphone: Permissions.shared.openMicrophoneSettings()
         case .camera: Permissions.shared.openCameraSettings()
+        case .calendar: Permissions.shared.openCalendarSettings()
         }
     }
 }
@@ -533,66 +539,6 @@ private struct PermissionPortalRow: View {
 // MARK: - Titles, descriptions and permission names
 
 extension AppFeature {
-    /// Titles reuse the strings users already see across the app; only names
-    /// with no clean existing form live in the hub strings.
-    func hubTitle(_ s: Strings, hub: FeatureHubStrings) -> String {
-        switch self {
-        case .switcher: return s.switcherSection
-        case .dockPreview: return s.dockPreviewName
-        case .dockClick: return hub.titleDockClick
-        case .windowMaximizer: return s.windowMaximizeName
-        case .windowLayout: return FeatureStrings.windowLayout(L10n.shared.language).title
-        case .autoQuit: return s.autoQuitName
-        case .scrollInverter: return s.invertMouseScroll
-        case .smoothScroll: return s.smoothScrollName
-        case .mouseNavigation: return hub.titleMouseNavigation
-        case .middleClick: return s.middleClickSection
-        case .keyboardDebounce: return s.keyDebounceName
-        case .mouseButtonShortcuts: return hub.titleMouseButtons
-        case .superKey: return hub.titleSuperKey
-        case .textSnippets: return FeatureStrings.snippets(L10n.shared.language).pageTitle
-        case .clipboardHistory: return FeatureStrings.clipboard(L10n.shared.language).title
-        case .pastePlain: return s.pastePlainName
-        case .finderCutPaste: return s.cutPasteName
-        case .shelf: return s.shelfName
-        case .urlCleaner: return s.urlCleanerName
-        case .mixer: return s.mixerSection
-        case .soundOutputSwitcher: return s.soundOutputSwitcherTitle
-        case .micMute: return s.micMuteName
-        case .musicBlock: return hub.titleMusicBlock
-        case .nowPlaying: return hub.titleNowPlaying
-        case .keepAwake: return s.keepAwakeTitle
-        case .brightness: return FeatureStrings.brightness(L10n.shared.language).pageTitle
-        case .extraBrightness: return s.extraBrightnessName
-        case .quickLauncher: return s.launcherName
-        case .quickToggles: return FeatureStrings.quickToggles(L10n.shared.language).pageTitle
-        case .colorPicker: return s.colorPickerName
-        case .screenOCR: return s.ocrName
-        case .screenshot: return FeatureStrings.screenshot(L10n.shared.language).pageTitle
-        case .screenRecorder: return FeatureStrings.recorder(L10n.shared.language).pageTitle
-        case .cameraPreview: return FeatureStrings.cameraPreview(L10n.shared.language).pageTitle
-        case .radialMenu: return FeatureStrings.radialMenu(L10n.shared.language).pageTitle
-        case .scratchpad: return FeatureStrings.scratchpad(L10n.shared.language).pageTitle
-        case .cleaningMode: return s.cleaningMenuItem
-        case .mediaTools: return s.mediaName
-        case .cleaner: return s.cleanerName
-        case .uninstaller: return s.uninstallerName
-        case .homebrew: return s.homebrewName
-        case .appUpdates: return FeatureStrings.appUpdates(L10n.shared.language).pageTitle
-        case .monitorCPU: return s.monitorShowCPU
-        case .monitorGPU: return s.monitorShowGPU
-        case .monitorMemory: return s.monitorShowMemory
-        case .monitorNetwork: return s.monitorShowNetwork
-        case .monitorDisk: return s.diskSection
-        case .monitorPower: return s.powerSection
-        case .whatsAppDownloads: return FeatureStrings.whatsAppDownloads(L10n.shared.language).title
-        case .monitorInsights: return "Smart Performance Insights"
-        case .monitorAnalytics: return "Analytics & Trend History"
-        case .monitorEnergy: return "Energy Impact & Battery Flow"
-        case .monitorNetworkDetails: return "Network Scanner & Details"
-        }
-    }
-
     func hubDescription(_ hub: FeatureHubStrings) -> String {
         switch self {
         case .switcher: return hub.descSwitcher
@@ -612,6 +558,8 @@ extension AppFeature {
         case .finderCutPaste: return hub.descFinderCutPaste
         case .shelf: return hub.descShelf
         case .urlCleaner: return hub.descURLCleaner
+        case .diskImageInstaller:
+            return FeatureStrings.diskImageInstaller(L10n.shared.language).hubDescription
         case .mixer: return hub.descMixer
         case .soundOutputSwitcher: return hub.descSoundOutputSwitcher
         case .micMute: return hub.descMicMute
@@ -629,6 +577,9 @@ extension AppFeature {
         case .cameraPreview: return FeatureStrings.cameraPreview(L10n.shared.language).hubDescription
         case .radialMenu: return FeatureStrings.radialMenu(L10n.shared.language).hubDescription
         case .scratchpad: return FeatureStrings.scratchpad(L10n.shared.language).hubDescription
+        case .killProcess: return FeatureStrings.killProcess(L10n.shared.language).hubDescription
+        case .wallpaper: return FeatureStrings.wallpaper(L10n.shared.language).hubDescription
+        case .portManager: return FeatureStrings.portManager(L10n.shared.language).hubDescription
         case .cleaningMode: return hub.descCleaningMode
         case .mediaTools: return hub.descMediaTools
         case .cleaner: return hub.descCleaner
@@ -642,12 +593,28 @@ extension AppFeature {
         case .monitorDisk: return hub.descMonitorDisk
         case .mouseButtonShortcuts: return hub.descMouseButtons
         case .superKey: return hub.descSuperKey
+        case .quitWindowProtection: return FeatureStrings.quitProtection(L10n.shared.language).description
         case .monitorPower: return hub.descMonitorPower
         case .whatsAppDownloads: return FeatureStrings.whatsAppDownloads(L10n.shared.language).hubDescription
         case .monitorInsights: return "Automated diagnostic cards for memory leaks, Rosetta 2 cost, and CPU runaway processes."
         case .monitorAnalytics: return "Linear regression metrics, performance trends, and long-term CPU/GPU/RAM statistics."
         case .monitorEnergy: return "Per-process energy impact breakdown, battery health flow, and process wakeup stats."
         case .monitorNetworkDetails: return "Local network device scanner, per-adapter bandwidth, and open socket inspector."
+        case .connectedDevices: return FeatureStrings.connectedDevices(L10n.shared.language).hubDescription
+        case .commandBar: return FeatureStrings.commandBar(L10n.shared.language).hubDescription
+        case .notch: return NotchStrings.notch(L10n.shared.language).description
+        // Each island module says what it does, not what the island is.
+        case .notchCalendar: return FeatureStrings.notchCalendar(L10n.shared.language).description
+        case .notchNotifications: return FeatureStrings.notchNotifications(L10n.shared.language).description
+        case .notchGestures: return hub.descNotchGestures
+        case .notchTimer: return FeatureStrings.notchActivities(L10n.shared.language).timerDescription
+        case .notchAccessories: return FeatureStrings.notchActivities(L10n.shared.language).accessoryDescription
+        case .notchLyrics: return FeatureStrings.notchMusicExtras(L10n.shared.language).lyricsDescription
+        case .notchDownloads: return FeatureStrings.notchFiles(L10n.shared.language).downloadsDescription
+        case .notchWatch: return FeatureStrings.notchWatch(L10n.shared.language).description
+        case .notchMascot: return hub.descNotchMascot
+        case .notchLiveEqualizer: return FeatureStrings.notchMusicExtras(L10n.shared.language).liveEqualizerDescription
+        case .notchQueue: return FeatureStrings.notchMusicExtras(L10n.shared.language).queueDescription
         }
     }
 }
@@ -665,6 +632,7 @@ extension AppPermission {
         case .audioCapture: return hub.permAudioCapture
         case .microphone: return FeatureStrings.recorder(L10n.shared.language).microphonePermissionName
         case .camera: return FeatureStrings.cameraPreview(L10n.shared.language).permName
+        case .calendar: return "Calendar"
         }
     }
 
@@ -681,6 +649,7 @@ extension AppPermission {
         case .microphone:
             return FeatureStrings.recorder(L10n.shared.language).microphonePermissionExplain
         case .camera: return FeatureStrings.cameraPreview(L10n.shared.language).permExplain
+        case .calendar: return "Read upcoming calendar events to display in Dynamic Island."
         }
     }
 }

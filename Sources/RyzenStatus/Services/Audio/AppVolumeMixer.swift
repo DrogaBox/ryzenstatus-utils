@@ -24,6 +24,7 @@ struct MixerApp: Identifiable, Equatable {
     /// Stable identity for persistence: the bundle id when there is one,
     /// otherwise the process name (pids recycle, names don't).
     let id: String
+    var persistenceID: String? = nil
     let ownerPid: pid_t
     let name: String
     let audioObjects: [AudioObjectID]
@@ -46,6 +47,11 @@ struct MixerApp: Identifiable, Equatable {
 /// For every app the user turns down or routes to a specific output, a muted
 /// CoreAudio process tap removes the app's sound from the original output, and
 /// an aggregate device re-renders the tapped stream with the chosen gain. Apps
+struct MixerHiddenApp: Identifiable, Equatable {
+    let id: String
+    let name: String
+}
+
 /// on the system default output at 100% are left completely untouched.
 final class AppVolumeMixer: ObservableObject {
     static let shared = AppVolumeMixer()
@@ -60,6 +66,7 @@ final class AppVolumeMixer: ObservableObject {
     static let maxVolume: Double = 2.0
 
     @Published private(set) var apps: [MixerApp] = []
+    @Published private(set) var hiddenApps: [MixerHiddenApp] = []
     @Published private(set) var outputDevices: [MixerOutputDevice] = []
     @Published private(set) var currentOutputDeviceUID: String?
     @Published private(set) var systemOutputVolume: Double?
@@ -481,7 +488,7 @@ final class AppVolumeMixer: ObservableObject {
 
     // MARK: - Process discovery
 
-    private func refreshApps() {
+    func refreshApps() {
         // A throttled refresh can land after stop(); watching is over.
         guard listenerInstalled else { return }
         let defaultUID = Self.defaultOutputDeviceUID()
@@ -653,6 +660,22 @@ final class AppVolumeMixer: ObservableObject {
         let newMuted = !(systemOutputMuted ?? false)
         _ = Self.setOutputMuted(newMuted, for: defaultID)
         systemOutputMuted = newMuted
+    }
+
+    func requestOutputAdjustment(volume: Double? = nil, muted: Bool? = nil,
+                                 completion: @escaping (Bool) -> Void = { _ in }) {
+        if let volume {
+            setCurrentOutputVolume(volume)
+        }
+        if let muted {
+            guard let defaultID = Self.defaultOutputDeviceID() else {
+                completion(false)
+                return
+            }
+            _ = Self.setOutputMuted(muted, for: defaultID)
+            systemOutputMuted = muted
+        }
+        completion(true)
     }
 
     private static func coalescingAppsWithDuplicateIDs(_ apps: [MixerApp]) -> [MixerApp] {
@@ -836,7 +859,7 @@ final class AppVolumeMixer: ObservableObject {
 
     // MARK: - CoreAudio plumbing
 
-    private static func audioProcessObjects() -> [AudioObjectID] {
+    static func audioProcessObjects() -> [AudioObjectID] {
         var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList,
                                                  mScope: kAudioObjectPropertyScopeGlobal,
                                                  mElement: kAudioObjectPropertyElementMain)
@@ -1147,8 +1170,8 @@ private final class TapGainEngine: GainEngine {
     /// A broken HAL path can park inside teardown. Cleanup stays serialized so
     /// repeated failures cannot accumulate blocked worker threads; every IO
     /// proc is already stopped before it reaches this queue.
-    private static let teardownQueue = DispatchQueue(label: "com.ryzenstatus.utils.mixer.teardown",
-                                                     qos: .utility)
+    fileprivate static let teardownQueue = DispatchQueue(label: "com.ryzenstatus.utils.mixer.teardown",
+                                                         qos: .utility)
 
     init?(objects: [AudioObjectID], gain: Float, outputDeviceUID: String) {
         tappedObjects = objects
@@ -1249,3 +1272,52 @@ private final class TapGainEngine: GainEngine {
 
     deinit { stop() }
 }
+
+extension AppVolumeMixer {
+    func hideFromList(_ app: MixerApp) {
+        guard let id = app.persistenceID else { return }
+        if id == MixerRoutingSupport.finderBundleIdentifier {
+            UserDefaults.standard.set(false, forKey: DefaultsKey.mixerShowFinder)
+        } else {
+            var hidden = savedHiddenApps()
+            hidden[id] = app.name
+            persistHiddenApps(hidden)
+        }
+        publishHiddenApps()
+        refreshApps()
+    }
+
+    func showInList(id: String) {
+        if id == MixerRoutingSupport.finderBundleIdentifier {
+            UserDefaults.standard.set(true, forKey: DefaultsKey.mixerShowFinder)
+        } else {
+            var hidden = savedHiddenApps()
+            hidden.removeValue(forKey: id)
+            persistHiddenApps(hidden)
+        }
+        publishHiddenApps()
+        refreshApps()
+    }
+
+    private func savedHiddenApps() -> [String: String] {
+        MixerRoutingSupport.sanitizedHiddenApps(
+            UserDefaults.standard.dictionary(forKey: DefaultsKey.mixerHiddenApps) ?? [:])
+    }
+
+    private func persistHiddenApps(_ hidden: [String: String]) {
+        if hidden.isEmpty {
+            UserDefaults.standard.removeObject(forKey: DefaultsKey.mixerHiddenApps)
+        } else {
+            UserDefaults.standard.set(hidden, forKey: DefaultsKey.mixerHiddenApps)
+        }
+    }
+
+    func publishHiddenApps() {
+        var entries = savedHiddenApps().map { MixerHiddenApp(id: $0.key, name: $0.value) }
+        if !UserDefaults.standard.bool(forKey: DefaultsKey.mixerShowFinder) {
+            entries.append(MixerHiddenApp(id: MixerRoutingSupport.finderBundleIdentifier, name: "Finder"))
+        }
+        hiddenApps = entries.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+}
+

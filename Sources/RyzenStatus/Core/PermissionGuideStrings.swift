@@ -33,6 +33,8 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -168,5 +170,25 @@ extension PermissionGuideStrings {
         waiting: "正在等待權限…",
         granted: "已授予權限！",
         closeHelp: "關閉"
+    )
+
+    static let sk = PermissionGuideStrings(
+        title: "Zostáva jeden krok",
+        stepOpen: "macOS otvoril Systémové nastavenia na správnom zozname.",
+        stepToggle: "Zapnite RyzenStatus v tomto zozname.",
+        stepReturn: "Vráťte sa sem. Táto karta si to všimne sama.",
+        waiting: "Čaká sa na povolenie…",
+        granted: "Povolenie udelené!",
+        closeHelp: "Zavrieť"
+    )
+
+    static let uk = PermissionGuideStrings(
+        title: "Залишився один крок",
+        stepOpen: "macOS відкрила Системні параметри на потрібному списку.",
+        stepToggle: "Увімкніть RyzenStatus у цьому списку.",
+        stepReturn: "Поверніться сюди. Картка помітить це сама.",
+        waiting: "Очікування дозволу…",
+        granted: "Дозвіл надано!",
+        closeHelp: "Закрити"
     )
 }

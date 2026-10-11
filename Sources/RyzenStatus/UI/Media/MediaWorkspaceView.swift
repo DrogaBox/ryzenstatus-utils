@@ -18,8 +18,8 @@ struct PanelMediaView: View {
 
     var body: some View {
         MediaWorkspaceView(compact: true, onClose: onClose)
-            .onAppear { PanelInteractionState.shared.keepsPopoverOpen = true }
-            .onDisappear { PanelInteractionState.shared.keepsPopoverOpen = false }
+            .onAppear { PanelInteractionState.shared.viewKeepsPopoverOpen = true }
+            .onDisappear { PanelInteractionState.shared.viewKeepsPopoverOpen = false }
     }
 }
 
@@ -51,7 +51,7 @@ private enum MediaCompressionLevel: String, CaseIterable, Identifiable {
 
 struct MediaWorkspaceView: View {
     @ObservedObject private var l10n = L10n.shared
-    @ObservedObject private var media = MediaService.shared
+    @ObservedObject private var media: MediaService
     @Environment(\.colorScheme) private var colorScheme
 
     @AppStorage(DefaultsKey.mediaLastTool) private var toolRaw = MediaTool.videoCompressor.rawValue
@@ -77,20 +77,64 @@ struct MediaWorkspaceView: View {
 
     @AppStorage(DefaultsKey.mediaTextAccurate) private var textAccurate = true
 
-    @State private var inputURL: URL?
-    @State private var outputURL: URL?
-    @State private var outputWasChosenManually = false
+    @StateObject private var workspace: MediaWorkspaceSelection
+    private var inputURLs: [URL] {
+        get { workspace.inputURLs }
+        nonmutating set { workspace.inputURLs = newValue }
+    }
+    private var inputURL: URL? {
+        get { inputURLs.first }
+        nonmutating set { inputURLs = newValue.map { [$0] } ?? [] }
+    }
+    private var inputImageSize: CGSize? {
+        get { workspace.inputImageSize }
+        nonmutating set { workspace.inputImageSize = newValue }
+    }
+    private var outputURL: URL? {
+        get { workspace.outputURL }
+        nonmutating set { workspace.outputURL = newValue }
+    }
+    private var outputWasChosenManually: Bool {
+        get { workspace.outputWasChosenManually }
+        nonmutating set { workspace.outputWasChosenManually = newValue }
+    }
     @State private var isDropTargeted = false
     @State private var localMessage: String?
     @State private var mediaDefaultsTask: Task<Void, Never>?
 
     var compact: Bool
     var onClose: (() -> Void)? = nil
+    private let initialInputs: [URL]
+    private let initialTool: MediaTool?
+    private let preservesServiceState: Bool
+    private let onContentHeightChange: ((CGFloat) -> Void)?
+    private let onToolChange: (() -> Void)?
+
+    init(compact: Bool,
+         onClose: (() -> Void)? = nil,
+         media: MediaService = .shared,
+         initialInputs: [URL] = [],
+         initialTool: MediaTool? = nil,
+         preservesServiceState: Bool = false,
+         workspace: MediaWorkspaceSelection? = nil,
+         onContentHeightChange: ((CGFloat) -> Void)? = nil,
+         onToolChange: (() -> Void)? = nil) {
+        self.compact = compact
+        self.onClose = onClose
+        self.media = media
+        self.initialInputs = initialInputs
+        self.initialTool = initialTool
+        self.preservesServiceState = preservesServiceState
+        self.onContentHeightChange = onContentHeightChange
+        self.onToolChange = onToolChange
+        _workspace = StateObject(wrappedValue: workspace ?? MediaWorkspaceSelection())
+    }
 
     private var selectedTool: MediaTool {
-        get { MediaSupport.sanitizedTool(toolRaw) }
+        get { workspace.tool ?? MediaSupport.sanitizedTool(toolRaw) }
         nonmutating set {
-            toolRaw = newValue.rawValue
+            if preservesServiceState { workspace.tool = newValue }
+            else { toolRaw = newValue.rawValue }
             outputURL = defaultOutputURL(for: inputURL, tool: newValue)
             outputWasChosenManually = false
             applyMediaDefaults(for: inputURL, tool: newValue)
@@ -103,6 +147,8 @@ struct MediaWorkspaceView: View {
         Binding {
             selectedTool
         } set: { newValue in
+            guard newValue != selectedTool else { return }
+            onToolChange?()
             selectedTool = newValue
         }
     }
@@ -113,25 +159,57 @@ struct MediaWorkspaceView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: compact ? 10 : 14) {
-            header
-            toolPicker
-            if compact {
-                ScrollView {
-                    content
-                        .padding(.trailing, 1)
-                }
-                .frame(maxHeight: 430)
-            } else {
-                content
-            }
-        }
+        layout
         .onChange(of: imageFormatRaw) { _, _ in
             guard selectedTool == .imageCompressor, !outputWasChosenManually else { return }
             outputURL = defaultOutputURL(for: inputURL, tool: .imageCompressor)
         }
         .onDisappear {
             mediaDefaultsTask?.cancel()
+        }
+        .onAppear {
+            if !workspace.loadedInitialInputs {
+                workspace.loadedInitialInputs = true
+                if let initialTool {
+                    if preservesServiceState { workspace.tool = initialTool }
+                    else { selectedTool = initialTool }
+                }
+                if !initialInputs.isEmpty { setInputs(initialInputs, resetsMedia: !preservesServiceState) }
+            } else {
+                applyMediaDefaults(for: inputURL, tool: selectedTool)
+            }
+        }
+    }
+
+    private var layout: some View {
+        Group {
+            if let onContentHeightChange {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: compact ? 10 : 14) {
+                        header
+                        toolPicker
+                        content.padding(.trailing, 1)
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                        onContentHeightChange($0)
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: compact ? 10 : 14) {
+                    header
+                    toolPicker
+                    if compact {
+                        ScrollView {
+                            content
+                                .padding(.trailing, 1)
+                        }
+                        .frame(maxHeight: 430)
+                    } else {
+                        content
+                    }
+                }
+            }
         }
     }
 
@@ -648,7 +726,7 @@ struct MediaWorkspaceView: View {
     /// One dialog at a time: the modal now starts a run-loop turn after the
     /// click, so a double-click (or clicking both pickers quickly) would queue
     /// a second identical dialog behind the first without this guard.
-    private static var panelModalActive = false
+    private(set) static var panelModalActive = false
 
     private static func runPanelModal(_ panel: NSSavePanel,
                                       completion: @escaping (NSApplication.ModalResponse) -> Void) {
@@ -693,17 +771,21 @@ struct MediaWorkspaceView: View {
     }
 
     private func setInput(_ url: URL) {
-        inputURL = url
-        outputURL = defaultOutputURL(for: url, tool: selectedTool)
+        setInputs([url])
+    }
+
+    private func setInputs(_ urls: [URL], resetsMedia: Bool = true) {
+        inputURLs = urls
+        outputURL = defaultOutputURL(for: urls.first, tool: selectedTool)
         outputWasChosenManually = false
-        applyMediaDefaults(for: url, tool: selectedTool)
+        applyMediaDefaults(for: urls.first, tool: selectedTool)
         localMessage = nil
-        media.reset()
+        if resetsMedia { media.reset() }
     }
 
     private func clearInput() {
         mediaDefaultsTask?.cancel()
-        inputURL = nil
+        inputURLs = []
         outputURL = nil
         outputWasChosenManually = false
         localMessage = nil
@@ -833,10 +915,12 @@ struct MediaWorkspaceView: View {
         case .noVideoTrack: return l10n.s.mediaErrorNoVideo
         case .sameOutput: return l10n.s.mediaErrorSameOutput
         case .unsupported: return l10n.s.mediaErrorUnsupported
+        case .imageTooLarge: return l10n.s.mediaErrorUnsupported
         case let .gifTooLong(maxSeconds):
             return String(format: FeatureStrings.recorder(l10n.language).gifTooLongFormat,
                           maxSeconds)
         case .targetTooSmall: return l10n.s.mediaErrorTargetTooSmall
+        case .watermarkUnavailable: return l10n.s.mediaErrorUnsupported
         case .cancelled: return l10n.s.mediaCancelled
         case let .failed(message): return message.isEmpty ? l10n.s.mediaErrorUnsupported : message
         }

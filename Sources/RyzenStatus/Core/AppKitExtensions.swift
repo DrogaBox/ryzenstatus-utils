@@ -16,6 +16,14 @@ extension NSScreen {
         return screens.first { $0.frame.contains(mouse) } ?? main
     }
 
+    /// The display that owns the menu bar, which is the one at the coordinate
+    /// origin. Anything anchored to the bar belongs here, and `main` is the
+    /// wrong answer for it: `main` follows the key window, so on a second
+    /// display it points at a screen with no menu bar on it.
+    static var withMenuBar: NSScreen? {
+        screens.first { $0.frame.origin == .zero } ?? screens.first
+    }
+
     /// A visible frame to lay a summoned panel out against, guaranteed non-nil.
     /// Prefers the screen under the pointer, then any attached screen, then a
     /// sane default, so window-placement math can never trap when there is

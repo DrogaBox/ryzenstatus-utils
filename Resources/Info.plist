@@ -37,13 +37,13 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.36.1</string>
+	<string>1.37.0</string>
 	<key>CFBundleSupportedPlatforms</key>
 	<array>
 		<string>MacOSX</string>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>80</string>
+	<string>81</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>
@@ -56,6 +56,8 @@
 	<string>RyzenStatus reads the current track to show it in the menu bar.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>RyzenStatus taps individual app audio only to adjust each app's volume in the mixer. Nothing is recorded or leaves your Mac.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>RyzenStatus uses Bluetooth only to read the battery level of connected peripherals. Nothing leaves your Mac.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>RyzenStatus shows your camera only in the preview window you open, so you can check how you look before a call. Nothing is recorded or leaves your Mac.</string>
 	<key>NSCameraUseContinuityCameraDeviceType</key>

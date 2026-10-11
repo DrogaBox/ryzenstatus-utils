@@ -78,18 +78,55 @@ final class NowPlayingService: ObservableObject {
 
     // MARK: - Lifecycle
 
+    enum Consumer: Hashable {
+        case menuBar
+        case notch
+    }
+    private var activeConsumers = Set<Consumer>()
+
+    func registerConsumer(_ consumer: Consumer) {
+        let wasEmpty = activeConsumers.isEmpty
+        activeConsumers.insert(consumer)
+        if wasEmpty {
+            startPolling()
+        }
+        if consumer == .menuBar {
+            installStatusItem()
+            syncShortcuts()
+        }
+    }
+
+    func unregisterConsumer(_ consumer: Consumer) {
+        activeConsumers.remove(consumer)
+        if consumer == .menuBar {
+            if let statusItem {
+                NSStatusBar.system.removeStatusItem(statusItem)
+            }
+            self.statusItem = nil
+            lastRenderedKey = ""
+            stopMarquee()
+            popupHotkey.unregister()
+            detachedHotkey.unregister()
+            popupShortcutRegistrationFailed = false
+            detachedShortcutRegistrationFailed = false
+        }
+        if activeConsumers.isEmpty {
+            stopPolling()
+        }
+    }
+
     func syncWithPreferences() {
         let defaults = UserDefaults.standard
         let engaged = AppFeature.nowPlaying.isAvailable
             && defaults.bool(forKey: DefaultsKey.nowPlayingEnabled)
         if engaged {
-            start()
+            registerConsumer(.menuBar)
         } else {
-            stop()
+            unregisterConsumer(.menuBar)
         }
     }
 
-    private func start() {
+    private func startPolling() {
         guard timer == nil else { return }
         pollGeneration += 1
         let provider = NowPlayingProvider(rawValue: UserDefaults.standard
@@ -116,8 +153,6 @@ final class NowPlayingService: ObservableObject {
                 MediaRemoteBridge.triggerTCCPrompt(for: NowPlayingAutomation.musicBundleID)
             }
         }
-        installStatusItem()
-        syncShortcuts()
         poll()
         let t = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.poll()
@@ -130,26 +165,31 @@ final class NowPlayingService: ObservableObject {
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
-        stopMarquee()
-        pollGeneration += 1
-        lastPollStartedAt = 0
+        activeConsumers.removeAll()
         if let statusItem {
             NSStatusBar.system.removeStatusItem(statusItem)
         }
         statusItem = nil
         lastRenderedKey = ""
+        popupHotkey.unregister()
+        detachedHotkey.unregister()
+        popupShortcutRegistrationFailed = false
+        detachedShortcutRegistrationFailed = false
+        stopPolling()
+    }
+
+    private func stopPolling() {
+        timer?.invalidate()
+        timer = nil
+        stopMarquee()
+        pollGeneration += 1
+        lastPollStartedAt = 0
         snapshot = .empty
         artworkImage = nil
         artworkIdentity = ""
         lastFingerprintedData = nil
         lastArtworkIdentity = ""
         NowPlayingAnimatedArtworkCenter.shared.sync(with: .empty)
-        popupHotkey.unregister()
-        detachedHotkey.unregister()
-        popupShortcutRegistrationFailed = false
-        detachedShortcutRegistrationFailed = false
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         onDeactivate?()
     }

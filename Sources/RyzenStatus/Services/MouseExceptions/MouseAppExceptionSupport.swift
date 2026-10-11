@@ -13,6 +13,8 @@ enum MouseExceptionScope: String, CaseIterable {
     case navigation
     case buttonShortcuts
     case middleClick
+    case linearScroll
+    case focusFollowsMouse
 
     var defaultsKey: String {
         switch self {
@@ -21,6 +23,8 @@ enum MouseExceptionScope: String, CaseIterable {
         case .navigation: return DefaultsKey.mouseNavigationExceptions
         case .buttonShortcuts: return DefaultsKey.mouseButtonExceptions
         case .middleClick: return DefaultsKey.middleClickExceptions
+        case .linearScroll: return DefaultsKey.linearScrollExceptions
+        case .focusFollowsMouse: return DefaultsKey.focusFollowsMouseExceptions
         }
     }
 
@@ -33,6 +37,8 @@ enum MouseExceptionScope: String, CaseIterable {
         case .navigation: return .mouseNavigation
         case .buttonShortcuts: return .mouseButtonShortcuts
         case .middleClick: return .middleClick
+        case .linearScroll: return .linearScroll
+        case .focusFollowsMouse: return .focusFollowsMouse
         }
     }
 }
@@ -53,6 +59,24 @@ enum MouseAppExceptionSupport {
             self.layer = layer
             self.alpha = alpha
             self.processID = processID
+        }
+    }
+
+    /// The window-server list reduced to the plain values a decision needs.
+    static func windows(from descriptions: [[String: Any]]) -> [Window] {
+        descriptions.compactMap { info in
+            guard let raw = info[kCGWindowBounds as String] as? [String: Any],
+                  let x = (raw["X"] as? NSNumber)?.doubleValue,
+                  let y = (raw["Y"] as? NSNumber)?.doubleValue,
+                  let width = (raw["Width"] as? NSNumber)?.doubleValue,
+                  let height = (raw["Height"] as? NSNumber)?.doubleValue,
+                  let layer = (info[kCGWindowLayer as String] as? NSNumber)?.intValue,
+                  let pid = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value
+            else { return nil }
+            return Window(frame: CGRect(x: x, y: y, width: width, height: height),
+                          layer: layer,
+                          alpha: (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1,
+                          processID: pid)
         }
     }
 

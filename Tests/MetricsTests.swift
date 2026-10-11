@@ -1656,6 +1656,9 @@ struct MetricsTests {
                "the schedule reports its outcome unless the user opts out")
         expect(registeredDefaults[DefaultsKey.cleanerBadgeSeen] as? Bool == false,
                "the red dot guiding to the cleaner shows until the cleaner opens once")
+        expect(registeredDefaults[DefaultsKey.cleanerLastAutoFreed] as? Int == 0
+               && registeredDefaults[DefaultsKey.cleanerLastAutoFailed] as? Int == 0,
+               "an automatic pass starts with nothing freed and nothing left behind")
         var utcCalendar = Calendar(identifier: .gregorian)
         utcCalendar.timeZone = TimeZone(identifier: "UTC") ?? .current
         func scheduleDate(_ day: Int, _ hour: Int, _ minute: Int) -> Date {
@@ -1697,6 +1700,46 @@ struct MetricsTests {
                && CleanerSchedule.hour24(hour12: 1, isPM: true) == 13
                && CleanerSchedule.hour24(hour12: 11, isPM: false) == 11,
                "twelve hour picks map to the right clock hours, midnight and noon included")
+        // The automatic pass itself: when it arms, what it leaves unchecked and
+        // what it says afterwards, pinned where the harness can reach them.
+        expect(CleanerScheduler.missedRunDelay == 120 && CleanerScheduler.busyRetryDelay == 600,
+               "a missed pass retries in two minutes and a busy one in ten")
+        expect(CleanerScheduler.unattendedDeselectedCategories == [.loginItems],
+               "an unattended pass unchecks login items and nothing else")
+        expect(CleanerScheduler.fireDate(now: scheduleDate(9, 10, 0), lastRun: nil,
+                                         frequency: .off, hour: 9, minute: 0, weekday: 2,
+                                         calendar: utcCalendar) == nil,
+               "an off schedule arms nothing")
+        expect(CleanerScheduler.fireDate(now: scheduleDate(9, 10, 0), lastRun: scheduleDate(9, 9, 30),
+                                         frequency: .daily, hour: 9, minute: 0, weekday: 2,
+                                         calendar: utcCalendar) == scheduleDate(10, 9, 0),
+               "a pass that already ran today arms tomorrow at its time")
+        expect(CleanerScheduler.fireDate(now: scheduleDate(9, 10, 0), lastRun: scheduleDate(8, 9, 30),
+                                         frequency: .daily, hour: 9, minute: 0, weekday: 2,
+                                         calendar: utcCalendar) == scheduleDate(9, 10, 2),
+               "a fire the Mac missed arms two minutes from now, not at launch")
+        expect(CleanerScheduler.fireDate(now: scheduleDate(9, 8, 0), lastRun: nil,
+                                         frequency: .weekly, hour: 9, minute: 0, weekday: 2,
+                                         calendar: utcCalendar) == scheduleDate(13, 9, 0),
+               "a first ever weekly schedule counts from now, with no catch up clean")
+        let quietRun = CleanerScheduler.runSummary(freed: 0, failed: 0, notify: true,
+                                                  strings: .enUS, byteCount: { _ in "0 bytes" })
+        expect(quietRun?.title == Strings.enUS.cleanerScheduleTitle
+               && quietRun?.body == Strings.enUS.cleanerNothingFound,
+               "a pass that moved nothing still reports, as proof of life")
+        let failedRun = CleanerScheduler.runSummary(freed: 0, failed: 3, notify: true,
+                                                    strings: .enUS, byteCount: { _ in "0 bytes" })
+        expect(failedRun?.body == Strings.enUS.uninstallerSomeFailed,
+               "what an unattended pass could not move is said, not hidden")
+        let cleanedRun = CleanerScheduler.runSummary(freed: 5_000_000, failed: 2, notify: true,
+                                                     strings: .enUS, byteCount: { _ in "5 MB" })
+        expect(cleanedRun?.body.contains("5 MB") == true
+               && cleanedRun?.body.contains(Strings.enUS.uninstallerSomeFailed) == true
+               && cleanedRun?.body.contains(Strings.enUS.cleanerNothingFound) == false,
+               "the outcome names what was freed and what was left behind")
+        expect(CleanerScheduler.runSummary(freed: 9, failed: 1, notify: false,
+                                           strings: .enUS, byteCount: { _ in "9 bytes" }) == nil,
+               "the outcome is dropped quietly when the user asked not to be told")
         expect(CleanerSchedule.hour12Components(fromHour24: 0) == (12, false)
                && CleanerSchedule.hour12Components(fromHour24: 12) == (12, true)
                && CleanerSchedule.hour12Components(fromHour24: 18) == (6, true)
@@ -1707,6 +1750,49 @@ struct MetricsTests {
                    return CleanerSchedule.hour24(hour12: parts.hour12, isPM: parts.isPM) == hour
                },
                "every hour of the day round trips through the twelve hour pickers")
+        // The panel's close policy: what keeps the popover alive, and the phase
+        // mapping that feeds it. Pinned here because these rules used to be
+        // reachable only by running the app (see PanelInteractionState).
+        func panelBlocks(view: Bool = false, modal: Bool = false,
+                         homebrew: Bool = false, cleaner: Bool = false,
+                         uninstaller: Bool = false) -> Bool {
+            PanelInteractionSupport.blocksDismissal(viewKeepsPopoverOpen: view,
+                                                    isPresentingPopoverModal: modal,
+                                                    homebrewOperationActive: homebrew,
+                                                    cleanerRunning: cleaner,
+                                                    uninstallerRunning: uninstaller)
+        }
+        expect(!panelBlocks(), "an idle panel is dismissed by a click outside")
+        expect(panelBlocks(view: true), "a workflow in another app keeps the panel open")
+        expect(panelBlocks(modal: true), "a presented alert keeps the panel open")
+        expect(panelBlocks(homebrew: true), "a Homebrew operation keeps the panel open")
+        expect(panelBlocks(cleaner: true), "a cleaner run keeps the panel open")
+        expect(panelBlocks(uninstaller: true), "an uninstall in progress keeps the panel open")
+        expect(JunkCleaner.Phase.scanning.isRunning && JunkCleaner.Phase.cleaning.isRunning
+               && !JunkCleaner.Phase.idle.isRunning && !JunkCleaner.Phase.results.isRunning
+               && !JunkCleaner.Phase.done(freed: 0, failed: 0).isRunning,
+               "only a scan or a clean in flight keeps the panel open")
+        // One path, one row, one decision: the claimed set of a pass is
+        // additive, so a path claimed by one category cannot come back under a
+        // later one of the same pass.
+        let cacheClaim = URL(fileURLWithPath: "/Users/x/Library/Caches/com.apple.Safari")
+        let logClaim = URL(fileURLWithPath: "/Users/x/Library/Logs/com.apple.Safari")
+        let afterLeftovers = CleanerSupport.claiming([], with: [cacheClaim])
+        expect(afterLeftovers == [cacheClaim.path],
+               "a claim is recorded as its standardized path")
+        let afterTwoCategories = CleanerSupport.claiming(afterLeftovers, with: [logClaim])
+        expect(afterTwoCategories == [cacheClaim.path, logClaim.path],
+               "a claim from a later category never replaces the ones before it")
+        expect(CleanerSupport.claiming(afterTwoCategories, with: [cacheClaim]).count == 2,
+               "a path claimed by two categories is still one row")
+        expect(CleanerSupport.isClaimed(logClaim, by: afterTwoCategories),
+               "a path claimed by an earlier category is refused to the next one")
+        expect(CleanerSupport.isClaimed(URL(fileURLWithPath: "/Users/x/Library/Caches//com.apple.Safari"),
+                                        by: afterLeftovers),
+               "the same path written with a doubled separator is the same claim")
+        expect(!CleanerSupport.isClaimed(URL(fileURLWithPath: "/Users/x/Library/Caches/com.apple.Safari-extra"),
+                                         by: afterLeftovers),
+               "a sibling that merely starts the same way is not claimed")
         let panel500 = ExtraBrightnessSupport.panelReference(model: "MacBookPro18,1")
         let panel600 = ExtraBrightnessSupport.panelReference(model: "Mac16,7")
         expect(panel500.referenceEDR == 3.2 && panel500.bonus == 0.58,
@@ -1901,8 +1987,9 @@ struct MetricsTests {
                && !CleanerPolicy.precheckCacheEntry("ms-playwright"),
                "system, sensitive and unattributable caches start unchecked")
         expect(CleanerSupport.Category.deviceBackups.rawValue == 6
-               && CleanerSupport.Category.allCases.count == 7,
-               "device backups joined the cleaner with a stable category id")
+               && CleanerSupport.Category.screenshots.rawValue == 7
+               && CleanerSupport.Category.allCases.count == 8,
+               "device backups and forgotten screenshots have stable category ids")
         expect(!CleanerPolicy.precheckDeviceBackups,
                "device backups never start checked, they are the user's safety net")
         expect(CleanerPolicy.developerJunkPaths.contains("/Library/Developer/Xcode/iOS DeviceSupport")
@@ -1923,6 +2010,33 @@ struct MetricsTests {
                "entry names map to their owning bundle identifier")
         expect(CleanerSupport.bundleIDCandidate(fromEntryName: "VendorFolder") == nil,
                "folders without a bundle shaped name are never candidates")
+        expect(CleanerSupport.bundleIDCandidate(fromEntryName: "com.vendor.Service.plist")
+               == "com.vendor.Service",
+               "only the entry's own extension comes off, not a component spelled like one")
+        expect(CleanerSupport.bundleIDCandidate(fromEntryName: "com.vendor.Service.savedState")
+               == "com.vendor.Service",
+               "a component named like an extension survives its own wrapper")
+        expect(CleanerSupport.bundleIDCandidate(fromEntryName: "ABCDE12345.com.vendor.editor")
+               == "com.vendor.editor",
+               "a leading team prefix names the app, not the developer account")
+        expect(CleanerSupport.bundleIDCandidate(fromEntryName: "ABCDE12345.com.vendor") == nil,
+               "a team prefix with no reverse DNS remainder stays unattributable")
+        expect(CleanerSupport.isAttributableBundleID("com.vendor.editor")
+               && CleanerSupport.isAttributableBundleID("com.vendor.Service")
+               && CleanerSupport.isAttributableBundleID("io.app.sub"),
+               "an owner whose every component names something is attributable")
+        expect(!CleanerSupport.isAttributableBundleID("com.vendor")
+               && !CleanerSupport.isAttributableBundleID("com.vendor.123")
+               && !CleanerSupport.isAttributableBundleID(
+                   "com.vendor.B787EFF9-B8E2-5296-96AF-DF9D3CD3AC4F")
+               && !CleanerSupport.isAttributableBundleID("VendorFolder"),
+               "short, unnamed and UUID carrying owners are never attributable")
+        // Deliberate: the shared-infrastructure guard still matches by prefix,
+        // so an unrelated vendor whose domain starts with a listed one stays
+        // protected. Upstream narrows it to a dot boundary; see
+        // docs/HANDOFF-FASE-5.md §6 before changing this expectation.
+        expect(CleanerSupport.isProtectedBundleID("com.segmentfault.tool"),
+               "the strict prefix guard on shared infrastructure is kept as it is")
         expect(CleanerSupport.isOwned(candidate: "com.vendor.editor.startuphelper",
                                       byInstalled: ["com.vendor.editor"]),
                "embedded helper identifiers are owned by their installed app")
@@ -4471,6 +4585,407 @@ struct MetricsTests {
         expect(URLCleaning.cleanedString(from: "not a url") == nil,
                "URL cleaner rejects plain text")
 
+        // MARK: Cleaner forgotten screenshots
+
+        // The scan reads extended attributes and dates off the disk; these pin
+        // what it does with them: where it looks, what proves a capture, which
+        // names still count as untouched, and when untouched means forgotten.
+        expect(CleanerSupport.screenCaptureAttribute == "com.apple.metadata:kMDItemIsScreenCapture"
+               && CleanerSupport.lastUsedDateAttribute == "com.apple.lastuseddate#PS",
+               "the scan reads the attributes macOS itself writes")
+        expect(CleanerSupport.screenshotFolder(location: nil, home: "/Users/x") == "/Users/x/Desktop"
+               && CleanerSupport.screenshotFolder(location: "  \n", home: "/Users/x") == "/Users/x/Desktop",
+               "an unset screenshot location means the Desktop")
+        expect(CleanerSupport.screenshotFolder(location: "~", home: "/Users/x") == "/Users/x"
+               && CleanerSupport.screenshotFolder(location: "~/Pictures/Shots", home: "/Users/x")
+                   == "/Users/x/Pictures/Shots"
+               && CleanerSupport.screenshotFolder(location: " /Volumes/Shots \n", home: "/Users/x")
+                   == "/Volumes/Shots",
+               "a picked location is trimmed and its tilde expanded to the home")
+        expect(CleanerSupport.screenshotFolder(location: "relative/Shots", home: "/Users/x") == "/Users/x/Desktop"
+               && CleanerSupport.screenshotFolder(location: "~other/Shots", home: "/Users/x") == "/Users/x/Desktop",
+               "a location that is neither absolute nor under the home falls back to the Desktop")
+
+        func screenshotPlist(_ value: Any) -> Data {
+            (try? PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)) ?? Data()
+        }
+        expect(CleanerSupport.isScreenCaptureFlag(screenshotPlist(true))
+               && CleanerSupport.isScreenCaptureFlag(screenshotPlist(NSNumber(value: 1))),
+               "the capture attribute macOS writes (true, or 1) proves a screenshot")
+        expect(!CleanerSupport.isScreenCaptureFlag(screenshotPlist(false))
+               && !CleanerSupport.isScreenCaptureFlag(screenshotPlist(NSNumber(value: 2)))
+               && !CleanerSupport.isScreenCaptureFlag(screenshotPlist("1"))
+               && !CleanerSupport.isScreenCaptureFlag(Data([0x01, 0x02, 0x03]))
+               && !CleanerSupport.isScreenCaptureFlag(Data()),
+               "a false, odd or unreadable capture attribute proves nothing")
+
+        func lastUsedStamp(_ seconds: Int64, _ nanoseconds: Int64) -> [UInt8] {
+            (0..<8).map { UInt8(truncatingIfNeeded: seconds >> (8 * $0)) }
+                + (0..<8).map { UInt8(truncatingIfNeeded: nanoseconds >> (8 * $0)) }
+        }
+        expect(CleanerSupport.lastUsedDate(fromAttribute: Data(lastUsedStamp(1_700_000_000, 500_000_000)))
+               == Date(timeIntervalSince1970: 1_700_000_000.5),
+               "the last opened date is little endian seconds, then nanoseconds")
+        expect(CleanerSupport.lastUsedDate(fromAttribute: Data(lastUsedStamp(1_700_000_000, 0)).prefix(15)) == nil
+               && CleanerSupport.lastUsedDate(fromAttribute: Data(lastUsedStamp(0, 5))) == nil
+               && CleanerSupport.lastUsedDate(fromAttribute: Data(lastUsedStamp(-5, 0))) == nil,
+               "a short, zero or negative last opened stamp is no date at all")
+        expect(CleanerSupport.lastUsedDate(fromAttribute: Data([9, 9, 9] + lastUsedStamp(1_700_000_000, 0))
+                                               .dropFirst(3))
+               == Date(timeIntervalSince1970: 1_700_000_000),
+               "a stamp handed over as a slice is read from the slice's own start")
+
+        // 2026-10-11 14:13:20 UTC, and the same day at 23:30 UTC, which is
+        // already the 12th two hours east.
+        let screenshotTaken = Date(timeIntervalSince1970: 1_791_728_000)
+        let screenshotTakenLate = Date(timeIntervalSince1970: 1_791_761_400)
+        func keepsScreenshotName(_ name: String) -> Bool {
+            CleanerSupport.screenshotKeepsDefaultName(name, created: screenshotTaken, timeZone: .gmt)
+        }
+        expect(keepsScreenshotName("Screenshot 2026-10-11 at 14.13.20.png")
+               && keepsScreenshotName("Captura de pantalla 2026-10-11 a las 14.13.20.png")
+               && keepsScreenshotName("Bildschirmfoto 2026-10-11 um 14.13.20.png")
+               && keepsScreenshotName("スクリーンショット 2026-10-11 14.13.20.png"),
+               "an untouched capture keeps its name whatever words the locale puts around it")
+        expect(keepsScreenshotName("Screenshot 2026-10-11 at 2.13.20\u{202F}PM.png")
+               && keepsScreenshotName("Screenshot 2026-10-11 at 2.13.20 PM.png")
+               && keepsScreenshotName("Screenshot 2026-10-11 at 12.13.20 PM.png")
+               && keepsScreenshotName("Captura de pantalla 2026-10-11 a las 2.13.20 p.\u{00A0}m..png"),
+               "a twelve hour name may end on the day period macOS writes, however it is spaced")
+        expect(keepsScreenshotName("스크린샷 2026-10-11 오후 2.13.20.png")
+               && keepsScreenshotName("截屏2026-10-11 下午2.13.20.png")
+               && keepsScreenshotName("スクリーンショット 2026-10-11 午後2.13.20.png"),
+               "a day period written before the time leaves the name ending on the time")
+        expect(keepsScreenshotName("Screenshot 2026-10-11 at 14.13.20 (2).png")
+               && keepsScreenshotName("Screenshot 2026-10-11 at 2.13.20 PM (12).png"),
+               "the collision number macOS appends is not a rename")
+        expect(!keepsScreenshotName("Screenshot 2026-10-11 at 14.13.20 copy.png")
+               && !keepsScreenshotName("Screenshot 2026-10-11 at 14.13.20 copy (2).png")
+               && !keepsScreenshotName("Screenshot 2026-10-11 at 14.13.20 edited.png")
+               && !keepsScreenshotName("Screenshot 2026-10-11 at 14.13.20 ui.png")
+               && !keepsScreenshotName("Screenshot 2026-10-11 at 3.13.20 ok.png"),
+               "a Finder copy or any word after the time is a rename, never forgotten")
+        expect(!keepsScreenshotName("Screenshot 2026-10-11 at 2.13.20 PM!.png")
+               && !keepsScreenshotName("Screenshot 2026-10-11 at 2.13.20 !.png")
+               && !keepsScreenshotName("Screenshot 2026-10-11 at 14.13.20\u{200B}.png")
+               && !keepsScreenshotName("Screenshot 2026-10-11 at 14.13.20 🙂.png"),
+               "punctuation, an emoji or an invisible character after the time is a rename")
+        expect(!keepsScreenshotName("Screenshot 2026-10-11 at 14.13.20 PM.png")
+               && !keepsScreenshotName("Screenshot 2026-10-11 at 0.13.20 AM.png"),
+               "a day period after an hour outside one to twelve is a rename")
+        expect(!keepsScreenshotName("Screenshot 2026-10-11.png")
+               && !keepsScreenshotName("Screenshot at 14.13.20.png")
+               && !keepsScreenshotName("Screenshot 2026-10-10 at 14.13.20.png"),
+               "a name without the capture day, or not ending on a time, is skipped")
+        let twoHoursEast = TimeZone(secondsFromGMT: 7_200) ?? .gmt
+        expect(CleanerSupport.screenshotKeepsDefaultName("Screenshot 2026-10-12 at 1.30.00.png",
+                                                         created: screenshotTakenLate, timeZone: twoHoursEast)
+               && !CleanerSupport.screenshotKeepsDefaultName("Screenshot 2026-10-11 at 23.30.00.png",
+                                                             created: screenshotTakenLate, timeZone: twoHoursEast)
+               && CleanerSupport.screenshotKeepsDefaultName("Screenshot 2026-10-11 at 23.30.00.png",
+                                                            created: screenshotTakenLate, timeZone: .gmt),
+               "the capture day is the one on the Mac's own clock, not the UTC one")
+        expect(CleanerSupport.comparableDayPeriod("p. m.") == "p.m."
+               && CleanerSupport.comparableDayPeriod("P\u{202F}M") == "pm"
+               && CleanerSupport.comparableDayPeriod("A\u{00A0}M") == "am",
+               "only the spaces macOS writes are dropped when comparing day periods")
+        expect(CleanerSupport.comparableDayPeriod(" PM!") == "pm!"
+               && CleanerSupport.comparableDayPeriod("p\tm") == "p\tm"
+               && CleanerSupport.comparableDayPeriod("p\u{200B}m").unicodeScalars.count == 3,
+               "every other mark survives the comparison, so a rename cannot shrink to nothing")
+        expect(CleanerSupport.isCaptureDayPeriod("", hour: 14)
+               && CleanerSupport.isCaptureDayPeriod(" PM", hour: 2)
+               && CleanerSupport.isCaptureDayPeriod("a.\u{00A0}m.", hour: 9)
+               && CleanerSupport.isCaptureDayPeriod("午後", hour: 2),
+               "nothing, or a day period the system knows in any script, may follow the time")
+        expect(!CleanerSupport.isCaptureDayPeriod("ui", hour: 3)
+               && !CleanerSupport.isCaptureDayPeriod("ok", hour: 3)
+               && !CleanerSupport.isCaptureDayPeriod("PM", hour: 14)
+               && !CleanerSupport.isCaptureDayPeriod("am", hour: 13),
+               "a short word, or a day period on a twenty four hour clock, is not a day period")
+        expect(CleanerSupport.strippingCaptureCopyIndex("Name (12)") == "Name"
+               && CleanerSupport.strippingCaptureCopyIndex("Name(3)") == "Name"
+               && CleanerSupport.strippingCaptureCopyIndex("Name (2) (3)") == "Name (2)",
+               "exactly one trailing collision number comes off")
+        expect(CleanerSupport.strippingCaptureCopyIndex("Name (x)") == "Name (x)"
+               && CleanerSupport.strippingCaptureCopyIndex("Name (2) tail") == "Name (2) tail",
+               "a bracket that is not a trailing number stays part of the name")
+
+        let screenshotNow = Date(timeIntervalSince1970: 1_791_728_000)
+        let screenshotDay: TimeInterval = 86_400
+        expect(CleanerSupport.isForgottenScreenshot(created: screenshotNow - 31 * screenshotDay, modified: nil,
+                                                    lastUsed: nil, now: screenshotNow, days: 30)
+               && CleanerSupport.isForgottenScreenshot(created: screenshotNow - 30 * screenshotDay, modified: nil,
+                                                       lastUsed: nil, now: screenshotNow, days: 30),
+               "a capture untouched for the whole age is forgotten")
+        expect(!CleanerSupport.isForgottenScreenshot(created: screenshotNow - 29 * screenshotDay, modified: nil,
+                                                     lastUsed: nil, now: screenshotNow, days: 30),
+               "a capture younger than the age is not forgotten")
+        expect(!CleanerSupport.isForgottenScreenshot(created: screenshotNow - 40 * screenshotDay, modified: nil,
+                                                     lastUsed: screenshotNow - 5 * screenshotDay,
+                                                     now: screenshotNow, days: 30)
+               && !CleanerSupport.isForgottenScreenshot(created: screenshotNow - 40 * screenshotDay,
+                                                        modified: screenshotNow - 10 * screenshotDay,
+                                                        lastUsed: nil, now: screenshotNow, days: 30),
+               "opening or editing a capture restarts its clock")
+        expect(!CleanerSupport.isForgottenScreenshot(created: screenshotNow - 10 * screenshotDay, modified: nil,
+                                                     lastUsed: screenshotNow - 400 * screenshotDay,
+                                                     now: screenshotNow, days: 30)
+               && !CleanerSupport.isForgottenScreenshot(created: screenshotNow - 400 * screenshotDay,
+                                                        modified: screenshotNow + 10 * screenshotDay,
+                                                        lastUsed: nil, now: screenshotNow, days: 30),
+               "the latest of the dates counts, so a stale or future stamp never makes a capture look old")
+        expect(!CleanerSupport.isForgottenScreenshot(created: screenshotNow - 400 * screenshotDay, modified: nil,
+                                                     lastUsed: nil, now: screenshotNow, days: 0)
+               && !CleanerSupport.isForgottenScreenshot(created: screenshotNow - 400 * screenshotDay, modified: nil,
+                                                        lastUsed: nil, now: screenshotNow, days: -1),
+               "an age of zero or less finds nothing")
+        expect(CleanerPolicy.sanitizedScreenshotAgeDays(-5) == 0
+               && CleanerPolicy.sanitizedScreenshotAgeDays(0) == 0
+               && CleanerPolicy.sanitizedScreenshotAgeDays(30) == 30
+               && CleanerPolicy.sanitizedScreenshotAgeDays(10_000) == 3_650,
+               "a stored screenshot age is clamped, and zero or less turns the search off")
+        expect(!CleanerPolicy.precheckScreenshots
+               && registeredDefaults[DefaultsKey.cleanerScreenshotAgeDays] as? Int
+                   == CleanerPolicy.defaultScreenshotAgeDays
+               && CleanerPolicy.screenshotAgeChoices.contains(CleanerPolicy.defaultScreenshotAgeDays),
+               "forgotten screenshots are offered unchecked, with a default age the picker can show")
+        expect(CleanerSupport.isDirectChild(URL(fileURLWithPath: "/Users/x/Desktop/Shot.png"),
+                                            of: URL(fileURLWithPath: "/Users/x/Desktop"))
+               && !CleanerSupport.isDirectChild(URL(fileURLWithPath: "/Users/x/Desktop/Folder/Shot.png"),
+                                                of: URL(fileURLWithPath: "/Users/x/Desktop"))
+               && !CleanerSupport.isDirectChild(URL(fileURLWithPath: "/Users/x/Desktop2/Shot.png"),
+                                                of: URL(fileURLWithPath: "/Users/x/Desktop")),
+               "only the top level of a screenshot folder may be cleaned")
+
+        // MARK: Kill Process protected processes
+
+        // Never offered for termination: invalid pids, the kernel and launchd
+        // by pid, this very process by pid, the window and session servers by
+        // name or path, and this app under every name it builds as.
+        let killSelf = ProcessInfo.processInfo.processIdentifier
+        let killOther: pid_t = killSelf == 99_999 ? 99_998 : 99_999
+        expect(KillProcessSupport.isProtected(pid: 0)
+               && KillProcessSupport.isProtected(pid: 1)
+               && KillProcessSupport.isProtected(pid: -1),
+               "the kernel, launchd and pid -1 (which would signal every process) are protected")
+        expect(KillProcessSupport.isProtected(pid: killSelf, name: "Safari"),
+               "this very process is protected whatever name it reports")
+        expect(KillProcessSupport.isProtected(pid: killOther, name: "RyzenStatus")
+               && KillProcessSupport.isProtected(pid: killOther, name: "RyzenStatus (Developer)")
+               && KillProcessSupport.isProtected(pid: killOther, name: "RyzenStatusDeveloper")
+               && KillProcessSupport.isProtected(pid: killOther, name: "  ryzenstatus "),
+               "RyzenStatus is protected under every build name, in any case")
+        expect(["kernel_task", "launchd", "WindowServer", "loginwindow"].allSatisfy {
+                   KillProcessSupport.isProtected(pid: killOther, name: $0)
+               },
+               "the kernel task, launchd and the window and session servers are protected by name")
+        expect(KillProcessSupport.isProtected(
+                   pid: killOther, path: "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer")
+               && KillProcessSupport.isProtected(
+                   pid: killOther, path: "/System/Library/CoreServices/loginwindow.app/Contents/MacOS/loginwindow")
+               && KillProcessSupport.isProtected(pid: killOther, path: "/sbin/launchd"),
+               "the window and session servers are protected by path, whatever name they report")
+        expect(!KillProcessSupport.isProtected(pid: killOther, name: "Safari",
+                                               path: "/Applications/Safari.app/Contents/MacOS/Safari"),
+               "an ordinary app stays killable")
+
+        // MARK: Uninstaller identity boundaries
+
+        let uninstallerIdentity = UninstallerSupport.Identity(
+            bundleIDs: ["com.example.sample"],
+            nameTokens: ["sample"],
+            teamIDs: ["ABCDE12345"],
+            groupIDs: ["ABCDE12345.com.example.shared"])
+        for path in ["/Users/test/Library/HTTPStorages/com.example.sample",
+                     "/Users/test/Library/WebKit/com.example.sample",
+                     "/Users/test/Library/Containers/com.example.sample"] {
+            expect(UninstallerSupport.spotlightIdentity(for: path, identity: uninstallerIdentity)
+                   == UninstallerSupport.technicalIdentity(uninstallerIdentity),
+                   "Spotlight uses technical identity for sensitive path: \(path)")
+        }
+        // Deliberate: HTTPStorages and WebKit stay technical segments here.
+        // Upstream drops them, which lets a display-name fragment claim a
+        // folder of web storage; see docs/PORT-PLAN.md (Fase 2) before
+        // changing these. Checked field by field, so a change to
+        // `technicalIdentity` itself cannot hide a relaxation.
+        for path in ["/Users/test/Library/HTTPStorages/Sample",
+                     "/Users/test/Library/WebKit/Sample"] {
+            let technical = UninstallerSupport.spotlightIdentity(for: path, identity: uninstallerIdentity)
+            expect(technical.nameTokens.isEmpty
+                   && technical.bundleIDs == uninstallerIdentity.bundleIDs
+                   && technical.teamIDs == uninstallerIdentity.teamIDs
+                   && technical.groupIDs == uninstallerIdentity.groupIDs,
+                   "Spotlight drops only the display-name tokens under \(path)")
+            expect(UninstallerSupport.leftoverMatch("Sample", identity: technical) == .none
+                   && UninstallerSupport.leftoverMatch("com.example.sample", identity: technical) == .exact,
+                   "under \(path) a display name claims nothing and the bundle identifier still does")
+        }
+        expect(UninstallerSupport.leftoverMatch(
+            "Sample",
+            identity: UninstallerSupport.spotlightIdentity(for: "/Users/test/Library/Application Support/Sample",
+                                                           identity: uninstallerIdentity)) == .related,
+               "outside the technical folders the same display name is a related leftover")
+        let groupIdentity = UninstallerSupport.spotlightIdentity(
+            for: "/Users/test/Library/Group Containers/ABCDE12345.com.example.shared",
+            identity: uninstallerIdentity)
+        expect(groupIdentity.bundleIDs.isEmpty && groupIdentity.nameTokens.isEmpty
+               && groupIdentity.teamIDs.isEmpty
+               && groupIdentity.groupIDs == uninstallerIdentity.groupIDs,
+               "group containers only match exact signed app groups")
+        let spotlightRoots = [URL(fileURLWithPath: "/Users/test/Library", isDirectory: true)]
+        expect(UninstallerSupport.leftoverSpotlightPathIsAllowed(
+            "/Users/test/Library/Containers/com.example.sample", roots: spotlightRoots),
+               "Spotlight permits a shallow Library-owned path")
+        expect(!UninstallerSupport.leftoverSpotlightPathIsAllowed(
+            "/Users/test/Documents/com.example.sample", roots: spotlightRoots),
+               "Spotlight never permits personal-document paths")
+        expect(!UninstallerSupport.leftoverSpotlightPathIsAllowed(
+            "/Users/test/Library/Application Support/vendor/deep/com.example.sample",
+            roots: spotlightRoots),
+               "Spotlight refuses paths deeper than supported leftover roots")
+        expect(UninstallerSupport.spotlightIdentity(for: "/Users/test/Library/Preferences/com.example.sample",
+                                                    identity: uninstallerIdentity) == uninstallerIdentity,
+               "a plain preference path keeps the full identity")
+        expect(UninstallerSupport.nameWithoutTrailingVersion("Sample 2.1") == "Sample"
+               && UninstallerSupport.nameWithoutTrailingVersion("Sample nightly") == "Sample"
+               && UninstallerSupport.nameWithoutTrailingVersion("Sample BETA") == "Sample"
+               && UninstallerSupport.nameWithoutTrailingVersion("Sample.app") == "Sample"
+               && UninstallerSupport.nameWithoutTrailingVersion("Sample2") == "Sample2",
+               "a trailing version word is dropped, and a name that merely ends in a digit is not")
+
+        // MARK: Uninstaller selection gate
+
+        // The gate reads the disk (lstat and the Info.plist), so it is pinned
+        // against bundles built in a temp folder rather than fakes.
+        let tempRoot = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
+            .appendingPathComponent("uninstaller-gate-\(UUID().uuidString)", isDirectory: true)
+        func makeBundle(_ name: String, id: String?) -> (app: URL, contents: URL) {
+            let app = tempRoot.appendingPathComponent("\(name).app", isDirectory: true)
+            let contents = app.appendingPathComponent("Contents", isDirectory: true)
+            try? FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+            if let id {
+                (["CFBundleIdentifier": id, "CFBundleName": name] as NSDictionary)
+                    .write(to: contents.appendingPathComponent("Info.plist"), atomically: true)
+            }
+            return (app, contents)
+        }
+        let gateBundle = makeBundle("Sample", id: "com.example.realbundle")
+        let gateSelection = UninstallerSupport.selection(for: gateBundle.app)
+        expect(gateSelection?.bundleID == "com.example.realbundle"
+               && gateSelection?.url.path == gateBundle.app.standardizedFileURL.path,
+               "a plain bundle with a verified identifier is accepted")
+        expect(UninstallerSupport.selection(for: makeBundle("NoPlist", id: nil).app) == nil,
+               "a bundle without a readable identifier is refused")
+        expect(UninstallerSupport.selection(for: makeBundle("Weak", id: "notabundleid").app) == nil,
+               "a display-name identifier is refused: it could never claim user data")
+        expect(UninstallerSupport.selection(for: makeBundle("Shared", id: "com.segment.analytics").app) == nil,
+               "a shared-infrastructure identifier is refused even when a bundle really uses it")
+        expect(UninstallerSupport.verifiedBundleID("com.example.realbundle") == "com.example.realbundle"
+               && UninstallerSupport.verifiedBundleID("io.app") == nil,
+               "only a reverse-DNS identifier with named components is verified")
+        let linkedRoot = tempRoot.deletingLastPathComponent()
+            .appendingPathComponent("uninstaller-gate-link-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createSymbolicLink(at: linkedRoot, withDestinationURL: tempRoot)
+        expect(UninstallerSupport.selection(for: linkedRoot.appendingPathComponent("Sample.app")) == nil,
+               "a bundle reached through a symlinked folder is refused")
+        let aliasApp = tempRoot.appendingPathComponent("Alias.app")
+        try? FileManager.default.createSymbolicLink(at: aliasApp, withDestinationURL: gateBundle.app)
+        expect(UninstallerSupport.selection(for: aliasApp) == nil,
+               "an app that is itself a symlink is refused")
+        expect(URL(string: "https://example.com/Sample.app").map { UninstallerSupport.selection(for: $0) == nil }
+               ?? false,
+               "a web link is refused before any bundle is loaded")
+        // Bundle reads the identifier through the link, so the refusal is the
+        // removal-path guard on the plist, not a missing identifier.
+        let linkedPlistBundle = makeBundle("LinkedPlist", id: nil)
+        let outsidePlist = tempRoot.appendingPathComponent("Outside-Info.plist")
+        (["CFBundleIdentifier": "com.example.linkedplist", "CFBundleName": "LinkedPlist"] as NSDictionary)
+            .write(to: outsidePlist, atomically: true)
+        try? FileManager.default.createSymbolicLink(
+            at: linkedPlistBundle.contents.appendingPathComponent("Info.plist"), withDestinationURL: outsidePlist)
+        expect(UninstallerSupport.selection(for: linkedPlistBundle.app) == nil,
+               "a bundle whose Info.plist links out of it is refused")
+
+        // Exclusive is about the identifier, not the path: the app's own helper
+        // and the same bundle reached through a link are not rivals, but a
+        // sibling in the same folder that uses the identifier is.
+        let sibling = makeBundle("Sample Helper", id: "com.example.realbundle")
+        expect(UninstallerSupport.sharedDataIsExclusive(
+            selectedURL: gateBundle.app, bundleID: "com.example.realbundle",
+            knownApplications: [(url: gateBundle.app, bundleID: "com.example.realbundle")]),
+               "the app itself does not compete with its own shared data")
+        expect(!UninstallerSupport.sharedDataIsExclusive(
+            selectedURL: gateBundle.app, bundleID: "com.example.realbundle",
+            knownApplications: [(url: sibling.app, bundleID: "com.example.realbundle")]),
+               "a sibling sharing the identifier stops the data being blamed on this app")
+        expect(UninstallerSupport.sharedDataIsExclusive(
+            selectedURL: gateBundle.app, bundleID: "com.example.realbundle",
+            knownApplications: [(url: sibling.app, bundleID: "com.example.other")]),
+               "another app's identifier is not a conflict")
+        expect(UninstallerSupport.sharedDataIsExclusive(
+            selectedURL: gateBundle.app, bundleID: "com.example.realbundle",
+            knownApplications: [(url: gateBundle.contents.appendingPathComponent("Helpers/Helper.app"),
+                                 bundleID: "com.example.realbundle")]),
+               "a helper inside the bundle is part of the app, not a rival")
+        expect(UninstallerSupport.sharedDataIsExclusive(
+            selectedURL: gateBundle.app, bundleID: "com.example.realbundle",
+            knownApplications: [(url: linkedRoot.appendingPathComponent("Sample.app"),
+                                 bundleID: "com.example.realbundle")]),
+               "the same app reached through a symlink is not a rival")
+        expect(UninstallerSupport.sharedDataIsExclusive(
+            selectedURL: linkedRoot.appendingPathComponent("Sample.app"), bundleID: "com.example.realbundle",
+            knownApplications: [(url: gateBundle.app, bundleID: "com.example.realbundle")]),
+               "an app picked through a symlinked path is still not its own rival")
+        expect(!UninstallerSupport.sharedDataIsExclusive(
+            selectedURL: gateBundle.app, bundleID: "com.example.realbundle",
+            knownApplications: [(url: linkedRoot.appendingPathComponent("Sample Helper.app"),
+                                 bundleID: "com.example.realbundle")]),
+               "a sibling reached through a symlink is still a rival")
+        let lookalike = makeBundle("Sample.app Copy", id: "com.example.realbundle")
+        expect(!UninstallerSupport.sharedDataIsExclusive(
+            selectedURL: gateBundle.app, bundleID: "com.example.realbundle",
+            knownApplications: [(url: lookalike.app, bundleID: "com.example.realbundle")]),
+               "a sibling whose path merely starts like the app's is a rival, not a helper inside it")
+        expect(!UninstallerSupport.sharedDataIsExclusive(
+            selectedURL: gateBundle.app, bundleID: "com.example.realbundle",
+            knownApplications: [(url: sibling.app, bundleID: "COM.Example.RealBundle")]),
+               "identifiers are compared without regard to case")
+        expect(UninstallerSupport.exclusiveBundleIDs(
+            ["com.example.realbundle", "com.example.other"], selectedURL: gateBundle.app,
+            knownApplications: [(url: sibling.app, bundleID: "com.example.realbundle")])
+               == ["com.example.other"],
+               "only the identifiers no other known app uses are exclusive")
+
+        // Absence, exactly: an entry that exists is never absent, and a
+        // dangling link is still an entry.
+        expect(!UninstallerSupport.isConfirmedAbsent(at: gateBundle.contents.appendingPathComponent("Info.plist")),
+               "an entry that exists is not absent")
+        expect(UninstallerSupport.isConfirmedAbsent(at: tempRoot.appendingPathComponent("Missing.plist")),
+               "a path with no entry is absent")
+        let dangling = tempRoot.appendingPathComponent("dangling")
+        try? FileManager.default.createSymbolicLink(at: dangling,
+                                                    withDestinationURL: tempRoot.appendingPathComponent("nowhere"))
+        expect(!UninstallerSupport.isConfirmedAbsent(at: dangling),
+               "a dangling link is still an entry, so a removal may not call it absent")
+
+        // The bar's uninstall browse keeps exactly the apps the pickers offer.
+        expect(UninstallerSupport.acceptedApplicationIDs([
+            InstalledApps.InstalledApp(id: gateBundle.app.path, name: "Sample",
+                                       bundleID: "com.example.realbundle",
+                                       url: gateBundle.app, isSystem: false),
+            InstalledApps.InstalledApp(id: "/nowhere/Ghost.app", name: "Ghost",
+                                       bundleID: "com.example.ghost",
+                                       url: URL(fileURLWithPath: "/nowhere/Ghost.app"), isSystem: false),
+            InstalledApps.InstalledApp(id: "/System/Applications/Ghost.app", name: "Ghost",
+                                       bundleID: "com.apple.ghost",
+                                       url: URL(fileURLWithPath: "/System/Applications/Ghost.app"),
+                                       isSystem: true),
+        ]) == [gateBundle.app.path],
+               "the bar lists only the apps the same gate accepts")
+        try? FileManager.default.removeItem(at: tempRoot)
+        try? FileManager.default.removeItem(at: linkedRoot)
+
         // MARK: Homebrew command building and parsing
 
         expect(HomebrewPackageKind.allCases == [.cask, .formula],
@@ -4687,6 +5202,57 @@ struct MetricsTests {
                "Homebrew command output parser keeps package data from noisy output")
         expect((try? HomebrewParser.parseInfoCommandOutput("Warning: no JSON here")) == nil,
                "Homebrew command output parser rejects output without valid JSON")
+        let ownershipJSON = """
+        {
+          "casks": [
+            {
+              "token": "sample-tool",
+              "name": ["Sample Tool"],
+              "installed": "1.0",
+              "artifacts": [{ "app": ["Vendor/Sample.app"], "target": "/Applications/Sample.app" }]
+            },
+            {
+              "token": "renamed-tool",
+              "name": ["Renamed Tool"],
+              "installed": "2.0",
+              "artifacts": [{ "app": [{ "source": "Vendor/Original.app", "target": "Renamed.app" }] }]
+            },
+            {
+              "token": "default-app",
+              "name": ["Default App"],
+              "installed": "3.0",
+              "artifacts": [{ "app": ["Default.app"] }]
+            }
+          ]
+        }
+        """
+        let caskRecords = HomebrewParser.parseInstalledCaskRecords(ownershipJSON)
+        expect(caskRecords.count == 3,
+               "installed cask parser reads app artifact records")
+        expect(caskRecords.first(where: { $0.token == "sample-tool" })?.appPaths == ["/Applications/Sample.app"],
+               "cask ownership uses declared install target rather than source path")
+        expect(HomebrewOwnershipSupport.packageManagingApplication(
+            atPath: "/Applications/Sample.app", installed: caskRecords)?.id == "cask:sample-tool",
+               "cask ownership resolves an exact installed app path")
+        expect(HomebrewOwnershipSupport.packageManagingApplication(
+            atPath: "/opt/homebrew/Caskroom/sample-tool/1.0/Vendor/Sample.app",
+            installed: caskRecords) == nil,
+               "cask source path does not claim the staged app bundle")
+        expect(HomebrewOwnershipSupport.packageManagingApplication(
+            atPath: "/Applications/Renamed.app", installed: caskRecords)?.id == "cask:renamed-tool",
+               "cask ownership resolves per-app rename targets")
+        expect(HomebrewOwnershipSupport.packageManagingApplication(
+            atPath: "/Applications/Default.app", installed: caskRecords)?.id == "cask:default-app",
+               "cask ownership uses Homebrew's default Applications destination")
+        let conflictingCask = HomebrewCaskRecord(token: "other-cask",
+                                                  displayName: "Other Cask",
+                                                  installedVersion: "1.0",
+                                                  appFileNames: ["Sample.app"],
+                                                  appPaths: ["/Applications/Sample.app"])
+        expect(HomebrewOwnershipSupport.packageManagingApplication(
+            atPath: "/Applications/Sample.app",
+            installed: caskRecords + [conflictingCask]) == nil,
+               "ambiguous cask ownership refuses to delegate removal")
         let outdatedJSON = """
         {
           "formulae": [
@@ -4786,7 +5352,9 @@ struct MetricsTests {
             (.ko, .ko),
             (.zhHans, .zhHans),
             (.zhTW, .zhTW),
-            (.zhHK, .zhHK)
+            (.zhHK, .zhHK),
+            (.sk, .sk),
+            (.uk, .uk)
         ]
         expect(localizedStrings.count == AppLanguage.allCases.count, "all app languages are covered by tests")
         for (language, strings) in localizedStrings {
@@ -4802,6 +5370,64 @@ struct MetricsTests {
             expectFormat(strings.cutMovedPluralFormat, ["d"], "\(prefix) cut plural format")
             expectFormat(strings.uninstallerSelectedFormat, ["d", "d"], "\(prefix) uninstaller selected format")
             expectFormat(strings.uninstallerFreedFormat, ["@"], "\(prefix) uninstaller freed format")
+            // The last automatic pass is reported as one of these two lines with
+            // the failure sentence appended when the pass left items behind, so
+            // both formats must keep their value and the sentence must exist.
+            expectFormat(strings.cleanerScheduleLastFormat, ["@"],
+                         "\(prefix) cleaner freed line format")
+            expectFormat(strings.cleanerScheduleRanFormat, ["@"],
+                         "\(prefix) cleaner last run line format")
+            expect(!strings.uninstallerSomeFailed.isEmpty,
+                   "\(prefix) cleaner failure sentence is present")
+
+            // The Settings window has one map: the sidebar draws its rows from
+            // it and the command bar searches it. Every page has to be in it
+            // exactly once, or a page would be reachable from neither surface.
+            let settingsPrefix = "settings \(language.rawValue)"
+            let directory = SettingsDirectory.allItems(strings, language: language,
+                                                       superKeySource: .capsLock)
+            let listedPages = directory.map(\.page)
+            expect(Set(listedPages).count == listedPages.count,
+                   "\(settingsPrefix) the directory lists no page twice")
+            expect(directory.allSatisfy { !$0.title.isEmpty && !$0.icon.isEmpty },
+                   "\(settingsPrefix) every directory row has a title and an icon")
+            expect(Set(listedPages).union(SettingsDirectory.pagesWithoutRow)
+                    .union(SettingsDirectory.pagesCoveredByActionRows)
+                    == Set(SettingsPage.allCases),
+                   "\(settingsPrefix) every Settings page is listed or documented as unlisted")
+            // The Dynamic Island has a real page now, so it has a row like any
+            // other page and nothing is left out of the sidebar.
+            expect(SettingsDirectory.pagesWithoutRow.isEmpty && listedPages.contains(.notch),
+                   "\(settingsPrefix) the Dynamic Island page has a row")
+            let hub = FeatureStrings.hub(language)
+            expect(directory.first { $0.page == .mouseButtonShortcuts }?.title == hub.titleMouseButtons
+                    && directory.first { $0.page == .superKey }?.title == hub.titleSuperKey
+                    && directory.first { $0.page == .dashboard }?.title
+                        == FeatureStrings.performanceSuite(language).dashboardTab,
+                   "\(settingsPrefix) sidebar titles come from the localized catalog")
+            let settingsIDs = directory.map { "settings.\($0.page)" }
+            expect(Set(settingsIDs).count == settingsIDs.count,
+                   "\(settingsPrefix) every page keeps one command bar id")
+            if language == .enUS {
+                let overclocking = directory.first { $0.page == .amdOverclocking }
+                expect(overclocking.map {
+                    SettingsSearchSupport.matches(query: "undervolt", title: $0.title,
+                                                  keywords: $0.keywords)
+                } == true,
+                       "a directory page is found by a word for what lives inside it")
+                let whatsApp = directory.first { $0.page == .whatsAppDownloads }
+                expect(whatsApp.map {
+                    SettingsSearchSupport.matches(query: "whatsapp", title: $0.title,
+                                                  keywords: $0.keywords)
+                } == true,
+                       "the WhatsApp downloads page is findable by name")
+                let island = directory.first { $0.page == .notch }
+                expect(island.map {
+                    SettingsSearchSupport.matches(query: "notch", title: $0.title,
+                                                  keywords: $0.keywords)
+                } == true,
+                       "the Dynamic Island page is findable by the word notch")
+            }
             expectFormat(strings.shelfSelectedFormat, ["d"], "\(prefix) shelf selection format")
             expectFormat(strings.powerAdapterMaxFormat, ["@"], "\(prefix) adapter max format")
             expectFormat(strings.mixerInputErrorFormat, ["@"], "\(prefix) mixer input error format")
@@ -5182,7 +5808,7 @@ struct MetricsTests {
 
         // MARK: Features hub catalog
 
-        expect(AppFeature.allCases.count == 53, "feature catalog has 53 features")
+        expect(AppFeature.allCases.count == 67, "feature catalog has 67 features")
         expect(Set(AppFeature.allCases.map(\.rawValue)).count == AppFeature.allCases.count,
                "feature ids are unique")
         expect(AppFeature.allCases.map(\.rawValue) == [
@@ -5194,7 +5820,9 @@ struct MetricsTests {
             "keepAwake", "brightness", "extraBrightness",
             "quickLauncher", "quickToggles", "colorPicker", "screenOCR", "cleaningMode", "mediaTools",
             "cleaner", "uninstaller", "homebrew", "appUpdates", "whatsAppDownloads", "screenshot", "screenRecorder", "cameraPreview", "radialMenu",
-            "scratchpad",
+            "scratchpad", "killProcess", "commandBar",
+            "notch", "notchCalendar", "notchNotifications", "notchGestures", "notchTimer", "notchAccessories", "notchLyrics",
+            "notchLiveEqualizer", "notchQueue", "notchDownloads", "notchWatch", "notchMascot",
             "monitorCPU", "monitorGPU", "monitorMemory", "monitorNetwork", "monitorDisk", "monitorPower",
             "monitorInsights", "monitorAnalytics", "monitorEnergy", "monitorNetworkDetails",
         ], "feature ids are stable (they persist inside availability keys)")
@@ -5391,7 +6019,7 @@ struct MetricsTests {
                    "no em-dash in visible radial menu strings (\(language.rawValue))")
             let scratchpadValues = Mirror(reflecting: FeatureStrings.scratchpad(language)).children
                 .compactMap { $0.value as? String }
-            expect(scratchpadValues.count == 15 && scratchpadValues.allSatisfy { !$0.isEmpty },
+            expect(scratchpadValues.count == 44 && scratchpadValues.allSatisfy { !$0.isEmpty },
                    "every scratchpad string is set for \(language.rawValue)")
             expect(scratchpadValues.allSatisfy { !$0.contains("—") },
                    "no em-dash in visible scratchpad strings (\(language.rawValue))")
@@ -5414,6 +6042,8 @@ struct MetricsTests {
                 case .zhHans: return .zhHans
                 case .zhTW: return .zhTW
                 case .zhHK: return .zhHK
+                case .sk: return .sk
+                case .uk: return .uk
                 }
             }()
             expect(!strings.obPurposeTitle.isEmpty && !strings.obPurposeBody.isEmpty
@@ -6718,6 +7348,8 @@ struct MetricsTests {
                 && !backupKeys.contains(DefaultsKey.sleepDisabledFlag)
                 && !backupKeys.contains(DefaultsKey.micMuteActive)
                 && !backupKeys.contains(DefaultsKey.cleanerLastAutoRun)
+                && !backupKeys.contains(DefaultsKey.cleanerLastAutoFreed)
+                && !backupKeys.contains(DefaultsKey.cleanerLastAutoFailed)
                 && !backupKeys.contains(DefaultsKey.statusItemPlacementGeneration),
                "backup never carries private content, live state or machine markers")
         expect(backupKeys.contains(DefaultsKey.hasOnboarded)

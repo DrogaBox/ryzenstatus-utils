@@ -32,6 +32,8 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -191,5 +193,29 @@ extension CameraPreviewFeatureStrings {
         noCameraMessage: "未偵測到相機",
         permName: "相機",
         permExplain: "只在預覽視窗中顯示相機畫面，讓你在通話前確認自己的狀態。不會錄製任何內容，也不會離開你的 Mac。"
+    )
+
+    static let sk = CameraPreviewFeatureStrings(
+        pageTitle: "Náhľad kamery",
+        hubDescription: "Otvorí plávajúce zrkadlo s vašou kamerou",
+        panelCaption: "Pozrite sa, ako vyzeráte, ešte pred hovorom",
+        openButton: "Otvoriť náhľad",
+        cameraMenuLabel: "Kamera",
+        deniedMessage: "Prístup RyzenStatusu ku kamere je vypnutý v Systémových nastaveniach.",
+        noCameraMessage: "Nenašla sa žiadna kamera",
+        permName: "Kamera",
+        permExplain: "Zobrazuje obraz z kamery iba v okne náhľadu, aby ste si pred hovorom overili, ako vyzeráte. Nič sa nenahráva ani neopúšťa váš Mac."
+    )
+
+    static let uk = CameraPreviewFeatureStrings(
+        pageTitle: "Попередній перегляд камери",
+        hubDescription: "Відкриває плаваюче дзеркало з вашою камерою",
+        panelCaption: "Перевірте, як ви виглядаєте, перед дзвінком",
+        openButton: "Відкрити перегляд",
+        cameraMenuLabel: "Камера",
+        deniedMessage: "Доступ RyzenStatus до камери вимкнено в Системних параметрах.",
+        noCameraMessage: "Камеру не виявлено",
+        permName: "Камера",
+        permExplain: "Показує зображення з камери лише у вікні перегляду, щоб ви могли перевірити, як виглядаєте перед дзвінком. Нічого не записується і не залишає ваш Mac."
     )
 }

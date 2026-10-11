@@ -43,6 +43,8 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -358,5 +360,53 @@ extension MouseButtonFeatureStrings {
         rowWheelNote: "該按鍵目前用於打開放射狀選單，快捷鍵暫不生效。",
         manageButton: "設定…",
         panelCaption: "滑鼠的額外按鍵會按下你選擇的按鍵組合。"
+    )
+
+    static let sk = MouseButtonFeatureStrings(
+        pageTitle: "Skratky tlačidiel myši",
+        hubDescription: "Ďalšie tlačidlá myši stlačia vami zvolenú kombináciu klávesov.",
+        enableLabel: "Používať ďalšie tlačidlá ako skratky",
+        enableCaption: "Každé ďalšie tlačidlo myši môže za vás stlačiť kombináciu klávesov. Kým má tlačidlo skratku, prestane robiť to, čo robilo predtým.",
+        addButton: "Pridať tlačidlo myši",
+        captureWaiting: "Teraz kliknite tlačidlom myši, ktoré chcete použiť.",
+        captureCancel: "Zrušiť",
+        captureBlind: "RyzenStatus teraz nemôže sledovať myš.",
+        captureUnsupported: "Toto tlačidlo nemôže mať skratku. Môžu ju mať iba ďalšie tlačidlá, napríklad bočná dvojica.",
+        captureWheel: "Toto tlačidlo už otvára kruhovú ponuku. Vyberte iné alebo ho najprv uvoľnite tam.",
+        captureExists: "Toto tlačidlo už je v zozname nižšie.",
+        captureHint: "Ak sa po stlačení nič nestane, tlačidlo si možno prevzal vlastný softvér myši.",
+        backButtonName: "Bočné tlačidlo Späť",
+        forwardButtonName: "Bočné tlačidlo Dopredu",
+        otherButtonFormat: "Tlačidlo %d",
+        setShortcutButton: "Nastaviť skratku",
+        removeButton: "Odstrániť",
+        emptyCaption: "Zatiaľ žiadne tlačidlá. Pridajte jedno a priraďte mu kombináciu klávesov.",
+        rowWheelNote: "Toto tlačidlo teraz otvára kruhovú ponuku, preto skratka čaká.",
+        manageButton: "Nastaviť…",
+        panelCaption: "Ďalšie tlačidlá myši stlačia vami zvolené kombinácie klávesov."
+    )
+
+    static let uk = MouseButtonFeatureStrings(
+        pageTitle: "Скорочення для кнопок миші",
+        hubDescription: "Додаткові кнопки миші натискають вибране вами поєднання клавіш.",
+        enableLabel: "Використовувати додаткові кнопки як скорочення",
+        enableCaption: "Кожна додаткова кнопка миші може натискати поєднання клавіш за вас. Поки кнопка має скорочення, вона перестає робити те, що робила раніше.",
+        addButton: "Додати кнопку миші",
+        captureWaiting: "Тепер натисніть кнопку миші, яку хочете використати.",
+        captureCancel: "Скасувати",
+        captureBlind: "RyzenStatus зараз не може стежити за мишею.",
+        captureUnsupported: "Цій кнопці не можна призначити скорочення. Це можливо лише для додаткових кнопок, як-от бокової пари.",
+        captureWheel: "Ця кнопка вже відкриває радіальне меню. Виберіть іншу або спершу звільніть її там.",
+        captureExists: "Ця кнопка вже є в списку нижче.",
+        captureHint: "Якщо після натискання нічого не відбувається, цю кнопку могло перехопити власне програмне забезпечення миші.",
+        backButtonName: "Бокова кнопка «Назад»",
+        forwardButtonName: "Бокова кнопка «Вперед»",
+        otherButtonFormat: "Кнопка %d",
+        setShortcutButton: "Призначити скорочення",
+        removeButton: "Видалити",
+        emptyCaption: "Кнопок ще немає. Додайте одну й призначте їй поєднання клавіш.",
+        rowWheelNote: "Ця кнопка зараз відкриває радіальне меню, тому скорочення чекає.",
+        manageButton: "Налаштувати…",
+        panelCaption: "Додаткові кнопки миші натискають вибрані вами поєднання клавіш."
     )
 }

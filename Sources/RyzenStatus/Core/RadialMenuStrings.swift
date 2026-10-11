@@ -37,6 +37,9 @@ struct RadialMenuFeatureStrings {
     let mediaPlayPause: String
     let mediaPrevious: String
     let mediaNext: String
+    var mediaNowPlaying: String { "Now Playing" }
+    var mediaNothingPlaying: String { "Nothing playing" }
+    var mediaOpenAppFormat: String { "Open %@" }
     let submenuCaption: String
     let saveButton: String
     let deleteButton: String
@@ -66,6 +69,8 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -680,5 +685,99 @@ extension RadialMenuFeatureStrings {
         mouseTriggerBack: "側面上一頁鍵",
         mouseTriggerForward: "側面下一頁鍵",
         mouseTriggerWarning: "開啟期間，該按鈕在 App 裡不再上一頁或下一頁。如果你用它來瀏覽，請保持關閉。"
+    )
+
+    static let sk = RadialMenuFeatureStrings(
+        pageTitle: "Kruhová ponuka",
+        hubDescription: "Otvorí okolo kurzora koleso s vašimi obľúbenými akciami",
+        enableLabel: "Používať kruhovú ponuku",
+        enableCaption: "Podržte skratku, ukážte na akciu a pustite. Krátke stlačenie nechá koleso otvorené.",
+        positionLabel: "Otvára sa",
+        positionPointer: "Pri kurzore",
+        positionCenter: "V strede obrazovky",
+        tryButton: "Vyskúšať",
+        actionsHeader: "Akcie",
+        addButton: "Pridať akciu",
+        limitCaption: "Koleso pojme najviac 12 akcií.",
+        emptyCaption: "Zatiaľ tu nie sú žiadne akcie.",
+        backButton: "Späť",
+        editActionsButton: "Upraviť akcie",
+        nameLabel: "Názov",
+        automaticLabel: "Automaticky",
+        iconLabel: "Ikona",
+        actionLabel: "Akcia",
+        kindApp: "Otvoriť aplikáciu",
+        kindFile: "Otvoriť súbor alebo priečinok",
+        kindURL: "Otvoriť odkaz",
+        kindShortcut: "Stlačiť skratku",
+        kindTool: "Nástroj RyzenStatus",
+        kindMedia: "Ovládanie médií",
+        kindSubmenu: "Podponuka",
+        chooseButton: "Vybrať…",
+        urlPlaceholder: "example.com",
+        urlInvalid: "Zadajte platný odkaz.",
+        toolLabel: "Nástroj",
+        mediaLabel: "Ovládanie",
+        mediaPlayPause: "Prehrať alebo pozastaviť",
+        mediaPrevious: "Predchádzajúca skladba",
+        mediaNext: "Ďalšia skladba",
+        submenuCaption: "Otvorí druhé koleso s vlastnými akciami.",
+        saveButton: "Uložiť",
+        deleteButton: "Odstrániť",
+        permissionCaption: "Akcie s klávesmi a spúšťanie bočným tlačidlom myši potrebujú povolenie Prístupnosť.",
+        manageButton: "Spravovať ponuku",
+        panelCaption: "Vaše obľúbené akcie na kolese",
+        mouseTriggerLabel: "Tlačidlo myši",
+        mouseTriggerOff: "Vypnuté",
+        mouseTriggerBack: "Bočné tlačidlo Späť",
+        mouseTriggerForward: "Bočné tlačidlo Dopredu",
+        mouseTriggerWarning: "Kým je to zapnuté, toto tlačidlo už v aplikáciách nejde späť ani dopredu. Ak ním navigujete, nechajte to vypnuté."
+    )
+
+    static let uk = RadialMenuFeatureStrings(
+        pageTitle: "Радіальне меню",
+        hubDescription: "Відкриває навколо вказівника колесо з вашими улюбленими діями",
+        enableLabel: "Використовувати радіальне меню",
+        enableCaption: "Утримуйте скорочення, наведіть на дію та відпустіть. Коротке натискання залишає колесо відкритим.",
+        positionLabel: "Відкривається",
+        positionPointer: "Біля вказівника",
+        positionCenter: "У центрі екрана",
+        tryButton: "Спробувати",
+        actionsHeader: "Дії",
+        addButton: "Додати дію",
+        limitCaption: "Колесо вміщує до 12 дій.",
+        emptyCaption: "Тут ще немає дій.",
+        backButton: "Назад",
+        editActionsButton: "Редагувати дії",
+        nameLabel: "Назва",
+        automaticLabel: "Автоматично",
+        iconLabel: "Значок",
+        actionLabel: "Дія",
+        kindApp: "Відкрити програму",
+        kindFile: "Відкрити файл або папку",
+        kindURL: "Відкрити посилання",
+        kindShortcut: "Натиснути скорочення",
+        kindTool: "Інструмент RyzenStatus",
+        kindMedia: "Керування медіа",
+        kindSubmenu: "Підменю",
+        chooseButton: "Вибрати…",
+        urlPlaceholder: "example.com",
+        urlInvalid: "Введіть дійсне посилання.",
+        toolLabel: "Інструмент",
+        mediaLabel: "Керування",
+        mediaPlayPause: "Відтворити або призупинити",
+        mediaPrevious: "Попередній трек",
+        mediaNext: "Наступний трек",
+        submenuCaption: "Відкриває друге колесо з власними діями.",
+        saveButton: "Зберегти",
+        deleteButton: "Видалити",
+        permissionCaption: "Дії з клавішами та запуск боковою кнопкою миші потребують дозволу «Доступність».",
+        manageButton: "Керувати меню",
+        panelCaption: "Ваші улюблені дії на колесі",
+        mouseTriggerLabel: "Кнопка миші",
+        mouseTriggerOff: "Вимк.",
+        mouseTriggerBack: "Бокова кнопка «Назад»",
+        mouseTriggerForward: "Бокова кнопка «Вперед»",
+        mouseTriggerWarning: "Поки це ввімкнено, ця кнопка більше не переходить назад чи вперед у програмах. Якщо ви нею користуєтеся для навігації, залиште це вимкненим."
     )
 }

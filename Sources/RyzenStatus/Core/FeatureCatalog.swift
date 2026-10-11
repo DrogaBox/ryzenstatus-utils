@@ -18,30 +18,41 @@ enum AppFeature: String, CaseIterable {
     // Mouse and keyboard
     case scrollInverter, smoothScroll, mouseNavigation, middleClick, keyboardDebounce, textSnippets,
          mouseButtonShortcuts, superKey
+    case quitWindowProtection
     // Clipboard and files
     case clipboardHistory, pastePlain, finderCutPaste, shelf, urlCleaner
+    case finderRename
+    case diskImageInstaller
     // Sound
     case mixer, soundOutputSwitcher, micMute, musicBlock, nowPlaying
+    case audioPriority
     // Energy and display
     case keepAwake, brightness, extraBrightness
+    case bluetoothSleep
     // Tools
     case quickLauncher, quickToggles, colorPicker, screenOCR, cleaningMode, mediaTools,
-         cleaner, uninstaller, homebrew, appUpdates, whatsAppDownloads, screenshot, screenRecorder, cameraPreview, radialMenu, scratchpad
+         cleaner, uninstaller, homebrew, appUpdates, whatsAppDownloads, screenshot, screenRecorder, cameraPreview, radialMenu, scratchpad, killProcess, commandBar
+    case wallpaper
+    case portManager
+    // Dynamic Island
+    case notch, notchCalendar, notchNotifications, notchGestures, notchTimer, notchAccessories, notchLyrics,
+         notchLiveEqualizer, notchQueue, notchDownloads, notchWatch, notchMascot
     // System monitor, one entry per metric family (temperatures live with
     // their parent metric: CPU temp with CPU, battery temp with power).
     case monitorCPU, monitorGPU, monitorMemory, monitorNetwork, monitorDisk, monitorPower,
          monitorInsights, monitorAnalytics, monitorEnergy, monitorNetworkDetails
+    case connectedDevices
 }
 
 /// Hub sections, in display order.
 enum FeatureGroup: String, CaseIterable {
-    case windowsDock, mouseKeyboard, clipboardFiles, sound, energyDisplay, tools, monitor
+    case windowsDock, mouseKeyboard, clipboardFiles, sound, energyDisplay, tools, dynamicIsland, monitor
 }
 
 /// System permissions surfaced by the hub's transparency portal.
 enum AppPermission: String, CaseIterable {
     case accessibility, screenRecording, fullDiskAccess, filesAndFolders, notifications,
-         automationFinder, automationTerminal, audioCapture, microphone, camera
+         automationFinder, automationTerminal, audioCapture, microphone, camera, calendar
 }
 
 extension AppFeature {
@@ -52,17 +63,36 @@ extension AppFeature {
         case .scrollInverter, .smoothScroll, .mouseNavigation, .middleClick, .keyboardDebounce,
              .textSnippets, .mouseButtonShortcuts, .superKey:
             return .mouseKeyboard
+        case .quitWindowProtection:
+            return .mouseKeyboard
         case .clipboardHistory, .pastePlain, .finderCutPaste, .shelf, .urlCleaner:
+            return .clipboardFiles
+        case .diskImageInstaller:
+            return .clipboardFiles
+        case .finderRename:
             return .clipboardFiles
         case .mixer, .soundOutputSwitcher, .micMute, .musicBlock, .nowPlaying:
             return .sound
+        case .audioPriority:
+            return .sound
         case .keepAwake, .brightness, .extraBrightness:
             return .energyDisplay
+        case .bluetoothSleep:
+            return .energyDisplay
         case .quickLauncher, .quickToggles, .colorPicker, .screenOCR, .cleaningMode, .mediaTools,
-             .cleaner, .uninstaller, .homebrew, .appUpdates, .whatsAppDownloads, .screenshot, .screenRecorder, .cameraPreview, .radialMenu, .scratchpad:
+             .cleaner, .uninstaller, .homebrew, .appUpdates, .whatsAppDownloads, .screenshot, .screenRecorder, .cameraPreview, .radialMenu, .scratchpad, .killProcess, .commandBar:
             return .tools
+        case .wallpaper:
+            return .tools
+        case .portManager:
+            return .tools
+        case .notch, .notchCalendar, .notchNotifications, .notchGestures, .notchTimer, .notchAccessories,
+             .notchLyrics, .notchLiveEqualizer, .notchQueue, .notchDownloads, .notchWatch, .notchMascot:
+            return .dynamicIsland
         case .monitorCPU, .monitorGPU, .monitorMemory, .monitorNetwork, .monitorDisk, .monitorPower,
              .monitorInsights, .monitorAnalytics, .monitorEnergy, .monitorNetworkDetails:
+            return .monitor
+        case .connectedDevices:
             return .monitor
         }
     }
@@ -83,19 +113,24 @@ extension AppFeature {
         case .textSnippets: return "text.append"
         case .mouseButtonShortcuts: return "button.programmable"
         case .superKey: return "capslock"
+        case .quitWindowProtection: return "shield.lefthalf.filled"
         case .clipboardHistory: return "doc.on.clipboard"
         case .pastePlain: return "doc.plaintext"
         case .finderCutPaste: return "scissors"
+        case .finderRename: return "pencil"
         case .shelf: return "tray.full"
         case .urlCleaner: return "link"
+        case .diskImageInstaller: return "externaldrive.badge.plus"
         case .mixer: return "slider.horizontal.3"
         case .soundOutputSwitcher: return "hifispeaker"
+        case .audioPriority: return "list.number"
         case .micMute: return "mic.slash"
         case .musicBlock: return "music.note"
         case .nowPlaying: return "music.note"
         case .keepAwake: return "moon.zzz.fill"
         case .brightness: return "display.2"
         case .extraBrightness: return "sun.max.fill"
+        case .bluetoothSleep: return "wave.3.right.circle"
         case .quickLauncher: return "wand.and.rays"
         case .quickToggles: return "togglepower"
         case .colorPicker: return "eyedropper"
@@ -112,6 +147,22 @@ extension AppFeature {
         case .cameraPreview: return "web.camera"
         case .radialMenu: return "circle.grid.cross"
         case .scratchpad: return "note.text"
+        case .killProcess: return "xmark.octagon"
+        case .portManager: return "network"
+        case .commandBar: return "command"
+        case .wallpaper: return "photo.on.rectangle"
+        case .notch: return "macbook"
+        case .notchGestures: return "hand.draw"
+        case .notchTimer: return "timer"
+        case .notchAccessories: return "battery.25percent"
+        case .notchLyrics: return "quote.bubble"
+        case .notchLiveEqualizer: return "waveform"
+        case .notchQueue: return "list.bullet"
+        case .notchDownloads: return "arrow.down.circle"
+        case .notchNotifications: return "bell"
+        case .notchCalendar: return "calendar"
+        case .notchWatch: return "eye"
+        case .notchMascot: return "face.smiling"
         case .monitorCPU: return "cpu"
         case .monitorGPU: return "rectangle.connected.to.line.below"
         case .monitorMemory: return "memorychip"
@@ -122,6 +173,7 @@ extension AppFeature {
         case .monitorAnalytics: return "chart.xyaxis.line"
         case .monitorEnergy: return "bolt.batteryblock"
         case .monitorNetworkDetails: return "network"
+        case .connectedDevices: return "cable.connector"
         }
     }
 
@@ -131,8 +183,12 @@ extension AppFeature {
 
     /// Availability read straight from defaults. Existing features stay
     /// available on update; explicit beta opt-ins may start unavailable.
+    func isAvailable(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: availabilityKey)
+    }
+
     var isAvailable: Bool {
-        UserDefaults.standard.bool(forKey: availabilityKey)
+        isAvailable(in: .standard)
     }
 
     /// The feature's own enable keys; any one being true means the feature is
@@ -157,20 +213,45 @@ extension AppFeature {
         case .textSnippets: return [DefaultsKey.textSnippetsEnabled, DefaultsKey.snippetLibraryEnabled]
         case .mouseButtonShortcuts: return [DefaultsKey.mouseButtonShortcutsEnabled]
         case .superKey: return [DefaultsKey.superKeyEnabled]
+        case .quitWindowProtection:
+            return [DefaultsKey.quitProtectionQuitEnabled, DefaultsKey.quitProtectionCloseEnabled]
         case .radialMenu: return [DefaultsKey.radialMenuEnabled]
         case .clipboardHistory: return [DefaultsKey.clipboardHistoryEnabled]
         case .pastePlain: return [DefaultsKey.pastePlainEnabled]
         case .finderCutPaste: return [DefaultsKey.finderCutPasteEnabled]
+        case .finderRename: return [DefaultsKey.finderRenameEnabled]
         case .shelf: return [DefaultsKey.shelfEnabled]
         case .urlCleaner: return [DefaultsKey.urlCleanerEnabled]
         case .soundOutputSwitcher: return [DefaultsKey.soundOutputSwitcherEnabled]
+        case .audioPriority: return [DefaultsKey.audioPriorityOutputEnabled,
+                                     DefaultsKey.audioPriorityInputEnabled]
         case .musicBlock: return [DefaultsKey.musicBlockEnabled]
         case .nowPlaying: return [DefaultsKey.nowPlayingEnabled]
         case .brightness: return [DefaultsKey.brightnessControlEnabled]
         case .extraBrightness: return [DefaultsKey.extraBrightnessEnabled]
+        case .bluetoothSleep: return [DefaultsKey.bluetoothSleepEnabled]
+        case .commandBar: return [DefaultsKey.commandBarEnabled]
+        case .notch: return [DefaultsKey.notchEnabled]
+        case .notchGestures: return [DefaultsKey.notchGesturesEnabled]
+        case .notchTimer: return [DefaultsKey.notchTimerEnabled]
+        case .notchAccessories: return [DefaultsKey.notchAccessoriesEnabled]
+        case .notchLyrics: return [DefaultsKey.notchLyricsEnabled]
+        case .notchLiveEqualizer: return [DefaultsKey.notchLiveEqualizer]
+        case .notchQueue: return [DefaultsKey.notchQueueEnabled]
+        case .notchDownloads: return [DefaultsKey.notchDownloadsEnabled]
+        case .notchNotifications: return [DefaultsKey.notchNotificationsEnabled]
+        case .notchCalendar: return [DefaultsKey.notchCalendarEnabled]
+        case .notchWatch: return [DefaultsKey.notchWatchEnabled]
+        case .notchMascot: return [DefaultsKey.notchMascotEnabled]
+        // On demand: a panel tile and a Settings page, or a System card row.
+        case .portManager, .connectedDevices: return []
+        // On demand: the installer answers each mounted image, and the
+        // wallpaper gallery acts only when a picture is chosen.
+        case .diskImageInstaller, .wallpaper:
+            return []
         case .windowLayout, .mixer, .micMute, .keepAwake,
              .quickLauncher, .quickToggles, .colorPicker, .screenOCR, .cleaningMode, .mediaTools,
-             .cleaner, .uninstaller, .homebrew, .appUpdates, .whatsAppDownloads, .screenshot, .screenRecorder, .cameraPreview, .scratchpad,
+             .cleaner, .uninstaller, .homebrew, .appUpdates, .whatsAppDownloads, .screenshot, .screenRecorder, .cameraPreview, .scratchpad, .killProcess,
              .monitorCPU, .monitorGPU, .monitorMemory, .monitorNetwork, .monitorDisk, .monitorPower,
              .monitorInsights, .monitorAnalytics, .monitorEnergy, .monitorNetworkDetails:
             return []
@@ -188,6 +269,17 @@ extension AppFeature {
              .windowLayout, .autoQuit, .cleaningMode, .pastePlain, .radialMenu:
             return [.accessibility]
         case .finderCutPaste: return [.accessibility, .automationFinder]
+        // The tap reads Finder's focused element to leave text fields alone.
+        case .finderRename: return [.accessibility]
+        // Device priority only changes the default devices; Bluetooth on
+        // sleep only flips the controller's power. Neither needs a grant.
+        case .audioPriority, .bluetoothSleep: return []
+        // The tap watches ⌘Q and ⌘W only, through Accessibility.
+        case .quitWindowProtection: return [.accessibility]
+        // Copying into Applications needs no grant this fork tracks (upstream
+        // lists App Management, which this catalog does not model); the
+        // gallery reads Apple's stills and pictures the user picked.
+        case .diskImageInstaller, .wallpaper: return []
         // Only emptying the Trash asks the Finder; every other quick toggle
         // (dark mode included) works without a permission.
         case .quickToggles: return [.automationFinder]
@@ -206,15 +298,24 @@ extension AppFeature {
         case .homebrew: return [.automationTerminal]
         case .appUpdates: return [.notifications]
         case .whatsAppDownloads: return [.filesAndFolders, .notifications]
-        case .mixer: return [.audioCapture]
+        case .mixer, .notchLiveEqualizer: return [.audioCapture]
         case .monitorCPU, .monitorMemory, .monitorDisk, .monitorPower: return [.notifications]
         // GPU alerts send notifications (MonitorAlertService.evaluate
         // handles both GPU keys), so the feature must advertise them or the
         // permissions portal and activeFeatures stay blind to GPU alerting.
         case .monitorGPU: return [.notifications]
+        case .notchCalendar: return [.calendar]
+        case .notchNotifications: return [.accessibility]
+        case .notchDownloads: return [.filesAndFolders]
+        case .notchWatch: return [.screenRecording, .notifications]
+        case .notch: return [.accessibility]
+        // Port Manager reads `lsof` and terminates through Kill Process;
+        // Connected Devices reads the IOKit registry. Neither needs a grant.
+        case .portManager, .connectedDevices: return []
         case .clipboardHistory, .shelf, .urlCleaner, .soundOutputSwitcher, .musicBlock, .nowPlaying,
              .extraBrightness, .quickLauncher, .colorPicker, .micMute, .mediaTools,
-             .scratchpad, .monitorNetwork,
+             .scratchpad, .killProcess, .monitorNetwork, .commandBar,
+             .notchGestures, .notchTimer, .notchAccessories, .notchLyrics, .notchMascot, .notchQueue,
              .monitorInsights, .monitorAnalytics, .monitorEnergy, .monitorNetworkDetails:
             return []
         }
@@ -242,9 +343,17 @@ extension AppFeature {
     /// features and explicit betas ship uninstalled.
     static var availabilityDefaults: [String: Any] {
         Dictionary(uniqueKeysWithValues: allCases.map {
-            ($0.availabilityKey, true)
+            ($0.availabilityKey, !optInFeatures.contains($0))
         })
     }
+
+    /// Features an update must not install on its own: they arrive through
+    /// the Features page. The disk image installer would start offering to
+    /// install every image that is opened, and the wallpaper gallery would
+    /// grow the panel by a tab.
+    static let optInFeatures: Set<AppFeature> = [
+        .diskImageInstaller, .wallpaper,
+    ]
 
     /// Features that are available, engaged and using `permission` right now.
     /// Readers are injectable so the logic stays testable without touching
@@ -292,6 +401,9 @@ extension AppFeature {
                     && boolFor(DefaultsKey.appUpdatesNotify)
             case (.whatsAppDownloads, .notifications):
                 return false
+            case (.notchLiveEqualizer, .audioCapture):
+                return isAvailable(.notch) && boolFor(DefaultsKey.notchEnabled)
+                    && !(stringFor(DefaultsKey.notchHiddenModules) ?? "").split(separator: ",").contains("music")
             default:
                 return true
             }
@@ -341,6 +453,94 @@ extension AppPermission {
         case .audioCapture: return "waveform"
         case .microphone: return "mic"
         case .camera: return "camera"
+        case .calendar: return "calendar"
+        }
+    }
+}
+
+/// The name every surface shows for a feature. Lives here (Foundation-only,
+/// beside the catalog itself) so the Settings directory and the unit harness
+/// can name a feature without pulling the hub's SwiftUI view in.
+extension AppFeature {
+    /// Titles reuse the strings users already see across the app; only names
+    /// with no clean existing form live in the hub strings.
+    func hubTitle(_ s: Strings, hub: FeatureHubStrings) -> String {
+        switch self {
+        case .switcher: return s.switcherSection
+        case .dockPreview: return s.dockPreviewName
+        case .dockClick: return hub.titleDockClick
+        case .windowMaximizer: return s.windowMaximizeName
+        case .windowLayout: return FeatureStrings.windowLayout(L10n.shared.language).title
+        case .autoQuit: return s.autoQuitName
+        case .scrollInverter: return s.invertMouseScroll
+        case .smoothScroll: return s.smoothScrollName
+        case .mouseNavigation: return hub.titleMouseNavigation
+        case .middleClick: return s.middleClickSection
+        case .keyboardDebounce: return s.keyDebounceName
+        case .mouseButtonShortcuts: return hub.titleMouseButtons
+        case .superKey: return hub.titleSuperKey
+        case .quitWindowProtection: return FeatureStrings.quitProtection(L10n.shared.language).name
+        case .textSnippets: return FeatureStrings.snippets(L10n.shared.language).pageTitle
+        case .clipboardHistory: return FeatureStrings.clipboard(L10n.shared.language).title
+        case .pastePlain: return s.pastePlainName
+        case .finderCutPaste: return s.cutPasteName
+        case .finderRename: return FeatureStrings.finderRename(L10n.shared.language).hubTitle
+        case .shelf: return s.shelfName
+        case .urlCleaner: return s.urlCleanerName
+        case .diskImageInstaller: return FeatureStrings.diskImageInstaller(L10n.shared.language).title
+        case .mixer: return s.mixerSection
+        case .soundOutputSwitcher: return s.soundOutputSwitcherTitle
+        case .audioPriority: return hub.titleAudioPriority
+        case .micMute: return s.micMuteName
+        case .musicBlock: return hub.titleMusicBlock
+        case .nowPlaying: return hub.titleNowPlaying
+        case .keepAwake: return s.keepAwakeTitle
+        case .brightness: return FeatureStrings.brightness(L10n.shared.language).pageTitle
+        case .extraBrightness: return s.extraBrightnessName
+        case .bluetoothSleep: return FeatureStrings.bluetoothSleep(L10n.shared.language).pageTitle
+        case .quickLauncher: return s.launcherName
+        case .quickToggles: return FeatureStrings.quickToggles(L10n.shared.language).pageTitle
+        case .colorPicker: return s.colorPickerName
+        case .screenOCR: return s.ocrName
+        case .screenshot: return FeatureStrings.screenshot(L10n.shared.language).pageTitle
+        case .screenRecorder: return FeatureStrings.recorder(L10n.shared.language).pageTitle
+        case .cameraPreview: return FeatureStrings.cameraPreview(L10n.shared.language).pageTitle
+        case .radialMenu: return FeatureStrings.radialMenu(L10n.shared.language).pageTitle
+        case .scratchpad: return FeatureStrings.scratchpad(L10n.shared.language).pageTitle
+        case .killProcess: return FeatureStrings.killProcess(L10n.shared.language).pageTitle
+        case .wallpaper: return FeatureStrings.wallpaper(L10n.shared.language).pageTitle
+        case .portManager: return FeatureStrings.portManager(L10n.shared.language).title
+        case .cleaningMode: return s.cleaningMenuItem
+        case .mediaTools: return s.mediaName
+        case .cleaner: return s.cleanerName
+        case .uninstaller: return s.uninstallerName
+        case .homebrew: return s.homebrewName
+        case .appUpdates: return FeatureStrings.appUpdates(L10n.shared.language).pageTitle
+        case .monitorCPU: return s.monitorShowCPU
+        case .monitorGPU: return s.monitorShowGPU
+        case .monitorMemory: return s.monitorShowMemory
+        case .monitorNetwork: return s.monitorShowNetwork
+        case .monitorDisk: return s.diskSection
+        case .monitorPower: return s.powerSection
+        case .whatsAppDownloads: return FeatureStrings.whatsAppDownloads(L10n.shared.language).title
+        case .monitorInsights: return "Smart Performance Insights"
+        case .monitorAnalytics: return "Analytics & Trend History"
+        case .monitorEnergy: return "Energy Impact & Battery Flow"
+        case .monitorNetworkDetails: return "Network Scanner & Details"
+        case .connectedDevices: return FeatureStrings.connectedDevices(L10n.shared.language).title
+        case .commandBar: return FeatureStrings.commandBar(L10n.shared.language).pageTitle
+        case .notch: return NotchStrings.notch(L10n.shared.language).title
+        case .notchCalendar: return FeatureStrings.notchCalendar(L10n.shared.language).title
+        case .notchNotifications: return hub.titleNotchNotifications
+        case .notchGestures: return hub.titleNotchGestures
+        case .notchTimer: return hub.titleNotchTimer
+        case .notchAccessories: return hub.titleNotchAccessories
+        case .notchLyrics: return hub.titleNotchLyrics
+        case .notchDownloads: return hub.titleNotchDownloads
+        case .notchWatch: return hub.titleNotchWatch
+        case .notchMascot: return hub.titleNotchMascot
+        case .notchLiveEqualizer: return hub.titleNotchLiveEqualizer
+        case .notchQueue: return hub.titleNotchQueue
         }
     }
 }

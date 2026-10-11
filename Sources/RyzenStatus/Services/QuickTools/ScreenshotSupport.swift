@@ -4,11 +4,182 @@
 import CoreGraphics
 import Foundation
 
+/// The actions that share the screen-selection surface. Availability is read
+/// when the chooser opens, so an uninstalled feature never leaves a dead mode
+/// behind.
+enum ScreenCaptureTool: String, CaseIterable, Identifiable {
+    case screenshot
+    case recording
+    case text
+    case color
+
+    var id: String { rawValue }
+
+    var shortcutKey: String {
+        switch self {
+        case .screenshot: return "1"
+        case .recording: return "2"
+        case .text: return "3"
+        case .color: return "4"
+        }
+    }
+
+    static func matchingShortcut(_ characters: String?) -> ScreenCaptureTool? {
+        guard let characters else { return nil }
+        return allCases.first { $0.shortcutKey == characters }
+    }
+
+    var feature: AppFeature {
+        switch self {
+        case .screenshot: return .screenshot
+        case .recording: return .screenRecorder
+        case .text: return .screenOCR
+        case .color: return .colorPicker
+        }
+    }
+
+    struct DedicatedShortcut {
+        let role: GlobalShortcutRole
+        let enabledKey: String
+    }
+
+    var dedicatedShortcut: DedicatedShortcut {
+        switch self {
+        case .screenshot:
+            return DedicatedShortcut(role: .screenshot,
+                                     enabledKey: DefaultsKey.screenshotShortcutEnabled)
+        case .recording:
+            return DedicatedShortcut(role: .screenRecorder,
+                                     enabledKey: DefaultsKey.recorderShortcutEnabled)
+        case .text:
+            return DedicatedShortcut(role: .screenOCR,
+                                     enabledKey: DefaultsKey.screenOCRShortcutEnabled)
+        case .color:
+            return DedicatedShortcut(role: .colorPicker,
+                                     enabledKey: DefaultsKey.colorPickerShortcutEnabled)
+        }
+    }
+
+    var showCaptureMenuOnShortcutKey: String {
+        switch self {
+        case .screenshot: return DefaultsKey.screenshotShowCaptureMenuOnShortcut
+        case .recording: return DefaultsKey.recorderShowCaptureMenuOnShortcut
+        case .text: return DefaultsKey.screenOCRShowCaptureMenuOnShortcut
+        case .color: return DefaultsKey.colorPickerShowCaptureMenuOnShortcut
+        }
+    }
+
+    func showsCaptureMenu(fromShortcut: Bool, defaults: UserDefaults = .standard) -> Bool {
+        !fromShortcut || (defaults.object(forKey: showCaptureMenuOnShortcutKey) as? Bool ?? true)
+    }
+
+    func opensDuringRecording(fromShortcut: Bool, defaults: UserDefaults = .standard) -> Bool {
+        self != .recording && !showsCaptureMenu(fromShortcut: fromShortcut, defaults: defaults)
+    }
+
+    var systemImageName: String {
+        switch self {
+        case .screenshot: return "camera.viewfinder"
+        case .recording: return "record.circle"
+        case .text: return "text.viewfinder"
+        case .color: return "eyedropper"
+        }
+    }
+
+    var capturesAudio: Bool { self == .recording }
+
+    func settingsTitle(_ strings: Strings, language: AppLanguage) -> String {
+        switch self {
+        case .screenshot: return FeatureStrings.screenshot(language).pageTitle
+        case .recording: return FeatureStrings.recorder(language).pageTitle
+        case .text: return strings.ocrName
+        case .color: return strings.colorPickerName
+        }
+    }
+
+    static func available(isAvailable: (AppFeature) -> Bool = { $0.isAvailable })
+        -> [ScreenCaptureTool] {
+        allCases.filter { isAvailable($0.feature) }
+    }
+}
+
 /// Pure logic for the screenshot tool: capture routing, selection geometry,
 /// coordinate conversions between the window server, screens and image
 /// pixels, the annotation model and file naming. No AppKit so the unit test
 /// harness compiles it standalone.
 enum ScreenshotSupport {
+
+    struct UnifiedCapturePolicy: Equatable {
+        let freeze: Bool
+        let includePointer: Bool
+        let hideRyzenStatusWindows: Bool
+        let keepsContentWindowsOut: Bool
+        let usesGeometry: Bool
+
+        func sharesSource(with other: UnifiedCapturePolicy) -> Bool {
+            freeze == other.freeze
+                && includePointer == other.includePointer
+                && hideRyzenStatusWindows == other.hideRyzenStatusWindows
+                && keepsContentWindowsOut == other.keepsContentWindowsOut
+        }
+    }
+
+    static func unifiedCapturePolicy(for tool: ScreenCaptureTool,
+                                     screenshotFreeze: Bool,
+                                     screenshotIncludePointer: Bool,
+                                     screenshotHideRyzenStatusWindows: Bool)
+        -> UnifiedCapturePolicy {
+        UnifiedCapturePolicy(
+            freeze: tool == .screenshot ? screenshotFreeze : true,
+            includePointer: tool == .screenshot && screenshotIncludePointer,
+            hideRyzenStatusWindows: tool != .recording && screenshotHideRyzenStatusWindows,
+            keepsContentWindowsOut: tool == .recording || screenshotHideRyzenStatusWindows,
+            usesGeometry: tool == .recording)
+    }
+
+    static func captureAvailabilityChanged(activeTools: [ScreenCaptureTool],
+                                           availableTools: [ScreenCaptureTool]) -> Bool {
+        activeTools != availableTools
+    }
+
+    static func captureRouteIsAuthorized(
+        selected: ScreenCaptureTool,
+        isAvailable: (AppFeature) -> Bool = { $0.isAvailable }
+    ) -> Bool {
+        isAvailable(selected.feature)
+    }
+
+    static let recentCaptureLimit = 12
+    static let recentCaptureMaximumBytes: Int64 = 256 * 1024 * 1024
+
+    static func isRecentCaptureCacheFileName(_ name: String) -> Bool {
+        guard name == URL(fileURLWithPath: name).lastPathComponent,
+              name.lowercased().hasSuffix(".png") else { return false }
+        let stem = String(name.dropLast(4))
+        if UUID(uuidString: stem) != nil { return true }
+        let suffix = "-thumbnail"
+        return stem.hasSuffix(suffix)
+            && UUID(uuidString: String(stem.dropLast(suffix.count))) != nil
+    }
+
+    static func cappedRecentCaptureIDs(_ ids: [UUID],
+                                       screenshotBytes: [UUID: Int64] = [:]) -> [UUID] {
+        var kept: [UUID] = []
+        var bytes: Int64 = 0
+        var keptScreenshot = false
+        for id in ids.prefix(recentCaptureLimit) {
+            guard let size = screenshotBytes[id] else {
+                kept.append(id)
+                continue
+            }
+            let safeSize = max(0, size)
+            if keptScreenshot, bytes + safeSize > recentCaptureMaximumBytes { continue }
+            kept.append(id)
+            keptScreenshot = true
+            bytes += safeSize
+        }
+        return kept
+    }
 
     // MARK: - Preferences
 

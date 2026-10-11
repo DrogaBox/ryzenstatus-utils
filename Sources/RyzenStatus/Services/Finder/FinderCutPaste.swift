@@ -634,11 +634,17 @@ final class FinderCutPaste: ObservableObject {
 /// for some users. Same Finder Automation permission as before; nothing new.
 /// Callers run this off the main thread so a slow Finder never blocks the UI or
 /// the event taps.
-private enum FinderBridge {
+enum FinderBridge {
     private static let finderBundleID = "com.apple.finder"
 
-    static func selectionURLs() -> [URL] {
-        guard AppleScriptRunner.consentToAutomate(bundleID: finderBundleID) else { return [] }
+    /// `requestPermission` keeps the automation prompt with the person:
+    /// a background refresh asks macOS for the current answer instead of
+    /// triggering the dialog the first time it looks.
+    static func selectionURLs(requestPermission: Bool = true) -> [URL] {
+        let allowed = requestPermission
+            ? AppleScriptRunner.consentToAutomate(bundleID: finderBundleID)
+            : Permissions.automationStatus(for: .finder) == .granted
+        guard allowed else { return [] }
         let script = """
         tell application "Finder"
             set out to ""

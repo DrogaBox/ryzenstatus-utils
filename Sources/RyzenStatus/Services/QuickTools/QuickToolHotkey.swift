@@ -31,8 +31,16 @@ final class QuickToolHotkey {
 
     /// Applies the wanted state; returns false when macOS refused the
     /// registration (combination taken by another app).
+    ///
+    /// `storageKey` is the defaults key the combination lives under. Upstream
+    /// makes it required and hands it to `SystemShortcutTakeover`, which
+    /// switches macOS symbolic hotkeys off while a tool holds the same keys.
+    /// That take-over is not ported to this fork (it rewrites WindowServer
+    /// preferences), so the key is accepted for call-site parity and unused;
+    /// it stays optional so tools without an upstream counterpart need not
+    /// pass one.
     @discardableResult
-    func sync(enabled: Bool, shortcut: GlobalShortcut) -> Bool {
+    func sync(enabled: Bool, shortcut: GlobalShortcut, storageKey: String? = nil) -> Bool {
         guard enabled else {
             unregister()
             return true

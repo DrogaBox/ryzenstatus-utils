@@ -43,8 +43,8 @@ struct PanelWindowLayoutView: View {
                     .panelCard()
             }
         }
-        .onAppear { PanelInteractionState.shared.keepsPopoverOpen = true }
-        .onDisappear { PanelInteractionState.shared.keepsPopoverOpen = false }
+        .onAppear { PanelInteractionState.shared.viewKeepsPopoverOpen = true }
+        .onDisappear { PanelInteractionState.shared.viewKeepsPopoverOpen = false }
     }
 
     private var header: some View {

@@ -54,6 +54,17 @@ enum PanelMetricColor {
     }
 }
 
+private struct NotchPresentationKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var notchPresentation: Bool {
+        get { self[NotchPresentationKey.self] }
+        set { self[NotchPresentationKey.self] = newValue }
+    }
+}
+
 enum PanelSurface {
     static func baseFill(for scheme: ColorScheme) -> Color {
         scheme == .light ? Color.white.opacity(0.68) : Color.black.opacity(0.42)

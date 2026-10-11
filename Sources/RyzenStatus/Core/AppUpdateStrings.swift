@@ -54,6 +54,8 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -512,5 +514,75 @@ extension AppUpdateStrings {
         homebrewBadge: "Homebrew",
         sourcesTitle: "소스",
         includeHomebrewToggle: "Homebrew 앱 포함"
+    )
+
+    static let sk = AppUpdateStrings(
+        pageTitle: "Aktualizácie aplikácií",
+        hubDescription: "Nájde a nainštaluje aktualizácie aplikácií, ktoré máte",
+        caption: "Vyhľadá novšiu verziu aplikácií na tomto Macu a aktualizuje tie, ktoré vyberiete, aby ste nemuseli otvárať obchod pre každú zvlášť.",
+        panelCaption: "Pozrite sa, ktoré aplikácie majú novšiu verziu",
+        checkNow: "Skontrolovať teraz",
+        checking: "Kontroluje sa",
+        lastCheckFormat: "Naposledy skontrolované %@",
+        neverChecked: "Zatiaľ neskontrolované",
+        upToDate: "Všetky aplikácie sú aktuálne",
+        coverageNote: "Pokrýva aplikácie nainštalované cez Homebrew a aplikácie z App Store. Aplikácie s vlastným aktualizátorom sa ďalej aktualizujú samy.",
+        selectAll: "Vybrať všetko",
+        clearSelection: "Zrušiť výber",
+        updateSelectedFormat: "Aktualizovať (%d)",
+        updateOne: "Aktualizovať",
+        openAppStore: "Otvoriť App Store",
+        appStoreBadge: "App Store",
+        storeHint: "Otvorí App Store, kde sa táto aktualizácia nainštaluje",
+        frequencyLabel: "Kontrolovať na pozadí",
+        frequencyOff: "Vypnuté",
+        frequencyDaily: "Každý deň",
+        frequencyWeekly: "Každý týždeň",
+        nextCheckFormat: "Ďalšia kontrola %@",
+        notifyToggle: "Upozorniť ma, keď má aplikácia aktualizáciu",
+        includeStoreToggle: "Zahrnúť aplikácie z App Store",
+        includeStoreCaption: "Opýta sa Apple, ktorá verzia je aktuálna pre aplikácie z obchodu. Vypnite to, ak chcete, aby každá kontrola prebehla len na tomto Macu.",
+        packageMissing: "Homebrew nie je nainštalovaný, takže aplikácie sa odtiaľto zatiaľ nedajú aktualizovať.",
+        notificationBodyFormat: "Novšiu verziu má aplikácií: %@.",
+        notificationBodyOne: "Jedna aplikácia má novšiu verziu.",
+        showInPanel: "Zobraziť v paneli",
+        homebrewBadge: "Homebrew",
+        sourcesTitle: "Zdroje",
+        includeHomebrewToggle: "Zahrnúť aplikácie z Homebrew"
+    )
+
+    static let uk = AppUpdateStrings(
+        pageTitle: "Оновлення програм",
+        hubDescription: "Пошук і встановлення оновлень для ваших програм",
+        caption: "Шукає новішу версію програм на цьому Mac і оновлює вибрані, щоб вам не доводилося відкривати магазин для кожної окремо.",
+        panelCaption: "Перегляньте, які програми мають новішу версію",
+        checkNow: "Перевірити зараз",
+        checking: "Перевірка",
+        lastCheckFormat: "Остання перевірка: %@",
+        neverChecked: "Ще не перевірялося",
+        upToDate: "Усі програми оновлені",
+        coverageNote: "Охоплює програми, встановлені через Homebrew, і програми з App Store. Програми з власним засобом оновлення й далі оновлюються самі.",
+        selectAll: "Вибрати все",
+        clearSelection: "Скинути",
+        updateSelectedFormat: "Оновити (%d)",
+        updateOne: "Оновити",
+        openAppStore: "Відкрити App Store",
+        appStoreBadge: "App Store",
+        storeHint: "Відкриває App Store, де встановлюється це оновлення",
+        frequencyLabel: "Перевіряти у фоні",
+        frequencyOff: "Вимк.",
+        frequencyDaily: "Щодня",
+        frequencyWeekly: "Щотижня",
+        nextCheckFormat: "Наступна перевірка: %@",
+        notifyToggle: "Повідомляти, коли для програми є оновлення",
+        includeStoreToggle: "Включати програми з App Store",
+        includeStoreCaption: "Запитує в Apple, яка версія актуальна для програм, отриманих із магазину. Вимкніть, щоб кожна перевірка відбувалася лише на цьому Mac.",
+        packageMissing: "Homebrew не встановлено, тому оновлювати програми звідси поки не можна.",
+        notificationBodyFormat: "Програм із новішою версією: %@.",
+        notificationBodyOne: "Одна програма має новішу версію.",
+        showInPanel: "Показувати в панелі",
+        homebrewBadge: "Homebrew",
+        sourcesTitle: "Джерела",
+        includeHomebrewToggle: "Включати програми з Homebrew"
     )
 }

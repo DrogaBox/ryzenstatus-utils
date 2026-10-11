@@ -1,0 +1,3625 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 RyzenStatus
+
+import AppKit
+import Carbon.HIToolbox
+import SwiftUI
+
+/// The command bar: one floating field, summoned by a global shortcut, that
+/// finds and runs everything the app can do. The panel never activates, so
+/// the app the person was using keeps focus the whole time; actions that type
+/// or paste land exactly where the caret already is. Closed, it keeps one
+/// prepared panel, with no polling or observers.
+final class CommandBarService: ObservableObject {
+    static let shared = CommandBarService()
+
+    /// What the field is asking for right now. Argument mode asks for the
+    /// number of a command like "brilho"; confirm guards a destructive one.
+    enum Mode: Equatable {
+        case search
+        case argument(entryID: String)
+        case confirm(entryID: String)
+        /// The full leftover-files checklist for one app, in place of a
+        /// one-line confirm: this is what `uninstallAppURL` rows lead to.
+        case uninstallReview(entryID: String)
+        /// Guards a Homebrew-managed app's removal, since that runs `brew
+        /// uninstall` and takes longer than a Trash move - the same extra
+        /// step the Settings page and menu panel already ask for.
+        case uninstallHomebrewConfirm(entryID: String)
+        /// The list of things that can be done to one row: pin it, name it,
+        /// hide it, forget it. Everything the person controls lives here, one
+        /// key away from whatever they were looking at.
+        case actions(entryID: String)
+        case naming(entryID: String)
+        /// Waiting for the person to press the combination they want for one
+        /// row. Every other key is theirs while this lasts.
+        case capturingShortcut(entryID: String)
+
+        var isUninstallFlow: Bool {
+            switch self {
+            case .uninstallReview, .uninstallHomebrewConfirm: return true
+            default: return false
+            }
+        }
+
+    }
+
+    /// One line in the actions list.
+    struct RowAction: Identifiable {
+        let id: String
+        let title: String
+        let symbolName: String
+        let isDestructive: Bool
+        let run: () -> Void
+
+        init(id: String,
+             title: String,
+             symbolName: String,
+             isDestructive: Bool = false,
+             run: @escaping () -> Void) {
+            self.id = id
+            self.title = title
+            self.symbolName = symbolName
+            self.isDestructive = isDestructive
+            self.run = run
+        }
+    }
+
+    @Published var query = "" {
+        didSet {
+            guard query != oldValue else { return }
+            uninstallWarning = nil
+            uninstallFinderRequestID = nil
+            if mode.isUninstallFlow {
+                AppUninstaller.shared.reset()
+                mode = .search
+            }
+            // The argument field is temporary. Keep the completed search and
+            // its original spelling intact until returning to search mode.
+            if case .argument = mode {
+                refreshResults()
+                return
+            }
+            queryBeforeCompletion = CommandBarCompletion.retainedOriginal(
+                queryBeforeCompletion,
+                completedValue: completedQuery,
+                afterChangingTo: query)
+            if queryBeforeCompletion == nil { completedQuery = nil }
+            refreshResults()
+        }
+    }
+    @Published private(set) var uninstallWarning: String?
+    @Published private(set) var rows: [CommandBarEntry] = []
+    @Published private(set) var isShowingSuggestions = false
+    /// The heading that belongs above a row, by its position. What was pinned
+    /// deserves to be seen as pinned, and what is selected deserves to be seen
+    /// as the thing being acted on, instead of both being mixed into a list of
+    /// guesses.
+    @Published private(set) var sectionTitles: [Int: String] = [:]
+    /// One line of whatever is selected, for the heading to show what the rows
+    /// above the list are about to act on.
+    @Published private(set) var selectionPreview = ""
+    @Published private(set) var selectedIndex = 0
+    @Published private(set) var mode: Mode = .search
+    @Published private(set) var presentationID = UUID()
+    @Published private(set) var shortcutRegistrationFailed = false
+    /// Rows whose own combination the system refused, because another app got
+    /// there first. Shown in Settings so the key is not a mystery.
+    @Published private(set) var refusedRowShortcutKeys: Set<String> = []
+    /// The one kind of result the list is narrowed to, or nil for everything.
+    /// This is the drill-in the launchers people know: one tap on Apps and the
+    /// bar becomes a list of every app, still searchable, still one Esc from
+    /// home.
+    @Published private(set) var activeCategory: CommandBarSource?
+    /// The categories worth offering right now, in a fixed order, only the
+    /// ones with something in them.
+    @Published private(set) var categoryChips: [CommandBarSource] = []
+
+    /// True while Command is held down. The bar can already run the first nine
+    /// rows with ⌘1…⌘9, but nothing ever said so; holding the key now shows the
+    /// numbers, which teaches it without a single pixel of permanent clutter.
+    @Published private(set) var commandIsHeld = false
+
+    /// True when the bar was dragged off the spot it opens on by default,
+    /// so Settings can offer the way back.
+    @Published private(set) var hasCustomPosition = false
+
+    /// True while the bar is the field alone: compact mode, nothing typed,
+    /// no category open. The panel drops its divider and footer while this
+    /// is set.
+    @Published private(set) var isCompactHome = false
+
+    /// Where the open bar shows: its own window, a window the Dynamic Island
+    /// drops below itself, or inside the open island.
+    @Published private(set) var presentation = CommandBarPresentation.window
+
+    /// True while a file search or a saved script is still answering what
+    /// was typed. The companion thinks meanwhile.
+    @Published private(set) var awaitsAnswers = false
+
+    /// The companion's face as the bar goes back into the island: a wink
+    /// goodbye, or determined once something ran.
+    var farewell = NotchMascotMood.wink
+
+    private let hotkey = QuickToolHotkey(id: 20)
+    private var rowHotkeys: [QuickToolHotkey] = []
+    private var panel: NSPanel?
+    private var keyMonitor: Any?
+    private var outsideClickMonitor: Any?
+    private var localClickMonitor: Any?
+    private var flagsMonitor: Any?
+    private var activationObserver: NSObjectProtocol?
+
+    private var catalog: [CommandBarEntry] = [] { didSet { foldedSections[.catalog] = nil } }
+    let scriptRunner = CommandBarScriptRunner()
+    let fileSearch = CommandBarFileSearch()
+    /// Which row answered which few letters, for as long as the app runs. Not
+    /// stored: the bar forgets everything typed into it when it goes.
+    private var queryMemory = CommandBarQueryMemory()
+    /// Counts choices, so the memory can order its own entries without a clock.
+    private var queryMemoryStep = 0
+    private var entriesByID: [String: CommandBarEntry] = [:]
+    private var normalizedByID: [String: (title: String, keywords: String)] = [:]
+    private var entriesByStableKey: [String: CommandBarEntry] = [:]
+    private var presentationLifecycle = CommandBarPresentationLifecycle()
+    private var deferredRowShortcut = CommandBarDeferredRowShortcut()
+    @Published private(set) var appEntries: [CommandBarEntry] = [] {
+        didSet { foldedSections[.apps] = nil }
+    }
+    private var windowEntries: [CommandBarEntry] = [] { didSet { foldedSections[.windows] = nil } }
+    private var quitEntries: [CommandBarEntry] = [] { didSet { foldedSections[.quit] = nil } }
+    private var uninstallEntries: [CommandBarEntry] = [] { didSet { foldedSections[.uninstallApps] = nil } }
+    private var uninstallableAppIDs: Set<String> = []
+    /// The raw scan is what gets cached; the rows are rebuilt on every open so
+    /// the live dot and the running apps are never a stale picture.
+    private var cachedApps: [InstalledApps.InstalledApp] = []
+    @Published private(set) var appsLoading = false
+    private var pendingAppShortcut = CommandBarRowShortcuts.PendingAppLaunch()
+    private var windowsLoading = false
+    private var windowsLoadedAt: Date?
+    private var menuEntries: [CommandBarEntry] = [] { didSet { foldedSections[.menus] = nil } }
+    private var emojiEntries: [CommandBarEntry] = [] { didSet { foldedSections[.emoji] = nil } }
+    /// The Mac's own Settings panes, scanned once per launch. The language
+    /// they were built in comes with them, because the words they answer to
+    /// are translated and a change of language has to reread them.
+    private var macSettingsEntries: [CommandBarEntry] = [] { didSet { foldedSections[.macSettings] = nil } }
+    private var macSettingsLanguage: AppLanguage?
+    private var macSettingsLoading = false
+    /// Rows that act on what was selected when the bar opened. Read once per
+    /// opening and thrown away on close: a selection is a moment, not a state.
+    private var selectionEntries: [CommandBarEntry] = [] { didSet { foldedSections[.selection] = nil } }
+    private var selectionLoading = false
+    /// One row per running process. Read once per opening through
+    /// `KillProcessService`'s own cache, same lifetime as `selectionEntries`.
+    private var killProcessEntries: [CommandBarEntry] = [] { didSet { foldedSections[.killProcess] = nil } }
+    private var killProcessEntriesLoading = false
+    /// One row for whatever single app is selected in Finder's Applications
+    /// folder, same lifetime as `selectionEntries`.
+    private var uninstallSelectionEntries: [CommandBarEntry] = [] { didSet { foldedSections[.uninstallSelection] = nil } }
+    private var uninstallSelectionLoading = false
+    private var uninstallFinderRequestID: UUID?
+    private var pendingHomebrewRemoval: AppUninstaller.HomebrewRemovalConfirmation?
+    /// True while the bar is closing, so nothing is rebuilt on the way out.
+    private var isTearingDown = false
+    private var menusLoading = false
+    private var menusLoadedAt: Date?
+    private var menuOwnerPID: pid_t?
+    /// The language the rows were built in, so a change of language while the
+    /// bar is open rebuilds them instead of mixing two languages in one list.
+    private var builtLanguage: AppLanguage?
+    /// Cached off the main thread on show(): the Apple Event status check
+    /// blocks, and the Trash row wants to be honest about a denied consent.
+    private var finderAutomationDenied = false
+    /// The query to restore when Esc leaves argument or confirm mode.
+    private var savedQuery = ""
+    /// Tab replaces the field with a title, but the search that found that
+    /// title is what app-choice learning should remember.
+    private var queryBeforeCompletion: String?
+    private var completedQuery: String?
+    /// The last thing typed, kept only in memory so reopening can offer it.
+    private var lastQuery = ""
+    /// Where the pointer sat when the bar opened. A row under a pointer that
+    /// has not moved must not steal the selection from the keyboard.
+    private var lastPointerLocation = NSPoint.zero
+    private var panelScreen: NSRect?
+    /// The island's panel while the bar is open inside it.
+    private weak var islandHost: NSPanel?
+    /// Where the drop leaves the island, read as the bar takes the keyboard.
+    private var dropSource: CGRect?
+    /// Keys typed before the field was drawn, kept in order for it.
+    private var pendingKeys: [NSEvent] = []
+    /// The selected row's id, so a rebuilt list keeps the selection on the
+    /// same command instead of on the same position.
+    private var selectedID: String?
+    /// What the ranking last ran on, to tell a keystroke apart from a list
+    /// rebuilt underneath by a background load.
+    private var lastRankedQuery: String?
+    /// Decoded once when preferences reload, never while a keystroke ranks
+    /// rows. The second cache keeps already-keyed prefixes for this opening.
+    private var queryHabitStore = CommandBarQueryHabitStoreCache()
+    private var preparedHabitQuery = CommandBarQueryHabits.PreparationCache()
+    private let habitKey = CommandBarLearning.installationKey()
+    /// The system only shows its Accessibility prompt once; after that a
+    /// refusal is a beep, the pattern the other quick tools follow.
+    private var promptedForAccessibility = false
+    private var restartObserver: NSObjectProtocol?
+    private var restartPID: pid_t?
+    private var restartURL: URL?
+
+    private init() {
+        queryHabitStore.reload(UserDefaults.standard.string(forKey: DefaultsKey.commandBarQueryHabits))
+        hotkey.onPress = { [weak self] in self?.toggle() }
+        scriptRunner.onResult = { [weak self] in self?.refreshResults() }
+        fileSearch.onResult = { [weak self] in self?.refreshResults() }
+    }
+
+    // MARK: - Lifecycle
+
+    func syncWithPreferences() {
+        let available = AppFeature.commandBar.isAvailable
+        let enabled = available
+            && UserDefaults.standard.bool(forKey: DefaultsKey.commandBarShortcutEnabled)
+        let shortcut = GlobalShortcut.saved(for: DefaultsKey.commandBarShortcut,
+                                            fallback: .commandBarDefault)
+        shortcutRegistrationFailed = !hotkey.sync(enabled: enabled, shortcut: shortcut,
+                                                  storageKey: DefaultsKey.commandBarShortcut)
+        reloadPreferenceCaches()
+        syncRowHotkeys()
+        if available {
+            // Build the one view tree after launch, outside the keystroke that
+            // asks to see it for the first time, and lay it out: a window draws
+            // itself before it first appears, and keys typed meanwhile would
+            // still reach the app in front.
+            DispatchQueue.main.async { [weak self] in
+                guard AppFeature.commandBar.isAvailable, let self else { return }
+                let panel = self.ensurePanel()
+                if !panel.isVisible {
+                    panel.contentViewController?.view.layoutSubtreeIfNeeded()
+                    panel.display()
+                }
+            }
+        }
+        if !available {
+            hide()
+            panel = nil
+            // Uninstalled means uninstalled: the catalog, the app scan and the
+            // window list all go, not just the window.
+            catalog = []
+            appEntries = []
+            windowEntries = []
+            quitEntries = []
+            uninstallEntries = []
+            uninstallSelectionEntries = []
+            menuEntries = []
+            emojiEntries = []
+            macSettingsEntries = []
+            macSettingsLanguage = nil
+            CommandBarSystemSettings.clearCache()
+            presentationLifecycle.hide()
+            menuOwnerPID = nil
+            menusLoadedAt = nil
+            entriesByID = [:]
+            normalizedByID = [:]
+            entriesByStableKey = [:]
+            cachedApps = []
+            uninstallableAppIDs = []
+            pendingAppShortcut.cancel()
+            windowsLoadedAt = nil
+            rows = []
+            cancelPendingRestart()
+        }
+    }
+
+    func suspend() {
+        pendingAppShortcut.cancel()
+        hotkey.unregister()
+        for hotkey in rowHotkeys { hotkey.unregister() }
+        rowHotkeys = []
+        hide()
+        cancelPendingRestart()
+    }
+
+    var isVisible: Bool {
+        panel?.isVisible == true || presentation == .island
+    }
+
+    func toggle() {
+        isVisible ? hide() : show()
+    }
+
+    func show() {
+        show(promptingFor: nil)
+    }
+
+    private func show(promptingFor stableKey: String?) {
+        guard AppFeature.commandBar.isAvailable else { return }
+        let panel = ensurePanel()
+        // The window that shows the bar takes the keyboard before anything is
+        // prepared, so keys typed right after the shortcut wait in this app
+        // for the field instead of reaching the app in front.
+        let reopening = isVisible
+        if !reopening { claimKeyboard(with: panel) }
+        if AppFeature.textSnippets.isAvailable {
+            TextSnippetService.shared.setCommandBarVisible(true)
+        }
+        let id = beginPresentation()
+        if let stableKey { deferredRowShortcut.schedule(stableKey, for: id) }
+        reloadPreferenceCaches()
+        query = ""
+        refreshResults()
+        adoptASCIIInputSource()
+        present(panel, reopening: reopening)
+        // Ordering the prepared panel is the keystroke path. Home is filled on
+        // the next main-loop turn, when a close or newer opening can supersede it.
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.presentationLifecycle.completeHomeHydration(
+                    id, isVisible: self.isVisible) else { return }
+            self.prepareHomeForCurrentPresentation()
+            self.refreshResults()
+            self.runDeferredRowShortcutIfReady(for: id)
+        }
+    }
+
+    @discardableResult
+    private func beginPresentation() -> UUID {
+        deferredRowShortcut.cancel()
+        scriptRunner.reset()
+        fileSearch.reset()
+        let id = UUID()
+        presentationID = id
+        presentationLifecycle.beginHome(id)
+        clearIndex()
+        rows = []
+        sectionTitles = [:]
+        mode = .search
+        savedQuery = ""
+        queryBeforeCompletion = nil
+        completedQuery = nil
+        queryWhenRun = ""
+        selectionWhenRun = ""
+        lastPointerLocation = NSEvent.mouseLocation
+        selectedID = nil
+        lastRankedQuery = nil
+        activeCategory = nil
+        isPeekingHome = false
+        farewell = .wink
+        pendingKeys = []
+        return id
+    }
+
+    private func prepareHomeForCurrentPresentation() {
+        reloadPreferenceCaches()
+        // Windows, menus and selection belong to the presentation that read
+        // them. Home starts without those runnable rows and lets guarded scans
+        // add fresh ones after the panel is already visible.
+        windowEntries = []
+        windowsLoadedAt = nil
+        menuEntries = []
+        menuOwnerPID = nil
+        menusLoadedAt = nil
+        selectionEntries = []
+        selectionPreview = ""
+        selectedText = ""
+        killProcessEntries = []
+        uninstallSelectionEntries = []
+        uninstallWarning = nil
+        rebuildCatalog(index: false)
+        rebuildRunningEntries()
+        startBackgroundLoads(for: presentationID)
+    }
+
+    private func startBackgroundLoads(for id: UUID) {
+        refreshAutomationStatus(for: id)
+        refreshStorageAnswer(for: id)
+        refreshWiFiState(for: id)
+        refreshSystemAnswers(for: id)
+        loadAppsIfNeeded(for: id)
+        loadMacSettingsIfNeeded(for: id)
+        loadWindowsIfNeeded(for: id)
+        loadMenusIfNeeded(for: id)
+        loadSelection(for: id)
+        loadKillProcessEntries(for: id)
+        loadUninstallSelectionEntries(for: id)
+    }
+
+    /// Decides where the bar shows and gives that window the keyboard,
+    /// unseen until the bar is ready in it.
+    private func claimKeyboard(with panel: NSPanel) {
+        CommandBarDroplet.shared.cancel()
+        dropSource = nil
+        let style = NotchMascotSupport.commandBarStyle()
+        // `presentCommandBar` is main-actor isolated, and this path is always on
+        // the main thread — the bar's own hotkey, its menu actions and the
+        // notch's calls all arrive there — so the isolation is stated, not
+        // hopped across, the same way the status item and the panel do it.
+        if style == .island,
+           let host = MainActor.assumeIsolated({ NotchService.shared.presentCommandBar() }) {
+            islandHost = host
+            presentation = .island
+            NotchService.shared.setMascotInBar(false)
+            return
+        }
+        dropSource = style == .droplet ? NotchService.shared.commandBarDropSource() : nil
+        presentation = dropSource == nil ? .window : .droplet
+        // A drop takes the bar's shape on the way back, so the window goes at
+        // once instead of fading over it. Out of the island the bar is flat
+        // black like the island, with no shadow to appear as the drop hands
+        // over or to vanish as it folds back.
+        panel.animationBehavior = dropSource == nil ? .default : .none
+        panel.hasShadow = dropSource == nil
+        // Only a drop takes the companion out of the island.
+        if dropSource == nil { NotchService.shared.setMascotInBar(false) }
+        panel.alphaValue = 0
+        panel.orderFrontRegardless()
+        panel.makeKey()
+    }
+
+    private func present(_ panel: NSPanel, reopening: Bool) {
+        if presentation == .island, let host = islandHost {
+            installMonitors(for: host)
+            // SwiftUI draws the bar into the island on its next pass, and
+            // its field takes the keyboard when it appears.
+            focusField(in: host)
+            return
+        }
+        if presentation == .droplet, let island = dropSource {
+            installMonitors(for: panel)
+            guard !reopening else { focusField(in: panel); return }
+            hang(panel, below: island)
+            focusField(in: panel)
+            // Still unseen: what is typed while the drop falls lands in the field.
+            CommandBarDroplet.shared.drop(from: island, into: panel.frame, look: NotchMascotSupport.look()) {
+                [weak self, weak panel] fade in
+                guard let self, let panel, self.presentation == .droplet, panel.isVisible else { return }
+                // Landed, the bar takes the drop's place as is. Typed into
+                // before that, it shows at once over the drop and fades in
+                // through Core Animation, which a busy main thread cannot hold
+                // back the way it holds a window's own alpha steps.
+                panel.alphaValue = 1
+                // Seen now, it takes the keyboard again as the window bar does
+                // once it shows, in case anything took it while the drop fell.
+                panel.makeKey()
+                self.focusField(in: panel)
+                guard fade > 0, let layer = panel.contentView?.layer else { return }
+                let appear = CABasicAnimation(keyPath: "opacity")
+                appear.fromValue = 0
+                appear.toValue = 1
+                appear.duration = fade
+                appear.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                layer.add(appear, forKey: "appear")
+            }
+            return
+        }
+        presentation = .window
+        position(panel)
+        installMonitors(for: panel)
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+        panel.makeKey()
+        focusField(in: panel)
+    }
+
+    /// Below the island, centred on it, where the drop lands.
+    private func hang(_ panel: NSPanel, below island: CGRect) {
+        panel.contentViewController?.view.layoutSubtreeIfNeeded()
+        let size = panel.contentViewController?.view.fittingSize ?? NSSize(width: CommandBarView.width, height: 380)
+        let screen = NSScreen.screens.first { $0.frame.contains(CGPoint(x: island.midX, y: island.maxY - 1)) }?
+            .visibleFrame ?? NSScreen.pointerVisibleFrame
+        panelScreen = screen
+        let x = min(max(island.midX - size.width / 2, screen.minX + 16), screen.maxX - 16 - size.width)
+        let top = island.minY - CommandBarDropletMotion.landingGap
+        panel.setFrame(NSRect(x: x, y: max(screen.minY + 16, top - size.height), width: size.width, height: size.height),
+                       display: true)
+    }
+
+    /// The field takes the keyboard the moment the bar is ordered in, so the
+    /// first keys typed after the shortcut land in it instead of going nowhere
+    /// while SwiftUI gets around to its focus.
+    @discardableResult
+    private func focusField(in window: NSWindow) -> Bool {
+        if let editor = window.firstResponder as? NSTextView, editor.isFieldEditor { return true }
+        window.contentView?.layoutSubtreeIfNeeded()
+        guard let field = Self.editableField(in: window.contentView) else { return false }
+        return window.makeFirstResponder(field)
+    }
+
+    private static func editableField(in view: NSView?) -> NSTextField? {
+        guard let view, !view.isHidden else { return nil }
+        if let field = view as? NSTextField, field.isEditable, field.isEnabled { return field }
+        for subview in view.subviews {
+            if let field = editableField(in: subview) { return field }
+        }
+        return nil
+    }
+
+    /// The bar's field is on screen: it takes the keyboard and the keys
+    /// typed before it was drawn.
+    func barDidAppear() {
+        DispatchQueue.main.async { [weak self] in self?.deliverPendingKeys() }
+    }
+
+    private func deliverPendingKeys() {
+        guard !pendingKeys.isEmpty || presentation == .island,
+              let window = presentation == .island ? islandHost : panel, window.isVisible,
+              focusField(in: window) else { return }
+        let keys = pendingKeys
+        pendingKeys = []
+        keys.forEach(window.sendEvent)
+    }
+
+    /// The island closed around the bar on its own, from a click away or a
+    /// page opened in its place.
+    func islandDidClose() {
+        guard presentation == .island else { return }
+        hide()
+    }
+
+    func hide() {
+        // Cleared first, so the island closing under the bar does not close it again.
+        let presented = presentation
+        presentation = .window
+        let dropped = presented == .droplet ? panel?.frame : nil
+        if AppFeature.textSnippets.isAvailable {
+            TextSnippetService.shared.setCommandBarVisible(false)
+        }
+        deferredRowShortcut.cancel()
+        scriptRunner.reset()
+        fileSearch.reset()
+        // Closing while listening for a combination must give every global key
+        // back, or the whole app would go quiet until the next relaunch.
+        if case .capturingShortcut = mode { endCapturingShortcut() }
+        // Clearing the field on the way out would otherwise rebuild the whole
+        // browse list for a panel nobody can see.
+        isTearingDown = true
+        defer {
+            isTearingDown = false
+            rows = []
+            sectionTitles = [:]
+        }
+        restoreSuspendedInputSource()
+        removeMonitors()
+        panel?.orderOut(nil)
+        awaitsAnswers = false
+        pendingKeys = []
+        if let dropped {
+            CommandBarDroplet.shared.retract(from: dropped, look: NotchMascotSupport.look(), mood: farewell)
+        }
+        if presented == .island { NotchService.shared.dismissCommandBar() }
+        // Leaving mid-review through this path (global shortcut, outside
+        // click) skipped the reset stepBack() does for the same mode -
+        // AppUninstaller kept its selected target and scanned checklist,
+        // which then showed up unprompted in Settings and the menu panel.
+        // Guarded the same way: don't tear down a removal - Homebrew or
+        // plain - that's still actually running in the background.
+        switch mode {
+        case .uninstallReview, .uninstallHomebrewConfirm:
+            let uninstaller = AppUninstaller.shared
+            if !uninstaller.isRemoving {
+                uninstaller.reset()
+            }
+        default:
+            break
+        }
+        mode = .search
+        uninstallFinderRequestID = nil
+        // A selection belongs to the moment the bar was opened. Keeping it
+        // would offer to act on text the person may have replaced since.
+        if !selectionEntries.isEmpty {
+            selectionEntries = []
+            selectionPreview = ""
+            selectedText = ""
+            indexEntries()
+        }
+        if !killProcessEntries.isEmpty {
+            killProcessEntries = []
+            indexEntries()
+        }
+        if !uninstallSelectionEntries.isEmpty {
+            uninstallSelectionEntries = []
+            indexEntries()
+        }
+        // What was typed is remembered for the next opening, where the first
+        // keystroke replaces it. It never reaches disk: the promise is that
+        // nothing typed here is saved, and memory is not saving.
+        lastQuery = query
+        query = ""
+        presentationLifecycle.hide()
+        clearIndex()
+    }
+
+    // MARK: - The bar's own keyboard layout
+
+    /// The input source the bar switched away from on open, put back on
+    /// close. Recorded whenever TIS accepts the switch: a switch that never
+    /// landed restores a source the bar never left — a no-op — while a
+    /// missing record would strand the typist on the borrowed layout.
+    private var suspendedInputSourceID: String?
+
+    var hasBorrowedInputSource: Bool {
+        suspendedInputSourceID != nil
+    }
+
+    /// One-shot switch to the first enabled ASCII layout, read fresh on every
+    /// open like every other preference on this path. TIS talks to the
+    /// text-input server from the main thread, the way the Super key switch
+    /// already does.
+    private func adoptASCIIInputSource() {
+        let apply = {
+            guard UserDefaults.standard.bool(forKey: DefaultsKey.commandBarASCIILayoutEnabled) else {
+                self.restoreSuspendedInputSource()
+                return
+            }
+            let currentID = InputSourceSelection.currentSourceID()
+            guard let target = InputSourceSelection.asciiLayoutID(
+                currentID: currentID,
+                snapshots: InputSourceSelection.snapshots())
+            else { return }
+            // The record belongs to acceptance, not the landing: a switch
+            // that never landed only restores a source the bar never left —
+            // a no-op — while a missed record strands the typist on the
+            // borrowed layout.
+            guard InputSourceSelection.select(sourceID: target) else { return }
+            self.suspendedInputSourceID = currentID
+        }
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.sync(execute: apply)
+        }
+    }
+
+    private func restoreSuspendedInputSource() {
+        guard let sourceID = suspendedInputSourceID else { return }
+        // The switch waits for the next turn of the main loop. A close reached
+        // through a key (Esc, Return, ⌘,) runs inside that key event's own
+        // dispatch, and TIS quietly ignores a source switch asked for there —
+        // the same hide() restores fine from a click or the hotkey, which
+        // stand outside any key event. Waiting is safe: the presentation id
+        // is captured now, and beginPresentation replaces it on the next
+        // open. Keep the original source until restoration actually runs:
+        // reopening while ASCII is still active borrows the same source.
+        let presentationID = self.presentationID
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.presentationID == presentationID,
+                  self.suspendedInputSourceID == sourceID else { return }
+            self.restoreBorrowedInputSource()
+        }
+    }
+
+    /// The termination path cannot wait for another main-loop turn. Keep a
+    /// refused restoration pending so a later close or termination can retry.
+    func restoreBorrowedInputSource() {
+        guard let sourceID = suspendedInputSourceID,
+              InputSourceSelection.select(sourceID: sourceID) else { return }
+        suspendedInputSourceID = nil
+    }
+
+    /// Re-fits the panel to its content as the result list grows and
+    /// shrinks, keeping the top edge and horizontal center still so the
+    /// field itself never jumps under the caret.
+    func refreshPanelLayout() {
+        guard let panel, panel.isVisible else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let panel = self.panel, panel.isVisible else { return }
+            panel.contentViewController?.view.layoutSubtreeIfNeeded()
+            let size = panel.contentViewController?.view.fittingSize ?? panel.frame.size
+            let screen = self.panelScreen ?? NSScreen.pointerVisibleFrame
+            var frame = panel.frame
+            frame.origin.x = frame.midX - size.width / 2
+            frame.origin.y = frame.maxY - size.height
+            frame.size = size
+            // Growing downward must stop at the screen edge; the list scrolls
+            // instead of hiding its own footer below the bezel.
+            frame.origin.y = max(frame.origin.y, screen.minY + 16)
+            panel.setFrame(frame, display: true)
+        }
+    }
+
+    // MARK: - Results
+
+    /// The number typed after the verb ("brilho 40"), read from the field at
+    /// the moment it is used. Never stored: a value cached during a search
+    /// pass outlives the text it came from.
+    private var typedNumber: Int? {
+        CommandBarSearch.splitTrailingNumber(query.trimmingCharacters(in: .whitespaces)).number
+    }
+
+    // MARK: - What the person decided
+
+    /// Straight from disk, and named so. Only the helpers that change one of
+    /// these lists may read them: a read-modify-write has to start from what
+    /// is stored, or it would write back a copy taken before Settings edited
+    /// it. Everything that only reads - the ranking, the chips, the browse
+    /// list - uses the caches below, which is what keeps one keystroke from
+    /// decoding the same handful of strings over and over.
+    private var storedAliases: [String: String] {
+        CommandBarPreferences.decodeAliases(
+            UserDefaults.standard.string(forKey: DefaultsKey.commandBarAliases))
+    }
+
+    private var storedPins: [String] {
+        CommandBarPreferences.decodePins(
+            UserDefaults.standard.string(forKey: DefaultsKey.commandBarPins) ?? "")
+    }
+
+    var rowShortcuts: [String: GlobalShortcut] {
+        CommandBarRowShortcuts.decode(
+            UserDefaults.standard.string(forKey: DefaultsKey.commandBarRowShortcuts))
+    }
+
+    func rowShortcut(for entry: CommandBarEntry) -> GlobalShortcut? {
+        shortcutCache[entry.stableKey]
+    }
+
+    /// Binds (or with nil clears) one row's own combination and registers it
+    /// straight away, so the key works before the bar is even closed.
+    /// A combination macOS answers is refused rather than taken over: the
+    /// system answers such a key before any application hotkey sees it, and
+    /// RyzenStatus has no system-shortcut take-over engine to claim it with.
+    @discardableResult
+    func setRowShortcut(_ shortcut: GlobalShortcut?, for entry: CommandBarEntry) -> String? {
+        guard AppFeature.commandBar.isAvailable else { return nil }
+        guard let shortcut else {
+            storeRowShortcut(nil, forKey: entry.stableKey)
+            return nil
+        }
+        if let message = rowShortcutIssue(shortcut, for: entry) { return message }
+        storeRowShortcut(shortcut, forKey: entry.stableKey)
+        return nil
+    }
+
+    private func storeRowShortcut(_ shortcut: GlobalShortcut?, forKey key: String) {
+        let next = CommandBarRowShortcuts.setting(shortcut, for: key, in: rowShortcuts)
+        UserDefaults.standard.set(CommandBarRowShortcuts.encode(next),
+                                  forKey: DefaultsKey.commandBarRowShortcuts)
+        syncRowHotkeys()
+        refreshAfterPreferenceChange()
+    }
+
+    /// Every RyzenStatus-side reason to refuse a combination. Whether macOS
+    /// answers it is asked afterwards, so a row can offer to take it over.
+    private func rowShortcutIssue(_ shortcut: GlobalShortcut, for entry: CommandBarEntry) -> String? {
+        let strings = L10n.shared.s
+        let text = FeatureStrings.commandBar(L10n.shared.language)
+        switch CommandBarRowShortcuts.assignmentIssue(shortcut, for: entry.stableKey, in: rowShortcuts) {
+        case .invalid: return strings.shortcutInvalid
+        case .occupied(let owner):
+            return String(format: strings.shortcutConflictFormat,
+                          entryTitle(forStableKey: owner) ?? text.namedTitle)
+        case .full: return String(format: text.rowShortcutsLimitFormat, CommandBarRowShortcuts.limit)
+        case nil: break
+        }
+        if let role = GlobalShortcutRole.conflict(for: shortcut, excluding: nil) {
+            return String(format: strings.shortcutConflictFormat, role.title(strings))
+        }
+        if AppFeature.windowLayout.isAvailable,
+           let title = WindowLayoutService.shared.shortcutConflictTitle(shortcut) {
+            return String(format: strings.shortcutConflictFormat, title)
+        }
+        if CommandBarRowShortcuts.conflictsWithMacOS(shortcut) {
+            return String(format: strings.shortcutConflictFormat, "macOS")
+        }
+        return nil
+    }
+
+    /// One Carbon key per binding, and not one more. Ids start well past the
+    /// quick tools so the two can never collide.
+    private func syncRowHotkeys() {
+        let wanted = AppFeature.commandBar.isAvailable ? rowShortcuts : [:]
+        for hotkey in rowHotkeys { hotkey.unregister() }
+        rowHotkeys = []
+        var index: UInt32 = 0
+        var refused: Set<String> = []
+        for (key, shortcut) in wanted.sorted(by: { $0.key < $1.key })
+        where CommandBarRowShortcuts.isUsable(shortcut) {
+            let hotkey = QuickToolHotkey(id: 200 + index)
+            hotkey.onPress = { [weak self] in self?.runRow(withStableKey: key) }
+            // A combination another app already holds is refused by the system.
+            // Saying so beats a row that shows a key it will never answer to.
+            if !hotkey.sync(enabled: true, shortcut: shortcut,
+                            storageKey: CommandBarRowShortcuts.shortcutStorageKey(for: key)) {
+                refused.insert(key)
+            }
+            rowHotkeys.append(hotkey)
+            index += 1
+        }
+        if refused != refusedRowShortcutKeys { refusedRowShortcutKeys = refused }
+    }
+
+    /// Runs a row from its own combination, with no bar involved. Runnable
+    /// closures are rebuilt from current state before the shortcut uses them.
+    private func runRow(withStableKey key: String, refreshAppsIfMissing: Bool = true) {
+        pendingAppShortcut.cancel()
+        guard AppFeature.commandBar.isAvailable, rowShortcuts[key] != nil else { return }
+        guard let entry = freshFullEntry(forStableKey: key) else {
+            // An app shortcut also works before the bar has ever opened this
+            // session. Scan on demand, then retry once without presenting it.
+            if refreshAppsIfMissing, CommandBarPreferences.source(ofRowID: key) == .apps {
+                pendingAppShortcut.schedule(key, in: rowShortcuts)
+                loadAppsIfNeeded(for: presentationID)
+                return
+            }
+            if CommandBarPreferences.source(ofRowID: key) == .macSettings {
+                show(promptingFor: key)
+                return
+            }
+            NSSound.beep()
+            return
+        }
+        // A script marked to run directly does its work at once, with no
+        // argument and nothing on screen. Direct execution bypasses result
+        // filtering. Do nothing when the row is hidden or Links is disabled.
+        if let link = CommandBarLinks.directRunScript(forStableKey: key, in: CommandBarLinks.decode(
+            UserDefaults.standard.data(forKey: DefaultsKey.commandBarLinks))) {
+            guard !hiddenCache.contains(key), isEnabled(.links) else { return }
+            CommandBarCatalog.runScriptDirectly(link)
+            return
+        }
+        // A row that would confirm, ask for input, or keep the field visible
+        // needs a real presentation just as it does when chosen from the bar.
+        // Emptying the Trash on one keypress with nothing asked is not a
+        // shortcut, it is an accident with a name.
+        guard !entry.needsPrompt, !entry.keepsBarOpen else {
+            show(promptingFor: key)
+            return
+        }
+        // An app already in front hides on its own combination, so one key
+        // brings it forward and puts it away. With the bar open, the key
+        // opens the app instead: the panel never takes focus, so the app
+        // underneath is still active. A hide the app refuses falls through to
+        // opening it, as before. Launcher-style apps can misreport isActive,
+        // so the workspace's frontmost app is the tiebreaker, as for the Dock.
+        if !isVisible, let app = installedApp(for: entry), let running = runningApplication(for: app),
+           CommandBarRowShortcuts.hidesAppInFront(
+               isFrontmost: running.isActive
+                   || NSWorkspace.shared.frontmostApplication?.processIdentifier == running.processIdentifier,
+               isHidden: running.isHidden,
+               ownsFrontWindow: WindowServerSupport.frontWindowOwner(
+                   in: WindowServerSupport.onScreenWindowInfo()) == running.processIdentifier),
+           running.hide() {
+            return
+        }
+        if isVisible { hide() }
+        finish(entry, value: nil)
+    }
+
+    private var storedHiddenKeys: Set<String> {
+        CommandBarPreferences.decodeHidden(
+            UserDefaults.standard.string(forKey: DefaultsKey.commandBarHidden) ?? "")
+    }
+
+    /// What was in the field, and what was selected, at the instant a row ran.
+    /// Closing the bar wipes both before the row's own closure gets to work,
+    /// so they are handed over here instead of being read back from a panel
+    /// that is already gone.
+    private(set) var queryWhenRun = ""
+    private(set) var selectionWhenRun = ""
+
+    /// The text the person had selected when the bar opened, for the rows and
+    /// the saved destinations that act on it.
+    private(set) var selectedText = ""
+
+    /// Puts text in the field and leaves the bar open, so the person can finish
+    /// typing what a saved search needs.
+    func prefill(_ text: String) {
+        if !isVisible { show() }
+        query = text
+    }
+
+    /// The chip order. Fixed, so the row never reshuffles under a pointer.
+    private static let chipOrder: [CommandBarSource] = [
+        .actions, .apps, .clipboard, .windows, .menus, .settingsPages, .macSettings,
+        .snippets, .emoji, .folders, .links,
+    ]
+
+    /// Walks the chips with the arrow keys. Only while the field is empty:
+    /// with text in it the same keys belong to the caret, and taking them
+    /// would make the field unusable for editing what was typed.
+    ///
+    /// Returns whether it handled the key, so the caller can pass it on.
+    @discardableResult
+    func moveCategory(_ delta: Int) -> Bool {
+        guard case .search = mode,
+              query.trimmingCharacters(in: .whitespaces).isEmpty,
+              !categoryChips.isEmpty else { return false }
+        // Home is the first stop, so the row of chips and the walk agree.
+        var stops: [CommandBarSource?] = [nil]
+        stops.append(contentsOf: categoryChips.map { Optional($0) })
+        let current = stops.firstIndex(where: { $0 == activeCategory }) ?? 0
+        let next = (current + delta % stops.count + stops.count) % stops.count
+        setCategory(stops[next])
+        return true
+    }
+
+    /// Shows the list on a collapsed field for the rest of this opening.
+    /// Returns whether it handled the key, so the caller can pass it on.
+    @discardableResult
+    func peekHome() -> Bool {
+        guard case .search = mode, isCompactHome, !isPeekingHome else { return false }
+        isPeekingHome = true
+        refreshResults()
+        return true
+    }
+
+    /// Back to the unfiltered bar: clears whatever was typed and leaves the
+    /// category. What the no-results state offers, so an empty category is
+    /// never a room without a door.
+    func goHome() {
+        if !query.isEmpty { query = "" }
+        if activeCategory != nil { setCategory(nil) }
+    }
+
+    func setCategory(_ source: CommandBarSource?) {
+        guard activeCategory != source else { return }
+        activeCategory = source
+        selectedID = nil
+        lastRankedQuery = nil
+        refreshResults()
+    }
+    /// Whether a category is worth a chip.
+    ///
+    /// The three that come from background loads are decided by whether they
+    /// COULD have rows, not by whether the rows have arrived: asking the
+    /// arrays would draw a short row of chips and then grow it a moment later,
+    /// moving every chip under whoever was already reaching for one. The rest
+    /// are built synchronously, so they answer with the same filter the
+    /// content path applies, hidden rows included.
+    private func categoryHasContent(_ source: CommandBarSource) -> Bool {
+        let bar = FeatureStrings.commandBar(L10n.shared.language)
+        switch source {
+        case .apps, .macSettings:
+            // Every Mac has applications and Settings panes; the scan only
+            // decides when.
+            return true
+        case .windows:
+            return (AppFeature.switcher.isAvailable || AppFeature.windowLayout.isAvailable)
+                && Permissions.shared.accessibility
+        case .menus:
+            return Permissions.shared.accessibility
+                && NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                    != Bundle.main.bundleIdentifier
+        case .clipboard:
+            return !categoryContent(source, bar: bar, limit: 1).isEmpty
+        case .emoji:
+            let hidden = hiddenCache
+            return emojiEntries.contains { !hidden.contains($0.stableKey) }
+        case .actions:
+            // The same rule the content path applies: a chip that answered
+            // with a narrower filter than the list behind it would hide a
+            // category the list still has rows for.
+            let hidden = hiddenCache
+            return catalog.contains {
+                CommandBarPreferences.isActionRow($0.id, disabled: disabledCache)
+                    && !hidden.contains($0.stableKey)
+            }
+        case .settingsPages, .snippets, .folders, .links:
+            // Asked once per chip on every pass with an empty field, so it
+            // stops at the first row that qualifies instead of copying the
+            // catalog once per source.
+            let hidden = hiddenCache
+            return catalog.contains {
+                CommandBarPreferences.source(ofRowID: $0.id) == source
+                    && !hidden.contains($0.stableKey)
+            }
+        case .killProcess:
+            return AppFeature.killProcess.isAvailable
+        case .quitApps, .uninstallApps, .answers, .calculator, .selection, .files:
+            return false
+        }
+    }
+
+    /// Every row of one kind, the whole point of drilling in: no caps, no
+    /// guesses, everything the bar knows of that kind.
+    private func categoryContent(_ source: CommandBarSource,
+                                 bar: CommandBarFeatureStrings,
+                                 limit: Int = 60) -> [CommandBarEntry] {
+        let hidden = hiddenCache
+        let rows: [CommandBarEntry]
+        switch source {
+        case .actions:
+            rows = catalog.filter {
+                CommandBarPreferences.isActionRow($0.id, disabled: disabledCache)
+            }
+        case .apps: rows = appEntries
+        case .macSettings: rows = macSettingsEntries
+        case .windows: rows = windowEntries
+        case .menus: rows = menuEntries
+        case .emoji: rows = emojiEntries
+        case .uninstallApps: rows = uninstallEntries
+        case .settingsPages, .snippets, .folders, .links:
+            rows = catalog.filter { CommandBarPreferences.source(ofRowID: $0.id) == source }
+        case .clipboard:
+            rows = CommandBarCatalog.clipboardBrowseEntries(limit: limit, bar: bar) { [weak self] entry in
+                self?.paste(entry)
+            }
+        case .killProcess: rows = killProcessEntries
+        case .quitApps, .answers, .calculator, .selection, .files:
+            rows = []
+        }
+        return rows.filter { !hidden.contains($0.stableKey) }
+    }
+
+    /// The heading a category shows above its rows, with how many there are.
+    private func categoryHeading(_ source: CommandBarSource, count: Int) -> String {
+        categoryTitle(source) + " · \(count)"
+    }
+
+    /// The localized name of a category. Mostly the words the Settings toggles
+    /// use, so the two surfaces agree; the two that are written there as a
+    /// sentence ("menu commands of the app in front") borrow the short name
+    /// the rows themselves carry, because a chip is a label and not a
+    /// description.
+    func categoryTitle(_ source: CommandBarSource) -> String {
+        let bar = FeatureStrings.commandBar(L10n.shared.language)
+        switch source {
+        case .actions: return bar.sourceActions
+        case .apps: return bar.sourceApps
+        case .menus: return bar.kindMenu
+        case .windows: return bar.sourceWindows
+        case .quitApps: return bar.sourceQuitApps
+        case .uninstallApps: return L10n.shared.s.uninstallerName
+        case .settingsPages: return bar.sourceSettingsPages
+        case .macSettings: return bar.sourceMacSettings
+        case .snippets: return bar.sourceSnippets
+        case .clipboard: return bar.sourceClipboard
+        case .emoji: return bar.sourceEmoji
+        case .folders: return bar.sourceFolders
+        case .answers: return bar.sourceAnswers
+        case .calculator: return bar.sourceCalculator
+        case .selection: return bar.sourceSelection
+        case .files: return bar.sourceFiles
+        case .links: return bar.linksTitle
+        case .killProcess: return FeatureStrings.killProcess(L10n.shared.language).pageTitle
+        }
+    }
+
+    func isEnabled(_ source: CommandBarSource) -> Bool {
+        source.isAlwaysOn || !disabledCache.contains(source)
+    }
+
+    /// What the person pinned and what they bound, kept in memory. Both are
+    /// asked once per row on every single render of the list, and reading them
+    /// from disk there means parsing the same JSON ninety times for one frame.
+    private var pinCache: Set<String> = []
+    private var pinOrderCache: [String] = []
+    private var shortcutCache: [String: GlobalShortcut] = [:]
+    /// The rest of what the person decided, cached for the same reason and
+    /// with the same lifetime: read once when the bar opens, asked for by
+    /// every row on every keystroke after that.
+    private var aliasCache: [String: String] = [:] {
+        didSet { if aliasCache != oldValue { foldedSections = [:] } }
+    }
+    private var hiddenCache: Set<String> = []
+    private var disabledCache: Set<CommandBarSource> = []
+    private var usageCache: [String: CommandBarUse] = [:]
+    /// Cached like the pins: read once per open, checked on every keystroke.
+    private var compactMode = false
+    /// The list was asked for anyway, through `peekHome()`. Cleared on the
+    /// next open.
+    private var isPeekingHome = false
+    /// The folders a file search looks in, already resolved, and the names it
+    /// never shows. Resolving reads the home folder, which is far too much to
+    /// do on a keystroke and never changes between two of them.
+    private var fileScopeCache: [String] = []
+    private var fileIgnoreCache: [String] = []
+    private var fileSearchPreferenceSignature: String?
+    private var fileScopeLoadGeneration = 0
+
+    private func reloadPreferenceCaches() {
+        pinOrderCache = storedPins
+        pinCache = Set(pinOrderCache)
+        aliasCache = storedAliases
+        hiddenCache = storedHiddenKeys
+        // Before `reloadFileSearchCaches()`, which asks whether the Files
+        // source is on.
+        disabledCache = CommandBarPreferences.disabledSources(
+            from: UserDefaults.standard.string(forKey: DefaultsKey.commandBarDisabledSources) ?? "")
+        usageCache = CommandBarUsage.decode(
+            UserDefaults.standard.string(forKey: DefaultsKey.commandBarUsage))
+        shortcutCache = rowShortcuts
+        compactMode = UserDefaults.standard.bool(forKey: DefaultsKey.commandBarCompactMode)
+        hasCustomPosition = positionOffset != .zero
+        reloadFileSearchCaches()
+    }
+
+    private func reloadFileSearchCaches() {
+        // A cached answer belongs to the scopes and ignores that produced it.
+        // Changing either invalidates pending and completed searches together.
+        let scopesRaw = UserDefaults.standard.string(forKey: DefaultsKey.commandBarFileScopes) ?? ""
+        let ignoresRaw = UserDefaults.standard.string(forKey: DefaultsKey.commandBarFileIgnores) ?? ""
+        let enabled = isEnabled(.files)
+        let signature = "\(enabled)\0\(scopesRaw)\0\(ignoresRaw)"
+        guard signature != fileSearchPreferenceSignature else { return }
+        fileSearchPreferenceSignature = signature
+        fileScopeLoadGeneration &+= 1
+        let loadGeneration = fileScopeLoadGeneration
+        fileSearch.reset()
+        fileScopeCache = []
+        fileIgnoreCache = enabled
+            ? CommandBarFileSearchSupport.shippedIgnores
+                + CommandBarFileSearchSupport.decodeList(ignoresRaw)
+            : []
+        let saved = CommandBarFileSearchSupport.decodeList(scopesRaw)
+        guard enabled, !saved.isEmpty else { return }
+        let home = NSHomeDirectory()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let children = (try? FileManager.default.contentsOfDirectory(atPath: home)) ?? []
+            let scopes = CommandBarFileSearchSupport.resolvedScopes(
+                saved,
+                homeDirectory: home,
+                homeChildren: children,
+                isSearchableDirectory: CommandBarFileSearch.isSearchableDirectory)
+            DispatchQueue.main.async {
+                guard let self, self.fileScopeLoadGeneration == loadGeneration else { return }
+                self.fileScopeCache = scopes
+                if self.isVisible { self.refreshResults() }
+            }
+        }
+    }
+
+    func isPinned(_ entry: CommandBarEntry) -> Bool {
+        pinCache.contains(entry.stableKey)
+    }
+
+    /// The readable name of whatever a stored key points at, so the Settings
+    /// lists never show a bare id. Builds the catalog once if this loading
+    /// presentation has not prepared it yet.
+    func entryTitle(forStableKey key: String) -> String? {
+        ensureCatalogIndexed()
+        return entriesByStableKey[key]?.title
+    }
+
+    /// Keys the catalog can name right now. Settings uses this to drop pins
+    /// of features that were uninstalled, without hiding an app pin whose
+    /// app is simply not on this Mac at the moment.
+    var presentStableKeys: Set<String> {
+        ensureCatalogIndexed()
+        return Set(entriesByStableKey.keys)
+    }
+
+    /// Rebuilds the rows after a hub install or uninstall, so Settings and
+    /// an open bar stop offering a feature that is no longer there.
+    func noteHubChange() {
+        guard AppFeature.commandBar.isAvailable else { return }
+        rebuildCatalog()
+        rebuildRunningEntries()
+        if isVisible { refreshResults() }
+        objectWillChange.send()
+    }
+
+    /// Settings reads titles through here while SwiftUI draws the page, and a
+    /// publish from inside a view update is undefined behavior. So this fills
+    /// the lookup maps without assigning `appEntries`. The rows the last scan
+    /// built already name the same apps, and the next opening rebuilds them.
+    private func ensureCatalogIndexed() {
+        if entriesByStableKey.isEmpty {
+            rebuildCatalog()
+            rebuildRunningEntries(apps: false)
+        }
+    }
+
+    func alias(for entry: CommandBarEntry) -> String? {
+        aliasCache[entry.stableKey]
+    }
+
+    /// Pinning, naming, hiding and forgetting all write through here so the
+    /// list refreshes the instant the person changes their mind.
+    func togglePin(_ entry: CommandBarEntry) {
+        let next = CommandBarPreferences.togglingPin(entry.stableKey, in: storedPins)
+        UserDefaults.standard.set(CommandBarPreferences.encodePins(next), forKey: DefaultsKey.commandBarPins)
+        refreshAfterPreferenceChange()
+    }
+
+    func setAlias(_ alias: String, for entry: CommandBarEntry) {
+        let next = CommandBarPreferences.settingAlias(alias, for: entry.stableKey, in: storedAliases)
+        UserDefaults.standard.set(CommandBarPreferences.encodeAliases(next),
+                                  forKey: DefaultsKey.commandBarAliases)
+        refreshAfterPreferenceChange()
+    }
+
+    /// The row that already answers to this name, so the bar can say so
+    /// instead of quietly taking the name away from it.
+    func rowAlreadyNamed(_ alias: String, excluding entry: CommandBarEntry) -> String? {
+        guard let key = CommandBarPreferences.rowUsingAlias(alias, in: storedAliases,
+                                                            excluding: entry.stableKey)
+        else { return nil }
+        return entryTitle(forStableKey: key) ?? FeatureStrings.commandBar(L10n.shared.language).namedTitle
+    }
+
+    func toggleHidden(_ entry: CommandBarEntry) {
+        let next = CommandBarPreferences.togglingHidden(entry.stableKey, in: storedHiddenKeys)
+        UserDefaults.standard.set(CommandBarPreferences.encodeHidden(next),
+                                  forKey: DefaultsKey.commandBarHidden)
+        refreshAfterPreferenceChange()
+    }
+
+    /// Forgets how often this one row was used, so a command run a lot last
+    /// month stops crowding the top today. The whole habit can be cleared in
+    /// Settings; this is the surgical version, which is what people actually
+    /// ask for.
+    func resetRanking(_ entry: CommandBarEntry) {
+        var usage = CommandBarUsage.decode(
+            UserDefaults.standard.string(forKey: DefaultsKey.commandBarUsage))
+        usage.removeValue(forKey: entry.id)
+        UserDefaults.standard.set(CommandBarUsage.encode(usage), forKey: DefaultsKey.commandBarUsage)
+        queryMemory.forget(id: entry.id)
+        queryHabitStore.remove(resultID: entry.id)
+        UserDefaults.standard.set(CommandBarQueryHabits.encode(queryHabitStore.store),
+                                  forKey: DefaultsKey.commandBarQueryHabits)
+        refreshAfterPreferenceChange()
+    }
+
+    /// Forgets the whole habit, for the button in Settings that offers it.
+    /// What one session noticed about what was typed goes with it, or clearing
+    /// the ranking would leave half of it standing.
+    func forgetLearnedRanking() {
+        CommandBarLearning.forgetAll()
+        queryMemory.clear()
+        queryHabitStore.forgetAll()
+        preparedHabitQuery.reset()
+        refreshAfterPreferenceChange()
+    }
+
+    private func refreshAfterPreferenceChange() {
+        reloadPreferenceCaches()
+        indexEntries()
+        refreshResults()
+    }
+
+    private func rebuildCatalog(index: Bool = true) {
+        catalog = CommandBarCatalog.build(automationDenied: finderAutomationDenied)
+        emojiEntries = CommandBarCatalog.emojiEntries(bar: FeatureStrings.commandBar(L10n.shared.language))
+        builtLanguage = L10n.shared.language
+        if index { indexEntries() }
+    }
+
+    /// Global shortcuts need fresh runnable closures. This deliberately never
+    /// borrows the title cache, whose entries are metadata and may be stale.
+    private func freshFullEntry(forStableKey key: String) -> CommandBarEntry? {
+        rebuildCatalog(index: false)
+        rebuildRunningEntries(index: false)
+        return indexableEntries.last { $0.stableKey == key }
+    }
+
+    /// The lists the pool is made of, in the order it builds them: what
+    /// the Mac holds first, what is borrowed after.
+    private enum PoolSection: CaseIterable {
+        case selection, killProcess, uninstallSelection, catalog, apps, uninstallApps, macSettings, windows, quit, menus, emoji
+    }
+
+    private func entries(in section: PoolSection) -> [CommandBarEntry] {
+        switch section {
+        case .selection: return selectionEntries
+        case .uninstallSelection: return uninstallSelectionEntries
+        case .uninstallApps: return uninstallEntries
+        case .killProcess: return killProcessEntries
+        case .catalog: return catalog
+        case .apps: return appEntries
+        case .macSettings: return macSettingsEntries
+        case .windows: return windowEntries
+        case .quit: return quitEntries
+        case .menus: return menuEntries
+        case .emoji: return emojiEntries
+        }
+    }
+
+    /// Every row the bar can rank right now.
+    private var indexableEntries: [CommandBarEntry] {
+        PoolSection.allCases.flatMap { entries(in: $0) }
+    }
+
+    /// Each list's folded copy, dropped by the `didSet` when that list is
+    /// assigned again. The lists land from separate background passes, each
+    /// calling `indexEntries()`, so one opening indexes seven to ten times.
+    private var foldedSections: [PoolSection: [(title: String, keywords: String)]] = [:]
+
+    private func clearIndex() {
+        entriesByID = [:]
+        normalizedByID = [:]
+        entriesByStableKey = [:]
+        // Nothing folded outlives the panel.
+        foldedSections = [:]
+    }
+
+    private func indexEntries() {
+        // Folding a thousand titles on every keystroke is the one thing that
+        // could make typing feel heavy. It happens here instead, once per list
+        // per rebuild: a list nobody assigned again keeps the copy it has.
+        let names = aliasCache
+        for section in PoolSection.allCases where foldedSections[section] == nil {
+            foldedSections[section] = entries(in: section).map { entry in
+                // A name the person gave is searchable text like any other, so
+                // the row surfaces even when its real title shares nothing with it.
+                let alias = names[entry.stableKey]
+                    .map { " " + CommandBarSearch.normalized($0) } ?? ""
+                return (CommandBarSearch.normalized(entry.matchTitle ?? entry.title),
+                        CommandBarSearch.normalized(entry.keywords) + alias)
+            }
+        }
+        // The three maps are built from nothing every time, so a row that left
+        // its list - the menus of the app that was in front a moment ago -
+        // cannot stay pressable.
+        entriesByID = [:]
+        normalizedByID = [:]
+        entriesByStableKey = [:]
+        for section in PoolSection.allCases {
+            for (entry, folded) in zip(entries(in: section), foldedSections[section] ?? []) {
+                entriesByID[entry.id] = entry
+                entriesByStableKey[entry.stableKey] = entry
+                normalizedByID[entry.id] = folded
+            }
+        }
+    }
+
+    /// The rows that depend on what is running right now. Cheap enough to
+    /// redo on every open, which is the only way the live dot tells the truth.
+    private func rebuildRunningEntries(index: Bool = true, apps: Bool = true) {
+        let bar = FeatureStrings.commandBar(L10n.shared.language)
+        let running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+        quitEntries = CommandBarCatalog.quitEntries(running, bar: bar)
+        if apps {
+            let bundleIDs = Set(running.compactMap(\.bundleIdentifier))
+            let paths = Set(running.compactMap { $0.bundleURL?.standardizedFileURL.path })
+            appEntries = CommandBarCatalog.appEntries(cachedApps,
+                                                      runningBundleIDs: bundleIDs,
+                                                      runningPaths: paths,
+                                                      bar: bar)
+        }
+        uninstallEntries = CommandBarCatalog.uninstallEntries(cachedApps,
+                                                              uninstallable: uninstallableAppIDs,
+                                                              bar: bar)
+        if index { indexEntries() }
+    }
+
+    private func refreshResults() {
+        guard !isTearingDown else { return }
+        if presentationLifecycle.isLoadingHome {
+            rows = []
+            sectionTitles = [:]
+            categoryChips = []
+            isShowingSuggestions = false
+            // The panel is on screen for this turn already, so a compact bar
+            // has to start collapsed rather than drop its footer a frame later.
+            setCompactHome(compactMode)
+            return
+        }
+        if let builtLanguage, builtLanguage != L10n.shared.language {
+            rebuildCatalog(index: false)
+            rebuildRunningEntries()
+        }
+        switch mode {
+        case .search:
+            let trimmed = query.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
+                let showsBrowse = CommandBarHome.showsBrowseList(
+                    compact: compactMode,
+                    hasCategory: activeCategory != nil,
+                    isPeeking: isPeekingHome)
+                if showsBrowse {
+                    categoryChips = Self.chipOrder.filter {
+                        !disabledCache.contains($0) && categoryHasContent($0)
+                    }
+                } else {
+                    // Skipped, not just hidden: this is the walk of the whole
+                    // catalog compact mode exists to avoid.
+                    categoryChips = []
+                }
+                if let category = activeCategory {
+                    let bar = FeatureStrings.commandBar(L10n.shared.language)
+                    let content = CommandBarService.uniqued(categoryContent(category, bar: bar))
+                    let byID = Dictionary(content.map { ($0.id, $0) },
+                                          uniquingKeysWith: { first, _ in first })
+                    let usage = CommandBarUsage.decode(
+                        UserDefaults.standard.string(forKey: DefaultsKey.commandBarUsage))
+                    let durableUsage = usage.filter { byID[$0.key]?.countsUsage == true }
+                    rows = CommandBarUsage.categoryIDs(usage: durableUsage,
+                                                       available: content.map(\.id))
+                        .compactMap { byID[$0] }
+                    sectionTitles = rows.isEmpty
+                        ? [:]
+                        : [0: categoryHeading(category, count: rows.count)]
+                } else if showsBrowse {
+                    let suggestions = suggestionRows()
+                    rows = suggestions.rows
+                    sectionTitles = suggestions.titles
+                } else {
+                    rows = []
+                    sectionTitles = [:]
+                }
+                isShowingSuggestions = !rows.isEmpty
+            } else {
+                // Two rows with one id is undefined behaviour in a SwiftUI
+                // list: the wrong one gets the click and the selection jumps.
+                // The providers are careful, but the list is stitched from six
+                // of them plus whatever the person saved, so the last word is
+                // here. Only on the typed list: the headings of the browse list
+                // are keyed by position, and dropping a row under them would
+                // shift every heading below it.
+                rows = CommandBarService.uniqued(searchRows(for: trimmed))
+                // A typed query is one ranked list, so it carries no headings
+                // of its own. Inside a category it carries exactly one, because
+                // a filtered search that looks unfiltered turns "nothing here"
+                // into a lie about the whole bar.
+                sectionTitles = activeCategory.map { [0: categoryHeading($0, count: rows.count)] }
+                    ?? [:]
+                isShowingSuggestions = false
+            }
+            // Typing always lands on the best match; a background load never
+            // moves the selection at all.
+            //
+            // Those are two different refreshes and they were treated as one:
+            // keeping the selection by id across a KEYSTROKE meant the row
+            // picked at "f" stayed picked all the way through "fire", so the
+            // list showed the flame on top and Return opened the browser.
+            let queryChanged = trimmed != lastRankedQuery
+            lastRankedQuery = trimmed
+            if queryChanged {
+                selectedIndex = 0
+            } else if let keepID = selectedID,
+                      let index = rows.firstIndex(where: { $0.id == keepID }) {
+                selectedIndex = index
+            } else {
+                selectedIndex = 0
+            }
+            selectedID = rows.indices.contains(selectedIndex) ? rows[selectedIndex].id : nil
+            setCompactHome(CommandBarHome.isCollapsed(compact: compactMode,
+                                                      query: query,
+                                                      hasCategory: activeCategory != nil,
+                                                      isPeeking: isPeekingHome))
+        case .argument, .confirm, .uninstallReview, .uninstallHomebrewConfirm, .actions, .naming,
+             .capturingShortcut:
+            setCompactHome(false)
+        }
+        let awaiting = fileSearch.isAwaiting || scriptRunner.isAwaiting
+        if awaitsAnswers != awaiting { awaitsAnswers = awaiting }
+        refreshPanelLayout()
+    }
+
+    /// Only publishes on a real change: this is asked on every keystroke, and
+    /// an unchanged value would re-render the whole panel for nothing.
+    private func setCompactHome(_ value: Bool) {
+        if isCompactHome != value { isCompactHome = value }
+    }
+
+    /// The same rows with any repeated id dropped, keeping the first, which is
+    /// the better ranked one.
+    static func uniqued(_ rows: [CommandBarEntry]) -> [CommandBarEntry] {
+        let keep = CommandBarSearch.firstOccurrences(of: rows.map(\.id))
+        return keep.count == rows.count ? rows : keep.map { rows[$0] }
+    }
+
+    /// Whether some command that takes a number answers to this text, which
+    /// is what makes a trailing number an argument instead of search text.
+    private func numericCommandMatches(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
+        return catalog.contains { entry in
+            entry.numericRange != nil
+                && CommandBarSearch.matches(title: entry.title,
+                                            keywords: entry.keywords,
+                                            query: text)
+        }
+    }
+
+    private func suggestionRows() -> (rows: [CommandBarEntry], titles: [Int: String]) {
+        let bar = FeatureStrings.commandBar(L10n.shared.language)
+        let hidden = hiddenCache
+        func allowed(_ entry: CommandBarEntry) -> Bool {
+            isEnabled(CommandBarPreferences.source(ofRowID: entry.id))
+        }
+        var rows: [CommandBarEntry] = []
+        var titles: [Int: String] = [:]
+
+        // What is selected leads the empty bar: it is the thing the person is
+        // already looking at, and the heading shows it so there is no doubt
+        // about what the rows underneath would act on.
+        if !selectionEntries.isEmpty {
+            titles[0] = selectionPreview.isEmpty
+                ? bar.selectedTitle
+                : bar.selectedTitle + " · " + selectionPreview
+            rows.append(contentsOf: selectionEntries)
+        }
+
+        let offerable = (catalog + appEntries + macSettingsEntries + windowEntries).filter {
+            !hidden.contains($0.stableKey) && allowed($0)
+        }
+        // On the empty bar there is no ranking to respect, so what the person
+        // pinned leads, in the order they pinned it.
+        let byKey = Dictionary(offerable.map { ($0.stableKey, $0) },
+                               uniquingKeysWith: { first, _ in first })
+        let pinnedRows = CommandBarPreferences.leadingPins(pinOrderCache, available: Set(byKey.keys))
+            .compactMap { byKey[$0] }
+        if !pinnedRows.isEmpty {
+            titles[rows.count] = bar.pinnedTitle
+            rows.append(contentsOf: pinnedRows)
+        }
+
+        let usage = usageCache
+        let pinnedIDs = Set(pinnedRows.map(\.id))
+        let ids = CommandBarUsage.suggestionIDs(usage: usage,
+                                                available: offerable.map(\.id).filter { !pinnedIDs.contains($0) },
+                                                curated: CommandBarCatalog.curatedSuggestionIDs,
+                                                limit: max(0, 7 - pinnedRows.count))
+        let suggestions = ids.compactMap { entriesByID[$0] }
+        if !suggestions.isEmpty {
+            titles[rows.count] = bar.suggestionsLabel
+            rows.append(contentsOf: suggestions)
+        }
+
+        // And then everything else, grouped by where it lives. Seven guesses
+        // never say how big the app is; this is where someone opening the bar
+        // for the first time finds out, by scrolling, with every row runnable.
+        // Apps and windows stay out: hundreds of them would bury the commands
+        // and they are what search is for.
+        var shown = Set(rows.map(\.id))
+        var order: [String] = []
+        var groups: [String: [CommandBarEntry]] = [:]
+        for entry in catalog where !shown.contains(entry.id) && !hidden.contains(entry.stableKey) {
+            guard allowed(entry) else { continue }
+            shown.insert(entry.id)
+            let group = browseGroup(for: entry, bar: bar)
+            if groups[group] == nil { order.append(group) }
+            // The heading already says it; the row saying it again is noise.
+            groups[group, default: []].append(entry.subtitle == group
+                                              ? entry.withSubtitle("") : entry)
+        }
+        for group in order {
+            guard let members = groups[group], !members.isEmpty else { continue }
+            titles[rows.count] = group
+            // Snippets and saved places are made by the person and have no
+            // natural end; fifty of one kind would bury every other group
+            // below it. Browsing shows a taste of each, and search finds
+            // the rest.
+            rows.append(contentsOf: members.prefix(Self.browseGroupLimit))
+        }
+
+        // What was copied comes last, behind a scroll: it belongs in the bar,
+        // but not on screen over whatever the person is doing every time it
+        // opens.
+        if isEnabled(.clipboard) {
+            let copied = CommandBarCatalog.clipboardBrowseEntries(limit: 6, bar: bar) {
+                [weak self] entry in
+                self?.paste(entry)
+            }.filter { !hidden.contains($0.stableKey) && shown.insert($0.id).inserted }
+            if !copied.isEmpty {
+                titles[rows.count] = bar.kindClipboard
+                rows.append(contentsOf: copied)
+            }
+        }
+        return (rows, titles)
+    }
+
+    /// The heading a row browses under. Most rows already carry the name of
+    /// their area as their caption; the ones whose caption is a live detail
+    /// (a battery reading, a folder path) are grouped by what they are.
+    private func browseGroup(for entry: CommandBarEntry,
+                             bar: CommandBarFeatureStrings) -> String {
+        switch CommandBarPreferences.source(ofRowID: entry.id) {
+        case .answers: return bar.kindAnswer
+        case .links: return bar.kindLink
+        case .snippets: return bar.kindSnippet
+        case .folders: return bar.kindFolder
+        case .actions, .apps, .menus, .windows, .quitApps, .uninstallApps, .settingsPages,
+             .macSettings, .clipboard, .emoji, .calculator, .selection, .files, .killProcess:
+            return entry.subtitle.isEmpty ? bar.everythingTitle : entry.subtitle
+        }
+    }
+
+    /// How many rows one group may show while browsing.
+    private static let browseGroupLimit = 12
+
+    /// How many rows each kind may contribute, so one provider never floods
+    /// the list. Actions have no cap: they are what the bar is for.
+    private static let kindLimits: [(prefix: String, limit: Int)] = [
+        ("app.", 5), ("window.", 4), ("quit.", 3), ("menu.", 5), ("emoji.", 6),
+        ("settings.", 4), ("macsettings.", 4), ("clipboard.", 4), ("snippet.", 4),
+        ("file.", 4),
+        // Every switch answers to the same verb, so searching that verb would
+        // otherwise fill the list with twenty rows that all read alike.
+        ("toggle.", 5),
+    ]
+
+    /// The folded text a row is ranked against. Almost every row answers to
+    /// its own title, folded once when the catalog was built. A row that reads
+    /// an argument answers to the whole query instead: scored against its name
+    /// alone, it would leave the list the moment the argument was typed, which
+    /// is exactly when it was about to run.
+    private func rankingTitle(for entry: CommandBarEntry,
+                              folded: (title: String, keywords: String)?,
+                              query: String) -> String {
+        guard entry.takesArgument else {
+            return folded?.title ?? CommandBarSearch.normalized(entry.matchTitle ?? entry.title)
+        }
+        // Not cacheable by design: what this row answers to changes with every
+        // keystroke. Only the handful of saved searches pay for it.
+        return CommandBarSearch.normalized(
+            CommandBarLinks.rankingTitle(name: entry.title, query: query))
+    }
+
+    private func searchRows(for trimmed: String) -> [CommandBarEntry] {
+        let bar = FeatureStrings.commandBar(L10n.shared.language)
+        // Inside a category, typing filters that category and nothing else:
+        // no answer row, no caps per kind, just the ranking over one list.
+        if let category = activeCategory {
+            scriptRunner.cancelPending()
+            // A search inside one category is not a search for files, so any
+            // pending one goes: it would land on a list that has no room for
+            // it and refresh the bar for nothing.
+            fileSearch.cancelPending()
+            let hidden = hiddenCache
+            let pool = category == .clipboard
+                ? CommandBarCatalog.clipboardEntries(matching: trimmed, bar: bar, limit: 40) {
+                    [weak self] entry in self?.paste(entry)
+                }
+                // A row the person hid stays hidden here too; the browse path
+                // filters it and searching inside the category must agree.
+                .filter { !hidden.contains($0.stableKey) }
+                : categoryContent(category, bar: bar)
+            let now = Date().timeIntervalSince1970
+            let habitQuery = pool.contains(where: \.countsUsage)
+                ? CommandBarQueryHabits.prepare(trimmed, key: habitKey, cache: &preparedHabitQuery)
+                : nil
+            let candidates = pool.enumerated().map { index, entry in
+                let folded = normalizedByID[entry.id]
+                let habitBoost = entry.countsUsage ? habitQuery.map {
+                    CommandBarQueryHabits.boost(for: entry.id,
+                                                preparedQuery: $0,
+                                                store: queryHabitStore.store,
+                                                now: now)
+                } ?? 0 : 0
+                return CommandBarCandidate(index: index,
+                                           normalizedTitle: rankingTitle(for: entry, folded: folded,
+                                                                         query: trimmed),
+                                           normalizedKeywords: folded?.keywords
+                                               ?? CommandBarSearch.normalized(entry.keywords),
+                                           priority: habitBoost)
+            }
+            let ranked = CommandBarSearch.rankedIndexes(candidates: candidates, matching: trimmed)
+            return ranked.prefix(40).map { pool[$0] }
+        }
+
+        // Emoji are a catalog of more than a thousand rows, so they only join
+        // a search when the leading colon explicitly asks for them. Selecting
+        // the Emoji category takes the path above and remains colon-free.
+        if let emojiQuery = CommandBarSearch.emojiQuery(from: trimmed) {
+            scriptRunner.cancelPending()
+            fileSearch.cancelPending()
+            guard isEnabled(.emoji) else { return [] }
+            let pool = categoryContent(.emoji, bar: bar)
+            guard !emojiQuery.isEmpty else { return Array(pool.prefix(40)) }
+            let habitQuery = CommandBarQueryHabits.prepare(
+                emojiQuery, key: habitKey, cache: &preparedHabitQuery)
+            let now = Date().timeIntervalSince1970
+            let candidates = pool.enumerated().map { index, entry in
+                let folded = normalizedByID[entry.id]
+                let habitPriority = CommandBarQueryHabits.boost(
+                    for: entry.id,
+                    preparedQuery: habitQuery,
+                    store: queryHabitStore.store,
+                    now: now)
+                return CommandBarCandidate(index: index,
+                                           normalizedTitle: folded?.title
+                                               ?? CommandBarSearch.normalized(entry.title),
+                                           normalizedKeywords: folded?.keywords
+                                               ?? CommandBarSearch.normalized(entry.keywords),
+                                           priority: habitPriority)
+            }
+            let ranked = CommandBarSearch.rankedIndexes(candidates: candidates,
+                                                         matching: emojiQuery)
+            return ranked.prefix(40).map { pool[$0] }
+        }
+
+        // A sum is answered, not searched: the result leads and the rest of
+        // the list carries on underneath. Its row carries no id prefix of its
+        // own, so the switch has to be read here or it would do nothing.
+        let answer = isEnabled(.calculator)
+            ? CommandBarCatalog.answerEntry(for: trimmed, bar: bar)
+            : nil
+        // A web address typed into the bar is opened, not searched: the row
+        // leads so Return opens it at once, the way a sum's answer does.
+        let openURL = CommandBarCatalog.openURLEntry(for: trimmed, bar: bar)
+
+        // A saved script answers the same way a sum does, once it has run:
+        // the row leads, and Return copies what it printed. Same as any
+        // other saved link, it stays quiet while the Links source is off or
+        // that one link is hidden - a switched-off source must not still
+        // spawn a process behind it.
+        let savedLinks = CommandBarLinks.decode(
+            UserDefaults.standard.data(forKey: DefaultsKey.commandBarLinks))
+        let scriptMatch = isEnabled(.links)
+            ? CommandBarLinks.matchingScriptLink(in: savedLinks, query: trimmed)
+            : nil
+        var scriptAnswer: CommandBarEntry?
+        if let scriptMatch, !hiddenCache.contains("link.\(scriptMatch.link.id.uuidString)") {
+            if let result = scriptRunner.cachedResult(linkID: scriptMatch.link.id,
+                                                       argument: scriptMatch.argument) {
+                scriptRunner.cancelPending()
+                scriptAnswer = CommandBarCatalog.scriptAnswerEntry(link: scriptMatch.link,
+                                                                   result: result, bar: bar)
+            } else {
+                scriptRunner.schedule(link: scriptMatch.link, argument: scriptMatch.argument)
+            }
+        } else {
+            scriptRunner.cancelPending()
+        }
+
+        // Files, once the person has named a folder to look in. Asked for
+        // rather than waited on: the answer lands a moment later and refreshes
+        // the list, the way a saved script's answer does.
+        var fileRows: [CommandBarEntry] = []
+        if isEnabled(.files), !fileScopeCache.isEmpty {
+            if let paths = fileSearch.cachedPaths(for: trimmed) {
+                fileSearch.cancelPending()
+                fileRows = CommandBarCatalog.fileEntries(paths, bar: bar)
+            } else {
+                fileSearch.schedule(query: trimmed,
+                                    scopes: fileScopeCache,
+                                    patterns: fileIgnoreCache)
+            }
+        } else {
+            fileSearch.cancelPending()
+        }
+
+        // "brilho 40" is a command with a value; "code 1234" is a search for
+        // something copied. The number is only taken off when a command that
+        // actually takes one answers to what is left.
+        let split = CommandBarSearch.splitTrailingNumber(trimmed)
+        let effectiveQuery = split.number != nil && numericCommandMatches(split.text)
+            ? split.text
+            : trimmed
+
+        let usage = usageCache
+        let now = Date().timeIntervalSince1970
+
+        // The clipboard is searched with everything that was typed: digits
+        // are part of what people look for.
+        let clipboard = CommandBarCatalog.clipboardEntries(matching: trimmed,
+                                                           bar: bar) { [weak self] entry in
+            self?.paste(entry)
+        }
+
+        let names = aliasCache
+        let pinnedKeys = pinCache
+        let hidden = hiddenCache
+
+        // What is selected comes first, so a tie goes to the thing the person
+        // is already looking at.
+        var pool = selectionEntries + uninstallSelectionEntries + catalog + appEntries
+            + macSettingsEntries + windowEntries
+        // Two script names can overlap ("run" and "run report"). Only the
+        // longest matching one is eligible; otherwise the shorter row can win
+        // a ranking tie and Return runs a different file from the answer shown.
+        if let scriptMatch {
+            let winnerID = "link.\(scriptMatch.link.id.uuidString)"
+            let matchingScriptIDs = Set(
+                CommandBarLinks.matchingScriptLinks(in: savedLinks, query: trimmed)
+                    .map { "link.\($0.id.uuidString)" })
+            pool.removeAll {
+                matchingScriptIDs.contains($0.id) && (scriptAnswer != nil || $0.id != winnerID)
+            }
+        }
+        // Quitting an app is a rare, heavy verb: its rows only join the list
+        // when the person actually asked to quit something, so they never
+        // double the length of an ordinary app search.
+        if CommandBarSearch.matchesVerb(trimmed, in: bar.quitFormat) {
+            pool.append(contentsOf: quitEntries)
+        }
+        // Menu commands are a deep list; below two letters it would bury
+        // everything the bar itself can do. Running processes are excluded
+        // from ordinary typed search entirely - they only surface once you've
+        // explicitly entered the Kill Process category (see categoryContent).
+        if effectiveQuery.count >= 2 {
+            pool.append(contentsOf: menuEntries)
+        }
+        pool.append(contentsOf: clipboard)
+        pool.append(contentsOf: fileRows)
+
+        // The kind of each surviving row, worked out once: the ranking below
+        // needs the same answer and working it out twice would double a walk
+        // of the whole pool.
+        var sources: [CommandBarSource] = []
+        var kept: [CommandBarEntry] = []
+        kept.reserveCapacity(pool.count)
+        sources.reserveCapacity(pool.count)
+        for entry in pool where !hidden.contains(entry.stableKey) {
+            let source = CommandBarPreferences.source(ofRowID: entry.id)
+            guard isEnabled(source) else { continue }
+            kept.append(entry)
+            sources.append(source)
+        }
+        pool = kept
+
+        // Folded once for the whole pass. Every named row and every row this
+        // session remembers asks the same question of the same few letters,
+        // and folding is four allocations a time.
+        let foldedQuery = CommandBarSearch.normalized(effectiveQuery)
+        let habitQuery = CommandBarQueryHabits.prepare(
+            effectiveQuery, key: habitKey, cache: &preparedHabitQuery)
+        let candidates = pool.enumerated().map { index, entry in
+            let folded = normalizedByID[entry.id]
+            // A name the person gave outranks every title in the catalog:
+            // that is the whole point of giving it.
+            let aliasBoost = names[entry.stableKey]
+                .flatMap { CommandBarPreferences.aliasHit($0, normalizedQuery: foldedQuery)?.rawValue } ?? 0
+            let habitPriority = entry.countsUsage
+                ? CommandBarQueryHabits.boost(for: entry.id,
+                                              preparedQuery: habitQuery,
+                                              store: queryHabitStore.store,
+                                              now: now)
+                : 0
+            return CommandBarCandidate(index: index,
+                                normalizedTitle: rankingTitle(for: entry, folded: folded,
+                                                              query: effectiveQuery),
+                                normalizedKeywords: folded?.keywords
+                                    ?? CommandBarSearch.normalized(entry.keywords),
+                                priority: max(aliasBoost, habitPriority),
+                                // A running app is likelier to be the one
+                                // wanted, but never enough to beat a better
+                                // name match.
+                                boost: (entry.countsUsage
+                                        ? CommandBarUsage.boost(for: usage[entry.id], now: now)
+                                        : 0)
+                                    + (entry.isActive ? 20 : 0)
+                                    + aliasBoost
+                                    // What this session already answered with
+                                    // for exactly these letters.
+                                    + (entry.countsUsage
+                                        ? queryMemory.boost(normalizedQuery: foldedQuery, id: entry.id)
+                                        : 0)
+                                    // What the Mac itself holds leads what is
+                                    // borrowed from the app in front.
+                                    + CommandBarPreferences.rankBias(for: sources[index])
+                                    // A pin breaks a tie between two equally
+                                    // good matches; it never jumps over a
+                                    // better one, or the list would go stale.
+                                    + (pinnedKeys.contains(entry.stableKey)
+                                        ? CommandBarPreferences.pinTieBreak : 0))
+        }
+        let ranked = CommandBarSearch.featureOrdered(
+            CommandBarSearch.rankedIndexes(candidates: candidates, matching: effectiveQuery),
+            id: { pool[$0].id }, priority: { candidates[$0].priority })
+
+        // A fact about the Mac only shows when it was asked for by name:
+        // "st" must not answer "Storage" over what the person meant.
+        let firstToken = foldedQuery.split(separator: " ").first.map(String.init) ?? ""
+
+        // A color typed on its own is placed once the rest of the list is
+        // known; a conversion asked for with "to" leads like any answer.
+        let colorPreview = answer?.id == "color.preview" ? answer : nil
+        var counts: [String: Int] = [:]
+        var result: [CommandBarEntry] = []
+        if let answer, colorPreview == nil { result.append(answer) }
+        if let openURL { result.append(openURL) }
+        if let scriptAnswer { result.append(scriptAnswer) }
+        for index in ranked {
+            let entry = pool[index]
+            if entry.id.hasPrefix("answer."),
+               firstToken.count < 3 || !CommandBarSearch.normalized(entry.title).hasPrefix(firstToken) {
+                continue
+            }
+            if let kind = Self.kindLimits.first(where: { entry.id.hasPrefix($0.prefix) }) {
+                let used = counts[kind.prefix, default: 0]
+                guard used < kind.limit else { continue }
+                counts[kind.prefix] = used + 1
+            }
+            result.append(entry)
+            if result.count >= 12 { break }
+        }
+        if let colorPreview {
+            result.insert(colorPreview, at: CommandBarSearch.colorPreviewIndex(
+                rowTitles: result.map(\.title), query: trimmed))
+            if result.count > 12 { result.removeLast() }
+        }
+        return result
+    }
+
+    // MARK: - Selection
+
+    /// Moving past either end comes back around: at the bottom of a short
+    /// list, one more press should not feel like the key stopped working.
+    func moveSelection(_ delta: Int) {
+        guard !rows.isEmpty else { return }
+        let next = (selectedIndex + delta) % rows.count
+        select(next < 0 ? next + rows.count : next)
+    }
+
+    /// Tab reuses a calculator answer or completes the selected search result.
+    func completeSelection() {
+        guard case .search = mode, let entry = selectedEntry else { return }
+        if entry.id == "math.result", let result = CommandBarMath.evaluate(query) {
+            let completion = CommandBarMath.reusableExpression(for: result)
+            if let editor = panel?.firstResponder as? NSTextView, editor.string == query {
+                // Native replacement keeps undo and puts the caret after the reused value.
+                editor.insertText(completion, replacementRange: NSRange(location: 0, length: (query as NSString).length))
+            }
+            query = completion
+            return
+        }
+        guard !entry.isAnswer else { return }
+        if queryBeforeCompletion == nil { queryBeforeCompletion = query }
+        let completion = CommandBarCompletion.completedQuery(
+            current: query, title: entry.title, matchTitle: entry.matchTitle)
+        completedQuery = completion
+        query = completion
+    }
+
+    func select(_ index: Int) {
+        guard rows.indices.contains(index) else { return }
+        selectedIndex = index
+        selectedID = rows[index].id
+    }
+
+    /// Hover selection, ignored until the pointer really moves. SwiftUI
+    /// reports a hover for whatever row slides under a still cursor, and the
+    /// list slides on every keystroke, so a resting pointer would keep
+    /// stealing the selection back from the keyboard.
+    func selectFromHover(_ index: Int) {
+        let location = NSEvent.mouseLocation
+        guard location != lastPointerLocation else { return }
+        lastPointerLocation = location
+        select(index)
+    }
+
+    var selectedEntry: CommandBarEntry? {
+        rows.indices.contains(selectedIndex) ? rows[selectedIndex] : nil
+    }
+
+    /// A row by its id, from the catalog first and from what is on screen
+    /// otherwise: the clipboard and the calculator build rows that never enter
+    /// the index, and ⌘K on one of those used to open an empty list.
+    func entry(withID id: String) -> CommandBarEntry? {
+        entriesByID[id] ?? rows.first { $0.id == id }
+    }
+
+    /// Which letters of a row's title the query literally matched. Empty while
+    /// showing suggestions: nothing was typed, so nothing should look matched.
+    func highlightOffsets(for entry: CommandBarEntry) -> Set<Int> {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard case .search = mode, !trimmed.isEmpty, !entry.isAnswer else { return [] }
+        if let emojiQuery = CommandBarSearch.emojiQuery(from: trimmed) {
+            return CommandBarSearch.highlightOffsets(title: entry.title, query: emojiQuery)
+        }
+        let split = CommandBarSearch.splitTrailingNumber(trimmed)
+        return CommandBarSearch.highlightOffsets(title: entry.title,
+                                                 query: split.number != nil ? split.text : trimmed)
+    }
+
+    // MARK: - App controls
+
+    /// The actions offered for the selected row, built fresh so pin reads
+    /// "unpin" the moment it is pinned.
+    var actionRows: [RowAction] {
+        guard case .actions(let entryID) = mode, let entry = entry(withID: entryID) else { return [] }
+        return actions(for: entry)
+    }
+
+    /// Whether the selected row has anything to offer here. A clipboard item
+    /// is a passing thing with no lasting id, so it is not in the index and
+    /// there is nothing to pin, name or hide about it: the bar says so by not
+    /// offering the panel at all instead of opening an empty one.
+    var canOpenActions: Bool {
+        guard case .search = mode, let entry = selectedEntry, !entry.isAnswer,
+              entriesByID[entry.id] != nil else { return false }
+        return !actions(for: entry).isEmpty
+    }
+
+    private func actions(for entry: CommandBarEntry) -> [RowAction] {
+        let bar = FeatureStrings.commandBar(L10n.shared.language)
+        var actions: [RowAction] = []
+        if let app = installedApp(for: entry) {
+            if let running = runningApplication(for: app) {
+                actions.append(RowAction(id: "quitApp",
+                                         title: String(format: bar.quitFormat, app.name),
+                                         symbolName: "xmark.circle") { [weak self] in
+                    self?.quit(running)
+                })
+                actions.append(RowAction(id: "restartApp",
+                                         title: String(format: bar.restartAppFormat, app.name),
+                                         symbolName: "arrow.clockwise") { [weak self] in
+                    self?.restart(running, at: app.url)
+                })
+                actions.append(RowAction(id: "forceQuitApp",
+                                         title: String(format: bar.forceQuitAppFormat, app.name),
+                                         symbolName: "exclamationmark.octagon",
+                                         isDestructive: true) { [weak self] in
+                    self?.confirmForceQuit(running, name: app.name)
+                })
+            }
+            if AppFeature.uninstaller.isAvailable, UninstallerSupport.selection(for: app.url) != nil {
+                actions.append(RowAction(id: "uninstallApp",
+                                         title: String(format: bar.uninstallAppFormat, app.name),
+                                         symbolName: "trash") { [weak self] in
+                    self?.openUninstaller(for: app.url)
+                })
+            }
+        }
+        if entry.canRevealInFinder {
+            actions.append(RowAction(id: "reveal",
+                                     title: bar.actionRevealInFinder,
+                                     symbolName: "folder") { [weak self] in
+                self?.revealInFinder(entry)
+            })
+        }
+        if let process = killProcessEntry(for: entry), !process.isProtected {
+            let killStrings = FeatureStrings.killProcess(L10n.shared.language)
+            actions.append(RowAction(id: "forceKillProcess",
+                                     title: killStrings.forceKillButton,
+                                     symbolName: "exclamationmark.octagon",
+                                     isDestructive: true) { [weak self] in
+                self?.confirmForceKillProcess(process)
+            })
+            actions.append(RowAction(id: "killAllProcess",
+                                     title: String(format: killStrings.killAllFormat, process.name),
+                                     symbolName: "xmark.octagon",
+                                     isDestructive: true) { [weak self] in
+                self?.confirmKillAllProcesses(process)
+            })
+            actions.append(RowAction(id: "killProcessTree",
+                                     title: killStrings.killTreeButton,
+                                     symbolName: "xmark.octagon",
+                                     isDestructive: true) { [weak self] in
+                self?.confirmKillProcessTree(process)
+            })
+            if KillProcessService.shared.canRestart(process) {
+                actions.append(RowAction(id: "restartProcess",
+                                         title: killStrings.restartButton,
+                                         symbolName: "arrow.clockwise") { [weak self] in
+                    self?.hide()
+                    KillProcessService.shared.restart(process)
+                })
+            }
+        }
+        actions.append(contentsOf: skinToneActions(for: entry))
+        if CommandBarPreferences.acceptsPin(rowID: entry.id) {
+            actions.append(RowAction(id: "pin",
+                                     title: isPinned(entry) ? bar.actionUnpin : bar.actionPin,
+                                     symbolName: isPinned(entry) ? "pin.slash" : "pin") { [weak self] in
+                self?.togglePin(entry)
+                self?.leaveActions()
+            })
+        }
+        if CommandBarPreferences.acceptsAlias(rowID: entry.id) {
+            let named = alias(for: entry) != nil
+            actions.append(RowAction(id: "name",
+                                     title: named ? bar.actionRename : bar.actionName,
+                                     symbolName: "character.cursor.ibeam") { [weak self] in
+                self?.beginNaming(entry)
+            })
+        }
+        if CommandBarPreferences.acceptsAlias(rowID: entry.id) {
+            let bound = rowShortcut(for: entry) != nil
+            actions.append(RowAction(id: "shortcut",
+                                     title: bound ? bar.actionShortcutChange : bar.actionShortcut,
+                                     symbolName: "keyboard") { [weak self] in
+                self?.beginCapturingShortcut(entry)
+            })
+            if bound {
+                actions.append(RowAction(id: "shortcutClear",
+                                         title: bar.actionShortcutRemove,
+                                         symbolName: "keyboard.badge.ellipsis") { [weak self] in
+                    self?.setRowShortcut(nil, for: entry)
+                    self?.leaveActions()
+                })
+            }
+        }
+        actions.append(RowAction(id: "hide", title: bar.actionHide, symbolName: "eye.slash") { [weak self] in
+            self?.toggleHidden(entry)
+            self?.leaveActions()
+        })
+        if entry.countsUsage {
+            actions.append(RowAction(id: "forget",
+                                     title: bar.actionForget,
+                                     symbolName: "arrow.counterclockwise") { [weak self] in
+                self?.resetRanking(entry)
+                self?.leaveActions()
+            })
+        }
+        return actions
+    }
+
+    /// The other tones of the selected emoji, for the person whose default is
+    /// not the one this message wants. Usage still belongs to the same emoji;
+    /// the chosen tone applies only to this insertion, not the preference.
+    private func skinToneActions(for entry: CommandBarEntry) -> [RowAction] {
+        // The id carries the emoji itself, untoned, so the base needs no lookup.
+        guard let base = CommandBarPreferences.emojiIdentity(fromRowID: entry.id),
+              CommandBarEmoji.acceptsSkinTone(base) else { return [] }
+        let current = CommandBarPreferences.skinTone(
+            from: UserDefaults.standard.string(forKey: DefaultsKey.commandBarEmojiSkinTone) ?? "")
+        return CommandBarEmoji.SkinTone.allCases.filter { $0 != current }.map { tone in
+            let character = CommandBarEmoji.applying(tone, to: base)
+            return RowAction(id: "emojiSkinTone.\(tone.rawValue)",
+                             title: character,
+                             symbolName: "hand.raised") { [weak self] in
+                guard let self else { return }
+                self.recordUsage(of: entry)
+                self.hide()
+                CommandBarCatalog.typeAtCursor(character)
+            }
+        }
+    }
+
+    /// Shows a row where it lives instead of running it. An app that was
+    /// moved or deleted since the scan says so rather than opening a Finder
+    /// window on nothing, the same answer a saved folder already gives.
+    func revealInFinder(_ entry: CommandBarEntry) {
+        guard let path = entry.revealPath else {
+            NSSound.beep()
+            return
+        }
+        guard FileManager.default.fileExists(atPath: path) else {
+            hide()
+            QuickToolHUD.show(icon: "folder.badge.questionmark", message: entry.title)
+            return
+        }
+        hide()
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    private func installedApp(for entry: CommandBarEntry) -> InstalledApps.InstalledApp? {
+        guard entry.id.hasPrefix("app.") else { return nil }
+        return cachedApps.first { "app.\($0.id)" == entry.id }
+    }
+
+    private func killProcessEntry(for entry: CommandBarEntry) -> KillProcessEntry? {
+        guard entry.id.hasPrefix("kill."), let pid = pid_t(entry.id.dropFirst("kill.".count)) else { return nil }
+        return KillProcessService.shared.entries.first { $0.pid == pid }
+    }
+
+    private func runningApplication(for app: InstalledApps.InstalledApp) -> NSRunningApplication? {
+        let running = NSWorkspace.shared.runningApplications.filter {
+            $0.activationPolicy == .regular && !$0.isTerminated
+        }
+        let path = app.url.resolvingSymlinksInPath().standardizedFileURL.path
+        if let exact = running.first(where: {
+            $0.bundleURL?.resolvingSymlinksInPath().standardizedFileURL.path == path
+        }) {
+            return exact
+        }
+        guard let bundleID = app.bundleID,
+              cachedApps.lazy.filter({ $0.bundleID == bundleID }).prefix(2).count == 1 else {
+            return nil
+        }
+        return running.first { $0.bundleIdentifier == bundleID }
+    }
+
+    private func quit(_ app: NSRunningApplication) {
+        hide()
+        let pid = app.processIdentifier
+        app.activate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            guard let running = NSRunningApplication(processIdentifier: pid),
+                  !running.isTerminated, running.terminate() else {
+                NSSound.beep()
+                return
+            }
+        }
+    }
+
+    private func restart(_ app: NSRunningApplication, at url: URL) {
+        hide()
+        cancelPendingRestart()
+        let pid = app.processIdentifier
+        restartPID = pid
+        restartURL = url
+        let center = NSWorkspace.shared.notificationCenter
+        restartObserver = center.addObserver(forName: NSWorkspace.didTerminateApplicationNotification,
+                                             object: nil,
+                                             queue: .main) { [weak self] note in
+            guard let terminated = note.userInfo?[NSWorkspace.applicationUserInfoKey]
+                    as? NSRunningApplication,
+                  terminated.processIdentifier == self?.restartPID else { return }
+            self?.completeRestart()
+        }
+        app.activate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+            guard self?.restartPID == pid,
+                  let running = NSRunningApplication(processIdentifier: pid),
+                  !running.isTerminated, running.terminate() else {
+                self?.cancelPendingRestart()
+                NSSound.beep()
+                return
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
+            guard self?.restartPID == pid else { return }
+            self?.cancelPendingRestart()
+        }
+    }
+
+    private func completeRestart() {
+        guard let url = restartURL else {
+            cancelPendingRestart()
+            return
+        }
+        cancelPendingRestart()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            NSWorkspace.shared.openApplication(at: url,
+                                               configuration: NSWorkspace.OpenConfiguration()) {
+                _, error in
+                if error != nil { DispatchQueue.main.async { NSSound.beep() } }
+            }
+        }
+    }
+
+    private func cancelPendingRestart() {
+        if let restartObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(restartObserver)
+        }
+        restartObserver = nil
+        restartPID = nil
+        restartURL = nil
+    }
+
+    private func confirmForceQuit(_ app: NSRunningApplication, name: String) {
+        hide()
+        let bar = FeatureStrings.commandBar(L10n.shared.language)
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = String(format: bar.forceQuitAppConfirmFormat, name)
+        let actionTitle = String(format: bar.forceQuitAppFormat, name)
+        alert.addButton(withTitle: actionTitle.hasSuffix("…")
+                        ? String(actionTitle.dropLast()) : actionTitle)
+        alert.addButton(withTitle: L10n.shared.s.uninstallerCancel)
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard let running = NSRunningApplication(processIdentifier: app.processIdentifier),
+              !running.isTerminated, running.forceTerminate() else {
+            NSSound.beep()
+            return
+        }
+    }
+
+    private func confirmForceKillProcess(_ process: KillProcessEntry) {
+        hide()
+        let killStrings = FeatureStrings.killProcess(L10n.shared.language)
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = String(format: killStrings.confirmForceKillFormat, process.name)
+        alert.informativeText = process.path
+        alert.addButton(withTitle: killStrings.forceKillButton)
+        alert.addButton(withTitle: L10n.shared.s.uninstallerCancel)
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        KillProcessService.shared.kill(process, force: true)
+    }
+
+    private func confirmKillAllProcesses(_ process: KillProcessEntry) {
+        hide()
+        let killStrings = FeatureStrings.killProcess(L10n.shared.language)
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = String(format: killStrings.confirmKillAllFormat, process.name)
+        alert.addButton(withTitle: killStrings.killButton)
+        alert.addButton(withTitle: L10n.shared.s.uninstallerCancel)
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        KillProcessService.shared.killAll(named: process.name, force: false)
+    }
+
+    private func confirmKillProcessTree(_ process: KillProcessEntry) {
+        hide()
+        let killStrings = FeatureStrings.killProcess(L10n.shared.language)
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = String(format: killStrings.confirmKillTreeFormat, process.name)
+        alert.informativeText = process.path
+        alert.addButton(withTitle: killStrings.killTreeButton)
+        alert.addButton(withTitle: L10n.shared.s.uninstallerCancel)
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        KillProcessService.shared.killTree(process, force: false)
+    }
+
+    /// The row is offered only for an app the shared checks accept, so the
+    /// one way `select` still says no is a removal already running. The page
+    /// opens on that removal instead of the bar closing on nothing.
+    private func openUninstaller(for url: URL) {
+        hide()
+        let uninstaller = AppUninstaller.shared
+        guard uninstaller.select(appURL: url) || uninstaller.isRemoving else { return }
+        Task { @MainActor in
+            SettingsRouter.shared.page = .uninstaller
+            (NSApp.delegate as? AppDelegate)?.openSettingsWindow()
+        }
+    }
+
+    /// Return (or the Remove button) from the review checklist while it is
+    /// still showing results. A plain app just gets trashed in place; a
+    /// Homebrew-managed one needs its own confirmation first, guarded by
+    /// `.uninstallHomebrewConfirm` the same way a destructive row guards
+    /// itself with `.confirm`.
+    private func confirmUninstallReview(entryID: String) {
+        let uninstaller = AppUninstaller.shared
+        guard uninstaller.phase == .results, !uninstaller.isRemoving else { return }
+        if let confirmation = uninstaller.homebrewRemovalConfirmation {
+            pendingHomebrewRemoval = confirmation
+            mode = .uninstallHomebrewConfirm(entryID: entryID)
+            refreshPanelLayout()
+            return
+        }
+        uninstaller.removeSelected()
+    }
+
+    /// The Homebrew confirmation itself: runs the removal and returns to the
+    /// checklist, which shows its live progress the same way the menu panel
+    /// already does while `AppUninstaller` waits on it.
+    private func confirmUninstallHomebrewRemoval(entryID: String) {
+        if let confirmation = pendingHomebrewRemoval {
+            AppUninstaller.shared.removeSelectedWithHomebrew(confirmation: confirmation)
+        }
+        pendingHomebrewRemoval = nil
+        mode = .uninstallReview(entryID: entryID)
+        refreshPanelLayout()
+    }
+
+    /// Return (or the Done button) once removal has finished. Nothing is left
+    /// to review, so this goes all the way home with an empty field rather
+    /// than reoffering whatever was typed before the review began.
+    private func finishUninstallReview() {
+        let uninstaller = AppUninstaller.shared
+        if let url = uninstaller.target?.url, UninstallerSupport.isConfirmedAbsent(at: url) {
+            cachedApps.removeAll { $0.url.standardizedFileURL == url }
+            uninstallSelectionEntries.removeAll { $0.uninstallAppURL?.standardizedFileURL == url }
+            rebuildRunningEntries()
+        }
+        uninstaller.reset()
+        mode = .search
+        query = ""
+        refreshResults()
+    }
+
+    /// Only shared preferences need a scan for another installed copy.
+    /// This reads stored values because Settings may have changed them while
+    /// the bar was closed, or while the feature was switched off.
+    func hasStoredApplicationState(bundleID: String) -> Bool {
+        let keys = CommandBarRowShortcuts.applicationStableKeys(bundleIDs: [bundleID], paths: [])
+        return !keys.isDisjoint(with: rowShortcuts.keys)
+            || !keys.isDisjoint(with: storedAliases.keys)
+            || !keys.isDisjoint(with: storedPins)
+            || !keys.isDisjoint(with: storedHiddenKeys)
+    }
+
+    /// A removed path loses its own state; the bundle-wide choices stay until
+    /// the last copy the bar can list is gone.
+    func removeApplicationState(bundleIDs: Set<String>, urls: [URL], remainingBundleIDs: Set<String>) {
+        let paths = Set(urls.map { $0.resolvingSymlinksInPath().standardizedFileURL.path }
+                        + urls.map(\.path))
+        let targetKeys = CommandBarRowShortcuts.applicationStableKeys(
+            bundleIDs: bundleIDs.subtracting(remainingBundleIDs), paths: paths)
+        guard !targetKeys.isEmpty else { return }
+
+        let currentShortcuts = rowShortcuts
+        let nextShortcuts = CommandBarRowShortcuts.removing(keys: targetKeys, in: currentShortcuts)
+        if nextShortcuts.count != currentShortcuts.count {
+            UserDefaults.standard.set(CommandBarRowShortcuts.encode(nextShortcuts),
+                                      forKey: DefaultsKey.commandBarRowShortcuts)
+            syncRowHotkeys()
+        }
+
+        let currentAliases = storedAliases
+        let nextAliases = CommandBarPreferences.removingAliases(for: targetKeys, in: currentAliases)
+        if nextAliases.count != currentAliases.count {
+            UserDefaults.standard.set(CommandBarPreferences.encodeAliases(nextAliases),
+                                      forKey: DefaultsKey.commandBarAliases)
+        }
+
+        let currentPins = storedPins
+        let nextPins = CommandBarPreferences.removingPins(for: targetKeys, in: currentPins)
+        if nextPins.count != currentPins.count {
+            UserDefaults.standard.set(CommandBarPreferences.encodePins(nextPins),
+                                      forKey: DefaultsKey.commandBarPins)
+        }
+
+        let currentHidden = storedHiddenKeys
+        let nextHidden = CommandBarPreferences.removingHidden(for: targetKeys, in: currentHidden)
+        if nextHidden.count != currentHidden.count {
+            UserDefaults.standard.set(CommandBarPreferences.encodeHidden(nextHidden),
+                                      forKey: DefaultsKey.commandBarHidden)
+        }
+
+        var usage = CommandBarUsage.decode(
+            UserDefaults.standard.string(forKey: DefaultsKey.commandBarUsage))
+        let oldUsageCount = usage.count
+        for key in targetKeys { usage.removeValue(forKey: key) }
+        for path in paths { usage.removeValue(forKey: "app.\(path)") }
+        if usage.count != oldUsageCount {
+            UserDefaults.standard.set(CommandBarUsage.encode(usage),
+                                      forKey: DefaultsKey.commandBarUsage)
+        }
+
+        cachedApps.removeAll { app in
+            urls.contains(where: { $0.standardizedFileURL == app.url.standardizedFileURL })
+        }
+        uninstallSelectionEntries.removeAll { entry in
+            guard let entryURL = entry.uninstallAppURL else { return false }
+            return urls.contains(where: { $0.standardizedFileURL == entryURL.standardizedFileURL })
+        }
+        rebuildRunningEntries()
+        refreshAfterPreferenceChange()
+    }
+
+    func openActions() {
+        guard canOpenActions, let entry = selectedEntry else { return }
+        savedQuery = query
+        mode = .actions(entryID: entry.id)
+        actionIndex = 0
+        refreshPanelLayout()
+    }
+
+    private func leaveActions() {
+        if case .capturingShortcut = mode { endCapturingShortcut() }
+        mode = .search
+        query = savedQuery
+        refreshResults()
+    }
+
+    /// While the bar listens for a combination, every global key the app holds
+    /// steps aside: otherwise a combination already taken would fire its own
+    /// feature instead of reaching the bar. This is the same pair the shortcut
+    /// fields in Settings use, and it gives every key back, not only ours.
+    private func beginCapturingShortcut(_ entry: CommandBarEntry) {
+        ShortcutCapture.begin()
+        // The tap sits ahead of the app's own menu. Without it, Command Q
+        // never reaches the local monitor. It quits RyzenStatus instead of
+        // landing on the card (issue #1193). When Accessibility cannot
+        // create the tap, the monitor below still records as before.
+        ShortcutRecordingTap.begin { [weak self] keyCode, modifiers in
+            self?.handleCaptureKey(keyCode: keyCode, modifiers: modifiers)
+        }
+        mode = .capturingShortcut(entryID: entry.id)
+        aliasWarning = nil
+        refreshPanelLayout()
+    }
+
+    private func endCapturingShortcut() {
+        ShortcutRecordingTap.end()
+        ShortcutCapture.end()
+    }
+
+    /// One press while the capture card is up. Shared by the recording tap
+    /// and the local monitor fallback.
+    private func handleCaptureKey(keyCode: Int64, modifiers: GlobalShortcutModifiers) {
+        guard case .capturingShortcut(let entryID) = mode else { return }
+        switch Int(keyCode) {
+        case kVK_Escape:
+            stepBack()
+        case kVK_Delete, kVK_ForwardDelete:
+            if let entry = entry(withID: entryID) {
+                setRowShortcut(nil, for: entry)
+            }
+            stepBack()
+        default:
+            let shortcut = GlobalShortcut(keyCode: keyCode, modifiers: modifiers)
+            // A bare letter would take that letter away from every app
+            // on the Mac, so the bar waits for a real combination.
+            guard CommandBarRowShortcuts.isUsable(shortcut) else {
+                NSSound.beep()
+                return
+            }
+            guard let entry = entry(withID: entryID) else {
+                stepBack()
+                return
+            }
+            if let message = setRowShortcut(shortcut, for: entry) {
+                aliasWarning = message
+                return
+            }
+            stepBack()
+        }
+    }
+
+    private func beginNaming(_ entry: CommandBarEntry) {
+        mode = .naming(entryID: entry.id)
+        query = alias(for: entry) ?? ""
+        aliasWarning = nil
+        refreshPanelLayout()
+    }
+
+    @Published private(set) var actionIndex = 0
+    /// Set when the name being typed already belongs to another row.
+    @Published private(set) var aliasWarning: String?
+
+    func moveActionSelection(_ delta: Int) {
+        let count = actionRows.count
+        guard count > 0 else { return }
+        let next = (actionIndex + delta) % count
+        actionIndex = next < 0 ? next + count : next
+    }
+
+    func runSelectedAction() {
+        let actions = actionRows
+        guard actions.indices.contains(actionIndex) else { return }
+        actions[actionIndex].run()
+    }
+
+    func runAction(_ action: RowAction) {
+        action.run()
+    }
+
+    private func commitName() {
+        guard case .naming(let entryID) = mode, let entry = entry(withID: entryID) else { return }
+        let typed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !typed.isEmpty, let owner = rowAlreadyNamed(typed, excluding: entry) {
+            aliasWarning = String(format: FeatureStrings.commandBar(L10n.shared.language)
+                                    .aliasTakenFormat, owner)
+            return
+        }
+        setAlias(typed, for: entry)
+        aliasWarning = nil
+        leaveActions()
+    }
+
+    func runSelected() {
+        switch mode {
+        case .actions:
+            runSelectedAction()
+            return
+        case .naming:
+            commitName()
+            return
+        case .capturingShortcut:
+            // Return is a combination like any other while listening.
+            return
+        case .confirm(let id):
+            guard let entry = entry(withID: id) else { return }
+            finish(entry, value: nil)
+        case .uninstallReview(let id):
+            switch AppUninstaller.shared.phase {
+            case .results: confirmUninstallReview(entryID: id)
+            case .done: finishUninstallReview()
+            case .empty, .scanning, .removing: break
+            }
+        case .uninstallHomebrewConfirm(let id):
+            confirmUninstallHomebrewRemoval(entryID: id)
+        case .argument(let id):
+            guard let entry = entry(withID: id), let range = entry.numericRange,
+                  let value = CommandBarSearch.argumentValue(query, in: range) else {
+                NSSound.beep()
+                return
+            }
+            finish(entry, value: value)
+        case .search:
+            guard let entry = selectedEntry else {
+                // The no-results state promises a way out; Return takes it.
+                if !query.isEmpty { query = "" }
+                return
+            }
+            run(entry)
+        }
+    }
+
+    func run(at index: Int) {
+        guard case .search = mode, rows.indices.contains(index) else { return }
+        run(rows[index])
+    }
+
+    /// Runs the row the person actually clicked, by identity: between the
+    /// click and this call the list may have been rebuilt by a background
+    /// load, and a position would then point at a different command.
+    func run(_ entry: CommandBarEntry, fromClick: Bool) {
+        guard case .search = mode, fromClick else { return }
+        run(entry)
+    }
+
+    private func beginUninstallReview(appURL url: URL, entryID: String) {
+        let uninstaller = AppUninstaller.shared
+        guard AppFeature.uninstaller.isAvailable,
+              UserDefaults.standard.bool(forKey: DefaultsKey.uninstallerCommandBarEnabled),
+              uninstaller.select(appURL: url) else {
+            uninstallWarning = uninstaller.isRemoving
+                ? L10n.shared.s.uninstallerRemoving : L10n.shared.s.uninstallerSelectionUnavailable
+            refreshPanelLayout()
+            return
+        }
+        uninstallWarning = nil
+        savedQuery = query
+        mode = .uninstallReview(entryID: entryID)
+        refreshPanelLayout()
+    }
+
+    private func run(_ entry: CommandBarEntry) {
+        uninstallFinderRequestID = nil
+        if case .needsSetup(_, let page) = entry.trouble {
+            hide()
+            Task { @MainActor in
+                SettingsRouter.shared.page = page
+                (NSApp.delegate as? AppDelegate)?.openSettingsWindow()
+            }
+            return
+        }
+        if let url = entry.uninstallAppURL {
+            beginUninstallReview(appURL: url, entryID: entry.id)
+            return
+        }
+        if entry.confirmationPrompt != nil {
+            savedQuery = query
+            mode = .confirm(entryID: entry.id)
+            refreshPanelLayout()
+            return
+        }
+        if let range = entry.numericRange {
+            if let typedNumber {
+                finish(entry, value: min(max(typedNumber, range.lowerBound), range.upperBound))
+            } else if entry.numericIsOptional {
+                finish(entry, value: nil)
+            } else {
+                savedQuery = query
+                mode = .argument(entryID: entry.id)
+                query = ""
+                refreshPanelLayout()
+            }
+            return
+        }
+        finish(entry, value: nil)
+    }
+
+    /// Esc in argument or confirm mode returns to the search as it was; in
+    /// plain search it closes the bar.
+    func stepBack() {
+        switch mode {
+        case .actions:
+            leaveActions()
+        case .naming(let entryID):
+            aliasWarning = nil
+            if let entry = entry(withID: entryID) {
+                mode = .actions(entryID: entry.id)
+                query = ""
+                refreshPanelLayout()
+            } else {
+                leaveActions()
+            }
+        case .capturingShortcut(let entryID):
+            endCapturingShortcut()
+            if let entry = entry(withID: entryID) {
+                mode = .actions(entryID: entry.id)
+                refreshPanelLayout()
+            } else {
+                leaveActions()
+            }
+        case .argument, .confirm:
+            mode = .search
+            query = savedQuery
+            refreshResults()
+        case .uninstallReview:
+            if case .done = AppUninstaller.shared.phase {
+                finishUninstallReview()
+            } else {
+                let uninstaller = AppUninstaller.shared
+                if !uninstaller.isRemoving {
+                    uninstaller.reset()
+                }
+                mode = .search
+                query = savedQuery
+                refreshResults()
+            }
+        case .uninstallHomebrewConfirm(let id):
+            // Cancelling the Homebrew confirmation returns to the checklist
+            // it came from, not all the way home.
+            mode = .uninstallReview(entryID: id)
+            refreshPanelLayout()
+        case .search:
+            // A long query typed by mistake should be clearable without
+            // throwing the whole session away; then Esc leaves the category,
+            // then it puts a peeked list away, and only from home does it
+            // close.
+            if !query.isEmpty {
+                query = ""
+            } else if activeCategory != nil {
+                setCategory(nil)
+            } else if isPeekingHome {
+                isPeekingHome = false
+                refreshResults()
+            } else {
+                hide()
+            }
+        }
+    }
+
+    /// Normal insertion and one-off variants share the same learning history.
+    private func recordUsage(of entry: CommandBarEntry) {
+        let now = Date().timeIntervalSince1970
+        let typedQuery: String
+        switch mode {
+        case .argument, .actions:
+            typedQuery = CommandBarCompletion.queryForLearning(
+                current: savedQuery, beforeCompletion: queryBeforeCompletion)
+        default:
+            typedQuery = CommandBarCompletion.queryForLearning(
+                current: query, beforeCompletion: queryBeforeCompletion)
+        }
+        let trimmedQuery = typedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let learningQuery = CommandBarSearch.emojiQuery(from: trimmedQuery) ?? trimmedQuery
+        if entry.countsUsage, isVisible {
+            // Only what is on screen teaches anything: a row run from its own
+            // combination was never typed for.
+            queryMemoryStep &+= 1
+            queryMemory.record(query: learningQuery, id: entry.id, step: queryMemoryStep)
+        }
+        if entry.countsUsage {
+            let stored = UserDefaults.standard.string(forKey: DefaultsKey.commandBarUsage)
+            let next = CommandBarUsage.recording(CommandBarUsage.decode(stored),
+                                                 id: entry.id,
+                                                 now: now)
+            UserDefaults.standard.set(CommandBarUsage.encode(next), forKey: DefaultsKey.commandBarUsage)
+            usageCache = next
+        }
+        if entry.countsUsage, isVisible, !learningQuery.isEmpty {
+            let prepared = CommandBarQueryHabits.prepare(
+                learningQuery, key: habitKey, cache: &preparedHabitQuery)
+            if !prepared.isEmpty {
+                queryHabitStore.record(preparedQuery: prepared,
+                                       resultID: entry.id,
+                                       now: now)
+                UserDefaults.standard.set(CommandBarQueryHabits.encode(queryHabitStore.store),
+                                          forKey: DefaultsKey.commandBarQueryHabits)
+            }
+        }
+    }
+
+    private func finish(_ entry: CommandBarEntry, value: Int?) {
+        recordUsage(of: entry)
+        // Handed over before hiding, which wipes the field and the selection.
+        queryWhenRun = query
+        selectionWhenRun = selectedText
+        guard !entry.keepsBarOpen else {
+            entry.run(value)
+            return
+        }
+        farewell = .happy
+        hide()
+        // Back in the island it hops for what was run, unless the command
+        // gives it a reaction of its own, which takes this one's place: it
+        // waits a moment for one, as Keep Awake's arrives just after.
+        NotchService.shared.reactMascot(.celebrate, after: 0.3)
+        entry.run(value)
+    }
+
+    // MARK: - Clipboard paste
+
+    /// Pastes one history item at the caret. The panel never activated, so
+    /// the target app still has focus; all this does is put the item on the
+    /// clipboard, wait for a clean keyboard and press ⌘V for the person.
+    private func paste(_ entry: ClipboardHistoryEntry) {
+        hide()
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier
+            == ProcessInfo.processInfo.processIdentifier {
+            NSSound.beep()
+            return
+        }
+        // Without Accessibility the synthetic paste is dropped by the system.
+        // Asking first matters: writing the item to the clipboard and then
+        // failing would throw away what the person had copied, for nothing.
+        guard AXIsProcessTrusted() else {
+            if promptedForAccessibility {
+                NSSound.beep()
+            } else {
+                promptedForAccessibility = true
+                Permissions.shared.requestAccessibility()
+            }
+            return
+        }
+        ClipboardHistoryService.shared.copy(entry) { copied in
+            guard copied else {
+                NSSound.beep()
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                Self.postPasteWhenModifiersReleased(attempt: 0)
+            }
+        }
+    }
+
+    /// The proven dance: ⌘V posted while the summoning chord is still held
+    /// merges with those modifiers and stops being a paste in the target
+    /// app, so wait for a clean keyboard first (15 ms polls, ~1.5 s cap,
+    /// then a settle beat). Secure input means a password field; leave it be.
+    private static func postPasteWhenModifiersReleased(attempt: Int) {
+        let held = CGEventSource.flagsState(.combinedSessionState)
+            .intersection([.maskCommand, .maskAlternate, .maskShift, .maskControl])
+        if attempt >= 100 {
+            NSSound.beep()
+            return
+        }
+        guard held.isEmpty else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.015) {
+                postPasteWhenModifiersReleased(attempt: attempt + 1)
+            }
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+            guard !IsSecureEventInputEnabled() else {
+                NSSound.beep()
+                return
+            }
+            guard let source = CGEventSource(stateID: .hidSystemState),
+                  let keyDown = CGEvent(keyboardEventSource: source,
+                                        virtualKey: CGKeyCode(kVK_ANSI_V),
+                                        keyDown: true),
+                  let keyUp = CGEvent(keyboardEventSource: source,
+                                      virtualKey: CGKeyCode(kVK_ANSI_V),
+                                      keyDown: false)
+            else { return }
+            keyDown.flags = .maskCommand
+            keyUp.flags = .maskCommand
+            keyDown.post(tap: .cghidEventTap)
+            keyUp.post(tap: .cghidEventTap)
+        }
+    }
+
+    // MARK: - Background loads
+
+    /// Installed apps are enumerated off the main thread on every opening.
+    /// The previous list stays visible until the fresh one lands, so a newly
+    /// installed app appears promptly without a watcher living in the
+    /// background or a loading pause. Icons are resolved lazily by the rows.
+    func refreshApplications() {
+        guard AppFeature.commandBar.isAvailable else { return }
+        reloadPreferenceCaches()
+        ensureCatalogIndexed()
+        loadAppsIfNeeded(for: presentationID)
+    }
+
+    private func loadAppsIfNeeded(for id: UUID) {
+        guard AppFeature.commandBar.isAvailable, !appsLoading else { return }
+        appsLoading = true
+        let listsUninstallable = AppFeature.uninstaller.isAvailable
+            && UserDefaults.standard.bool(forKey: DefaultsKey.uninstallerCommandBarEnabled)
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let apps = SpotlightNames.enriching(InstalledApps.installedApplications(
+                includeSystemApplications: true,
+                spotlightPaths: Self.spotlightApplicationPaths()))
+            // The uninstall browse offers only what the uninstaller will
+            // take, and its check reads the disk for every app. The rule is
+            // the same one the pickers run: `selection(for:)` is the gate.
+            let uninstallable = listsUninstallable
+                ? UninstallerSupport.acceptedApplicationIDs(apps)
+                : []
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.appsLoading = false
+                guard AppFeature.commandBar.isAvailable else { return }
+                self.cachedApps = apps
+                self.uninstallableAppIDs = uninstallable
+                self.rebuildRunningEntries()
+                if let key = self.pendingAppShortcut.take(in: self.rowShortcuts,
+                                                          isAvailable: AppFeature.commandBar.isAvailable) {
+                    self.runRow(withStableKey: key, refreshAppsIfMissing: false)
+                }
+                guard self.presentationLifecycle.acceptsSharedCacheCompletion(
+                    startedBy: id, currentID: self.presentationID,
+                    isVisible: self.isVisible) else { return }
+                self.refreshResults()
+            }
+        }
+    }
+
+    /// The Mac's own Settings panes, read off the main thread the first time
+    /// the bar opens and reused after: they only change when macOS does. The
+    /// switch is honoured here rather than only in the ranking, so a source
+    /// nobody wants costs no scan at all.
+    private func loadMacSettingsIfNeeded(for id: UUID) {
+        let pendingShortcut = deferredRowShortcut.key(for: id)
+            .map { CommandBarPreferences.source(ofRowID: $0) == .macSettings } == true
+        guard (isEnabled(.macSettings) || pendingShortcut), !macSettingsLoading,
+              macSettingsLanguage != L10n.shared.language
+        else { return }
+        macSettingsLoading = true
+        let language = L10n.shared.language
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let panes = CommandBarSystemSettings.panes(language: language)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.macSettingsLoading = false
+                self.macSettingsLanguage = language
+                self.macSettingsEntries = CommandBarCatalog.macSettingsEntries(
+                    panes, bar: FeatureStrings.commandBar(language))
+                self.indexEntries()
+                guard self.presentationLifecycle.acceptsSharedCacheCompletion(
+                    startedBy: id, currentID: self.presentationID,
+                    isVisible: self.isVisible) else { return }
+                if !self.runDeferredRowShortcutIfReady(for: id) { self.refreshResults() }
+            }
+        }
+    }
+
+    /// A row whose provider loads in the background keeps its shortcut until
+    /// that provider has indexed the row. Closing or opening a newer bar still
+    /// cancels it through the presentation id.
+    @discardableResult
+    private func runDeferredRowShortcutIfReady(for id: UUID) -> Bool {
+        guard let key = deferredRowShortcut.key(for: id),
+              let entry = entriesByStableKey[key]
+        else { return false }
+        _ = deferredRowShortcut.take(for: id)
+        run(entry)
+        return true
+    }
+
+    /// Apps Spotlight finds in the home folder, which the bar lists beside the
+    /// application folders. The uninstaller asks for the same paths, so a copy
+    /// the bar still lists keeps its shortcut.
+    static func spotlightApplicationPaths() -> [String] {
+        let result = Shell.run(
+            "/usr/bin/mdfind",
+            ["-onlyin", NSHomeDirectory(),
+             "kMDItemContentType == 'com.apple.application-bundle'"])
+        guard result.status == 0 else { return [] }
+        return result.output.split(separator: "\n").map(String.init)
+    }
+
+    /// Open windows, listed away from the main thread because the walk asks
+    /// Accessibility. Titles only exist with Screen Recording granted, so
+    /// without it there is nothing to show and the rows stay out rather than
+    /// filling the list with repeated app names.
+    /// The menu bar of the app that was in front when the bar opened, walked
+    /// away from the main thread and kept per app for a few seconds. Nothing
+    /// is read while the bar is closed, and nothing is read for our own app.
+    private func loadMenusIfNeeded(for id: UUID) {
+        guard Permissions.shared.accessibility,
+              let front = NSWorkspace.shared.frontmostApplication,
+              front.bundleIdentifier != Bundle.main.bundleIdentifier,
+              front.activationPolicy == .regular else {
+            if !menuEntries.isEmpty {
+                menuEntries = []
+                menuOwnerPID = nil
+                indexEntries()
+            }
+            return
+        }
+        let pid = front.processIdentifier
+        let name = front.localizedName ?? ""
+        if menuOwnerPID == pid, let loadedAt = menusLoadedAt,
+           Date().timeIntervalSince(loadedAt) < 8 { return }
+        // Menu rows belong to the app they were read from. The moment another
+        // app is in front they go, instead of staying runnable until the new
+        // walk lands: pressing one would act on an app nobody is looking at.
+        if menuOwnerPID != pid, !menuEntries.isEmpty {
+            menuEntries = []
+            indexEntries()
+        }
+        guard !menusLoading else { return }
+        menusLoading = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let items = CommandBarMenus.items(for: pid)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.menusLoading = false
+                // A walk that finished after the person moved on is worth
+                // nothing; the current presentation asks again.
+                guard self.presentationLifecycle.acceptsHomeUpdates(
+                    id, isVisible: self.isVisible),
+                      NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+                else {
+                    let current = self.presentationID
+                    if self.presentationLifecycle.acceptsHomeUpdates(
+                        current, isVisible: self.isVisible) {
+                        self.loadMenusIfNeeded(for: current)
+                    }
+                    return
+                }
+                self.menuOwnerPID = pid
+                self.menusLoadedAt = Date()
+                let bar = FeatureStrings.commandBar(L10n.shared.language)
+                self.menuEntries = CommandBarCatalog.menuEntries(items, appName: name, bar: bar)
+                self.indexEntries()
+                self.refreshResults()
+            }
+        }
+    }
+
+    /// What the person had selected when the bar opened. Read away from the
+    /// main thread (it asks Accessibility) and only while the bar is open, so
+    /// nothing is ever read from anyone's screen in the background.
+    private func loadSelection(for id: UUID) {
+        guard isEnabled(.selection), Permissions.shared.accessibility else { return }
+        guard !selectionLoading else { return }
+        selectionLoading = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let text = CommandBarSelectionReader.readSelectedText()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.selectionLoading = false
+                guard self.presentationLifecycle.acceptsHomeUpdates(
+                    id, isVisible: self.isVisible) else {
+                    let current = self.presentationID
+                    if self.presentationLifecycle.acceptsHomeUpdates(
+                        current, isVisible: self.isVisible) {
+                        self.loadSelection(for: current)
+                    }
+                    return
+                }
+                let bar = FeatureStrings.commandBar(L10n.shared.language)
+                self.selectedText = text
+                self.selectionEntries = CommandBarCatalog.selectionEntries(text, bar: bar) {
+                    [weak self] selected in
+                    // The bar stays open: the point is to convert, add up or
+                    // look up what was selected without retyping it.
+                    self?.query = selected
+                }
+                self.selectionPreview = text.isEmpty ? "" : CommandBarText.preview(text)
+                self.indexEntries()
+                self.refreshResults()
+            }
+        }
+    }
+
+    /// Every running process, so a name typed directly finds and can kill it.
+    /// Reads through `KillProcessService`'s own cache - shared with the
+    /// Settings page, so this never shells out to `ps` twice - and only
+    /// while the bar is open, same lifetime and guard shape as
+    /// `loadSelection(for:)`.
+    private func loadKillProcessEntries(for id: UUID) {
+        guard AppFeature.killProcess.isAvailable,
+              UserDefaults.standard.bool(forKey: DefaultsKey.killProcessCommandBarEnabled) else { return }
+        guard !killProcessEntriesLoading else { return }
+        killProcessEntriesLoading = true
+        KillProcessService.shared.refresh { [weak self] in
+            guard let self else { return }
+            self.killProcessEntriesLoading = false
+            guard self.presentationLifecycle.acceptsHomeUpdates(id, isVisible: self.isVisible) else {
+                let current = self.presentationID
+                if self.presentationLifecycle.acceptsHomeUpdates(current, isVisible: self.isVisible) {
+                    self.loadKillProcessEntries(for: current)
+                }
+                return
+            }
+            let killStrings = FeatureStrings.killProcess(L10n.shared.language)
+            self.killProcessEntries = CommandBarCatalog.killProcessEntries(
+                KillProcessService.shared.sortedEntries, killStrings: killStrings)
+            self.indexEntries()
+            self.refreshResults()
+        }
+    }
+
+    /// Whatever single app is selected in Finder's Applications folder, so an
+    /// "Uninstall <App>" row can appear inline. Read away from the main
+    /// thread (Apple Events over `AppleScriptRunner`) and only while the bar
+    /// is open, same lifetime and guard shape as `loadSelection(for:)`.
+    func uninstallFinderSelection() {
+        let requestID = UUID()
+        uninstallFinderRequestID = requestID
+        loadUninstallSelectionEntries(for: presentationID, requestID: requestID)
+    }
+
+    private func loadUninstallSelectionEntries(for id: UUID, requestID: UUID? = nil) {
+        guard AppFeature.uninstaller.isAvailable,
+              UserDefaults.standard.bool(forKey: DefaultsKey.uninstallerCommandBarEnabled)
+        else { return }
+        guard !uninstallSelectionLoading else { return }
+        uninstallSelectionLoading = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let urls = FinderBridge.selectionURLs(requestPermission: requestID != nil)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.uninstallSelectionLoading = false
+                guard self.presentationLifecycle.acceptsHomeUpdates(
+                    id, isVisible: self.isVisible) else {
+                    let current = self.presentationID
+                    if self.presentationLifecycle.acceptsHomeUpdates(
+                        current, isVisible: self.isVisible) {
+                        self.loadUninstallSelectionEntries(for: current)
+                    }
+                    return
+                }
+                self.uninstallSelectionEntries = CommandBarCatalog.uninstallSelectionEntries(
+                    urls: urls, automationDenied: self.finderAutomationDenied)
+                self.indexEntries()
+                self.refreshResults()
+                if let requestID, self.uninstallFinderRequestID == requestID {
+                    self.uninstallFinderRequestID = nil
+                    guard case .search = self.mode else { return }
+                    if let entry = self.uninstallSelectionEntries.first {
+                        self.run(entry)
+                    } else {
+                        self.uninstallWarning = L10n.shared.s.uninstallerSelectionUnavailable
+                        self.refreshPanelLayout()
+                    }
+                }
+                if let pending = self.uninstallFinderRequestID {
+                    self.loadUninstallSelectionEntries(for: id, requestID: pending)
+                }
+            }
+        }
+    }
+
+    private func loadWindowsIfNeeded(for id: UUID) {
+        // Accessibility is the real requirement: the window walk reads titles
+        // through AX when the window server withholds them, so asking for
+        // Screen Recording here would demand the heaviest permission on the
+        // Mac for nothing.
+        let allowed = (AppFeature.switcher.isAvailable || AppFeature.windowLayout.isAvailable)
+            && Permissions.shared.accessibility
+        guard allowed else {
+            // Any reason to stop offering windows clears the ones already
+            // listed: a revoked permission or a feature switched off must not
+            // leave rows behind that no longer work.
+            if !windowEntries.isEmpty {
+                windowEntries = []
+                windowsLoadedAt = nil
+                indexEntries()
+            }
+            return
+        }
+        // The walk asks Accessibility about every running app and the AX
+        // timeout is process wide, so a hung app would make every open wait.
+        // One walk per few seconds is plenty for a list of windows.
+        if let loadedAt = windowsLoadedAt, Date().timeIntervalSince(loadedAt) < 4 { return }
+        guard !windowsLoading else { return }
+        windowsLoading = true
+        // The local walk has no display scope of its own: `listWindows()` is the
+        // same on-screen, user-facing list the switcher offers, which is the
+        // list the bar turns into window rows.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let windows = WindowEnumerator.listWindows()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.windowsLoading = false
+                guard self.presentationLifecycle.acceptsHomeUpdates(
+                    id, isVisible: self.isVisible) else {
+                    let current = self.presentationID
+                    if self.presentationLifecycle.acceptsHomeUpdates(
+                        current, isVisible: self.isVisible) {
+                        self.loadWindowsIfNeeded(for: current)
+                    }
+                    return
+                }
+                self.windowsLoadedAt = Date()
+                let bar = FeatureStrings.commandBar(L10n.shared.language)
+                self.windowEntries = CommandBarCatalog.windowEntries(windows, bar: bar)
+                self.indexEntries()
+                self.refreshResults()
+            }
+        }
+    }
+
+    /// Free space on the boot volume asks the storage daemon what is
+    /// purgeable, which can take a moment on a full disk. It is read away
+    /// from the main thread and the row picks it up on the next pass.
+    private func refreshStorageAnswer(for id: UUID) {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let space = CommandBarCatalog.readBootVolumeSpace()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                // The whole sample is stored before the comparison decides
+                // whether anything has to be redrawn, or the fields the guard
+                // does not compare would keep a reading from an older sample.
+                let changed = CommandBarCatalog.cachedBootVolumeSpace?.free != space?.free
+                CommandBarCatalog.cachedBootVolumeSpace = space
+                guard changed else { return }
+                if self.presentationLifecycle.acceptsSharedCacheCompletion(
+                    startedBy: id, currentID: self.presentationID,
+                    isVisible: self.isVisible) {
+                    self.rebuildCatalog()
+                    self.refreshResults()
+                }
+            }
+        }
+    }
+
+    /// The battery and the memory pressure both cross into the kernel, and
+    /// they are read together so one background pass answers both rows. Same
+    /// reason as the storage and Wi-Fi passes: none of it belongs on the
+    /// keystroke that opens the bar.
+    private func refreshSystemAnswers(for id: UUID) {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let battery = SystemInfo.batterySnapshot()
+            let memory = AppFeature.monitorMemory.isAvailable ? SystemInfo.memoryUsage() : nil
+            DispatchQueue.main.async {
+                guard let self else { return }
+                // Stored first, compared after, for the reason the storage
+                // pass above gives: the guard names the three fields the row
+                // shows, and the rest of the sample would otherwise be left
+                // behind at whatever it was when those three last moved.
+                let changed = CommandBarCatalog.cachedBattery != battery
+                    || CommandBarCatalog.cachedMemory?.used != memory?.used
+                    || CommandBarCatalog.cachedMemory?.appUsed != memory?.appUsed
+                    || CommandBarCatalog.cachedMemory?.total != memory?.total
+                CommandBarCatalog.cachedBattery = battery
+                CommandBarCatalog.cachedMemory = memory
+                guard changed else { return }
+                if self.presentationLifecycle.acceptsSharedCacheCompletion(
+                    startedBy: id, currentID: self.presentationID,
+                    isVisible: self.isVisible) {
+                    self.rebuildCatalog()
+                    self.refreshResults()
+                }
+            }
+        }
+    }
+
+    /// Asking CoreWLAN crosses to the Wi-Fi daemon, so the row reads a value
+    /// gathered in the background instead of paying for it on the keystroke
+    /// that opens the bar.
+    private func refreshWiFiState(for id: UUID) {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let state = CommandBarExtras.readWiFiPowerState()
+            DispatchQueue.main.async {
+                guard let self, CommandBarExtras.cachedWiFiPower != state else { return }
+                CommandBarExtras.cachedWiFiPower = state
+                if self.presentationLifecycle.acceptsSharedCacheCompletion(
+                    startedBy: id, currentID: self.presentationID,
+                    isVisible: self.isVisible) {
+                    self.rebuildCatalog()
+                    self.refreshResults()
+                }
+            }
+        }
+    }
+
+    /// The blocking Apple Event check runs away from the main thread; the
+    /// Trash row reads the cached answer.
+    private func refreshAutomationStatus(for id: UUID) {
+        guard AppFeature.quickToggles.isAvailable else { return }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let denied = Permissions.automationStatus(for: .finder) == .denied
+            DispatchQueue.main.async {
+                guard let self, self.finderAutomationDenied != denied else { return }
+                self.finderAutomationDenied = denied
+                if self.presentationLifecycle.acceptsSharedCacheCompletion(
+                    startedBy: id, currentID: self.presentationID,
+                    isVisible: self.isVisible) {
+                    self.rebuildCatalog()
+                    self.refreshResults()
+                }
+            }
+        }
+    }
+
+    // MARK: - Panel
+
+    /// Borderless panels refuse key status by default, and the bar's field
+    /// needs it for typing while the target app stays active.
+    private final class KeyableBarPanel: OverlayPanel {
+        override var canBecomeKey: Bool { true }
+    }
+
+    private func ensurePanel() -> NSPanel {
+        if let panel { return panel }
+        let panel = KeyableBarPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 380),
+                                    styleMask: [.borderless, .nonactivatingPanel],
+                                    backing: .buffered,
+                                    defer: false)
+        panel.title = "RyzenStatus"
+        panel.isReleasedWhenClosed = false
+        panel.isMovableByWindowBackground = false
+        panel.hidesOnDeactivate = false
+        panel.level = .floating
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        let host = NSHostingController(rootView: CommandBarView())
+        host.sizingOptions = .preferredContentSize
+        panel.contentViewController = host
+        self.panel = panel
+        return panel
+    }
+
+    /// Centered, a bit above the middle of the screen the pointer is on:
+    /// where the eye already is, and where the system's own search field
+    /// puts itself. Anchored by the top edge so the list can grow and shrink
+    /// below a field that never moves. Wherever the person dragged the bar
+    /// away from that spot is added on, so the choice survives the close.
+    private func position(_ panel: NSPanel, animated: Bool = false) {
+        panel.contentViewController?.view.layoutSubtreeIfNeeded()
+        let size = panel.contentViewController?.view.fittingSize ?? NSSize(width: 560, height: 380)
+        // Decided once, here: moving the pointer to another display while
+        // typing must not clamp the panel against a screen it is not on.
+        let screen = NSScreen.pointerVisibleFrame
+        panelScreen = screen
+        let offset = positionOffset
+        let origin = CommandBarPreferences.clampedPanelOrigin(
+            size: size, in: screen, offset: offset)
+        panel.setFrame(NSRect(origin: origin, size: size),
+                       display: true,
+                       animate: animated)
+    }
+
+    /// How far the person dragged the bar from the spot it would otherwise
+    /// open on.
+    private var positionOffset: CGSize {
+        CommandBarPreferences.decodePositionOffset(
+            UserDefaults.standard.string(forKey: DefaultsKey.commandBarPositionOffset) ?? "")
+    }
+
+    // MARK: - Moving the bar
+
+    /// Clamps and saves only after the person's drag has ended. Programmatic
+    /// positioning and content-driven resizing never rewrite this preference.
+    func finishPanelDrag() {
+        guard let panel else { return }
+        let screen = panel.screen?.visibleFrame ?? panelScreen ?? NSScreen.pointerVisibleFrame
+        panelScreen = screen
+        let draggedOffset = CGSize(
+            width: panel.frame.midX - screen.midX,
+            height: panel.frame.maxY - (screen.minY + screen.height * 0.72))
+        let origin = CommandBarPreferences.clampedPanelOrigin(
+            size: panel.frame.size, in: screen, offset: draggedOffset)
+        if panel.frame.origin != origin { panel.setFrameOrigin(origin) }
+        let offset = CGSize(width: panel.frame.midX - screen.midX,
+                            height: panel.frame.maxY - (screen.minY + screen.height * 0.72))
+        let encoded = CommandBarPreferences.encodePositionOffset(offset)
+        if encoded.isEmpty {
+            UserDefaults.standard.removeObject(forKey: DefaultsKey.commandBarPositionOffset)
+        } else {
+            UserDefaults.standard.set(encoded, forKey: DefaultsKey.commandBarPositionOffset)
+        }
+        hasCustomPosition = !encoded.isEmpty
+    }
+
+    /// The way back: a double-click on the mark, or the button in Settings,
+    /// returns the bar to the spot it opens on by default, with the same
+    /// short slide it took on the way there.
+    func resetPanelPosition() {
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.commandBarPositionOffset)
+        hasCustomPosition = false
+        guard let panel, panel.isVisible, presentation == .window else { return }
+        position(panel, animated: true)
+    }
+
+    // MARK: - Monitors
+
+    private func handleUninstallKey(_ keyCode: Int, searchFieldFocused: Bool) -> Bool {
+        if keyCode == kVK_Escape {
+            stepBack()
+            return true
+        }
+        if (keyCode == kVK_Return || keyCode == kVK_ANSI_KeypadEnter), searchFieldFocused {
+            runSelected()
+            return true
+        }
+        return false
+    }
+
+    private func installMonitors(for panel: NSPanel) {
+        removeMonitors()
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak panel] event in
+            guard let self, let panel, event.window === panel else { return event }
+            // A key while the drop still falls shows the bar at once, before
+            // the field and its search take the key. Escape closes it instead.
+            if self.presentation == .droplet, event.keyCode != 53 { CommandBarDroplet.shared.hurry() }
+
+            // While a language is composing a character (Japanese, Korean,
+            // Chinese, and dead keys for accents) Return confirms the
+            // candidate and the arrows walk it. Taking those keys here would
+            // make the field unusable in five of the languages the app
+            // speaks, so composition always wins.
+            if self.fieldIsComposing(in: panel) { return event }
+
+            // Listening for a combination: every key belongs to the person,
+            // except the two that mean "never mind" and "take it off". The
+            // recording tap is the primary path; this is the fallback when
+            // that tap cannot exist.
+            if case .capturingShortcut = self.mode {
+                self.handleCaptureKey(
+                    keyCode: Int64(event.keyCode),
+                    modifiers: GlobalShortcutModifiers(eventFlags: event.modifierFlags))
+                return nil
+            }
+
+            let navigationModifiers = event.modifierFlags
+                .intersection([.command, .option, .shift, .control])
+            if event.modifierFlags.contains(.command) {
+                // `characters` is the Command-aware key macOS resolves: it
+                // follows remapped Latin layouts and supplies the positional
+                // Latin equivalent when the active layout is non-Latin. Option
+                // rewrites it into the alternate glyph, and the app's own menu
+                // owns ⌥⌘H, so while Option is held the unmodified reading is
+                // the one that still names the key to swallow.
+                let key = (event.modifierFlags.contains(.option)
+                    ? event.charactersIgnoringModifiers
+                    : event.characters)?.lowercased()
+                switch key {
+                case "q", "w", "m", "h":
+                    // The app's menu owns these combinations and the panel is
+                    // key, so they would quit, close or hide RyzenStatus while
+                    // the person believes they are acting on the app the bar
+                    // is floating over.
+                    return nil
+                case ",":
+                    self.hide()
+                    Task { @MainActor in
+                        SettingsRouter.shared.page = .commandBar
+                        (NSApp.delegate as? AppDelegate)?.openSettingsWindow()
+                    }
+                    return nil
+                case "k":
+                    self.openActions()
+                    return nil
+                case "p":
+                    if let entry = self.selectedEntry, !entry.isAnswer,
+                       CommandBarPreferences.acceptsPin(rowID: entry.id) {
+                        self.togglePin(entry)
+                    }
+                    return nil
+                case "a" where navigationModifiers == [.command]:
+                    return NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: panel) ? nil : event
+                case "c" where navigationModifiers == [.command]:
+                    return NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: panel) ? nil : event
+                case "x" where navigationModifiers == [.command]:
+                    return NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: panel) ? nil : event
+                case "v" where navigationModifiers == [.command]:
+                    return NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: panel) ? nil : event
+                default:
+                    break
+                }
+            }
+            // ⌘Return shows the selected row where it lives. Guarded by the
+            // row's own rule, so a row with nowhere to go hands the keys back
+            // and Return goes on meaning what it always did.
+            if event.modifierFlags.contains(.command),
+               Int(event.keyCode) == kVK_Return || Int(event.keyCode) == kVK_ANSI_KeypadEnter {
+                if case .search = self.mode, let entry = self.selectedEntry,
+                   entry.canRevealInFinder {
+                    self.revealInFinder(entry)
+                    return nil
+                }
+            }
+            // In a checklist, native controls own Tab, Space and arrows.
+            // Only Return in the search field means the flow's primary action,
+            // and only a fresh press: a Return still held from the app list
+            // must not confirm the review the moment its scan finishes.
+            if self.mode.isUninstallFlow {
+                if event.isARepeat,
+                   Int(event.keyCode) == kVK_Return || Int(event.keyCode) == kVK_ANSI_KeypadEnter {
+                    return nil
+                }
+                return self.handleUninstallKey(Int(event.keyCode),
+                                               searchFieldFocused: panel.firstResponder is NSTextView)
+                    ? nil : event
+            }
+            switch Int(event.keyCode) {
+            case kVK_Escape:
+                self.stepBack()
+                return nil
+            case kVK_Return, kVK_ANSI_KeypadEnter:
+                self.runSelected()
+                return nil
+            case kVK_UpArrow:
+                if case .actions = self.mode { self.moveActionSelection(-1) } else { self.moveSelection(-1) }
+                return nil
+            case kVK_DownArrow:
+                if case .actions = self.mode {
+                    self.moveActionSelection(1)
+                } else if !self.peekHome() {
+                    self.moveSelection(1)
+                }
+                return nil
+            case kVK_LeftArrow:
+                // Handed back untouched when the field has text in it.
+                return self.moveCategory(-1) ? nil : event
+            case kVK_RightArrow:
+                return self.moveCategory(1) ? nil : event
+            case kVK_Tab:
+                self.completeSelection()
+                return nil
+            default:
+                // ⌘1…⌘9 run by position; plain digits belong to the field.
+                if event.modifierFlags.contains(.command),
+                   let index = Self.digitIndex(for: event.keyCode) {
+                    self.run(at: index)
+                    return nil
+                }
+                if navigationModifiers == [.control],
+                   let key = event.charactersIgnoringModifiers?.lowercased() {
+                    // Match the typed letter so alternate keyboard layouts
+                    // follow the keys the person sees.
+                    switch key {
+                    case "n":
+                        // Same ↓ in the footer's own hint.
+                        if case .actions = self.mode {
+                            self.moveActionSelection(1)
+                        } else if !self.peekHome() {
+                            self.moveSelection(1)
+                        }
+                        return nil
+                    case "p":
+                        if case .actions = self.mode { self.moveActionSelection(-1) } else { self.moveSelection(-1) }
+                        return nil
+                    default:
+                        break
+                    }
+                }
+                // Typing while a confirmation is up takes the confirmation
+                // down. Otherwise a destructive Return stays armed behind
+                // what looks like an ordinary search.
+                if case .confirm = self.mode { self.stepBack() }
+                if case .naming = self.mode { self.aliasWarning = nil }
+                // A key typed before the field took the keyboard goes to it, or
+                // waits for it while the island is still drawing the bar.
+                if !(panel.firstResponder is NSTextView), !self.focusField(in: panel),
+                   self.presentation == .island {
+                    self.pendingKeys.append(event)
+                    DispatchQueue.main.async { self.deliverPendingKeys() }
+                    return nil
+                }
+                return event
+            }
+        }
+        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            guard let self else { return event }
+            let held = event.modifierFlags.contains(.command)
+            if held != self.commandIsHeld { self.commandIsHeld = held }
+            return event
+        }
+        let mouseEvents: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: mouseEvents) { [weak self, weak panel] event in
+            guard let self, let panel, panel.isVisible else { return event }
+            if event.window !== panel, !Self.mouseIsInside(panel) {
+                self.hide()
+            }
+            return event
+        }
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: mouseEvents) { [weak self, weak panel] event in
+            guard let self, let panel, panel.isVisible else { return }
+            if event.windowNumber != panel.windowNumber, !Self.mouseIsInside(panel),
+               // Every key on the Accessibility Keyboard is a click outside this
+               // panel. Dismissing on those makes the panel impossible to type into.
+               !AssistiveKeyboard.ownsCocoaPoint(NSEvent.mouseLocation) {
+                self.hide()
+            }
+        }
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.bundleIdentifier != Bundle.main.bundleIdentifier,
+                  app.bundleIdentifier != AssistiveKeyboard.bundleID
+            else { return }
+            self.hide()
+        }
+    }
+
+    private func removeMonitors() {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
+        if let localClickMonitor {
+            NSEvent.removeMonitor(localClickMonitor)
+            self.localClickMonitor = nil
+        }
+        if let outsideClickMonitor {
+            NSEvent.removeMonitor(outsideClickMonitor)
+            self.outsideClickMonitor = nil
+        }
+        if let flagsMonitor {
+            NSEvent.removeMonitor(flagsMonitor)
+            self.flagsMonitor = nil
+        }
+        commandIsHeld = false
+        if let activationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(activationObserver)
+            self.activationObserver = nil
+        }
+    }
+
+    /// True while an input method is still composing in the field. The panel
+    /// edits through a field editor, so the marked range lives there.
+    private func fieldIsComposing(in panel: NSPanel) -> Bool {
+        guard let responder = panel.firstResponder as? NSTextView else { return false }
+        return responder.hasMarkedText()
+    }
+
+    private static func mouseIsInside(_ panel: NSPanel) -> Bool {
+        panel.frame.insetBy(dx: -2, dy: -2).contains(NSEvent.mouseLocation)
+    }
+
+    private static func digitIndex(for keyCode: UInt16) -> Int? {
+        switch Int(keyCode) {
+        case kVK_ANSI_1: return 0
+        case kVK_ANSI_2: return 1
+        case kVK_ANSI_3: return 2
+        case kVK_ANSI_4: return 3
+        case kVK_ANSI_5: return 4
+        case kVK_ANSI_6: return 5
+        case kVK_ANSI_7: return 6
+        case kVK_ANSI_8: return 7
+        case kVK_ANSI_9: return 8
+        default: return nil
+        }
+    }
+}

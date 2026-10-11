@@ -54,6 +54,48 @@ struct HomebrewCaskRecord: Hashable {
     let displayName: String
     let installedVersion: String?
     let appFileNames: [String]
+    let appPaths: [String]
+
+    init(token: String,
+         displayName: String,
+         installedVersion: String?,
+         appFileNames: [String],
+         appPaths: [String] = []) {
+        self.token = token
+        self.displayName = displayName
+        self.installedVersion = installedVersion
+        self.appFileNames = appFileNames
+        self.appPaths = appPaths
+    }
+}
+
+enum HomebrewOwnershipSupport {
+    /// Resolves a package only when its catalog points at this exact app. A
+    /// same-named copy elsewhere must never make an unrelated package eligible
+    /// for a destructive command.
+    static func packageManagingApplication(atPath rawPath: String,
+                                           installed: [HomebrewCaskRecord]) -> HomebrewPackage? {
+        let path = URL(fileURLWithPath: rawPath).standardizedFileURL.path
+        let exact = installed.filter { record in
+            record.appPaths.contains {
+                URL(fileURLWithPath: $0).standardizedFileURL.path == path
+            }
+        }
+        if exact.count == 1 {
+            return package(from: exact[0])
+        }
+        return nil
+    }
+
+    private static func package(from record: HomebrewCaskRecord) -> HomebrewPackage {
+        HomebrewPackage(kind: .cask,
+                        name: record.token,
+                        displayName: record.displayName,
+                        desc: nil,
+                        installedVersion: record.installedVersion,
+                        stableVersion: nil,
+                        homepage: nil)
+    }
 }
 
 enum HomebrewPackageOrdering {
@@ -712,33 +754,56 @@ enum HomebrewParser {
         let displayName = (item["name"] as? [String])?.first(where: { !$0.isEmpty }) ?? token
         let installed = item["installed"] as? String
         var appFileNames: [String] = []
+        var appPaths: [String] = []
         for artifact in (item["artifacts"] as? [Any] ?? []) {
             guard let entry = artifact as? [String: Any],
                   let apps = entry["app"] as? [Any] else { continue }
-            // A package can rename the bundle it installs. Prefer that target
-            // name, then keep the source name as a fallback for older output.
-            var targets: [String] = []
-            var sources: [String] = []
-            if let target = entry["target"] as? String { targets.append(target) }
+            let artifactTarget = entry["target"] as? String
             for app in apps {
-                if let source = app as? String {
-                    sources.append(source)
+                let source: String
+                let target: String?
+                if let name = app as? String {
+                    source = name
+                    target = artifactTarget
                 } else if let mapping = app as? [String: Any],
-                          let target = mapping["target"] as? String {
-                    targets.append(target)
+                          let name = mapping["source"] as? String {
+                    source = name
+                    target = (mapping["target"] as? String) ?? artifactTarget
+                } else {
+                    continue
                 }
-            }
-            for candidate in targets.isEmpty ? sources : targets {
-                let fileName = URL(fileURLWithPath: candidate).lastPathComponent
+
+                let sourceName = URL(fileURLWithPath: source).lastPathComponent
+                let targetName = target.map { URL(fileURLWithPath: $0).lastPathComponent }
+                let fileName = targetName ?? sourceName
                 if fileName.hasSuffix(".app"), !appFileNames.contains(fileName) {
                     appFileNames.append(fileName)
+                }
+
+                // An app artifact's source is in the caskroom and is not where
+                // Homebrew installs it. Only the declared target, or Homebrew's
+                // documented /Applications default, can establish ownership.
+                let destination: String
+                if let target {
+                    let targetURL = URL(fileURLWithPath: target)
+                    destination = target.hasPrefix("/")
+                        ? targetURL.standardizedFileURL.path
+                        : URL(fileURLWithPath: "/Applications", isDirectory: true)
+                            .appendingPathComponent(targetURL.lastPathComponent).standardizedFileURL.path
+                } else {
+                    destination = URL(fileURLWithPath: "/Applications", isDirectory: true)
+                        .appendingPathComponent(sourceName).standardizedFileURL.path
+                }
+                if destination.hasSuffix(".app"), !appPaths.contains(destination) {
+                    appPaths.append(destination)
                 }
             }
         }
         return HomebrewCaskRecord(token: token,
                                   displayName: displayName,
                                   installedVersion: installed?.isEmpty == false ? installed : nil,
-                                  appFileNames: appFileNames)
+                                  appFileNames: appFileNames,
+                                  appPaths: appPaths)
     }
 
     static func parseOutdatedCommandOutput(_ output: String) throws -> [String: HomebrewPackageUpdate] {

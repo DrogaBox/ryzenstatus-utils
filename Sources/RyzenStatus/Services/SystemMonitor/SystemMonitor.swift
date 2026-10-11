@@ -56,6 +56,9 @@ struct SystemSnapshot {
     // Power
     var power: PowerReading?
     var peripheralBatteries: [PeripheralBatteryDevice] = []
+    var peripheralBatterySample: PeripheralBatterySample {
+        PeripheralBatterySample(devices: peripheralBatteries)
+    }
 
     // Disk
     var disk: DiskReading?
@@ -117,6 +120,21 @@ struct SystemMonitorPanelNeeds: Equatable {
     var gpuTemperature = false
     var batteryTemperature = false
 
+    func merging(_ other: Self) -> Self {
+        Self(system: system || other.system,
+             network: network || other.network,
+             disk: disk || other.disk,
+             power: power || other.power,
+             cpu: cpu || other.cpu,
+             gpu: gpu || other.gpu,
+             memory: memory || other.memory,
+             battery: battery || other.battery,
+             peripheralBattery: peripheralBattery || other.peripheralBattery,
+             cpuTemperature: cpuTemperature || other.cpuTemperature,
+             gpuTemperature: gpuTemperature || other.gpuTemperature,
+             batteryTemperature: batteryTemperature || other.batteryTemperature)
+    }
+
     static let none = SystemMonitorPanelNeeds()
 
     var any: Bool {
@@ -139,6 +157,9 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     private var intervalSeconds: Double = 1.0
     private var panelClients = 0
     private var menuPanelNeeds: SystemMonitorPanelNeeds = .none
+    private var notchVisible = false
+    private var notchDetailNeeds: SystemMonitorPanelNeeds = .none
+    private var notchAccessoryMonitoring = false
     private var menuBarActive = false
     private var alertsActive = false
     private var refreshInFlight = false
@@ -316,6 +337,45 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Independent from the menu panel, so either surface can close without
+    /// taking the other surface’s readings away.
+    func setNotchDetailNeeds(_ needs: SystemMonitorPanelNeeds) {
+        runOnMain { [weak self] in
+            guard let self, self.notchDetailNeeds != needs else { return }
+            self.notchDetailNeeds = needs
+            self.stopTimerIfIdle()
+            self.ensureTimer()
+            if needs.any { self.refresh(suppressImmediateGPU: true); self.scheduleDeferredGPURefreshIfNeeded() }
+        }
+    }
+
+    /// This background consumer only requests accessory batteries. It does
+    /// not make CPU, graphics, temperature or disk sampling foreground work.
+    func setNotchAccessoryMonitoring(_ enabled: Bool) {
+        runOnMain { [weak self] in
+            guard let self, self.notchAccessoryMonitoring != enabled else { return }
+            self.notchAccessoryMonitoring = enabled
+            self.stopTimerIfIdle()
+            self.ensureTimer()
+            if enabled { self.refresh(suppressImmediateGPU: true) }
+        }
+    }
+
+    func setNotchVisible(_ visible: Bool) {
+        runOnMain { [weak self] in
+            guard let self, self.notchVisible != visible else { return }
+            self.notchVisible = visible
+            if visible {
+                self.ensureTimer()
+                self.refresh(suppressImmediateGPU: true)
+                self.scheduleDeferredGPURefreshIfNeeded()
+            } else {
+                self.stopTimerIfIdle()
+                self.ensureTimer()
+            }
+        }
+    }
+
     /// The menu popover reports exactly which monitor sections are on screen.
     /// This avoids paying for GPU, network or power reads while the panel is open
     /// on another section.
@@ -480,7 +540,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     /// independent surfaces cannot desync.
     private var fullMonitorVisible: Bool { panelClients > 0 }
 
-    private var shouldRun: Bool { fullMonitorVisible || menuPanelNeeds.any || menuBarActive || alertsActive }
+    private var shouldRun: Bool { fullMonitorVisible || menuPanelNeeds.any || notchDetailNeeds.any || notchVisible || notchAccessoryMonitoring || menuBarActive || alertsActive }
 
     private func shouldSample(defaults: UserDefaults = .standard) -> Bool {
         shouldRun && currentPlan(defaults: defaults).any
@@ -528,10 +588,21 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
 
     private func currentPlan(defaults: UserDefaults) -> SamplingPlan {
         var plan = SamplingPlan()
-        if fullMonitorVisible || menuPanelNeeds.system || alertsActive {
+        let effectiveNeeds = menuPanelNeeds.merging(notchDetailNeeds)
+        if fullMonitorVisible || effectiveNeeds.system || alertsActive {
             enableAll(&plan)
         } else {
-            apply(menuPanelNeeds, to: &plan)
+            apply(effectiveNeeds, to: &plan)
+            if notchVisible {
+                plan.needCPU = true
+                plan.needMemory = true
+                plan.needNetwork = true
+                plan.needGPUUsage = true
+                plan.needPower = true
+            }
+            if notchAccessoryMonitoring {
+                plan.needPeripheralBattery = true
+            }
             if menuBarActive {
                 for metric in MenuBarMetric.enabled(in: defaults) {
                     apply(metric, to: &plan)

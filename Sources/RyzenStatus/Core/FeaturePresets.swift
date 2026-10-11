@@ -101,7 +101,15 @@ extension AppFeature {
              .musicBlock, .keepAwake, .brightness, .quickLauncher, .quickToggles, .colorPicker,
              .screenOCR, .cleaningMode, .mediaTools, .cleaner, .uninstaller, .homebrew,
              .whatsAppDownloads, .screenshot, .screenRecorder,
-             .cameraPreview, .scratchpad:
+             .cameraPreview, .scratchpad, .killProcess, .commandBar,
+             .notch, .notchCalendar, .notchNotifications, .notchGestures, .notchTimer,
+             .notchAccessories, .notchLyrics, .notchLiveEqualizer, .notchQueue, .notchDownloads, .notchWatch, .notchMascot:
+            // The process table is only sampled while its page is open.
+            return .idle
+        // Port Manager runs `lsof` only while its page or panel is open.
+        // Connected Devices never polls here: it reads once and then follows
+        // IOKit plug and unplug events while its panel row is on screen.
+        case .portManager, .connectedDevices:
             return .idle
         case .appUpdates:
             // The list is on demand; only a background schedule keeps a timer.

@@ -70,7 +70,7 @@ struct ScratchpadView: View {
                     // NSTextView has no placeholder of its own; this sits at
                     // the exact spot of the first line and never takes clicks.
                     Text(text.placeholder)
-                        .font(.system(size: PlainTextEditor.fontSize))
+                        .font(.system(size: PlainTextEditor.defaultFontSize))
                         .foregroundStyle(.tertiary)
                         .padding(.leading,
                                  Self.editorInset.width + PlainTextEditor.lineFragmentPadding)

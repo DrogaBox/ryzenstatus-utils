@@ -43,6 +43,8 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -319,5 +321,47 @@ extension BrightnessFeatureStrings {
         osdCaption: "使用亮度鍵或滑桿時顯示亮度百分比。",
         keyboardLight: "鍵盤背光",
         keyboardLightCaption: "開啟或關閉鍵盤背光。"
+    )
+
+    static let sk = BrightnessFeatureStrings(
+        pageTitle: "Displeje",
+        hubDescription: "Ovládanie jasu a napájania pre každý displej",
+        enable: "Ovládať displeje",
+        enableCaption: "Ovládanie jasu a zapnutia či vypnutia vstavanej obrazovky a externých monitorov, tu aj v paneli v lište s ponukami.",
+        externalCaption: "Externé monitory sa nastavujú cez ten istý protokol ako ich vlastné tlačidlá. Keď ho pripojenie neprenesie, napríklad pri HDMI adaptéroch, posuvník namiesto toho stmaví obraz, takže ovládanie jasu funguje v oboch prípadoch.",
+        noDisplays: "Nenašiel sa žiadny displej.",
+        displayOff: "Vypnutý",
+        turnOffDisplay: "Vypnúť displej",
+        turnOnDisplay: "Zapnúť displej",
+        lastDisplayCaption: "Aspoň jeden displej musí ostať zapnutý.",
+        switchUnavailable: "Prepínanie displejov nie je na tomto Macu dostupné.",
+        switchFailed: "Tento displej sa nepodarilo zmeniť.",
+        keysToggle: "Klávesy jasu nasledujú kurzor",
+        keysCaption: "Klávesy jasu na klávesnici menia displej pod kurzorom.",
+        osdToggle: "Zobraziť jas pri úprave",
+        osdCaption: "Zobrazí percento jasu, keď používate klávesy alebo posuvníky jasu.",
+        keyboardLight: "Podsvietenie klávesnice",
+        keyboardLightCaption: "Zapne alebo vypne podsvietenie klávesnice."
+    )
+
+    static let uk = BrightnessFeatureStrings(
+        pageTitle: "Дисплеї",
+        hubDescription: "Керування яскравістю та живленням кожного дисплея",
+        enable: "Керувати дисплеями",
+        enableCaption: "Керування яскравістю та ввімкненням або вимкненням вбудованого екрана й зовнішніх моніторів тут і на панелі смуги меню.",
+        externalCaption: "Зовнішні монітори налаштовуються через той самий протокол, що й їхні власні кнопки. Коли з’єднання його не підтримує, як-от з адаптерами HDMI, повзунок натомість затемнює зображення, тож керування яскравістю працює в будь-якому разі.",
+        noDisplays: "Дисплеїв не знайдено.",
+        displayOff: "Вимкнено",
+        turnOffDisplay: "Вимкнути дисплей",
+        turnOnDisplay: "Увімкнути дисплей",
+        lastDisplayCaption: "Принаймні один дисплей має залишатися ввімкненим.",
+        switchUnavailable: "Перемикання дисплеїв недоступне на цьому Mac.",
+        switchFailed: "Не вдалося змінити цей дисплей.",
+        keysToggle: "Клавіші яскравості слідують за вказівником",
+        keysCaption: "Клавіші яскравості на клавіатурі змінюють дисплей під вказівником.",
+        osdToggle: "Показувати яскравість під час зміни",
+        osdCaption: "Показує відсоток яскравості, коли ви користуєтеся клавішами або повзунками яскравості.",
+        keyboardLight: "Підсвічування клавіатури",
+        keyboardLightCaption: "Вмикає або вимикає підсвічування клавіатури."
     )
 }

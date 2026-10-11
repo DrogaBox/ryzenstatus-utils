@@ -87,6 +87,14 @@ fi
 # --test: compile and run the standalone unit tests (pure helpers only: metrics,
 # Homebrew parsing, defaults, localization contracts; no app, no UI, no IOKit),
 # then exit. Fast and deterministic; no XCTest needed.
+#
+# The list also carries the cleaner's automatic pass (CleanerScheduler plus the
+# cleaner type and the shell/notification helpers it drives), because its
+# decisions — when a missed run arms, what it leaves unchecked, what the
+# outcome says — are pinned by these tests. The panel's close policy joins it
+# for the same reason: which state keeps the popover open is a rule, not a
+# drawing. `InstalledApps` comes along for the uninstaller's selection gate,
+# which decides what a picker may offer. No second harness is involved.
 if (( TEST )); then
     echo "▸ Building & running unit tests against $(basename "$SDK")…"
     rm -rf build
@@ -105,6 +113,11 @@ if (( TEST )); then
         Sources/RyzenStatus/Core/FeatureCatalog.swift \
         Sources/RyzenStatus/Core/FeaturePresets.swift \
         Sources/RyzenStatus/Core/FeatureHubStrings.swift \
+        Sources/RyzenStatus/Core/KillProcessStrings.swift \
+        Sources/RyzenStatus/Services/KillProcess/KillProcessSupport.swift \
+        Sources/RyzenStatus/Core/CommandBarStrings.swift \
+        Sources/RyzenStatus/Core/NotchStrings.swift \
+        Sources/RyzenStatus/Core/NotchCalendarStrings.swift \
         Sources/RyzenStatus/Core/SettingsBackupSupport.swift \
         Sources/RyzenStatus/Core/BackupStrings.swift \
         Sources/RyzenStatus/Core/SnippetStrings.swift \
@@ -162,6 +175,8 @@ if (( TEST )); then
         Sources/RyzenStatus/Services/LaunchAtLoginSupport.swift \
         Sources/RyzenStatus/UI/Settings/SettingsSearchSupport.swift \
         Sources/RyzenStatus/UI/Settings/FeatureVisibilitySupport.swift \
+        Sources/RyzenStatus/UI/Settings/SettingsDirectory.swift \
+        Sources/RyzenStatus/UI/MenuPanel/PanelInteractionSupport.swift \
         Sources/RyzenStatus/App/MenuBarSpacingSupport.swift \
         Sources/RyzenStatus/App/StatusItemAnchorSupport.swift \
         Sources/RyzenStatus/Services/DockClick/DockClickSupport.swift \
@@ -199,6 +214,11 @@ if (( TEST )); then
         Sources/RyzenStatus/Services/Cleaner/CleanerSupport.swift \
         Sources/RyzenStatus/Services/Cleaner/CleanerPolicy.swift \
         Sources/RyzenStatus/Services/Cleaner/CleanerSchedule.swift \
+        Sources/RyzenStatus/Services/Cleaner/CleanerScheduler.swift \
+        Sources/RyzenStatus/Services/Cleaner/JunkCleaner.swift \
+        Sources/RyzenStatus/Services/ShellSupport.swift \
+        Sources/RyzenStatus/Services/Notifier.swift \
+        Sources/RyzenStatus/Services/InstalledApps.swift \
         Sources/RyzenStatus/Services/Uninstall/UninstallerSupport.swift \
         Tests/MetricsTests.swift \
         -o build/metrics-tests

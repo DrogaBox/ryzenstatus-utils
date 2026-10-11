@@ -59,7 +59,7 @@ final class FeatureRuntime: ObservableObject {
         UserDefaults.standard.set(available, forKey: feature.availabilityKey)
         if available { loadedThisSession.insert(feature) }
         Self.bindings[feature]?()
-        revision += 1
+        finishAvailabilityChange()
     }
 
     /// Applies a hub preset: its features become the installed set, with
@@ -83,7 +83,7 @@ final class FeatureRuntime: ObservableObject {
         for feature in preset.features {
             Self.bindings[feature]?()
         }
-        revision += 1
+        finishAvailabilityChange()
     }
 
     /// Bulk install or uninstall for the hub's "all" buttons: one revision
@@ -96,7 +96,7 @@ final class FeatureRuntime: ObservableObject {
             Self.bindings[feature]?()
             changed = true
         }
-        if changed { revision += 1 }
+        if changed { finishAvailabilityChange() }
     }
 
     /// Launch path: replaces the old unconditional sync block. Only available
@@ -115,10 +115,24 @@ final class FeatureRuntime: ObservableObject {
         }
     }
 
+    /// One bump for Settings, then the surfaces that list other features
+    /// catch up: the Command Bar drops rows of features that just left the
+    /// hub (so a pin cannot linger as a bare id), and a running Dynamic Island
+    /// re-reads which of its sections and extensions are still installed.
+    /// Each is only touched while installed, so an uninstalled one never
+    /// comes to life from here.
+    private func finishAvailabilityChange() {
+        revision += 1
+        if AppFeature.commandBar.isAvailable { CommandBarService.shared.noteHubChange() }
+        if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+    }
+
     /// What each feature must re-evaluate when its availability (or a
-    /// permission it depends on) changes. On-demand tools (media, uninstaller,
-    /// homebrew, cleaning mode) hold no resources, so they have no binding —
-    /// their surfaces simply follow availability in the UI.
+    /// permission it depends on) changes. On-demand tools (uninstaller,
+    /// homebrew, cleaning mode, quick toggles, kill process) hold no
+    /// resources, so they have no binding — their surfaces simply follow
+    /// availability in the UI. Media only binds so uninstalling it can cancel
+    /// work already in flight.
     private static let bindings: [AppFeature: () -> Void] = [
         .switcher: {
             AppActivationTracker.shared.syncWithFeatures()
@@ -150,7 +164,20 @@ final class FeatureRuntime: ObservableObject {
         .clipboardHistory: { ClipboardHistoryService.shared.syncWithPreferences() },
         .pastePlain: { PastePlainService.shared.syncWithPreferences() },
         .finderCutPaste: { FinderCutPaste.shared.syncWithPreferences() },
-        .shelf: { ShelfService.shared.syncWithPreferences() },
+        .shelf: {
+            ShelfService.shared.syncWithPreferences()
+            // The island's media drop lives on the shelf; it only exists
+            // while the island is installed (the island's own stop ends it).
+            if AppFeature.notch.isAvailable { NotchFileToolsService.shared.syncWithPreferences() }
+        },
+        .mediaTools: {
+            if AppFeature.notch.isAvailable { NotchFileToolsService.shared.syncWithPreferences() }
+            // Only a job in flight is cancelled: cancelling an idle service
+            // would leave a stale "cancelled" state for the next install.
+            guard !AppFeature.mediaTools.isAvailable,
+                  case .running = MediaService.shared.state else { return }
+            MediaService.shared.cancel()
+        },
         .urlCleaner: { URLCleanerService.shared.syncWithPreferences() },
         .mixer: {
             AppVolumeMixer.shared.syncWithPreferences()
@@ -169,11 +196,76 @@ final class FeatureRuntime: ObservableObject {
         .quickLauncher: { QuickLauncherService.shared.syncWithPreferences() },
         .colorPicker: { ColorSamplerService.shared.syncWithPreferences() },
         .screenOCR: { ScreenTextService.shared.syncWithPreferences() },
-        .screenshot: { ScreenshotService.shared.syncWithPreferences() },
+        .screenshot: {
+            ScreenshotService.shared.syncWithPreferences()
+            // The recent captures palette and its shortcut serve screenshots
+            // and recordings alike; it reads both features itself.
+            RecentCaptureService.shared.syncWithPreferences()
+        },
         .cameraPreview: { CameraPreviewService.shared.syncWithPreferences() },
         .radialMenu: { RadialMenuService.shared.syncWithPreferences() },
         .scratchpad: { ScratchpadService.shared.syncWithPreferences() },
         .cleaner: { CleanerScheduler.shared.syncWithPreferences() },
+        // Upstream rides these on the cleaner; this fork gives WhatsApp
+        // downloads its own hub entry, and both services already gate on it.
+        // Without this binding the daily pass and the organizer only came to
+        // life when their Settings toggles moved, never after a relaunch.
+        .whatsAppDownloads: {
+            WhatsAppDownloadScheduler.shared.syncWithPreferences()
+            WhatsAppDownloadOrganizer.shared.syncWithPreferences()
+            // Only on uninstall: this fork's organizer runs on its own switch,
+            // independent of the downloads switch upstream gates it on.
+            if !AppFeature.whatsAppDownloads.isAvailable {
+                WhatsAppDownloadManager.shared.reset()
+                WhatsAppDownloadOrganizer.shared.stop()
+            }
+        },
+        // Registers the global shortcut at launch, after a shortcut recording
+        // (ShortcutCapture re-syncs this feature) and on install; uninstalling
+        // drops the panel, the hotkeys and every cached row.
+        .commandBar: { CommandBarService.shared.syncWithPreferences() },
+        // Dynamic Island. The island itself starts here when it is installed
+        // and switched on; every extension re-syncs a running island (or
+        // stops its own service when the island is gone) so a hub flip takes
+        // effect at once. Agents are not part of this fork.
+        .notch: { NotchService.shared.syncWithPreferences() },
+        .notchGestures: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+        },
+        .notchTimer: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { NotchTimerService.shared.stop() }
+        },
+        .notchAccessories: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { NotchAccessoryService.shared.stop() }
+        },
+        .notchLyrics: {
+            if !NotchLyricsSupport.isEnabled() { NotchLyricsService.shared.stop() }
+        },
+        // .notchQueue has no binding: this fork's queue is a stub that keeps
+        // no state, and a running island re-reads the switch on its own.
+        .notchLiveEqualizer: { NotchAudioLevelService.shared.syncWithPreferences() },
+        .notchNotifications: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { NotchNotificationService.shared.stop() }
+        },
+        .notchDownloads: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { NotchDownloadService.shared.stop() }
+        },
+        .notchCalendar: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { NotchCalendarService.shared.stop() }
+        },
+        .notchWatch: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { NotchWatchService.shared.stop() }
+        },
+        // Leaving folds the wings it rests in, and coming back greets.
+        .notchMascot: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+        },
         .monitorCPU: { FeatureRuntime.syncMonitor() },
         .monitorGPU: { FeatureRuntime.syncMonitor() },
         .monitorMemory: { FeatureRuntime.syncMonitor() },
@@ -185,7 +277,10 @@ final class FeatureRuntime: ObservableObject {
         // binding here, so only the Settings UI ever tore it down. Disabling the
         // feature via a preset, a settings-backup import or a reset left the
         // service running.
-        .screenRecorder: { ScreenRecorderService.shared.syncWithPreferences() },
+        .screenRecorder: {
+            ScreenRecorderService.shared.syncWithPreferences()
+            RecentCaptureService.shared.syncWithPreferences()
+        },
     ]
 
     private static func syncMonitor() {

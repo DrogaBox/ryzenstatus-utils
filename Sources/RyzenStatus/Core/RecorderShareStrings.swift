@@ -31,6 +31,8 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -190,5 +192,29 @@ extension RecorderShareStrings {
         tooLarge: "這段錄製無法在不過度損失畫質的情況下壓縮至100 MB以內。",
         failed: "無法建立暫時連結",
         tourCaption: "在這部Mac上壓縮完成的錄製，並分享1小時或6小時。"
+    )
+
+    static let sk = RecorderShareStrings(
+        caption: "Vyberte 1 alebo 6 hodín. Výsledné video sa skomprimuje na tomto Macu pod 100 MB a automaticky sa odstráni.",
+        privacyData: "RyzenStatus odošle iba výsledné video vytvorené z tohto záznamu vrátane zvuku, ktorý ste ponechali, a zvolenú dobu platnosti. Neodosiela vaše meno, účet ani identifikátor zariadenia.",
+        privacyStorage: "Poskytovatelia siete a služba dočasne spracúvajú vašu verejnú IP adresu, aby zabránili zneužitiu. Video a metadáta odkazu sa natrvalo odstránia, keď odkaz vymažete alebo keď uplynie jeho čas. Služba nevytvára zálohy.",
+        privacyAccess: "Ktokoľvek s odkazom môže video zobraziť, stiahnuť, uložiť alebo ďalej šíriť. Aktívne odkazy má prevádzkovateľ služby k dispozícii na moderovanie zneužitia. Zdieľajte iba s ľuďmi, ktorým dôverujete.",
+        compressing: "Komprimuje sa na zdieľanie…",
+        uploading: "Bezpečne sa nahráva…",
+        tooLarge: "Tento záznam sa nedá zmenšiť pod 100 MB bez príliš veľkej straty kvality.",
+        failed: "Dočasný odkaz sa nepodarilo vytvoriť",
+        tourCaption: "Skomprimujte hotový záznam na tomto Macu a zdieľajte ho na 1 alebo 6 hodín."
+    )
+
+    static let uk = RecorderShareStrings(
+        caption: "Виберіть 1 або 6 годин. Готове відео стискається на цьому Mac до розміру менше 100 МБ і видаляється автоматично.",
+        privacyData: "RyzenStatus надсилає лише готове відео, створене з цього запису, разом зі збереженим звуком, і вибраний термін дії. Ваше ім’я, обліковий запис або ідентифікатор пристрою не надсилаються.",
+        privacyStorage: "Мережеві провайдери та сервіс тимчасово обробляють вашу публічну IP-адресу, щоб запобігти зловживанням. Відео та метадані посилання остаточно видаляються, коли ви видаляєте посилання або закінчується його час. Сервіс не створює резервних копій.",
+        privacyAccess: "Будь-хто з посиланням може переглянути, завантажити, зберегти або поширити відео. Активні посилання доступні оператору сервісу для модерації зловживань. Діліться лише з людьми, яким довіряєте.",
+        compressing: "Стиснення для поширення…",
+        uploading: "Безпечне вивантаження…",
+        tooLarge: "Цей запис неможливо вмістити в 100 МБ без надто великої втрати якості.",
+        failed: "Не вдалося створити тимчасове посилання",
+        tourCaption: "Стисніть готовий запис на цьому Mac і поділіться ним на 1 або 6 годин."
     )
 }

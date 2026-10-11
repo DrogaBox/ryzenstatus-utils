@@ -1,5 +1,55 @@
 # Changelog
 
+## [1.37.0] — 2026-10-11 — kexts 3.34.17 (No kext changes)
+
+Dynamic Island, Command Bar and Kill Process arrive, the Uninstaller recognizes apps installed with Homebrew, the Cleaner finds forgotten screenshots and reports what an automatic cleanup left behind, and the app now speaks Slovak and Ukrainian.
+
+> **Kext Note**: This release introduces no changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext` (both remain on version 3.34.17 from the S11 drop). All changes are strictly within the macOS application layer. **No kext updates in EFI or driver reinstalls are required.**
+
+### Added
+
+- **Dynamic Island**: An optional island at the top of the screen that brings music, controls and everyday tools together. Off by default; with it off, the separate panels work as before. Choose where it appears (automatic, built-in display, main display, follow the pointer, or all displays) and which modules it shows:
+  - Now Playing with artwork, scrubber, live equalizer and optional synced lyrics from LRCLIB.
+  - Brightness and volume sliders, quick controls and a per-app volume mixer.
+  - Live CPU, GPU, memory, disk and network readings.
+  - File shelf with drag and drop, scratchpad notes, clipboard history and screenshot previews.
+  - Quick launcher tools, calendar, notifications, timer and Pomodoro, camera mirror and download progress.
+  - **Watch**: turn any part of any window into a live activity, with an alert when it changes, finishes, shows the text you are waiting for or reaches a number.
+  - Optionally, music and activities on the Lock Screen.
+
+  The island uses the app's built-in Now Playing support: it never turns the menu bar Now Playing item back on, and it stops checking for media when nothing needs it.
+- **Command Bar**: One field that finds and runs everything the app does. Open it with a global shortcut (⌥Space by default, off until you turn it on in Settings) or from the Dynamic Island, then type to:
+  - calculate, convert units, dates, time zones and color formats;
+  - search emoji and files;
+  - open apps (also by the names Spotlight knows them by), windows, System Settings panes and every RyzenStatus Settings page;
+  - run the app's tools and actions, including Kill Process.
+
+  Add aliases, pins, your own links and keyboard shortcuts for individual rows; a shortcut macOS already uses is rejected with a conflict notice. Optional compact mode, and an option to switch to an ASCII keyboard layout while the bar is open. Text snippets do not expand while you type in the bar.
+- **Kill Process**: A new Settings page to search running processes (sorted by CPU, with related processes grouped) and force quit, restart or end whole process trees. Also available from the Command Bar. RyzenStatus itself and vital system processes such as `kernel_task`, `launchd`, `WindowServer` and `loginwindow` are protected.
+- **Homebrew-aware uninstall**: The Uninstaller recognizes apps installed by a Homebrew cask, when exactly one installed cask matches the app's location. After you confirm, the app is removed through Homebrew and the other items you selected are removed as usual. A confirmation that no longer matches the current selection is refused, so you can review and confirm again.
+- **Uninstaller in the Command Bar** (opt-in): *Show in Command Bar* lets you pick and uninstall apps, including the one selected in Finder, from the Command Bar. When an app is uninstalled, its Command Bar aliases, pins, hidden rows and row shortcuts go with it, unless another copy is still installed.
+- **Forgotten screenshots in the Cleaner**: A new category lists screenshots you have not opened for a set time (7, 14, 30, 60 or 90 days; 30 by default; or off) that still have the name and folder macOS gave them. Screenshots you renamed or moved never appear, and finds are always offered unchecked, with their total size.
+- **WhatsApp downloads card in the Cleaner**: With WhatsApp downloads enabled, the Cleaner panel shows a collapsible card with its status and its last and next automatic cleanup, plus a button to its Settings page. With it off, the Cleaner's Settings page offers a card to turn it on.
+- **Slovak and Ukrainian**: Two new interface languages, for 15 in total. Every page, including the AMD power, fan control and hardware validation pages, is translated.
+- **Snippet Library**: Text Snippets settings can now turn on the snippet library and set its shortcut, with a warning when the shortcut can't be registered. Snippets gain a folder, case-insensitive triggers and a "show in quick menu" option, and an optional sound when a snippet expands.
+
+### Changed
+
+- **Multi-line snippets paste instead of typing**: A snippet with several lines is pasted in one go. Your clipboard is saved first and restored half a second later, unless you copied something else in the meantime. The library panel no longer closes when you click the Accessibility Keyboard.
+- **The menu bar panel stays open while work is running**: A Cleaner, Uninstaller or Homebrew operation in progress now keeps the panel open, even after you switch to another section. Clicking outside, opening Settings or switching apps no longer closes it mid-operation; clicking the menu bar icon or pressing Escape still does.
+- **Uninstaller app selection**: The app picker lists only apps that can be removed, with each app's location. The picker, drag and drop and the Finder selection all pass the same checks: a verified bundle ID, no symbolic links, the same app that was scanned, and never a system app or RyzenStatus itself. Starting a new scan cancels the previous one, scans can be cancelled, and the buttons are locked while Homebrew is removing an app. An item counts as removed only once it is confirmed gone from disk.
+- **Automatic cleanup runs unattended**: It skips the forgotten screenshot search, which reads your own folders and may ask for access, so that search only runs when you scan yourself. Orphaned startup items stay unchecked in automatic passes, as before.
+- **Cleaner layout**: The schedule row wraps onto two lines when the panel is narrow, results scroll with the panel in compact mode, and the cards are ordered schedule, forgotten screenshots, WhatsApp downloads, then the Full Disk Access notice.
+- **Settings**: The sidebar and the Command Bar read from one list of Settings pages, and the Super Key page icon now follows the key you chose.
+
+### Fixed
+
+- **Automatic cleanup failures are no longer silent**: A pass that could not move some items used to read like a quiet success. The last-run line in the Cleaner now adds "Some items couldn't be moved to the Trash." when that happens.
+- **Closing the Cleaner mid-scan cancels the scan**, so it no longer comes back the next time you open the Cleaner.
+- **Leftover attribution**: A file such as `com.vendor.Service.plist` is credited to `com.vendor.Service` instead of `com.vendor`, because only one file extension is stripped. Entries with a developer team prefix (`ABCDE12345.com.vendor.editor`) are credited to the app instead of the developer account.
+- **No duplicate rows across categories**: A path already listed under *Leftovers from uninstalled apps* no longer reappears under *Caches* or *Logs* in the same scan.
+- **Panel behind confirmation dialogs**: The panel no longer closes underneath a Homebrew or Uninstaller confirmation dialog, which could leave the next panel unresponsive.
+
 ## [1.36.1] — 2026-09-16 — kexts 3.34.17 (No kext changes)
 
 Bug fix for the hardware validation kext revision gate resolution.

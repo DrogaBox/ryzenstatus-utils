@@ -50,6 +50,8 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -417,5 +419,61 @@ extension QuickToggleFeatureStrings {
         screenSaverTitle: "啟動螢幕保護程式",
         screenSaverCaption: "在所有顯示器上立即啟動。",
         actionFailed: "無法完成。"
+    )
+
+    static let sk = QuickToggleFeatureStrings(
+        pageTitle: "Rýchle prepínače",
+        hubDescription: "Akcie na jedno kliknutie, napríklad tmavý režim a Kôš",
+        panelCaption: "Systémové akcie na jedno kliknutie v paneli v lište s ponukami a v rýchlom paneli.",
+        darkModeToDark: "Prepnúť na tmavý režim",
+        darkModeToLight: "Prepnúť na svetlý režim",
+        darkModeCaption: "Zmení vzhľad celého systému.",
+        emptyTrashTitle: "Vyprázdniť Kôš",
+        emptyTrashCaption: "Odstráni všetko z Koša.",
+        emptyTrashConfirmTitle: "Vyprázdniť Kôš?",
+        emptyTrashConfirmMessage: "Všetky položky v Koši sa odstránia. Túto akciu nie je možné vrátiť.",
+        emptyTrashConfirmButton: "Vyprázdniť Kôš",
+        ejectTitle: "Vysunúť všetky disky",
+        ejectCaption: "Bezpečne vysunie každý externý disk.",
+        hiddenFilesShow: "Zobraziť skryté súbory",
+        hiddenFilesHide: "Skryť skryté súbory",
+        desktopIconsHide: "Skryť ikony na ploche",
+        desktopIconsShow: "Zobraziť ikony na ploche",
+        finderRestartCaption: "Na použitie zmeny sa Finder reštartuje.",
+        lockScreenTitle: "Zamknúť obrazovku",
+        lockScreenCaption: "Na návrat bude potrebné heslo.",
+        displayOffTitle: "Vypnúť displej",
+        displayOffCaption: "Mac beží ďalej s vypnutou obrazovkou.",
+        screenSaverTitle: "Spustiť šetrič obrazovky",
+        screenSaverCaption: "Spustí sa hneď na všetkých displejoch.",
+        actionFailed: "Nepodarilo sa dokončiť."
+    )
+
+    static let uk = QuickToggleFeatureStrings(
+        pageTitle: "Швидкі перемикачі",
+        hubDescription: "Дії в один клац, як-от темний режим і Смітник",
+        panelCaption: "Системні дії в один клац на панелі смуги меню та у швидкій панелі.",
+        darkModeToDark: "Перейти в темний режим",
+        darkModeToLight: "Перейти у світлий режим",
+        darkModeCaption: "Змінює вигляд усієї системи.",
+        emptyTrashTitle: "Очистити Смітник",
+        emptyTrashCaption: "Видаляє все зі Смітника.",
+        emptyTrashConfirmTitle: "Очистити Смітник?",
+        emptyTrashConfirmMessage: "Усі елементи в Смітнику буде видалено. Цю дію не можна скасувати.",
+        emptyTrashConfirmButton: "Очистити Смітник",
+        ejectTitle: "Вийняти всі диски",
+        ejectCaption: "Безпечно виймає кожен зовнішній диск.",
+        hiddenFilesShow: "Показати приховані файли",
+        hiddenFilesHide: "Сховати приховані файли",
+        desktopIconsHide: "Сховати значки на робочому столі",
+        desktopIconsShow: "Показати значки на робочому столі",
+        finderRestartCaption: "Щоб застосувати зміну, Finder перезапуститься.",
+        lockScreenTitle: "Заблокувати екран",
+        lockScreenCaption: "Для повернення знадобиться пароль.",
+        displayOffTitle: "Вимкнути дисплей",
+        displayOffCaption: "Mac продовжує працювати з вимкненим екраном.",
+        screenSaverTitle: "Запустити заставку",
+        screenSaverCaption: "Запускається одразу на всіх дисплеях.",
+        actionFailed: "Не вдалося виконати."
     )
 }

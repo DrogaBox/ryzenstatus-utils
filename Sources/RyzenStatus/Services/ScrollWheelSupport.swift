@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
+import CoreGraphics
 import Foundation
 
 struct ScrollWheelEventTraits: Equatable {
@@ -73,5 +74,39 @@ enum ScrollWheelSupport {
                 && (shiftRedirectsVertically ? invertHorizontal : invertVertical),
             horizontal: hasHorizontalMovement && invertHorizontal
         )
+    }
+
+    /// Movement on the vertical axis only, as a plain mouse wheel sends it.
+    static func isVerticalOnly(_ event: CGEvent) -> Bool {
+        (event.getIntegerValueField(.scrollWheelEventDeltaAxis1) != 0
+            || event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1) != 0
+            || event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1) != 0)
+            && event.getIntegerValueField(.scrollWheelEventDeltaAxis2) == 0
+            && event.getIntegerValueField(.scrollWheelEventPointDeltaAxis2) == 0
+            && event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2) == 0
+    }
+
+    /// Moves a vertical-only event to the horizontal axis, keeping its sign
+    /// as Shift does.
+    static func moveVerticalToHorizontal(_ event: CGEvent) {
+        let line = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+        let point = event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1)
+        let fixed = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
+        // Line writes can rederive pixel fields; restore the captured precision
+        // only after both line axes have been written.
+        event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: 0)
+        event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: line)
+        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: 0)
+        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: fixed)
+        event.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: 0)
+        event.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: point)
+    }
+
+    /// A mouse wheel only turns vertically, so a strip that scrolls only
+    /// sideways could not be moved with one. The wheel moves the strip when
+    /// nothing around it scrolls down; a list around it keeps the wheel.
+    static func wheelMovesStripSideways(stripScrollsHorizontally: Bool, stripScrollsVertically: Bool,
+                                        enclosingScrollsVertically: Bool) -> Bool {
+        stripScrollsHorizontally && !stripScrollsVertically && !enclosingScrollsVertically
     }
 }

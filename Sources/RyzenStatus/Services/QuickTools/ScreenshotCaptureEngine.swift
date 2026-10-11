@@ -33,11 +33,27 @@ enum ScreenshotCaptureEngine {
                                     includePointer: includePointer)
     }
 
-    static func captureDisplayRegion(displayID: CGDirectDisplayID,
+    final class RegionCapture: @unchecked Sendable {
+        private let filter: SCContentFilter
+        private let configuration: SCStreamConfiguration
+
+        init(filter: SCContentFilter, configuration: SCStreamConfiguration) {
+            self.filter = filter
+            self.configuration = configuration
+        }
+
+        func image() async -> CGImage? {
+            try? await SCScreenshotManager.captureImage(contentFilter: filter,
+                                                       configuration: configuration)
+        }
+    }
+
+    static func prepareDisplayRegion(displayID: CGDirectDisplayID,
                                      pixelRect: CGRect,
                                      includePointer: Bool,
                                      hideRyzenStatusWindows: Bool,
-                                     protectedWindowIDs: Set<CGWindowID>) async -> CGImage? {
+                                     protectedWindowIDs: Set<CGWindowID>,
+                                     keepsIslandOut: Bool = false) async -> RegionCapture? {
         guard let content = try? await SCShareableContent.excludingDesktopWindows(
             false, onScreenWindowsOnly: true),
             let display = content.displays.first(where: { $0.displayID == displayID })
@@ -61,8 +77,20 @@ enum ScreenshotCaptureEngine {
         configuration.height = max(1, Int(clamped.height))
         configuration.showsCursor = includePointer
         configuration.colorSpaceName = CGColorSpace.sRGB
-        return try? await SCScreenshotManager.captureImage(contentFilter: filter,
-                                                           configuration: configuration)
+        return RegionCapture(filter: filter, configuration: configuration)
+    }
+
+    static func captureDisplayRegion(displayID: CGDirectDisplayID,
+                                     pixelRect: CGRect,
+                                     includePointer: Bool,
+                                     hideRyzenStatusWindows: Bool,
+                                     protectedWindowIDs: Set<CGWindowID>) async -> CGImage? {
+        guard let capture = await prepareDisplayRegion(displayID: displayID,
+                                                      pixelRect: pixelRect,
+                                                      includePointer: includePointer,
+                                                      hideRyzenStatusWindows: hideRyzenStatusWindows,
+                                                      protectedWindowIDs: protectedWindowIDs) else { return nil }
+        return await capture.image()
     }
 
     /// Captures every given screen, keyed by display id. Screens that fail

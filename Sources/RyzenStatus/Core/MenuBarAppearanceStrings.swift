@@ -39,6 +39,8 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -302,5 +304,45 @@ extension MenuBarAppearanceStrings {
         highColor: "高負載顏色",
         mediumFrom: "中等起點",
         highFrom: "高負載起點"
+    )
+
+    static let sk = MenuBarAppearanceStrings(
+        label: "Zobrazenie využitia",
+        values: "Hodnoty",
+        bars: "Pruhy",
+        pie: "Prstence",
+        sparkline: "Čiarový graf",
+        histogram: "Histogram",
+        individualPerMetric: "Vlastný štýl pre každú metriku",
+        popoverStyle: "Štýl panela",
+        classicCards: "Klasické karty",
+        iStatsWidgets: "Widgety iStats",
+        caption: "Štýly grafov sa týkajú využitia CPU, GPU, pamäte a disku. Ostatné údaje ostanú číselné.",
+        customize: "Farby a hranice pruhov",
+        normalColor: "Bežná farba",
+        mediumColor: "Stredná farba",
+        highColor: "Vysoká farba",
+        mediumFrom: "Stredná od",
+        highFrom: "Vysoká od"
+    )
+
+    static let uk = MenuBarAppearanceStrings(
+        label: "Відображення навантаження",
+        values: "Значення",
+        bars: "Смуги",
+        pie: "Кільця",
+        sparkline: "Лінійний графік",
+        histogram: "Гістограма",
+        individualPerMetric: "Окремий стиль для кожної метрики",
+        popoverStyle: "Стиль панелі",
+        classicCards: "Класичні картки",
+        iStatsWidgets: "Віджети iStats",
+        caption: "Стилі графіків застосовуються до навантаження CPU, GPU, пам’яті та диска. Інші показники залишаються числовими.",
+        customize: "Кольори та межі смуг",
+        normalColor: "Звичайний колір",
+        mediumColor: "Середній колір",
+        highColor: "Високий колір",
+        mediumFrom: "Середній від",
+        highFrom: "Високий від"
     )
 }

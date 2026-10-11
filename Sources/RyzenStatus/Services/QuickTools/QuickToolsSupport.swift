@@ -3,31 +3,15 @@
 
 import Foundation
 
-/// How a sampled color lands on the clipboard.
-enum ColorCopyFormat: String, CaseIterable, Identifiable {
-    case hex
-    case rgb
-    case hsl
-    case swiftui
-
-    var id: String { rawValue }
-
-    /// Short technical label; intentionally not localized.
-    var label: String {
-        switch self {
-        case .hex: return "HEX"
-        case .rgb: return "RGB"
-        case .hsl: return "HSL"
-        case .swiftui: return "SwiftUI"
-        }
-    }
-
-    static func sanitized(_ raw: String) -> ColorCopyFormat {
-        ColorCopyFormat(rawValue: raw) ?? .hex
-    }
-}
 
 enum QuickToolsSupport {
+    /// Which way a grid fills: row by row with a fixed column count, or
+    /// column by column with a fixed row count, as a rail in the island does.
+    enum GridFlow: Equatable {
+        case rows(columns: Int)
+        case columns(rows: Int)
+    }
+
     /// Formats sRGB components (0...1) in the chosen copy format. Components
     /// out of range are clamped so extended-gamut samples never produce
     /// invalid strings. `bareHex` drops the leading # (issue #168: some design
@@ -110,6 +94,23 @@ enum QuickToolsSupport {
         if direction == .left, current % columns == 0 { return current }
         if direction == .right, current % columns == columns - 1 { return current }
         return candidate
+    }
+
+    /// A column-major rail is the row-major walk with the axes swapped.
+    static func gridIndex(after index: Int, count: Int, flow: GridFlow, direction: GridDirection) -> Int {
+        switch flow {
+        case .rows(let columns):
+            return gridIndex(after: index, count: count, columns: columns, direction: direction)
+        case .columns(let rows):
+            let transposed: GridDirection
+            switch direction {
+            case .up: transposed = .left
+            case .down: transposed = .right
+            case .left: transposed = .up
+            case .right: transposed = .down
+            }
+            return gridIndex(after: index, count: count, columns: max(1, rows), direction: transposed)
+        }
     }
 
     /// The launcher's hidden-item set travels as a comma-joined string.

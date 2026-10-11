@@ -3,6 +3,7 @@
 
 import AppKit
 import ImageIO
+import UniformTypeIdentifiers
 
 /// The screenshot tool: freeze-first area, window and full screen capture
 /// with an annotation editor, pinned floating captures and direct clipboard
@@ -431,6 +432,11 @@ final class ScreenshotService: ObservableObject {
         controller.show()
     }
 
+    func restorePreview(_ capture: ScreenshotSelectionController.Capture) {
+        preview?.close()
+        openEditor(with: capture)
+    }
+
     func openEditor(with capture: ScreenshotSelectionController.Capture) {
         EditorActivationPolicy.retain()
         let editor = ScreenshotEditorController(capture: capture)
@@ -462,25 +468,6 @@ final class ScreenshotService: ObservableObject {
                 self.openEditor(with: capture)
             }
         }
-    }
-
-    private static func clipboardCapture(
-        from pasteboard: NSPasteboard
-    ) -> ScreenshotSelectionController.Capture? {
-        guard let image = NSImage(pasteboard: pasteboard),
-              image.size.width > 0, image.size.height > 0
-        else { return nil }
-        var rect = CGRect(origin: .zero, size: image.size)
-        guard let cgImage = image.cgImage(forProposedRect: &rect, context: nil, hints: nil),
-              cgImage.width > 0, cgImage.height > 0,
-              cgImage.width <= ScreenshotSupport.scrollingCaptureMaximumPixels / cgImage.height
-        else { return nil }
-        let pixelSize = CGSize(width: cgImage.width, height: cgImage.height)
-        let scale = ScreenshotSupport.clipboardImageScale(pixelSize: pixelSize,
-                                                          pointSize: image.size)
-        return ScreenshotSelectionController.Capture(image: cgImage,
-                                                     scale: scale,
-                                                     anchorRect: .zero)
     }
 
     func editorDidClose(_ editor: ScreenshotEditorController) {
@@ -724,6 +711,66 @@ final class ScreenshotService: ObservableObject {
             return
         }
         defaults.set(consumed, forKey: DefaultsKey.screenshotFileNumberNext)
+    }
+
+    /// Opens a picture from the shelf, read off the main thread. A file that
+    /// does not read as an image only beeps.
+    func editImage(at url: URL) {
+        guard AppFeature.screenshot.isAvailable else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let capture = autoreleasepool {
+                NSImage(contentsOf: url).flatMap { Self.imageCapture(from: $0) }
+            }
+            DispatchQueue.main.async {
+                guard AppFeature.screenshot.isAvailable else { return }
+                guard let capture else {
+                    NSSound.beep()
+                    return
+                }
+                NotchService.shared.perform {
+                    ScreenshotService.shared.openEditor(with: capture)
+                }
+            }
+        }
+    }
+
+    private static func clipboardCapture(
+        from pasteboard: NSPasteboard
+    ) -> ScreenshotSelectionController.Capture? {
+        guard let image = clipboardImage(from: pasteboard) else { return nil }
+        return imageCapture(from: image)
+    }
+
+    static func imageCapture(from image: NSImage) -> ScreenshotSelectionController.Capture? {
+        guard image.size.width > 0, image.size.height > 0
+        else { return nil }
+        var rect = CGRect(origin: .zero, size: image.size)
+        guard let cgImage = image.cgImage(forProposedRect: &rect, context: nil, hints: nil),
+              cgImage.width > 0, cgImage.height > 0,
+              cgImage.width <= ScreenshotSupport.scrollingCaptureMaximumPixels / cgImage.height
+        else { return nil }
+        let pixelSize = CGSize(width: cgImage.width, height: cgImage.height)
+        let scale = ScreenshotSupport.clipboardImageScale(pixelSize: pixelSize,
+                                                          pointSize: image.size)
+        return ScreenshotSelectionController.Capture(image: cgImage,
+                                                     scale: scale,
+                                                     anchorRect: .zero)
+    }
+
+    /// Copying a file in Finder leaves both its URL and a small icon preview on
+    /// the pasteboard, so the file on disk wins whenever it is a readable image.
+    private static func clipboardImage(from pasteboard: NSPasteboard) -> NSImage? {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [
+            .urlReadingFileURLsOnly: true,
+            .urlReadingContentsConformToTypes: [UTType.image.identifier]
+        ]
+        if let url = (pasteboard.readObjects(forClasses: [NSURL.self],
+                                             options: options) as? [NSURL])?.first as URL?,
+           let image = NSImage(contentsOf: url),
+           image.size.width > 0, image.size.height > 0 {
+            return image
+        }
+        return NSImage(pasteboard: pasteboard)
     }
 }
 

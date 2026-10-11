@@ -62,6 +62,51 @@ enum TextSnippetSupport {
     /// Characters that fire an afterDelimiter snippet.
     static let delimiters: Set<Character> = [" ", "\t", "\r", "\n"]
 
+    static let systemSoundsPath = "/System/Library/Sounds"
+
+    /// The file behind a name from `alertSoundNames`: the same directory the
+    /// picker was listed from, so what it offers is what plays.
+    static func soundFileURL(for name: String) -> URL {
+        URL(fileURLWithPath: systemSoundsPath)
+            .appendingPathComponent(name)
+            .appendingPathExtension("aiff")
+    }
+
+    /// The classic macOS alert sounds, used when the sounds directory
+    /// cannot be read.
+    static let fallbackAlertSoundNames = [
+        "Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero", "Morse",
+        "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink"
+    ]
+
+    /// The sound names among `entries` (a directory listing), sorted for a
+    /// stable picker order. Falls back rather than returning nothing: an
+    /// empty picker would leave the preference unsettable.
+    static func alertSoundNames(from entries: [String]) -> [String] {
+        let names = entries
+            .filter { $0.lowercased().hasSuffix(".aiff") }
+            .map { String($0.dropLast(".aiff".count)) }
+            .sorted()
+        return names.isEmpty ? fallbackAlertSoundNames : names
+    }
+
+    /// The alert sounds the picker offers. Read from the directory rather
+    /// than hardcoded so a sound macOS adds shows up on its own.
+    static let alertSoundNames: [String] = alertSoundNames(
+        from: (try? FileManager.default.contentsOfDirectory(atPath: systemSoundsPath)) ?? [])
+
+    /// The sound to actually use for a stored preference. A name saved on
+    /// another Mac, or one this macOS no longer ships, would otherwise
+    /// leave the picker blank and the expansion silent while the toggle
+    /// still reads on.
+    static func resolvedSoundName(stored: String?,
+                                  available: [String] = alertSoundNames,
+                                  fallback: String = Defaults.defaultSnippetSoundName) -> String? {
+        if let stored, available.contains(stored) { return stored }
+        if available.contains(fallback) { return fallback }
+        return available.first
+    }
+
     /// Triggers cannot contain whitespace (the buffer resets on it) and stay
     /// within a sane length.
     static func sanitizedTrigger(_ raw: String) -> String {
@@ -111,6 +156,14 @@ enum TextSnippetSupport {
     /// this first, so a replacement without the variable pays nothing.
     static func needsClipboard(_ replacement: String) -> Bool {
         replacement.contains("{{clipboard}}")
+    }
+
+    static func requiresPaste(_ text: String) -> Bool {
+        text.contains(where: \.isNewline)
+    }
+
+    static func pastePayload(text: String, trailingText: String) -> String {
+        text + trailingText.replacingOccurrences(of: "\r", with: "\n")
     }
 
     static func expand(_ replacement: String,

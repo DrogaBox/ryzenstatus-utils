@@ -31,6 +31,7 @@ enum SettingsBackupSupport {
         DefaultsKey.finderCutPasteEnabled,
         DefaultsKey.textSnippets,
         DefaultsKey.radialMenuItems,
+        DefaultsKey.commandBarRowShortcuts,
         DefaultsKey.language,
         DefaultsKey.appVolumes,
         DefaultsKey.appOutputDevices,
@@ -72,12 +73,19 @@ enum SettingsBackupSupport {
     static let machineStateKeys: Set<String> = {
         var keys: Set<String> = [
             DefaultsKey.micMuteActive,
+        // A Bluetooth restore owed by one sleeping Mac means nothing on another.
+        DefaultsKey.bluetoothSleepRestorePending,
         DefaultsKey.micMuteSavedVolume,
+        // Run counts and learned picks are what this Mac did, not a preference.
+        DefaultsKey.commandBarUsage,
+        DefaultsKey.commandBarQueryHabits,
+        DefaultsKey.commandBarQueryHabitKey,
         // Levels and device ids belong to the microphones of one Mac.
         DefaultsKey.micMuteSavedVolumes,
         DefaultsKey.micMuteMutedDevices,
         DefaultsKey.cleanerLastAutoRun,
         DefaultsKey.cleanerLastAutoFreed,
+        DefaultsKey.cleanerLastAutoFailed,
 
         // When the last check ran and what it found belong to one Mac.
         DefaultsKey.appUpdatesLastCheck,

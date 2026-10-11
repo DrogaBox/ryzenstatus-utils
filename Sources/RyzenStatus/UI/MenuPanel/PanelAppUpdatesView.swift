@@ -19,10 +19,10 @@ struct PanelAppUpdatesView: View {
                 .panelCard()
         }
         .onAppear {
-            PanelInteractionState.shared.keepsPopoverOpen = true
+            PanelInteractionState.shared.viewKeepsPopoverOpen = true
             updates.checkIfNeeded()
         }
-        .onDisappear { PanelInteractionState.shared.keepsPopoverOpen = false }
+        .onDisappear { PanelInteractionState.shared.viewKeepsPopoverOpen = false }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

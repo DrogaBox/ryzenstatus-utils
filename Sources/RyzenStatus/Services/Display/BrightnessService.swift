@@ -853,6 +853,15 @@ final class BrightnessService: ObservableObject {
         }
     }
 
+    static func lidClosed() -> Bool? {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault,
+                                                  IOServiceMatching("IOPMrootDomain"))
+        guard service != 0 else { return nil }
+        defer { IOObjectRelease(service) }
+        return IORegistryEntryCreateCFProperty(service, "AppleClamshellState" as CFString,
+                                              kCFAllocatorDefault, 0)?.takeRetainedValue() as? Bool
+    }
+
     // MARK: - Writes (work queue)
 
     private func drainPendingLevels() {
@@ -1176,4 +1185,15 @@ private enum DisplayConfigurationBridge {
               let pointer = dlsym(coreGraphicsHandle, "CGSConfigureDisplayEnabled") else { return nil }
         return unsafeBitCast(pointer, to: ConfigureEnabledFn.self)
     }()
+}
+
+// MARK: - Keyboard Backlight Support
+
+extension BrightnessService {
+    var keyboardLightEnabled: Bool? { nil }
+    var keyboardLightLevel: Float? { nil }
+    func refreshKeyboardLight() {}
+    func setKeyboardLightEnabled(_ enabled: Bool) {}
+    func setKeyboardLightLevel(_ level: Float) {}
+    func keyboardLightDragChanged(_ editing: Bool) {}
 }

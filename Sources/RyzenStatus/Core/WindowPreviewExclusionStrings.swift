@@ -27,6 +27,8 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -134,5 +136,21 @@ extension WindowPreviewExclusionStrings {
         addButton: "加入 App…",
         removeButton: "移除",
         caption: "當其中一個 App 位於前景時，視窗縮圖會暫停更新。"
+    )
+
+    static let sk = WindowPreviewExclusionStrings(
+        sectionTitle: "Miniatúry okien",
+        listTitle: "Pozastaviť v týchto aplikáciách",
+        addButton: "Pridať aplikáciu…",
+        removeButton: "Odstrániť",
+        caption: "Miniatúry okien sa zastavia, kým je niektorá z týchto aplikácií v popredí."
+    )
+
+    static let uk = WindowPreviewExclusionStrings(
+        sectionTitle: "Мініатюри вікон",
+        listTitle: "Призупиняти в цих програмах",
+        addButton: "Додати програму…",
+        removeButton: "Видалити",
+        caption: "Мініатюри вікон не оновлюються, поки одна з цих програм на передньому плані."
     )
 }

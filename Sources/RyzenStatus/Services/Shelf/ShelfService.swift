@@ -31,23 +31,47 @@ final class ShelfService: ObservableObject {
         let title: String
         let icon: NSImage
         let isImage: Bool
-        /// Whether `icon` is a real decoded thumbnail of the content (image or
-        /// video frame) rather than a generic system icon. Sizing uses this:
-        /// an item whose thumbnail could not be decoded (or is still decoding)
-        /// wears the generic icon at its usual size.
+        /// True once `icon` is a real decoded frame of the item's own
+        /// content (an image thumbnail or a patched-in video frame), as
+        /// opposed to a generic fallback icon. Purely a tile-sizing signal
+        /// for ShelfTilesView: unlike `isImage`, it does not gate any
+        /// decoding or kind-classification behavior.
         let hasContentThumbnail: Bool
+        /// Finds a file payload again after a move or rename; nil for
+        /// non-file payloads and for files whose bookmark could not be made.
+        let bookmark: Data?
 
         init(id: UUID = UUID(), payload: Payload, title: String, icon: NSImage,
-             isImage: Bool, hasContentThumbnail: Bool = false) {
+             isImage: Bool, hasContentThumbnail: Bool = false, bookmark: Data? = nil) {
             self.id = id
             self.payload = payload
             self.title = title
             self.icon = icon
             self.isImage = isImage
             self.hasContentThumbnail = hasContentThumbnail
+            self.bookmark = bookmark
         }
 
         static func == (lhs: Item, rhs: Item) -> Bool { lhs.id == rhs.id }
+
+        /// Unlike `==`, which is id-only for selection and lookup purposes,
+        /// this compares what actually determines a tile's appearance.
+        /// Needed because replaceItem swaps in a same-id item with a
+        /// healed URL/title after a moved or renamed file's bookmark
+        /// resolves - an id-only comparison would call that unchanged.
+        func hasSameContent(as other: Item) -> Bool {
+            guard id == other.id, title == other.title, isImage == other.isImage,
+                  hasContentThumbnail == other.hasContentThumbnail,
+                  icon === other.icon else { return false }
+            switch (payload, other.payload) {
+            case let (.file(lhs), .file(rhs)): return lhs == rhs
+            case let (.text(lhs), .text(rhs)): return lhs == rhs
+            case let (.link(lhs), .link(rhs)): return lhs == rhs
+            case let (.batch(lhs), .batch(rhs)):
+                return lhs.count == rhs.count && zip(lhs, rhs).allSatisfy { $0.hasSameContent(as: $1) }
+            default: return false
+            }
+        }
 
         var isBatch: Bool {
             if case .batch = payload { return true }
@@ -65,15 +89,33 @@ final class ShelfService: ObservableObject {
             case let .batch(items): return items.reduce(0) { $0 + $1.leafCount }
             }
         }
-    }
 
-    /// Bumped whenever `items` changes in place (a thumbnail decoded, an
-    /// item swapped). `Item` compares by ID alone, so SwiftUI's View update
-    /// does not notice an in-place icon replacement without this changing.
-    @Published private(set) var contentRevision = 0
+        /// This item flattened into the kinds ShelfTooltipSupport's pile
+        /// breakdown needs, recursing the same way leafCount does so a pile
+        /// containing another pile still counts every real leaf.
+        var tooltipLeafKinds: [ShelfTooltipLeafKind] {
+            switch payload {
+            case .file: return [isImage ? .image : .file]
+            case .text: return [.note]
+            case .link: return [.link]
+            case let .batch(items): return items.flatMap { $0.tooltipLeafKinds }
+            }
+        }
+
+        /// Whether this item, or anything nested in it, is a file. Recurses
+        /// the way leafCount does but stops at the first one it finds.
+        var holdsFile: Bool {
+            switch payload {
+            case .file: return true
+            case .text, .link: return false
+            case let .batch(items): return items.contains(where: \.holdsFile)
+            }
+        }
+    }
 
     @Published private(set) var items: [Item] = [] {
         didSet {
+            contentRevision &+= 1
             scheduleRefit()
             schedulePersist()
             // Emptying the shelf (removing or dragging out the last item) always
@@ -86,7 +128,31 @@ final class ShelfService: ObservableObject {
     /// Ids of tiles the user has selected; a drag of any selected tile drags
     /// the whole selection out together.
     @Published private(set) var selection: Set<UUID> = []
+    /// Last tile explicitly touched, used as the start of a Shift-click range.
+    private var selectionAnchor: UUID?
     @Published private(set) var expandedBatches: Set<UUID> = []
+    /// Items the user pinned: they stay after a drag-out and a Clear all, so
+    /// files reused across sessions do not have to be shelved again. Saved
+    /// with the items; a pinned pile protects everything inside it.
+    @Published private(set) var pinnedIDs: Set<UUID> = [] {
+        didSet { schedulePersist() }
+    }
+    /// The item most recently put on the shelf, so the tiles can scroll it
+    /// into view. Not persisted: it means "just now", and a relaunch has no
+    /// just now.
+    @Published private var lastAddedID: UUID?
+    /// Counts every mutation of `items`, including one that swaps an item for
+    /// a same-id replacement. `Item.==` is id-only by design, so a SwiftUI
+    /// view taking `[Item]` alone compares equal after such a swap and its
+    /// `updateNSView` is never called: an async-patched video thumbnail would
+    /// sit in `items` and never reach the screen. Feeding this to the tiles
+    /// gives them a value that always differs, so the redraw is decided by
+    /// `rebuildTiles`' own content check rather than by id equality.
+    @Published private(set) var contentRevision = 0
+    /// Counts adds so the tiles can tell a genuine arrival from a redraw.
+    /// The resolved reveal target is not enough on its own: it changes when a
+    /// pile is expanded, and it repeats when two files land in the same pile.
+    @Published private(set) var addSerial = 0
     /// Pinning is intentionally session-only: it means "keep this open while
     /// I work", not "reopen a floating panel on every launch".
     @Published private(set) var isPinned = false
@@ -115,14 +181,17 @@ final class ShelfService: ObservableObject {
     /// During a drag the card only opens once the pointer comes near; far away
     /// it stays a pill, so a drag across the screen never throws a big box open.
     @Published private(set) var dockedProximate = false
+    /// Mirrors `ShelfDockPlacement.current()` so the pill redraws as the badge.
+    @Published private(set) var dockedPlacement = ShelfDockPlacement.menuBar
     /// A brief green tick after a drop lands, shown on the pill.
     @Published private(set) var dockedJustCaught = false
     private var dockedFlashWork: DispatchWorkItem?
     private var dockedEndWork: DispatchWorkItem?
+    private var dockDwellStart: TimeInterval?
     /// The global monitor cannot see every way a drag ends (drops on our own
     /// windows, cancelled drags, mouse-ups the drag machinery consumes), so a
-    /// small timer watches the physical button while a drag holds the docked
-    /// shelf up. Alive only during a drag.
+    /// small timer watches the physical button and advances hover dwells after
+    /// pointer movement stops. Alive only during a drag.
     private var dockedWatchdog: Timer?
     /// Set when the shortcut or a menu opens an empty shelf on purpose, so it
     /// shows even with nothing in it yet. Items keep it up on their own.
@@ -135,13 +204,17 @@ final class ShelfService: ObservableObject {
     private var pointerInsidePanel = false
     @Published private(set) var dropTargeted = false
     @Published private(set) var hotkeyRegistrationFailed = false
+    private var shortcutSelectionRequests = ShelfShortcutSelectionRequests()
     private var interactionDepth = 0
     /// Drag-pasteboard change count captured when the current gesture started.
-    /// Finder bumps the count after this point; Dock stacks can publish the
-    /// drag contents first. The drag pasteboard retains the previous drag's
-    /// items indefinitely, so only a bump during the current gesture may read
-    /// as content being dragged.
+    /// Finder bumps the count after this point. The drag pasteboard retains
+    /// the previous drag's items indefinitely, so only a bump during the
+    /// current gesture may read as content being dragged.
     private var dragBaselineChangeCount = 0
+    /// Drag-pasteboard change count when the previous gesture ended, which is
+    /// where a gesture in the Dock counts from: a Dock stack can publish its
+    /// drag before the mouse-down reaches the monitor.
+    private var dragRestingChangeCount = 0
     /// Whether the current gesture's start was observed. macOS 27 moves
     /// windows in the window server, and the title-bar mouse-down (sometimes
     /// the mouse-up too) never reaches global monitors while the dragged
@@ -152,7 +225,23 @@ final class ShelfService: ObservableObject {
     private var dragBeganInDock = false
     private var dragSourceBundleIdentifier: String?
     private var activeInternalDragIDs: [UUID] = []
+    private weak var internalDragWindow: NSWindow?
     private var internalDragWasMerged = false
+    /// The edge (and screen) a drag is currently dwelling near, before it has
+    /// dwelled long enough to trigger a peek. Reset whenever the pointer
+    /// leaves every edge's hot zone, so a fresh dwell always starts from
+    /// zero. Keeping the whole match, not just the edge, matters on a
+    /// vertically stacked multi-monitor setup: two screens can both have a
+    /// left edge, and crossing from one to the other should restart the
+    /// dwell rather than carry it over.
+    private var edgeDwellMatch: ShelfEdgeMatch?
+    private var edgeDwellStart: TimeInterval?
+    /// Set while the panel is showing because of an edge-drag peek, so its
+    /// own retreat rule can be told apart from an ordinary shake/shortcut
+    /// opening (which uses the ordinary idle-timer auto-hide instead).
+    private var edgePeekMatch: ShelfEdgeMatch?
+    private var edgePeekEndWork: DispatchWorkItem?
+    private var promiseTransfers: [UUID: (target: UUID?, transfer: ShelfFilePromiseTransfer, additions: [Item])] = [:]
 
     private let tempDir: URL = {
         let id = Bundle.main.bundleIdentifier ?? "com.ryzenstatus.utils"
@@ -169,7 +258,6 @@ final class ShelfService: ObservableObject {
     /// startup sweep, could delete them at any point).
     private static let storeDirectory: URL? = PrivateFileStore.containerURL?
         .appendingPathComponent("ShelfFiles", isDirectory: true)
-
 
     /// Writes coalesce per mutation cycle already; the JSON encode itself
     /// also stays off the main thread (a full shelf of large texts is real
@@ -192,30 +280,62 @@ final class ShelfService: ObservableObject {
     var itemCount: Int { items.reduce(0) { $0 + $1.leafCount } }
     var visibleItems: [Item] { visibleItems(in: items) }
 
-    static let tileDropTypes: [NSPasteboard.PasteboardType] = [
-        .fileURL,
-        .URL,
-        .string,
-        .tiff,
-        .png,
-        NSPasteboard.PasteboardType(UTType.gif.identifier),
-        NSPasteboard.PasteboardType("NSFilenamesPboardType"),
-        NSPasteboard.PasteboardType("NSURLPboardType"),
-        NSPasteboard.PasteboardType(UTType.fileURL.identifier),
-        NSPasteboard.PasteboardType(UTType.image.identifier),
-        NSPasteboard.PasteboardType(UTType.url.identifier),
-        NSPasteboard.PasteboardType(UTType.text.identifier),
-        NSPasteboard.PasteboardType(UTType.plainText.identifier),
-    ]
+    /// The tile the view should scroll into view, or nil when there is
+    /// nothing to reveal. Resolved here because only the service knows the
+    /// item tree and which piles are expanded.
+    var revealTargetID: UUID? {
+        guard let lastAddedID else { return nil }
+        return ShelfRevealSupport.visibleAncestorID(of: lastAddedID,
+                                                    in: revealNodes(for: items),
+                                                    expanded: expandedBatches)
+    }
+
+    private func revealNodes(for items: [Item]) -> [ShelfRevealNode] {
+        items.map { item in
+            guard case let .batch(children) = item.payload else {
+                return ShelfRevealNode(id: item.id)
+            }
+            return ShelfRevealNode(id: item.id, children: revealNodes(for: children))
+        }
+    }
+
+    static let tileDropTypes: [NSPasteboard.PasteboardType] = {
+        var types: [NSPasteboard.PasteboardType] = [
+            .fileURL,
+            .URL,
+            .string,
+            .tiff,
+            .png,
+            NSPasteboard.PasteboardType(UTType.gif.identifier),
+            NSPasteboard.PasteboardType("NSFilenamesPboardType"),
+            NSPasteboard.PasteboardType("NSURLPboardType"),
+            NSPasteboard.PasteboardType(UTType.fileURL.identifier),
+            NSPasteboard.PasteboardType(UTType.image.identifier),
+            NSPasteboard.PasteboardType(UTType.url.identifier),
+            NSPasteboard.PasteboardType(UTType.text.identifier),
+            NSPasteboard.PasteboardType(UTType.plainText.identifier),
+            // File promises are received only after the drop is accepted.
+            NSPasteboard.PasteboardType("Apple files promise pasteboard type"),
+            NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url"),
+            NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-content-type"),
+        ]
+        types.append(contentsOf: NSFilePromiseReceiver.readableDraggedTypes.map {
+            NSPasteboard.PasteboardType($0)
+        })
+        return types
+    }()
 
     // MARK: - Lifecycle
 
     func syncWithPreferences() {
         reloadAutomaticExclusions()
+        if NotchSupport.routesShelf() { hide(); hideDocked(); retractEdgePeek() }
         if AppFeature.shelf.isAvailable, UserDefaults.standard.bool(forKey: DefaultsKey.shelfEnabled) {
             syncHotkey()
             syncDragMonitor()
         } else {
+            shortcutSelectionRequests.invalidate()
+            cancelPendingPromiseDeliveries()
             unregisterHotkey()
             stopDragMonitor()
             hide()
@@ -254,7 +374,9 @@ final class ShelfService: ObservableObject {
         let defaults = UserDefaults.standard
         let wanted = defaults.bool(forKey: DefaultsKey.shelfEnabled)
             && (defaults.bool(forKey: DefaultsKey.shelfShakeToOpen)
-                || defaults.bool(forKey: DefaultsKey.shelfDropZoneEnabled))
+                || defaults.bool(forKey: DefaultsKey.shelfDropZoneEnabled)
+                || defaults.bool(forKey: DefaultsKey.shelfEdgeDragEnabled)
+                || NotchSupport.revealsShelfDrag())
         if wanted { startDragMonitor() } else { stopDragMonitor() }
         syncDockedShelf()
     }
@@ -289,7 +411,7 @@ final class ShelfService: ObservableObject {
                 guard id.signature == 0x5655_5348, id.id == 2
                 else { return OSStatus(eventNotHandledErr) }
                 let service = Unmanaged<ShelfService>.fromOpaque(userData).takeUnretainedValue()
-                DispatchQueue.main.async { service.toggle() }
+                DispatchQueue.main.async { service.handleShortcut() }
                 return noErr
             }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
         }
@@ -309,10 +431,15 @@ final class ShelfService: ObservableObject {
         }
     }
 
+    /// Lets go of the global key while a shortcut field is listening, so the
+    /// user can record the very combination this feature uses. The next
+    /// `syncWithPreferences` takes it back.
     func suspendShortcut() { unregisterHotkey() }
 
     private func unregisterHotkey() {
-        if let hotKeyRef { UnregisterEventHotKey(hotKeyRef) }
+        if let hotKeyRef {
+            UnregisterEventHotKey(hotKeyRef)
+        }
         hotKeyRef = nil
         registeredShortcut = nil
         hotkeyRegistrationFailed = false
@@ -331,17 +458,28 @@ final class ShelfService: ObservableObject {
             case .leftMouseUp:
                 self.closeDragGesture()
                 self.endDockedDrag()
+                self.endEdgePeekDrag()
             default:
                 if !self.sawGestureStart {
                     self.beginDragGesture(with: event)
                 }
                 self.dragBeganInDock = self.dragBeganInDock || self.eventBelongsToDock(event)
+                if NotchSupport.routesShelf() {
+                    if self.automaticOpenAllowed, self.isContentDragActive() {
+                        NotchService.shared.fileDragChanged(true)
+                    }
+                    self.startDockedWatchdog()
+                    return
+                }
                 let defaults = UserDefaults.standard
                 if defaults.bool(forKey: DefaultsKey.shelfShakeToOpen) {
                     self.handleDrag(event)
                 }
                 if defaults.bool(forKey: DefaultsKey.shelfDropZoneEnabled) {
-                    self.handleDragForDock()
+                    self.handleDragForDock(event)
+                }
+                if defaults.bool(forKey: DefaultsKey.shelfEdgeDragEnabled) {
+                    self.handleDragForEdge(at: event.timestamp)
                 }
                 // Every open gesture gets the button watchdog, not just one
                 // that engaged the drop zone: a mouse-up swallowed by the
@@ -354,6 +492,7 @@ final class ShelfService: ObservableObject {
     }
 
     private func stopDragMonitor() {
+        NotchService.shared.fileDragChanged(false)
         if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
         mouseMonitor = nil
         shakeSamples.removeAll()
@@ -362,8 +501,12 @@ final class ShelfService: ObservableObject {
         dockedWatchdog = nil
         dockedEndWork?.cancel()
         dockedEndWork = nil
+        dockDwellStart = nil
         dockedDragActive = false
         dockedProximate = false
+        edgeDwellMatch = nil
+        edgeDwellStart = nil
+        retractEdgePeek()
     }
 
     /// Detects a back-and-forth shake of the pointer during a drag: enough
@@ -400,7 +543,8 @@ final class ShelfService: ObservableObject {
     private func isContentDragActive() -> Bool {
         let pasteboard = NSPasteboard(name: .drag)
         return ShelfInteractionSupport.isContentDrag(
-            baselineChangeCount: dragBaselineChangeCount,
+            gestureChangeCount: dragBaselineChangeCount,
+            restingChangeCount: dragRestingChangeCount,
             changeCount: pasteboard.changeCount,
             beganInDock: dragBeganInDock,
             hasDroppableContent: { pasteboardHasDroppableContent(pasteboard) })
@@ -420,36 +564,23 @@ final class ShelfService: ObservableObject {
     /// on the drag pasteboard, so a later gesture with an unseen start cannot
     /// mistake it for fresh content.
     private func closeDragGesture() {
+        if !isInternalDragActive { NotchService.shared.fileDragChanged(false) }
         sawGestureStart = false
         dragBaselineChangeCount = NSPasteboard(name: .drag).changeCount
+        dragRestingChangeCount = dragBaselineChangeCount
+    }
+
+    /// A drag from one of our own windows never reaches the global monitor,
+    /// so no gesture closes after it. What it left on the drag pasteboard is
+    /// absorbed here, or the next press in the Dock would count it (#2212).
+    func absorbOwnDrag() {
+        dragRestingChangeCount = NSPasteboard(name: .drag).changeCount
     }
 
     private func pasteboardHasDroppableContent(_ pasteboard: NSPasteboard) -> Bool {
-        guard let items = pasteboard.pasteboardItems, !items.isEmpty else { return false }
-        let directTypes: Set<String> = [
-            NSPasteboard.PasteboardType.fileURL.rawValue,
-            NSPasteboard.PasteboardType.string.rawValue,
-            NSPasteboard.PasteboardType.tiff.rawValue,
-            NSPasteboard.PasteboardType.png.rawValue,
-            UTType.gif.identifier,
-            UTType.fileURL.identifier,
-            UTType.image.identifier,
-            UTType.url.identifier,
-            UTType.text.identifier,
-            UTType.plainText.identifier,
-            "NSFilenamesPboardType",
-            "NSURLPboardType"
-        ]
-        let supportedUTTypes: [UTType] = [.fileURL, .gif, .image, .url, .text, .plainText]
-
-        for item in items {
-            for type in item.types {
-                if directTypes.contains(type.rawValue) { return true }
-                guard let utType = UTType(type.rawValue) else { continue }
-                if supportedUTTypes.contains(where: { utType.conforms(to: $0) }) { return true }
-            }
+        (pasteboard.types ?? []).contains {
+            ShelfPasteboardSupport.isDroppablePasteboardType($0.rawValue)
         }
-        return false
     }
 
     private func eventBelongsToDock(_ event: NSEvent) -> Bool {
@@ -509,17 +640,24 @@ final class ShelfService: ObservableObject {
     var dockedVisible: Bool { dockedPanel?.isVisible == true }
 
     private var dockedFeatureOn: Bool {
-        AppFeature.shelf.isAvailable
+        !NotchSupport.routesShelf() && AppFeature.shelf.isAvailable
             && UserDefaults.standard.bool(forKey: DefaultsKey.shelfEnabled)
             && UserDefaults.standard.bool(forKey: DefaultsKey.shelfDropZoneEnabled)
     }
 
+    private var edgeFeatureOn: Bool {
+        !NotchSupport.routesShelf() && AppFeature.shelf.isAvailable
+            && UserDefaults.standard.bool(forKey: DefaultsKey.shelfEnabled)
+            && UserDefaults.standard.bool(forKey: DefaultsKey.shelfEdgeDragEnabled)
+    }
+
     /// A qualifying drag is in flight: keep the pill under the icon as a small,
-    /// minimized target, and let the card open only while the pointer is near
-    /// it. It never hides mid drag. With the classic shelf panel already on
-    /// screen (shake or shortcut), that panel is the target and the docked one
-    /// stays out of the way.
-    private func handleDragForDock() {
+    /// minimized target, and let the card open only when the pointer dwells near
+    /// it. It never hides mid drag on its own account. If the classic shelf
+    /// panel comes up instead (shake, shortcut, or now an edge peek), that
+    /// panel is the target and `syncDockedShelf` steps the docked one aside
+    /// for as long as the classic panel is visible, one shelf at a time.
+    private func handleDragForDock(_ event: NSEvent) {
         guard dockedFeatureOn, automaticOpenAllowed, !isVisible,
               !isInternalDragActive, isContentDragActive() else { return }
         // Drag events still flowing means the drag is alive: a pending end
@@ -528,10 +666,52 @@ final class ShelfService: ObservableObject {
         dockedEndWork = nil
         var changed = false
         if !dockedDragActive { dockedDragActive = true; changed = true }
-        let near = mouseNearDock(NSEvent.mouseLocation)
-        if near != dockedProximate { dockedProximate = near; changed = true }
+        if updateDockedProximity(at: event.timestamp) { changed = true }
+
         startDockedWatchdog()
         if changed { scheduleDockedSync() }
+    }
+
+    /// Advances the hover dwell from both drag events and the drag watchdog.
+    /// A user can stop moving immediately after entering the pill, so relying
+    /// on another dragged event would leave the 150 ms dwell unfinished.
+    private func updateDockedProximity(at now: TimeInterval) -> Bool {
+        var changed = false
+        let mouse = NSEvent.mouseLocation
+        let anchor = statusItemFrameProvider?()
+        let screen = anchor.flatMap { rect in
+            NSScreen.screens.first { $0.frame.intersects(rect) }
+        }?.frame ?? NSScreen.main?.frame
+
+        // A badge at the top center is its own target; joining it to a far
+        // menu bar icon would make most of the menu bar open the card.
+        let near = ShelfDockDragSupport.isPointNearDock(
+            point: mouse,
+            isProximate: dockedProximate,
+            panelFrame: dockedPanel?.frame,
+            anchorFrame: dockedPlacement == .menuBar ? anchor : nil,
+            screenFrame: screen)
+
+        if dockedProximate {
+            if !near {
+                dockedProximate = false
+                dockDwellStart = nil
+                changed = true
+            }
+        } else {
+            if near {
+                if dockDwellStart == nil {
+                    dockDwellStart = now
+                }
+                if let start = dockDwellStart, ShelfDockDragSupport.hasDwelled(since: start, now: now) {
+                    dockedProximate = true
+                    changed = true
+                }
+            } else {
+                dockDwellStart = nil
+            }
+        }
+        return changed
     }
 
     /// The drag ended. Drop the drag state; if a drop landed the shelf now has
@@ -540,6 +720,7 @@ final class ShelfService: ObservableObject {
     /// as a single cancellable work item so the monitor and the watchdog can
     /// both call this without racing each other.
     private func endDockedDrag() {
+        dockDwellStart = nil
         guard dockedDragActive, dockedEndWork == nil else { return }
         dockedWatchdog?.invalidate()
         dockedWatchdog = nil
@@ -559,45 +740,186 @@ final class ShelfService: ObservableObject {
     /// Ends the drag state even when no mouse-up ever reaches the global
     /// monitor: the drag machinery can consume it, the drop may land on one of
     /// our own windows, or the drag may be cancelled. The physical button is
-    /// the one truth that survives all of those.
+    /// the one truth that survives all of those. The same tick also completes
+    /// a dock or edge dwell after the pointer comes to rest.
     private func startDockedWatchdog() {
         guard dockedWatchdog == nil else { return }
-        dockedWatchdog = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+        dockedWatchdog = Timer.scheduledTimer(
+            withTimeInterval: min(ShelfDockDragSupport.dwell, ShelfEdgeDragSupport.dwell),
+            repeats: true
+        ) { [weak self] _ in
             guard let self else { return }
             guard self.dockedDragActive || self.sawGestureStart else {
                 self.dockedWatchdog?.invalidate()
                 self.dockedWatchdog = nil
                 return
             }
-            if NSEvent.pressedMouseButtons & 1 == 0 {
+            guard CGEventSource.buttonState(.combinedSessionState, button: .left) else {
                 self.closeDragGesture()
                 self.endDockedDrag()
+                self.endEdgePeekDrag()
+                return
             }
+            let now = ProcessInfo.processInfo.systemUptime
+            if self.dockedDragActive, self.updateDockedProximity(at: now) {
+                self.scheduleDockedSync()
+            }
+            self.handleDragForEdge(at: now)
         }
         dockedWatchdog?.tolerance = 0.05
     }
 
-    /// True when the pointer is close enough to the docked shelf to open it. It
-    /// uses the shown card's own frame once open (so moving onto it to drop
-    /// keeps it open) and a generous band hanging under the icon while still a
-    /// pill (so a little approach is enough to trigger it).
-    private func mouseNearDock(_ mouse: NSPoint) -> Bool {
-        guard let anchor = statusItemFrameProvider?() else { return false }
-        if dockedProximate, let frame = dockedPanel?.frame {
-            return frame.insetBy(dx: -72, dy: -72).contains(mouse)
+    /// A qualifying drag held near a screen's left or right edge for a short
+    /// dwell peeks the classic panel in from that side, offset mostly off
+    /// screen. Once peeking, this same function checks retreat on every drag
+    /// event or watchdog tick instead of considering a new trigger, since by then
+    /// `isVisible` is already true and would otherwise block the check.
+    private func handleDragForEdge(at now: TimeInterval) {
+        guard edgeFeatureOn, automaticOpenAllowed, !isInternalDragActive, isContentDragActive()
+        else { return }
+        let mouse = NSEvent.mouseLocation
+        if let edgePeekMatch {
+            // The panel's own on-screen strip sits well within retreatDistance
+            // of the edge by construction (its width is a fraction of the
+            // panel's full width, which is itself far smaller than
+            // retreatDistance), so `stillNear` alone already covers hovering
+            // over the visible panel; no separate frame check is needed.
+            guard !ShelfEdgeDragSupport.stillNear(edgePeekMatch, point: mouse,
+                                                  distance: ShelfEdgeDragSupport.retreatDistance)
+            else { return }
+            retractEdgePeek()
+            return
         }
-        guard let screen = NSScreen.screens.first(where: { $0.frame.intersects(anchor) }) ?? NSScreen.withMouse
-        else { return false }
-        let band = NSRect(x: anchor.midX - 150,
-                          y: screen.frame.maxY - 200,
-                          width: 300, height: 200)
-        return band.contains(mouse)
+        guard !isVisible else { return }
+        let screens = NSScreen.screens.map { ShelfEdgeScreen(frame: $0.frame, visibleFrame: $0.visibleFrame) }
+        guard let matched = ShelfEdgeDragSupport.match(at: mouse, screens: screens,
+                                                       distance: ShelfEdgeDragSupport.triggerDistance)
+        else {
+            edgeDwellMatch = nil
+            edgeDwellStart = nil
+            return
+        }
+        if edgeDwellMatch != matched {
+            edgeDwellMatch = matched
+            edgeDwellStart = now
+        }
+        guard let edgeDwellStart, ShelfEdgeDragSupport.hasDwelled(since: edgeDwellStart, now: now)
+        else { return }
+        summonEdgePeek(matched, mouse: mouse)
+    }
+
+    /// Opens the classic panel peeking in from a screen edge, mostly off
+    /// screen. Unlike `summon()`, this does not schedule the idle-timer
+    /// auto-hide: the drag itself, not idleness, decides when it goes away,
+    /// until a drop lands and `noteInteraction()` hands it back to the
+    /// ordinary auto-hide behavior. `shouldHoldOpen` also treats a live
+    /// `edgePeekMatch` as its own reason to hold open, so even a stray
+    /// idle-timer reschedule during the peek (a drop-target or hover
+    /// callback firing mid-drag, say) can't fade the panel out from under a
+    /// still-live drag.
+    private func summonEdgePeek(_ match: ShelfEdgeMatch, mouse: CGPoint) {
+        guard AppFeature.shelf.isAvailable,
+              UserDefaults.standard.bool(forKey: DefaultsKey.shelfEnabled) else { return }
+        edgePeekMatch = match
+        edgeDwellMatch = nil
+        edgeDwellStart = nil
+        let panel = ensurePanel()
+        cancelAutoHide()
+        positionEdgePeek(panel, match: match, mouse: mouse)
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+        updatePointerInsidePanel()
+        scheduleDockedSync()
+    }
+
+    /// Places the panel against the triggered edge's usable space (past a
+    /// side-mounted Dock, if one sits there), vertically centered on the
+    /// cursor, offset so only its inner third sits on screen and the rest
+    /// extends past the boundary. Unlike `position(_:)`, this deliberately
+    /// does not clamp fully on screen: going partly off it is the point.
+    /// Both the horizontal offset and the vertical clamp measure from the
+    /// visible frame, matching `revealEdgePeek`, so the peek and its later
+    /// reveal never disagree about where the usable edge actually is.
+    private func positionEdgePeek(_ panel: NSPanel, match: ShelfEdgeMatch, mouse: CGPoint) {
+        let view = panel.contentViewController!.view
+        view.layoutSubtreeIfNeeded()
+        let size = view.fittingSize
+        let visible = visibleFrame(for: match.screen)
+        let onScreenWidth = (size.width / 3).rounded()
+        let x: CGFloat
+        switch match.edge {
+        case .left: x = visible.minX - size.width + onScreenWidth
+        case .right: x = visible.maxX - onScreenWidth
+        }
+        var y = mouse.y - size.height / 2
+        y = min(max(visible.minY + 8, y), visible.maxY - size.height - 8)
+        panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
+    }
+
+    /// Slides a peek that just caught a drop the rest of the way onto
+    /// screen, flush against the usable area of the edge it peeked in from
+    /// (clear of the Dock, if one sits there), keeping its current vertical
+    /// position. Animated on purpose: unlike the panel's other frame
+    /// changes, this slide is the whole point of the "drop it and it opens
+    /// up" behavior, not an incidental resize. Called once, right as
+    /// `noteInteraction()` graduates the peek to an ordinary panel.
+    private func revealEdgePeek(_ panel: NSPanel, match: ShelfEdgeMatch) {
+        let size = panel.frame.size
+        let visible = visibleFrame(for: match.screen)
+        let x: CGFloat
+        switch match.edge {
+        case .left: x = visible.minX + 8
+        case .right: x = visible.maxX - size.width - 8
+        }
+        let y = min(max(visible.minY + 8, panel.frame.minY), visible.maxY - size.height - 8)
+        panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true, animate: true)
+    }
+
+    /// The visible frame (excluding the menu bar and Dock) of the screen a
+    /// `ShelfEdgeDragSupport` match resolved, so the edge-peek positioning
+    /// stays clear of both instead of comparing against the full physical
+    /// frame the way the trigger geometry itself needs to.
+    private func visibleFrame(for screenFrame: CGRect) -> CGRect {
+        NSScreen.screens.first { $0.frame == screenFrame }?.visibleFrame ?? screenFrame
+    }
+
+    /// Ends an edge peek from a drag that finished, with the same short
+    /// grace window the docked shelf's own drag-end path uses, so a drop
+    /// that is still landing on the panel gets to claim it (clearing
+    /// `edgePeekMatch` via `noteInteraction()`) before this fires.
+    private func endEdgePeekDrag() {
+        guard edgePeekMatch != nil, edgePeekEndWork == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.edgePeekEndWork = nil
+            self.retractEdgePeek()
+        }
+        edgePeekEndWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+    }
+
+    /// Ends an edge peek: hides the panel and drops the tracked match. A
+    /// no-op once a drop has already landed, since `noteInteraction()`
+    /// clears `edgePeekMatch` the moment that happens, so a freshly caught
+    /// item is never yanked away. Routes through `resetAutoHide()`, the same
+    /// as `hide()` does, so `dropTargeted`/`pointerInsidePanel`/
+    /// `interactionDepth` can't be left stale from mid-drag callbacks and
+    /// silently hold every future opening of the classic panel open forever.
+    private func retractEdgePeek() {
+        edgePeekEndWork?.cancel()
+        edgePeekEndWork = nil
+        guard edgePeekMatch != nil else { return }
+        resetAutoHide()
+        panel?.orderOut(nil)
+        ShelfTooltipPopover.shared.hide()
+        scheduleDockedSync()
     }
 
     /// Called by the docked view when a drop lands on it: settle back to the
     /// pill with a brief green tick, so the catch reads without the card
     /// staying in the way.
     func dockDidAccept() {
+        dockDwellStart = nil
         dockedJustCaught = true
         dockedCollapsed = true
         dockedForcedOpen = false
@@ -625,6 +947,7 @@ final class ShelfService: ObservableObject {
     }
 
     func collapseDocked() {
+        ShelfTooltipPopover.shared.hide()
         dockedCollapsed = true
         if itemCount == 0 { dockedForcedOpen = false }
         scheduleDockedSync()
@@ -647,6 +970,12 @@ final class ShelfService: ObservableObject {
         let wanted = dockedFeatureOn && !isVisible
             && (itemCount > 0 || dockedDragActive || dockedForcedOpen)
         guard wanted else { hideDocked(); return }
+        let placement = ShelfDockPlacement.current()
+        if dockedPlacement != placement {
+            // Reposition again once the view has redrawn at its new size.
+            dockedPlacement = placement
+            scheduleDockedSync()
+        }
         let panel = ensureDockedPanel()
         if panel.contentViewController == nil {
             let host = NSHostingController(rootView: DockedShelfView().environmentObject(self))
@@ -659,12 +988,13 @@ final class ShelfService: ObservableObject {
     private func hideDocked() {
         dockedForcedOpen = false
         guard let dockedPanel, dockedPanel.isVisible else { return }
+        ShelfTooltipPopover.shared.hide()
         dockedPanel.orderOut(nil)
     }
 
-    /// Anchors the docked panel under the menu bar icon, its top edge just
-    /// below the bar, and clamps it to that screen. The top edge stays put as
-    /// it grows and shrinks, so it reads as hanging from the icon. No frame
+    /// Anchors the docked panel under the menu bar icon (or at the top center
+    /// of that screen), its top edge just below the bar. The top edge stays put
+    /// as it grows and shrinks, so it reads as hanging from the bar. No frame
     /// animation: the panel resize and the SwiftUI content swap cannot be kept
     /// in step, and half-synced frames read as lag.
     private func positionDocked(_ panel: NSPanel) {
@@ -672,26 +1002,73 @@ final class ShelfService: ObservableObject {
         view.layoutSubtreeIfNeeded()
         let size = view.fittingSize
         let anchor = statusItemFrameProvider?()
-        let visible = (anchor.flatMap { rect in
+        let screen = anchor.flatMap { rect in
             NSScreen.screens.first { $0.frame.intersects(rect) }
-        } ?? NSScreen.withMouse)?.visibleFrame ?? NSScreen.pointerVisibleFrame
-        var x = anchor.map { $0.midX - size.width / 2 } ?? (visible.maxX - size.width - 12)
-        x = min(max(visible.minX + 8, x), visible.maxX - size.width - 8)
-        let top = visible.maxY - 4
-        let frame = NSRect(x: x, y: top - size.height, width: size.width, height: size.height)
-        panel.setFrame(frame, display: true)
+        } ?? NSScreen.withMouse
+        let visible = screen?.visibleFrame ?? NSScreen.pointerVisibleFrame
+        let safeTop = screen.map { $0.frame.maxY - $0.safeAreaInsets.top } ?? visible.maxY
+        panel.setFrame(dockedPlacement.frame(size: size, visible: visible, safeTop: safeTop, anchor: anchor),
+                       display: true)
         panel.alphaValue = 1
         panel.orderFrontRegardless()
     }
 
+    /// Borderless Shelf panels need key status after a tile click so standard
+    /// keyboard selection commands can reach them without activating the app.
+    private final class KeyableShelfPanel: OverlayPanel, NSDraggingDestination {
+        func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+            let shelf = ShelfService.shared
+            let accepts = !shelf.isInternalDragActive && shelf.canAcceptPasteboard(sender.draggingPasteboard)
+            shelf.setDropTargeted(accepts)
+            return accepts ? .copy : []
+        }
+
+        func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { draggingEntered(sender) }
+
+        func draggingExited(_ sender: NSDraggingInfo?) { ShelfService.shared.setDropTargeted(false) }
+
+        func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { draggingEntered(sender) != [] }
+
+        func concludeDragOperation(_ sender: NSDraggingInfo?) { ShelfService.shared.setDropTargeted(false) }
+
+        func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+            defer { ShelfService.shared.setDropTargeted(false) }
+            return ShelfService.shared.accept(draggingInfo: sender)
+        }
+
+        override var canBecomeKey: Bool { true }
+
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            let modifiers = event.modifierFlags.intersection([.command, .option, .shift, .control])
+            if ShelfSelectionSupport.isClearSelectionShortcut(
+                keyCode: event.keyCode,
+                hasSelectionModifiers: !modifiers.isEmpty
+            ) {
+                ShelfService.shared.clearSelection()
+                return true
+            }
+            if modifiers == [.command], event.charactersIgnoringModifiers?.lowercased() == "a" {
+                ShelfService.shared.selectAllVisibleItems()
+                return true
+            }
+            return super.performKeyEquivalent(with: event)
+        }
+
+        override func cancelOperation(_ sender: Any?) {
+            ShelfService.shared.clearSelection()
+        }
+    }
+
     private func ensureDockedPanel() -> NSPanel {
         if let dockedPanel { return dockedPanel }
-        let panel = NSPanel(contentRect: .zero,
-                            styleMask: [.borderless, .nonactivatingPanel],
-                            backing: .buffered, defer: false)
+        let panel = KeyableShelfPanel(contentRect: .zero,
+                                      styleMask: [.borderless, .nonactivatingPanel],
+                                      backing: .buffered, defer: false)
         panel.level = .floating
         panel.isOpaque = false
         panel.backgroundColor = .clear
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.registerForDraggedTypes(Self.tileDropTypes)
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
@@ -702,90 +1079,18 @@ final class ShelfService: ObservableObject {
 
     // MARK: - Items
 
-    /// Order matters for fidelity: a file is always a file, but a web image
-    /// drag carries both an image and its page URL — prefer the image, and
-    /// only fall back to treating a URL as a link when nothing richer exists.
-    func accept(providers: [NSItemProvider]) -> Bool {
-        let fileProviders = providers.enumerated().filter {
-            $0.element.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
-        }
-        if fileProviders.count > 1, fileProviders.count == providers.count {
-            acceptFileBatch(providers: fileProviders)
-            return true
-        }
-
-        var handled = false
-        for provider in providers {
-            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                handled = true
-                _ = provider.loadObject(ofClass: URL.self) { [weak self] url, _ in
-                    guard let url, url.isFileURL else { return }
-                    DispatchQueue.main.async { self?.addFile(url) }
-                }
-            } else if provider.hasItemConformingToTypeIdentifier(UTType.gif.identifier) {
-                handled = true
-                _ = provider.loadDataRepresentation(forTypeIdentifier: UTType.gif.identifier) { [weak self] data, _ in
-                    guard let data, !data.isEmpty else { return }
-                    DispatchQueue.main.async { self?.addGIF(data: data) }
-                }
-            } else if provider.canLoadObject(ofClass: NSImage.self) {
-                handled = true
-                _ = provider.loadObject(ofClass: NSImage.self) { [weak self] image, _ in
-                    guard let image = image as? NSImage else { return }
-                    DispatchQueue.main.async { self?.addImage(image) }
-                }
-            } else if provider.canLoadObject(ofClass: URL.self) {
-                handled = true
-                _ = provider.loadObject(ofClass: URL.self) { [weak self] url, _ in
-                    guard let url else { return }
-                    DispatchQueue.main.async {
-                        url.isFileURL ? self?.addFile(url) : self?.addLink(url)
-                    }
-                }
-            } else if provider.canLoadObject(ofClass: NSString.self) {
-                handled = true
-                _ = provider.loadObject(ofClass: NSString.self) { [weak self] string, _ in
-                    guard let string = string as? String else { return }
-                    DispatchQueue.main.async { self?.addText(string) }
-                }
-            }
-        }
-        return handled
-    }
-
-    private func acceptFileBatch(providers: [(offset: Int, element: NSItemProvider)]) {
-        let group = DispatchGroup()
-        let lock = NSLock()
-        var loaded: [(Int, URL)] = []
-
-        for (index, provider) in providers {
-            group.enter()
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                if let url, url.isFileURL {
-                    lock.lock()
-                    loaded.append((index, url))
-                    lock.unlock()
-                }
-                group.leave()
-            }
-        }
-
-        group.notify(queue: .main) { [weak self] in
-            let urls = loaded.sorted { $0.0 < $1.0 }.map(\.1)
-            guard urls.count > 1 else {
-                if let url = urls.first { self?.addFile(url) }
-                return
-            }
-            self?.addFileBatch(urls)
-        }
-    }
-
     func removeItem(_ id: UUID) {
         var removed: [Item] = []
         removeItems(Set([id]), from: &items, removed: &removed)
         cleanSelectionState()
         retireOwnedPayloads(in: removed)
         noteInteraction()
+        // A tooltip already showing for the removed tile, or a sibling
+        // whose pile just changed shape, has nothing left to describe.
+        // None of these removal paths (the close button, the trash
+        // button, a drag-out) go through a tile's own mouseDown, the
+        // only other place a showing tooltip gets hidden.
+        ShelfTooltipPopover.shared.hide()
     }
 
     /// Removes several items at once — used after a successful drag-out so the
@@ -797,19 +1102,80 @@ final class ShelfService: ObservableObject {
         cleanSelectionState()
         retireOwnedPayloads(in: removed)
         noteInteraction()
+        ShelfTooltipPopover.shared.hide()
     }
 
+    /// Clears everything except pinned items, the way the clipboard history
+    /// keeps its pinned entries. The tile's own remove button still takes a
+    /// pinned item away.
     func clear() {
-        let removed = items
-        items = []
-        selection = []
-        expandedBatches = []
-        retireOwnedPayloads(in: removed)
+        shortcutSelectionRequests.invalidate()
+        cancelPendingPromiseDeliveries()
+        let protected = protectedIDs
+        guard !protected.isEmpty else {
+            let removed = items
+            items = []
+            selection = []
+            selectionAnchor = nil
+            expandedBatches = []
+            retireOwnedPayloads(in: removed)
+            noteInteraction()
+            ShelfTooltipPopover.shared.hide()
+            return
+        }
+        let removable = leafIDs(in: items).subtracting(protected)
+        guard !removable.isEmpty else { return }
+        removeItems(Array(removable))
+    }
+
+    func toggleItemPin(_ id: UUID) {
+        guard item(withID: id) != nil else { return }
+        if pinnedIDs.contains(id) { pinnedIDs.remove(id) } else { pinnedIDs.insert(id) }
         noteInteraction()
+    }
+
+    /// Pinned items and everything nested in a pinned pile.
+    private var protectedIDs: Set<UUID> {
+        guard !pinnedIDs.isEmpty else { return [] }
+        return items(withIDs: pinnedIDs, in: items).reduce(into: pinnedIDs) { ids, item in
+            ids.formUnion(allIDs(in: item.batchItems))
+        }
     }
 
     func toggleSelection(_ id: UUID) {
         if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
+        selectionAnchor = id
+        noteInteraction()
+    }
+
+    /// Adds the visible range between the last tile touched and this tile.
+    /// Unioning preserves any deliberately accumulated non-contiguous items.
+    func extendSelection(to id: UUID) {
+        let visibleIDs = visibleItems.map(\.id)
+        let range = ShelfSelectionSupport.rangeSelectionIDs(allIDs: visibleIDs,
+                                                            anchorID: selectionAnchor,
+                                                            targetID: id)
+        guard !range.isEmpty else { return }
+        selection.formUnion(range)
+        selectionAnchor = id
+        noteInteraction()
+    }
+
+    /// Selects every tile currently presented by the Shelf, including items
+    /// exposed from expanded batches.
+    func selectAllVisibleItems() {
+        let visibleIDs = visibleItems.map(\.id)
+        guard !visibleIDs.isEmpty else { return }
+        selection.formUnion(visibleIDs)
+        noteInteraction()
+    }
+
+    /// Returns every selection shape to a clean slate and discards the range
+    /// anchor so the next Shift-click starts from the tile being clicked.
+    func clearSelection() {
+        guard !selection.isEmpty || selectionAnchor != nil else { return }
+        selection.removeAll()
+        selectionAnchor = nil
         noteInteraction()
     }
 
@@ -841,18 +1207,147 @@ final class ShelfService: ObservableObject {
         return result
     }
 
+    /// Drag leaves whose payload can actually land somewhere: text and links
+    /// always qualify, and a file whose path died gets one chance to heal
+    /// through its bookmark (the file may only have been moved or renamed).
+    /// A healed tile is updated in place; what stays dead never joins a
+    /// session, because every destination would refuse the dead URL.
+    func livingDragItems(in items: [Item]) -> [Item] {
+        items.compactMap { item in
+            guard case let .file(url) = item.payload else { return item }
+            if FileManager.default.fileExists(atPath: url.path) { return item }
+            guard let healed = rebookedItem(item) else { return nil }
+            // The tile swap rebuilds the tiles view; deferring it keeps the
+            // rebuild away from the drag session or context menu that is
+            // being constructed around the old tile right now.
+            DispatchQueue.main.async { [weak self] in self?.replaceItem(healed) }
+            return healed
+        }
+    }
+
+    /// Resolves a shelf bookmark without ever mounting drives or showing UI;
+    /// nil when the file is truly gone.
+    private static func resolvedBookmarkPath(_ bookmark: Data) -> String? {
+        var stale = false
+        guard let url = try? URL(resolvingBookmarkData: bookmark,
+                                 options: [.withoutUI, .withoutMounting],
+                                 relativeTo: nil,
+                                 bookmarkDataIsStale: &stale) else { return nil }
+        return url.path
+    }
+
+    /// A fresh Item for a file found again through its bookmark, new name
+    /// included; nil when there is no bookmark or the file is really gone.
+    private func rebookedItem(_ item: Item) -> Item? {
+        guard case .file = item.payload, let bookmark = item.bookmark,
+              let path = Self.resolvedBookmarkPath(bookmark),
+              FileManager.default.fileExists(atPath: path) else { return nil }
+        let resolved = URL(fileURLWithPath: path)
+        return Item(id: item.id, payload: .file(resolved),
+                    title: resolved.lastPathComponent,
+                    icon: item.icon, isImage: item.isImage,
+                    hasContentThumbnail: item.hasContentThumbnail,
+                    bookmark: (try? resolved.bookmarkData()) ?? bookmark)
+    }
+
+    /// Swaps an item in place wherever it lives, top level or inside a
+    /// batch, keeping order, selection and expansion untouched.
+    private func replaceItem(_ replacement: Item) {
+        func replace(in items: inout [Item]) -> Bool {
+            for index in items.indices {
+                if items[index].id == replacement.id {
+                    items[index] = replacement
+                    return true
+                }
+                if case let .batch(children) = items[index].payload {
+                    var mutable = children
+                    if replace(in: &mutable) {
+                        // Re-derives the pile's face from its children the way
+                        // batchItem does, so a pile whose first child just
+                        // patched in a thumbnail shows it too instead of
+                        // keeping the icon from when the batch was built.
+                        // Title is intentionally left untouched here.
+                        let face = Self.batchFace(of: mutable)
+                        items[index] = Item(id: items[index].id, payload: .batch(mutable),
+                                            title: items[index].title,
+                                            icon: face.icon ?? symbol("doc.on.doc"),
+                                            isImage: items[index].isImage,
+                                            hasContentThumbnail: face.hasContentThumbnail)
+                        return true
+                    }
+                }
+            }
+            return false
+        }
+        var current = items
+        if replace(in: &current) { items = current }
+    }
+
+    /// Every grabbed payload is gone. Ghost-dragging dead URLs reads as "the
+    /// drag is broken", so the grab says why and retires the corpses the same
+    /// way a relaunch would. Files on unmounted volumes come back with their
+    /// drive, so they only sit the drag out and are kept.
+    func handleDeadDrag(_ items: [Item]) {
+        QuickToolHUD.show(icon: "tray.full", message: L10n.shared.s.shelfFileMissing)
+        let goneForever = items.filter { item in
+            guard case let .file(url) = item.payload else { return false }
+            let path = url.standardizedFileURL.path
+            guard let volumeRoot = ShelfPersistenceSupport.unmountedVolumeRoot(of: path) else {
+                return true
+            }
+            return FileManager.default.fileExists(atPath: volumeRoot)
+        }
+        guard !goneForever.isEmpty else { return }
+        removeItems(goneForever.map(\.id))
+    }
+
     /// File actions use the current multi-selection when the clicked tile is
     /// part of it; otherwise they stay scoped to that tile. Batches flatten to
     /// their leaves just like an external drag.
     func fileURLsForActions(startingAt item: Item) -> [URL] {
-        let candidates = selection.contains(item.id) ? selectedItems() : [item]
-        return dragItems(for: candidates).compactMap { entry in
+        fileURLs(in: selection.contains(item.id) ? selectedItems() : [item])
+    }
+
+    /// What the panel's own buttons act on: the selection when there is one,
+    /// everything otherwise, the way its trash button already reads. A grab
+    /// whose files have all died says so and retires them, exactly as a dead
+    /// drag does, rather than leaving a button that quietly does nothing.
+    func fileURLsForActions() -> [URL] {
+        let candidates = selectionOrEverything
+        let urls = fileURLs(in: candidates)
+        guard urls.isEmpty else { return urls }
+        let leaves = dragItems(for: candidates)
+        if leaves.contains(where: \.holdsFile) {
+            handleDeadDrag(leaves)
+        }
+        return []
+    }
+
+    /// Whether those same candidates hold a file at all. It never touches the
+    /// disk and stops at the first one, so a button can ask on every redraw
+    /// and stay disabled while the shelf holds only text and links.
+    var hasFilesForActions: Bool {
+        selectionOrEverything.contains(where: \.holdsFile)
+    }
+
+    private var selectionOrEverything: [Item] {
+        selection.isEmpty ? items : selectedItems()
+    }
+
+    private func fileURLs(in candidates: [Item]) -> [URL] {
+        // Actions heal moved files the same way a drag does: Open or Reveal
+        // on a renamed file should find it, not shrug.
+        livingDragItems(in: dragItems(for: candidates)).compactMap { entry in
             guard case let .file(url) = entry.payload else { return nil }
             return url
         }
     }
 
-    func beginInternalDrag(ids: [UUID]) {
+    func beginInternalDrag(ids: [UUID], from window: NSWindow?) {
+        internalDragWindow = window
+        if let window, window === NotchService.shared.presentationWindow {
+            NotchService.shared.fileDragChanged(true, internalDrag: true)
+        }
         activeInternalDragIDs = ids
         internalDragWasMerged = false
     }
@@ -861,6 +1356,10 @@ final class ShelfService: ObservableObject {
         defer {
             activeInternalDragIDs = []
             internalDragWasMerged = false
+            if let window = internalDragWindow, window === NotchService.shared.presentationWindow {
+                NotchService.shared.fileDragChanged(false, internalDrag: true)
+            }
+            internalDragWindow = nil
         }
         guard dropAccepted, !internalDragWasMerged else { return [] }
         return activeInternalDragIDs
@@ -869,25 +1368,33 @@ final class ShelfService: ObservableObject {
     /// Completes a tile drag in one place so removal, dismissal, pinning and
     /// internal Shelf merges cannot drift apart across the AppKit views.
     func completeInternalDrag(dropAccepted: Bool) {
+        let notch = NotchService.shared
+        let source = internalDragWindow
+        let fromNotch = source != nil && source === notch.presentationWindow
         let draggedIDs = finishInternalDrag(dropAccepted: dropAccepted)
         endInteraction()
         guard !draggedIDs.isEmpty else { return }
 
         let defaults = UserDefaults.standard
+        let removableIDs = ShelfInteractionSupport.removableAfterDrag(draggedIDs, protectedIDs: protectedIDs)
         if ShelfInteractionSupport.shouldRemoveAfterDrag(
             dropAccepted: dropAccepted,
-            draggedItemCount: draggedIDs.count,
+            draggedItemCount: removableIDs.count,
             removeAfterDrop: defaults.bool(forKey: DefaultsKey.shelfRemoveAfterDrop)) {
-            removeItems(draggedIDs)
+            removeItems(removableIDs)
         }
         if ShelfInteractionSupport.shouldCloseAfterDrag(
             dropAccepted: dropAccepted,
             draggedItemCount: draggedIDs.count,
             closeAfterDrop: defaults.bool(forKey: DefaultsKey.shelfCloseAfterDrop),
-            pinned: isPinned) {
-            if isVisible {
+            pinned: fromNotch ? notch.pinned : isPinned) {
+            if fromNotch {
+                if notch.expanded, notch.selected == .files, !notch.showingAppPanel, !notch.showingSections {
+                    notch.collapse()
+                }
+            } else if isVisible, let source, source === panel {
                 hide()
-            } else if dockedVisible {
+            } else if dockedVisible, let source, source === dockedPanel {
                 collapseDocked()
             }
         }
@@ -898,7 +1405,10 @@ final class ShelfService: ObservableObject {
     /// URL. Internal drops remain moves so stacking still works naturally.
     func sourceOperationMask(for context: NSDraggingContext) -> NSDragOperation {
         if context == .withinApplication { return .move }
-        return UserDefaults.standard.bool(forKey: DefaultsKey.shelfRemoveAfterDrop)
+        let protected = protectedIDs
+        return ShelfInteractionSupport.offersMoveOutside(
+            removeAfterDrop: UserDefaults.standard.bool(forKey: DefaultsKey.shelfRemoveAfterDrop),
+            dragIncludesPinned: activeInternalDragIDs.contains(where: protected.contains))
             ? [.copy, .move]
             : .copy
     }
@@ -918,27 +1428,225 @@ final class ShelfService: ObservableObject {
         if !activeInternalDragIDs.isEmpty {
             return mergeInternalDrag(into: targetID)
         }
-        let additions = items(from: pasteboard)
+        return mergeExternalItems(items(from: pasteboard), into: targetID)
+    }
+
+    private func mergeExternalItems(_ additions: [Item], into targetID: UUID) -> Bool {
         guard !additions.isEmpty else { return false }
-        return merge(additions, into: targetID)
+        guard merge(additions, into: targetID) else {
+            discardOwnedPayloads(in: additions)
+            return false
+        }
+        // Only a genuinely external drop counts as an add: mergeInternalDrag
+        // reaches the shared merge below too, but that path is a removal
+        // plus a reparent of an existing tile, not new content arriving.
+        // Thumbnails follow the same line: a reparented tile was enrolled
+        // when it first arrived, and keeps its id, so a decode still in
+        // flight finds it again through the batch it just moved into.
+        startContentThumbnails(for: additions)
+        lastAddedID = dragItems(for: additions).last?.id
+        addSerial &+= 1
+        return true
     }
 
     func canAcceptPasteboard(_ pasteboard: NSPasteboard) -> Bool {
-        pasteboardCanCreateItem(pasteboard)
+        AppFeature.shelf.isAvailable
+            && UserDefaults.standard.bool(forKey: DefaultsKey.shelfEnabled)
+            && pasteboardCanCreateItem(pasteboard)
     }
 
     func accept(pasteboard: NSPasteboard) -> Bool {
-        let fileURLs = fileURLs(from: pasteboard)
-        if fileURLs.count > 1 {
-            addFileBatch(fileURLs)
-            return true
-        }
         let additions = items(from: pasteboard)
         guard !additions.isEmpty else { return false }
-        items.append(contentsOf: additions)
-        startContentThumbnails(for: additions)
+        return append(additions.count == 1 ? additions[0] : batchItem(children: additions))
+    }
+
+
+    /// Native destinations call this synchronously from performDragOperation,
+    /// while the sender can still fulfill legacy file promises.
+    func acceptDrop(pasteboard: NSPasteboard) -> Bool {
+        guard AppFeature.shelf.isAvailable,
+              UserDefaults.standard.bool(forKey: DefaultsKey.shelfEnabled) else { return false }
+        let receivers = filePromiseReceivers(from: pasteboard)
+        return receivers.isEmpty
+            ? accept(pasteboard: pasteboard)
+            : beginPromisedFileReceive(receivers, additions: nonPromisedItems(from: pasteboard), mergeInto: nil)
+    }
+
+    func accept(draggingInfo: NSDraggingInfo) -> Bool {
+        let accepted = acceptDrop(pasteboard: draggingInfo.draggingPasteboard)
+        if accepted { noteAcceptedDrop(draggingInfo) }
+        return accepted
+    }
+
+    func merge(draggingInfo: NSDraggingInfo, into targetID: UUID) -> Bool {
+        guard AppFeature.shelf.isAvailable,
+              UserDefaults.standard.bool(forKey: DefaultsKey.shelfEnabled) else { return false }
+        let pasteboard = draggingInfo.draggingPasteboard
+        let receivers = filePromiseReceivers(from: pasteboard)
+        let accepted = receivers.isEmpty
+            ? mergePasteboard(pasteboard, into: targetID)
+            : beginPromisedFileReceive(receivers, additions: nonPromisedItems(from: pasteboard), mergeInto: targetID)
+        if accepted { noteAcceptedDrop(draggingInfo) }
+        return accepted
+    }
+
+    /// A promised file reaches `append`, and with it `noteInteraction()`, only
+    /// once its asynchronous delivery completes, which can be after the grace
+    /// window in `endEdgePeekDrag` has retracted an edge peek. Noting the drop
+    /// here clears `edgePeekMatch` first, so that retract does nothing.
+    private func noteAcceptedDrop(_ draggingInfo: NSDraggingInfo) {
+        if draggingInfo.draggingDestinationWindow === dockedPanel { dockDidAccept() }
         noteInteraction()
+    }
+
+    private func filePromiseReceivers(from pasteboard: NSPasteboard) -> [NSFilePromiseReceiver] {
+        pasteboard.readObjects(forClasses: [NSFilePromiseReceiver.self], options: nil)
+            as? [NSFilePromiseReceiver] ?? []
+    }
+
+    private func beginPromisedFileReceive(_ receivers: [NSFilePromiseReceiver],
+                                          additions companions: (items: [Item], positions: [Int], promises: [Int]),
+                                          mergeInto targetID: UUID?) -> Bool {
+        let additions = companions.items
+        // Each receiver promises at least one file. Some legacy receivers
+        // promise more, so the actual count is checked again before adding.
+        let available = ShelfPersistenceSupport.maxLeaves - itemCount - additions.reduce(0) { $0 + $1.leafCount }
+        guard !receivers.isEmpty, receivers.count <= available,
+              targetID.map({ item(withID: $0) != nil }) ?? true else {
+            discardOwnedPayloads(in: additions)
+            return false
+        }
+        let store = Self.storeDirectory ?? tempDir
+        let id = UUID()
+        guard let transfer = ShelfFilePromiseTransfer(temporaryDirectory: tempDir,
+                                                      storeDirectory: store, maximumFiles: available,
+                                                      completion: { [weak self] result in
+            guard let self, self.promiseTransfers.removeValue(forKey: id) != nil else {
+                ShelfFilePromiseTransfer.discard(result.urls, in: store)
+                return
+            }
+            guard AppFeature.shelf.isAvailable,
+                  UserDefaults.standard.bool(forKey: DefaultsKey.shelfEnabled) else {
+                ShelfFilePromiseTransfer.discard(result.urls, in: store)
+                self.discardOwnedPayloads(in: additions)
+                return
+            }
+            if let targetID, self.item(withID: targetID) == nil {
+                ShelfFilePromiseTransfer.discard(result.urls, in: store)
+                self.discardOwnedPayloads(in: additions)
+                return
+            }
+            guard ShelfPersistenceSupport.canAdd(existingLeaves: self.itemCount,
+                newLeaves: result.urls.count + additions.reduce(0) { $0 + $1.leafCount })
+                || (result.urls.isEmpty && additions.isEmpty) else {
+                ShelfFilePromiseTransfer.discard(result.urls, in: store)
+                self.discardOwnedPayloads(in: additions)
+                let strings = ShelfPromiseDeliveryStrings.localized(L10n.shared.language)
+                self.reportPromiseDeliveryProblem(title: strings.fullTitle, body: strings.fullBody)
+                return
+            }
+            let combined = additions + result.urls.map { self.fileItem(for: $0, deferImageThumbnail: true) }
+            let receivedItems = ShelfPasteboardSupport.mergedItemIndices(
+                companionPositions: companions.positions, receiverIndices: result.receiverIndices,
+                promisePositions: companions.promises).map { combined[$0] }
+            let added: Bool
+            if receivedItems.isEmpty {
+                added = true
+            } else if let targetID {
+                added = self.mergeExternalItems(receivedItems, into: targetID)
+            } else {
+                added = self.append(receivedItems.count == 1 ? receivedItems[0] : self.batchItem(children: receivedItems))
+            }
+            if !added { ShelfFilePromiseTransfer.discard(result.urls, in: store) }
+            let strings = ShelfPromiseDeliveryStrings.localized(L10n.shared.language)
+            if !added {
+                self.reportPromiseDeliveryProblem(title: strings.fullTitle, body: strings.fullBody)
+            } else if result.failed {
+                self.reportPromiseDeliveryProblem(title: strings.failedTitle, body: strings.failedBody)
+            }
+        }) else {
+            discardOwnedPayloads(in: additions)
+            let strings = ShelfPromiseDeliveryStrings.localized(L10n.shared.language)
+            reportPromiseDeliveryProblem(title: strings.failedTitle, body: strings.failedBody)
+            return false
+        }
+        promiseTransfers[id] = (targetID, transfer, additions)
+        guard transfer.receive(receivers) else {
+            promiseTransfers.removeValue(forKey: id)
+            discardOwnedPayloads(in: additions)
+            return false
+        }
         return true
+    }
+
+    private func cancelPendingPromiseDeliveries() {
+        for entry in promiseTransfers.values {
+            entry.transfer.cancel()
+            discardOwnedPayloads(in: entry.additions)
+        }
+        promiseTransfers.removeAll()
+    }
+
+    private func cancelRemovedPromiseTargets() {
+        let removed = promiseTransfers.filter { entry in
+            entry.value.target.map { item(withID: $0) == nil } ?? false
+        }
+        for (id, entry) in removed {
+            promiseTransfers.removeValue(forKey: id)
+            entry.transfer.cancel()
+            discardOwnedPayloads(in: entry.additions)
+        }
+    }
+
+    private func reportPromiseDeliveryProblem(title: String, body: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = body
+        alert.addButton(withTitle: ShelfPromiseDeliveryStrings.localized(L10n.shared.language).okButton)
+        // A failed background delivery must not steal focus from another app.
+        if let window = panel, window.isVisible {
+            alert.beginSheetModal(for: window)
+        } else if let window = dockedPanel, window.isVisible {
+            alert.beginSheetModal(for: window)
+        } else if let window = NotchService.shared.presentationWindow, window.isVisible {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
+    }
+
+    /// Generated files reuse the shelf's ordinary acceptance, capacity and thumbnails.
+    @discardableResult
+    func addFiles(_ urls: [URL]) -> Bool {
+        guard !urls.isEmpty, urls.allSatisfy(\.isFileURL) else { return false }
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.writeObjects(urls.map { $0 as NSURL })
+        return accept(pasteboard: pasteboard)
+    }
+
+    /// A picture another feature made, like a capture or an edited
+    /// screenshot, kept in the shelf's own store under its name. It leaves
+    /// with its item the way a pasted image does, so nothing is left behind
+    /// in the person's folders. Nothing waits on its thumbnail, so that is
+    /// decoded off the main thread. Answers the item's id, so the feature
+    /// can take it back, as a discarded capture does.
+    func shelveGeneratedFile(_ data: Data, named name: String) -> UUID? {
+        guard AppFeature.shelf.isAvailable,
+              UserDefaults.standard.bool(forKey: DefaultsKey.shelfEnabled),
+              ShelfPersistenceSupport.canAdd(existingLeaves: itemCount, newLeaves: 1) else { return nil }
+        let store = Self.storeDirectory ?? tempDir
+        guard let url = ShelfPersistenceSupport.writeGeneratedFile(data, named: name, in: store) else {
+            return nil
+        }
+        let item = fileItem(for: url, deferImageThumbnail: true)
+        guard append(item) else {
+            ShelfFilePromiseTransfer.discard([url], in: store)
+            return nil
+        }
+        return item.id
     }
 
     /// The pasteboard representation used when dragging an item out of the shelf.
@@ -953,72 +1661,51 @@ final class ShelfService: ObservableObject {
         }
     }
 
-    private func addFile(_ url: URL) {
-        append(fileItem(for: url))
-    }
-
-    private func addFileBatch(_ urls: [URL]) {
-        let children = urls.map { fileItem(for: $0) }
-        append(batchItem(children: children))
-    }
-
-    private func addImage(_ image: NSImage) {
-        guard let item = imageItem(for: image) else { return }
-        append(item)
-    }
-
-    private func addGIF(data: Data) {
-        guard let item = gifItem(for: data) else { return }
-        append(item)
-    }
-
-    private func addText(_ string: String) {
-        guard let item = textItem(for: string) else { return }
-        append(item)
-    }
-
-    private func addLink(_ url: URL) {
-        append(linkItem(for: url))
-    }
-
-    static let contentThumbnailPointSize: CGFloat = 36
+    /// `ImageThumbnailer.defaultPointSize` (20pt) is sized for a small
+    /// generic icon elsewhere in the app; a shelf tile's own content-
+    /// thumbnail well is bigger (64x50pt, see ShelfTilesView's iconWell),
+    /// so a real image or video frame decoded at the smaller default looks
+    /// visibly soft once stretched to fill it. Matches the well's own
+    /// declared width for a bit of headroom over its 56pt inset content area.
+    private static let contentThumbnailPointSize: CGFloat = 64
 
     private enum ContentThumbnailKind {
         case image
         case video
     }
 
-    private static func isImageFile(_ url: URL) -> Bool {
-        guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else { return false }
-        return type.conforms(to: .image)
-    }
-
-    private static func contentThumbnailKind(for url: URL) -> ContentThumbnailKind? {
-        guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else { return nil }
-        if type.conforms(to: .image) { return .image }
-        if type.conforms(to: .movie) { return .video }
-        return nil
-    }
-
-    private static func decodesCheaplyInline(_ url: URL) -> Bool {
-        guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else { return false }
-        return !type.conforms(to: .rawImage)
-    }
-
+    /// `deferImageThumbnail` skips the inline decode and leaves the tile
+    /// wearing its fallback icon until `startContentThumbnails` gets to it.
+    /// Restore sets it, since it can rebuild a whole saved shelf at once and
+    /// should not hold launch for the sum of every image on it. A single
+    /// interactive drop decodes inline instead, which is one file's worth of
+    /// work and shows the real thumbnail immediately, unless the file is one
+    /// `decodesCheaplyInline` rules out.
     private func fileItem(for url: URL, id: UUID = UUID(), title: String? = nil,
-                          deferImageThumbnail: Bool = false) -> Item {
-        let isImage = Self.isImageFile(url)
-        let inlineThumbnail: NSImage?
-        if isImage, !deferImageThumbnail, Self.decodesCheaplyInline(url) {
-            inlineThumbnail = ImageThumbnailer.thumbnail(for: url, pointSize: Self.contentThumbnailPointSize)
-        } else {
-            inlineThumbnail = nil
-        }
-        let icon = inlineThumbnail ?? NSWorkspace.shared.icon(forFile: url.path)
+                          bookmark: Data? = nil, deferImageThumbnail: Bool = false) -> Item {
+        let isImage = Self.contentThumbnailKind(for: url) == .image
+        let fallbackIcon = NSWorkspace.shared.icon(forFile: url.path)
+        let inlineThumbnail = isImage && !deferImageThumbnail && Self.decodesCheaplyInline(url)
+            ? ImageThumbnailer.thumbnail(for: url, pointSize: Self.contentThumbnailPointSize)
+            : nil
+        let icon = inlineThumbnail
+            ?? ImageThumbnailer.thumbnail(for: fallbackIcon)
+            ?? fallbackIcon
+        // Made once when the item is shelved (or upgrading a legacy entry),
+        // so a later move or rename of the file cannot orphan the tile.
+        // The flag tracks the icon actually in hand, so an unreadable image
+        // (or one still decoding) is not sized as though it had a thumbnail.
         return Item(id: id, payload: .file(url), title: title ?? url.lastPathComponent,
-                    icon: icon, isImage: isImage, hasContentThumbnail: inlineThumbnail != nil)
+                    icon: icon, isImage: isImage, hasContentThumbnail: inlineThumbnail != nil,
+                    bookmark: bookmark ?? (try? url.bookmarkData()))
     }
 
+    /// Starts a real thumbnail decode for anything shelved wearing a fallback
+    /// icon. Called once an item is actually in `items`, never from
+    /// `fileItem`: a mixed-provider batch (see acceptMixedBatch) does not
+    /// append anything until its slowest provider resolves, so a decode
+    /// started at build time can finish while its own item is still nowhere
+    /// to be found and have nothing to patch.
     private func startContentThumbnails(for newItems: [Item]) {
         for item in newItems {
             switch item.payload {
@@ -1034,6 +1721,30 @@ final class ShelfService: ObservableObject {
         }
     }
 
+    /// Nil for anything with no frame worth decoding. Classified by UTType
+    /// rather than an extension list: it is the same question NSWorkspace
+    /// already answers to pick the fallback icon, and a hand-kept list both
+    /// misses container types (m2ts, mxf, ogv) and has to be maintained.
+    private static func contentThumbnailKind(for url: URL) -> ContentThumbnailKind? {
+        guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else { return nil }
+        if type.conforms(to: .image) { return .image }
+        if type.conforms(to: .movie) { return .video }
+        return nil
+    }
+
+    /// Whether an image is cheap enough to decode on the drop itself. Raw
+    /// camera files are not: they come off the sensor needing demosaicing
+    /// rather than the subsampled downscale ImageIO gives a JPEG or a TIFF,
+    /// and a drop should not wait on one. They take the async path instead,
+    /// so the tile wears its generic icon for a moment and patches in.
+    private static func decodesCheaplyInline(_ url: URL) -> Bool {
+        guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else { return false }
+        return !type.conforms(to: .rawImage)
+    }
+
+    /// Decodes a real thumbnail off the main thread and swaps it in when it
+    /// lands. The item is already shelved wearing its fallback icon, so
+    /// nothing waits on the decode.
     private func patchContentThumbnail(for url: URL, id: UUID, kind: ContentThumbnailKind) {
         Task { @MainActor [weak self] in
             let size = Self.contentThumbnailPointSize
@@ -1045,35 +1756,8 @@ final class ShelfService: ObservableObject {
             guard let decoded, let self, let current = self.item(withID: id) else { return }
             self.replaceItem(Item(id: current.id, payload: current.payload,
                                   title: current.title, icon: decoded,
-                                  isImage: current.isImage, hasContentThumbnail: true))
-        }
-    }
-
-    private func replaceItem(_ updated: Item) {
-        func update(in list: [Item]) -> [Item]? {
-            var modified = false
-            let result = list.map { current -> Item in
-                if current.id == updated.id {
-                    modified = true
-                    return updated
-                }
-                if case let .batch(children) = current.payload,
-                   let newChildren = update(in: children) {
-                    modified = true
-                    let face = Self.batchFace(of: newChildren)
-                    return Item(id: current.id, payload: .batch(newChildren),
-                                title: current.title,
-                                icon: face.icon ?? current.icon,
-                                isImage: false,
-                                hasContentThumbnail: face.hasContentThumbnail)
-                }
-                return current
-            }
-            return modified ? result : nil
-        }
-        if let newItems = update(in: items) {
-            items = newItems
-            contentRevision &+= 1
+                                  isImage: current.isImage, hasContentThumbnail: true,
+                                  bookmark: current.bookmark))
         }
     }
 
@@ -1086,7 +1770,7 @@ final class ShelfService: ObservableObject {
             return rep.representation(using: .png, properties: [:])
         }), let url = storePayloadData(png, fileExtension: "png") {
             return Item(payload: .file(url), title: L10n.shared.s.shelfItemImage, icon: icon,
-                        isImage: true, hasContentThumbnail: true)
+                       isImage: true, hasContentThumbnail: true)
         }
         return nil
     }
@@ -1114,25 +1798,39 @@ final class ShelfService: ObservableObject {
         return url
     }
 
-
     private func textItem(for string: String) -> Item? {
-        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        guard let bounded = ShelfPersistenceSupport.boundedLiveText(string) else { return nil }
+        let trimmed = bounded.trimmingCharacters(in: .whitespacesAndNewlines)
         let firstLine = trimmed.split(whereSeparator: \.isNewline).first.map(String.init) ?? trimmed
         let icon = symbol("doc.plaintext")
-        return Item(payload: .text(string), title: String(firstLine.prefix(48)), icon: icon, isImage: false)
+        return Item(payload: .text(bounded), title: String(firstLine.prefix(48)),
+                    icon: icon, isImage: false)
     }
 
     private func linkItem(for url: URL) -> Item {
         Item(payload: .link(url), title: url.host ?? url.absoluteString, icon: symbol("link"), isImage: false)
     }
 
-    private func append(_ item: Item) {
+    @discardableResult
+    private func append(_ item: Item) -> Bool {
+        guard ShelfPersistenceSupport.canAdd(existingLeaves: itemCount,
+                                             newLeaves: item.leafCount) else {
+            discardOwnedPayloads(in: [item])
+            return false
+        }
         items.append(item)
         startContentThumbnails(for: [item])
+        lastAddedID = item.id
+        addSerial &+= 1
         noteInteraction()
+        return true
     }
 
+    /// What a pile shows: its first child's icon, and that child's thumbnail
+    /// flag along with it. The two travel together because the flag drives
+    /// the tile's image inset, and a real thumbnail drawn at the generic-icon
+    /// inset is visibly undersized. Shared with `replaceItem`, which re-derives
+    /// the same face after patching a child in place.
     private static func batchFace(of children: [Item]) -> (icon: NSImage?, hasContentThumbnail: Bool) {
         (children.first?.icon, children.first?.hasContentThumbnail ?? false)
     }
@@ -1147,6 +1845,44 @@ final class ShelfService: ObservableObject {
     }
 
     private func items(from pasteboard: NSPasteboard) -> [Item] {
+        guard let entries = pasteboard.pasteboardItems, entries.count > 1 else {
+            return singlePasteboardItems(from: pasteboard)
+        }
+        return entries.flatMap { items(from: $0) }
+    }
+
+    /// Positions are pasteboard item indexes, so promised files can be put
+    /// back between the plain items they were dropped with.
+    private func nonPromisedItems(from pasteboard: NSPasteboard) -> (items: [Item], positions: [Int], promises: [Int]) {
+        var result: (items: [Item], positions: [Int], promises: [Int]) = ([], [], [])
+        for (index, entry) in (pasteboard.pasteboardItems ?? []).enumerated() {
+            if entry.types.contains(where: { ShelfPasteboardSupport.isFilePromiseType($0.rawValue) }) {
+                result.promises.append(index)
+            } else {
+                let found = items(from: entry)
+                result.items += found
+                result.positions += Array(repeating: index, count: found.count)
+            }
+        }
+        return result
+    }
+
+    /// Preserve each item's file/image/link/text preference in a mixed drop.
+    /// A short-lived private board lets AppKit decode its existing formats;
+    /// promised items are read from the original drag board, never cloned.
+    private func items(from item: NSPasteboardItem) -> [Item] {
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let copy = NSPasteboardItem()
+        for type in item.types where ShelfPasteboardSupport.isDroppablePasteboardType(type.rawValue)
+            && !ShelfPasteboardSupport.isFilePromiseType(type.rawValue) {
+            if let data = item.data(forType: type) { copy.setData(data, forType: type) }
+        }
+        guard !copy.types.isEmpty, board.writeObjects([copy]) else { return [] }
+        return singlePasteboardItems(from: board)
+    }
+
+    private func singlePasteboardItems(from pasteboard: NSPasteboard) -> [Item] {
         let fileURLs = fileURLs(from: pasteboard)
         if !fileURLs.isEmpty {
             return fileURLs.map { fileItem(for: $0) }
@@ -1170,7 +1906,7 @@ final class ShelfService: ObservableObject {
         return []
     }
 
-    private func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
+    func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
         let fileOptions: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: fileOptions) as? [NSURL],
            !urls.isEmpty {
@@ -1184,6 +1920,9 @@ final class ShelfService: ObservableObject {
     }
 
     private func pasteboardCanCreateItem(_ pasteboard: NSPasteboard) -> Bool {
+        if pasteboard.canReadObject(forClasses: [NSFilePromiseReceiver.self], options: nil) {
+            return ShelfPersistenceSupport.canAdd(existingLeaves: itemCount, newLeaves: 1)
+        }
         if !fileURLs(from: pasteboard).isEmpty {
             return true
         }
@@ -1259,12 +1998,20 @@ final class ShelfService: ObservableObject {
         removeItems(sourceIDs, from: &items, removed: &moved)
         guard merge(additions, into: targetID) else { return false }
         internalDragWasMerged = true
+        // Bypasses the public removeItem/removeItems wrappers (it's
+        // reparenting, not a user-facing removal), so it doesn't get the
+        // tooltip-hide those centralize. A drag always starts with
+        // mouseDown on the source tile, which already hides any showing
+        // tooltip, so this is defense in depth rather than a live gap.
+        ShelfTooltipPopover.shared.hide()
         return true
     }
 
     private func merge(_ additions: [Item], into targetID: UUID) -> Bool {
         let leaves = dragItems(for: additions)
         guard !leaves.isEmpty,
+              ShelfPersistenceSupport.canAdd(existingLeaves: itemCount,
+                                             newLeaves: leaves.count),
               leaves.allSatisfy({ $0.id != targetID }),
               merge(leaves, into: targetID, in: &items)
         else { return false }
@@ -1305,6 +2052,18 @@ final class ShelfService: ObservableObject {
         }
     }
 
+    private func discardOwnedPayloads(in removed: [Item]) {
+        let candidates = removed.flatMap { ownedPayloadURLs(in: $0) }
+        let referencedPaths = Set(items.flatMap { ownedPayloadURLs(in: $0) }
+            .map { $0.standardizedFileURL.path })
+        let discardablePaths = ShelfPersistenceSupport.discardablePayloadPaths(
+            candidatePaths: candidates.map { $0.standardizedFileURL.path },
+            referencedPaths: referencedPaths)
+        for url in candidates where discardablePaths.contains(url.standardizedFileURL.path) {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
     /// Payload files the shelf itself wrote (pasted images and GIFs) and may
     /// therefore delete; files the user dropped are never touched.
     private func ownedPayloadURLs(in item: Item) -> [URL] {
@@ -1336,6 +2095,8 @@ final class ShelfService: ObservableObject {
                 expandedBatches.remove(item.id)
             } else if children.count == 1 {
                 expandedBatches.remove(item.id)
+                // The pile dissolves into its last item, which keeps its pin.
+                if pinnedIDs.contains(item.id) { pinnedIDs.insert(children[0].id) }
                 kept.append(children[0])
             } else {
                 kept.append(batchItem(id: item.id, children: children))
@@ -1427,16 +2188,38 @@ final class ShelfService: ObservableObject {
     }
 
     private func cleanSelectionState() {
-        selection.formIntersection(allIDs(in: items))
+        cancelRemovedPromiseTargets()
+        let survivingIDs = allIDs(in: items)
+        selection.formIntersection(survivingIDs)
+        if let selectionAnchor, !survivingIDs.contains(selectionAnchor) {
+            self.selectionAnchor = nil
+        }
         expandedBatches.formIntersection(batchIDs(in: items))
+        let survivingPins = pinnedIDs.intersection(survivingIDs)
+        if survivingPins != pinnedIDs { pinnedIDs = survivingPins }
     }
 
-    private func cleanTemporaryFiles(keeping keptPaths: Set<String>) {
+    private func leafIDs(in items: [Item]) -> Set<UUID> {
+        var ids = Set<UUID>()
+        for item in items {
+            if case let .batch(children) = item.payload {
+                ids.formUnion(leafIDs(in: children))
+            } else {
+                ids.insert(item.id)
+            }
+        }
+        return ids
+    }
+
+    private func cleanTemporaryFiles(keeping keptPaths: Set<String>, writtenBefore cutoff: Date) {
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(at: tempDir,
-                                                        includingPropertiesForKeys: nil) else { return }
-        for url in entries where isShelfOwnedFile(url) && !keptPaths.contains(url.standardizedFileURL.path) {
-            try? fm.removeItem(at: url)
+                                                        includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+        for url in entries where isShelfOwnedFile(url)
+            && !ShelfPersistenceSupport.containsKeptFile(under: url.path, keptPaths: keptPaths) {
+            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate ?? .distantPast
+            if modified < cutoff { try? fm.removeItem(at: url) }
         }
     }
 
@@ -1479,7 +2262,8 @@ final class ShelfService: ObservableObject {
     }
 
     private func persistItems() {
-        let persisted = items.map(Self.persistedItem(from:))
+        let pinned = pinnedIDs
+        let persisted = items.map { Self.persistedItem(from: $0, pinnedIDs: pinned) }
         Self.persistQueue.async {
             guard let data = try? JSONEncoder().encode(persisted) else { return }
             UserDefaults.standard.set(data, forKey: DefaultsKey.shelfItems)
@@ -1490,7 +2274,13 @@ final class ShelfService: ObservableObject {
     /// thumbnails touch the disk, and this runs at launch), merges it with
     /// anything added in the meantime, then sweeps payload files that lost
     /// their item (crash between write and save, or dropped at sanitizing).
+    /// A blob this build cannot read whole — one that will not decode at all,
+    /// and one that decoded with entries dropped — skips both the save-back
+    /// and the sweep: it is a store this build cannot read, not a shelf the
+    /// user emptied, and the entries it dropped still own payload files that
+    /// the blob it kept still points at.
     private func restoreItems() {
+        let sweepCutoff = Date()
         let data = UserDefaults.standard.data(forKey: DefaultsKey.shelfItems)
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self else { return }
@@ -1500,9 +2290,10 @@ final class ShelfService: ObservableObject {
             // NSWorkspace and SF Symbols, which are only safe on the main
             // thread, so that step waits for the hop below.
             var sanitized: [ShelfPersistedItem] = []
-            if let data,
-               let decoded = try? JSONDecoder().decode([ShelfPersistedItem].self, from: data) {
-                sanitized = ShelfPersistenceSupport.sanitized(decoded) { path in
+            let store = ShelfPersistenceSupport.load(data)
+            switch store {
+            case let .items(decoded), let .partial(decoded):
+                sanitized = ShelfPersistenceSupport.sanitized(decoded, fileExists: { path in
                     if FileManager.default.fileExists(atPath: path) { return true }
                     // A file on an unmounted volume is not gone: the app can
                     // launch at login before an external or network drive
@@ -1512,20 +2303,42 @@ final class ShelfService: ObservableObject {
                         return !FileManager.default.fileExists(atPath: volumeRoot)
                     }
                     return false
-                }
+                }, resolveBookmark: Self.resolvedBookmarkPath)
+            case .unreadable:
+                break
             }
             DispatchQueue.main.async {
                 let restored = sanitized.compactMap { self.restoredItem(from: $0) }
+                let liveItemCount = self.itemCount
                 self.restoreCompleted = true
-                if restored.isEmpty {
+                if !restored.isEmpty {
+                    var remaining = max(0, ShelfPersistenceSupport.maxLeaves - self.itemCount)
+                    let keptRestored = restored.filter { item in
+                        guard item.leafCount <= remaining else { return false }
+                        remaining -= item.leafCount
+                        return true
+                    }
+                    self.items = keptRestored + self.items
+                    let restoredPins = Self.pinnedIDs(in: sanitized)
+                        .intersection(self.allIDs(in: keptRestored))
+                    if !restoredPins.isEmpty { self.pinnedIDs.formUnion(restoredPins) }
+                    self.startContentThumbnails(for: keptRestored)
+                }
+                // A store this build could not read whole is not an empty
+                // shelf, and it is not the shelf either. Saving over it and
+                // sweeping the payload files it still references would turn
+                // entries this build cannot read into permanent loss — the
+                // dropped entry's file is still there and still referenced,
+                // unlike a `sanitized` drop, whose file is gone by definition.
+                // Both wait for a launch that can read the store again.
+                guard case .items = store else { return }
+                if ShelfPersistenceSupport.needsPersistAfterRestore(
+                    restoredIsEmpty: restored.isEmpty,
+                    liveItemCount: liveItemCount) {
                     self.schedulePersist()
-                } else {
-                    self.items = restored + self.items
-                    self.startContentThumbnails(for: restored)
                 }
                 let keptPaths = Set(self.items.flatMap { self.ownedPayloadURLs(in: $0) }
                     .map(\.standardizedFileURL.path))
-                let sweepCutoff = Date()
                 DispatchQueue.global(qos: .utility).async {
                     self.sweepOwnedFiles(keeping: keptPaths, writtenBefore: sweepCutoff)
                 }
@@ -1533,18 +2346,29 @@ final class ShelfService: ObservableObject {
         }
     }
 
-    private static func persistedItem(from item: Item) -> ShelfPersistedItem {
+    private static func persistedItem(from item: Item, pinnedIDs: Set<UUID>) -> ShelfPersistedItem {
+        let pinned = pinnedIDs.contains(item.id)
         switch item.payload {
         case let .file(url):
-            return ShelfPersistedItem(id: item.id, kind: .file, title: item.title, path: url.path)
+            return ShelfPersistedItem(id: item.id, kind: .file, title: item.title,
+                                      path: url.path, bookmark: item.bookmark, pinned: pinned)
         case let .text(text):
-            return ShelfPersistedItem(id: item.id, kind: .text, title: item.title, text: text)
+            return ShelfPersistedItem(id: item.id, kind: .text, title: item.title, text: text,
+                                      pinned: pinned)
         case let .link(url):
             return ShelfPersistedItem(id: item.id, kind: .link, title: item.title,
-                                      url: url.absoluteString)
+                                      url: url.absoluteString, pinned: pinned)
         case let .batch(children):
             return ShelfPersistedItem(id: item.id, kind: .batch, title: item.title,
-                                      children: children.map(persistedItem(from:)))
+                                      children: children.map { persistedItem(from: $0, pinnedIDs: pinnedIDs) },
+                                      pinned: pinned)
+        }
+    }
+
+    private static func pinnedIDs(in persisted: [ShelfPersistedItem]) -> Set<UUID> {
+        persisted.reduce(into: Set<UUID>()) { ids, item in
+            if item.pinned == true { ids.insert(item.id) }
+            ids.formUnion(pinnedIDs(in: item.children ?? []))
         }
     }
 
@@ -1554,6 +2378,7 @@ final class ShelfService: ObservableObject {
             guard let path = persisted.path else { return nil }
             return fileItem(for: URL(fileURLWithPath: path), id: persisted.id,
                             title: persisted.title.isEmpty ? nil : persisted.title,
+                            bookmark: persisted.bookmark,
                             deferImageThumbnail: true)
         case .text:
             guard let text = persisted.text else { return nil }
@@ -1584,7 +2409,7 @@ final class ShelfService: ObservableObject {
         if let store = Self.storeDirectory,
            let entries = try? fm.contentsOfDirectory(at: store,
                                                      includingPropertiesForKeys: [.contentModificationDateKey]) {
-            for url in entries where !keptPaths.contains(url.standardizedFileURL.path) {
+            for url in entries where !ShelfPersistenceSupport.containsKeptFile(under: url.path, keptPaths: keptPaths) {
                 let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
                     .contentModificationDate ?? .distantPast
                 if modified < cutoff {
@@ -1592,14 +2417,70 @@ final class ShelfService: ObservableObject {
                 }
             }
         }
-        cleanTemporaryFiles(keeping: keptPaths)
+        cleanTemporaryFiles(keeping: keptPaths, writtenBefore: cutoff)
         cleanLegacyTemporaryFiles()
     }
 
     // MARK: - Panel
 
     func toggle() {
+        if NotchService.shared.openShelf(toggle: true) { return }
         isVisible ? hide() : summon()
+    }
+
+    /// With the option on and Finder in front, the shortcut brings the
+    /// selected files along, like dragging them onto the shelf. Without a
+    /// selection it keeps toggling, so the shortcut still closes the shelf.
+    func handleShortcut() {
+        guard shortcutMayAddFinderSelection,
+              NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder"
+        else {
+            shortcutSelectionRequests.invalidate()
+            toggle()
+            return
+        }
+        let ticket = shortcutSelectionRequests.begin()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let urls = FinderBridge.selectionURLs()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch self.shortcutSelectionRequests.resolve(
+                    ticket, urls: urls, stillAllowed: self.shortcutMayAddFinderSelection,
+                    shelvedPaths: self.shelvedFilePaths) {
+                case .discard:
+                    return
+                case .toggle:
+                    self.toggle()
+                case let .add(urls):
+                    // A selection larger than the shelf holds is refused before
+                    // every file gets an icon, a thumbnail and a bookmark on the
+                    // main thread only to be thrown away.
+                    guard ShelfPersistenceSupport.canAdd(existingLeaves: self.itemCount,
+                                                         newLeaves: urls.count) else {
+                        NSSound.beep()
+                        self.toggle()
+                        return
+                    }
+                    if self.addFiles(urls) { self.summon() } else { self.toggle() }
+                }
+            }
+        }
+    }
+
+    /// The paths of the files on the shelf, piles included.
+    private var shelvedFilePaths: Set<String> {
+        Set(dragItems(for: items).compactMap { item -> String? in
+            guard case let .file(url) = item.payload else { return nil }
+            return url.standardizedFileURL.path
+        })
+    }
+
+    private var shortcutMayAddFinderSelection: Bool {
+        let defaults = UserDefaults.standard
+        return AppFeature.shelf.isAvailable
+            && defaults.bool(forKey: DefaultsKey.shelfEnabled)
+            && defaults.bool(forKey: DefaultsKey.shelfShortcutEnabled)
+            && defaults.bool(forKey: DefaultsKey.shelfShortcutAddsFinderSelection)
     }
 
     func togglePin() {
@@ -1617,6 +2498,9 @@ final class ShelfService: ObservableObject {
     /// docked option on; the docked shelf just steps aside while this panel is
     /// up and comes back when it closes.
     func summon() {
+        guard AppFeature.shelf.isAvailable,
+              UserDefaults.standard.bool(forKey: DefaultsKey.shelfEnabled) else { return }
+        if NotchService.shared.openShelf() { return }
         let panel = ensurePanel()
         cancelAutoHide()
         position(panel)
@@ -1631,12 +2515,35 @@ final class ShelfService: ObservableObject {
         resetAutoHide()
         isPinned = false
         panel?.orderOut(nil)
+        ShelfTooltipPopover.shared.hide()
         scheduleDockedSync()
+    }
+
+    /// Handles the floating panel's explicit close button. Automatic hiding,
+    /// shortcut toggling and collapsing the docked shelf keep their contents.
+    func close() {
+        if UserDefaults.standard.bool(forKey: DefaultsKey.shelfClearOnClose) {
+            clear()
+        }
+        hide()
     }
 
     func noteInteraction() {
         guard panel?.isVisible == true else { return }
         cancelAutoHideFade()
+        edgePeekEndWork?.cancel()
+        edgePeekEndWork = nil
+        // Anything landing during an edge peek (a drop, a paste, any other
+        // addition that reaches here) graduates it to an ordinary panel,
+        // clearing `edgePeekMatch` (which `shouldHoldOpen` also checks)
+        // before the idle timer below is armed, so the timer evaluates the
+        // post-graduation state, not the peek's own hold. It also slides
+        // the rest of the way onto screen, so a caught item does not sit
+        // two-thirds off screen for the whole auto-hide delay.
+        if let match = edgePeekMatch, let panel {
+            edgePeekMatch = nil
+            revealEdgePeek(panel, match: match)
+        }
         scheduleAutoHideIfIdle()
     }
 
@@ -1674,6 +2581,13 @@ final class ShelfService: ObservableObject {
         pointerInsidePanel = false
         dropTargeted = false
         interactionDepth = 0
+        // A peek can be dismissed by paths other than its own retreat rule
+        // (an explicit hide, a settings toggle turning the feature off mid
+        // peek); clearing its state here too keeps the panel from being
+        // stranded in its off-screen peek position with no way back.
+        edgePeekEndWork?.cancel()
+        edgePeekEndWork = nil
+        edgePeekMatch = nil
     }
 
     private func cancelAutoHide() {
@@ -1691,6 +2605,7 @@ final class ShelfService: ObservableObject {
 
     private var shouldHoldOpen: Bool {
         isPinned || !items.isEmpty || pointerInsidePanel || dropTargeted || interactionDepth > 0
+            || edgePeekMatch != nil
     }
 
     private func scheduleAutoHideIfIdle() {
@@ -1752,10 +2667,14 @@ final class ShelfService: ObservableObject {
             self.autoHideFadeTimer = nil
             self.autoHideFadeStart = nil
             panel.orderOut(nil)
+            ShelfTooltipPopover.shared.hide()
             panel.alphaValue = 1
             self.pointerInsidePanel = false
             self.dropTargeted = false
             self.interactionDepth = 0
+            self.edgePeekEndWork?.cancel()
+            self.edgePeekEndWork = nil
+            self.edgePeekMatch = nil
             // The classic panel leaving is the docked shelf's cue to return.
             self.scheduleDockedSync()
         }
@@ -1801,12 +2720,14 @@ final class ShelfService: ObservableObject {
 
     private func ensurePanel() -> NSPanel {
         if let panel { return panel }
-        let panel = NSPanel(contentRect: .zero,
-                            styleMask: [.borderless, .nonactivatingPanel],
-                            backing: .buffered, defer: false)
+        let panel = KeyableShelfPanel(contentRect: .zero,
+                                      styleMask: [.borderless, .nonactivatingPanel],
+                                      backing: .buffered, defer: false)
         panel.level = .floating
         panel.isOpaque = false
         panel.backgroundColor = .clear
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.registerForDraggedTypes(Self.tileDropTypes)
         panel.hasShadow = false
         // Not movable by background: dragging a tile must start an item drag,
         // not move the whole panel.

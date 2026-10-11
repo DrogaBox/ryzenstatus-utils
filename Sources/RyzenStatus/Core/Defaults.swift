@@ -160,7 +160,10 @@ enum Defaults {
     static let allowedBatteryLimits = [0, 5, 10, 15, 20]
     static let allowedMonitorIntervals: [Double] = [0.5, 0.7, 1.0, 2.0, 5.0]
     static let defaultKeyboardDebounceWindowMs = 5
+    static let defaultSnippetSoundName = "Tink"
     static let allowedKeyboardDebounceWindowRange = 0...500
+    static let defaultMouseClickDebounceWindowMs = 25
+    static let allowedMouseClickDebounceWindowRange = 5...100
     static let allowedMenuBarPresets = ["dense"]
     static let allowedMenuBarMetricSpacings = ["standard", "compact"]
     static let allowedMenuBarMetricAppearances = ["values", "bars", "pie", "sparkline", "histogram", "classic"]
@@ -231,6 +234,24 @@ enum Defaults {
         DefaultsKey.scrollInverterHorizontalEnabled: false,
         DefaultsKey.smoothScrollEnabled: false,
         DefaultsKey.smoothScrollStep: 40,
+        // Mouse extras ported from upstream: every switch starts off.
+        DefaultsKey.scrollHorizontalEnabled: false,
+        DefaultsKey.scrollHorizontalModifier: ScrollHorizontalModifier.shift.rawValue,
+        DefaultsKey.focusFollowsMouseEnabled: false,
+        DefaultsKey.focusFollowsMouseDelay: 250, // FocusFollowsMouseSupport.defaultDelayMilliseconds
+        DefaultsKey.focusFollowsMouseRaise: true,
+        DefaultsKey.focusFollowsMouseWaitForStop: true,
+        DefaultsKey.linearScrollEnabled: false,
+        DefaultsKey.linearScrollLines: ScrollWheelSupport.defaultLinesPerNotch,
+        DefaultsKey.mouseAccelerationDisabled: false,
+        DefaultsKey.mouseClickDebounceEnabled: false,
+        DefaultsKey.mouseClickDebounceWindowMs: defaultMouseClickDebounceWindowMs,
+        DefaultsKey.spacesOrderEnabled: false,
+        DefaultsKey.panelControlFocusFollowsMouse: true,
+        DefaultsKey.panelControlLinearScroll: true,
+        DefaultsKey.panelControlMouseAcceleration: true,
+        DefaultsKey.panelControlMouseClickDebounce: true,
+        DefaultsKey.panelControlSpacesOrder: true,
         DefaultsKey.mouseNavigationEnabled: false,
         DefaultsKey.switcherEnabled: true,
         DefaultsKey.switcherShortcut: "command:48",
@@ -263,6 +284,17 @@ enum Defaults {
         DefaultsKey.mixerHeadphonesDisconnectVolumePercent: 0,
         DefaultsKey.soundOutputSwitcherEnabled: false,
         DefaultsKey.soundOutputSwitcherShortcut: GlobalShortcut.soundOutputSwitcherDefault.storageValue,
+        // Upstream ships audio priority as an opt-in feature with both lists
+        // on. Here every feature is installed by default, so the automatic
+        // switching itself stays off until the user turns a list on: an
+        // update must never start changing the audio devices on its own.
+        DefaultsKey.audioPriorityOutputEnabled: false,
+        DefaultsKey.audioPriorityInputEnabled: false,
+        DefaultsKey.audioPriorityOutputUIDs: [String](),
+        DefaultsKey.audioPriorityInputUIDs: [String](),
+        DefaultsKey.audioPriorityDeviceNames: [String: String](),
+        DefaultsKey.finderRenameEnabled: false,
+        DefaultsKey.finderRenameShortcut: GlobalShortcut.finderRenameDefault.storageValue,
         // Finder never benefits from being "quit" (it just relaunches), so
         // it's excepted out of the box.
         DefaultsKey.autoQuitExceptions: mandatoryAutoQuitExceptionBundleIDs,
@@ -281,6 +313,9 @@ enum Defaults {
         DefaultsKey.shelfAutomaticExclusions: [String](),
         DefaultsKey.extraBrightnessEnabled: false,
         DefaultsKey.extraBrightnessLevel: 100,
+        DefaultsKey.bluetoothSleepEnabled: false,
+        DefaultsKey.bluetoothSleepRestoreOnWake: true,
+        DefaultsKey.bluetoothSleepRestorePending: false,
         DefaultsKey.brightnessControlEnabled: false,
         DefaultsKey.brightnessKeysEnabled: false,
         DefaultsKey.brightnessOSDEnabled: false,
@@ -320,6 +355,12 @@ enum Defaults {
         DefaultsKey.cleanerBadgeSeen: false,
         DefaultsKey.cleanerLastAutoRun: 0.0,
         DefaultsKey.cleanerLastAutoFreed: 0,
+        DefaultsKey.cleanerLastAutoFailed: 0,
+        DefaultsKey.cleanerScreenshotAgeDays: CleanerPolicy.defaultScreenshotAgeDays,
+        DefaultsKey.killProcessCommandBarEnabled: true,
+        DefaultsKey.killProcessGroupRelated: true,
+        DefaultsKey.killProcessSortBy: "cpu",
+        DefaultsKey.killProcessSortAscending: false,
         DefaultsKey.urlCleanerEnabled: false,
         DefaultsKey.mouseButtonShortcutsEnabled: false,
         DefaultsKey.superKeyEnabled: false,
@@ -328,6 +369,8 @@ enum Defaults {
         DefaultsKey.snippetLibraryEnabled: false,
         DefaultsKey.snippetLibraryShortcut: GlobalShortcut.snippetLibraryDefault.storageValue,
         DefaultsKey.textSnippetsEnabled: false,
+        DefaultsKey.snippetSoundEnabled: false,
+        DefaultsKey.snippetSoundName: defaultSnippetSoundName,
         DefaultsKey.radialMenuEnabled: false,
         DefaultsKey.radialMenuShortcut: GlobalShortcut.radialMenuDefault.storageValue,
         DefaultsKey.radialMenuAtPointer: true,
@@ -337,6 +380,102 @@ enum Defaults {
         DefaultsKey.keyboardDebounceWindowMs: defaultKeyboardDebounceWindowMs,
         DefaultsKey.keyboardDebounceKeyWindows: "",
         DefaultsKey.panelUtilityCleaning: true,
+        DefaultsKey.notchEnabled: false,
+        DefaultsKey.notchDisplay: "automatic",
+        DefaultsKey.notchSilhouette: "capsule",
+        DefaultsKey.notchCapsuleFitWidth: 0.0,
+        DefaultsKey.notchCapsuleFitHeight: 0.0,
+        DefaultsKey.notchCapsuleFitDrop: 0.0,
+        DefaultsKey.notchOpenOnHover: false,
+        DefaultsKey.notchHideInFullscreen: false,
+        DefaultsKey.notchHideUntilHover: false,
+        DefaultsKey.notchCoversMenus: true,
+        DefaultsKey.notchLowBatteryTint: false,
+        DefaultsKey.notchLowBatteryThreshold: 10,
+        DefaultsKey.notchLowBatteryEarly: false,
+        DefaultsKey.notchLowBatteryEarlyThreshold: 20,
+        DefaultsKey.notchLowBatteryMenuBar: true,
+        DefaultsKey.notchHoverDelay: 0.25,
+        DefaultsKey.notchCloseDelay: 0.3,
+        DefaultsKey.notchReturnHome: false,
+        DefaultsKey.notchHomeModule: "controls",
+        DefaultsKey.notchOpensActivity: true,
+        DefaultsKey.notchHiddenModules: "",
+        DefaultsKey.notchModuleOrder: "",
+        DefaultsKey.notchQuickAccessLayout: Data(),
+        DefaultsKey.notchVolume: true,
+        DefaultsKey.notchMicrophone: true,
+        DefaultsKey.notchBrightness: true,
+        DefaultsKey.notchBattery: true,
+        DefaultsKey.notchClipboard: true,
+        DefaultsKey.notchClipboardWindow: true,
+        DefaultsKey.notchCapture: true,
+        DefaultsKey.notchTrackChange: true,
+        DefaultsKey.notchMusicActivity: false,
+        DefaultsKey.notchShowInCaptures: true,
+        DefaultsKey.notchLockScreen: false,
+        DefaultsKey.notchLockSounds: false,
+        DefaultsKey.notchMascotEnabled: false,
+        DefaultsKey.notchMascotVisits: true,
+        DefaultsKey.notchMascotReactions: true,
+        DefaultsKey.notchMascotStyle: "minimal",
+        DefaultsKey.notchMascotShape: "ball",
+        DefaultsKey.notchMascotPalette: "pearl",
+        DefaultsKey.notchMascotSide: "left",
+        DefaultsKey.notchMascotVisitFrequency: "normal",
+        DefaultsKey.notchMascotHidesWhenIdle: true,
+        DefaultsKey.notchCommandBar: true,
+        DefaultsKey.notchCommandBarStyle: "droplet",
+        DefaultsKey.notchHideInCaptures: false,
+        DefaultsKey.notchTimerEnabled: true,
+        DefaultsKey.notchTimerMode: "timer",
+        DefaultsKey.notchTimerMinutes: 15,
+        DefaultsKey.notchTimerSoundEnabled: true,
+        DefaultsKey.notchHideTimerCountdown: false,
+        DefaultsKey.notchPomodoroFocusMinutes: 25,
+        DefaultsKey.notchPomodoroShortBreakMinutes: 5,
+        DefaultsKey.notchPomodoroLongBreakMinutes: 15,
+        DefaultsKey.notchPomodoroLongBreakInterval: 4,
+        DefaultsKey.notchPomodoroTotalSessions: 4,
+        DefaultsKey.notchCameraEnabled: true,
+        DefaultsKey.notchAccessoriesEnabled: true,
+        DefaultsKey.notchCalendarEnabled: true,
+        DefaultsKey.notchCalendarCountdown: false,
+        DefaultsKey.notchCalendarTimeLeft: false,
+        DefaultsKey.notchCalendarWeekNumbers: false,
+        DefaultsKey.notchCalendarExcluded: [String](),
+        DefaultsKey.notchAgentsEnabled: false,
+        DefaultsKey.notchLyricsEnabled: true,
+        DefaultsKey.notchLyricsOnline: false,
+        DefaultsKey.notchLiveEqualizer: false,
+        DefaultsKey.notchQueueEnabled: true,
+        DefaultsKey.notchDownloadsEnabled: true,
+        DefaultsKey.notchWatchEnabled: true,
+        DefaultsKey.notchWatchSound: true,
+        DefaultsKey.notchWatchCondition: "changes",
+        DefaultsKey.notchGesturesEnabled: true,
+        DefaultsKey.notchHoverExpands: false,
+        DefaultsKey.notchKeyboardLight: false,
+        DefaultsKey.notchHidesMenuBarIcon: false,
+        DefaultsKey.notchKeepAwakeActivity: true,
+        DefaultsKey.notchNotificationsEnabled: true,
+        DefaultsKey.notchDismissNativeNotifications: false,
+        DefaultsKey.panelControlNotch: true,
+        DefaultsKey.uninstallerCommandBarEnabled: false,
+        DefaultsKey.commandBarEnabled: false,
+        DefaultsKey.commandBarShortcutEnabled: false,
+        DefaultsKey.commandBarCompactMode: false,
+        DefaultsKey.commandBarASCIILayoutEnabled: false,
+        DefaultsKey.commandBarDisabledSources: "",
+        DefaultsKey.commandBarAliases: "",
+        DefaultsKey.commandBarPins: "",
+        DefaultsKey.commandBarHidden: "",
+        DefaultsKey.commandBarFileScopes: "",
+        DefaultsKey.commandBarFileIgnores: "",
+        DefaultsKey.commandBarShortcut: GlobalShortcut.commandBarDefault.storageValue,
+        DefaultsKey.commandBarPositionOffset: "",
+        DefaultsKey.commandBarEmojiSkinTone: "",
+        DefaultsKey.panelUtilityCommandBar: true,
         DefaultsKey.panelUtilityURLCleaner: true,
         DefaultsKey.panelUtilityUninstaller: true,
         DefaultsKey.panelUtilityCleaner: true,
@@ -816,6 +955,12 @@ enum Defaults {
             : defaultKeyboardDebounceWindowMs
     }
 
+    static func sanitizedMouseClickDebounceWindow(_ milliseconds: Int) -> Int {
+        allowedMouseClickDebounceWindowRange.contains(milliseconds)
+            ? milliseconds
+            : defaultMouseClickDebounceWindowMs
+    }
+
     static func sanitizedMenuBarPreset(_ preset: String) -> String {
         allowedMenuBarPresets.contains(preset) ? preset : "dense"
     }
@@ -963,5 +1108,29 @@ enum Defaults {
 
     static func sanitizedPreferredInputDeviceUID(_ value: Any?) -> String? {
         MixerRoutingSupport.sanitizedDeviceUID(value)
+    }
+
+    static let audioPriorityMaxListSize = 64
+
+    static func sanitizedAudioPriorityUIDs(_ raw: [Any]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for value in raw {
+            guard let uid = MixerRoutingSupport.sanitizedDeviceUID(value),
+                  seen.insert(uid).inserted else { continue }
+            result.append(uid)
+            if result.count >= audioPriorityMaxListSize { break }
+        }
+        return result
+    }
+
+    static func sanitizedAudioPriorityDeviceNames(_ raw: [String: Any]) -> [String: String] {
+        var result: [String: String] = [:]
+        for (rawUID, rawName) in raw {
+            guard let uid = MixerRoutingSupport.sanitizedDeviceUID(rawUID),
+                  let name = MixerRoutingSupport.sanitizedDeviceUID(rawName) else { continue }
+            result[uid] = name
+        }
+        return result
     }
 }
