@@ -152,6 +152,20 @@ final class FeatureRuntime: ObservableObject {
         .autoQuit: { AutoQuitService.shared.syncWithPreferences() },
         .scrollInverter: { ScrollInverter.shared.syncWithPreferences() },
         .smoothScroll: { SmoothScrollService.shared.syncWithPreferences() },
+        // Sideways and linear scrolling share the inverter's wheel tap; the
+        // glide applies them too while smooth scrolling swallows the wheel.
+        .scrollHorizontal: {
+            ScrollInverter.shared.syncWithPreferences()
+            SmoothScrollService.shared.syncWithPreferences()
+        },
+        .linearScroll: {
+            ScrollInverter.shared.syncWithPreferences()
+            SmoothScrollService.shared.syncWithPreferences()
+        },
+        .focusFollowsMouse: { FocusFollowsMouseService.shared.syncWithPreferences() },
+        .mouseAcceleration: { MouseAccelerationService.shared.syncWithPreferences() },
+        .mouseClickDebounce: { MouseClickDebounceService.shared.syncWithPreferences() },
+        .spacesOrder: { SpacesOrderHold.shared.syncWithPreferences() },
         .mouseNavigation: { MouseNavigationService.shared.syncWithPreferences() },
         .middleClick: { MiddleClickService.shared.syncWithPreferences() },
         .keyboardDebounce: { KeyboardDebounceService.shared.syncWithPreferences() },
@@ -161,9 +175,13 @@ final class FeatureRuntime: ObservableObject {
         },
         .mouseButtonShortcuts: { MouseButtonShortcutService.shared.syncWithPreferences() },
         .superKey: { SuperKeyService.shared.syncWithPreferences() },
+        .quitWindowProtection: { QuitProtectionService.shared.syncWithPreferences() },
+        .diskImageInstaller: { DiskImageInstallerService.shared.syncWithPreferences() },
+        .wallpaper: { WallpaperService.shared.syncWithPreferences() },
         .clipboardHistory: { ClipboardHistoryService.shared.syncWithPreferences() },
         .pastePlain: { PastePlainService.shared.syncWithPreferences() },
         .finderCutPaste: { FinderCutPaste.shared.syncWithPreferences() },
+        .finderRename: { FinderRenameService.shared.syncWithPreferences() },
         .shelf: {
             ShelfService.shared.syncWithPreferences()
             // The island's media drop lives on the shelf; it only exists
@@ -184,6 +202,14 @@ final class FeatureRuntime: ObservableObject {
             AudioInputDeviceManager.shared.syncWithPreferences()
         },
         .soundOutputSwitcher: { SoundOutputSwitcher.shared.syncWithPreferences() },
+        .audioPriority: {
+            // Priority owns no CoreAudio listener stack of its own: the
+            // mixer's device observers stay alive for it even when the
+            // Volume mixer is not installed, then the policy starts or stops.
+            AppVolumeMixer.shared.syncWithPreferences()
+            AudioInputDeviceManager.shared.syncWithPreferences()
+            AudioPriorityService.shared.syncWithPreferences()
+        },
         .micMute: { MicMuteService.shared.syncWithPreferences() },
         .musicBlock: { MusicLaunchBlocker.shared.syncWithPreferences() },
         .nowPlaying: { NowPlayingService.shared.syncWithPreferences() },
@@ -193,6 +219,7 @@ final class FeatureRuntime: ObservableObject {
         },
         .brightness: { BrightnessService.shared.syncWithPreferences() },
         .extraBrightness: { ExtraBrightnessService.shared.syncWithPreferences() },
+        .bluetoothSleep: { BluetoothSleepService.shared.syncWithPreferences() },
         .quickLauncher: { QuickLauncherService.shared.syncWithPreferences() },
         .colorPicker: { ColorSamplerService.shared.syncWithPreferences() },
         .screenOCR: { ScreenTextService.shared.syncWithPreferences() },
@@ -224,6 +251,10 @@ final class FeatureRuntime: ObservableObject {
         // (ShortcutCapture re-syncs this feature) and on install; uninstalling
         // drops the panel, the hotkeys and every cached row.
         .commandBar: { CommandBarService.shared.syncWithPreferences() },
+        // Uninstalling drops the IOKit plug/unplug notifications and the
+        // cached list; installing resumes for a panel row still on screen.
+        // Port Manager has no binding: it runs `lsof` only while open.
+        .connectedDevices: { ConnectedDevicesMonitor.shared.syncWithPreferences() },
         // Dynamic Island. The island itself starts here when it is installed
         // and switched on; every extension re-syncs a running island (or
         // stops its own service when the island is gone) so a hub flip takes

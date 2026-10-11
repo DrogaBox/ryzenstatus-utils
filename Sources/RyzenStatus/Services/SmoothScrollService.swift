@@ -42,6 +42,9 @@ final class SmoothScrollService: ObservableObject {
     /// Sign correction for the system's natural scroll direction, sampled
     /// when a glide starts or the feeding device type changes.
     private var postSign: Double = 1
+    /// Whether the glide is fed by ticks redirected sideways with the
+    /// sideways-scrolling key; switching drops the old tail.
+    private var currentScrollRedirected = false
     /// Whether the glide is being fed by continuous wheel events; discrete
     /// and continuous sources need different sign handling, so switching
     /// devices mid-glide drops the tail and resamples.
@@ -140,16 +143,43 @@ final class SmoothScrollService: ObservableObject {
         guard ScrollWheelSupport.isMouseWheel(traits,
                                               secondsSinceLastGesturePhase: secondsSinceGesturePhase)
         else { return Unmanaged.passUnretained(event) }
-        // Control-scroll drives screen zoom; keep its stepping predictable.
-        guard !event.flags.contains(.maskControl) else {
+        // The head tap swallows the tick before the inverter's tail tap can
+        // reach it, so the direction features (flip and sideways scrolling
+        // with a held key) and linear scrolling's cap are applied here,
+        // each honoring its own exception list.
+        let sourceProcessID = event.getIntegerValueField(.eventSourceUnixProcessID)
+        let defaults = UserDefaults.standard
+        let direction = ScrollDirectionPreferences(defaults: defaults)
+        let adjustDirectionHere = direction.isEnabled
+            && !MouseAppExceptions.shared.excludesPointerTarget(
+                .scrollDirection, at: event.location, sourceProcessID: sourceProcessID)
+        let shortcutFlags: CGEventFlags = [.maskShift, .maskAlternate, .maskControl, .maskCommand]
+        var replayFlags = event.flags
+        var redirectSideways = false
+        if adjustDirectionHere, let modifier = direction.horizontalModifier,
+           event.flags.intersection(shortcutFlags) == modifier.flag,
+           ScrollWheelSupport.isVerticalOnly(event) {
+            redirectSideways = true
+            replayFlags.remove(modifier.flag)
+        }
+        // Control-scroll drives screen zoom; keep its stepping predictable,
+        // unless the sideways-scrolling key is Control and consumed above.
+        guard !replayFlags.contains(.maskControl) else {
             return Unmanaged.passUnretained(event)
         }
+        let linearLinesPerNotch = ScrollWheelSupport.linearLinesPerNotch(
+            defaults: defaults,
+            isAvailable: AppFeature.linearScroll.isAvailable,
+            isExcepted: {
+                MouseAppExceptions.shared.excludesPointerTarget(
+                    .linearScroll, at: event.location, sourceProcessID: sourceProcessID)
+            })
 
         // A process's own posted events skip its own taps (verified), so the
         // scroll inverter never sees the glide stream: when it is on, the
         // wheel's vertical flip is applied here instead.
-        let invert = ScrollInverter.shared.isRunning ? -1.0 : 1.0
-        let shiftPressed = event.flags.contains(.maskShift)
+        let invert = adjustDirectionHere && direction.invertVertical ? -1.0 : 1.0
+        let shiftPressed = replayFlags.contains(.maskShift) || redirectSideways
         let vertical: Double
         let horizontal: Double
         let step: Double
@@ -158,25 +188,63 @@ final class SmoothScrollService: ObservableObject {
             // distance, only re-timed, so the step setting does not scale it.
             // No Shift redirect either: the system never translates
             // continuous events, apps react to the replayed Shift flag.
-            vertical = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1) * invert
-            horizontal = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2)
+            var rawVertical = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
+            var rawHorizontal = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2)
+            if let linearLinesPerNotch {
+                rawVertical = ScrollWheelSupport.linearLines(
+                    ticks: ScrollWheelSupport.continuousTicks(
+                        fixedPointDelta: rawVertical,
+                        pointDelta: Double(event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1))),
+                    linesPerNotch: linearLinesPerNotch) * ScrollWheelSupport.pointsPerLine
+                rawHorizontal = ScrollWheelSupport.linearLines(
+                    ticks: ScrollWheelSupport.continuousTicks(
+                        fixedPointDelta: rawHorizontal,
+                        pointDelta: Double(event.getIntegerValueField(.scrollWheelEventPointDeltaAxis2))),
+                    linesPerNotch: linearLinesPerNotch) * ScrollWheelSupport.pointsPerLine
+            }
+            if redirectSideways {
+                vertical = 0
+                horizontal = rawVertical
+            } else {
+                vertical = rawVertical * invert
+                horizontal = rawHorizontal
+            }
             step = 1
         } else {
             // The fixed-point field carries the fractional ticks that
             // high-resolution wheels report while the integer field reads 0.
+            let verticalLine = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+            let verticalFixedPoint = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
+            let horizontalLine = event.getIntegerValueField(.scrollWheelEventDeltaAxis2)
+            let horizontalFixedPoint = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2)
+            var verticalTicks = SmoothScrollSupport.ticks(line: Double(verticalLine),
+                                                          fixedPoint: verticalFixedPoint)
+            var horizontalTicks = SmoothScrollSupport.ticks(line: Double(horizontalLine),
+                                                            fixedPoint: horizontalFixedPoint)
+            // Linear scrolling counts notches, not the distance macOS scaled
+            // them to, so a slow notch weighs as much as a fast one.
+            if let linearLinesPerNotch {
+                verticalTicks = ScrollWheelSupport.linearLines(
+                    ticks: ScrollWheelSupport.discreteTicks(
+                        line: verticalLine, fixedPoint: verticalFixedPoint,
+                        point: event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1)),
+                    linesPerNotch: linearLinesPerNotch)
+                horizontalTicks = ScrollWheelSupport.linearLines(
+                    ticks: ScrollWheelSupport.discreteTicks(
+                        line: horizontalLine, fixedPoint: horizontalFixedPoint,
+                        point: event.getIntegerValueField(.scrollWheelEventPointDeltaAxis2)),
+                    linesPerNotch: linearLinesPerNotch)
+            }
+            // A redirected tick travels sideways exactly like a Shift-held one.
             let axes = SmoothScrollSupport.axes(
-                vertical: SmoothScrollSupport.ticks(
-                    line: Double(event.getIntegerValueField(.scrollWheelEventDeltaAxis1)),
-                    fixedPoint: event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)) * invert,
-                horizontal: SmoothScrollSupport.ticks(
-                    line: Double(event.getIntegerValueField(.scrollWheelEventDeltaAxis2)),
-                    fixedPoint: event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2)),
+                vertical: verticalTicks * (redirectSideways ? 1 : invert),
+                horizontal: horizontalTicks,
                 shiftPressed: shiftPressed
             )
             vertical = axes.vertical
             horizontal = axes.horizontal
             step = Double(SmoothScrollSupport.sanitizedStep(
-                UserDefaults.standard.integer(forKey: DefaultsKey.smoothScrollStep)))
+                defaults.integer(forKey: DefaultsKey.smoothScrollStep)))
         }
         guard vertical != 0 || horizontal != 0 else {
             return Unmanaged.passUnretained(event)
@@ -185,7 +253,8 @@ final class SmoothScrollService: ObservableObject {
         // Switching Shift while a glide is active changes the intended axis,
         // and switching between a discrete and a continuous wheel changes the
         // sign handling. Drop the old tail instead of fighting it.
-        if currentFlags.contains(.maskShift) != shiftPressed
+        if currentFlags.contains(.maskShift) != replayFlags.contains(.maskShift)
+            || currentScrollRedirected != redirectSideways
             || glideFromContinuous != traits.isContinuous {
             remainingVertical = 0
             remainingHorizontal = 0
@@ -196,7 +265,8 @@ final class SmoothScrollService: ObservableObject {
         remainingHorizontal = SmoothScrollSupport.remaining(afterTicks: horizontal,
                                                             step: step,
                                                             current: remainingHorizontal)
-        currentFlags = event.flags
+        currentFlags = replayFlags
+        currentScrollRedirected = redirectSideways
         if frameTimer == nil || glideFromContinuous != traits.isContinuous {
             // The system applies the natural scroll direction to continuous
             // events only, so a swallowed discrete tick needs the pre-flip

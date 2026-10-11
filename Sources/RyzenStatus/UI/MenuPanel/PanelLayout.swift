@@ -12,6 +12,7 @@ protocol PanelOrderItem: RawRepresentable, CaseIterable, Hashable where RawValue
 enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
     case keepAwake, nowPlaying, brightness, mixer, system, network, disk, power, amdPower, utilities, controls,
          toggles
+    case wallpaper
 
     var id: String { rawValue }
 
@@ -30,6 +31,7 @@ enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
         case .utilities: return s.utilitiesSection
         case .controls: return s.quickControlsSection
         case .toggles: return FeatureStrings.quickToggles(L10n.shared.language).pageTitle
+        case .wallpaper: return FeatureStrings.wallpaper(L10n.shared.language).pageTitle
         }
     }
 
@@ -47,6 +49,7 @@ enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
         case .utilities: return "wrench.and.screwdriver.fill"
         case .controls: return "switch.2"
         case .toggles: return "togglepower"
+        case .wallpaper: return "photo.on.rectangle"
         }
     }
 
@@ -67,6 +70,7 @@ enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
         case .utilities: return DefaultsKey.panelShowUtilities
         case .controls: return DefaultsKey.panelShowControls
         case .toggles: return DefaultsKey.panelShowToggles
+        case .wallpaper: return DefaultsKey.panelShowWallpaper
         }
     }
 
@@ -81,8 +85,8 @@ enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
         case .keepAwake: return [.keepAwake]
         case .nowPlaying: return [.nowPlaying]
         case .brightness: return [.brightness]
-        case .mixer: return [.mixer]
-        case .system: return [.monitorCPU, .monitorGPU, .monitorMemory]
+        case .mixer: return [.mixer, .audioPriority]
+        case .system: return [.monitorCPU, .monitorGPU, .monitorMemory, .connectedDevices]
         case .network: return [.monitorNetwork]
         case .disk: return [.monitorDisk]
         case .power: return [.monitorPower]
@@ -91,12 +95,13 @@ enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
                                  .clipboardHistory,
                                  .windowLayout, .uninstaller, .urlCleaner, .cleaningMode, .screenOCR,
                                  .colorPicker, .micMute, .screenshot, .cameraPreview, .scratchpad,
-                                 .commandBar]
+                                 .commandBar, .portManager]
         case .controls: return [.scrollInverter, .mouseNavigation, .mouseButtonShortcuts, .switcher,
                                 .finderCutPaste, .autoQuit,
                                 .shelf, .windowMaximizer, .dockPreview, .keyboardDebounce, .dockClick,
                                 .middleClick, .textSnippets, .superKey, .radialMenu, .notch]
         case .toggles: return [.quickToggles]
+        case .wallpaper: return [.wallpaper]
         }
     }
 

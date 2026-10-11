@@ -15,6 +15,8 @@ struct MixerOutputDevice: Identifiable, Equatable {
     let isHeadphones: Bool
     let canBeDefaultOutput: Bool
     let canBeDefaultSystemOutput: Bool
+    /// Where Audio device priority ranks a device it has not seen before.
+    let priorityTier: MixerRoutingSupport.PriorityTier
     fileprivate let audioObjectID: AudioObjectID
 }
 
@@ -120,7 +122,15 @@ final class AppVolumeMixer: ObservableObject {
     /// The whole mixer follows its hub availability: switched off means no
     /// HAL listeners, no taps and no published state at all.
     func syncWithPreferences() {
+        // Audio device priority reads the output list and writes the system
+        // default through this same observer, so it keeps the device
+        // listeners alive on its own. Per-app tracking stays mixer-only.
         if AppFeature.mixer.isAvailable {
+            start()
+        } else if AppFeature.audioPriority.isAvailable {
+            // The mixer just left while priority stays: drop the taps and
+            // process listeners, keep (or bring back) only device observing.
+            if processTrackingActivated || !engines.isEmpty { stop() }
             start()
         } else {
             stop()
@@ -141,7 +151,7 @@ final class AppVolumeMixer: ObservableObject {
         // The per-app process machinery stays dormant until it has a
         // purpose — saved per-app state exists (its re-apply needs the tracking)
         // — and activates on demand from the mixer panel otherwise.
-        if hasSavedMixerState {
+        if hasSavedMixerState, AppFeature.mixer.isAvailable {
             processTrackingActivated = true
             installProcessListListenerIfNeeded()
         }
@@ -305,6 +315,36 @@ final class AppVolumeMixer: ObservableObject {
         }
     }
 
+    /// Audio device priority changes only the normal system default. Unlike
+    /// the universal picker it keeps explicit per-app routes, and the HAL
+    /// write runs off the main thread while a device is being reconfigured.
+    func setPriorityOutputDeviceUID(_ uid: String) {
+        guard let sanitized = Defaults.sanitizedAppOutputDeviceUID(uid),
+              let device = outputDevices.first(where: {
+                  $0.uid == sanitized && $0.canBeDefaultOutput
+              }) else {
+            outputSwitchError = L10n.shared.s.mixerOutputUnavailable
+            refreshApps()
+            return
+        }
+        let deviceID = device.audioObjectID
+        Self.priorityWriteQueue.async { [weak self] in
+            let status = Self.setDefaultDevice(deviceID,
+                                               selector: kAudioHardwarePropertyDefaultOutputDevice)
+            DispatchQueue.main.async {
+                guard let self, self.listenerInstalled else { return }
+                let message: String? = status == noErr ? nil : "OSStatus \(status)"
+                if self.outputSwitchError != message { self.outputSwitchError = message }
+                // The default-device listener publishes the actual default;
+                // this refresh only covers devices that apply it late.
+                self.refreshApps()
+            }
+        }
+    }
+
+    private static let priorityWriteQueue = DispatchQueue(
+        label: "com.ryzenstatus.utils.mixer.priority", qos: .userInitiated)
+
     @discardableResult
     func setUniversalOutputDeviceUID(_ uid: String) -> Bool {
         guard let sanitized = Defaults.sanitizedAppOutputDeviceUID(uid),
@@ -343,6 +383,7 @@ final class AppVolumeMixer: ObservableObject {
                               isHeadphones: outputDevice.isHeadphones,
                               canBeDefaultOutput: outputDevice.canBeDefaultOutput,
                               canBeDefaultSystemOutput: outputDevice.canBeDefaultSystemOutput,
+                              priorityTier: outputDevice.priorityTier,
                               audioObjectID: outputDevice.audioObjectID)
         }
 
@@ -912,6 +953,8 @@ final class AppVolumeMixer: ObservableObject {
                 : uid
             guard name != "RyzenStatus Mixer" else { continue }
             let dataSourceName = outputDataSourceName(for: deviceID)
+            var transportType: UInt32 = 0
+            _ = read(deviceID, kAudioDevicePropertyTransportType, &transportType)
 
             devices.append(MixerOutputDevice(id: uid,
                                              uid: uid,
@@ -923,6 +966,8 @@ final class AppVolumeMixer: ObservableObject {
                                                 dataSourceName: dataSourceName),
                                              canBeDefaultOutput: canBeDefaultOutput,
                                              canBeDefaultSystemOutput: canBeDefaultSystemOutput,
+                                             priorityTier: MixerRoutingSupport.PriorityTier(
+                                                transportType: transportType),
                                              audioObjectID: deviceID))
         }
 

@@ -12,6 +12,8 @@ enum SettingsPage: Hashable, CaseIterable {
     case whatsAppDownloads
     case shortcuts, advanced, about, releaseNotes, support, fans, amdPower, amdOverclocking, sensors, dashboard, amdValidation
     case killProcess, notch, commandBar
+    case portManager
+    case quitProtection
 }
 
 /// Which hub features keep each Settings page alive. A page with several
@@ -26,18 +28,20 @@ enum FeatureVisibilitySupport {
     /// always shows (General, Shortcuts, About and friends).
     static func features(for page: SettingsPage) -> [AppFeature] {
         switch page {
-        case .energy: return [.keepAwake, .brightness, .extraBrightness]
+        case .energy: return [.keepAwake, .brightness, .extraBrightness, .bluetoothSleep]
         case .monitor: return monitorFeatures
-        case .mouse: return [.scrollInverter, .smoothScroll, .mouseNavigation, .middleClick]
-        case .switcher: return [.switcher, .dockPreview, .dockClick]
+        case .mouse: return [.scrollInverter, .smoothScroll, .mouseNavigation, .middleClick,
+                             .scrollHorizontal, .focusFollowsMouse, .linearScroll, .mouseAcceleration,
+                             .mouseClickDebounce]
+        case .switcher: return [.switcher, .dockPreview, .dockClick, .spacesOrder]
         case .windowLayout: return [.windowLayout]
         case .autoQuit: return [.autoQuit]
         case .clipboard: return [.clipboardHistory, .pastePlain]
-        case .cutPaste: return [.finderCutPaste]
+        case .cutPaste: return [.finderCutPaste, .finderRename]
         case .shelf: return [.shelf]
         case .media: return [.mediaTools]
         case .quickTools: return [.quickLauncher, .quickToggles, .colorPicker, .screenOCR, .micMute,
-                                  .cameraPreview, .scratchpad]
+                                  .cameraPreview, .scratchpad, .wallpaper]
         case .urlCleaner: return [.urlCleaner]
         case .homebrew: return [.homebrew]
         case .appUpdates: return [.appUpdates]
@@ -53,6 +57,8 @@ enum FeatureVisibilitySupport {
         case .radialMenu: return [.radialMenu]
         case .nowPlaying: return [.nowPlaying]
         case .killProcess: return [.killProcess]
+        case .portManager: return [.portManager]
+        case .quitProtection: return [.quitWindowProtection]
         case .commandBar: return [.commandBar]
         case .notch: return [.notch]
         case .general, .features, .shortcuts, .advanced, .about, .releaseNotes, .support, .fans, .amdPower, .amdOverclocking, .sensors, .dashboard, .amdValidation:

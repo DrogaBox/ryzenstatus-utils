@@ -5,6 +5,11 @@ import AppKit
 
 Defaults.register()
 
+// The child the mouse acceleration feature leaves behind puts the pointer
+// settings back if the app dies without quitting, then exits.
+MouseAccelerationGuard.runIfRequestedAndExit()
+MouseAccelerationService.recoverPendingAtLaunch()
+
 if CommandLine.arguments.contains("--selftest") {
     SelfTest.runAndExit()
 }

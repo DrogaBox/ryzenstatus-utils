@@ -31,6 +31,16 @@ Dynamic Island, Command Bar and Kill Process arrive, the Uninstaller recognizes 
 - **Forgotten screenshots in the Cleaner**: A new category lists screenshots you have not opened for a set time (7, 14, 30, 60 or 90 days; 30 by default; or off) that still have the name and folder macOS gave them. Screenshots you renamed or moved never appear, and finds are always offered unchecked, with their total size.
 - **WhatsApp downloads card in the Cleaner**: With WhatsApp downloads enabled, the Cleaner panel shows a collapsible card with its status and its last and next automatic cleanup, plus a button to its Settings page. With it off, the Cleaner's Settings page offers a card to turn it on.
 - **Slovak and Ukrainian**: Two new interface languages, for 15 in total. Every page, including the AMD power, fan control and hardware validation pages, is translated.
+- **Wallpaper gallery**: Browse and apply wallpapers from the menu bar panel, on one display or on all of them. Off until you install it from Features.
+- **Quit & close protection**: Guard ⌘Q and ⌘W behind a second press or a hold, per app or everywhere, with exceptions and an on-screen hint. Also applies to the Switcher's Q and W keys.
+- **Disk image installer**: Opening a downloaded `.dmg` offers to install the app it contains, optionally into `~/Applications`, then can reveal the app and move the download to the Trash. Off until you install it from Features.
+- **Port Manager**: See which apps are listening on which network ports, and stop them, from Settings or a panel tile. RyzenStatus itself and system processes are protected.
+- **Connected devices**: The System section of the panel lists connected USB devices.
+- **Mouse extras**: Focus follows mouse, turning off mouse acceleration, linear scrolling, horizontal scrolling with a modifier key, and a click debounce filter for worn mouse buttons. All off by default.
+- **Spaces order**: Keep your Spaces in a fixed order, so macOS stops rearranging them by recent use.
+- **Finder rename**: A keyboard shortcut to rename the selected file in Finder.
+- **Audio priority**: Rank your output and input devices so the best one connected is used automatically.
+- **Bluetooth sleep**: Turn Bluetooth off when the Mac sleeps and back on when it wakes.
 - **Snippet Library**: Text Snippets settings can now turn on the snippet library and set its shortcut, with a warning when the shortcut can't be registered. Snippets gain a folder, case-insensitive triggers and a "show in quick menu" option, and an optional sound when a snippet expands.
 
 ### Changed

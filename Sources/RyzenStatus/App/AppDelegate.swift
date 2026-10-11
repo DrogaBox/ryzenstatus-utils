@@ -124,6 +124,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         KeepAwakeManager.shared.recoverIfNeeded {
             KeepAwakeManager.shared.activateOnLaunchIfNeeded()
         }
+        // Puts the Space arrangement back when a previous run held it and
+        // the feature has since been uninstalled.
+        SpacesOrderHold.recoverIfNeeded()
         // One binding per feature: only available features are touched, so a
         // feature switched off in the hub never even instantiates here.
         FeatureRuntime.shared.syncAtLaunch()
@@ -151,9 +154,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             .sink { _ in
                 FeatureRuntime.shared.sync([
                     .scrollInverter, .smoothScroll, .mouseNavigation, .switcher,
-                    .dockPreview, .finderCutPaste, .autoQuit, .dockClick,
+                    .dockPreview, .finderCutPaste, .finderRename, .autoQuit, .dockClick,
                     .middleClick, .windowMaximizer, .keyboardDebounce, .windowLayout,
                     .textSnippets, .superKey, .brightness, .radialMenu,
+                    .quitWindowProtection,
+                    .scrollHorizontal, .linearScroll, .focusFollowsMouse, .mouseClickDebounce,
                     // The island reads the menu bar through Accessibility to
                     // fit beside it on a Mac without a notch.
                     .notch,
@@ -235,6 +240,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         TextSnippetService.shared.suspend()
         MiddleClickService.shared.suspend()
         SmoothScrollService.shared.suspend()
+        // Wheel taps (sideways and linear scrolling ride the inverter's tap),
+        // focus follows mouse and the click filter go back before the process.
+        ScrollInverter.shared.suspend()
+        FocusFollowsMouseService.shared.stop()
+        MouseClickDebounceService.shared.suspend()
+        // Pointer acceleration is a system setting: it is put back on quit.
+        if AppFeature.mouseAcceleration.isAvailable
+            || MouseAccelerationRecovery.hasPendingEntries() {
+            MouseAccelerationService.shared.stop()
+        }
         MouseNavigationService.shared.suspend()
         DockPreviewService.shared.stop()
         SoundOutputSwitcher.shared.stop()

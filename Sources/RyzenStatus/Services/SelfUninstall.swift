@@ -63,6 +63,9 @@ enum SelfUninstall {
     @MainActor
     private static func suspendInputInterceptors() {
         ScrollInverter.shared.suspend()
+        FocusFollowsMouseService.shared.stop()
+        MouseClickDebounceService.shared.suspend()
+        MouseAccelerationService.shared.stop()
         SmoothScrollService.shared.suspend()
         MouseNavigationService.shared.suspend()
         WindowMaximizer.shared.stop()
@@ -71,9 +74,11 @@ enum SelfUninstall {
         DockPreviewService.shared.stop()
         AutoQuitService.shared.suspend()
         FinderCutPaste.shared.suspend()
+        FinderRenameService.shared.suspend()
         KeyboardDebounceService.shared.suspend()
         DockClickService.shared.suspend()
         MiddleClickService.shared.suspend()
+        QuitProtectionService.shared.suspend()
         PastePlainService.shared.suspend()
         ColorSamplerService.shared.suspend()
         QuickLauncherService.shared.suspend()
@@ -89,6 +94,9 @@ enum SelfUninstall {
     }
 
     private static func detachFromSystem() {
+        // The Space arrangement marker goes with the preferences, so the
+        // system setting is put back first.
+        _ = SpacesOrderHold.restoreForRemoval()
         // Restore normal sleep if a closed-lid session left it disabled.
         if UserDefaults.standard.bool(forKey: DefaultsKey.sleepDisabledFlag) {
             _ = Sudoers.pmsetDisableSleep(false)

@@ -666,6 +666,7 @@ extension DefaultsKey {
     static let commandBarFileScopes = "commandBarFileScopes"
     static let commandBarFileIgnores = "commandBarFileIgnores" // names a file search never shows
     static let panelUtilityCommandBar = "panelUtilityCommandBar"
+    static let panelUtilityPortManager = "panelUtilityPortManager"
     static let mixerAppArrangement = "mixerAppArrangement"
     static let mixerHideInactiveApps = "mixerHideInactiveApps"
     static let mixerHiddenApps = "mixerHiddenApps"

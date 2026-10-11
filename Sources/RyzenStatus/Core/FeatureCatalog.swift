@@ -15,10 +15,12 @@ import Foundation
 enum AppFeature: String, CaseIterable {
     // Windows and Dock
     case switcher, dockPreview, dockClick, windowMaximizer, windowLayout, autoQuit
+    case spacesOrder
     // Mouse and keyboard
     case scrollInverter, smoothScroll, mouseNavigation, middleClick, keyboardDebounce, textSnippets,
          mouseButtonShortcuts, superKey
     case quitWindowProtection
+    case scrollHorizontal, focusFollowsMouse, linearScroll, mouseAcceleration, mouseClickDebounce
     // Clipboard and files
     case clipboardHistory, pastePlain, finderCutPaste, shelf, urlCleaner
     case finderRename
@@ -65,6 +67,10 @@ extension AppFeature {
             return .mouseKeyboard
         case .quitWindowProtection:
             return .mouseKeyboard
+        case .scrollHorizontal, .focusFollowsMouse, .linearScroll, .mouseAcceleration, .mouseClickDebounce:
+            return .mouseKeyboard
+        case .spacesOrder:
+            return .windowsDock
         case .clipboardHistory, .pastePlain, .finderCutPaste, .shelf, .urlCleaner:
             return .clipboardFiles
         case .diskImageInstaller:
@@ -114,6 +120,12 @@ extension AppFeature {
         case .mouseButtonShortcuts: return "button.programmable"
         case .superKey: return "capslock"
         case .quitWindowProtection: return "shield.lefthalf.filled"
+        case .scrollHorizontal: return "arrow.triangle.swap"
+        case .focusFollowsMouse: return "cursorarrow.and.square.on.square.dashed"
+        case .linearScroll: return "arrow.up.and.down.text.horizontal"
+        case .mouseAcceleration: return "cursorarrow.rays"
+        case .mouseClickDebounce: return "cursorarrow.click"
+        case .spacesOrder: return "rectangle.split.3x1"
         case .clipboardHistory: return "doc.on.clipboard"
         case .pastePlain: return "doc.plaintext"
         case .finderCutPaste: return "scissors"
@@ -216,6 +228,12 @@ extension AppFeature {
         case .quitWindowProtection:
             return [DefaultsKey.quitProtectionQuitEnabled, DefaultsKey.quitProtectionCloseEnabled]
         case .radialMenu: return [DefaultsKey.radialMenuEnabled]
+        case .scrollHorizontal: return [DefaultsKey.scrollHorizontalEnabled]
+        case .focusFollowsMouse: return [DefaultsKey.focusFollowsMouseEnabled]
+        case .linearScroll: return [DefaultsKey.linearScrollEnabled]
+        case .mouseAcceleration: return [DefaultsKey.mouseAccelerationDisabled]
+        case .mouseClickDebounce: return [DefaultsKey.mouseClickDebounceEnabled]
+        case .spacesOrder: return [DefaultsKey.spacesOrderEnabled]
         case .clipboardHistory: return [DefaultsKey.clipboardHistoryEnabled]
         case .pastePlain: return [DefaultsKey.pastePlainEnabled]
         case .finderCutPaste: return [DefaultsKey.finderCutPasteEnabled]
@@ -276,6 +294,13 @@ extension AppFeature {
         case .audioPriority, .bluetoothSleep: return []
         // The tap watches ⌘Q and ⌘W only, through Accessibility.
         case .quitWindowProtection: return [.accessibility]
+        // Wheel and click taps, and the window under the pointer, all go
+        // through Accessibility.
+        case .scrollHorizontal, .focusFollowsMouse, .linearScroll, .mouseClickDebounce:
+            return [.accessibility]
+        // Pointer acceleration is an IOKit HID property and the Spaces order
+        // a Dock preference; neither needs a grant.
+        case .mouseAcceleration, .spacesOrder: return []
         // Copying into Applications needs no grant this fork tracks (upstream
         // lists App Management, which this catalog does not model); the
         // gallery reads Apple's stills and pictures the user picked.
@@ -353,6 +378,11 @@ extension AppFeature {
     /// grow the panel by a tab.
     static let optInFeatures: Set<AppFeature> = [
         .diskImageInstaller, .wallpaper,
+        // Upstream ships these opt-in: they change how every window, wheel or
+        // Space behaves, so an update must not install them on its own.
+        .focusFollowsMouse, .scrollHorizontal, .linearScroll, .spacesOrder,
+        // Without the mixer it would add its own panel section.
+        .audioPriority,
     ]
 
     /// Features that are available, engaged and using `permission` right now.
@@ -480,6 +510,12 @@ extension AppFeature {
         case .mouseButtonShortcuts: return hub.titleMouseButtons
         case .superKey: return hub.titleSuperKey
         case .quitWindowProtection: return FeatureStrings.quitProtection(L10n.shared.language).name
+        case .scrollHorizontal: return s.scrollHorizontalName
+        case .focusFollowsMouse: return s.focusFollowsMouseName
+        case .linearScroll: return s.linearScrollName
+        case .mouseAcceleration: return s.mouseAccelerationName
+        case .mouseClickDebounce: return FeatureStrings.mouseClickDebounce(L10n.shared.language).title
+        case .spacesOrder: return s.spacesOrderName
         case .textSnippets: return FeatureStrings.snippets(L10n.shared.language).pageTitle
         case .clipboardHistory: return FeatureStrings.clipboard(L10n.shared.language).title
         case .pastePlain: return s.pastePlainName

@@ -60,6 +60,7 @@ struct SystemSection: View {
     @AppStorage(DefaultsKey.monitorSysMemory) private var sysMemory = true
     @AppStorage(DefaultsKey.monitorSysAlerts) private var sysAlerts = true
     @AppStorage(DefaultsKey.monitorSysUptime) private var sysUptime = true
+    @AppStorage(DefaultsKey.monitorSysConnectedDevices) private var sysConnectedDevices = true
     @AppStorage(DefaultsKey.panelSystemOrder) private var systemOrderRaw = ""
     @State private var draggingBlock: Block?
 
@@ -149,7 +150,7 @@ struct SystemSection: View {
 
     /// Card subsections, in order, filtered by the per-item toggles (and whether a
     /// battery exists). Drives divider interleaving so only rendered blocks get one.
-    private enum Block: String, PanelOrderItem { case temps, usage, memory, alerts, uptime }
+    private enum Block: String, PanelOrderItem { case temps, usage, memory, alerts, uptime, connectedDevices }
 
     // Hub availability per metric family: an unavailable metric leaves the
     // card entirely, including the edit-mode hidden rows.
@@ -188,6 +189,7 @@ struct SystemSection: View {
         case .temps, .usage: return cpuAvailable || gpuAvailable || batteryAvailable
         case .memory: return memoryAvailable
         case .alerts, .uptime: return true
+        case .connectedDevices: return AppFeature.connectedDevices.isAvailable
         }
     }
 
@@ -213,6 +215,7 @@ struct SystemSection: View {
         case .memory: return sysMemory
         case .alerts: return sysAlerts
         case .uptime: return sysUptime
+        case .connectedDevices: return sysConnectedDevices
         }
     }
 
@@ -226,6 +229,7 @@ struct SystemSection: View {
         sysMemory = true
         sysAlerts = true
         sysUptime = true
+        sysConnectedDevices = true
     }
 
     @ViewBuilder
@@ -236,6 +240,8 @@ struct SystemSection: View {
         case .memory: memoryRows(editing: editing)
         case .alerts: alertRows(editing: editing)
         case .uptime: uptimeRow(editing: editing)
+        case .connectedDevices:
+            PanelConnectedDevicesRow(editing: editing, isVisible: $sysConnectedDevices)
         }
     }
 

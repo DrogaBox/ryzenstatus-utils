@@ -13,6 +13,7 @@ struct MixerSection: View {
     @ObservedObject private var mixer = AppVolumeMixer.shared
     @ObservedObject private var inputManager = AudioInputDeviceManager.shared
     @ObservedObject private var outputSwitcher = SoundOutputSwitcher.shared
+    @ObservedObject private var audioPriority = AudioPriorityService.shared
     @AppStorage(DefaultsKey.mixerShowFinder)
     private var showFinder = true
     @AppStorage(DefaultsKey.mixerLowerVolumeOnHeadphonesDisconnect)
@@ -34,6 +35,9 @@ struct MixerSection: View {
                 headphoneDisconnectProtectionToggle
                 if AppFeature.soundOutputSwitcher.isAvailable {
                     soundOutputSwitcherControls
+                }
+                if AppFeature.audioPriority.isAvailable {
+                    AudioPriorityDisclosure()
                 }
                 microphonePicker
                 if AppVolumeMixer.isSupported, (!mixer.apps.isEmpty || mixer.needsPermission) {
@@ -317,7 +321,8 @@ struct MixerSection: View {
                         Text(inputDeviceTitle(device))
                             .tag(device.uid)
                     }
-                    if let selected = inputManager.preferredInputDeviceUID,
+                    if !audioPriority.inputPriorityEnabled,
+                       let selected = inputManager.preferredInputDeviceUID,
                        inputManager.preferredUnavailable {
                         Text(l10n.s.mixerInputUnavailable)
                             .tag(selected)
@@ -333,7 +338,7 @@ struct MixerSection: View {
 
             if inputManager.inputDevices.isEmpty {
                 inputMessage(l10n.s.mixerInputNoDevices, systemImage: "mic.slash")
-            } else if inputManager.preferredUnavailable {
+            } else if !audioPriority.inputPriorityEnabled, inputManager.preferredUnavailable {
                 inputMessage(l10n.s.mixerInputFallback, systemImage: "mic.badge.xmark")
             } else if let lastError = inputManager.lastError {
                 inputMessage(String(format: l10n.s.mixerInputErrorFormat, lastError),
@@ -344,10 +349,23 @@ struct MixerSection: View {
 
     private var inputSelectionBinding: Binding<String> {
         Binding(
-            get: { inputManager.preferredInputDeviceUID ?? MixerRoutingSupport.systemDefaultSelectionID },
+            get: {
+                // While device priority steers the input, the picker shows
+                // the microphone actually in use rather than the saved one.
+                MixerRoutingSupport.selectedInputDeviceUID(
+                    preferredUID: inputManager.preferredInputDeviceUID,
+                    currentUID: inputManager.currentInputDeviceUID,
+                    priorityIsActive: audioPriority.inputPriorityEnabled)
+                    ?? MixerRoutingSupport.systemDefaultSelectionID
+            },
             set: { selection in
-                inputManager.setPreferredInputDeviceUID(
-                    selection == MixerRoutingSupport.systemDefaultSelectionID ? nil : selection)
+                if audioPriority.inputPriorityEnabled {
+                    guard selection != MixerRoutingSupport.systemDefaultSelectionID else { return }
+                    inputManager.setCurrentInputDeviceUID(selection)
+                } else {
+                    inputManager.setPreferredInputDeviceUID(
+                        selection == MixerRoutingSupport.systemDefaultSelectionID ? nil : selection)
+                }
             }
         )
     }

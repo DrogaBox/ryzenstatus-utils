@@ -240,6 +240,11 @@ final class KeyboardDebounceService: ObservableObject {
         guard type == .keyDown || type == .keyUp else {
             return Unmanaged.passUnretained(event)
         }
+        // The press Quit Protection re-posts once confirmed copies the
+        // hardware event; its marker is the only thing that tells it apart.
+        if event.getIntegerValueField(.eventSourceUserData) == QuitProtectionSupport.syntheticEventMarker {
+            return Unmanaged.passUnretained(event)
+        }
 
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0

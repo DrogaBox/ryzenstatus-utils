@@ -359,6 +359,7 @@ private struct NotchMixerOptions: View {
     @ObservedObject private var mixer = AppVolumeMixer.shared
     @ObservedObject private var input = AudioInputDeviceManager.shared
     @ObservedObject private var micMute = MicMuteService.shared
+    @ObservedObject private var audioPriority = AudioPriorityService.shared
     @ObservedObject private var l10n = L10n.shared
     private var outputDevices: [MixerOutputDevice] { mixer.outputDevices.filter(\.canBeDefaultOutput) }
     private var soundEffectsDevices: [MixerOutputDevice] { mixer.outputDevices.filter(\.canBeDefaultSystemOutput) }
@@ -370,7 +371,18 @@ private struct NotchMixerOptions: View {
         return input.inputDevices.first(where: { $0.uid == uid })?.name ?? l10n.s.mixerInputUnavailable
     }
     private var selectedMicrophoneUID: String? {
-        input.preferredInputDeviceUID ?? input.currentInputDeviceUID
+        // While device priority steers the input, show the one in use.
+        audioPriority.inputPriorityEnabled
+            ? input.currentInputDeviceUID
+            : input.preferredInputDeviceUID ?? input.currentInputDeviceUID
+    }
+
+    private func chooseMicrophone(_ uid: String?) {
+        if audioPriority.inputPriorityEnabled {
+            if let uid { input.setCurrentInputDeviceUID(uid) }
+        } else {
+            input.setPreferredInputDeviceUID(uid)
+        }
     }
 
     var body: some View {
@@ -413,12 +425,13 @@ private struct NotchMixerOptions: View {
         row(l10n.s.mixerInputTitle, symbol: micMute.isMuted ? "mic.slash" : "mic") {
             NotchDeviceMenu(title: l10n.s.mixerInputTooltip, current: microphoneName, width: 200, lines: 1, alignment: .trailing,
                             items: [NotchMenuItem(title: l10n.s.mixerOutputDefault, checked: selectedMicrophoneUID == nil) {
-                                input.setPreferredInputDeviceUID(nil)
+                                chooseMicrophone(nil)
                             }] + input.inputDevices.map { device in
                                 NotchMenuItem(title: device.name, checked: device.uid == selectedMicrophoneUID) {
-                                    input.setPreferredInputDeviceUID(device.uid)
+                                    chooseMicrophone(device.uid)
                                 }
-                            } + (input.preferredUnavailable && input.preferredInputDeviceUID != nil
+                            } + (!audioPriority.inputPriorityEnabled
+                                 && input.preferredUnavailable && input.preferredInputDeviceUID != nil
                                  ? [NotchMenuItem(title: l10n.s.mixerInputUnavailable, checked: true)] : []))
         }
         if let volume = input.inputVolume {
@@ -457,7 +470,7 @@ private struct NotchMixerOptions: View {
         }
         if input.inputDevices.isEmpty {
             message(l10n.s.mixerInputNoDevices, systemImage: "mic.slash")
-        } else if input.preferredUnavailable {
+        } else if !audioPriority.inputPriorityEnabled, input.preferredUnavailable {
             message(l10n.s.mixerInputFallback, systemImage: "mic.badge.xmark")
         } else if let lastError = input.lastError {
             message(String(format: l10n.s.mixerInputErrorFormat, lastError), systemImage: "exclamationmark.triangle")

@@ -54,6 +54,16 @@ swiftc -O -num-threads 8 -target "$TARGET" -sdk "$SDK" \
     Sources/RyzenStatus/Core/BrightnessStrings.swift \
     Sources/RyzenStatus/Core/QuickToggleStrings.swift \
     Sources/RyzenStatus/Core/KillProcessStrings.swift \
+    Sources/RyzenStatus/Core/BluetoothSleepStrings.swift \
+    Sources/RyzenStatus/Core/ConnectedDevicesStrings.swift \
+    Sources/RyzenStatus/Core/DiskImageInstallerStrings.swift \
+    Sources/RyzenStatus/Core/PortManagerStrings.swift \
+    Sources/RyzenStatus/Core/QuitProtectionStrings.swift \
+    Sources/RyzenStatus/Core/WallpaperStrings.swift \
+    Sources/RyzenStatus/Core/DefaultsKey+DesktopTools.swift \
+    Sources/RyzenStatus/Core/QuitProtectionSupport.swift \
+    Sources/RyzenStatus/Core/FinderRenameStrings.swift \
+    Sources/RyzenStatus/Core/MouseClickDebounceStrings.swift \
     Sources/RyzenStatus/Core/AppUpdateStrings.swift \
     Sources/RyzenStatus/Core/WhatsAppDownloadStrings.swift \
     Sources/RyzenStatus/Core/NotchStrings.swift \

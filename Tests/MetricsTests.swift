@@ -5808,29 +5808,40 @@ struct MetricsTests {
 
         // MARK: Features hub catalog
 
-        expect(AppFeature.allCases.count == 67, "feature catalog has 67 features")
+        expect(AppFeature.allCases.count == 81, "feature catalog has 81 features")
         expect(Set(AppFeature.allCases.map(\.rawValue)).count == AppFeature.allCases.count,
                "feature ids are unique")
         expect(AppFeature.allCases.map(\.rawValue) == [
             "switcher", "dockPreview", "dockClick", "windowMaximizer", "windowLayout", "autoQuit",
+            "spacesOrder",
             "scrollInverter", "smoothScroll", "mouseNavigation", "middleClick", "keyboardDebounce",
             "textSnippets", "mouseButtonShortcuts", "superKey",
+            "quitWindowProtection",
+            "scrollHorizontal", "focusFollowsMouse", "linearScroll", "mouseAcceleration", "mouseClickDebounce",
             "clipboardHistory", "pastePlain", "finderCutPaste", "shelf", "urlCleaner",
+            "finderRename", "diskImageInstaller",
             "mixer", "soundOutputSwitcher", "micMute", "musicBlock", "nowPlaying",
+            "audioPriority",
             "keepAwake", "brightness", "extraBrightness",
+            "bluetoothSleep",
             "quickLauncher", "quickToggles", "colorPicker", "screenOCR", "cleaningMode", "mediaTools",
             "cleaner", "uninstaller", "homebrew", "appUpdates", "whatsAppDownloads", "screenshot", "screenRecorder", "cameraPreview", "radialMenu",
             "scratchpad", "killProcess", "commandBar",
+            "wallpaper", "portManager",
             "notch", "notchCalendar", "notchNotifications", "notchGestures", "notchTimer", "notchAccessories", "notchLyrics",
             "notchLiveEqualizer", "notchQueue", "notchDownloads", "notchWatch", "notchMascot",
             "monitorCPU", "monitorGPU", "monitorMemory", "monitorNetwork", "monitorDisk", "monitorPower",
             "monitorInsights", "monitorAnalytics", "monitorEnergy", "monitorNetworkDetails",
+            "connectedDevices",
         ], "feature ids are stable (they persist inside availability keys)")
         expect(AppFeature.switcher.availabilityKey == "featureAvailable.switcher",
                "availability key derives from the raw value")
         expect(AppFeature.availabilityDefaults.count == AppFeature.allCases.count
-                && AppFeature.availabilityDefaults.values.allSatisfy { ($0 as? Bool) == true },
-               "every feature registers as available by default")
+                && AppFeature.allCases.allSatisfy {
+                    (AppFeature.availabilityDefaults[$0.availabilityKey] as? Bool)
+                        == !AppFeature.optInFeatures.contains($0)
+                },
+               "every feature registers as available by default, except the opt-in ones")
         expect(FeatureGroup.allCases.map { AppFeature.features(in: $0).count }.reduce(0, +)
                 == AppFeature.allCases.count,
                "every feature belongs to exactly one group")
@@ -6114,7 +6125,7 @@ struct MetricsTests {
         expect(!pageVisible(.mouse, available: []),
                "the mouse page hides only with all four mouse features off")
         expect(!pageVisible(.energy, available: allFeatures.subtracting([.keepAwake, .brightness,
-                                                                         .extraBrightness])),
+                                                                         .extraBrightness, .bluetoothSleep])),
                "energy hides when all three display features are off")
         expect(pageVisible(.energy, available: [.extraBrightness]), "XDR alone keeps the energy page")
         expect(pageVisible(.energy, available: [.brightness]),

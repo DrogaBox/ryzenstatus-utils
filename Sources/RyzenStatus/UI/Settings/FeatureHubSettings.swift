@@ -556,18 +556,21 @@ extension AppFeature {
         case .clipboardHistory: return hub.descClipboardHistory
         case .pastePlain: return hub.descPastePlain
         case .finderCutPaste: return hub.descFinderCutPaste
+        case .finderRename: return FeatureStrings.finderRename(L10n.shared.language).hubDescription
         case .shelf: return hub.descShelf
         case .urlCleaner: return hub.descURLCleaner
         case .diskImageInstaller:
             return FeatureStrings.diskImageInstaller(L10n.shared.language).hubDescription
         case .mixer: return hub.descMixer
         case .soundOutputSwitcher: return hub.descSoundOutputSwitcher
+        case .audioPriority: return hub.descAudioPriority
         case .micMute: return hub.descMicMute
         case .musicBlock: return hub.descMusicBlock
         case .nowPlaying: return hub.descNowPlaying
         case .keepAwake: return hub.descKeepAwake
         case .brightness: return FeatureStrings.brightness(L10n.shared.language).hubDescription
         case .extraBrightness: return hub.descExtraBrightness
+        case .bluetoothSleep: return FeatureStrings.bluetoothSleep(L10n.shared.language).hubDescription
         case .quickLauncher: return hub.descQuickLauncher
         case .quickToggles: return FeatureStrings.quickToggles(L10n.shared.language).hubDescription
         case .colorPicker: return hub.descColorPicker
@@ -594,6 +597,12 @@ extension AppFeature {
         case .mouseButtonShortcuts: return hub.descMouseButtons
         case .superKey: return hub.descSuperKey
         case .quitWindowProtection: return FeatureStrings.quitProtection(L10n.shared.language).description
+        case .scrollHorizontal: return L10n.shared.s.scrollHorizontalCaption
+        case .focusFollowsMouse: return L10n.shared.s.focusFollowsMouseCaption
+        case .linearScroll: return L10n.shared.s.linearScrollCaption
+        case .mouseAcceleration: return L10n.shared.s.mouseAccelerationCaption
+        case .mouseClickDebounce: return FeatureStrings.mouseClickDebounce(L10n.shared.language).caption
+        case .spacesOrder: return L10n.shared.s.spacesOrderCaption
         case .monitorPower: return hub.descMonitorPower
         case .whatsAppDownloads: return FeatureStrings.whatsAppDownloads(L10n.shared.language).hubDescription
         case .monitorInsights: return "Automated diagnostic cards for memory leaks, Rosetta 2 cost, and CPU runaway processes."

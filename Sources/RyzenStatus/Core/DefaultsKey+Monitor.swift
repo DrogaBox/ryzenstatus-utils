@@ -71,6 +71,7 @@ extension DefaultsKey {
     static let monitorSysMemory = "monitorSysMemory"
     static let monitorSysAlerts = "monitorSysAlerts"
     static let monitorSysUptime = "monitorSysUptime"
+    static let monitorSysConnectedDevices = "monitorSysConnectedDevices"
     static let monitorNetSpeed = "monitorNetSpeed"
     static let monitorNetApps = "monitorNetApps"
     static let monitorNetTotals = "monitorNetTotals"

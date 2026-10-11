@@ -139,6 +139,8 @@ struct SettingsView: View {
         case .cleaner: CleanerSettings()
         case .uninstaller: UninstallerView()
         case .killProcess: KillProcessView()
+        case .portManager: PortManagerView()
+        case .quitProtection: QuitProtectionSettings()
         case .commandBar: CommandBarSettings()
         case .urlCleaner: URLCleanerSettings()
         case .homebrew: HomebrewSettings()
@@ -281,6 +283,11 @@ struct GeneralSettings: View {
                     SettingsCaptionText(l10n.s.musicBlockCaption)
                 }
             }
+            if AppFeature.audioPriority.isAvailable {
+                Section(l10n.s.audioPrioritySection) {
+                    AudioPriorityDisclosure(initiallyExpanded: true, showsHeader: false)
+                }
+            }
         }
         .formStyle(.grouped)
     }
@@ -420,6 +427,8 @@ struct EnergySettings: View {
     @AppStorage(DefaultsKey.keepAwakeActiveIcon) private var keepAwakeActiveIcon = KeepAwakeActiveIcon.ryzenstatus.rawValue
     @AppStorage(DefaultsKey.keepAwakeMouseJiggleEnabled) private var keepAwakeMouseJiggle = false
     @AppStorage(DefaultsKey.keepAwakeMouseJiggleInterval) private var keepAwakeMouseJiggleInterval = 5
+    @AppStorage(DefaultsKey.bluetoothSleepEnabled) private var bluetoothSleepEnabled = false
+    @AppStorage(DefaultsKey.bluetoothSleepRestoreOnWake) private var bluetoothSleepRestoreOnWake = true
 
     var body: some View {
         Form {
@@ -552,6 +561,9 @@ struct EnergySettings: View {
                     }
                 }
             }
+            if AppFeature.bluetoothSleep.isAvailable {
+                bluetoothSleepSection
+            }
         }
         .formStyle(.grouped)
         .onAppear {
@@ -597,6 +609,27 @@ struct EnergySettings: View {
                 }
             }
             DisplayPowerButton(display: display)
+        }
+    }
+
+    // MARK: Bluetooth on sleep
+
+    private var bluetoothSleepSection: some View {
+        let strings = FeatureStrings.bluetoothSleep(l10n.language)
+        return Section(strings.pageTitle) {
+            if BluetoothSleepService.isSupported {
+                Toggle(strings.enable, isOn: $bluetoothSleepEnabled)
+                    .onChange(of: bluetoothSleepEnabled) { _, _ in
+                        BluetoothSleepService.shared.syncWithPreferences()
+                    }
+                SettingsCaptionText(strings.enableCaption)
+                if bluetoothSleepEnabled {
+                    Toggle(strings.restoreToggle, isOn: $bluetoothSleepRestoreOnWake)
+                    SettingsCaptionText(strings.restoreCaption)
+                }
+            } else {
+                SettingsCaptionText(strings.unsupported)
+            }
         }
     }
 
@@ -728,6 +761,9 @@ struct MouseSettings: View {
                     }
                 }
             }
+            // Upstream mouse features: sideways scrolling, focus follows
+            // mouse, linear scrolling, acceleration and the click filter.
+            MouseExtrasSections()
             if accessibilityNoteVisible {
                 Section(l10n.s.permissionRequired) {
                     PermissionRow(kind: .accessibility)
@@ -747,6 +783,7 @@ struct MouseSettings: View {
             || (smoothScrollEnabled && AppFeature.smoothScroll.isAvailable)
             || (mouseNavigationEnabled && AppFeature.mouseNavigation.isAvailable)
             || (middleClickEnabled && AppFeature.middleClick.isAvailable)
+            || MouseExtrasSections.needsAccessibility()
         return anyEngaged && !permissions.accessibility
     }
 
@@ -862,6 +899,7 @@ struct SwitcherSettings: View {
                     Text(l10n.s.previewSizeLabel)
                 }
             }
+            SpacesOrderSection()
             if switcherEngaged || dockPreviewEngaged {
                 if !permissions.accessibility {
                     Section(l10n.s.permissionRequired) {

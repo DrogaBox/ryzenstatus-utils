@@ -114,6 +114,16 @@ if (( TEST )); then
         Sources/RyzenStatus/Core/FeaturePresets.swift \
         Sources/RyzenStatus/Core/FeatureHubStrings.swift \
         Sources/RyzenStatus/Core/KillProcessStrings.swift \
+        Sources/RyzenStatus/Core/BluetoothSleepStrings.swift \
+        Sources/RyzenStatus/Core/ConnectedDevicesStrings.swift \
+        Sources/RyzenStatus/Core/DiskImageInstallerStrings.swift \
+        Sources/RyzenStatus/Core/PortManagerStrings.swift \
+        Sources/RyzenStatus/Core/QuitProtectionStrings.swift \
+        Sources/RyzenStatus/Core/WallpaperStrings.swift \
+        Sources/RyzenStatus/Core/DefaultsKey+DesktopTools.swift \
+        Sources/RyzenStatus/Core/QuitProtectionSupport.swift \
+        Sources/RyzenStatus/Core/FinderRenameStrings.swift \
+        Sources/RyzenStatus/Core/MouseClickDebounceStrings.swift \
         Sources/RyzenStatus/Services/KillProcess/KillProcessSupport.swift \
         Sources/RyzenStatus/Core/CommandBarStrings.swift \
         Sources/RyzenStatus/Core/NotchStrings.swift \

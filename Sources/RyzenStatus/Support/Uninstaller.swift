@@ -16,6 +16,11 @@ enum Uninstaller {
         if UserDefaults.standard.bool(forKey: DefaultsKey.sleepDisabledFlag) {
             _ = Sudoers.pmsetDisableSleep(false)
         }
+        if SpacesOrderHold.hasPendingRestore {
+            print(SpacesOrderHold.restoreForRemoval()
+                  ? "UNINSTALL: Space rearranging restored"
+                  : "UNINSTALL: Space arrangement restoration could not be confirmed")
+        }
         do {
             try SMAppService.mainApp.unregister()
             print("UNINSTALL: login item unregistered")

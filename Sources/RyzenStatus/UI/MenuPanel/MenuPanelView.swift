@@ -80,6 +80,7 @@ struct MenuPanelView: View {
     @AppStorage(DefaultsKey.panelShowUtilities) private var showUtilities = true
     @AppStorage(DefaultsKey.panelShowControls) private var showControls = true
     @AppStorage(DefaultsKey.panelShowToggles) private var showToggles = true
+    @AppStorage(DefaultsKey.panelShowWallpaper) private var showWallpaper = true
     @AppStorage(DefaultsKey.panelSectionOrder) private var sectionOrderRaw = ""
     @AppStorage(DefaultsKey.panelAccordionMode) private var accordionMode = false
     @State private var navigableContentHeight: CGFloat = 0
@@ -425,6 +426,7 @@ struct MenuPanelView: View {
         case .utilities: return 500
         case .controls: return 360
         case .toggles: return 420
+        case .wallpaper: return 480
         }
     }
 
@@ -447,7 +449,7 @@ struct MenuPanelView: View {
         case .keepAwake: KeepAwakeCard(collapsible: collapsible)
         case .nowPlaying: NowPlayingSection(collapsible: collapsible)
         case .brightness: if showBrightness { BrightnessSection(collapsible: collapsible) }
-        case .mixer: if showMixer { MixerSection(collapsible: collapsible) }
+        case .mixer: if showMixer { mixerOrPrioritySection(collapsible: collapsible) }
         case .system: if showSystem { SystemSection(collapsible: collapsible) }
         case .network: if showNetwork { NetworkSection(collapsible: collapsible) }
         case .disk: if showDisk { DiskSection(collapsible: collapsible) }
@@ -456,6 +458,18 @@ struct MenuPanelView: View {
         case .utilities: UtilitiesSection(collapsible: collapsible, startCleaning: startCleaning)
         case .controls: QuickControlsSection(collapsible: collapsible)
         case .toggles: QuickTogglesSection(collapsible: collapsible)
+        case .wallpaper: if showWallpaper { WallpaperSection(collapsible: collapsible) }
+        }
+    }
+
+    /// The full mixer when installed, or the device priority lists on their
+    /// own when only Audio device priority is.
+    @ViewBuilder
+    private func mixerOrPrioritySection(collapsible: Bool) -> some View {
+        if AppFeature.mixer.isAvailable {
+            MixerSection(collapsible: collapsible)
+        } else {
+            AudioPrioritySection(collapsible: collapsible)
         }
     }
 
@@ -476,6 +490,7 @@ struct MenuPanelView: View {
         case .utilities: return showUtilities
         case .controls: return showControls
         case .toggles: return showToggles
+        case .wallpaper: return showWallpaper
         }
     }
 
@@ -655,6 +670,7 @@ private enum UtilityPanelItem: String, PanelOrderItem, Identifiable {
     case screenshot, quickLauncher, appUpdates, cleaner, homebrew, media, clipboard, windowLayout,
          uninstaller, cleanURL, cleaning, screenOCR, colorPicker, micMute, cameraPreview, scratchpad,
          commandBar
+    case portManager
 
     var id: String { rawValue }
 
@@ -679,6 +695,7 @@ private enum UtilityPanelItem: String, PanelOrderItem, Identifiable {
         case .cameraPreview: return .cameraPreview
         case .scratchpad: return .scratchpad
         case .commandBar: return .commandBar
+        case .portManager: return .portManager
         }
     }
 }
@@ -695,6 +712,7 @@ struct UtilitiesSection: View {
     @State private var showMediaPanel = false
     @State private var showClipboardPanel = false
     @State private var showWindowLayoutPanel = false
+    @State private var showPortManagerPanel = false
     @AppStorage(DefaultsKey.panelUtilityCleaning) private var showCleaning = true
     @AppStorage(DefaultsKey.panelUtilityURLCleaner) private var showCleanURL = true
     @AppStorage(DefaultsKey.panelUtilityUninstaller) private var showUninstallerAction = true
@@ -712,6 +730,7 @@ struct UtilitiesSection: View {
     @AppStorage(DefaultsKey.panelUtilityCameraPreview) private var showCameraPreview = true
     @AppStorage(DefaultsKey.panelUtilityScratchpad) private var showScratchpad = true
     @AppStorage(DefaultsKey.panelUtilityCommandBar) private var showCommandBar = true
+    @AppStorage(DefaultsKey.panelUtilityPortManager) private var showPortManager = true
     @ObservedObject private var micMute = MicMuteService.shared
     @AppStorage(DefaultsKey.clipboardHistoryEnabled) private var clipboardEnabled = false
     @AppStorage(DefaultsKey.panelUtilityOrder) private var utilityOrderRaw = ""
@@ -728,7 +747,8 @@ struct UtilitiesSection: View {
                         && !showHomebrewPanel
                         && !showMediaPanel
                         && !showClipboardPanel
-                        && !showWindowLayoutPanel,
+                        && !showWindowLayoutPanel
+                        && !showPortManagerPanel,
                      resetAction: resetPanelDefaults) { editing in
             if showUninstaller {
                 PanelUninstallerView {
@@ -767,6 +787,11 @@ struct UtilitiesSection: View {
                     PanelInteractionState.shared.viewKeepsPopoverOpen = false
                     showAppUpdatesPanel = false
                 }
+            } else if showPortManagerPanel {
+                PanelPortManagerView {
+                    PanelInteractionState.shared.viewKeepsPopoverOpen = false
+                    showPortManagerPanel = false
+                }
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(items(editing: editing)) { item in
@@ -796,6 +821,7 @@ struct UtilitiesSection: View {
     private var isHostingUtility: Bool {
         showUninstaller || showCleanerPanel || showURLCleaner || showHomebrewPanel
             || showAppUpdatesPanel || showMediaPanel || showClipboardPanel || showWindowLayoutPanel
+            || showPortManagerPanel
     }
 
     private var cleaningNeedsAccessibility: Bool {
@@ -844,13 +870,15 @@ struct UtilitiesSection: View {
         case .quickLauncher: return showQuickLauncher
         case .screenshot: return showScreenshot
         case .commandBar: return showCommandBar
+        case .portManager: return showPortManager
         }
     }
 
     @ViewBuilder
     private func itemView(_ item: UtilityPanelItem, editing: Bool) -> some View {
         switch item {
-        case .homebrew, .appUpdates, .media, .clipboard, .scratchpad, .quickLauncher, .commandBar:
+        case .homebrew, .appUpdates, .media, .clipboard, .scratchpad, .quickLauncher, .commandBar,
+             .portManager:
             utilityLauncherItemView(item, editing: editing)
         case .windowLayout, .uninstaller, .cleaner, .cleanURL, .cleaning:
             utilityMaintenanceItemView(item, editing: editing)
@@ -950,6 +978,17 @@ struct UtilitiesSection: View {
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                                         CommandBarService.shared.show()
                                     }
+                                })
+        case .portManager:
+            UtilityActionButton(title: FeatureStrings.portManager(l10n.language).title,
+                                caption: FeatureStrings.portManager(l10n.language).listeningCaption,
+                                systemImage: "network",
+                                isEditing: editing,
+                                showsDragHandle: true,
+                                visibility: $showPortManager,
+                                action: {
+                                    PanelInteractionState.shared.viewKeepsPopoverOpen = true
+                                    showPortManagerPanel = true
                                 })
         default:
             EmptyView()
@@ -1157,6 +1196,7 @@ struct UtilitiesSection: View {
         showScratchpad = true
         showQuickLauncher = true
         showCommandBar = true
+        showPortManager = true
     }
 
     private func grantAccessibility() {
@@ -1168,6 +1208,7 @@ struct UtilitiesSection: View {
 private enum ControlPanelItem: String, PanelOrderItem, Identifiable {
     case mouseScroll, mouseNavigation, switcher, cutPaste, autoQuit, shelf, windowMaximize, dockPreview, keyDebounce,
          dockClick, dockClickCycle, middleClick, textSnippets, radialMenu, superKey, notch
+    case linearScroll, focusFollowsMouse, mouseAcceleration, mouseClickDebounce, spacesOrder
 
     var id: String { rawValue }
 
@@ -1189,6 +1230,11 @@ private enum ControlPanelItem: String, PanelOrderItem, Identifiable {
         case .textSnippets: return .textSnippets
         case .radialMenu: return .radialMenu
         case .superKey: return .superKey
+        case .linearScroll: return .linearScroll
+        case .focusFollowsMouse: return .focusFollowsMouse
+        case .mouseAcceleration: return .mouseAcceleration
+        case .mouseClickDebounce: return .mouseClickDebounce
+        case .spacesOrder: return .spacesOrder
         case .notch: return .notch
         }
     }
@@ -1209,6 +1255,10 @@ private enum ControlCategory: String, CaseIterable, Identifiable {
             return .inputDevices
         case .cutPaste, .shelf:
             return .files
+        case .linearScroll, .focusFollowsMouse, .mouseAcceleration, .mouseClickDebounce:
+            return .inputDevices
+        case .spacesOrder:
+            return .windows
         }
     }
 }
@@ -1246,6 +1296,16 @@ struct QuickControlsSection: View {
     @AppStorage(DefaultsKey.radialMenuEnabled) private var radialMenuEnabled = false
     @AppStorage(DefaultsKey.superKeyEnabled) private var superKeyEnabled = false
     @AppStorage(DefaultsKey.notchEnabled) private var notchEnabled = false
+    @AppStorage(DefaultsKey.linearScrollEnabled) private var linearScrollEnabled = false
+    @AppStorage(DefaultsKey.focusFollowsMouseEnabled) private var focusFollowsMouseEnabled = false
+    @AppStorage(DefaultsKey.mouseAccelerationDisabled) private var mouseAccelerationDisabled = false
+    @AppStorage(DefaultsKey.mouseClickDebounceEnabled) private var mouseClickDebounceEnabled = false
+    @AppStorage(DefaultsKey.spacesOrderEnabled) private var spacesOrderEnabled = false
+    @AppStorage(DefaultsKey.panelControlLinearScroll) private var showLinearScroll = true
+    @AppStorage(DefaultsKey.panelControlFocusFollowsMouse) private var showFocusFollowsMouse = true
+    @AppStorage(DefaultsKey.panelControlMouseAcceleration) private var showMouseAcceleration = true
+    @AppStorage(DefaultsKey.panelControlMouseClickDebounce) private var showMouseClickDebounce = true
+    @AppStorage(DefaultsKey.panelControlSpacesOrder) private var showSpacesOrder = true
     @AppStorage(DefaultsKey.superKeySource) private var superKeySourceRaw = SuperKeySource.capsLock.rawValue
     @AppStorage(DefaultsKey.superKeyModifiers) private var superKeyModifierStorage = SuperKeySupport.defaultModifierStorageValue
     @AppStorage(DefaultsKey.panelControlMouseScroll) private var showScroll = true
@@ -1378,6 +1438,11 @@ struct QuickControlsSection: View {
         case .textSnippets: return textSnippetsEnabled
         case .radialMenu: return radialMenuEnabled
         case .superKey: return superKeyEnabled
+        case .linearScroll: return linearScrollEnabled
+        case .focusFollowsMouse: return focusFollowsMouseEnabled
+        case .mouseAcceleration: return mouseAccelerationDisabled
+        case .mouseClickDebounce: return mouseClickDebounceEnabled
+        case .spacesOrder: return spacesOrderEnabled
         case .notch: return notchEnabled
         }
     }
@@ -1451,6 +1516,11 @@ struct QuickControlsSection: View {
         case .textSnippets: return showTextSnippets
         case .radialMenu: return showRadialMenu
         case .superKey: return showSuperKey
+        case .linearScroll: return showLinearScroll
+        case .focusFollowsMouse: return showFocusFollowsMouse
+        case .mouseAcceleration: return showMouseAcceleration
+        case .mouseClickDebounce: return showMouseClickDebounce
+        case .spacesOrder: return showSpacesOrder
         case .notch: return showNotch
         }
     }
@@ -1746,6 +1816,80 @@ struct QuickControlsSection: View {
                     SuperKeyService.shared.syncWithPreferences()
                     requestAccessibilityIfNeeded(enabled)
                 }
+        case .linearScroll:
+            PanelToggleRow(title: l10n.s.linearScrollName,
+                           caption: caption(l10n.s.linearScrollCaption,
+                                            needsAccessibility: linearScrollEnabled),
+                           systemImage: AppFeature.linearScroll.symbolName,
+                           isOn: $linearScrollEnabled,
+                           isEditing: editing,
+                           showsDragHandle: true,
+                           visibility: $showLinearScroll,
+                           needsAttention: linearScrollEnabled && !permissions.accessibility,
+                           permissionButtonTitle: l10n.s.permissionRequest,
+                           permissionAction: accessibilityPermissionAction(linearScrollEnabled))
+                .onChange(of: linearScrollEnabled) { _, enabled in
+                    ScrollInverter.shared.syncWithPreferences()
+                    if AppFeature.smoothScroll.isAvailable {
+                        SmoothScrollService.shared.syncWithPreferences()
+                    }
+                    requestAccessibilityIfNeeded(enabled)
+                }
+        case .focusFollowsMouse:
+            PanelToggleRow(title: l10n.s.focusFollowsMouseName,
+                           caption: caption(l10n.s.focusFollowsMouseCaption,
+                                            needsAccessibility: focusFollowsMouseEnabled),
+                           systemImage: AppFeature.focusFollowsMouse.symbolName,
+                           isOn: $focusFollowsMouseEnabled,
+                           isEditing: editing,
+                           showsDragHandle: true,
+                           visibility: $showFocusFollowsMouse,
+                           needsAttention: focusFollowsMouseEnabled && !permissions.accessibility,
+                           permissionButtonTitle: l10n.s.permissionRequest,
+                           permissionAction: accessibilityPermissionAction(focusFollowsMouseEnabled))
+                .onChange(of: focusFollowsMouseEnabled) { _, enabled in
+                    FocusFollowsMouseService.shared.syncWithPreferences()
+                    requestAccessibilityIfNeeded(enabled)
+                }
+        case .mouseAcceleration:
+            PanelToggleRow(title: l10n.s.mouseAccelerationName,
+                           caption: l10n.s.mouseAccelerationCaption,
+                           systemImage: AppFeature.mouseAcceleration.symbolName,
+                           isOn: $mouseAccelerationDisabled,
+                           isEditing: editing,
+                           showsDragHandle: true,
+                           visibility: $showMouseAcceleration)
+                .onChange(of: mouseAccelerationDisabled) { _, _ in
+                    MouseAccelerationService.shared.syncWithPreferences()
+                }
+        case .mouseClickDebounce:
+            let debounceStrings = FeatureStrings.mouseClickDebounce(l10n.language)
+            PanelToggleRow(title: debounceStrings.title,
+                           caption: caption(debounceStrings.caption,
+                                            needsAccessibility: mouseClickDebounceEnabled),
+                           systemImage: AppFeature.mouseClickDebounce.symbolName,
+                           isOn: $mouseClickDebounceEnabled,
+                           isEditing: editing,
+                           showsDragHandle: true,
+                           visibility: $showMouseClickDebounce,
+                           needsAttention: mouseClickDebounceEnabled && !permissions.accessibility,
+                           permissionButtonTitle: l10n.s.permissionRequest,
+                           permissionAction: accessibilityPermissionAction(mouseClickDebounceEnabled))
+                .onChange(of: mouseClickDebounceEnabled) { _, enabled in
+                    MouseClickDebounceService.shared.syncWithPreferences()
+                    requestAccessibilityIfNeeded(enabled)
+                }
+        case .spacesOrder:
+            PanelToggleRow(title: l10n.s.spacesOrderName,
+                           caption: l10n.s.spacesOrderCaption,
+                           systemImage: AppFeature.spacesOrder.symbolName,
+                           isOn: $spacesOrderEnabled,
+                           isEditing: editing,
+                           showsDragHandle: true,
+                           visibility: $showSpacesOrder)
+                .onChange(of: spacesOrderEnabled) { _, _ in
+                    SpacesOrderHold.shared.syncWithPreferences()
+                }
         case .notch:
             let text = FeatureStrings.notch(l10n.language)
             PanelToggleRow(title: text.title,
@@ -1779,6 +1923,11 @@ struct QuickControlsSection: View {
         PanelLayout.resetItemOrder(key: DefaultsKey.panelControlOrder)
         controlOrderRaw = ""
         showScroll = true
+        showLinearScroll = true
+        showFocusFollowsMouse = true
+        showMouseAcceleration = true
+        showMouseClickDebounce = true
+        showSpacesOrder = true
         showMouseNavigation = true
         showSwitcher = true
         showCutPaste = true

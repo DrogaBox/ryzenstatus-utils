@@ -111,6 +111,26 @@ extension AppFeature {
         // IOKit plug and unplug events while its panel row is on screen.
         case .portManager, .connectedDevices:
             return .idle
+        // The tap only watches Command-Q and Command-W.
+        case .quitWindowProtection:
+            return .keyboard
+        // Wheel, pointer and click taps.
+        case .scrollHorizontal, .focusFollowsMouse, .linearScroll, .mouseClickDebounce:
+            return .mouse
+        // One system setting written when switched; nothing runs at rest.
+        case .mouseAcceleration, .spacesOrder:
+            return .idle
+        // The rename shortcut is answered by a keyboard tap.
+        case .finderRename:
+            return .keyboard
+        // Device priority follows CoreAudio notifications; Bluetooth on
+        // sleep only waits for the sleep and wake notifications.
+        case .audioPriority, .bluetoothSleep:
+            return .idle
+        // The installer answers each mounted image; the gallery acts only
+        // when a picture is chosen.
+        case .diskImageInstaller, .wallpaper:
+            return .idle
         case .appUpdates:
             // The list is on demand; only a background schedule keeps a timer.
             return AppUpdatesSupport.CheckFrequency.sanitized(
