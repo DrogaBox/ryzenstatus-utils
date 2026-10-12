@@ -59,7 +59,7 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchTrackChange) private var trackChange = true
     @AppStorage(DefaultsKey.notchShowPlayingMusic) private var showPlayingMusic = true
     @AppStorage(DefaultsKey.notchIncludeOtherPlayers) private var includeOtherPlayers = true
-    @AppStorage(DefaultsKey.notchPreferredPlayer) private var preferredPlayer = NotchPreferredPlayer.automatic
+    @AppStorage(DefaultsKey.notchPreferredPlayer) private var preferredPlayer = NowPlayingPreferredPlayer.automatic
     @AppStorage(DefaultsKey.notchIdleContent) private var idle = NotchIdleContent.music.rawValue
     @AppStorage(DefaultsKey.notchLowBatteryTint) private var lowBatteryTint = false
     @AppStorage(DefaultsKey.notchLowBatteryThreshold) private var lowBatteryThreshold = NotchSupport.defaultLowBatteryThreshold
@@ -100,7 +100,7 @@ struct NotchSettings: View {
     @State private var selectedModule = NotchModule.controls
     @State private var draggingModule: NotchModule?
     @State private var draggingControl: NotchControlItem?
-    @State private var preferredPlayers: [NotchPreferredPlayer.Choice]?
+    @State private var preferredPlayers: [NowPlayingPreferredPlayer.Choice]?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     private var text: NotchStrings { FeatureStrings.notch(l10n.language) }
@@ -209,9 +209,7 @@ struct NotchSettings: View {
 
     private func sync() {
         NotchService.shared.syncWithPreferences()
-        if !NotchLyricsSupport.isEnabled() { NotchLyricsService.shared.stop() }
-        // The queue's own switch went off: hide a queue the island still shows.
-        if !NotchQueueSupport.isEnabled() { NotchMusicService.shared.setQueueVisible(false) }
+        if !NotchLyricsSupport.isEnabled() { NotchLyricsImporter.shared.cancel() }
         if AppFeature.brightness.isAvailable { BrightnessService.shared.syncWithPreferences() }
     }
 
@@ -419,15 +417,15 @@ struct NotchSettings: View {
             switchRow("play.rectangle", music.includeOtherPlayers, isOn: $includeOtherPlayers)
             SettingsRow(symbol: "arrow.up.forward.app", title: music.preferredPlayer, caption: music.preferredPlayerHint) {
                 Picker(music.preferredPlayer, selection: $preferredPlayer) {
-                    Text(music.automaticSource).tag(NotchPreferredPlayer.automatic)
-                    ForEach(NotchPreferredPlayer.choices(in: preferredPlayers ?? [], including: preferredPlayer), id: \.bundleID) { app in
+                    Text(music.automaticSource).tag(NowPlayingPreferredPlayer.automatic)
+                    ForEach(NowPlayingPreferredPlayer.choices(in: preferredPlayers ?? [], including: preferredPlayer), id: \.bundleID) { app in
                         Text(app.name).tag(app.bundleID)
                     }
                 }
                 .labelsHidden()
             }
             .task {
-                guard let choices = await NotchPreferredPlayer.loadInstalled(), !Task.isCancelled else { return }
+                guard let choices = await NowPlayingPreferredPlayer.loadInstalled(), !Task.isCancelled else { return }
                 preferredPlayers = choices
             }
             SettingsFeatureSwitchRow(symbol: "text.quote", title: music.enableLyrics, isOn: $lyricsEnabled, feature: .notchLyrics)

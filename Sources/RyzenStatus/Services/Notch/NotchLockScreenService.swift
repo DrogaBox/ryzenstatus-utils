@@ -128,7 +128,7 @@ final class NotchLockScreenService {
                 panel.animator().alphaValue = 1
             }
         }
-        playbackSubscription = NotchMusicService.shared.$playback
+        playbackSubscription = NowPlayingService.shared.$playback
             .receive(on: DispatchQueue.main)
             .sink { [weak self] playback in
                 guard let self, playback?.isPlaying == true, !self.model.playedWhileLocked else { return }
@@ -143,7 +143,7 @@ final class NotchLockScreenService {
     }
 
     private func startSources(_ gates: NotchLockScreenModel.Gates) {
-        if gates.music { NotchMusicService.shared.start() }
+        if gates.music { NowPlayingService.shared.startIslandFeed() }
         if gates.downloads { NotchDownloadService.shared.syncWithPreferences() }
         if gates.countdown || gates.timeLeft || !NotchCalendarSupport.chosenCountdowns().isEmpty {
             NotchCalendarService.shared.syncWithPreferences()
@@ -152,7 +152,7 @@ final class NotchLockScreenService {
 
     private func hide(unlocking: Bool, stopsSources: Bool) {
         if stopsSources, !scene.isEmpty {
-            NotchMusicService.shared.stop()
+            NowPlayingService.shared.stopIslandFeed()
             NotchDownloadService.shared.stop()
             NotchCalendarService.shared.stop()
         }

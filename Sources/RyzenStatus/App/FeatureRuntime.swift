@@ -278,10 +278,10 @@ final class FeatureRuntime: ObservableObject {
             else { NotchAccessoryService.shared.stop() }
         },
         .notchLyrics: {
-            if !NotchLyricsSupport.isEnabled() { NotchLyricsService.shared.stop() }
+            if !NotchLyricsSupport.isEnabled() { NotchLyricsImporter.shared.cancel() }
         },
-        // .notchQueue has no binding: this fork's queue is a stub that keeps
-        // no state, and a running island re-reads the switch on its own.
+        // .notchQueue has no binding: the queue is read from
+        // NowPlayingService, and a running island re-reads the switch on its own.
         .notchLiveEqualizer: { NotchAudioLevelService.shared.syncWithPreferences() },
         .notchNotifications: {
             if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }

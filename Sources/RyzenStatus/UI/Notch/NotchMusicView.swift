@@ -7,10 +7,9 @@ struct NotchMusicView: View {
     let size: CGSize
     /// Room lyrics or the queue may add below the player.
     let extrasHeight: CGFloat
-    @ObservedObject private var service = NotchMusicService.shared
+    @ObservedObject private var service = NowPlayingService.shared
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var features = FeatureRuntime.shared
-    @ObservedObject private var shuffle = NotchShuffleService.shared
     @AppStorage(DefaultsKey.notchLyricsEnabled) private var lyricsEnabled = true
     @AppStorage(DefaultsKey.notchQueueEnabled) private var queueEnabled = true
     @State private var extra: MusicExtra?
@@ -50,10 +49,8 @@ struct NotchMusicView: View {
             if showsPlayer {
                 if let playback = service.playback {
                     player(playback, height: playerHeight)
-                } else if !service.awaitingPlayback {
-                    idle(height: playerHeight)
                 } else {
-                    Color.clear.frame(height: playerHeight)
+                    idle(height: playerHeight)
                 }
             }
             if let openExtra, let playback = service.playback {
@@ -87,17 +84,17 @@ struct NotchMusicView: View {
             guard !preview else { return }
             syncExtras()
             service.refreshAutomation()
-            shuffle.refresh(for: service.playback)
+            service.refreshShuffle()
         }
         .onChange(of: extra) { syncExtras() }
-        .onChange(of: service.playback.map(NotchMusicIdentity.init)) {
+        .onChange(of: service.playback.map(NowPlayingTrackIdentity.init)) {
             syncExtras()
-            if !preview { shuffle.refresh(for: service.playback) }
+            if !preview { service.refreshShuffle() }
         }
         // Shuffle and the playback buttons share one consent, so a grant
         // through the playback buttons also shows on shuffle.
         .onChange(of: service.automationAvailability?.access) { old, new in
-            if !preview, old != nil, new != nil { shuffle.refresh(for: service.playback) }
+            if !preview, old != nil, new != nil { service.refreshShuffle() }
         }
         .onChange(of: features.revision) { syncExtras() }
         .onChange(of: lyricsEnabled) { syncExtras() }
@@ -106,9 +103,7 @@ struct NotchMusicView: View {
             guard !preview else { return }
             NotchService.shared.setMusicDetailsVisible(false)
             NotchService.shared.setPageLayer(.music, close: nil)
-            NotchLyricsService.shared.hide()
-            service.setQueueVisible(false)
-            shuffle.stop()
+            service.stopShuffleReading()
         }
     }
 
@@ -117,17 +112,15 @@ struct NotchMusicView: View {
         NotchService.shared.setMusicDetailsVisible(openExtra != nil)
         // Escape closes lyrics or the queue before the island.
         NotchService.shared.setPageLayer(.music, close: openExtra == nil ? nil : { extra = nil })
-        NotchLyricsService.shared.update(playback: service.playback, visible: extra == .lyrics)
-        service.setQueueVisible(extra == .queue)
     }
 
     private func idle(height: CGFloat) -> some View {
-        let player = preview ? nil : NotchPreferredPlayer.current()
+        let player = preview ? nil : NowPlayingPreferredPlayer.current()
         let opens = player != nil
-        let openTitle = player.map { NotchPreferredPlayer.openTitle(for: $0) } ?? ""
+        let openTitle = player.map { NowPlayingPreferredPlayer.openTitle(for: $0) } ?? ""
         return HStack(spacing: 20) {
             // With a music app to open, the cover and the buttons below open it.
-            Button { NotchPreferredPlayer.open() } label: {
+            Button { NowPlayingPreferredPlayer.open() } label: {
                 Image(systemName: "music.note")
                     .font(.system(size: 30, weight: .light))
                     .foregroundStyle(.white.opacity(0.75))
@@ -140,11 +133,7 @@ struct NotchMusicView: View {
             .help(openTitle)
             .accessibilityLabel(opens ? openTitle : text.mediaNothingPlaying)
             VStack(alignment: .leading, spacing: 6) {
-                if !service.sources.isEmpty || !service.sourceIsAutomatic {
-                    sourcePicker(nil)
-                } else {
-                    Text(text.mediaNothingPlaying).font(.system(size: 17, weight: .semibold))
-                }
+                Text(text.mediaNothingPlaying).font(.system(size: 17, weight: .semibold))
                 if opens {
                     NotchMusicIdleTransport(compact: true, openTitle: openTitle)
                 } else {
@@ -170,19 +159,19 @@ struct NotchMusicView: View {
     /// controlled asks for that first, as the playback buttons do.
     private func shuffleButton(compact: Bool) -> some View {
         let strings = FeatureStrings.notchMusicExtras(l10n.language)
-        let consent = shuffle.availability?.access == .consent
-        return NotchMusicSideButton(symbol: "shuffle", title: strings.shuffle, hint: consent ? strings.allowPlayback : nil,
-                                    active: shuffle.enabled == true, tint: accent, compact: compact) { shuffle.toggle() }
-            .disabled(shuffle.requestingAccess || !shuffle.allowed)
+        return NotchMusicSideButton(symbol: "shuffle", title: strings.shuffle,
+                                    hint: service.shuffleNeedsConsent ? strings.allowPlayback : nil,
+                                    active: service.shuffleIsOn, tint: accent, compact: compact) { service.toggleIslandShuffle() }
+            .disabled(service.shuffleIsBlocked)
     }
 
     /// The artwork fills the row; the details beside it drop their artist
     /// line, then the timeline, before they would overflow a short island.
-    private func player(_ playback: NotchPlayback, height: CGFloat) -> some View {
+    private func player(_ playback: NowPlayingPlayback, height: CGFloat) -> some View {
         let roomy = height >= 140
         return HStack(spacing: roomy ? 20 : 16) {
-            Button { RadialNowPlayingApplication.open(playback.track) } label: {
-                NotchArtwork(image: service.artwork, size: height)
+            Button { NowPlayingApplication.open(playback.track) } label: {
+                NotchArtwork(image: service.artworkImage, size: height)
                     .scaleEffect(playback.isPlaying || reduceMotion ? 1 : 0.94)
                     .shadow(color: halo.opacity(0.42), radius: 20, y: 7)
                     .shadow(color: halo.opacity(0.2), radius: 42, y: 14)
@@ -204,7 +193,7 @@ struct NotchMusicView: View {
         .modifier(NotchMusicSwipeFeedback())
     }
 
-    private func details(_ playback: NotchPlayback, titleLines: Int, artist: Bool, timeline: Bool, roomy: Bool) -> some View {
+    private func details(_ playback: NowPlayingPlayback, titleLines: Int, artist: Bool, timeline: Bool, roomy: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -212,24 +201,20 @@ struct NotchMusicView: View {
                         .font(.system(size: roomy ? 20 : 16, weight: .semibold))
                         .lineLimit(titleLines).help(playback.track.title ?? text.mediaNowPlaying)
                     Spacer(minLength: 0)
-                    if service.sources.count > 1 || !service.sourceIsAutomatic {
-                        sourcePicker(playback)
-                    }
                     if playback.isPlaying {
                         NotchLiveEqualizerBars(bars: 3, barWidth: 2.5, height: 12, tint: accent)
                             .transition(.opacity)
                     }
                 }
                 if artist {
-                    Text(service.commandFailed ? FeatureStrings.notchMusicExtras(l10n.language).playbackFailed
-                         : playback.track.artist ?? playback.track.album ?? text.mediaNowPlaying)
+                    Text(playback.track.artist ?? playback.track.album ?? text.mediaNowPlaying)
                         .font(.system(size: roomy ? 13 : 12))
-                        .foregroundStyle(service.commandFailed ? .orange : .secondary)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
             if timeline { NotchMusicTimeline(playback: playback, service: service, tint: accent, timesBeside: true) }
-            if !preview && shuffle.isOffered {
+            if !preview && service.shuffleIsOffered {
                 // Shuffle sits beside the transport as one more of its buttons,
                 // spaced like them. The other side keeps its room while it
                 // shows, so the transport stays centred. A column too narrow
@@ -249,41 +234,6 @@ struct NotchMusicView: View {
             }
         }
         .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private func sourcePicker(_ playback: NotchPlayback?) -> some View {
-        let extras = FeatureStrings.notchMusicExtras(l10n.language)
-        let pid = playback?.track.appPID
-        let name = service.sources.first(where: { $0.pid == pid })?.displayName
-            ?? pid.flatMap { NSRunningApplication(processIdentifier: $0)?.localizedName }
-            ?? playback?.track.appBundleIdentifier ?? extras.playbackSource
-        return Menu {
-            Button { service.selectSource(nil) } label: {
-                if service.sourceIsAutomatic { Label(extras.automaticSource, systemImage: "checkmark") }
-                else { Text(extras.automaticSource) }
-            }
-            Divider()
-            ForEach(service.sources, id: \.pid) { source in
-                let title = source.displayName ?? NSRunningApplication(processIdentifier: source.pid)?.localizedName ?? source.bundleIdentifier
-                Button { service.selectSource(source.selection) } label: {
-                    // The chosen row, even while the automatic player fills its gap.
-                    if source.pid == service.selectedSourcePID {
-                        Label(title, systemImage: "checkmark")
-                    } else { Text(title) }
-                }
-            }
-        } label: {
-            Text(name).lineLimit(1).truncationMode(.tail)
-        }
-        .menuStyle(.borderlessButton)
-        .frame(maxWidth: 110)
-        .fixedSize()
-        .font(.system(size: 10, weight: .medium))
-        .foregroundStyle(.secondary)
-        .accessibilityLabel(extras.playbackSource)
-        .accessibilityValue([service.sourceIsAutomatic ? extras.automaticSource : nil,
-                             playback == nil ? nil : name].compactMap { $0 }.joined(separator: ", "))
-        .help(extras.playbackSource)
     }
 }
 
@@ -344,7 +294,7 @@ struct NotchMusicIdleTransport: View {
     }
 
     private func button(_ symbol: String, title: String, size: CGFloat) -> some View {
-        Button { NotchPreferredPlayer.open() } label: {
+        Button { NowPlayingPreferredPlayer.open() } label: {
             Image(systemName: symbol)
                 .font(.system(size: size, weight: .semibold))
                 .foregroundStyle(.white)
@@ -360,12 +310,12 @@ struct NotchMusicIdleTransport: View {
 }
 
 private struct NotchMusicTransport: View {
-    let playback: NotchPlayback
+    let playback: NowPlayingPlayback
     /// The home card and a short player use the smaller buttons.
     var compact = false
     // Automation discovery and consent finish after the first render while the
     // track stays the same, so this row must observe the service itself.
-    @ObservedObject private var service = NotchMusicService.shared
+    @ObservedObject private var service = NowPlayingService.shared
     @ObservedObject private var l10n = L10n.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.notchSettingsPreview) private var preview
@@ -389,7 +339,7 @@ private struct NotchMusicTransport: View {
                     Button { service.refreshAutomation() } label: { Image(systemName: "arrow.clockwise") }
                         .accessibilityLabel(FeatureStrings.notchMusicExtras(l10n.language).refresh)
                 } else {
-                    Button(FeatureStrings.notchMusicExtras(l10n.language).openPlayer) { RadialNowPlayingApplication.open(playback.track) }
+                    Button(FeatureStrings.notchMusicExtras(l10n.language).openPlayer) { NowPlayingApplication.open(playback.track) }
                 }
             }
             .buttonStyle(.borderless).font(.caption).frame(height: height)
@@ -450,7 +400,7 @@ private struct NotchMusicTransport: View {
               ? FeatureStrings.notchMusicExtras(l10n.language).allowPlayback : text.mediaPlayPause)
     }
 
-    private func playbackButton(_ symbol: String, title: String, command: NotchMusicService.Command) -> some View {
+    private func playbackButton(_ symbol: String, title: String, command: NowPlayingTransportCommand) -> some View {
         Button { service.send(command, context: playback.commandContext) } label: {
             Image(systemName: symbol)
                 .font(.system(size: compact ? 16 : 19, weight: .semibold))
@@ -466,16 +416,16 @@ private struct NotchMusicTransport: View {
 }
 
 struct NotchMusicTimeline: View {
-    let playback: NotchPlayback
-    @ObservedObject var service: NotchMusicService
+    let playback: NowPlayingPlayback
+    @ObservedObject var service: NowPlayingService
     var tint: Color = .white
     /// The island's player sets the times beside the bar, as a phone's
     /// island does, which leaves its short row room for the artist.
     var timesBeside = false
     @ObservedObject private var l10n = L10n.shared
     @State private var scrubPosition: Double?
-    @State private var scrubTrack: RadialNowPlayingSnapshot?
-    @State private var scrubContext: NotchPlaybackContext?
+    @State private var scrubTrack: NowPlayingTrack?
+    @State private var scrubContext: NowPlayingPlaybackContext?
     @State private var pendingSeek: UUID?
 
     var body: some View {
@@ -547,13 +497,12 @@ struct NotchMusicTimeline: View {
                 onEditingChanged: { editing in
                     if editing {
                         pendingSeek = nil
-                    } else if let scrubPosition, let scrubTrack {
-                        service.seek(to: scrubPosition, in: scrubTrack, context: scrubContext)
+                    } else if let scrubPosition, scrubTrack != nil {
+                        service.send(.seek(scrubPosition), context: scrubContext)
                         pendingSeek = UUID()
                     }
                 })
                 .frame(height: 10)
-                .disabled(service.commandPending)
         } else {
             NotchMeter(value: position / playback.duration, height: 6, tint: tint)
         }
@@ -578,25 +527,25 @@ struct NotchMusicTimeline: View {
 struct NotchMusicControlsView: View {
     @ObservedObject var notch: NotchService
     var height: CGFloat = NotchLayout.cardHeight
-    @ObservedObject private var music = NotchMusicService.shared
+    @ObservedObject private var music = NowPlayingService.shared
     @ObservedObject private var l10n = L10n.shared
     @Environment(\.notchSettingsPreview) private var preview
     private var text: RadialMenuFeatureStrings { FeatureStrings.radialMenu(l10n.language) }
     private var isIdle: Bool {
-        !preview && music.playback == nil && !music.awaitingPlayback
+        !preview && music.playback == nil
     }
 
     var body: some View {
-        let player = isIdle ? NotchPreferredPlayer.current() : nil
+        let player = isIdle ? NowPlayingPreferredPlayer.current() : nil
         let idleOpens = player != nil
-        let openTitle = player.map { NotchPreferredPlayer.openTitle(for: $0) } ?? ""
+        let openTitle = player.map { NowPlayingPreferredPlayer.openTitle(for: $0) } ?? ""
         HStack(spacing: 12) {
             // With nothing playing, the cover opens the music app instead.
             Button {
-                if isIdle, NotchPreferredPlayer.open() { return }
+                if isIdle, NowPlayingPreferredPlayer.open() { return }
                 notch.select(.music)
             } label: {
-                NotchArtwork(image: music.artwork, size: max(40, height - 24))
+                NotchArtwork(image: music.artworkImage, size: max(40, height - 24))
             }
             .buttonStyle(NotchButtonStyle(cornerRadius: 16))
             .accessibilityLabel(idleOpens ? openTitle : text.mediaNowPlaying)
@@ -604,15 +553,14 @@ struct NotchMusicControlsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Button { notch.select(.music) } label: {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(music.playback?.track.title ?? (music.awaitingPlayback ? text.mediaNowPlaying : text.mediaNothingPlaying))
+                        Text(music.playback?.track.title ?? text.mediaNothingPlaying)
                             .font(.system(size: 13, weight: .semibold)).lineLimit(1)
                         // A shortened card keeps the title and the transport.
                         if height >= 84 {
-                            Text(music.commandFailed ? FeatureStrings.notchMusicExtras(l10n.language).playbackFailed
-                                 : music.playback?.track.artist ?? music.playback?.track.album
-                                    ?? (music.awaitingPlayback ? "" : FeatureStrings.notch(l10n.language).musicHint))
+                            Text(music.playback?.track.artist ?? music.playback?.track.album
+                                    ?? FeatureStrings.notch(l10n.language).musicHint)
                                 .font(.system(size: 11))
-                                .foregroundStyle(music.commandFailed ? .orange : .secondary)
+                                .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
                     }

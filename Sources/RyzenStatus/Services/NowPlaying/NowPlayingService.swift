@@ -8,6 +8,12 @@ import Combine
 /// the music app, Spotify, browsers, video players) and surfaces it in the
 /// menu bar and the menu panel.
 ///
+/// It is the single now-playing engine of the app: the Dynamic Island reads
+/// the same session through `playback`/`artworkImage`/`artworkTint` and the
+/// track change subjects, and commands it through `send(_:)`, shuffle and
+/// the scripting consent below. The island registers as the `.notch`
+/// consumer; its feed is only computed while that consumer is active.
+///
 /// The service is a hub feature: `syncWithPreferences` starts it only while
 /// the feature is available AND its enable key is on, and stops it the moment
 /// either flips. While stopped there are no timers, no observers and no status
@@ -45,7 +51,41 @@ final class NowPlayingService: ObservableObject {
     /// re-animate (e.g. when a popover reopens), a genuinely new cover does.
     @Published private(set) var artworkIdentity = ""
 
+    // MARK: Island feed (computed only while the `.notch` consumer is active)
+
+    /// The current reading on a playback clock, nil when nothing plays.
+    @Published private(set) var playback: NowPlayingPlayback?
+    /// The cover's colour for halos and accents; nil for neutral covers.
+    @Published private(set) var artworkTint: NowPlayingArtworkTint?
+    /// The player's upcoming songs. No provider exposes a queue to this app,
+    /// so it stays nil and the island reports the queue as unavailable.
+    @Published private(set) var upcoming: NowPlayingQueue?
+    /// Consent state for the player's scripting dictionary, when it has one.
+    @Published private(set) var automationAvailability: NowPlayingScripting.Availability?
+    @Published private(set) var requestingAutomation = false
+    /// Shuffle read through a scripting dictionary, for players outside the
+    /// AppleScript providers. Nil until the player answers.
+    @Published private(set) var scriptedShuffleEnabled: Bool?
+    @Published private(set) var scriptedShuffleAllowed = true
+    @Published private(set) var scriptedShufflePending = false
+    @Published private(set) var requestingShuffleAccess = false
+    /// Sent before a reading that starts a new song is published.
+    let trackChanges = PassthroughSubject<Void, Never>()
+    /// Sent before the reading that ends playback is published.
+    let trackEnds = PassthroughSubject<Void, Never>()
+    /// Skips asked for by a swipe on the island; true is forward.
+    let gestureSkips = PassthroughSubject<Bool, Never>()
+    private var trackChangeDetector = NowPlayingTrackChange()
+    private var tintIdentity = ""
+    private var scriptingCapabilities: [URL: NowPlayingScriptingCapabilities?] = [:]
+    private var shuffleGeneration = UUID()
+    private var shuffleSwitchID = UUID()
+    private var shuffleReading = false
+
     private let queue = DispatchQueue(label: "com.ryzenstatus.utils.now-playing", qos: .utility)
+    /// Apple Events to scriptable players wait up to a second for a reply;
+    /// they get their own queue so they never hold up a poll.
+    private let scriptingQueue = DispatchQueue(label: "com.ryzenstatus.utils.now-playing-scripting", qos: .utility)
     private var timer: Timer?
     private var statusItem: NSStatusItem?
     private var lastRenderedKey = ""
@@ -94,6 +134,9 @@ final class NowPlayingService: ObservableObject {
             installStatusItem()
             syncShortcuts()
         }
+        if consumer == .notch {
+            syncIslandFeed()
+        }
     }
 
     func unregisterConsumer(_ consumer: Consumer) {
@@ -110,10 +153,17 @@ final class NowPlayingService: ObservableObject {
             popupShortcutRegistrationFailed = false
             detachedShortcutRegistrationFailed = false
         }
+        if consumer == .notch {
+            clearIslandFeed()
+        }
         if activeConsumers.isEmpty {
             stopPolling()
         }
     }
+
+    /// The island's music surfaces start and stop the shared reading here.
+    func startIslandFeed() { registerConsumer(.notch) }
+    func stopIslandFeed() { unregisterConsumer(.notch) }
 
     func syncWithPreferences() {
         let defaults = UserDefaults.standard
@@ -190,6 +240,7 @@ final class NowPlayingService: ObservableObject {
         lastFingerprintedData = nil
         lastArtworkIdentity = ""
         NowPlayingAnimatedArtworkCenter.shared.sync(with: .empty)
+        clearIslandFeed()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         onDeactivate?()
     }
@@ -223,6 +274,7 @@ final class NowPlayingService: ObservableObject {
                         self.artworkImage = next.artwork
                         self.artworkIdentity = self.artworkIdentity(for: next.artworkData)
                         NowPlayingAnimatedArtworkCenter.shared.sync(with: next)
+                        self.syncIslandFeed()
                     }
                     self.renderMenuBar()
                 }
@@ -266,6 +318,7 @@ final class NowPlayingService: ObservableObject {
                         self.artworkImage = next.artwork
                         self.artworkIdentity = self.artworkIdentity(for: next.artworkData)
                         NowPlayingAnimatedArtworkCenter.shared.sync(with: next)
+                        self.syncIslandFeed()
                     }
                     self.renderMenuBar()
                 }
@@ -310,7 +363,7 @@ final class NowPlayingService: ObservableObject {
             NowPlayingAutomation.togglePlayPause(bundleID: bundleID)
         } else if MediaRemoteBridge.sendCommand != nil {
             MediaRemoteBridge.send(.togglePlayPause)
-        } else {
+        } else if !sendScripted(.toggle) {
             Self.postAuxKey(16)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
@@ -324,7 +377,7 @@ final class NowPlayingService: ObservableObject {
             NowPlayingAutomation.nextTrack(bundleID: bundleID)
         } else if MediaRemoteBridge.sendCommand != nil {
             MediaRemoteBridge.send(.nextTrack)
-        } else {
+        } else if !sendScripted(.next) {
             Self.postAuxKey(19)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
@@ -338,7 +391,7 @@ final class NowPlayingService: ObservableObject {
             NowPlayingAutomation.previousTrack(bundleID: bundleID)
         } else if MediaRemoteBridge.sendCommand != nil {
             MediaRemoteBridge.send(.previousTrack)
-        } else {
+        } else if !sendScripted(.previous) {
             Self.postAuxKey(20)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
@@ -426,6 +479,7 @@ final class NowPlayingService: ObservableObject {
             snapshot = .empty
             artworkImage = nil
             artworkIdentity = ""
+            syncIslandFeed()
         }
         // Display settings changed: restart the marquee from a clean slate.
         stopMarquee()
@@ -470,6 +524,260 @@ final class NowPlayingService: ObservableObject {
             NSWorkspace.shared.openApplication(at: appURL,
                                                configuration: NSWorkspace.OpenConfiguration(),
                                                completionHandler: nil)
+        }
+    }
+
+    // MARK: - Island feed
+
+    /// Derives the island's reading from the current snapshot. Runs after
+    /// every published snapshot change, and only while the island listens.
+    private func syncIslandFeed() {
+        guard activeConsumers.contains(.notch) else { return }
+        let pid = snapshot.appBundleID.flatMap {
+            NSRunningApplication.runningApplications(withBundleIdentifier: $0).first?.processIdentifier
+        }
+        guard let next = NowPlayingPlayback.make(from: snapshot, pid: pid, sampledAt: Date()) else {
+            if playback != nil {
+                // Sent first, so the island lets the ending song go as itself.
+                trackEnds.send()
+                playback = nil
+                artworkTint = nil
+                tintIdentity = ""
+                automationAvailability = nil
+            }
+            return
+        }
+        let isNewSong = trackChangeDetector.isNewSong(next, first: playback == nil)
+        // The tint only changes with the cover: one 1×1 draw per new cover.
+        if artworkIdentity != tintIdentity {
+            tintIdentity = artworkIdentity
+            artworkTint = artworkImage.flatMap(NowPlayingArtworkTint.sample)
+        }
+        playback = next
+        NowPlayingPreferredPlayer.remember(next)
+        refreshAutomation()
+        if isNewSong {
+            trackChanges.send()
+        }
+    }
+
+    private func clearIslandFeed() {
+        playback = nil
+        artworkTint = nil
+        tintIdentity = ""
+        automationAvailability = nil
+        upcoming = nil
+        trackChangeDetector.reset()
+        stopShuffleReading()
+    }
+
+    var canSeek: Bool { playback?.canSeek == true }
+
+    func lacksTrackSkipping(_ command: NowPlayingTransportCommand) -> Bool {
+        switch command {
+        case .next: return playback?.canSkipNext != true
+        case .previous: return playback?.canSkipPrevious != true
+        default: return false
+        }
+    }
+
+    func canPerform(_ command: NowPlayingTransportCommand) -> Bool {
+        playback != nil
+    }
+
+    /// The island's transport. Every command goes through the same provider
+    /// routing as the menu panel's buttons.
+    @discardableResult
+    func send(_ command: NowPlayingTransportCommand, context: NowPlayingPlaybackContext? = nil) -> Bool {
+        switch command {
+        case .toggle: togglePlayPause()
+        case .next: nextTrack()
+        case .previous: previousTrack()
+        case .seek(let seconds):
+            guard NowPlayingTransportCommand.validPosition(seconds) else { return false }
+            seek(to: seconds)
+        }
+        return true
+    }
+
+    func skipFromGesture(forward: Bool) {
+        if forward { nextTrack() } else { previousTrack() }
+        gestureSkips.send(forward)
+    }
+
+    /// Opens the app that owns the island's current reading.
+    func openPlayingApp() {
+        guard let track = playback?.track else { openSourceApp(); return }
+        NowPlayingApplication.open(track)
+    }
+
+    // MARK: - Scripting dictionaries
+
+    /// Reads which scripting commands the playing app declares and whether
+    /// this app may send them. The dictionary is parsed once per app.
+    func refreshAutomation() {
+        guard let playback, let target = NowPlayingScripting.Target(playback) else {
+            if automationAvailability != nil { automationAvailability = nil }
+            return
+        }
+        let capabilities: NowPlayingScriptingCapabilities?
+        if let cached = scriptingCapabilities[target.bundleURL] {
+            capabilities = cached
+        } else {
+            capabilities = NowPlayingScriptingCapabilities.load(bundleURL: target.bundleURL)
+            if scriptingCapabilities.count > 16 { scriptingCapabilities.removeAll() }
+            scriptingCapabilities[target.bundleURL] = .some(capabilities)
+        }
+        guard let capabilities else {
+            if automationAvailability != nil { automationAvailability = nil }
+            return
+        }
+        let next = NowPlayingScripting.Availability(target: target, capabilities: capabilities,
+                                                     access: NowPlayingScripting.access(to: target))
+        if next.target != automationAvailability?.target || next.access != automationAvailability?.access
+            || next.capabilities != automationAvailability?.capabilities {
+            automationAvailability = next
+        }
+    }
+
+    func requestAutomationAccess() {
+        guard let playback, let target = NowPlayingScripting.Target(playback) else { return }
+        requestingAutomation = true
+        let address = NSAppleEventDescriptor(processIdentifier: target.pid)
+        _ = AEDeterminePermissionToAutomateTarget(address.aeDesc, typeWildCard, typeWildCard, true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.requestingAutomation = false
+            self?.refreshAutomation()
+        }
+    }
+
+    /// Players outside the providers that MediaRemote cannot reach still
+    /// take the commands their dictionary declares, once allowed.
+    private func sendScripted(_ command: NowPlayingTransportCommand) -> Bool {
+        guard let playback, let availability = automationAvailability, availability.access == .granted,
+              availability.capabilities.event(for: command, isPlaying: playback.isPlaying) != nil else { return false }
+        let validatedAt = ProcessInfo.processInfo.systemUptime
+        scriptingQueue.async {
+            _ = NowPlayingScripting.send(command, playback: playback, availability: availability,
+                                         cancellation: DispatchWorkItem {}, validatedAt: validatedAt)
+        }
+        return true
+    }
+
+    // MARK: - Island shuffle
+
+    /// Shuffle the island offers: the provider's own (Music, Spotify, Kaset)
+    /// or the switch another player's scripting dictionary declares.
+    var shuffleIsOffered: Bool {
+        if supportsPlaybackModes { return true }
+        guard let availability = automationAvailability, availability.capabilities.shuffle != nil else { return false }
+        return availability.access == .consent || (availability.access == .granted && scriptedShuffleEnabled != nil)
+    }
+
+    var shuffleIsOn: Bool {
+        supportsPlaybackModes ? snapshot.isShuffleEnabled : scriptedShuffleEnabled == true
+    }
+
+    /// The first press on a scriptable player not yet allowed asks for consent.
+    var shuffleNeedsConsent: Bool {
+        !supportsPlaybackModes && automationAvailability?.access == .consent
+    }
+
+    var shuffleIsBlocked: Bool {
+        !supportsPlaybackModes && (requestingShuffleAccess || !scriptedShuffleAllowed)
+    }
+
+    /// Reads a scriptable player's shuffle switch. Runs when the island's
+    /// music page opens and whenever its song or player changes, since
+    /// shuffle can also be switched in the player itself. The providers'
+    /// shuffle is already read by every poll.
+    func refreshShuffle() {
+        shuffleReading = true
+        let requested = UUID()
+        shuffleGeneration = requested
+        guard !supportsPlaybackModes, let available = automationAvailability,
+              available.capabilities.shuffle != nil else {
+            scriptedShuffleEnabled = nil
+            scriptedShuffleAllowed = true
+            return
+        }
+        scriptingQueue.async { [weak self] in
+            let state = NowPlayingScripting.shuffle(of: available)
+            let allowed = NowPlayingScripting.shuffleAllowed(by: available)
+            DispatchQueue.main.async {
+                guard let self, self.shuffleGeneration == requested else { return }
+                self.scriptedShuffleEnabled = state
+                self.scriptedShuffleAllowed = allowed
+            }
+        }
+    }
+
+    func toggleIslandShuffle() {
+        if supportsPlaybackModes {
+            toggleShuffle()
+            return
+        }
+        guard !scriptedShufflePending, !requestingShuffleAccess, let available = automationAvailability,
+              available.capabilities.shuffle != nil, available.target.isCurrent else { return }
+        if available.access == .consent {
+            requestShuffleAccess(available)
+            return
+        }
+        guard available.access == .granted, scriptedShuffleAllowed, let current = scriptedShuffleEnabled else { return }
+        scriptedShufflePending = true
+        let id = UUID()
+        shuffleSwitchID = id
+        scriptingQueue.async { [weak self] in
+            let sent = NowPlayingScripting.setShuffle(!current, availability: available)
+            DispatchQueue.main.async {
+                guard let self, self.shuffleSwitchID == id else { return }
+                self.scriptedShufflePending = false
+                guard self.automationAvailability?.target == available.target else { return }
+                self.scriptedShuffleEnabled = sent ? !current : current
+                // A switch that did not go through may mean consent was taken
+                // back or the player went away, so look again.
+                if !sent {
+                    self.refreshAutomation()
+                    self.refreshShuffle()
+                }
+            }
+            // Some players answer with the old state for about a second after
+            // the switch, so their own answer is asked for a moment later.
+            self?.scriptingQueue.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                let state = NowPlayingScripting.shuffle(of: available)
+                DispatchQueue.main.async {
+                    guard let self, self.shuffleSwitchID == id,
+                          self.automationAvailability?.target == available.target, let state else { return }
+                    self.scriptedShuffleEnabled = state
+                }
+            }
+        }
+    }
+
+    /// The island's music page closed: stop reading the scripted switch.
+    func stopShuffleReading() {
+        shuffleReading = false
+        shuffleGeneration = UUID()
+        shuffleSwitchID = UUID()
+        scriptedShuffleEnabled = nil
+        scriptedShuffleAllowed = true
+        scriptedShufflePending = false
+    }
+
+    private func requestShuffleAccess(_ available: NowPlayingScripting.Availability) {
+        requestingShuffleAccess = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            if available.target.isCurrent {
+                _ = AppleScriptRunner.consentToAutomate(bundleID: available.target.bundleIdentifier)
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.requestingShuffleAccess = false
+                guard self.shuffleReading else { return }
+                // The playback buttons share this consent, so they look again too.
+                self.refreshAutomation()
+                self.refreshShuffle()
+            }
         }
     }
 

@@ -3,10 +3,10 @@
 
 import AppKit
 
-/// The music app the island opens when nothing is playing and a playback
-/// button or the cover is clicked. Opening it never starts playback.
-enum NotchPreferredPlayer {
-    /// Stored when the choice is left to the island.
+/// The music app opened when nothing is playing and a playback button or
+/// the cover is clicked. Opening it never starts playback.
+enum NowPlayingPreferredPlayer {
+    /// Stored when the choice is left automatic.
     static let automatic = ""
     static let known = ["com.spotify.client", "com.apple.Music"]
     /// The music app that last played in this launch of the app. Not saved:
@@ -30,9 +30,11 @@ enum NotchPreferredPlayer {
         resolve(choice: choice(), lastPlayed: lastPlayed) { InstalledApps.url(for: $0) != nil }
     }
 
-    static func remember(_ playback: NotchPlayback?, in sources: [NotchPlaybackSource]) {
+    /// Called by `NowPlayingService` on every reading: a known music app
+    /// that is playing becomes the one to open next.
+    static func remember(_ playback: NowPlayingPlayback?) {
         guard let playback, playback.isPlaying, let bundle = playback.track.appBundleIdentifier,
-              known.contains(bundle) || sources.contains(where: { $0.bundleIdentifier == bundle && $0.isMusicApp }) else { return }
+              known.contains(bundle) else { return }
         lastPlayed = bundle
     }
 
@@ -81,5 +83,43 @@ enum NotchPreferredPlayer {
         guard let id = current(), let url = InstalledApps.url(for: id), Bundle(url: url)?.bundleIdentifier == id else { return false }
         NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
         return true
+    }
+}
+
+/// The app that owns a reading: its name, and bringing it forward.
+enum NowPlayingApplication {
+    static func runningApplication(for snapshot: NowPlayingTrack) -> NSRunningApplication? {
+        if let bundleIdentifier = snapshot.appBundleIdentifier,
+           let application = NSRunningApplication.runningApplications(
+            withBundleIdentifier: bundleIdentifier).first(where: { !$0.isTerminated }) {
+            return application
+        }
+        if let pid = snapshot.appPID {
+            return NSRunningApplication(processIdentifier: pid_t(pid))
+        }
+        return nil
+    }
+
+    static func name(for snapshot: NowPlayingTrack) -> String? {
+        if let name = runningApplication(for: snapshot)?.localizedName, !name.isEmpty { return name }
+        guard let identifier = snapshot.appBundleIdentifier else { return nil }
+        return identifier.split(separator: ".").last.map(String.init)
+    }
+
+    static func open(_ snapshot: NowPlayingTrack) {
+        if let application = runningApplication(for: snapshot) {
+            guard application.activationPolicy == .regular else { return }
+            if application.isHidden { application.unhide() }
+            application.activate(options: [.activateAllWindows])
+            if let url = application.bundleURL {
+                let configuration = NSWorkspace.OpenConfiguration()
+                configuration.activates = true
+                NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+            }
+            return
+        }
+        guard let identifier = snapshot.appBundleIdentifier,
+              let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: identifier) else { return }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
     }
 }

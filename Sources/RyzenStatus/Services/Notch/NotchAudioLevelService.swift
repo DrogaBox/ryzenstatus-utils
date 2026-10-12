@@ -35,7 +35,7 @@ final class NotchAudioLevelService: ObservableObject {
         if enabled {
             if subscription == nil {
                 silence.rearm()
-                subscription = NotchMusicService.shared.$playback
+                subscription = NowPlayingService.shared.$playback
                     .receive(on: DispatchQueue.main)
                     .sink { [weak self] playback in self?.playbackChanged(playback) }
             }
@@ -54,7 +54,7 @@ final class NotchAudioLevelService: ObservableObject {
         if levels != nil { levels = nil }
     }
 
-    private func playbackChanged(_ playback: NotchPlayback?) {
+    private func playbackChanged(_ playback: NowPlayingPlayback?) {
         guard enabled, let playback, playback.isPlaying,
               let pid = playback.track.appPID, pid > 0 else {
             // Pausing or stopping arms the next play to read again.
@@ -71,13 +71,13 @@ final class NotchAudioLevelService: ObservableObject {
         // Release the previous player before deciding about this one, or its
         // reader would keep the bars on somebody else's levels.
         stop()
-        let identity = NotchMusicIdentity(playback)
+        let identity = NowPlayingTrackIdentity(playback)
         guard silence.reads(identity) else { return }
         readerPID = pid
         read(pid, on: identity)
     }
 
-    private func read(_ pid: pid_t, on identity: NotchMusicIdentity) {
+    private func read(_ pid: pid_t, on identity: NowPlayingTrackIdentity) {
         // A stopped reader can finish a slow device call after its replacement
         // has started for the same player. Only this reading may publish.
         let id = UUID()
@@ -110,7 +110,7 @@ final class NotchAudioLevelService: ObservableObject {
     /// The player moved its sound to another process. The bars go back to
     /// their usual motion while a new tap is built, and the wait for sound
     /// starts over, since the new process may be the silent kind.
-    private func restart(_ pid: pid_t, on identity: NotchMusicIdentity) {
+    private func restart(_ pid: pid_t, on identity: NowPlayingTrackIdentity) {
         guard enabled, readerPID == pid else { return }
         // Paused, the player may have just let go of its audio: reading again
         // now would only hear silence and write this track off before the next
@@ -122,7 +122,7 @@ final class NotchAudioLevelService: ObservableObject {
         read(pid, on: identity)
     }
 
-    private func giveUp(_ pid: pid_t, on identity: NotchMusicIdentity) {
+    private func giveUp(_ pid: pid_t, on identity: NowPlayingTrackIdentity) {
         guard readerPID == pid else { return }
         // Paused, the tap hears the player letting go of its audio, and the
         // pause already armed the next play; only a play that stayed silent

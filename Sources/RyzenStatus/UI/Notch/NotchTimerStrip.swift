@@ -16,7 +16,7 @@ struct NotchTimerStrip: View {
     @ObservedObject private var timer = NotchTimerService.shared
     // The companion's label reads these.
     @ObservedObject private var downloads = NotchDownloadService.shared
-    @ObservedObject private var music = NotchMusicService.shared
+    @ObservedObject private var music = NowPlayingService.shared
     @ObservedObject private var calendar = NotchCalendarService.shared
     @ObservedObject private var l10n = L10n.shared
 
@@ -112,7 +112,7 @@ struct NotchCompanionMark: View {
     let companion: NotchCompactActivity
     let geometry: NotchGeometry
     @ObservedObject private var downloads = NotchDownloadService.shared
-    @ObservedObject private var music = NotchMusicService.shared
+    @ObservedObject private var music = NowPlayingService.shared
     @ObservedObject private var calendar = NotchCalendarService.shared
 
     var body: some View {
@@ -127,7 +127,7 @@ struct NotchCompanionMark: View {
                 }
             }
         case .music:
-            NotchMusicCover(artwork: music.artwork, side: geometry.compactMusicArtworkSide,
+            NotchMusicCover(artwork: music.artworkImage, side: geometry.compactMusicArtworkSide,
                             radius: geometry.compactMusicArtworkRadius)
         case .timer, .keepAwake, .watch:
             EmptyView()
@@ -171,7 +171,7 @@ struct NotchCompanionMark: View {
             return "\(countdown.ongoing ? text.ongoing : text.next): "
                 + NotchCalendarStrip.displayTitle(countdown.event, untitled: text.untitled)
         case .music:
-            let playback = NotchMusicService.shared.playback
+            let playback = NowPlayingService.shared.playback
             let title = playback?.track.title ?? FeatureStrings.radialMenu(language).mediaNowPlaying
             return [title, playback?.track.artist].compactMap { $0 }.joined(separator: ", ")
         case .timer, .keepAwake, .watch:

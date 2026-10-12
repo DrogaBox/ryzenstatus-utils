@@ -357,3 +357,104 @@ enum NowPlayingLyricsCacheKey {
         return "\(artist)|\(album)|\(title)|\(seconds)"
     }
 }
+
+/// Lyrics on a playback clock, for surfaces that highlight the line being
+/// sung (the Dynamic Island). Built from the same payload the popup shows.
+struct NowPlayingTimedLyrics: Equatable {
+    struct Line: Equatable, Identifiable {
+        let time: Double
+        let text: String
+        var id: Double { time }
+    }
+
+    /// Timed lines, empty for plain lyrics.
+    let lines: [Line]
+    /// The untimed text, empty for timed lyrics.
+    let plain: String
+
+    init(lines: [Line], plain: String) {
+        self.lines = lines
+        self.plain = plain
+    }
+
+    init(_ payload: NowPlayingLyricsPayload) {
+        if payload.isTimed {
+            // Lines sharing one time stamp sing together as one verse.
+            var grouped: [Line] = []
+            for line in payload.lines {
+                guard let time = line.startTime, time.isFinite else { continue }
+                let start = max(0, time)
+                if let last = grouped.last, last.time == start {
+                    grouped[grouped.count - 1] = Line(time: start, text: last.text + "\n" + line.text)
+                } else {
+                    grouped.append(Line(time: start, text: line.text))
+                }
+            }
+            lines = grouped
+            plain = ""
+        } else {
+            lines = []
+            plain = payload.lines.map(\.text).joined(separator: "\n")
+        }
+    }
+
+    /// Highlighting changes only at lyric boundaries. Rebuild this schedule
+    /// when playback or the user's offset changes, with no clock while paused.
+    func changeDates(for playback: NowPlayingPlayback, offset: Double, from now: Date) -> [Date] {
+        var dates = [now]
+        guard playback.isPlaying, playback.hasPosition, playback.rate.isFinite, playback.rate > 0,
+              offset.isFinite else { return dates }
+        let position = playback.position(at: now)
+        for line in lines {
+            let target = line.time + offset
+            guard target > position, target <= playback.duration else { continue }
+            let time = playback.sampledAt.timeIntervalSinceReferenceDate
+                + (target - playback.elapsed) / playback.rate
+            guard time.isFinite else { continue }
+            // Round toward the new verse: inverse rate/date arithmetic must
+            // not leave the highlight just before its boundary until the next verse.
+            dates.append(Date(timeIntervalSinceReferenceDate: max(now.timeIntervalSinceReferenceDate, time).nextUp))
+        }
+        // SwiftUI can omit the last entry of a finite explicit timeline.
+        // Leave a terminal entry beyond playback so the final verse is delivered,
+        // without recurring wakeups or any scheduled work while paused.
+        if dates.count > 1 { dates.append(.distantFuture) }
+        return dates
+    }
+
+    /// The verse sung at a position, by binary search; nil before the first.
+    func activeIndex(at position: Double, offset: Double = 0) -> Int? {
+        guard position.isFinite, offset.isFinite else { return nil }
+        let time = position - offset
+        var lower = 0
+        var upper = lines.count
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if lines[middle].time <= time { lower = middle + 1 } else { upper = middle }
+        }
+        return lower == 0 ? nil : lower - 1
+    }
+
+    /// The user's timing nudge, in quarter seconds within ±10 s.
+    static func adjustedOffset(_ offset: Double, by amount: Double) -> Double {
+        guard offset.isFinite else { return 0 }
+        guard amount.isFinite else { return offset }
+        return min(10, max(-10, ((offset + amount) * 4).rounded() / 4))
+    }
+}
+
+/// Reading a lyrics file the user picked: bounded, timed when it parses as
+/// LRC, plain text otherwise.
+enum NowPlayingLyricsImport {
+    static let maximumBytes = 128 * 1024
+    static let sourceName = "LRC"
+
+    static func payload(from data: Data) -> NowPlayingLyricsPayload? {
+        guard data.count <= maximumBytes, let text = String(data: data, encoding: .utf8) else { return nil }
+        if let timed = NowPlayingLyricsText.parseLRC(text), !timed.isEmpty {
+            return NowPlayingLyricsPayload(sourceName: sourceName, lines: timed, isTimed: true)
+        }
+        let plain = NowPlayingLyricsText.normalizePlain(text)
+        return plain.isEmpty ? nil : NowPlayingLyricsPayload(sourceName: sourceName, lines: plain, isTimed: false)
+    }
+}

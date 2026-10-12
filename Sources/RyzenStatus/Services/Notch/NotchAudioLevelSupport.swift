@@ -49,10 +49,10 @@ enum NotchAudioLevelSupport {
 
     /// Remembers the single play a silent tap was given up on.
     struct SilenceMemory: Equatable {
-        private var givenUp: NotchMusicIdentity?
+        private var givenUp: NowPlayingTrackIdentity?
 
-        func reads(_ identity: NotchMusicIdentity) -> Bool { identity != givenUp }
-        mutating func giveUp(on identity: NotchMusicIdentity) { givenUp = identity }
+        func reads(_ identity: NowPlayingTrackIdentity) -> Bool { identity != givenUp }
+        mutating func giveUp(on identity: NowPlayingTrackIdentity) { givenUp = identity }
         mutating func rearm() { givenUp = nil }
     }
 

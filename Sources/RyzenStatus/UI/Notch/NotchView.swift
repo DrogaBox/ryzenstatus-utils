@@ -7,7 +7,7 @@ import SwiftUI
 struct NotchView: View {
     @ObservedObject var service: NotchService
     @ObservedObject private var l10n = L10n.shared
-    @ObservedObject private var music = NotchMusicService.shared
+    @ObservedObject private var music = NowPlayingService.shared
     @ObservedObject private var launcher = QuickLauncherService.shared
     @ObservedObject private var updates = UpdateService.shared
     @AppStorage(DefaultsKey.notchLiquidGlassEnabled) private var glass = false
@@ -771,7 +771,7 @@ struct NotchRestingStrip: View {
     @ObservedObject var service: NotchService
     /// Another display's strip, when the island shows on every display.
     var displayGeometry: NotchGeometry? = nil
-    @ObservedObject private var music = NotchMusicService.shared
+    @ObservedObject private var music = NowPlayingService.shared
     @AppStorage(DefaultsKey.notchLowBatteryTint) private var lowBatteryTint = false
     @AppStorage(DefaultsKey.notchLowBatteryThreshold) private var lowBatteryThreshold = NotchSupport.defaultLowBatteryThreshold
     @AppStorage(DefaultsKey.notchLowBatteryEarly) private var earlyBatteryWarning = false
@@ -811,7 +811,7 @@ struct NotchRestingStrip: View {
                         Color.clear
                         switch service.idleContent {
                         case .music:
-                            if let artwork = music.artwork {
+                            if let artwork = music.artworkImage {
                                 Image(nsImage: artwork).resizable().scaledToFill()
                                     .frame(width: min(22, geometry.stripHeight - 6), height: min(22, geometry.stripHeight - 6))
                                     .clipShape(RoundedRectangle(cornerRadius: 5))
