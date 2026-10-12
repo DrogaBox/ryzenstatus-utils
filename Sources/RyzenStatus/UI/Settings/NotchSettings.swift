@@ -145,7 +145,8 @@ struct NotchSettings: View {
                 Toggle(text.enable, isOn: $enabled).labelsHidden().toggleStyle(.switch)
                     .disabled(!AppFeature.notch.isAvailable).accessibilityLabel(text.enable)
             }
-            if enabled, AppFeature.notch.isAvailable, !(hover && hideUntilHover), !notch.geometry.isNotched, !permissions.accessibility {
+            if enabled, AppFeature.notch.isAvailable, !(hover && hideUntilHover), !notch.geometry.isNotched,
+               !notch.geometry.floatsBelowMenuBar, !permissions.accessibility {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(text.menuBarAccessHint)
                         .font(.callout).foregroundStyle(.secondary)
@@ -247,6 +248,10 @@ struct NotchSettings: View {
                     HStack(spacing: 10) {
                         silhouetteChoice(.capsule, title: text.capsuleShape)
                         silhouetteChoice(.notch, title: text.notchShape)
+                        silhouetteChoice(.floating, title: text.floatingShape)
+                    }
+                    if NotchSilhouette(rawValue: silhouette) == .floating {
+                        Text(text.floatingShapeHint).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 if NotchSilhouette(rawValue: silhouette) ?? .capsule == .capsule {
@@ -1018,6 +1023,10 @@ private struct NotchSilhouetteSample: View {
         let geometry = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 1440, height: 900), safeAreaTop: 0,
                                      cameraWidth: 0, menuBarHeight: 24, silhouette: silhouette)
         let island = geometry.restingSize(showsContent: false)
+        // Floating shows nothing at rest, so its sample shows a live activity
+        // as a pill below the whole menu bar, with no block in the bar.
+        let floating = geometry.floatsBelowMenuBar
+        let pill = CGSize(width: max(island.width, 112), height: geometry.stripHeight)
         ZStack(alignment: .top) {
             Rectangle().fill(.primary.opacity(0.08)).frame(height: geometry.menuBarHeight)
             // Menus on the left and status items on the right, clear of the island.
@@ -1032,14 +1041,31 @@ private struct NotchSilhouetteSample: View {
             }
             .padding(.horizontal, 14)
             .frame(height: geometry.menuBarHeight)
-            NotchShape.island(height: island.height, geometry: geometry).fill(.black)
-                .frame(width: island.width, height: island.height)
+            if floating {
+                NotchShape.island(height: pill.height, geometry: geometry).fill(.black)
+                    .frame(width: pill.width, height: pill.height)
+                    .overlay {
+                        HStack {
+                            Image(systemName: "music.note")
+                            Spacer(minLength: 0)
+                            Image(systemName: "waveform")
+                        }
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                    }
+                    .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
+                    .offset(y: geometry.floatingDrop)
+            } else {
+                NotchShape.island(height: island.height, geometry: geometry).fill(.black)
+                    .frame(width: island.width, height: island.height)
+            }
         }
-        .frame(width: 400, height: 48, alignment: .top)
+        .frame(width: 400, height: floating ? 64 : 48, alignment: .top)
         .background(.primary.opacity(0.04))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .scaleEffect(0.5)
-        .frame(width: 200, height: 24)
+        .frame(width: 200, height: floating ? 32 : 24)
         .accessibilityHidden(true)
     }
 }

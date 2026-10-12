@@ -128,6 +128,7 @@ if (( TEST )); then
         Sources/RyzenStatus/Core/CommandBarStrings.swift \
         Sources/RyzenStatus/Core/NotchStrings.swift \
         Sources/RyzenStatus/Core/NotchCalendarStrings.swift \
+        Sources/RyzenStatus/Services/Notch/NotchFloatingLayout.swift \
         Sources/RyzenStatus/Core/SettingsBackupSupport.swift \
         Sources/RyzenStatus/Core/BackupStrings.swift \
         Sources/RyzenStatus/Core/SnippetStrings.swift \

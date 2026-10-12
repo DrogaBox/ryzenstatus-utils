@@ -299,6 +299,37 @@ final class NotchService: ObservableObject {
             && !expanded && !peeking && !dragPlaceholder && captureControls == nil
     }
 
+    /// The floating style, closed, with no activity, notice or resting
+    /// content of its own below the menu bar.
+    private var floatsAtRestBelowMenuBar: Bool {
+        geometry.floatsBelowMenuBar && !hiddenInFullscreen && !expanded && !peeking && notice == nil
+            && !dragPlaceholder && captureControls == nil && compactActivity == nil && departingMusic == nil
+            && idleContent == .none
+    }
+
+    /// Nothing at all to show, not even the companion: nothing is drawn, and
+    /// a thin strip under the menu bar stands in for the island.
+    private var floatsWithNothingToShow: Bool {
+        floatsAtRestBelowMenuBar && !mascotShows(on: geometry)
+    }
+
+    /// The companion alone at rest below the menu bar, with no surface under it.
+    private var floatsWithCompanionOnly: Bool {
+        floatsAtRestBelowMenuBar && mascotShows(on: geometry)
+    }
+
+    /// The empty floating island stays off screen until the pointer reaches its strip.
+    private var floatingRestHidden: Bool { floatsWithNothingToShow && !inside }
+
+    /// Whether a screen point is over the closed island for hovering: its
+    /// surface, or for an empty floating island, the strip under the bar.
+    private func restingHoverContains(_ point: CGPoint) -> Bool {
+        if hiddenUntilHover { return geometry.contains(point, in: geometry.collapsed) }
+        if floatsWithNothingToShow || floatsWithCompanionOnly,
+           geometry.floatingHoverStrip?.contains(point) == true { return true }
+        return geometry.contains(point, in: surfaceSize)
+    }
+
     /// Full screen keeps a clickable black cutout until the user opens it.
     var fullscreenCompact: Bool {
         hiddenInFullscreen && !expanded && !peeking
@@ -1297,9 +1328,14 @@ final class NotchService: ObservableObject {
         let point = NSEvent.mouseLocation
         let wasInside = inside
         let showedPicker = showsCompactActivityPicker
+        // Below the menu bar the strip under the bar counts as the island too,
+        // whether nothing is drawn there or only the companion.
+        let floatingStrip = (floatsWithNothingToShow || floatsWithCompanionOnly)
+            && geometry.floatingHoverStrip?.contains(point) == true
+            && windowHost?.isConcealedForMissionControl == false
         inside = hiddenUntilHover ? geometry.contains(point, in: geometry.collapsed)
             && windowHost?.isConcealedForMissionControl == false
-            : windowHost?.containsHover(point) == true || pointerOverChildWindow(point)
+            : floatingStrip || windowHost?.containsHover(point) == true || pointerOverChildWindow(point)
         hoverState.update(pointerInside: inside)
         // The music strip names its song only while the pointer stays on the
         // island: leaving ends it, and a name left from before goes on return.
@@ -1311,7 +1347,9 @@ final class NotchService: ObservableObject {
         let emphasize = inside && !hiddenInFullscreen && !hiddenUntilHover && !expanded && !peeking && !dragPlaceholder
             && notice == nil && captureControls == nil && !opensOnHover
             && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        if hoverEmphasized != emphasize || showedPicker != showsCompactActivityPicker || unnamesMusic {
+        // An empty floating island comes on screen as the pointer reaches its strip.
+        let revealsFloating = inside != wasInside && floatsWithNothingToShow
+        if hoverEmphasized != emphasize || showedPicker != showsCompactActivityPicker || unnamesMusic || revealsFloating {
             hoverEmphasized = emphasize
             // A song held on the island goes as the pointer leaves.
             if unnamesMusic { syncMenuSpaceMonitoring() }
@@ -1354,7 +1392,7 @@ final class NotchService: ObservableObject {
                       self.captureControls == nil, (self.notice == nil || self.hiddenUntilHover), !self.dragPlaceholder,
                       UserDefaults.standard.bool(forKey: DefaultsKey.notchOpenOnHover),
                       self.windowHost?.blocksHoverReveal() == false,
-                      self.geometry.contains(NSEvent.mouseLocation, in: self.hiddenUntilHover ? self.geometry.collapsed : self.surfaceSize) else { return }
+                      self.restingHoverContains(NSEvent.mouseLocation) else { return }
                 // Following the closed island ends as it opens or peeks.
                 self.removeHoverExitMonitors()
                 if UserDefaults.standard.bool(forKey: DefaultsKey.notchHoverExpands) {
@@ -2364,6 +2402,18 @@ final class NotchService: ObservableObject {
             removeScreenEdgeClickMonitors()
             return
         }
+        // Floating below the menu bar with nothing to show, nothing is drawn
+        // until the pointer reaches the strip under the bar.
+        if floatingRestHidden {
+            finishMusicDeparture()
+            presentedMusic = nil
+            if heldMusic != nil { heldMusic = nil }
+            windowHost?.hide(animated: animated, transitionContent: transitionContent)
+            removeScreenEdgeClickMonitors()
+            return
+        }
+        // The companion alone below the bar stands on nothing.
+        windowHost?.setClearSurface(floatsWithCompanionOnly)
         let open = expanded || peeking || notice != nil || dragPlaceholder || captureControls != nil
         guard open || (!hiddenAtRestInFullscreen && (geometry.isNotched || geometry.compactSideRoom != nil)) else {
             finishMusicDeparture()
@@ -2403,8 +2453,9 @@ final class NotchService: ObservableObject {
                             quickAccess: expanded && captureControls == nil && !showingCommandBar && !access.buttons.isEmpty
                                 ? access : nil,
                             revealFromHidden: !hiddenInFullscreen && captureControls == nil
-                                && UserDefaults.standard.bool(forKey: DefaultsKey.notchHideUntilHover)
-                                && UserDefaults.standard.bool(forKey: DefaultsKey.notchOpenOnHover),
+                                && (geometry.floatsBelowMenuBar
+                                    || UserDefaults.standard.bool(forKey: DefaultsKey.notchHideUntilHover)
+                                    && UserDefaults.standard.bool(forKey: DefaultsKey.notchOpenOnHover)),
                             usesGlass: !fullscreenCompact && usesGlassSurface,
                             steady: fitsInPlace)
         // The selector lives in a separate full-screen panel. A floating
@@ -2462,7 +2513,10 @@ final class NotchService: ObservableObject {
     }
 
     private func syncHiddenHoverMonitoring() {
-        guard running, !suspended, hiddenUntilHover, windowHost != nil else {
+        // The empty floating island, and the companion alone below the bar,
+        // also answer to the strip under the menu bar, outside any window.
+        guard running, !suspended, hiddenUntilHover || floatsWithNothingToShow || floatsWithCompanionOnly,
+              windowHost != nil else {
             removeHiddenHoverMonitors()
             return
         }
@@ -2784,7 +2838,10 @@ final class NotchService: ObservableObject {
                 var geometry = baseGeometry(for: screen)
                 geometry.compactSideRoom = mirrorSideRoom(on: screen, geometry: geometry)
                 // A simulated island needs the menus' room at rest, as the island does.
-                if geometry.isNotched || geometry.compactSideRoom != nil { base = geometry }
+                // A copy floating below the bar shows only an activity or resting
+                // content; the companion keeps to the island itself.
+                let floatsEmpty = geometry.floatsBelowMenuBar && activity == nil && idleContent == .none
+                if (geometry.isNotched || geometry.compactSideRoom != nil) && !floatsEmpty { base = geometry }
             }
             guard let base else {
                 if let mirror = mirrors[id], mirror.model.shown {
@@ -2833,7 +2890,7 @@ final class NotchService: ObservableObject {
     /// the island may, or where there are none, and otherwise gives way.
     private func mirrorSideRoom(on screen: NSScreen, geometry: NotchGeometry) -> CGFloat? {
         let hasMenuBar = NSScreen.screensHaveSeparateSpaces || NSScreen.withMenuBar == screen
-        guard NotchSupport.coversMenus() || !hasMenuBar else { return nil }
+        guard NotchSupport.coversMenus() || !hasMenuBar || geometry.floatsBelowMenuBar else { return nil }
         return NotchMenuBarLayout.sideRoom(screen: geometry.screen, cameraWidth: geometry.cameraWidth,
                                            barHeight: geometry.menuBarHeight, occupied: [])
     }
@@ -2881,8 +2938,9 @@ final class NotchService: ObservableObject {
     }
 
     private var screenEdgeClickArea: CGRect? {
+        // Below the menu bar the island's own window takes its clicks.
         guard running, !suspended, !expanded, captureControls == nil, notice == nil,
-              !dragPlaceholder, !heldDrag, let panel, panel.isVisible, !panel.ignoresMouseEvents else { return nil }
+              !geometry.floatsBelowMenuBar, !dragPlaceholder, !heldDrag, let panel, panel.isVisible, !panel.ignoresMouseEvents else { return nil }
         let geometry = compactActivityIsVisible ? compactActivityGeometry : self.geometry
         let area = geometry.activationArea(in: surfaceSize, hasHeader: peeking, compactActivity: compactActivityIsVisible)
         guard !area.isEmpty else { return nil }
@@ -2972,7 +3030,8 @@ final class NotchService: ObservableObject {
         // can change just because focus moves to another app or display.
         // A display without a menu bar, beside the main one when displays
         // share Spaces, has no menus to leave room for either.
-        if running, !suspended, NotchSupport.coversMenus() || !displayHasMenuBar {
+        // An island floating below the bar never meets its menus either.
+        if running, !suspended, NotchSupport.coversMenus() || !displayHasMenuBar || geometry.floatsBelowMenuBar {
             // Nothing to measure: the island keeps the room an empty bar
             // would leave it, over whatever menus and status items are there.
             stopMenuSpaceMonitoring()
