@@ -10,13 +10,14 @@ struct AmdControlSection: View {
     @ObservedObject private var autoEpp = AutoEppService.shared
     @ObservedObject private var gaming = GamingModeService.shared
     @ObservedObject private var presetCtrl = AmdPresetController.shared
+    @ObservedObject private var fanController = FanCurveController.shared
     @State private var loadTimer: Timer?
     @State private var showThresholds: Bool = false
 
-    // Fan state
-    @State private var availableFans: [(id: Int, name: String)] = []
+    // Fan state: the fan controller reads the headers; this row registers
+    // for its live poll while it is expanded and on screen.
     @State private var selectedFanId: Int = 0
-    @State private var selectedFanRpm: Int = 0
+    @State private var isPollingFans = false
 
     @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 25
     @AppStorage(DefaultsKey.autoEppLoadThreshold) private var loadThreshold: Int = 50
@@ -30,7 +31,7 @@ struct AmdControlSection: View {
 
     private var eppLabel: String {
         if autoEpp.isActive {
-            return autoEpp.currentTarget.isEmpty ? "Monitor…" : autoEpp.currentTarget
+            return autoEpp.currentTarget.isEmpty ? "…" : autoEpp.currentTarget
         }
         switch AMDPowerPreset.snapEPP(controls.selectedEpp) {
         case 0:   return L10n.shared.amdPower.perfMax
@@ -73,27 +74,25 @@ struct AmdControlSection: View {
     var body: some View {
         PanelSection(.amdPower, title: L10n.shared.amdPower.sidebarTitle, collapsible: collapsible) {
             VStack(alignment: .leading, spacing: 18) {
-                if !availableFans.isEmpty {
+                if !visibleFans.isEmpty {
                     DisclosureGroup(isExpanded: $showFansInAmdPower) {
                         HStack {
                             Picker("", selection: $selectedFanId) {
-                                ForEach(availableFans, id: \.id) { fan in
-                                    Text(fan.name).tag(fan.id)
+                                ForEach(visibleFans) { fan in
+                                    Text(fan.effectiveDisplayName).tag(fan.id)
                                 }
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
                             // S2-T1: 80 pt truncated hardware names like "CPU Fan 0".
                             .frame(width: 130)
-                            .onChange(of: selectedFanId) { _, _ in
-                                Task { @MainActor in updateFanRpm() }
-                            }
 
                             Spacer()
 
-                            Text("\(selectedFanRpm) RPM")
+                            Text(selectedFanRpmText)
                                 .font(.system(size: 13, weight: .semibold, design: .monospaced))
                                 .foregroundColor(.secondary)
+                                .contentTransition(.numericText())
                         }
                     } label: {
                         Text(L10n.shared.amdPower.panelSmcFanControl)
@@ -447,46 +446,53 @@ struct AmdControlSection: View {
             .padding(.top, 8)
             .padding(.bottom, 4)
             .onAppear {
-                loadFanPicker()
                 Task { await controls.syncFromKext() }
                 loadTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
                     Task { await controls.syncFromKext() }
                 }
-                updateFanRpm()
+                setFanPolling(showFansInAmdPower)
+                keepFanSelectionVisible()
             }
             .onDisappear {
                 loadTimer?.invalidate()
                 loadTimer = nil
+                setFanPolling(false)
+            }
+            .onChange(of: showFansInAmdPower) { _, expanded in
+                setFanPolling(expanded)
+            }
+            .onChange(of: visibleFans.map(\.id)) { _, _ in
+                keepFanSelectionVisible()
             }
         }
     }
 
-    // Use getFans(includeNames: true) to fetch hardware/custom fan names
-    private func loadFanPicker() {
-        Task.detached(priority: .userInitiated) {
-            let snapshots = ProcessorModel.shared.getFans(includeNames: true)
-            let fans = snapshots.map { (id: $0.id, name: $0.name) }
-            await MainActor.run {
-                guard !Task.isCancelled else { return }
-                self.availableFans = fans
-            }
-        }
+    private var visibleFans: [FanState] {
+        fanController.fans.filter { !$0.isHidden }
     }
 
-    private func updateFanRpm() {
-        // S2-T1: the 3 s SuperIO RPM poll only matters while the fan disclosure
-        // is expanded — skip it when collapsed to avoid needless LPC traffic.
-        guard showFansInAmdPower, !availableFans.isEmpty else { return }
-        let fanCount = availableFans.count
-        Task.detached(priority: .utility) {
-            let rpms = ProcessorModel.shared.kernelGetUInt64(count: fanCount, selector: AMDKextSelector.fanSpeedRead.id)
-            await MainActor.run {
-                guard !Task.isCancelled else { return }
-                if self.selectedFanId < rpms.count {
-                    self.selectedFanRpm = Int(min(rpms[self.selectedFanId], 9999))
-                }
-            }
-        }
+    /// The picked fan's speed, or a dash while the reading cannot be trusted
+    /// (an implausible or frozen tachometer).
+    private var selectedFanRpmText: String {
+        guard let fan = visibleFans.first(where: { $0.id == selectedFanId }),
+              fan.rpmValid else { return "— RPM" }
+        return "\(fan.rpm) RPM"
+    }
+
+    /// The picker needs a selection among the fans it lists; a hidden or
+    /// vanished fan falls back to the first one shown.
+    private func keepFanSelectionVisible() {
+        guard !visibleFans.contains(where: { $0.id == selectedFanId }),
+              let first = visibleFans.first else { return }
+        selectedFanId = first.id
+    }
+
+    /// S2-T1: the RPM poll only matters while the fan disclosure is expanded
+    /// and on screen — skip it otherwise to avoid needless LPC traffic.
+    private func setFanPolling(_ on: Bool) {
+        guard on != isPollingFans else { return }
+        isPollingFans = on
+        if on { fanController.startPolling() } else { fanController.stopPolling() }
     }
 
     // MARK: - Per-core column toggles (icon-only, language-neutral)

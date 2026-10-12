@@ -39,6 +39,10 @@ final class AutoEppService: ObservableObject {
     private static let pollInterval: TimeInterval = 1.5
     /// Sentinel (0xFF) means "never written". Used to skip redundant MSR writes.
     private var lastWrittenEPP: UInt8 = 0xFF
+    /// The target in force and how many polls in a row asked for less
+    /// performance than it (see `AutoEppPolicy.settle`).
+    private var appliedTarget: AutoEppTarget?
+    private var stepDownPolls = 0
     /// Wake observer token. Without it the EPP was never restored after
     /// sleep — see resetWriteSentinel().
     private var wakeObserver: Any?
@@ -77,6 +81,8 @@ final class AutoEppService: ObservableObject {
     /// user happened to change presets. 0xFF means "never written".
     private func resetWriteSentinel() {
         lastWrittenEPP = 0xFF
+        appliedTarget = nil
+        stepDownPolls = 0
     }
 
     // MARK: - Lifecycle
@@ -123,7 +129,7 @@ final class AutoEppService: ObservableObject {
         pollTask?.cancel()
         pollTask = nil
         isSuspended = true
-        lastWrittenEPP = 0xFF // F7: reset sentinel so resume writes immediately
+        resetWriteSentinel() // F7: resume writes immediately
     }
 
     /// Resumes the poll loop if Auto EPP is still enabled in AmdSettingsStore.
@@ -140,6 +146,9 @@ final class AutoEppService: ObservableObject {
     func setCPPCActive(_ active: Bool) {
         AmdSettingsStore.shared.autoEppEnabled = active
         self.isActive = active
+        // A preset or the manual picker may have written the EPP since Auto
+        // EPP last did, so its first poll after this must write again.
+        resetWriteSentinel()
         Task {
             let res = ProcessorModel.shared.setCPPCActiveMode(active: active)
             if res == ProcessorModel.kIOReturnNotPrivilegedCode {
@@ -193,28 +202,15 @@ final class AutoEppService: ObservableObject {
 
         let gpuLoad = Float(gpuUsage * 100)
 
-        let gpuHeavyThreshold: Float = 60
-        let gpuActiveThreshold: Float = 30
-
-        let targetEPP: UInt8
-        let targetName: String
-
-        if gpuLoad > gpuHeavyThreshold {
-            targetEPP = 0
-            targetName = "GPU Performance"
-        } else if cpuAvg < Float(idleThreshold) && gpuLoad < gpuActiveThreshold {
-            targetEPP = 255
-            targetName = "Power Save"
-        } else if cpuAvg > Float(loadThreshold) {
-            targetEPP = 0
-            targetName = "Performance"
-        } else if gpuLoad > gpuActiveThreshold {
-            targetEPP = 128
-            targetName = "GPU Active"
-        } else {
-            targetEPP = 128
-            targetName = "Balanced"
-        }
+        let candidate = AutoEppPolicy.target(cpuLoad: cpuAvg, gpuLoad: gpuLoad,
+                                             idleThreshold: Float(idleThreshold),
+                                             loadThreshold: Float(loadThreshold))
+        let settled = AutoEppPolicy.settle(candidate: candidate, current: appliedTarget,
+                                           pendingStepDownPolls: stepDownPolls)
+        appliedTarget = settled.target
+        stepDownPolls = settled.pendingStepDownPolls
+        let targetEPP = settled.target.epp
+        let targetName = settled.target.label
 
         var newPrivilegeDenied = self.privilegeDenied
         if targetEPP != lastWrittenEPP {
@@ -238,5 +234,65 @@ final class AutoEppService: ObservableObject {
             if self.currentEPP != finalEPP { self.currentEPP = finalEPP }
             if self.privilegeDenied != finalPrivilegeDenied { self.privilegeDenied = finalPrivilegeDenied }
         }
+    }
+}
+
+/// What Auto EPP asks the CPU for.
+enum AutoEppTarget: Equatable {
+    case gpuPerformance, performance, gpuActive, balanced, powerSave
+
+    var epp: UInt8 {
+        switch self {
+        case .gpuPerformance, .performance: return 0
+        case .gpuActive, .balanced: return 128
+        case .powerSave: return 255
+        }
+    }
+
+    /// The same names the manual EPP picker shows for these values.
+    @MainActor
+    var label: String {
+        let s = L10n.shared.amdPower
+        switch self {
+        case .performance: return s.perfMax
+        case .gpuPerformance: return "GPU · \(s.perfMax)"
+        case .balanced: return s.perfBalMinus
+        case .gpuActive: return "GPU · \(s.perfBalMinus)"
+        case .powerSave: return s.perfEco
+        }
+    }
+}
+
+/// Auto EPP's decisions, kept apart from the service so they can be tested.
+enum AutoEppPolicy {
+    /// GPU load above which the CPU is kept at full performance to feed it.
+    static let gpuHeavyThreshold: Float = 60
+    /// GPU load above which the CPU is not allowed to idle down.
+    static let gpuActiveThreshold: Float = 30
+    /// Polls in a row (1.5 s apart) a lower-performance target must be asked
+    /// for before it is applied.
+    static let stepDownPolls = 3
+
+    /// The target for one reading of CPU and GPU load (0–100).
+    static func target(cpuLoad: Float, gpuLoad: Float,
+                       idleThreshold: Float, loadThreshold: Float) -> AutoEppTarget {
+        if gpuLoad > gpuHeavyThreshold { return .gpuPerformance }
+        if cpuLoad < idleThreshold && gpuLoad < gpuActiveThreshold { return .powerSave }
+        if cpuLoad > loadThreshold { return .performance }
+        if gpuLoad > gpuActiveThreshold { return .gpuActive }
+        return .balanced
+    }
+
+    /// Fast up, slow down: more performance applies at once, so a burst of
+    /// work is never held back, while less performance waits until it has
+    /// been asked for `stepDownPolls` times in a row, so load hovering around
+    /// a threshold does not flip the EPP every poll.
+    static func settle(candidate: AutoEppTarget, current: AutoEppTarget?,
+                       pendingStepDownPolls: Int) -> (target: AutoEppTarget, pendingStepDownPolls: Int) {
+        guard let current, candidate.epp > current.epp else {
+            return (candidate, 0)
+        }
+        let pending = pendingStepDownPolls + 1
+        return pending >= stepDownPolls ? (candidate, 0) : (current, pending)
     }
 }

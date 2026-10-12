@@ -2,7 +2,7 @@
 
 ## [1.40.0] — 2026-10-12 — kexts 3.34.17 (No kext changes)
 
-The graphs outside the menu bar now match it: the menu panel, the iStats widgets, the metric details, the Dynamic Island and both dashboards draw their history as columns, newest on the right, in the graph theme picked for their appearance, and the AMD Ryzen Power graphs get steady scales.
+The graphs outside the menu bar now match it: the menu panel, the iStats widgets, the metric details, the Dynamic Island and both dashboards draw their history as columns, newest on the right, in the graph theme picked for their appearance, and the AMD Ryzen Power graphs get steady scales. Fan curves now come back at launch, and the manual-fan thermal guard and GPU-sourced curves keep working with Settings closed.
 
 > **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.34.17. Only the application's validation version pin changes.
 
@@ -17,6 +17,15 @@ The graphs outside the menu bar now match it: the menu panel, the iStats widgets
 
 ### Fixed
 
+- **Fan curves after a relaunch**: the app hands every fan back to the BIOS when it quits, and on the next launch it only put fans back on their curves once Settings › Fans was opened. They go back on their curves at launch now.
+- **Manual fans and GPU-sourced curves with Settings closed**: the emergency guard that raises a manual fan at 85 °C, and the GPU temperature that GPU-sourced curves follow, were only updated while Settings › Fans was open. They now run every 3 s in the background whenever a fan is in manual mode or follows a GPU-sourced curve, and the GPU temperature is read from the kext on each pass instead of from a cache that only refreshed while the system monitor was sampling.
+- **After the kext connection is reopened** (the kext reloaded, or a connection that stopped answering after sleep), the fans are read again and the curves and mappings uploaded anew. Closing the old connection used to leave every fan on BIOS control until the next wake.
+- **Fan speed in the AMD Ryzen Power panel**: it was read once when the panel opened, usually before the fan list had loaded, so it showed 0 RPM, and again only when another fan was picked. It now updates live while the fan row is expanded, shows a dash for a tachometer that cannot be trusted, uses the names given in Settings and leaves hidden fans out.
+- **Clearing a fan's name** kept showing the old one until the fan list was reloaded, and the hardware validation report fingerprinted the Super I/O chip from the names you gave the fans instead of the hardware labels.
+- Turning fan curves off shows every fan on Auto right away, and a slow first fan read can no longer be cancelled by the next poll and leave the Fans page loading.
+- **Auto EPP** could leave a preset's EPP in place after being turned back on, because it skipped writing a target it had already written before. It also steps up to more performance at once but waits three polls (4.5 s) before stepping down, so load hovering around a threshold no longer flips the EPP every 1.5 s, and its target names are translated.
+- **Gaming Mode turned off right after launch** now waits for the Extreme preset it is still re-applying, so the previous preset is restored reliably.
+- **Boot-args** are read from NVRAM without starting a process, and the AMD flags are matched as whole arguments: a longer argument that merely contains `-amdpnopchk` no longer counts as it.
 - The average above the CPU, GPU and memory analytics charts in Performance Suite lost its percent sign.
 
 ## [1.39.0] — 2026-10-12 — kexts 3.34.17 (No kext changes)

@@ -83,8 +83,15 @@ final class GamingModeService: ObservableObject {
             StatusItemController.shared?.setForceHidden(true)
         }
 
-        // Track the in-flight transaction so deactivate() can wait for it
-        // before deciding what to restore (see activationTask).
+        applyExtremePreset(
+            deniedMessage: "The power preset needs root or -amdpnopchk; Keep Awake and the hidden icon are still active.",
+            appliedMessage: "Extreme preset, Keep Awake and hidden icon active.")
+    }
+
+    /// Applies Extreme as a tracked transaction, so deactivate() can wait for
+    /// it before deciding what to restore (see activationTask). Used by both
+    /// activate() and the relaunch path.
+    private func applyExtremePreset(deniedMessage: String, appliedMessage: String?) {
         let generation = activationGeneration + 1
         activationGeneration = generation
         activationTask = Task { [weak self] in
@@ -100,11 +107,10 @@ final class GamingModeService: ObservableObject {
             guard self.activationGeneration == generation else { return }
             self.activationTask = nil
             if result.privilegeDenied {
-                self.statusMessage = result.firstFailureMessage
-                    ?? "The power preset needs root or -amdpnopchk; Keep Awake and the hidden icon are still active."
+                self.statusMessage = result.firstFailureMessage ?? deniedMessage
                 self.statusIsError = true
             } else {
-                self.statusMessage = "Extreme preset, Keep Awake and hidden icon active."
+                self.statusMessage = appliedMessage
                 self.statusIsError = false
             }
         }
@@ -226,19 +232,13 @@ final class GamingModeService: ObservableObject {
             StatusItemController.shared?.setForceHidden(true)
         }
         
-        Task {
-            let result = await AmdPresetController.shared.withPresetTransaction(.extreme) { preset in
-                await ProcessorModel.shared.applyPowerPreset(preset)
-            }
-            if result.privilegeDenied {
-                // Surfaces in Settings while the mode stays active, so a launch
-                // that could not re-apply the profile is not silent.
-                self.statusMessage = result.firstFailureMessage
-                    ?? "Could not re-apply the Extreme preset on launch; Keep Awake and the hidden icon are still active."
-                self.statusIsError = true
-            } else {
-                self.statusMessage = nil
-            }
-        }
+        // Tracked like activate(), so turning the mode off right after launch
+        // waits for this and restores the user's preset instead of being
+        // overwritten by a late Extreme. A denial surfaces in Settings while
+        // the mode stays active, so a launch that could not re-apply the
+        // profile is not silent.
+        applyExtremePreset(
+            deniedMessage: "Could not re-apply the Extreme preset on launch; Keep Awake and the hidden icon are still active.",
+            appliedMessage: nil)
     }
 }

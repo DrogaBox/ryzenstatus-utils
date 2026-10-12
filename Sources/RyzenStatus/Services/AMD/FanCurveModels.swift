@@ -271,6 +271,33 @@ struct FanCurveDefinition: Codable, Identifiable, Hashable, Sendable {
 
 typealias FanCurve = FanCurveDefinition
 
+// MARK: - Fan Polling Policy
+
+/// When the fan controller polls the hardware. Kept apart from the
+/// controller so it can be tested.
+enum FanPollingPolicy {
+    /// While a view shows live fan state.
+    static let viewInterval: TimeInterval = 1.5
+    /// With every view closed, while the safety work needs the poll.
+    static let safetyInterval: TimeInterval = 3
+
+    /// The poll interval, or nil for no poll. A manual fan needs the thermal
+    /// guard and a GPU-sourced curve needs the GPU temperature fed to the
+    /// kext, whether or not a window is open.
+    static func interval(viewClients: Int, hasManualFan: Bool, hasGPUCurve: Bool) -> TimeInterval? {
+        if viewClients > 0 { return viewInterval }
+        if hasManualFan || hasGPUCurve { return safetyInterval }
+        return nil
+    }
+
+    /// Whether the controller has to come up at launch: the curves are on
+    /// and at least one fan is mapped to one. The upload itself still checks
+    /// each mapping against the curves that exist.
+    static func needsStartAtLaunch(curvesEnabled: Bool, mappings: [Int: Int]) -> Bool {
+        curvesEnabled && mappings.values.contains { $0 >= 0 }
+    }
+}
+
 // MARK: - Hardware Safety Bounds
 
 public enum AMDFanSafety {
@@ -288,7 +315,7 @@ public enum AMDFanSafety {
     /// Emergency PWM floor (200 / 255 = ~78.4%) enforced at or above 85°C.
     public static let thermalGuardPWM: UInt8 = 200
 
-    /// Clamps user manual PWM to the safe hardware floor (PWM >= 3 / ~1%).
+    /// Clamps user manual PWM to the safe hardware floor (`minimumManualPWM`, ~16 %).
     public static func clampManualPWM(_ pwm: UInt8) -> UInt8 {
         max(minimumManualPWM, pwm)
     }

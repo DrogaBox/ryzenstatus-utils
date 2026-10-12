@@ -14,6 +14,13 @@ import IOKit.kext
 actor ProcessorModel {
     static let shared = ProcessorModel()
 
+    /// Posted (on the watchdog's thread) when the kext connection is open
+    /// again after the kext was reloaded or a dead handle was replaced.
+    /// Closing a connection hands the fans back to the BIOS, so anything that
+    /// programmed the kext through it has to program it again.
+    static let kextReconnectedNotification = Notification.Name("KextReconnected")
+    static let kextUnloadedNotification = Notification.Name("KextUnloaded")
+
 
     // `iokitLock` removed. It was declared for exactly this purpose
     // but never locked anywhere in the codebase (only two stale comments
@@ -220,11 +227,6 @@ actor ProcessorModel {
         }
         return version
     }
-
-    /// Locked snapshot box for the About-panel identity fields
-    /// (kextVersion, baseboard). Replaces 4 `nonisolated(unsafe)` vars: the
-    /// actor writes once at connect/reconnect and SwiftUI reads synchronously
-    /// from the main thread — same class-wrapper pattern as PowerCache.
 
     private var cachedMetric : [Float] = []
     private var numberOfCores : Int = 0
@@ -541,7 +543,7 @@ actor ProcessorModel {
                     if wasConnected {
                         self.terminationState.isTerminating = true
                         NSLog("ProcessorModel: AMDRyzenCPUPowerManagement was unloaded!")
-                        NotificationCenter.default.post(name: NSNotification.Name("KextUnloaded"), object: nil)
+                        NotificationCenter.default.post(name: ProcessorModel.kextUnloadedNotification, object: nil)
                     }
                 } else {
                     IOObjectRelease(serviceObject)
@@ -561,6 +563,10 @@ actor ProcessorModel {
                         self.connectBox.closeIfOpen()
                         if self.attemptReconnect() {
                             NSLog("ProcessorModel: stale-handle reconnect succeeded")
+                            // Same Super I/O start as a launch, for the fan
+                            // readers the notice wakes up.
+                            _ = self.kernelGetUInt64(count: 2, selector: AMDKextSelector.fanInit)
+                            NotificationCenter.default.post(name: ProcessorModel.kextReconnectedNotification, object: nil)
                         }
                     }
                     if !self.isConnected, self.attemptReconnect() {
@@ -568,8 +574,10 @@ actor ProcessorModel {
                         // kernelGet* guard will keep returning empty arrays.
                         self.terminationState.isTerminating = false
                         NSLog("ProcessorModel: AMDRyzenCPUPowerManagement reconnected after reload")
-                        NotificationCenter.default.post(name: NSNotification.Name("KextReconnected"), object: nil)
+                        // After the init: it starts the Super I/O fan
+                        // reader the listeners need.
                         await self._finishInit()
+                        NotificationCenter.default.post(name: ProcessorModel.kextReconnectedNotification, object: nil)
                     }
                 }
             }
@@ -868,7 +876,7 @@ actor ProcessorModel {
     nonisolated static func privilegeHint(for status: kern_return_t) -> String? {
         if status == kIOReturnNotPrivilegedCode {
             return NSLocalizedString(
-                "This action requires administrator privileges. Run AMD Power Gadget as root, or add the boot argument -amdpnopchk for debugging. Note: GPU temperature injection for fan curves also requires privilege.",
+                "This action requires administrator privileges. Run RyzenStatus as root, or add the boot argument -amdpnopchk for debugging. Note: GPU temperature injection for fan curves also requires privilege.",
                 comment: "Shown when a privileged kext write is denied"
             )
         }
@@ -1792,6 +1800,8 @@ actor ProcessorModel {
         }
     }
 
+    /// Every fan header the kext reports. Names are the hardware's; the
+    /// names the user gives fans live in `FanState.customName`.
     nonisolated func getFans(includeNames: Bool = true) -> [FanSnapshot] {
         let fansRes = kernelGetUInt64(count: 1, selector: AMDKextSelector.fanCountRead.id)
         guard fansRes.count > 0 else { return [] }
@@ -1808,15 +1818,12 @@ actor ProcessorModel {
                 ? kernelGetString(selector: AMDKextSelector.fanName, args: [UInt64(i)])
                 : ""
             let finalName = name.isEmpty ? "Fan \(i + 1)" : name
-            let customName = includeNames
-                ? (UserDefaults.standard.string(forKey: "FanName_\(i)") ?? finalName)
-                : finalName
 
             let rawRPM = (i < fanRpms.count) ? fanRpms[i] : 0
             let raw = (i < fanCtrls.count) ? fanCtrls[i] : 0
             let decoded = AMDFanSafety.decodeSelector94(raw: raw, rawRPM: rawRPM, kextVersion: kextVer)
 
-            fans.append(FanSnapshot(id: i, name: customName, rpm: decoded.rpm, rpmValid: decoded.rpmValid, throttle: decoded.throttle, isOverridden: !decoded.isAuto))
+            fans.append(FanSnapshot(id: i, name: finalName, rpm: decoded.rpm, rpmValid: decoded.rpmValid, throttle: decoded.throttle, isOverridden: !decoded.isAuto))
         }
         return fans
     }

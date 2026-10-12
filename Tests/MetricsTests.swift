@@ -9282,6 +9282,82 @@ struct MetricsTests {
             "formatAmdBootArgs CPPC + pnopchk + C6 disabled"
         )
 
+        // MARK: AMD Boot-Args Parser
+
+        do {
+            let flags = CStateNvramService.amdFlags(inBootArgs: "keepsyms=1 -amdcppcactive  amdcstate=0\t-amdpnopchk")
+            expect(flags.c6Enabled && flags.cppcActive && flags.pnopchk,
+                   "boot-args flags are found among other arguments and any whitespace")
+            let lookalikes = CStateNvramService.amdFlags(inBootArgs: "-amdcppcactivex amdcstate=01 x-amdpnopchk")
+            expect(!lookalikes.c6Enabled && !lookalikes.cppcActive && !lookalikes.pnopchk,
+                   "a longer argument that merely contains a flag is not that flag")
+            let c6Off = CStateNvramService.amdFlags(inBootArgs: "amdcstate=1")
+            expect(!c6Off.c6Enabled, "amdcstate=1 leaves deep C-states off")
+            let none = CStateNvramService.amdFlags(inBootArgs: "")
+            expect(!none.c6Enabled && !none.cppcActive && !none.pnopchk, "no boot-args, no flags")
+        }
+
+        // MARK: Fan polling and launch
+
+        expect(FanPollingPolicy.interval(viewClients: 1, hasManualFan: false, hasGPUCurve: false)
+                == FanPollingPolicy.viewInterval,
+               "a view showing fans gets the quick poll")
+        expect(FanPollingPolicy.interval(viewClients: 2, hasManualFan: true, hasGPUCurve: true)
+                == FanPollingPolicy.viewInterval,
+               "an open view keeps the quick poll even when the safety poll is also needed")
+        expect(FanPollingPolicy.interval(viewClients: 0, hasManualFan: true, hasGPUCurve: false)
+                == FanPollingPolicy.safetyInterval,
+               "a manual fan keeps the thermal guard polling with every window closed")
+        expect(FanPollingPolicy.interval(viewClients: 0, hasManualFan: false, hasGPUCurve: true)
+                == FanPollingPolicy.safetyInterval,
+               "a GPU-sourced curve keeps the GPU temperature flowing with every window closed")
+        expect(FanPollingPolicy.interval(viewClients: 0, hasManualFan: false, hasGPUCurve: false) == nil,
+               "fans on Auto or CPU curves need no poll from the app")
+        expect(FanPollingPolicy.safetyInterval > FanPollingPolicy.viewInterval,
+               "the background poll is the slower one")
+        expect(FanPollingPolicy.needsStartAtLaunch(curvesEnabled: true, mappings: [0: 1, 2: -1]),
+               "a fan mapped to a curve brings the fan controller up at launch")
+        expect(!FanPollingPolicy.needsStartAtLaunch(curvesEnabled: true, mappings: [0: -1, 1: -1]),
+               "fans all on Auto do not start the fan controller")
+        expect(!FanPollingPolicy.needsStartAtLaunch(curvesEnabled: false, mappings: [0: 0]),
+               "curves switched off do not start the fan controller")
+
+        // MARK: Auto EPP targets and settling
+
+        do {
+            func target(cpu: Float, gpu: Float) -> AutoEppTarget {
+                AutoEppPolicy.target(cpuLoad: cpu, gpuLoad: gpu, idleThreshold: 25, loadThreshold: 50)
+            }
+            expect(target(cpu: 10, gpu: 0) == .powerSave, "an idle CPU and GPU save power")
+            expect(target(cpu: 80, gpu: 0) == .performance, "a busy CPU gets full performance")
+            expect(target(cpu: 35, gpu: 0) == .balanced, "load between the thresholds is balanced")
+            expect(target(cpu: 10, gpu: 70) == .gpuPerformance, "a busy GPU keeps the CPU at full performance")
+            expect(target(cpu: 10, gpu: 40) == .gpuActive, "an active GPU keeps the CPU from idling down")
+            expect(AutoEppTarget.powerSave.epp == 255 && AutoEppTarget.performance.epp == 0
+                   && AutoEppTarget.balanced.epp == 128,
+                   "Auto EPP keeps its EPP values")
+
+            let first = AutoEppPolicy.settle(candidate: .powerSave, current: nil, pendingStepDownPolls: 0)
+            expect(first.target == .powerSave && first.pendingStepDownPolls == 0,
+                   "the first poll applies its target directly")
+            let up = AutoEppPolicy.settle(candidate: .performance, current: .powerSave, pendingStepDownPolls: 2)
+            expect(up.target == .performance && up.pendingStepDownPolls == 0,
+                   "more performance applies at once and clears a pending step down")
+            var state: (target: AutoEppTarget, pendingStepDownPolls: Int) = (.performance, 0)
+            var applied: [AutoEppTarget] = []
+            for _ in 0..<AutoEppPolicy.stepDownPolls {
+                state = AutoEppPolicy.settle(candidate: .powerSave, current: state.target,
+                                             pendingStepDownPolls: state.pendingStepDownPolls)
+                applied.append(state.target)
+            }
+            expect(applied == [.performance, .performance, .powerSave],
+                   "less performance waits for three polls in a row")
+            let blip = AutoEppPolicy.settle(candidate: .performance, current: .performance, pendingStepDownPolls: 2)
+            expect(blip.pendingStepDownPolls == 0, "a burst in between restarts the wait")
+            let relabel = AutoEppPolicy.settle(candidate: .gpuActive, current: .balanced, pendingStepDownPolls: 0)
+            expect(relabel.target == .gpuActive, "a target with the same EPP is relabelled without waiting")
+        }
+
         // MARK: AMD Power Strings Invariant (gamingModeC6Hint)
 
         for lang in AppLanguage.allCases {

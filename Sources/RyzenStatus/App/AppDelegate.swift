@@ -162,6 +162,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // C6 residency sampling (kext selector 31) feeds the dashboard bar and
         // the AMD settings page from one shared poller.
         C6ResidencyService.shared.start()
+        // Fans mapped to curves get them back now (the app hands every fan to
+        // the BIOS when it quits), not when Settings › Fans is next opened.
+        FanCurveController.startIfConfigured()
         // Re-apply a persisted Gaming Mode (Extreme preset + Keep Awake +
         // hidden icon) left on by a previous session.
         GamingModeService.shared.restoreIfNeeded()
