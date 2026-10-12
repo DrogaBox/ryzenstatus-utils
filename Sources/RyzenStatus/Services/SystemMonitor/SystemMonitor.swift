@@ -34,6 +34,7 @@ struct SystemSnapshot {
     var gpuFan: Double?
     var batteryTemperature: Double?
     var cpuUsage: Double?          // 0...1
+    var cpuSystemUsage: Double?    // 0...1, the kernel's share of cpuUsage
     var gpuUsage: Double?          // 0...1
     var memoryUsed: UInt64?
     var memoryAppUsed: UInt64?
@@ -65,6 +66,7 @@ struct SystemSnapshot {
 
     // History (oldest → newest) for the graphs
     var cpuHistory: [Double] = []          // 0...1
+    var cpuSystemHistory: [Double] = []    // 0...1, aligned with cpuHistory
     var ipsHistory: [Double] = []          // 0...500 GIPS
     var gpuHistory: [Double] = []          // 0...1
     var memoryHistory: [Double] = []       // 0...1
@@ -189,8 +191,8 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     private var powerSampler: PowerSampler?
 
     // Running state
-    private var previousCPUTicks: (busy: UInt64, total: UInt64)?
-    private var previousCoreTicks: [(busy: UInt64, total: UInt64)] = []
+    private var previousCPUTicks: CPUTickSample?
+    private var previousCoreTicks: [CPUTickSample] = []
     /// Wake observer token — see invalidateTickBaseline().
     private var wakeObserver: Any?
     private var tickCount = 0
@@ -202,6 +204,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     /// what triggers the immediate resample instead of a wait of up to 60 s.
     private var lastSyncedPlan: SamplingPlan?
     private var lastCPUUsage: Double?
+    private var lastCPUSystemUsage: Double?
     private var lastMemoryReading: (used: UInt64, appUsed: UInt64, total: UInt64, pressure: MemoryPressure)?
     private var cores: [CoreSnapshot] = []
     private var ccdTemperatures: [Double] = []
@@ -226,6 +229,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     // History
     private let historyCapacity = 120
     private var cpuHistory: MetricHistory
+    private var cpuSystemHistory: MetricHistory
     private var gpuHistory: MetricHistory
     private var memoryHistory: MetricHistory
     private var memoryAppHistory: MetricHistory
@@ -247,6 +251,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
 
     private init() {
         cpuHistory = MetricHistory(capacity: historyCapacity)
+        cpuSystemHistory = MetricHistory(capacity: historyCapacity)
         gpuHistory = MetricHistory(capacity: historyCapacity)
         memoryHistory = MetricHistory(capacity: historyCapacity)
         memoryAppHistory = MetricHistory(capacity: historyCapacity)
@@ -473,7 +478,10 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         if let oldPlan = lastSyncedPlan {
             queue.async { [weak self] in
                 guard let self else { return }
-                if !oldPlan.needCPU && plan.needCPU { self.cpuHistory = MetricHistory(capacity: self.historyCapacity) }
+                if !oldPlan.needCPU && plan.needCPU {
+                    self.cpuHistory = MetricHistory(capacity: self.historyCapacity)
+                    self.cpuSystemHistory = MetricHistory(capacity: self.historyCapacity)
+                }
                 if !oldPlan.needGPUUsage && plan.needGPUUsage { self.gpuHistory = MetricHistory(capacity: self.historyCapacity) }
                 if !oldPlan.needMemory && plan.needMemory {
                     self.memoryHistory = MetricHistory(capacity: self.historyCapacity)
@@ -846,10 +854,13 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     self.cores = cores
                     self.ccdTemperatures = ccdTemps.map { Double($0) }
 
-                    if let cpu = self.readCPUUsage(), cpu >= 0 {
+                    if let load = self.readCPUUsage() {
+                        let cpu = load.busy
                         self.lastCPUUsage = cpu
+                        self.lastCPUSystemUsage = load.system
                         self.missedCPUUsageSamples = 0
                         self.cpuHistory.push(cpu)
+                        self.cpuSystemHistory.push(load.system)
 
                         let freqs = self.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
                         let rawAvg = freqs.isEmpty ? 0 : freqs.reduce(0, +) / Double(freqs.count)
@@ -860,10 +871,13 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     } else if !self.cores.isEmpty {
                         let physicalCores = self.cores.filter { !$0.isLogical }
                         let avgPct = physicalCores.reduce(0.0) { $0 + Double($1.loadPct) } / Double(max(1, physicalCores.count))
+                        let avgSystemPct = physicalCores.reduce(0.0) { $0 + Double($1.systemPct) } / Double(max(1, physicalCores.count))
                         let cpuLoad = avgPct / 100.0
                         self.lastCPUUsage = cpuLoad
+                        self.lastCPUSystemUsage = avgSystemPct / 100.0
                         self.missedCPUUsageSamples = 0
                         self.cpuHistory.push(cpuLoad)
+                        self.cpuSystemHistory.push(avgSystemPct / 100.0)
 
                         let freqs = self.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
                         let rawAvg = freqs.isEmpty ? 0 : freqs.reduce(0, +) / Double(freqs.count)
@@ -875,9 +889,11 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                         self.missedCPUUsageSamples += 1
                     } else {
                         self.lastCPUUsage = nil
+                        self.lastCPUSystemUsage = nil
                     }
                 }
                 next.cpuUsage = self.lastCPUUsage
+                next.cpuSystemUsage = self.lastCPUSystemUsage
                 next.cores = self.cores
                 next.ccdTemperatures = self.ccdTemperatures.map { Float($0) }
             }
@@ -1146,6 +1162,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             }
             next.numPhysicalCores = self.lastAmdSnapshot?.numPhysicalCores ?? max(1, ProcessInfo.processInfo.processorCount / 2)
             next.cpuHistory = plan.needCPU ? self.cpuHistory.values : []
+            next.cpuSystemHistory = plan.needCPU ? self.cpuSystemHistory.values : []
             next.ipsHistory = plan.needCPU ? self.ipsHistory.values : []
             next.gpuHistory = plan.needGPUUsage ? self.gpuHistory.values : []
             next.memoryHistory = plan.needMemory ? self.memoryHistory.values : []
@@ -1295,9 +1312,9 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
 
     // MARK: - CPU usage
 
-    /// Aggregated load from HOST_CPU_LOAD_INFO; usage is the busy-tick share
-    /// since the previous refresh.
-    private func readCPUUsage() -> Double? {
+    /// Aggregated load from HOST_CPU_LOAD_INFO: the busy and system tick
+    /// shares since the previous refresh.
+    private func readCPUUsage() -> (busy: Double, system: Double)? {
         var info = host_cpu_load_info()
         var count = mach_msg_type_number_t(MemoryLayout<host_cpu_load_info>.stride / MemoryLayout<integer_t>.stride)
         // mach_host_self() returns a send right the caller owns; release it or each
@@ -1311,16 +1328,13 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         }
         guard kr == KERN_SUCCESS else { return nil }
 
-        let user = UInt64(info.cpu_ticks.0)
-        let system = UInt64(info.cpu_ticks.1)
-        let idle = UInt64(info.cpu_ticks.2)
-        let nice = UInt64(info.cpu_ticks.3)
-        let busy = user + system + nice
-        let total = busy + idle
-
-        defer { previousCPUTicks = (busy, total) }
-        guard let previous = previousCPUTicks, total > previous.total else { return nil }
-        return Double(busy - previous.busy) / Double(total - previous.total)
+        let sample = CPUTickSample(user: UInt64(info.cpu_ticks.0),
+                                   system: UInt64(info.cpu_ticks.1),
+                                   idle: UInt64(info.cpu_ticks.2),
+                                   nice: UInt64(info.cpu_ticks.3))
+        defer { previousCPUTicks = sample }
+        guard let previous = previousCPUTicks else { return nil }
+        return sample.load(since: previous)
     }
 
     /// Fetches per-core load using host_processor_info and combines it with
@@ -1337,6 +1351,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         defer { mach_port_deallocate(mach_task_self_, host) }
 
         var coreLoads: [Float] = []
+        var coreSystemLoads: [Float] = []
         let kr = host_processor_info(host, PROCESSOR_CPU_LOAD_INFO, &cpuCount, &cpuInfo, &numCpuInfo)
 
         if kr == KERN_SUCCESS, let cpuInfo = cpuInfo {
@@ -1344,25 +1359,18 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 UnsafeBufferPointer(start: ptr, count: Int(numCpuInfo))
             }
 
-            var newTicks: [(busy: UInt64, total: UInt64)] = []
+            var newTicks: [CPUTickSample] = []
             for i in 0..<Int(cpuCount) {
                 let offset = i * Int(CPU_STATE_MAX)
-                let user = UInt64(cpuLoadInfo[offset + Int(CPU_STATE_USER)])
-                let system = UInt64(cpuLoadInfo[offset + Int(CPU_STATE_SYSTEM)])
-                let idle = UInt64(cpuLoadInfo[offset + Int(CPU_STATE_IDLE)])
-                let nice = UInt64(cpuLoadInfo[offset + Int(CPU_STATE_NICE)])
-                let busy = user + system + nice
-                let total = busy + idle
-                newTicks.append((busy, total))
+                let sample = CPUTickSample(user: UInt64(cpuLoadInfo[offset + Int(CPU_STATE_USER)]),
+                                           system: UInt64(cpuLoadInfo[offset + Int(CPU_STATE_SYSTEM)]),
+                                           idle: UInt64(cpuLoadInfo[offset + Int(CPU_STATE_IDLE)]),
+                                           nice: UInt64(cpuLoadInfo[offset + Int(CPU_STATE_NICE)]))
+                newTicks.append(sample)
 
-                var load: Float = 0
-                if previousCoreTicks.count > i {
-                    let prev = previousCoreTicks[i]
-                    if total > prev.total {
-                        load = Float(busy - prev.busy) / Float(total - prev.total)
-                    }
-                }
-                coreLoads.append(load * 100.0)
+                let load = previousCoreTicks.count > i ? sample.load(since: previousCoreTicks[i]) : nil
+                coreLoads.append(Float(load?.busy ?? 0) * 100.0)
+                coreSystemLoads.append(Float(load?.system ?? 0) * 100.0)
             }
 
             previousCoreTicks = newTicks
@@ -1393,6 +1401,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 let freqIdx = physicalIdx + 3
                 let freq = amdSnap.metric.count > freqIdx ? amdSnap.metric[freqIdx] : 0.0
                 let load = coreLoads.count > logicalIdx ? coreLoads[logicalIdx] : 0.0
+                let systemLoad = coreSystemLoads.count > logicalIdx ? coreSystemLoads[logicalIdx] : 0.0
 
                 cores.append(CoreSnapshot(
                     id: logicalIdx,
@@ -1401,7 +1410,8 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     isLogical: isLogical,
                     cppcScore: nil,
                     cppcScoreEstimated: false,
-                    coreRank: nil
+                    coreRank: nil,
+                    systemPct: systemLoad
                 ))
             }
         }

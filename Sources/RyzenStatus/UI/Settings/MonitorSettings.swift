@@ -18,7 +18,7 @@ struct MonitorSettings: View {
     @AppStorage(DefaultsKey.menuBarMetricSpacing) private var metricSpacing = "standard"
     @AppStorage(DefaultsKey.menuBarMetricAppearance) private var metricAppearance = "values"
     @AppStorage(DefaultsKey.menuBarHideIconWithMetrics) private var hideIconWithMetrics = false
-    @AppStorage(DefaultsKey.menuBarGraphShowsValue) private var graphShowsValue = true
+    @AppStorage(DefaultsKey.menuBarGraphShowsValue) private var graphShowsValue = false
     @AppStorage(DefaultsKey.monitorInterval) private var interval = 1.0
     @AppStorage(DefaultsKey.processListRefreshInterval) private var processListInterval = 1.0
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnit = TemperatureUnit.celsius.rawValue
@@ -90,6 +90,7 @@ struct MonitorSettings: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 MenuBarUsageBarSettings(strings: appearanceStrings)
+                MenuBarGraphThemeSettings(strings: FeatureStrings.menuBarGraphTheme(l10n.language))
                 if appearance != .bars {
                     Toggle(l10n.s.monitorCombineTemperatures, isOn: $combineTemperatures)
                     Text(l10n.s.monitorCombineTemperaturesCaption)
@@ -276,6 +277,96 @@ private struct MenuBarUsageBarSettings: View {
                                                            high: highThreshold)
         mediumThreshold = thresholds.medium
         highThreshold = thresholds.high
+    }
+}
+
+/// Theme and shape of the history, core, ring and network graphs. Light and
+/// dark menu bars choose separately; the live preview above shows the result.
+private struct MenuBarGraphThemeSettings: View {
+    let strings: MenuBarGraphThemeStrings
+
+    @AppStorage(DefaultsKey.menuBarGraphThemeLight) private var lightTheme = MenuBarGraphTheme.system.rawValue
+    @AppStorage(DefaultsKey.menuBarGraphThemeDark) private var darkTheme = MenuBarGraphTheme.system.rawValue
+    @AppStorage(DefaultsKey.menuBarGraphLightBackground) private var lightBackground = MenuBarGraphLightBackground.filled.rawValue
+    @AppStorage(DefaultsKey.menuBarGraphHistoryWidth) private var historyWidth = MenuBarGraphHistoryWidth.standard.rawValue
+    @AppStorage(DefaultsKey.menuBarGraphHistorySpaced) private var historySpaced = false
+    @AppStorage(DefaultsKey.menuBarNetworkGraphLayout) private var networkLayout = MenuBarNetworkGraphLayout.mirrored.rawValue
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(strings.title)
+                .font(.subheadline.weight(.semibold))
+
+            themePicker(strings.lightMode, selection: $lightTheme)
+            themePicker(strings.darkMode, selection: $darkTheme)
+            Picker(strings.lightBackground, selection: $lightBackground) {
+                Text(strings.backgroundFilled).tag(MenuBarGraphLightBackground.filled.rawValue)
+                Text(strings.backgroundOutline).tag(MenuBarGraphLightBackground.outline.rawValue)
+            }
+            .pickerStyle(.segmented)
+
+            Divider()
+
+            Picker(strings.historyWidth, selection: $historyWidth) {
+                Text(strings.widthNarrow).tag(MenuBarGraphHistoryWidth.narrow.rawValue)
+                Text(strings.widthStandard).tag(MenuBarGraphHistoryWidth.standard.rawValue)
+                Text(strings.widthWide).tag(MenuBarGraphHistoryWidth.wide.rawValue)
+            }
+            .pickerStyle(.segmented)
+            Toggle(strings.spacedColumns, isOn: $historySpaced)
+            Picker(strings.networkLayout, selection: $networkLayout) {
+                Text(strings.networkMirrored).tag(MenuBarNetworkGraphLayout.mirrored.rawValue)
+                Text(strings.networkSplit).tag(MenuBarNetworkGraphLayout.split.rawValue)
+                Text(strings.networkRising).tag(MenuBarNetworkGraphLayout.rising.rawValue)
+            }
+            Text(strings.caption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.leading, 12)
+        .onAppear(perform: sanitize)
+    }
+
+    private func themePicker(_ title: String, selection: Binding<String>) -> some View {
+        Picker(title, selection: selection) {
+            ForEach(MenuBarGraphTheme.allCases, id: \.self) { theme in
+                Label {
+                    Text(strings.name(of: theme))
+                } icon: {
+                    Image(nsImage: Self.swatch(for: theme))
+                }
+                .tag(theme.rawValue)
+            }
+        }
+    }
+
+    /// Three dots with the theme's colors, so the menu shows each pairing
+    /// before it is picked. Mono shows gray because its real tone depends
+    /// on the menu bar it lands on.
+    private static func swatch(for theme: MenuBarGraphTheme) -> NSImage {
+        let colors = MenuBarGraphPalette.colors(for: theme,
+                                                accent: MenuBarGraphPainter.accentRGB(),
+                                                mono: MenuBarUsageBarSupport.RGB(red: 0.55, green: 0.55, blue: 0.55))
+        let dots = [colors.primary, colors.secondary, colors.tertiary]
+        let diameter: CGFloat = 8
+        let image = NSImage(size: NSSize(width: diameter * 2.5, height: diameter), flipped: false) { _ in
+            for (index, rgb) in dots.enumerated().reversed() {
+                NSColor(srgbRed: CGFloat(rgb.red), green: CGFloat(rgb.green), blue: CGFloat(rgb.blue), alpha: 1).setFill()
+                NSBezierPath(ovalIn: NSRect(x: CGFloat(index) * diameter * 0.75, y: 0,
+                                            width: diameter, height: diameter)).fill()
+            }
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
+    private func sanitize() {
+        lightTheme = Defaults.sanitizedMenuBarGraphTheme(lightTheme)
+        darkTheme = Defaults.sanitizedMenuBarGraphTheme(darkTheme)
+        lightBackground = Defaults.sanitizedMenuBarGraphLightBackground(lightBackground)
+        historyWidth = Defaults.sanitizedMenuBarGraphHistoryWidth(historyWidth)
+        networkLayout = Defaults.sanitizedMenuBarNetworkGraphLayout(networkLayout)
     }
 }
 

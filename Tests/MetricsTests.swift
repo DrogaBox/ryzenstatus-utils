@@ -1846,6 +1846,136 @@ struct MetricsTests {
         expectClose(customBarRGB.blue, 32.0 / 255.0, "menu bar color parses blue")
         expect(MenuBarUsageBarSupport.hex(red: 1, green: 0.5, blue: 0) == "#FF8000",
                "menu bar color picker writes stable hex values")
+
+        // MARK: Menu bar graph themes and geometry
+
+        expect(registeredDefaults[DefaultsKey.menuBarGraphThemeLight] as? String == "system"
+               && registeredDefaults[DefaultsKey.menuBarGraphThemeDark] as? String == "system",
+               "menu bar graphs follow the system accent in both appearances by default")
+        expect(registeredDefaults[DefaultsKey.menuBarGraphLightBackground] as? String == "filled",
+               "menu bar graphs sit on a dark pill on a light menu bar by default")
+        expect(registeredDefaults[DefaultsKey.menuBarGraphHistoryWidth] as? String == "standard"
+               && registeredDefaults[DefaultsKey.menuBarGraphHistorySpaced] as? Bool == false,
+               "menu bar history graphs default to the standard width with touching columns")
+        expect(registeredDefaults[DefaultsKey.menuBarNetworkGraphLayout] as? String == "mirrored",
+               "the menu bar network graph mirrors upload and download by default")
+        expect(Defaults.sanitizedMenuBarGraphTheme("softPurple") == "softPurple",
+               "soft graph themes are valid stored choices")
+        expect(Defaults.sanitizedMenuBarGraphTheme("banana") == "system",
+               "unknown graph themes fall back to the system accent")
+        expect(Defaults.sanitizedMenuBarGraphLightBackground("banana") == "filled",
+               "unknown light graph backgrounds fall back to the dark pill")
+        expect(Defaults.sanitizedMenuBarGraphHistoryWidth("wide") == "wide"
+               && Defaults.sanitizedMenuBarGraphHistoryWidth("banana") == "standard",
+               "history widths keep valid choices and repair unknown ones")
+        expect(Defaults.sanitizedMenuBarNetworkGraphLayout("split") == "split"
+               && Defaults.sanitizedMenuBarNetworkGraphLayout("banana") == "mirrored",
+               "network graph layouts keep valid choices and repair unknown ones")
+        expect(MenuBarGraphHistoryWidth.standard.points == 40,
+               "the standard history graph is forty points wide")
+
+        let graphWhite = MenuBarUsageBarSupport.RGB(red: 1, green: 1, blue: 1)
+        let monoColors = MenuBarGraphPalette.colors(for: .mono, accent: MenuBarGraphPalette.red, mono: graphWhite)
+        expect(monoColors.primary == graphWhite && monoColors.secondary == graphWhite
+               && monoColors.tertiary == graphWhite,
+               "the mono graph theme draws every series in the contrasting tone")
+        expect(MenuBarGraphPalette.colors(for: .blue, accent: MenuBarGraphPalette.red, mono: graphWhite)
+               == MenuBarGraphColors(primary: MenuBarGraphPalette.blue,
+                                     secondary: MenuBarGraphPalette.pink,
+                                     tertiary: MenuBarGraphPalette.yellow),
+               "a named graph theme ignores the system accent")
+        let offPaletteAccent = MenuBarUsageBarSupport.RGB(red: 0.62, green: 0.3, blue: 0.66)
+        expect(MenuBarGraphPalette.nearestBaseTheme(to: offPaletteAccent) == .purple,
+               "an off-palette accent matches the closest built-in theme")
+        let systemColors = MenuBarGraphPalette.colors(for: .system, accent: offPaletteAccent, mono: graphWhite)
+        expect(systemColors.primary == offPaletteAccent
+               && systemColors.secondary == MenuBarGraphPalette.blue
+               && systemColors.tertiary == MenuBarGraphPalette.yellow,
+               "the system graph theme keeps the exact accent and borrows the nearest theme's companions")
+        expect(MenuBarGraphPalette.nearestBaseTheme(to: MenuBarGraphPalette.green) == .green,
+               "a built-in accent matches its own theme")
+        let softGreen = MenuBarGraphPalette.colors(for: .softGreen, accent: MenuBarGraphPalette.red, mono: graphWhite)
+        let green = MenuBarGraphPalette.colors(for: .green, accent: MenuBarGraphPalette.red, mono: graphWhite)
+        expect(softGreen.primary != green.primary
+               && softGreen.secondary == green.secondary
+               && softGreen.tertiary == green.tertiary,
+               "soft graph themes mute the main color and keep the base companions")
+        for theme in MenuBarGraphTheme.allCases where theme != .mono {
+            let colors = MenuBarGraphPalette.colors(for: theme, accent: MenuBarGraphPalette.blue, mono: graphWhite)
+            expect(colors.primary != colors.secondary && colors.secondary != colors.tertiary,
+                   "\(theme.rawValue) graph theme keeps its stacked series distinguishable")
+        }
+
+        expect(MenuBarGraphGeometry.historySampleCount(plotWidth: 36, spaced: false) == 36,
+               "touching history columns show one sample per point")
+        expect(MenuBarGraphGeometry.historySampleCount(plotWidth: 36, spaced: true) == 18
+               && MenuBarGraphGeometry.historySampleCount(plotWidth: 35, spaced: true) == 18,
+               "spaced history columns show one sample every other point")
+        expectClose(Double(MenuBarGraphGeometry.columnHeight(fraction: 0, plotHeight: 14)), 0,
+                    "an idle sample draws no column")
+        expectClose(Double(MenuBarGraphGeometry.columnHeight(fraction: 0.01, plotHeight: 14)), 1,
+                    "any activity keeps a one point column")
+        expectClose(Double(MenuBarGraphGeometry.columnHeight(fraction: 0.5, plotHeight: 14)), 7,
+                    "history columns scale with the plot height")
+        expectClose(Double(MenuBarGraphGeometry.columnHeight(fraction: 3, plotHeight: 14)), 14,
+                    "history columns clamp above full")
+        expectClose(Double(MenuBarGraphGeometry.columnHeight(fraction: .nan, plotHeight: 14)), 0,
+                    "unreadable samples draw nothing")
+        expectClose(MenuBarGraphGeometry.dualScale([]), 1024,
+                    "an empty network window still has a one kilobyte scale")
+        expectClose(MenuBarGraphGeometry.dualScale([10, 5000, .infinity]), 5000,
+                    "the network graph scales to its busiest finite sample")
+        expect(MenuBarGraphGeometry.coreBarWidth(coreCount: 7) == 4
+               && MenuBarGraphGeometry.coreBarWidth(coreCount: 8) == 3
+               && MenuBarGraphGeometry.coreBarWidth(coreCount: 16) == 2,
+               "core bars narrow as the core count grows")
+        expect(MenuBarGraphGeometry.coreBoxWidth(coreCount: 8) == 35,
+               "eight core bars with one point gaps fit a thirty-five point box")
+        let smtCores = [
+            CoreSnapshot(id: 0, freqMHz: 4000, loadPct: 80, isLogical: false),
+            CoreSnapshot(id: 1, freqMHz: 4000, loadPct: 20, isLogical: true),
+            CoreSnapshot(id: 2, freqMHz: 4000, loadPct: 10, isLogical: false),
+            CoreSnapshot(id: 3, freqMHz: 4000, loadPct: 30, isLogical: true),
+        ]
+        let physicalLoads = MenuBarGraphGeometry.physicalCoreLoads(smtCores)
+        expect(physicalLoads.count == 2, "SMT siblings fold into their physical core")
+        expectClose(physicalLoads.first ?? -1, 0.5, "a physical core averages its own threads")
+        expectClose(physicalLoads.last ?? -1, 0.2, "each physical core keeps its own siblings")
+        let systemCores = [
+            CoreSnapshot(id: 0, freqMHz: 4000, loadPct: 80, isLogical: false, systemPct: 30),
+            CoreSnapshot(id: 1, freqMHz: 4000, loadPct: 20, isLogical: true, systemPct: 10),
+        ]
+        expectClose(MenuBarGraphGeometry.physicalCoreLoads(systemCores, percent: { $0.systemPct }).first ?? -1, 0.2,
+                    "core system shares fold into their physical core like the load")
+
+        let userShares = MenuBarGraphGeometry.userShares(total: [0.5, 0.6, 0.7], system: [0.1, 0.2])
+        expect(userShares.count == 3, "user shares keep one value per CPU sample")
+        expectClose(userShares[0], 0.5, "a sample without a system share counts as user time")
+        expectClose(userShares[1], 0.5, "system shares align with the newest CPU samples")
+        expectClose(userShares[2], 0.5, "the newest user share is the total minus system")
+        expectClose(MenuBarGraphGeometry.userShares(total: [0.1], system: [0.4]).first ?? -1, 0,
+                    "a system share above the total never makes user time negative")
+
+        let firstTicks = CPUTickSample(user: 100, system: 50, idle: 850, nice: 0)
+        let laterTicks = CPUTickSample(user: 160, system: 70, idle: 870, nice: 0)
+        let tickLoad = laterTicks.load(since: firstTicks)
+        expectClose(tickLoad?.busy ?? -1, 0.8, "CPU busy share counts user, system and nice ticks")
+        expectClose(tickLoad?.system ?? -1, 0.2, "CPU system share counts only kernel ticks")
+        expect(firstTicks.load(since: firstTicks) == nil,
+               "CPU counters that did not advance give no reading")
+        expect(firstTicks.load(since: laterTicks) == nil,
+               "CPU counters that went backwards give no reading instead of trapping")
+        expect(registeredDefaults[DefaultsKey.menuBarGraphShowsValue] as? Bool == false,
+               "menu bar graphs show the graph alone by default, like the reference look")
+
+        for language in AppLanguage.allCases {
+            let graphStrings = FeatureStrings.menuBarGraphTheme(language)
+            expectFormat(graphStrings.softFormat, ["@"], "\(language.rawValue) soft graph theme format")
+            expect(MenuBarGraphTheme.allCases.allSatisfy { !graphStrings.name(of: $0).isEmpty },
+                   "\(language.rawValue) names every graph theme")
+            expect(Set(MenuBarGraphTheme.allCases.map(graphStrings.name(of:))).count == MenuBarGraphTheme.allCases.count,
+                   "\(language.rawValue) graph theme names are distinct")
+        }
         expect(MenuBarSpacingSupport.digitMatchedReserve(for: "14%") == "88%",
                "compact spacing reserves the current digit count for percentages")
         expect(MenuBarSpacingSupport.digitMatchedReserve(for: "999°") == "888°",

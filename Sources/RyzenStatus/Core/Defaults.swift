@@ -630,7 +630,13 @@ enum Defaults {
         DefaultsKey.menuBarUsageBarHighThreshold: 90,
         DefaultsKey.menuBarHideIconWithMetrics: false,
         DefaultsKey.menuBarLayoutMode: "modern",
-        DefaultsKey.menuBarGraphShowsValue: true,
+        DefaultsKey.menuBarGraphShowsValue: false,
+        DefaultsKey.menuBarGraphThemeLight: "system",
+        DefaultsKey.menuBarGraphThemeDark: "system",
+        DefaultsKey.menuBarGraphLightBackground: "filled",
+        DefaultsKey.menuBarGraphHistoryWidth: "standard",
+        DefaultsKey.menuBarGraphHistorySpaced: false,
+        DefaultsKey.menuBarNetworkGraphLayout: "mirrored",
         DefaultsKey.windowLayoutHiddenActions: "",
         DefaultsKey.menuBarMetricOrder: defaultMenuBarMetricOrder.joined(separator: ","),
         DefaultsKey.menuBarCombineTemperatures: true,
@@ -1338,6 +1344,22 @@ enum Defaults {
 
     static func sanitizedMenuBarMetricAppearance(_ appearance: String) -> String {
         allowedMenuBarMetricAppearances.contains(appearance) ? appearance : "values"
+    }
+
+    static func sanitizedMenuBarGraphTheme(_ theme: String) -> String {
+        MenuBarGraphTheme(rawValue: theme)?.rawValue ?? MenuBarGraphTheme.system.rawValue
+    }
+
+    static func sanitizedMenuBarGraphLightBackground(_ background: String) -> String {
+        MenuBarGraphLightBackground(rawValue: background)?.rawValue ?? MenuBarGraphLightBackground.filled.rawValue
+    }
+
+    static func sanitizedMenuBarGraphHistoryWidth(_ width: String) -> String {
+        MenuBarGraphHistoryWidth(rawValue: width)?.rawValue ?? MenuBarGraphHistoryWidth.standard.rawValue
+    }
+
+    static func sanitizedMenuBarNetworkGraphLayout(_ layout: String) -> String {
+        MenuBarNetworkGraphLayout(rawValue: layout)?.rawValue ?? MenuBarNetworkGraphLayout.mirrored.rawValue
     }
 
     static func sanitizedMenuBarMetricOrder(_ raw: String) -> [String] {

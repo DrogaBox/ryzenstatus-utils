@@ -36,6 +36,12 @@ struct MenuBarMetricsPreview: View {
     @AppStorage(DefaultsKey.menuBarNetworkUploadFirst) private var networkUploadFirst = false
     @AppStorage(DefaultsKey.menuBarMemoryStyle) private var memoryStyle = "percent"
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnit = TemperatureUnit.celsius.rawValue
+    @AppStorage(DefaultsKey.menuBarGraphThemeLight) private var graphThemeLight = "system"
+    @AppStorage(DefaultsKey.menuBarGraphThemeDark) private var graphThemeDark = "system"
+    @AppStorage(DefaultsKey.menuBarGraphLightBackground) private var graphLightBackground = "filled"
+    @AppStorage(DefaultsKey.menuBarGraphHistoryWidth) private var graphHistoryWidth = "standard"
+    @AppStorage(DefaultsKey.menuBarGraphHistorySpaced) private var graphHistorySpaced = false
+    @AppStorage(DefaultsKey.menuBarNetworkGraphLayout) private var networkGraphLayout = "mirrored"
 
     var body: some View {
         let _ = metricOrder
@@ -50,6 +56,12 @@ struct MenuBarMetricsPreview: View {
         let _ = networkUploadFirst
         let _ = memoryStyle
         let _ = temperatureUnit
+        let _ = graphThemeLight
+        let _ = graphThemeDark
+        let _ = graphLightBackground
+        let _ = graphHistoryWidth
+        let _ = graphHistorySpaced
+        let _ = networkGraphLayout
         let lines = MenuBarRenderer.lines(for: monitor.snapshot, metrics: activeMetrics)
         let stacked = lines.count > 1
 
