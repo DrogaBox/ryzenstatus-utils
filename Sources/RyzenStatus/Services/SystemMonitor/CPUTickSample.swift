@@ -17,6 +17,16 @@ struct CPUTickSample: Equatable {
         total = busy + idle
     }
 
+    /// Per-core counters arrive as `integer_t`, but the kernel keeps them
+    /// unsigned. Past 2^31 ticks (about 248 days awake at 100 Hz) one reads
+    /// negative, so it is taken bit for bit instead of trapping in `UInt64(_:)`.
+    init(machUser user: integer_t, system: integer_t, idle: integer_t, nice: integer_t) {
+        self.init(user: UInt64(UInt32(bitPattern: user)),
+                  system: UInt64(UInt32(bitPattern: system)),
+                  idle: UInt64(UInt32(bitPattern: idle)),
+                  nice: UInt64(UInt32(bitPattern: nice)))
+    }
+
     /// Busy and system shares of the interval since `previous`, 0...1. Nil
     /// when the counters did not advance or went backwards: the kernel keeps
     /// them in 32 bits, so a wrap must skip a sample, not trap on underflow.

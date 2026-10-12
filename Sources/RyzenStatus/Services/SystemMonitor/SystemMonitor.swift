@@ -1362,10 +1362,10 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             var newTicks: [CPUTickSample] = []
             for i in 0..<Int(cpuCount) {
                 let offset = i * Int(CPU_STATE_MAX)
-                let sample = CPUTickSample(user: UInt64(cpuLoadInfo[offset + Int(CPU_STATE_USER)]),
-                                           system: UInt64(cpuLoadInfo[offset + Int(CPU_STATE_SYSTEM)]),
-                                           idle: UInt64(cpuLoadInfo[offset + Int(CPU_STATE_IDLE)]),
-                                           nice: UInt64(cpuLoadInfo[offset + Int(CPU_STATE_NICE)]))
+                let sample = CPUTickSample(machUser: cpuLoadInfo[offset + Int(CPU_STATE_USER)],
+                                           system: cpuLoadInfo[offset + Int(CPU_STATE_SYSTEM)],
+                                           idle: cpuLoadInfo[offset + Int(CPU_STATE_IDLE)],
+                                           nice: cpuLoadInfo[offset + Int(CPU_STATE_NICE)])
                 newTicks.append(sample)
 
                 let load = previousCoreTicks.count > i ? sample.load(since: previousCoreTicks[i]) : nil

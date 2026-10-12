@@ -1965,6 +1965,13 @@ struct MetricsTests {
                "CPU counters that did not advance give no reading")
         expect(firstTicks.load(since: laterTicks) == nil,
                "CPU counters that went backwards give no reading instead of trapping")
+        let highTicks = CPUTickSample(machUser: -1, system: 0, idle: Int32.min, nice: 0)
+        expect(highTicks.busy == UInt64(UInt32.max),
+               "a per-core counter past 2^31 reads as its unsigned value instead of trapping")
+        expect(highTicks.total == UInt64(UInt32.max) + (UInt64(1) << 31),
+               "per-core idle ticks past 2^31 keep counting toward the total")
+        expect(CPUTickSample(machUser: 160, system: 70, idle: 870, nice: 0) == laterTicks,
+               "per-core counters below 2^31 read the same as the host counters")
         expect(registeredDefaults[DefaultsKey.menuBarGraphShowsValue] as? Bool == false,
                "menu bar graphs show the graph alone by default, like the reference look")
 

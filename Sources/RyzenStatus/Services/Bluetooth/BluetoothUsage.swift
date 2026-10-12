@@ -4,7 +4,7 @@
 import Foundation
 
 /// Whether the app talks to Bluetooth at all. Switched off in Settings, or on
-/// a Mac without a Bluetooth controller, nothing loads IOBluetooth, asks the
+/// a Mac without a Bluetooth controller, nothing calls IOBluetooth, asks the
 /// Bluetooth daemon or runs `system_profiler` for Bluetooth batteries. A Mac
 /// whose Bluetooth answers slowly (common on a Hackintosh) can turn it off.
 enum BluetoothUsage {
