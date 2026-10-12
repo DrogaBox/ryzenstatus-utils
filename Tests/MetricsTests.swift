@@ -9652,6 +9652,60 @@ struct MetricsTests {
         expect(controllerSource.contains("self.rpmWindows.removeAll()"),
                "RPM windows are reset when the channel set is rebuilt")
 
+        // MARK: Floating island below the menu bar
+
+        do {
+            let gap = NotchFloatingLayout.menuBarGap
+            expectClose(Double(gap), 6, "the floating island keeps a 6-point gap below the menu bar")
+            let screens = [CGRect(x: 0, y: 0, width: 1920, height: 1080),
+                           CGRect(x: -1440, y: 200, width: 1440, height: 900),
+                           CGRect(x: 2560, y: -300, width: 2560, height: 1440)]
+            let sizes = [("compact", CGSize(width: 180, height: 24)),
+                         ("resting", CGSize(width: 136, height: 22)),
+                         ("expanded", CGSize(width: 560, height: 420))]
+            for screen in screens {
+                for bar in [22, 24, 37] as [CGFloat] {
+                    let barBottom = screen.maxY - bar
+                    for margin in [0, 1, 2] as [CGFloat] {
+                        for (name, size) in sizes {
+                            let label = "floating \(name) on \(screen.origin) bar \(bar) margin \(margin)"
+                            let visible = NotchFloatingLayout.visibleFrame(screen: screen, barHeight: bar,
+                                                                           margin: margin, size: size)
+                            let window = NotchFloatingLayout.windowFrame(screen: screen, barHeight: bar,
+                                                                         margin: margin, size: size)
+                            expect(visible.maxY <= barBottom - gap + 0.0001,
+                                   "\(label): island top \(visible.maxY) must sit at least the gap below the bar \(barBottom)")
+                            expectClose(Double(visible.maxY), Double(barBottom - gap), "\(label): island top")
+                            expect(window.maxY <= barBottom,
+                                   "\(label): the window \(window.maxY) never overlaps the menu bar \(barBottom)")
+                            expectClose(Double(window.midX), Double(screen.midX), "\(label): centred")
+                            expectClose(Double(visible.height), Double(size.height - margin * 2), "\(label): body height")
+                        }
+                    }
+                    let strip = NotchFloatingLayout.hoverStrip(screen: screen, barHeight: bar, width: 136, height: 20)
+                    let menuBar = CGRect(x: screen.minX, y: barBottom, width: screen.width, height: bar)
+                    expect(!strip.intersects(menuBar), "the hover strip never covers the menu bar (bar \(bar))")
+                    expectClose(Double(strip.maxY), Double(barBottom), "the hover strip starts at the menu bar's bottom")
+                    expectClose(Double(strip.height), Double(20 + gap), "the hover strip spans the gap and the pill")
+                    expectClose(Double(strip.midX), Double(screen.midX), "the hover strip is centred")
+                    expect(strip.contains(CGPoint(x: screen.midX, y: barBottom - gap - 1)),
+                           "the hover strip covers the pill's top edge (bar \(bar))")
+                    expect(!strip.contains(CGPoint(x: screen.midX, y: barBottom + 1)),
+                           "a point in the menu bar is not in the hover strip (bar \(bar))")
+                }
+            }
+            expectClose(Double(NotchFloatingLayout.drop(barHeight: 24, margin: 2)), 28,
+                        "the window drops by the bar and the gap, less the capsule's margin")
+            expectClose(Double(NotchFloatingLayout.drop(barHeight: .nan, margin: .infinity)), Double(gap),
+                        "unreadable measurements leave only the gap")
+            let floatingSource = (try? String(contentsOfFile: "Sources/RyzenStatus/Services/Notch/NotchSupport.swift",
+                                              encoding: .utf8)) ?? ""
+            expect(floatingSource.contains("case capsule, notch, floating"),
+                   "the notchless styles include the floating one")
+            expect(floatingSource.contains("NotchFloatingLayout.drop(barHeight: barHeight, margin: gap ?? 0)"),
+                   "the floating style drops its window below the menu bar")
+        }
+
         // MARK: Result
 
         if failures.isEmpty {

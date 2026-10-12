@@ -107,10 +107,12 @@ enum NotchDisplay: String, CaseIterable {
 }
 
 /// How the island meets the top of a display without a camera housing: a
-/// capsule floating in the menu bar, as on the phone, or a cutout hanging
-/// from the top edge. A physical camera always keeps the cutout it covers.
+/// capsule floating in the menu bar, as on the phone, a cutout hanging
+/// from the top edge, or a pill floating below the menu bar that leaves the
+/// whole bar visible and draws nothing while it has nothing to show. A
+/// physical camera always keeps the cutout it covers.
 enum NotchSilhouette: String, CaseIterable {
-    case capsule, notch
+    case capsule, notch, floating
 
     static func current(in defaults: UserDefaults = .standard) -> NotchSilhouette {
         NotchSilhouette(rawValue: defaults.string(forKey: DefaultsKey.notchSilhouette) ?? "") ?? .capsule
@@ -1942,6 +1944,8 @@ struct NotchGeometry: Equatable {
     let floatingGap: CGFloat?
     /// How far a fitted capsule sits below the top of the display, open or closed.
     let floatingDrop: CGFloat
+    /// The floating style: the island sits below the menu bar instead of in it.
+    let floatsBelowMenuBar: Bool
     /// How far past a physical camera an outlined island reaches on each side
     /// and below. The line is drawn inside the island's edge, so an island
     /// that only covers the camera would hide it behind the housing.
@@ -1973,17 +1977,23 @@ struct NotchGeometry: Equatable {
         // A capsule replaces only a simulated cutout. It is as wide as the
         // cutout of the bar it sits in with its usual margins, so a bar hidden
         // on one display and shown on another draws the same capsule on both.
-        let gap: CGFloat? = !isNotched && silhouette == .capsule ? NotchLayout.capsuleGap(barHeight: barHeight) : nil
+        // The floating style is a capsule too, only below the bar.
+        let below = !isNotched && silhouette == .floating
+        floatsBelowMenuBar = below
+        let gap: CGFloat? = !isNotched && (silhouette == .capsule || below)
+            ? NotchLayout.capsuleGap(barHeight: barHeight) : nil
         floatingGap = gap
-        // A fitted capsule grows from its top edge, keeping its margins.
-        let capsuleFit = gap == nil ? NotchCapsuleFit.zero : capsuleFit
-        floatingDrop = capsuleFit.drop
+        // A fitted capsule grows from its top edge, keeping its margins. The
+        // floating style takes its place from the bar, not from a fit.
+        let capsuleFit = gap == nil || below ? NotchCapsuleFit.zero : capsuleFit
+        floatingDrop = below ? NotchFloatingLayout.drop(barHeight: barHeight, margin: gap ?? 0) : capsuleFit.drop
         capsuleWidthFit = capsuleFit.width
         // The bar ends in a hairline, `barEdge` thick, that reads as its edge:
         // the capsule's margin below is measured from it, as the one above is
         // from the top of the display, so the capsule shows centred in the
-        // bar. Its width keeps following the whole bar.
-        let edge = barEdge.isFinite ? min(max(0, barEdge), 1) : 0
+        // bar. Its width keeps following the whole bar. Below the bar there
+        // is no hairline to centre on.
+        let edge = barEdge.isFinite && !below ? min(max(0, barEdge), 1) : 0
         let fullStrip = gap.map { max(barHeight + capsuleFit.height, $0 * 2 + 12) }
         let stripHeight = gap.map { max(barHeight - edge + capsuleFit.height, $0 * 2 + 12) } ?? barHeight
         let profileHeight = gap.flatMap { gap in fullStrip.map { $0 - (gap - NotchLayout.capsuleMargin) * 2 } }
@@ -2011,6 +2021,25 @@ struct NotchGeometry: Equatable {
     /// The island floats in the menu bar instead of hanging from the top edge.
     var floats: Bool { floatingGap != nil }
 
+    /// The height a page may take: the display, less the menu bar and gap a
+    /// floating island keeps above itself.
+    var screenRoom: CGFloat { screen.height - (floatsBelowMenuBar ? floatingDrop : 0) }
+
+    /// The visible top edge of a floating island, below the menu bar.
+    var floatingIslandTop: CGFloat? {
+        floatsBelowMenuBar ? NotchFloatingLayout.islandTop(screen: screen, barHeight: menuBarHeight) : nil
+    }
+
+    /// Where the pointer opens a floating island that shows nothing: a thin
+    /// strip under the menu bar, as wide as the island at rest. Nil for the
+    /// other styles, which always show something to point at.
+    var floatingHoverStrip: CGRect? {
+        guard floatsBelowMenuBar else { return nil }
+        return NotchFloatingLayout.hoverStrip(screen: screen, barHeight: menuBarHeight,
+                                              width: restingSize(showsContent: false).width,
+                                              height: stripBodyHeight)
+    }
+
     func hasSameMenuBar(as other: NotchGeometry) -> Bool {
         screen == other.screen && cameraWidth == other.cameraWidth
             && menuBarHeight == other.menuBarHeight && isNotched == other.isNotched
@@ -2037,7 +2066,9 @@ struct NotchGeometry: Equatable {
     var headerChromeHeight: CGFloat { headerRowHeight + NotchLayout.spacing + NotchLayout.bottomInset }
     /// Floating circles sit below the menu bar even when the title fits beside the camera.
     var quickAccessCenterY: CGFloat {
-        max(headerTopInset + headerRowHeight / 2,
+        // An island already below the bar keeps them beside its header.
+        if floatsBelowMenuBar { return headerTopInset + headerRowHeight / 2 }
+        return max(headerTopInset + headerRowHeight / 2,
             menuBarHeight + 6 + NotchQuickAccessLayout.diameter / 2)
     }
     /// One row beside the camera, including menu-bar coverage when enabled.
@@ -2389,7 +2420,7 @@ struct NotchGeometry: Equatable {
         var preferredHeight = headerTopInset + headerChromeHeight + contentHeight
         if layout == .custom { preferredHeight = min(preferredHeight, customHeight) }
         return CGSize(width: expandedWidth,
-                      height: min(preferredHeight, screen.height - 48 - quickAccessBottomInset))
+                      height: min(preferredHeight, screenRoom - 48 - quickAccessBottomInset))
     }
 
     /// Leave room for the row indicator without narrowing the tiles below
@@ -2411,7 +2442,7 @@ struct NotchGeometry: Equatable {
         let content = min(pageBudget, count == 0 ? NotchLayout.emptyHeight
             : NotchLayout.railHeight(rows: sectionRows(count: count), rowHeight: NotchLayout.sectionTileHeight, spacing: NotchLayout.sectionSpacing))
         let desiredHeight = headerTopInset + headerChromeHeight + content
-        return CGSize(width: expandedWidth, height: min(desiredHeight, screen.height - 48 - quickAccessBottomInset))
+        return CGSize(width: expandedWidth, height: min(desiredHeight, screenRoom - 48 - quickAccessBottomInset))
     }
 
     func contentSize(for size: CGSize) -> CGSize {

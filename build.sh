@@ -135,6 +135,7 @@ if (( TEST )); then
         Sources/RyzenStatus/Core/NotchWatchStrings.swift \
         Sources/RyzenStatus/Core/NotchNotificationStrings.swift \
         Sources/RyzenStatus/Core/FeatureHubDescriptions.swift \
+        Sources/RyzenStatus/Services/Notch/NotchFloatingLayout.swift \
         Sources/RyzenStatus/Core/SettingsBackupSupport.swift \
         Sources/RyzenStatus/Core/BackupStrings.swift \
         Sources/RyzenStatus/Core/SnippetStrings.swift \

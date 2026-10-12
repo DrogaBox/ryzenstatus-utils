@@ -131,6 +131,28 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
         canvas.setOutline(enabled: enabled, color: color)
     }
 
+    /// Below the menu bar the island no longer meets the screen's edge, so a
+    /// soft shadow keeps it reading as floating. A window's shadow is taken
+    /// from what it shows when asked, so it is drawn only once the island
+    /// has settled, never trailing a shape still in motion.
+    private var castsShadow = false
+
+    /// The companion alone at rest below the menu bar stands on nothing:
+    /// no black, no outline and no shadow, only what the island draws.
+    func setClearSurface(_ clear: Bool) {
+        canvas.setClearSurface(clear)
+        applyShadow()
+    }
+
+    private func applyShadow() {
+        let wanted = castsShadow && !canvas.clearSurface && !isAnimating && !hidesWhenSettled
+        if panel.hasShadow != wanted { panel.hasShadow = wanted }
+        guard wanted else { return }
+        panel.invalidateShadow()
+        // The layers reach the window's backing a moment after they commit.
+        DispatchQueue.main.async { [weak panel] in panel?.invalidateShadow() }
+    }
+
     /// The companion stands in the window's own layer while the island opens
     /// or closes around it, sliding from `from` to `to`, its centre's offset
     /// from the camera's, with its centre `baseline` below the top.
@@ -203,6 +225,9 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
         let changesFrame = revealing || (hideWhenSettled && !canAnimate) || size != targetSize
             || frame != previousFrame || (!isAnimating && panel.frame != appliedFrame)
         targetUsesGlass = usesGlass
+        castsShadow = geometry.floatsBelowMenuBar
+        // A shadow taken from the old shape would linger while the new one moves.
+        if canAnimate && changesFrame && panel.hasShadow { panel.hasShadow = false }
         if canvas.backdropPresentation.stripHeight != geometry.stripHeight {
             canvas.backdropPresentation.stripHeight = geometry.stripHeight
         }
@@ -222,6 +247,7 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
             currentGeometry = geometry
             configureQuickAccess()
             if !isAnimating { quickAccessContainer?.motion.setVisible(quickAccessConfiguration != nil, animated: canAnimate) }
+            applyShadow()
             return
         }
         if canAnimate { canvas.transitionContent(revealing ? .reveal : transitionContent) }
@@ -367,6 +393,7 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
             concealedForFrameChange = false
             restoresKeyAfterFrameChange = false
         }
+        applyShadow()
         runSettledActions()
     }
 
@@ -1138,6 +1165,21 @@ private final class NotchCanvas: NSView {
     /// The inner half of the widest outline stroke, left undrawn at the top.
     static let outlineTopGap: CGFloat = 1
 
+    /// Whether the island draws only its content, with no surface beneath:
+    /// the companion resting alone below the menu bar.
+    private(set) var clearSurface = false
+
+    func setClearSurface(_ clear: Bool) {
+        guard clearSurface != clear else { return }
+        clearSurface = clear
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        backdrop.isHidden = clear
+        edge.isHidden = clear
+        CATransaction.commit()
+        updateCanvasBlack()
+    }
+
     var outlineProbeOpacity: Float { edge.opacity }
     var outlineProbeWidth: CGFloat { edge.lineWidth }
     var outlineProbeTopOpen: Bool {
@@ -1375,7 +1417,7 @@ private final class NotchCanvas: NSView {
     /// frame as it began to open or settled after closing. Under glass the
     /// fill gives way as the backdrop's resting black does.
     func updateCanvasBlack() {
-        let alpha = usesGlass ? CGFloat(backdropPresentation.restingBlack) : 1
+        let alpha = clearSurface ? 0 : usesGlass ? CGFloat(backdropPresentation.restingBlack) : 1
         let color = NSColor.black.withAlphaComponent(alpha).cgColor
         guard layer?.backgroundColor != color else { return }
         CATransaction.begin()
