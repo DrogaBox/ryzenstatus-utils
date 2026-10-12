@@ -1243,8 +1243,12 @@ struct UtilitiesSection: View {
             : FeatureStrings.cameraPreview(l10n.language).panelCaption
     }
 
+    /// Off to System Settings, as every other grant button goes, with the
+    /// panel out of the way: the guide card floats where the panel opens.
     private func grantScreenRecordingPermission() {
+        appDelegate()?.closePopover()
         Permissions.shared.requestScreenRecording()
+        Permissions.shared.openScreenRecordingSettings()
     }
 
     private func resetPanelDefaults() {
@@ -2212,6 +2216,7 @@ struct UtilityActionButton: View {
     /// the panel row doubles as a reminder that the keyboard path exists.
     var shortcutHint: String? = nil
     var accessoryTitle: String? = nil
+    var accessorySystemImage: String? = nil
     var accessoryAction: (() -> Void)? = nil
     let action: () -> Void
     @State private var hovering = false
@@ -2223,8 +2228,20 @@ struct UtilityActionButton: View {
                     .panelRowInsets()
             } else if permissionAction != nil || accessoryAction != nil {
                 VStack(alignment: .leading, spacing: 7) {
-                    rowContent(showChevron: false)
-                    permissionButton
+                    // A missing permission comes first: the tool cannot run
+                    // until it is granted. Otherwise the row still opens it.
+                    if permissionAction != nil {
+                        rowContent(showChevron: false)
+                    } else {
+                        mainButton
+                    }
+                    VStack(alignment: .leading, spacing: 7) {
+                        if permissionAction != nil {
+                            permissionButton
+                        }
+                        accessoryButton
+                    }
+                    .padding(.leading, 31)
                 }
                 .panelRowInsets()
             } else {
@@ -2247,6 +2264,26 @@ struct UtilityActionButton: View {
     /// edit mode, where deciding what to keep is the whole point.
     private var showsCaption: Bool {
         needsAttention || captionStaysVisible || isEditing
+    }
+
+    private var mainButton: some View {
+        Button(action: action) {
+            rowContent(showChevron: true)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var accessoryButton: some View {
+        if let accessoryTitle, let accessoryAction {
+            Button(action: accessoryAction) {
+                Label(accessoryTitle, systemImage: accessorySystemImage ?? "clock")
+                    .font(.system(size: 9.5, weight: .semibold))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.mini)
+        }
     }
 
     private func rowContent(showChevron: Bool) -> some View {

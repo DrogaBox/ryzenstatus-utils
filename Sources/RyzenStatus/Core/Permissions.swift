@@ -241,6 +241,7 @@ final class Permissions: ObservableObject {
     func requestAccessibility() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
+        refreshActivePermissions()
         if !accessibility {
             PermissionGuideOverlay.shared.show(for: .accessibility)
         }
@@ -250,8 +251,34 @@ final class Permissions: ObservableObject {
     /// floats the guide card, like the Accessibility path.
     func requestScreenRecording() {
         CGRequestScreenCaptureAccess()
+        refreshActivePermissions()
         if !screenRecording {
             PermissionGuideOverlay.shared.show(for: .screenRecording)
+        }
+    }
+
+    /// Drops this app's entry from the list and asks again. The entry macOS
+    /// keeps is bound to the app's code signature, so a copy signed
+    /// differently (a local build, an update signed another way) finds the
+    /// switch on and the permission gone; nothing short of removing the entry
+    /// makes the system ask afresh. `tccutil` does that for the calling
+    /// user's own entries with no privilege, and is the command Apple
+    /// documents for the purpose.
+    func startOver(_ kind: PermissionKind) {
+        guard kind == .accessibility || kind == .screenRecording,
+              let bundleID = Bundle.main.bundleIdentifier else { return }
+        let service = kind == .accessibility ? "Accessibility" : "ScreenCapture"
+        // Off the main thread through the bounded runner, like
+        // `SelfUninstall.resetTCC`: a stuck tccutil must not hang the UI. The
+        // hop back also lets the button's click finish before the card that
+        // holds the button is rebuilt by the new request.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            _ = Shell.run("/usr/bin/tccutil", ["reset", service, bundleID])
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.refreshActivePermissions()
+                if kind == .accessibility { self.requestAccessibility() } else { self.requestScreenRecording() }
+            }
         }
     }
 

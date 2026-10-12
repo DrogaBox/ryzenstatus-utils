@@ -46,6 +46,8 @@ Package-manager coexistence for Intel, safer clipboard controls, a corrected flo
 - Invalid temperature, CPU or battery values no longer drive automatic mascot warnings or animations.
 - The Dynamic Island again shows volume notices and macOS notifications; both had stopped being connected during the port.
 - **Slow launch on Macs with an unresponsive Bluetooth service**: the island's accessory notices asked for the paired Bluetooth devices on the main thread, which could hold the whole menu bar for more than 20 seconds while the system answered. The list is now read in the background.
+- **Screen Recording permission after installing a new build**: macOS keeps the permission bound to the copy of the app that received it, so a newer copy found the switch on and the permission gone, and macOS never asked again. The panel's Grant Access button now closes the panel and opens System Settings, so the guide card is no longer hidden behind it. When the permission does not arrive, the card explains why and offers Start Over, which removes the old entry and asks again; once granted, it offers Relaunch, since Screen Recording applies only to a new launch.
+- **Screen Recording row in the panel**: it showed Grant Access even with the permission granted, the button did nothing, the row no longer started a recording and its Recent Captures button was missing. The permission button now appears only while the permission is missing, and the row and Recent Captures work again.
 - Panel dismissal accounts for the AirPlay picker, and the panel remembers which display its status item is on.
 
 ## [1.37.0] — 2026-10-11 — kexts 3.34.17 (No kext changes)
