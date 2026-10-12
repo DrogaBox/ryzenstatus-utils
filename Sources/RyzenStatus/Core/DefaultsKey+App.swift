@@ -123,6 +123,7 @@ extension DefaultsKey {
     static let extraBrightnessEnabled = "extraBrightnessEnabled"
     static let extraBrightnessLevel = "extraBrightnessLevel"   // Int percent 0-100
     static let bluetoothSleepEnabled = "bluetoothSleepEnabled"
+    static let bluetoothEnabled = "bluetoothEnabled"
     static let bluetoothSleepRestoreOnWake = "bluetoothSleepRestoreOnWake"
     // Set only while RyzenStatus owes a Bluetooth restore, so a Mac shut down
     // while asleep still gets it back on the next launch.

@@ -10649,6 +10649,26 @@ struct MetricsTests {
                    "capsule center and metric register their defaults")
         }
 
+        // MARK: Bluetooth usage
+        do {
+            let domain = "ryzenstatus-bluetooth-usage-\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: domain)!
+            defer { defaults.removePersistentDomain(forName: domain) }
+            defaults.register(defaults: [DefaultsKey.bluetoothEnabled: true])
+            expect(Defaults.registeredDefaults[DefaultsKey.bluetoothEnabled] as? Bool == true,
+                   "Bluetooth is used by default")
+            expect(BluetoothUsage.isAllowed(in: defaults, hasController: true), "a Mac with Bluetooth uses it")
+            expect(!BluetoothUsage.isAllowed(in: defaults, hasController: false),
+                   "a Mac without a Bluetooth controller never uses it")
+            defaults.set(false, forKey: DefaultsKey.bluetoothEnabled)
+            expect(!BluetoothUsage.isAllowed(in: defaults, hasController: true), "switching Bluetooth off stops using it")
+            for language in AppLanguage.allCases {
+                let strings = FeatureStrings.bluetoothUsage(language)
+                expect(!strings.title.isEmpty && !strings.caption.isEmpty,
+                       "Bluetooth switch strings are filled in \(language.rawValue)")
+            }
+        }
+
         // MARK: Upstream suites
         // Ported unchanged apart from the brand, so each keeps checking the
         // behavior it was written for. They report into this run's totals.

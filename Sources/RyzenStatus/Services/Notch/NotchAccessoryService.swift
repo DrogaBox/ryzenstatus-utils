@@ -19,24 +19,27 @@ final class NotchAccessoryService: NSObject {
     private var generation = UUID()
     private var pending: [(notice: NotchNotice, device: String, expiresAt: Date)] = []
     private var noticeWork: DispatchWorkItem?
+    /// Whether this run asked Bluetooth about connections, as the Bluetooth
+    /// preference allowed when it started.
+    private var watchesBluetooth = false
+    private static let bluetoothQueue = DispatchQueue(label: "com.ryzenstatus.utils.notch-accessories", qos: .utility)
     private override init() { super.init() }
 
     func syncWithPreferences() {
         guard NotchAccessorySupport.isEnabled() else { stop(); return }
+        // Switching Bluetooth off or on restarts the watch around it.
+        let bluetooth = BluetoothUsage.isAllowed()
+        if active, watchesBluetooth != bluetooth { suspend() }
         guard !active else { return }
         active = true
+        watchesBluetooth = bluetooth
         activationTime = ProcessInfo.processInfo.systemUptime
         generation = UUID()
         let currentGeneration = generation
         // The baseline is silent, including devices that were already low
         // before the user enabled this feature. Connection baselines are
         // rebuilt silently after lock/sleep; battery episodes survive both.
-        let devices = (IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] ?? [])
-            .filter { $0.isConnected() }
-        connectionState.establishBaseline(Set(devices.compactMap { $0.addressString }))
-        devices.forEach(observeDisconnect)
-        connectNotification = IOBluetoothDevice.register(forConnectNotifications: self,
-            selector: #selector(deviceConnected(_:device:)))
+        if bluetooth { watchConnections(generation: currentGeneration) }
         subscription = SystemMonitor.shared.$snapshot.map(\.peripheralBatterySample)
             .removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] sample in
                 guard let self, self.active, self.generation == currentGeneration,
@@ -59,6 +62,25 @@ final class NotchAccessoryService: NSObject {
         SystemMonitor.shared.setNotchAccessoryMonitoring(true)
     }
 
+    /// Asking for the paired devices loads IOBluetooth and waits on the
+    /// Bluetooth daemon, which can take many seconds to answer: 22 s were
+    /// measured at launch on a Mac whose Bluetooth is slow. The question goes
+    /// off the main thread so the menu bar and the island draw meanwhile.
+    /// Connections made before the answer belong to the silent baseline.
+    private func watchConnections(generation: UUID) {
+        Self.bluetoothQueue.async { [weak self] in
+            let connected = PairedBluetoothDevices(
+                (IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] ?? []).filter { $0.isConnected() })
+            DispatchQueue.main.async {
+                guard let self, self.active, self.watchesBluetooth, self.generation == generation else { return }
+                self.connectionState.establishBaseline(Set(connected.devices.compactMap { $0.addressString }))
+                connected.devices.forEach(self.observeDisconnect)
+                self.connectNotification = IOBluetoothDevice.register(forConnectNotifications: self,
+                    selector: #selector(self.deviceConnected(_:device:)))
+            }
+        }
+    }
+
     func stop() {
         batteryState = NotchAccessoryBatteryState()
         connectionState = NotchAccessoryConnectionState()
@@ -68,6 +90,7 @@ final class NotchAccessoryService: NSObject {
     func suspend() {
         guard active else { return }
         active = false
+        watchesBluetooth = false
         generation = UUID()
         subscription = nil
         connectNotification?.unregister(); connectNotification = nil
@@ -126,4 +149,10 @@ final class NotchAccessoryService: NSObject {
         noticeWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + NotchEvent.accessory.duration + 0.1, execute: work)
     }
+}
+
+/// Devices read on the Bluetooth queue, handed to the main thread once.
+private struct PairedBluetoothDevices: @unchecked Sendable {
+    let devices: [IOBluetoothDevice]
+    init(_ devices: [IOBluetoothDevice]) { self.devices = devices }
 }

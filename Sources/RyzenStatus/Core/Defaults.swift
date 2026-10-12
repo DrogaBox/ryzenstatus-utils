@@ -379,6 +379,7 @@ enum Defaults {
         DefaultsKey.extraBrightnessEnabled: false,
         DefaultsKey.extraBrightnessLevel: 100,
         DefaultsKey.bluetoothSleepEnabled: false,
+        DefaultsKey.bluetoothEnabled: true,
         DefaultsKey.bluetoothSleepRestoreOnWake: true,
         DefaultsKey.bluetoothSleepRestorePending: false,
         DefaultsKey.brightnessControlEnabled: false,

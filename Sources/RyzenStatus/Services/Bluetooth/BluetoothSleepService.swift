@@ -39,7 +39,7 @@ final class BluetoothSleepService {
         // and paid even when the feature has since been switched off, so
         // nothing RyzenStatus took away is ever kept.
         restoreIfOwed()
-        if AppFeature.bluetoothSleep.isAvailable,
+        if AppFeature.bluetoothSleep.isAvailable, BluetoothUsage.isAllowed(),
            UserDefaults.standard.bool(forKey: DefaultsKey.bluetoothSleepEnabled) {
             start()
         } else {
@@ -80,6 +80,8 @@ final class BluetoothSleepService {
 
     private func restoreIfOwed() {
         let defaults = UserDefaults.standard
+        // Reading the controller's power loads IOBluetooth; only a debt needs it.
+        guard defaults.bool(forKey: DefaultsKey.bluetoothSleepRestorePending) else { return }
         let restores = BluetoothSleepSupport.restores(
             owesRestore: defaults.bool(forKey: DefaultsKey.bluetoothSleepRestorePending),
             isPoweredOn: Self.isPoweredOn)

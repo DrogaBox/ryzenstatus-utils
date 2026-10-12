@@ -47,6 +47,7 @@ enum SettingsDirectory {
                                       keywords: [s.launchAtLogin, s.languageLabel, s.showMenuBarIcon,
                                                  s.musicBlockTitle, s.musicBlockSection,
                                                  s.audioPrioritySection,
+                                                 FeatureStrings.bluetoothUsage(language).title, "Bluetooth",
                                                  FeatureStrings.feedback(language).sectionTitle,
                                                  FeatureStrings.feedback(language).commandBug,
                                                  FeatureStrings.feedback(language).commandFeature]),

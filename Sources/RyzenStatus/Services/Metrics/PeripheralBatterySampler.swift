@@ -40,6 +40,13 @@ final class PeripheralBatterySampler {
 
     private func startBluetoothRefreshIfNeeded(now: TimeInterval) {
         lock.lock()
+        // With Bluetooth switched off, nothing asks it for batteries and
+        // devices read before stop showing.
+        guard BluetoothUsage.isAllowed() else {
+            cachedBluetoothDevices = []
+            lock.unlock()
+            return
+        }
         guard PeripheralBatteryRefreshPolicy.shouldStartBluetoothRefresh(
             now: now,
             lastStartedAt: bluetoothStartedAt,

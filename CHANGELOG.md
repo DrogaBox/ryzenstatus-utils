@@ -17,6 +17,7 @@ Package-manager coexistence for Intel, safer clipboard controls, a corrected flo
 - **Feedback**: report a bug or suggest a feature from Settings › General, the panel header or the Command Bar. The app opens a prefilled GitHub issue in your browser; nothing is sent until you submit it there.
 - **Connected devices in the menu bar and the island**: an optional USB device count next to the menu bar icon, its own detail page and a card in the island's System page.
 - **Capsule center** for Macs without a camera: while a song plays, the middle of the capsule or floating island can show the song, a live metric (CPU or GPU temperature, CPU usage, memory or network download), both in turns, or the clock. It also works at rest: with the island resting with the companion, the capsule shows the reading beside it. With Nothing, the capsule shrinks to the cover and the bars instead of keeping an empty black block. Settings › Dynamic Island, under the shape.
+- **Use Bluetooth** switch in Settings › General (only on Macs with a Bluetooth controller): turn it off and the app stops asking the system about Bluetooth devices, so accessory notices, Bluetooth device batteries and Bluetooth sleep stay idle. Useful on Hackintoshes without working Bluetooth.
 - **Input source notices** in the island when the keyboard layout changes, and a headphones symbol on the volume notice when they are the output.
 - **Super Key safety guard**: a small helper takes the key mapping back out if the app is killed, so Caps Lock never stays remapped.
 - Clipboard: automatic cleanup, text preview, history window with saved size, OCR in previews, image editing, optional menu bar preview item.
@@ -43,6 +44,7 @@ Package-manager coexistence for Intel, safer clipboard controls, a corrected flo
 - Clearing recent clipboard history in Settings or the menu panel requires confirmation.
 - Invalid temperature, CPU or battery values no longer drive automatic mascot warnings or animations.
 - The Dynamic Island again shows volume notices and macOS notifications; both had stopped being connected during the port.
+- **Slow launch on Macs with an unresponsive Bluetooth service**: the island's accessory notices asked for the paired Bluetooth devices on the main thread, which could hold the whole menu bar for more than 20 seconds while the system answered. The list is now read in the background.
 - Panel dismissal accounts for the AirPlay picker, and the panel remembers which display its status item is on.
 
 ## [1.37.0] — 2026-10-11 — kexts 3.34.17 (No kext changes)

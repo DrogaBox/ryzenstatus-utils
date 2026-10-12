@@ -308,6 +308,7 @@ struct GeneralSettings: View {
     @AppStorage(DefaultsKey.musicBlockEnabled) private var musicBlockEnabled = false
     @AppStorage(DefaultsKey.musicBlockReplacementPath) private var musicBlockReplacementPath = ""
     @AppStorage(DefaultsKey.panelAccordionMode) private var accordionMode = false
+    @AppStorage(DefaultsKey.bluetoothEnabled) private var bluetoothEnabled = true
 
     var body: some View {
         Form {
@@ -337,6 +338,15 @@ struct GeneralSettings: View {
                     ForEach(AppAppearance.allCases) { option in
                         Text(option.title(FeatureStrings.appearance(l10n.language))).tag(option)
                     }
+                }
+                // A Mac without a Bluetooth controller never uses it, so there is nothing to switch.
+                if BluetoothSleepService.isSupported {
+                    let bluetooth = FeatureStrings.bluetoothUsage(l10n.language)
+                    Toggle(isOn: $bluetoothEnabled) {
+                        Text(bluetooth.title)
+                        Text(bluetooth.caption)
+                    }
+                    .onChange(of: bluetoothEnabled) { _, _ in BluetoothUsage.preferenceChanged() }
                 }
             }
             Section(l10n.s.menuBarSection) {
