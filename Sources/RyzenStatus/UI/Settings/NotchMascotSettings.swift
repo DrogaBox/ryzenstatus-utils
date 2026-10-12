@@ -25,12 +25,21 @@ struct NotchMascotSettings: View {
     @AppStorage(DefaultsKey.notchMascotVisitFrequency) private var frequency = NotchMascotVisitFrequency.normal.rawValue
     @AppStorage(DefaultsKey.notchCommandBar) private var commandBar = true
     @AppStorage(DefaultsKey.notchCommandBarStyle) private var commandBarStyle = NotchCommandBarStyle.droplet.rawValue
+    @AppStorage(DefaultsKey.notchMascotAutomatic) private var automatic = true
+    @AppStorage(DefaultsKey.notchMascotAutoLoad) private var autoLoad = true
+    @AppStorage(DefaultsKey.notchMascotAutoMusic) private var autoMusic = true
+    @AppStorage(DefaultsKey.notchMascotAutoRest) private var autoRest = true
+    @AppStorage(DefaultsKey.notchMascotAutoCoffee) private var autoCoffee = true
+    @AppStorage(DefaultsKey.notchMascotAutoNetwork) private var autoNetwork = true
+    @AppStorage(DefaultsKey.notchMascotAutoEvents) private var autoEvents = true
+    @AppStorage(DefaultsKey.notchMascotAutoAntics) private var autoAntics = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Its name, shared with the Features page.
     private var mascotTitle: String { FeatureStrings.hub(l10n.language).titleNotchMascot }
     private var text: NotchMascotSettingsStrings { FeatureStrings.notchMascotSettings(l10n.language) }
     private var editor: NotchEditorStrings { FeatureStrings.notchEditor(l10n.language) }
+    private var auto: NotchMascotAutomationStrings { FeatureStrings.notchMascotAutomation(l10n.language) }
 
     private var look: NotchMascotLook {
         NotchMascotLook(style: NotchMascotStyle(rawValue: style) ?? .minimal,
@@ -61,6 +70,7 @@ struct NotchMascotSettings: View {
                                      language: l10n.language)
                 appearance
                 behavior
+                automaticCard
                 commandBarCard
             }
             .padding(embedded ? [.bottom] : .all, 22)
@@ -116,9 +126,11 @@ struct NotchMascotSettings: View {
     private var appearance: some View {
         SettingsCard(title: text.appearance) {
             SettingsRow(symbol: "paintpalette", title: text.style) { EmptyView() }
-            HStack(spacing: 10) {
+            // Seven companions to choose from, in as many rows as the page needs.
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 84, maximum: 120), spacing: 10)],
+                      alignment: .leading, spacing: 10) {
                 ForEach(NotchMascotStyle.allCases) { item in
-                    NotchMascotChoiceTile(title: text.style(item), selected: look.style == item) {
+                    NotchMascotChoiceTile(title: auto.style(item, base: text), selected: look.style == item) {
                         style = item.rawValue
                     } preview: {
                         NotchMascotView(look: NotchMascotLook(style: item, shape: look.shape, palette: look.palette),
@@ -130,7 +142,7 @@ struct NotchMascotSettings: View {
                 }
             }
             .padding(.leading, settingsRowTextInset)
-            if look.style == .minimal {
+            if look.style.takesShape {
                 SettingsRow(symbol: "circle.square", title: text.shape) {
                     Text(text.shape(look.shape)).foregroundStyle(.secondary)
                 }
@@ -226,6 +238,30 @@ struct NotchMascotSettings: View {
         .animation(animation, value: visits)
     }
 
+    // MARK: Automatic reactions
+
+    /// Reactions it plays on its own, each kind with its own switch under one
+    /// that turns them all off.
+    private var automaticCard: some View {
+        SettingsCard(title: auto.automatic) {
+            switchRow("wand.and.stars", auto.automatic, caption: auto.automaticHint, isOn: $automatic)
+            if automatic {
+                Group {
+                    switchRow("cpu", auto.load, isOn: $autoLoad)
+                    switchRow("music.note", auto.music, isOn: $autoMusic)
+                    switchRow("moon.zzz", auto.rest, isOn: $autoRest)
+                    switchRow("mug", auto.coffee, isOn: $autoCoffee)
+                    switchRow("arrow.down.circle", auto.network, isOn: $autoNetwork)
+                    switchRow("party.popper", auto.events, isOn: $autoEvents)
+                    switchRow("hand.wave", auto.antics, isOn: $autoAntics)
+                }
+                .padding(.leading, settingsRowTextInset)
+                .transition(.opacity)
+            }
+        }
+        .animation(animation, value: automatic)
+    }
+
     // MARK: Command Bar
 
     private var commandBarCard: some View {
@@ -285,6 +321,10 @@ private struct NotchMascotStageCard: View {
     @State private var playing: NotchMascotMoment?
     @State private var playingWork: DispatchWorkItem?
     @State private var lookWork: DispatchWorkItem?
+    /// The lasting mood a moment shows for a while, over the live one.
+    @State private var previewAmbient: MascotMoodState?
+    @State private var ambientWork: DispatchWorkItem?
+    @ObservedObject private var automation = NotchMascotAutomation.shared
     /// The next moment a click on the companion acts out.
     @State private var nextMoment = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -298,6 +338,7 @@ private struct NotchMascotStageCard: View {
         VStack(alignment: .leading, spacing: 14) {
             GeometryReader { proxy in
                 NotchMascotStage(look: look, side: side, awake: awake, visit: visit, reaction: reaction,
+                                 ambient: previewAmbient ?? automation.state,
                                  caption: playing.map { (text.moment($0, language: language), $0.symbol) },
                                  width: proxy.size.width)
                     .contentShape(Rectangle())
@@ -392,6 +433,8 @@ private struct NotchMascotStageCard: View {
         .onDisappear {
             playingWork?.cancel()
             lookWork?.cancel()
+            ambientWork?.cancel()
+            previewAmbient = nil
             // Never left hidden for the next time the page shows.
             if visit?.kind == NotchMascotSupport.hideAway { visit = nil }
         }
@@ -408,6 +451,7 @@ private struct NotchMascotStageCard: View {
         guard awake, visit == nil else { return }
         playingWork?.cancel()
         playing = moment
+        showAmbient(of: moment)
         let length: TimeInterval
         if let reaction = moment.reaction {
             react(reaction)
@@ -437,6 +481,19 @@ private struct NotchMascotStageCard: View {
         self.reaction = NotchMascotReactionEvent(id: UUID(), reaction: reaction, start: CACurrentMediaTime())
     }
 
+    /// A moment with a lasting mood keeps it a few seconds after its
+    /// reaction, so its props and motions show: sweat, heat, notes, coffee.
+    private func showAmbient(of moment: NotchMascotMoment) {
+        ambientWork?.cancel()
+        guard let ambient = moment.ambient else { previewAmbient = nil; return }
+        previewAmbient = MascotMoodState(ambient: ambient,
+                                         effort: ambient == .working || ambient == .overheated ? 1 : 0,
+                                         energy: ambient == .dancing ? 0.75 : 0)
+        let work = DispatchWorkItem { previewAmbient = nil }
+        ambientWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: work)
+    }
+
     /// Starts a stroll and clears it once it is over, returning how long it takes.
     @discardableResult
     private func startVisit(_ kind: NotchMascotVisit.Kind, greeting: NotchMascotMood) -> TimeInterval {
@@ -458,6 +515,8 @@ private struct NotchMascotStage: View {
     let awake: Bool
     let visit: NotchMascotVisit?
     let reaction: NotchMascotReactionEvent?
+    /// The lasting mood it shows: the live one, or a moment's.
+    let ambient: MascotMoodState
     /// The moment it acts out, named under the island while it plays.
     let caption: (title: String, symbol: String)?
     let width: CGFloat
@@ -494,7 +553,7 @@ private struct NotchMascotStage: View {
                 }
                 .overlay(alignment: .top) {
                     NotchMascotTrackView(look: look, track: track, rests: true, visit: visit, mood: .idle,
-                                         reaction: reaction, awake: awake)
+                                         reaction: reaction, awake: awake, ambient: ambient)
                         .frame(width: track.width, height: track.height)
                         .allowsHitTesting(false)
                 }

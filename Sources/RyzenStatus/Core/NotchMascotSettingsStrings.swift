@@ -67,6 +67,8 @@ struct NotchMascotSettingsStrings {
     /// More words a search finds its page by.
     let keywords: String
 
+    /// The first two styles' names; `NotchMascotAutomationStrings.style(_:base:)`
+    /// names every style.
     func style(_ style: NotchMascotStyle) -> String {
         style == .robot ? robot : minimal
     }
@@ -120,6 +122,13 @@ struct NotchMascotSettingsStrings {
         case .charging: return FeatureStrings.notch(language).charging
         case .lowBattery: return FeatureStrings.notch(language).lowBattery
         case .unlocked: return unlocked
+        case .hardWork: return FeatureStrings.notchMascotAutomation(language).hardWork
+        case .overheating: return FeatureStrings.notchMascotAutomation(language).overheating
+        case .cooledDown: return FeatureStrings.notchMascotAutomation(language).cooledDown
+        case .coffee: return FeatureStrings.notchMascotAutomation(language).coffeeBreak
+        case .bigDownload: return FeatureStrings.notchMascotAutomation(language).bigDownload
+        case .cleanedUp: return FeatureStrings.notchMascotAutomation(language).cleanedUp
+        case .antics: return FeatureStrings.notchMascotAutomation(language).justSayingHi
         }
     }
 
