@@ -34,24 +34,9 @@ struct NotchWatchStrings {
     let sinceFormat: String
     let sound: String
 
-    func condition(_ condition: NotchWatchCondition) -> String {
-        switch condition {
-        case .changes: return changes
-        case .settles: return settles
-        case .contains: return contains
-        case .reaches: return reaches
-        }
-    }
-
-    func outcome(_ outcome: NotchWatchOutcome) -> String {
-        switch outcome {
-        case .changed: return changedNotice
-        case .settled: return settledNotice
-        case .shows(let text): return String(format: showsFormat, text)
-        case .reached(let text): return String(format: reachedFormat, text)
-        case .closed: return closedNotice
-        }
-    }
+    // `condition(_:)` and `outcome(_:)` live in NotchWatchSupport.swift,
+    // beside the types they name, so this file stays Foundation-only and the
+    // unit harness can compile it.
 
     func since(_ time: String) -> String { String(format: sinceFormat, time) }
 }

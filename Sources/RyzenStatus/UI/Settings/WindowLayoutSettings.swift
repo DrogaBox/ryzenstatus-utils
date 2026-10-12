@@ -16,6 +16,7 @@ struct WindowLayoutSettings: View {
     // mirrored here because it is a window-juggling behavior people look for
     // on this page too.
     @AppStorage(DefaultsKey.dockClickCycleWindows) private var dockClickCycleWindows = false
+    @AppStorage(DefaultsKey.windowMaximizeEnabled) private var windowMaximizeEnabled = false
 
     private var text: WindowLayoutFeatureStrings {
         FeatureStrings.windowLayout(l10n.language)
@@ -37,6 +38,19 @@ struct WindowLayoutSettings: View {
                 Section(l10n.s.permissionRequired) {
                     PermissionRow(kind: .accessibility)
                 }
+            }
+
+            // The maximizer had a hub switch and a panel row but no Settings
+            // home; it lives here, beside the other window behaviors.
+            Section(l10n.s.windowMaximizeName) {
+                SettingsFeatureSwitchRow(symbol: AppFeature.windowMaximizer.symbolName,
+                                         title: l10n.s.windowMaximizeName,
+                                         caption: l10n.s.windowMaximizeCaption,
+                                         isOn: $windowMaximizeEnabled,
+                                         feature: .windowMaximizer)
+                    .onChange(of: windowMaximizeEnabled) { _, _ in
+                        WindowMaximizer.shared.syncWithPreferences()
+                    }
             }
 
             Section(text.gestureSection) {

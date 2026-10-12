@@ -385,6 +385,25 @@ extension AppFeature {
         .audioPriority,
     ]
 
+    /// Features FeatureRuntime deliberately has no binding for. Every other
+    /// feature must have one, or flipping it in the hub (or a preset, or a
+    /// backup import) would leave its service running or never start it after
+    /// a relaunch. The unit harness reads FeatureRuntime's binding table and
+    /// checks the two lists add up to every case, so a newly ported feature
+    /// cannot ship unwired.
+    static let featuresWithoutRuntimeBinding: Set<AppFeature> = [
+        // On-demand tools: they hold no resources and their surfaces simply
+        // follow availability in the UI.
+        .uninstaller, .homebrew, .cleaningMode, .quickToggles, .killProcess,
+        // Runs `lsof` only while its page or panel row is open.
+        .portManager,
+        // This fork's queue keeps no state; a running island re-reads the switch.
+        .notchQueue,
+        // Performance dashboard tabs: views that read availability on render,
+        // with no sampler of their own.
+        .monitorInsights, .monitorAnalytics, .monitorEnergy, .monitorNetworkDetails,
+    ]
+
     /// Features that are available, engaged and using `permission` right now.
     /// Readers are injectable so the logic stays testable without touching
     /// real UserDefaults.

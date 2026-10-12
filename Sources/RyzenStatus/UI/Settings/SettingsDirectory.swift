@@ -104,7 +104,7 @@ enum SettingsDirectory {
                                                  s.dockClickCycleWindows, s.spacesOrderName]),
                 SettingsDirectoryItem(page: .windowLayout, title: FeatureStrings.windowLayout(language).title,
                                       icon: "rectangle.3.group",
-                                      keywords: [s.dockClickCycleWindows,
+                                      keywords: [s.dockClickCycleWindows, s.windowMaximizeName,
                                                  FeatureStrings.windowLayout(language).gestureEnable,
                                                  FeatureStrings.windowLayout(language).gestureResize]),
                 SettingsDirectoryItem(page: .autoQuit, title: s.autoQuitName, icon: "xmark.rectangle",

@@ -51,6 +51,27 @@ enum NotchWatchOutcome: Equatable {
     }
 }
 
+extension NotchWatchStrings {
+    func condition(_ condition: NotchWatchCondition) -> String {
+        switch condition {
+        case .changes: return changes
+        case .settles: return settles
+        case .contains: return contains
+        case .reaches: return reaches
+        }
+    }
+
+    func outcome(_ outcome: NotchWatchOutcome) -> String {
+        switch outcome {
+        case .changed: return changedNotice
+        case .settled: return settledNotice
+        case .shows(let text): return String(format: showsFormat, text)
+        case .reached(let text): return String(format: reachedFormat, text)
+        case .closed: return closedNotice
+        }
+    }
+}
+
 /// Follows one area reading after reading and decides when its condition
 /// is met. An area whose pixels did not move is not read again: it comes
 /// back with its last signature, so a change that holds still is confirmed

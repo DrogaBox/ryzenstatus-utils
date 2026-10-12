@@ -536,97 +536,10 @@ private struct PermissionPortalRow: View {
     }
 }
 
-// MARK: - Titles, descriptions and permission names
+// MARK: - Permission names
 
-extension AppFeature {
-    func hubDescription(_ hub: FeatureHubStrings) -> String {
-        switch self {
-        case .switcher: return hub.descSwitcher
-        case .dockPreview: return hub.descDockPreview
-        case .dockClick: return hub.descDockClick
-        case .windowMaximizer: return hub.descWindowMaximizer
-        case .windowLayout: return hub.descWindowLayout
-        case .autoQuit: return hub.descAutoQuit
-        case .scrollInverter: return hub.descScrollInverter
-        case .smoothScroll: return hub.descSmoothScroll
-        case .mouseNavigation: return hub.descMouseNavigation
-        case .middleClick: return hub.descMiddleClick
-        case .keyboardDebounce: return hub.descKeyboardDebounce
-        case .textSnippets: return FeatureStrings.snippets(L10n.shared.language).hubDescription
-        case .clipboardHistory: return hub.descClipboardHistory
-        case .pastePlain: return hub.descPastePlain
-        case .finderCutPaste: return hub.descFinderCutPaste
-        case .finderRename: return FeatureStrings.finderRename(L10n.shared.language).hubDescription
-        case .shelf: return hub.descShelf
-        case .urlCleaner: return hub.descURLCleaner
-        case .diskImageInstaller:
-            return FeatureStrings.diskImageInstaller(L10n.shared.language).hubDescription
-        case .mixer: return hub.descMixer
-        case .soundOutputSwitcher: return hub.descSoundOutputSwitcher
-        case .audioPriority: return hub.descAudioPriority
-        case .micMute: return hub.descMicMute
-        case .musicBlock: return hub.descMusicBlock
-        case .nowPlaying: return hub.descNowPlaying
-        case .keepAwake: return hub.descKeepAwake
-        case .brightness: return FeatureStrings.brightness(L10n.shared.language).hubDescription
-        case .extraBrightness: return hub.descExtraBrightness
-        case .bluetoothSleep: return FeatureStrings.bluetoothSleep(L10n.shared.language).hubDescription
-        case .quickLauncher: return hub.descQuickLauncher
-        case .quickToggles: return FeatureStrings.quickToggles(L10n.shared.language).hubDescription
-        case .colorPicker: return hub.descColorPicker
-        case .screenOCR: return hub.descScreenOCR
-        case .screenshot: return FeatureStrings.screenshot(L10n.shared.language).hubDescription
-        case .screenRecorder: return FeatureStrings.recorder(L10n.shared.language).hubDescription
-        case .cameraPreview: return FeatureStrings.cameraPreview(L10n.shared.language).hubDescription
-        case .radialMenu: return FeatureStrings.radialMenu(L10n.shared.language).hubDescription
-        case .scratchpad: return FeatureStrings.scratchpad(L10n.shared.language).hubDescription
-        case .killProcess: return FeatureStrings.killProcess(L10n.shared.language).hubDescription
-        case .wallpaper: return FeatureStrings.wallpaper(L10n.shared.language).hubDescription
-        case .portManager: return FeatureStrings.portManager(L10n.shared.language).hubDescription
-        case .cleaningMode: return hub.descCleaningMode
-        case .mediaTools: return hub.descMediaTools
-        case .cleaner: return hub.descCleaner
-        case .uninstaller: return hub.descUninstaller
-        case .homebrew: return hub.descHomebrew
-        case .appUpdates: return FeatureStrings.appUpdates(L10n.shared.language).hubDescription
-        case .monitorCPU: return hub.descMonitorCPU
-        case .monitorGPU: return hub.descMonitorGPU
-        case .monitorMemory: return hub.descMonitorMemory
-        case .monitorNetwork: return hub.descMonitorNetwork
-        case .monitorDisk: return hub.descMonitorDisk
-        case .mouseButtonShortcuts: return hub.descMouseButtons
-        case .superKey: return hub.descSuperKey
-        case .quitWindowProtection: return FeatureStrings.quitProtection(L10n.shared.language).description
-        case .scrollHorizontal: return L10n.shared.s.scrollHorizontalCaption
-        case .focusFollowsMouse: return L10n.shared.s.focusFollowsMouseCaption
-        case .linearScroll: return L10n.shared.s.linearScrollCaption
-        case .mouseAcceleration: return L10n.shared.s.mouseAccelerationCaption
-        case .mouseClickDebounce: return FeatureStrings.mouseClickDebounce(L10n.shared.language).caption
-        case .spacesOrder: return L10n.shared.s.spacesOrderCaption
-        case .monitorPower: return hub.descMonitorPower
-        case .whatsAppDownloads: return FeatureStrings.whatsAppDownloads(L10n.shared.language).hubDescription
-        case .monitorInsights: return "Automated diagnostic cards for memory leaks, Rosetta 2 cost, and CPU runaway processes."
-        case .monitorAnalytics: return "Linear regression metrics, performance trends, and long-term CPU/GPU/RAM statistics."
-        case .monitorEnergy: return "Per-process energy impact breakdown, battery health flow, and process wakeup stats."
-        case .monitorNetworkDetails: return "Local network device scanner, per-adapter bandwidth, and open socket inspector."
-        case .connectedDevices: return FeatureStrings.connectedDevices(L10n.shared.language).hubDescription
-        case .commandBar: return FeatureStrings.commandBar(L10n.shared.language).hubDescription
-        case .notch: return NotchStrings.notch(L10n.shared.language).description
-        // Each island module says what it does, not what the island is.
-        case .notchCalendar: return FeatureStrings.notchCalendar(L10n.shared.language).description
-        case .notchNotifications: return FeatureStrings.notchNotifications(L10n.shared.language).description
-        case .notchGestures: return hub.descNotchGestures
-        case .notchTimer: return FeatureStrings.notchActivities(L10n.shared.language).timerDescription
-        case .notchAccessories: return FeatureStrings.notchActivities(L10n.shared.language).accessoryDescription
-        case .notchLyrics: return FeatureStrings.notchMusicExtras(L10n.shared.language).lyricsDescription
-        case .notchDownloads: return FeatureStrings.notchFiles(L10n.shared.language).downloadsDescription
-        case .notchWatch: return FeatureStrings.notchWatch(L10n.shared.language).description
-        case .notchMascot: return hub.descNotchMascot
-        case .notchLiveEqualizer: return FeatureStrings.notchMusicExtras(L10n.shared.language).liveEqualizerDescription
-        case .notchQueue: return FeatureStrings.notchMusicExtras(L10n.shared.language).queueDescription
-        }
-    }
-}
+// `AppFeature.hubDescription` lives in Core/FeatureHubDescriptions.swift
+// (Foundation-only) so the unit harness can check every feature has its own.
 
 extension AppPermission {
     func name(_ hub: FeatureHubStrings) -> String {

@@ -6130,8 +6130,9 @@ struct MetricsTests {
         expect(pageVisible(.energy, available: [.extraBrightness]), "XDR alone keeps the energy page")
         expect(pageVisible(.energy, available: [.brightness]),
                "brightness control alone keeps the energy page")
-        expect(!pageVisible(.monitor, available: allFeatures.subtracting(Set(FeatureVisibilitySupport.monitorFeatures))),
-               "monitor page hides with every metric off")
+        expect(!pageVisible(.monitor, available: allFeatures.subtracting(
+                    Set(FeatureVisibilitySupport.features(for: .monitor)))),
+               "monitor page hides with every metric and panel-configured feature off")
         expect(pageVisible(.monitor, available: [.monitorNetwork]), "one metric keeps the monitor page")
         expect(pageVisible(.general, available: []) && pageVisible(.about, available: [])
                 && pageVisible(.shortcuts, available: []),
@@ -6140,6 +6141,95 @@ struct MetricsTests {
                "single-feature pages follow their feature")
         expect(pageVisible(.quickTools, available: [.quickToggles]),
                "the quick toggles alone keep the quick tools page")
+
+        // MARK: Feature wiring
+        //
+        // A feature was once ported with its code but no Settings page and no
+        // runtime binding, and every island row repeated one description.
+        // These checks make each AppFeature prove it is wired end to end.
+
+        // (a) Every feature has a Settings home that the directory lists and
+        // that stays visible while the feature is installed. Island modules
+        // need the island itself, and the output switcher's toggle sits inside
+        // the mixer block, so those count their prerequisite as installed.
+        let directoryPages = Set(SettingsDirectory.allItems(Strings.localized(.enUS), language: .enUS,
+                                                            superKeySource: .capsLock).map(\.page))
+        func settingsPrerequisites(_ feature: AppFeature) -> Set<AppFeature> {
+            if feature.group == .dynamicIsland { return [.notch] }
+            if feature == .soundOutputSwitcher { return [.mixer] }
+            return []
+        }
+        for feature in AppFeature.allCases {
+            let page = feature.settingsPage
+            expect(directoryPages.contains(page),
+                   "wiring: \(feature) lives on \(page), which has no row in the Settings directory")
+            expect(pageVisible(page, available: settingsPrerequisites(feature).union([feature])),
+                   "wiring: \(feature)'s Settings page \(page) is hidden while only it is installed")
+            let gate = FeatureVisibilitySupport.features(for: page)
+            expect(gate.isEmpty || gate.contains(feature)
+                    || !settingsPrerequisites(feature).isDisjoint(with: gate),
+                   "wiring: \(feature) lives on \(page) but does not keep that page alive")
+        }
+        // A feature whose only page is the hub must be a deliberate choice.
+        expect(Set(AppFeature.allCases.filter { $0.settingsPage == .features })
+                == [.diskImageInstaller, .cleaningMode],
+               "wiring: only the documented features use the hub as their Settings page")
+        for page in SettingsPage.allCases {
+            for feature in FeatureVisibilitySupport.features(for: page) {
+                expect(feature.settingsPage == page
+                        || (page == .monitor && FeatureVisibilitySupport.monitorFeatures.contains(feature)),
+                       "wiring: \(feature) gates \(page) but is configured on \(feature.settingsPage)")
+            }
+        }
+
+        // (b) FeatureRuntime is AppKit and reaches every service, so the
+        // harness cannot compile it. Its binding table is read from source
+        // instead: every case must be bound or listed as deliberately unbound.
+        if let runtimeSource = try? String(contentsOfFile: "Sources/RyzenStatus/App/FeatureRuntime.swift",
+                                           encoding: .utf8),
+           let tableStart = runtimeSource.range(of: "private static let bindings: [AppFeature: () -> Void] = [") {
+            let table = runtimeSource[tableStart.upperBound...]
+            let tableBody = table[..<(table.range(of: "\n    ]\n")?.lowerBound ?? table.endIndex)]
+            var bound = Set<AppFeature>()
+            for line in tableBody.split(separator: "\n") {
+                guard line.hasPrefix("        ."), let colon = line.firstIndex(of: ":") else { continue }
+                let name = line[line.index(line.startIndex, offsetBy: 9)..<colon]
+                if let feature = AppFeature(rawValue: String(name)) {
+                    bound.insert(feature)
+                } else {
+                    expect(false, "wiring: FeatureRuntime binds unknown feature \(name)")
+                }
+            }
+            let exempt = AppFeature.featuresWithoutRuntimeBinding
+            for feature in AppFeature.allCases {
+                expect(bound.contains(feature) || exempt.contains(feature),
+                       "wiring: \(feature) has no FeatureRuntime binding and is not documented as unbound")
+                expect(!(bound.contains(feature) && exempt.contains(feature)),
+                       "wiring: \(feature) is bound in FeatureRuntime yet listed as unbound")
+            }
+        } else {
+            expect(false, "wiring: FeatureRuntime's binding table could not be read from source")
+        }
+
+        // (c) Every hub row says something, and in English no two features
+        // say the same thing.
+        for language in AppLanguage.allCases {
+            let hub = FeatureStrings.hub(language)
+            for feature in AppFeature.allCases {
+                expect(!feature.hubDescription(hub, language: language)
+                        .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                       "wiring: \(feature) has an empty hub description in \(language.rawValue)")
+            }
+        }
+        let englishHub = FeatureStrings.hub(.enUS)
+        var featureByDescription: [String: AppFeature] = [:]
+        for feature in AppFeature.allCases {
+            let text = feature.hubDescription(englishHub, language: .enUS)
+            if let other = featureByDescription[text] {
+                expect(false, "wiring: \(feature) and \(other) share the hub description \"\(text)\"")
+            }
+            featureByDescription[text] = feature
+        }
 
         // MARK: Display brightness (DDC/CI helpers)
 
