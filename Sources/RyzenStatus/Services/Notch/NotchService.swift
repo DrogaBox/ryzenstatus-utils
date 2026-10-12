@@ -999,6 +999,8 @@ final class NotchService: ObservableObject {
         refreshPresentation(animated: (mascotToggled || hidingToggled) && !expanded)
         syncMascotVisits()
         syncMascotSide()
+        // Automatic reactions follow the island and their own switches.
+        NotchMascotAutomation.shared.sync(islandRunning: running)
         // Pages read their preferences as they draw, and a change that keeps
         // the island's size publishes nothing else: hiding a control left the
         // open island, and the preview in Settings, as they were. The open
@@ -1027,6 +1029,7 @@ final class NotchService: ObservableObject {
         
         guard running else { return }
         running = false
+        NotchMascotAutomation.shared.sync(islandRunning: false)
         NotchTimerService.shared.stop()
         NotchAccessoryService.shared.stop()
         NotchWatchService.shared.stop()

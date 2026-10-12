@@ -13,8 +13,22 @@ import Foundation
 
 enum NotchMascotStyle: String, CaseIterable, Identifiable {
     case minimal, robot
+    /// A tiny processor with pins all round and a pin-one mark.
+    case chip
+    /// A case fan whose blades spin faster the harder the CPU works.
+    case fan
+    /// A cat with ears that twitch and a tail that sways.
+    case cat
+    /// A little ghost with a scalloped hem that fades as it sleeps.
+    case ghost
+    /// A wobbly slime that jiggles and melts a little as it dozes.
+    case slime
 
     var id: String { rawValue }
+
+    /// Only the minimal companion comes in shapes; every other style is its
+    /// own figure.
+    var takesShape: Bool { self == .minimal }
 }
 
 enum NotchMascotShape: String, CaseIterable, Identifiable {
@@ -139,6 +153,20 @@ enum NotchMascotReaction: String, CaseIterable {
     case ready
     /// Music started: smiling eyes and a bob to the beat.
     case groove
+    /// The CPU got busy: a determined face and a drop of sweat.
+    case sweat
+    /// The CPU got hot: wide eyes, a shiver and heat rising.
+    case panic
+    /// The load went away: a long, happy exhale.
+    case relax
+    /// Keep Awake holds on: a sip of coffee.
+    case sip
+    /// A big download: it peeks toward the network arrows.
+    case peek
+    /// Nothing going on: a little wave.
+    case wave
+    /// Nothing going on: it looks one way and the other.
+    case lookAround
 
     /// About how long it plays, so the companion stays out for all of it
     /// when it comes out over an activity to play it.
@@ -156,6 +184,13 @@ enum NotchMascotReaction: String, CaseIterable {
         case .hush: return 1.0
         case .ready: return 1.0
         case .groove: return 1.6
+        case .sweat: return 1.4
+        case .panic: return 1.2
+        case .relax: return 1.3
+        case .sip: return 1.6
+        case .peek: return 1.3
+        case .wave: return 1.2
+        case .lookAround: return 1.5
         }
     }
 }
@@ -165,6 +200,10 @@ enum NotchMascotReaction: String, CaseIterable {
 enum NotchMascotMoment: String, CaseIterable, Identifiable {
     case visit, timerStarted, timeIsUp, music, agents, eventStarts, downloadFinished, downloadFailed, screenshot,
          micMuted, keepAwake, charging, lowBattery, unlocked
+    /// Automatic moments: the CPU working hard, running hot, calming down,
+    /// coffee during Keep Awake, a big download, a cleanup that freed space,
+    /// and a wave for nothing in particular.
+    case hardWork, overheating, cooledDown, coffee, bigDownload, cleanedUp, antics
 
     var id: String { rawValue }
 
@@ -185,6 +224,27 @@ enum NotchMascotMoment: String, CaseIterable, Identifiable {
         case .charging: return .love
         case .lowBattery: return .yawn
         case .unlocked: return .wakeUp
+        case .hardWork: return .sweat
+        case .overheating: return .panic
+        case .cooledDown: return .relax
+        case .coffee: return .sip
+        case .bigDownload: return .peek
+        case .cleanedUp: return .celebrate
+        case .antics: return .wave
+        }
+    }
+
+    /// The mood it keeps for a while after an automatic moment in the
+    /// Settings preview, so its props and motions show too.
+    var ambient: MascotAmbient? {
+        switch self {
+        case .hardWork: return .working
+        case .overheating: return .overheated
+        case .coffee, .keepAwake: return .caffeinated
+        case .bigDownload: return .downloading
+        case .music: return .dancing
+        case .lowBattery: return .lowBattery
+        default: return nil
         }
     }
 
@@ -210,6 +270,13 @@ enum NotchMascotMoment: String, CaseIterable, Identifiable {
         case .charging: return "bolt"
         case .lowBattery: return "battery.25percent"
         case .unlocked: return "lock.open"
+        case .hardWork: return "cpu"
+        case .overheating: return "thermometer.high"
+        case .cooledDown: return "wind"
+        case .coffee: return "mug"
+        case .bigDownload: return "arrow.down.circle.dotted"
+        case .cleanedUp: return "sparkles"
+        case .antics: return "hand.wave"
         }
     }
 }
@@ -322,6 +389,7 @@ extension NotchMascotLook {
                                          shineCenter: CGPoint(x: 0.27, y: 0.34), shineRadii: CGSize(width: 0.07, height: 0.04),
                                          shineAngle: -0.3)
         }
+        if let creature = NotchMascotCreatures.face(style) { return creature }
         switch shape {
         case .ball:
             return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.36, y: 0.50), rightEye: CGPoint(x: 0.64, y: 0.50),
@@ -404,6 +472,8 @@ enum NotchMascotGeometry {
             let parts = robot(size: 1)
             bounds = [parts.ears, parts.antenna, parts.bulb]
                 .reduce(parts.head.boundingBoxOfPath) { $0.union($1.boundingBoxOfPath) }
+        } else if let figure = NotchMascotCreatures.bounds(look.style) {
+            bounds = figure
         } else {
             bounds = body(look.shape, size: 1).boundingBoxOfPath
         }

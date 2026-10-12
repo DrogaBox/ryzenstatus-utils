@@ -2,6 +2,7 @@
 // Copyright (C) 2026 RyzenStatus
 
 import AppKit
+import Combine
 import QuartzCore
 import SwiftUI
 
@@ -57,6 +58,10 @@ final class NotchMascotRig: NSObject {
     private let face = CALayer()
     private let leftEye = CAShapeLayer()
     private let rightEye = CAShapeLayer()
+    /// Pins, blades, ears and tails, and the props of a lasting mood.
+    private let decor = NotchMascotDecor()
+    /// The mood it keeps on its own as the Mac works, plays music or rests.
+    private(set) var ambient = MascotMoodState()
     private var blinks = 0
     /// It grew sleepy on its own after a long rest, rather than being shown
     /// so, and anything that happens wakes it.
@@ -75,8 +80,11 @@ final class NotchMascotRig: NSObject {
         root.addSublayer(hopper)
         hopper.addSublayer(squasher)
         squasher.addSublayer(tilter)
+        tilter.addSublayer(decor.back)
         for layer in [ears, antenna, bulb, fill, visor, shine] { tilter.addSublayer(layer) }
+        tilter.addSublayer(decor.middle)
         tilter.addSublayer(attention)
+        tilter.addSublayer(decor.props)
         attention.addSublayer(face)
         face.addSublayer(leftEye)
         face.addSublayer(rightEye)
@@ -149,12 +157,16 @@ final class NotchMascotRig: NSObject {
                 eye.shadowOffset = .zero
             }
         } else {
-            fillMask.path = NotchMascotGeometry.body(look.shape, size: size)
+            fillMask.path = NotchMascotCreatures.body(look.style, size: size)
+                ?? NotchMascotGeometry.body(look.shape, size: size)
             for eye in [leftEye, rightEye] {
                 eye.fillColor = NotchMascotColor.ink.cgColor
                 eye.shadowOpacity = 0
             }
         }
+        decor.configure(look: look, size: size, scale: scale)
+        // A ghost is a little see-through, and fainter still asleep.
+        fill.opacity = look.style == .ghost ? (decor.sleeping ? 0.55 : 0.92) : 1
         for layer in [ears, antenna, bulb, visor] { layer.isHidden = !robot }
         shine.path = NotchMascotGeometry.shine(look.face, size: size)
         shine.isHidden = robot
@@ -165,6 +177,7 @@ final class NotchMascotRig: NSObject {
         leftEye.contentsScale = scale
         rightEye.contentsScale = scale
         apply(mood.expression, animated: false)
+        applyAmbient()
     }
 
     // MARK: Faces
@@ -177,6 +190,8 @@ final class NotchMascotRig: NSObject {
         if mood != .sleepy { blinks = 0 }
         apply(mood.expression, animated: animated && !reduceMotion)
         lightBulb(mood != .sleepy, animated: animated && !reduceMotion)
+        decor.setSleeping(mood == .sleepy, animated: animated && !reduceMotion && size > 0, fill: fill)
+        applyAmbient()
         guard animated, !reduceMotion, size > 0 else { syncBlinking(); return }
         switch mood {
         case .surprised: pop()
@@ -277,6 +292,46 @@ final class NotchMascotRig: NSObject {
         blinks = 0
         dozed = false
         apply(mood.expression, animated: false)
+        decor.setSleeping(mood == .sleepy, animated: false, fill: fill)
+        applyAmbient()
+    }
+
+    // MARK: Lasting moods
+
+    /// Keeps the mood the Mac's state brings: props, a fan's spin, a dance.
+    func setAmbient(_ state: MascotMoodState) {
+        guard state != ambient else { return }
+        ambient = state
+        applyAmbient()
+    }
+
+    /// Its lasting mood moves only while it rests in sight, motion is
+    /// welcome and the Mac is not saving power; otherwise its props hold still.
+    private func applyAmbient() {
+        guard size > 0 else { return }
+        let motion = idles && !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
+        decor.setAmbient(ambient, motion: motion)
+        hopper.removeAnimation(forKey: "ambientBob")
+        tilter.removeAnimation(forKey: "ambientSway")
+        guard motion, ambient.ambient == .dancing, mood != .sleepy else { return }
+        // A bob on every beat and a sway every two, quicker as the music gets livelier.
+        let beat = 0.62 - ambient.energy * 0.2
+        let bob = CAKeyframeAnimation(keyPath: "transform.translation.y")
+        bob.values = [0, -size * 0.08, 0]
+        bob.keyTimes = [0, 0.45, 1]
+        bob.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeIn)]
+        bob.duration = beat
+        bob.repeatCount = .infinity
+        bob.isAdditive = true
+        hopper.add(bob, forKey: "ambientBob")
+        let sway = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        sway.values = [0, 0.08, 0, -0.08, 0]
+        sway.keyTimes = [0, 0.25, 0.5, 0.75, 1]
+        sway.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        sway.duration = beat * 2
+        sway.repeatCount = .infinity
+        sway.isAdditive = true
+        tilter.add(sway, forKey: "ambientSway")
     }
 
     // MARK: Attention
@@ -504,6 +559,7 @@ final class NotchMascotRig: NSObject {
         blinks = 0
         let now = CACurrentMediaTime()
         glowBulb(for: reaction.length)
+        decor.flourish(reaction, reduceMotion: reduceMotion)
         guard !reduceMotion else {
             switch reaction {
             case .celebrate, .wakeUp: flashFace(.happy, duration: 1)
@@ -514,6 +570,10 @@ final class NotchMascotRig: NSObject {
             case .perk, .bounce: flashFace(.alert, duration: 1)
             case .ready: flashFace(.determined, duration: 1)
             case .groove: flashFace(.happy, duration: 1.4)
+            case .sweat: flashFace(.determined, duration: 1.3)
+            case .panic: flashFace(.surprised, duration: 1.1)
+            case .relax, .sip, .wave: flashFace(.happy, duration: reaction.length - 0.1)
+            case .peek, .lookAround: flashFace(.searching, duration: reaction.length - 0.1)
             }
             return
         }
@@ -633,6 +693,81 @@ final class NotchMascotRig: NSObject {
             land.keyTimes = times
             land.duration = reaction.length
             squasher.add(land, forKey: "squash")
+        case .sweat:
+            // Hard at work: a set face and a panting rise and fall.
+            flashFace(.determined, duration: reaction.length)
+            let pant = CAKeyframeAnimation(keyPath: "transform")
+            pant.values = [squashed(0), squashed(0.07), squashed(0), squashed(0.07), squashed(0)]
+                .map { NSValue(caTransform3D: $0) }
+            pant.keyTimes = [0, 0.25, 0.5, 0.75, 1]
+            pant.duration = reaction.length
+            squasher.add(pant, forKey: "squash")
+        case .panic:
+            // Too hot: wide eyes, a little jump and a shiver.
+            flashFace(.surprised, duration: reaction.length)
+            hop(height: lift * 0.4)
+            let shiver = CAKeyframeAnimation(keyPath: "transform.translation.x")
+            shiver.values = (0...10).map { step -> CGFloat in
+                step == 0 || step == 10 ? 0 : (step % 2 == 0 ? 1 : -1) * size * 0.045
+            }
+            shiver.duration = 0.7
+            shiver.beginTime = now + 0.3
+            shiver.isAdditive = true
+            squasher.add(shiver, forKey: "shiver")
+        case .relax:
+            // The load is gone: a breath in, and a long happy sigh.
+            flashFace(.happy, duration: reaction.length)
+            let sigh = CAKeyframeAnimation(keyPath: "transform")
+            sigh.values = [squashed(0), squashed(-0.09), squashed(-0.09), squashed(0.1), squashed(0)]
+                .map { NSValue(caTransform3D: $0) }
+            sigh.keyTimes = [0, 0.3, 0.45, 0.8, 1]
+            sigh.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .linear),
+                                    CAMediaTimingFunction(name: .easeInEaseOut), CAMediaTimingFunction(name: .easeOut)]
+            sigh.duration = reaction.length
+            squasher.add(sigh, forKey: "squash")
+        case .sip:
+            // Head back a little for the sip, eyes shut happily.
+            flashFace(.happy, duration: reaction.length - 0.3, beginTime: now + 0.3)
+            let back = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+            back.values = [0, -0.1, -0.1, 0]
+            back.keyTimes = [0, 0.35, 0.7, 1]
+            back.duration = reaction.length
+            back.isAdditive = true
+            tilter.add(back, forKey: "wobble")
+        case .peek:
+            // A lean and a look up toward the network arrows in the menu bar.
+            flashFace(.alert, duration: reaction.length)
+            attend(to: CGPoint(x: 0.1, y: -0.05), hold: reaction.length - 0.5)
+            let lean = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+            lean.values = [0, 0.12, 0.12, 0]
+            lean.keyTimes = [0, 0.25, 0.75, 1]
+            lean.duration = reaction.length
+            lean.isAdditive = true
+            tilter.add(lean, forKey: "wobble")
+        case .wave:
+            flashFace(.happy, duration: reaction.length)
+            let sway = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+            sway.values = [0, 0.1, -0.06, 0.1, 0]
+            sway.keyTimes = [0, 0.25, 0.5, 0.75, 1]
+            sway.duration = reaction.length
+            sway.isAdditive = true
+            tilter.add(sway, forKey: "wobble")
+        case .lookAround:
+            // One way, the other way, and back, its head turning a little with its eyes.
+            let look = CAKeyframeAnimation(keyPath: "transform.translation.x")
+            look.values = [0, -size * 0.09, -size * 0.09, size * 0.09, size * 0.09, 0]
+            look.keyTimes = [0, 0.15, 0.4, 0.55, 0.85, 1]
+            look.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            look.duration = reaction.length
+            look.isAdditive = true
+            attention.add(look, forKey: "lookAround")
+            let turn = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+            turn.values = [0, -0.06, -0.06, 0.06, 0.06, 0]
+            turn.keyTimes = look.keyTimes
+            turn.duration = reaction.length
+            turn.isAdditive = true
+            tilter.add(turn, forKey: "wobble")
+            pauseBlinking(for: reaction.length, from: nil)
         }
     }
 
@@ -743,6 +878,7 @@ final class NotchMascotRig: NSObject {
             stopBlinking()
             if dozed, !idles { setMood(.idle, animated: false) }
         } else { syncBlinking() }
+        applyAmbient()
     }
 
     /// Wakes it from a long rest. A face shown sleepy on purpose stays.
@@ -806,6 +942,8 @@ final class NotchMascotRig: NSObject {
             glance.isAdditive = true
             glance.beginTime = blink.beginTime - 1.1
             attention.add(glance, forKey: "idleGlance")
+            // A cat's ears flick toward what it looks at.
+            if look.style == .cat { decor.twitchEars(beginTime: blink.beginTime - 0.9) }
         }
         let relay = NotchMascotAnimationRelay(target: self)
         blinkRelay = relay
@@ -855,6 +993,24 @@ final class NotchMascotHostView: NSView {
     /// The face last asked for. Asked again, it changes nothing: a companion
     /// grown sleepy on its own stays so until something new happens.
     private var requestedMood: NotchMascotMood?
+    /// The face it was last given: the one asked for, or, asked for nothing
+    /// in particular, the face of its lasting mood.
+    private var appliedMood: NotchMascotMood?
+    /// Its lasting mood, as the Mac's state brings it or as a preview shows it.
+    private var ambient = MascotMoodState()
+    private var ambientSubscription: AnyCancellable?
+    /// Resting in the island, it keeps the mood automatic reactions publish.
+    var followsAutomation = false {
+        didSet {
+            guard followsAutomation != oldValue else { return }
+            ambientSubscription = followsAutomation
+                ? NotchMascotAutomation.shared.$state.removeDuplicates().sink { [weak self] state in
+                    self?.showAmbient(state)
+                }
+                : nil
+            if !followsAutomation { showAmbient(MascotMoodState()) }
+        }
+    }
     /// Where it stands, its center, or nil for the middle of the view, and
     /// where it can be seen, nil everywhere. Kept for when the view is resized.
     private var placement: (center: CGPoint?, visible: [CGRect]?) = (nil, nil)
@@ -898,6 +1054,23 @@ final class NotchMascotHostView: NSView {
         islandObservers.forEach(NotificationCenter.default.removeObserver)
         if let yieldObserver { NotificationCenter.default.removeObserver(yieldObserver) }
         cameoWork?.cancel()
+    }
+
+    /// Keeps a lasting mood: its props and motions, and its face unless
+    /// another one was asked for.
+    func showAmbient(_ state: MascotMoodState) {
+        guard state != ambient else { return }
+        ambient = state
+        mascot.setAmbient(state)
+        syncMood(animated: window != nil)
+    }
+
+    private func syncMood(animated: Bool) {
+        let asked = requestedMood ?? .idle
+        let wanted = asked == .idle ? ambient.ambient.face ?? .idle : asked
+        guard wanted != appliedMood else { return }
+        appliedMood = wanted
+        mascot.setMood(wanted, animated: animated)
     }
 
     /// In the island's drop hint, its eyes follow a file dragged anywhere on screen.
@@ -1107,7 +1280,7 @@ final class NotchMascotHostView: NSView {
         if figureShift != shift { applyPlacement() }
         if mood != requestedMood {
             requestedMood = mood
-            mascot.setMood(mood, animated: animated && window != nil)
+            syncMood(animated: animated && window != nil)
         }
         idlesWhenVisible = idles
         syncIdling()
@@ -1269,6 +1442,9 @@ struct NotchMascotTrackView: NSViewRepresentable {
     var followsIsland = false
     /// It rests in the closed island and fades out early as an activity takes its place.
     var yieldsToActivities = false
+    /// The lasting mood it shows at rest. Nil follows the automatic
+    /// reactions, as in the island; the Settings preview passes its own.
+    var ambient: MascotMoodState? = nil
 
     func makeNSView(context: Context) -> NotchMascotHostView {
         NotchMascotHostView(frame: CGRect(x: 0, y: 0, width: track.width, height: track.height))
@@ -1291,6 +1467,8 @@ struct NotchMascotTrackView: NSViewRepresentable {
         view.followsPointer = rests && awake
         view.followsIsland = followsIsland && rests && awake
         view.yieldsToActivities = yieldsToActivities
+        view.followsAutomation = ambient == nil && rests && awake
+        if let ambient { view.showAmbient(rests && awake ? ambient : MascotMoodState()) }
         // A countdown is watched from the camera's left whatever the side.
         let stand = visit?.kind.watchesTimer == true ? track.leftSide.rest : track.rest
         view.playVisit(visit, path: NotchMascotMotion.path(for: visit?.kind ?? .pass, on: track),
