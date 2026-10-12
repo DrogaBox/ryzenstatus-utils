@@ -570,7 +570,7 @@ final class NotchMascotDecor {
             let fly = CAKeyframeAnimation(keyPath: "position")
             fly.path = path
             fly.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.7, 0.6, 1)
-            let spin = keyframes("transform.rotation.z", [0, (index % 2 == 0 ? 1 : -1) * 6], [0, 1])
+            let spin = keyframes("transform.rotation.z", [0, CGFloat(index % 2 == 0 ? 1 : -1) * 6], [0, 1])
             let show = keyframes("opacity", [0, 1, 1, 0], [0, 0.08, 0.7, 1])
             let group = CAAnimationGroup()
             group.animations = [fly, spin, show]
