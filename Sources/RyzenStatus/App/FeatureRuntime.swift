@@ -102,6 +102,12 @@ final class FeatureRuntime: ObservableObject {
     /// Launch path: replaces the old unconditional sync block. Only available
     /// features get their binding run, so nothing else even instantiates.
     func syncAtLaunch() {
+        // Debug builds trip here when a feature is neither bound nor listed
+        // as deliberately unbound; the unit harness checks the same rule.
+        assert(Set(Self.bindings.keys).isDisjoint(with: AppFeature.featuresWithoutRuntimeBinding)
+                && Set(Self.bindings.keys).union(AppFeature.featuresWithoutRuntimeBinding)
+                    == Set(AppFeature.allCases),
+               "every AppFeature needs a FeatureRuntime binding or a documented exemption")
         for feature in AppFeature.allCases where feature.isAvailable {
             Self.bindings[feature]?()
         }
