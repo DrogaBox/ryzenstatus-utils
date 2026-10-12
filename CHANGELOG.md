@@ -14,6 +14,7 @@ The graphs outside the menu bar now match it: the menu panel, the iStats widgets
 - **iStats widgets**: the CPU card adds a load history, and its per-core bars show system time behind user time. Its legend's User figure is now user time (it showed the total load), next to System and the core count. Core and memory rings, histories and legends use the graph theme. Memory lists app, used, compressed and free memory and adds a history, and the GPU card adds a history. Card titles that were fixed in English are translated.
 - **Dynamic Island**: the CPU, GPU and memory cards show a small history instead of a level bar once two samples are in, orange while the reading is high.
 - **Dashboards**: Performance Suite and the btop-style dashboard draw columns in each metric's own color, and the analytics charts get quarter guide lines and a scale label. The btop network graph covers the whole history instead of the last 24 samples, each direction on its own scale.
+- **Smaller app**: the release build no longer ships its debugging symbol table, which was more than half of the executable. The installed app drops from 85 MB to 37 MB and the download from 24.8 MB to 18.5 MB, with no change in behavior.
 
 ### Fixed
 

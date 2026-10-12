@@ -122,6 +122,18 @@ swiftc "${SWIFT_FLAGS[@]}" \
     Sources/RyzenStatus/**/*.swift \
     -o "build/$EXECUTABLE"
 
+if (( ! DEV )); then
+    # The local symbol table is more than half of the binary and nothing
+    # reads it at run time (every dlsym lookup is for a system symbol). It
+    # goes into a dSYM next to the build for symbolicating crash reports,
+    # and out of the shipped executable.
+    echo "▸ Stripping local symbols (dSYM kept in build/)…"
+    rm -rf "build/$EXECUTABLE.dSYM"
+    dsymutil "build/$EXECUTABLE" -o "build/$EXECUTABLE.dSYM" 2>/dev/null \
+        || echo "  dsymutil failed; continuing without a dSYM"
+    strip -x "build/$EXECUTABLE"
+fi
+
 echo "▸ Generating app icon…"
 swift Tools/MakeIcon.swift build/AppIcon.iconset
 iconutil -c icns build/AppIcon.iconset
