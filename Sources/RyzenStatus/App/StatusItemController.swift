@@ -315,8 +315,13 @@ final class StatusItemController {
         // In the separate-items mode the metrics are their own clickable
         // items, so hiding means the whole main item steps aside instead of
         // just its image (which is all that item has). With Dynamic Island
-        // standing in, the item goes whenever it has no text of its own.
-        let hiddenByChoice = (islandHides && button.attributedTitle.length == 0)
+        // standing in, the item goes only when it has no text of its own and
+        // no metrics are on their way into it.
+        let hiddenByChoice = MenuBarSpacingSupport.islandHidesMainStatusItem(
+                islandHides: islandHides,
+                separateMetrics: separateMetrics,
+                metricsEnabled: MenuBarMetric.anyEnabled(in: defaults),
+                renderedTitleLength: button.attributedTitle.length)
             || MenuBarSpacingSupport.shouldHideMainStatusItem(
                 optionEnabled: optionEnabled,
                 separateMetrics: separateMetrics,

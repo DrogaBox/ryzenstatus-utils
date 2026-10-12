@@ -260,6 +260,23 @@ enum MenuBarSpacingSupport {
             && !mustShowForSignal
     }
 
+    /// Whether Dynamic Island may take the whole main item out of the bar,
+    /// not just its glyph. Only while the item has no text of its own and is
+    /// not about to get any: when metrics render inside the main item, their
+    /// first reading (or a tick that renders nothing) leaves the title empty
+    /// for a moment, and hiding the item then makes the menu bar drop it and
+    /// insert it again as a blank slot of its saved width until it redraws.
+    /// So with metrics in the main item, the island hides only the glyph and
+    /// the item grows in place when the readings arrive.
+    static func islandHidesMainStatusItem(islandHides: Bool,
+                                          separateMetrics: Bool,
+                                          metricsEnabled: Bool,
+                                          renderedTitleLength: Int) -> Bool {
+        islandHides
+            && renderedTitleLength == 0
+            && (separateMetrics || !metricsEnabled)
+    }
+
     /// A metric item that briefly has nothing to show (reading dropped for a
     /// tick, transient sample gap) stays installed for a short grace window
     /// before taking its item away. Toggling the item away and putting it

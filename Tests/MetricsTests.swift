@@ -1478,6 +1478,21 @@ struct MetricsTests {
                                                            metricsEnabled: true, renderedTitleLength: 12,
                                                            mustShowForSignal: true),
                "an available update or muted mic brings the glyph back to carry the signal")
+        expect(!MenuBarSpacingSupport.islandHidesMainStatusItem(islandHides: true, separateMetrics: false,
+                                                                metricsEnabled: true, renderedTitleLength: 0),
+               "metrics on their way into the main item keep it in the bar while the island hides the glyph")
+        expect(MenuBarSpacingSupport.islandHidesMainStatusItem(islandHides: true, separateMetrics: false,
+                                                               metricsEnabled: false, renderedTitleLength: 0),
+               "with nothing to show, the island takes the main item out of the bar")
+        expect(MenuBarSpacingSupport.islandHidesMainStatusItem(islandHides: true, separateMetrics: true,
+                                                               metricsEnabled: true, renderedTitleLength: 0),
+               "separate metric items leave the main item with only the glyph the island replaces")
+        expect(!MenuBarSpacingSupport.islandHidesMainStatusItem(islandHides: true, separateMetrics: true,
+                                                                metricsEnabled: true, renderedTitleLength: 4),
+               "a countdown in the main item keeps it")
+        expect(!MenuBarSpacingSupport.islandHidesMainStatusItem(islandHides: false, separateMetrics: false,
+                                                                metricsEnabled: false, renderedTitleLength: 0),
+               "without the island the item follows its own rules")
         expect(MenuBarSpacingSupport.shouldHideMainStatusItem(optionEnabled: true, separateMetrics: true,
                                                               metricItemsShown: 2, renderedTitleLength: 0,
                                                               mustShowForSignal: false),
