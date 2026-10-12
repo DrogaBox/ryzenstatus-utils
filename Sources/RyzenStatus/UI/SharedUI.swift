@@ -68,6 +68,9 @@ struct FullDiskAccessNote: View {
             .controlSize(.small)
             .font(compact ? .system(size: 10.5) : nil)
         }
+        // Take the width the host offers, so the card lines up with the cards
+        // around it instead of shrinking to its longest line.
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(compact ? 9 : 11)
         .background(
             RoundedRectangle(cornerRadius: compact ? 8 : 9, style: .continuous)
@@ -110,13 +113,33 @@ struct UninstallFailureNote: View {
                     .font(compact ? .system(size: 9.5) : .caption2)
                     .foregroundStyle(.tertiary)
             }
-            if !permissions.fullDiskAccess {
+            if !permissions.fullDiskAccess,
+               UninstallerSupport.failureNeedsFullDiskAccess(paths: items.map(\.url.path)) {
                 FullDiskAccessNote(compact: compact, reason: l10n.s.uninstallerFailedNeedsFDA)
             }
         }
     }
 }
 
+/// Translucent HUD material behind floating panels (the shelf, the switcher, the
+/// cut-feedback HUD). Mirrors the switcher's backdrop so every floating surface
+/// matches.
+///
+/// `contrast: .high` lays a flat plate over the material, for the panels that
+/// are nothing but rows of text. The frost borrows so much of whatever window
+/// sits behind it that such a list over a bright document stops being readable,
+/// and the darker the theme the worse it reads: light text against a page of
+/// white. The plate keeps the frost visible and gives the text something to sit
+/// on. Where the system is already told to reduce transparency it makes the
+/// material opaque by itself, so the plate stays out of the way.
+///
+/// `opacity` fades the material itself, for the one panel that lets the user
+/// choose how much of the screen shows through. Reduce transparency wins over
+/// it: the whole point of that setting is that panels stop being see-through,
+/// so a stored preference must not quietly undo it. Liquid Glass does not take
+/// it either. The glass gets its transparency from the system's own Liquid
+/// Glass setting and has no fade of its own, so the slider that feeds
+/// `opacity` is turned off while `drawsLiquidGlass` holds.
 struct HUDBackdrop: View {
     enum Contrast {
         case standard
@@ -129,6 +152,7 @@ struct HUDBackdrop: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @AppStorage(DefaultsKey.liquidGlassEnabled) private var liquidGlassEnabled = false
 
     private var materialOpacity: Double {
         reduceTransparency ? 1 : min(max(opacity, 0), 1)
@@ -140,12 +164,48 @@ struct HUDBackdrop: View {
     /// plate alone carries white text to 4.8:1 and black text to 5.3:1, both
     /// past the 4.5:1 the accessibility guidelines ask of body text, and the
     /// real material only ever adds to that.
+    static func plateOpacity(dark: Bool) -> Double { dark ? 0.55 : 0.5 }
+
     private var plateOpacity: Double {
         guard contrast == .high, !reduceTransparency else { return 0 }
-        return colorScheme == .dark ? 0.55 : 0.5
+        return Self.plateOpacity(dark: colorScheme == .dark)
+    }
+
+    /// Whether the backdrop is drawn as Liquid Glass instead of the classic
+    /// material. Settings asks too, to know when `opacity` has nothing to fade.
+    static func drawsLiquidGlass(enabled: Bool, reduceTransparency: Bool) -> Bool {
+#if compiler(>=6.2)
+        if #available(macOS 26.0, *) { return enabled && !reduceTransparency }
+#endif
+        return false
     }
 
     var body: some View {
+#if compiler(>=6.2)
+        if #available(macOS 26.0, *),
+           Self.drawsLiquidGlass(enabled: liquidGlassEnabled, reduceTransparency: reduceTransparency) {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.clear)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(colorScheme == .dark ? Color.black : Color.white)
+                        .opacity(plateOpacity)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08), lineWidth: 0.8)
+                )
+        } else {
+            classicBackdrop
+        }
+#else
+        classicBackdrop
+#endif
+    }
+
+    @ViewBuilder
+    private var classicBackdrop: some View {
         HUDBackdropMaterial(cornerRadius: cornerRadius, opacity: materialOpacity)
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -155,6 +215,16 @@ struct HUDBackdrop: View {
     }
 }
 
+/// The material itself.
+///
+/// The corner radius rounds the effect view's own layer, which matters for the
+/// behind-window blur: SwiftUI's `.clipShape` rounds the drawn content but does
+/// not clip an `NSVisualEffectView`'s behind-window material, so the blur (and
+/// the borderless window's shadow, computed from it) keeps the full rectangular
+/// bounds. Against a contrasty desktop that rectangle reads as a faint extra
+/// outline just outside the rounded card, and whether it shows depends on what
+/// is behind the window, which is why it looks intermittent. Clipping the layer
+/// to the same radius as the card removes it. Pass the card's corner radius.
 private struct HUDBackdropMaterial: NSViewRepresentable {
     var cornerRadius: CGFloat = 0
     var opacity: Double = 1
@@ -178,5 +248,47 @@ private struct HUDBackdropMaterial: NSViewRepresentable {
         view.layer?.cornerRadius = cornerRadius
         view.layer?.cornerCurve = .continuous
         view.layer?.masksToBounds = true
+    }
+}
+
+/// A disclosure header where the whole row toggles the group and the chevron
+/// sits on the trailing side, the way a drop-down reads. The label supplies
+/// the row's one Spacer, so trailing accessories stay flush to the chevron.
+struct DisclosureHeaderRow<Label: View>: View {
+    @ObservedObject private var l10n = L10n.shared
+
+    private let isExpanded: Binding<Bool>
+    private let label: () -> Label
+
+    init(isExpanded: Binding<Bool>, @ViewBuilder label: @escaping () -> Label) {
+        self.isExpanded = isExpanded
+        self.label = label
+    }
+
+    var body: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                isExpanded.wrappedValue.toggle()
+            }
+        } label: {
+            HStack(spacing: 8) {
+                label()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(isExpanded.wrappedValue
+            ? l10n.s.disclosureExpanded : l10n.s.disclosureCollapsed)
+    }
+}
+
+extension View {
+    /// Child rows sit inset under their group's header row.
+    func disclosureIndent() -> some View {
+        padding(.leading, 25)
     }
 }

@@ -13,6 +13,8 @@ struct NotchNoticeView: View {
     private var wings: NotchNoticeWings { notice.wings(in: geometry) }
     private var tint: Color {
         switch notice.event {
+        // A warning reads as one in any agent's color; other AI notices wear it.
+        case .agents: return notice.symbol.hasPrefix("exclamationmark") ? .orange : notice.agent?.tint ?? .white
         case .timer: return .orange
         default: return .white
         }
@@ -69,6 +71,10 @@ struct NotchNoticeView: View {
                             .transition(.identity)
                             .opacity(hidesMascot ? 0 : 1)
                             .animation(nil, value: hidesMascot)
+                    } else if notice.event == .agents, let agent = notice.agent, notice.symbol == agent.symbol {
+                        // A notice about the agent itself wears its mark; a
+                        // warning keeps a symbol that says what happened.
+                        NotchAgentMark(provider: agent, size: 13)
                     } else if notice.event == .track {
                         NotchTrackArtwork(size: min(18, geometry.stripHeight - 6))
                     } else {

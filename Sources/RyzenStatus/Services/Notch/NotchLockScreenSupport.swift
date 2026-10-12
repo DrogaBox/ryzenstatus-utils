@@ -8,7 +8,7 @@ import SwiftUI
 /// What the lock screen reads out under the clock, in the order the line
 /// gives them up when it runs short.
 enum NotchLockScreenActivity: String, CaseIterable, Identifiable {
-    case timer, calendar, downloads
+    case timer, calendar, agents, downloads
 
     var id: String { rawValue }
 }
@@ -19,6 +19,7 @@ final class NotchLockScreenModel: ObservableObject {
     struct Gates: Equatable {
         var music = false
         var timer = false
+        var agents = false
         var downloads = false
         var countdown = false
         var timeLeft = false
@@ -70,11 +71,12 @@ enum NotchLockScreenSupport {
         session.completed || session.deadline.map { now >= $0 } == true
     }
 
-    static func activities(timer: Bool, calendar: Bool, downloads: Bool) -> [NotchLockScreenActivity] {
+    static func activities(timer: Bool, calendar: Bool, agents: Bool, downloads: Bool) -> [NotchLockScreenActivity] {
         NotchLockScreenActivity.allCases.filter {
             switch $0 {
             case .timer: return timer
             case .calendar: return calendar
+            case .agents: return agents
             case .downloads: return downloads
             }
         }

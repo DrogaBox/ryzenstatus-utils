@@ -240,7 +240,8 @@ struct NotchView: View {
             case .timer: NotchCapsuleTimerStrip(service: service, size: size)
             case .watch: NotchCapsuleWatchStrip(service: service, size: size)
             case .downloads: NotchCapsuleDownloadStrip(service: service, size: size)
-                        case .calendar: NotchCapsuleCalendarStrip(service: service, size: size)
+            case .agents: NotchCapsuleAgentStrip(service: service, size: size)
+            case .calendar: NotchCapsuleCalendarStrip(service: service, size: size)
             case .music: NotchCapsuleMusicStrip(service: service, size: size, interactive: true)
             case .keepAwake: NotchCapsuleKeepAwakeStrip(service: service, size: size)
             }
@@ -253,7 +254,8 @@ struct NotchView: View {
             case .timer: NotchTimerStrip(service: service, displayGeometry: geometry)
             case .watch: NotchWatchStrip(service: service, displayGeometry: geometry)
             case .downloads: NotchDownloadStrip(service: service, displayGeometry: geometry)
-                        case .calendar: NotchCalendarStrip(service: service, displayGeometry: geometry)
+            case .agents: NotchAgentStrip(service: service, displayGeometry: geometry)
+            case .calendar: NotchCalendarStrip(service: service, displayGeometry: geometry)
             case .music: NotchMusicStrip(service: service, displayGeometry: geometry, interactive: true)
             case .keepAwake: NotchKeepAwakeStrip(service: service, displayGeometry: geometry)
             }
@@ -653,7 +655,8 @@ struct NotchView: View {
                 NotchSystemView(size: pageSize) { service.showMetric($0) }
             case .tools: QuickLauncherView(notchSize: pageSize)
             case .scratchpad: NotchScratchpadView(service: service)
-                        case .watch: NotchWatchView(size: pageSize)
+            case .agents: NotchAgentsView(size: pageSize)
+            case .watch: NotchWatchView(size: pageSize)
             }
         }
     }
@@ -820,7 +823,9 @@ struct NotchRestingStrip: View {
                             Image(systemName: batterySymbol).font(.system(size: 12))
                                 .foregroundStyle(batteryTint)
                                 .padding(.leading, restingBatteryInset)
-                                                        .padding(.leading, restingBatteryInset)
+                        case .agents:
+                            NotchAgentRestingWing(leading: true)
+                                .padding(.leading, restingBatteryInset)
                         case .none: EmptyView()
                         }
                     }
@@ -843,6 +848,9 @@ struct NotchRestingStrip: View {
                                     .lineLimit(1)
                                     .padding(.trailing, restingBatteryInset)
                             }
+                        case .agents:
+                            NotchAgentRestingWing(leading: false)
+                                .padding(.trailing, restingBatteryInset)
                         case .none: EmptyView()
                         }
                     }
@@ -898,7 +906,8 @@ extension NotchModule: PanelOrderItem {
         case .system: return FeatureStrings.notch(language).system
         case .tools: return FeatureStrings.notch(language).tools
         case .scratchpad: return FeatureStrings.scratchpad(language).pageTitle
-                case .watch: return FeatureStrings.notchWatch(language).title
+        case .agents: return FeatureStrings.notchAgents(language).title
+        case .watch: return FeatureStrings.notchWatch(language).title
         }
     }
 }

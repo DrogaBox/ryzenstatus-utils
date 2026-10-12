@@ -108,8 +108,26 @@ final class FeatureRuntime: ObservableObject {
                 && Set(Self.bindings.keys).union(AppFeature.featuresWithoutRuntimeBinding)
                     == Set(AppFeature.allCases),
                "every AppFeature needs a FeatureRuntime binding or a documented exemption")
-        for feature in AppFeature.allCases where feature.isAvailable {
-            Self.bindings[feature]?()
+        // Island preferences are read together. Its extension bindings all
+        // resync the same service; doing that once per installed extension
+        // rebuilt observers and presentation repeatedly before the first frame.
+        let installed = Set(AppFeature.allCases.filter(\.isAvailable))
+        let islandModules = installed.filter { $0.rawValue.hasPrefix("notch") }
+        let monitorFeatures: Set<AppFeature> = [.monitorCPU, .monitorGPU, .monitorMemory,
+                                               .monitorNetwork, .monitorDisk, .monitorPower]
+        for feature in AppFeature.allCases where installed.contains(feature) {
+            if !islandModules.contains(feature), !monitorFeatures.contains(feature) {
+                Self.bindings[feature]?()
+            }
+        }
+        if !installed.isDisjoint(with: monitorFeatures) { Self.syncMonitor() }
+        if installed.contains(.notch) {
+            NotchService.shared.syncWithPreferences()
+        } else {
+            // Retain each extension's teardown when the parent isn't installed.
+            for feature in AppFeature.allCases where islandModules.contains(feature) {
+                Self.bindings[feature]?()
+            }
         }
     }
 
@@ -184,7 +202,10 @@ final class FeatureRuntime: ObservableObject {
         .quitWindowProtection: { QuitProtectionService.shared.syncWithPreferences() },
         .diskImageInstaller: { DiskImageInstallerService.shared.syncWithPreferences() },
         .wallpaper: { WallpaperService.shared.syncWithPreferences() },
-        .clipboardHistory: { ClipboardHistoryService.shared.syncWithPreferences() },
+        .clipboardHistory: {
+            ClipboardHistoryService.shared.syncWithPreferences()
+            ClipboardAutoClearService.shared.syncWithPreferences()
+        },
         .pastePlain: { PastePlainService.shared.syncWithPreferences() },
         .finderCutPaste: { FinderCutPaste.shared.syncWithPreferences() },
         .finderRename: { FinderRenameService.shared.syncWithPreferences() },
@@ -227,9 +248,15 @@ final class FeatureRuntime: ObservableObject {
         .extraBrightness: { ExtraBrightnessService.shared.syncWithPreferences() },
         .bluetoothSleep: { BluetoothSleepService.shared.syncWithPreferences() },
         .quickLauncher: { QuickLauncherService.shared.syncWithPreferences() },
-        .colorPicker: { ColorSamplerService.shared.syncWithPreferences() },
-        .screenOCR: { ScreenTextService.shared.syncWithPreferences() },
+        // One capture surface serves all four screen tools; it re-reads which
+        // of them are installed whenever any one changes.
+        .colorPicker: { ScreenCaptureService.shared.syncWithPreferences() },
+        .screenOCR: {
+            ScreenCaptureService.shared.syncWithPreferences()
+            ScreenTextService.shared.syncWithPreferences()
+        },
         .screenshot: {
+            ScreenCaptureService.shared.syncWithPreferences()
             ScreenshotService.shared.syncWithPreferences()
             // The recent captures palette and its shortcut serve screenshots
             // and recordings alike; it reads both features itself.
@@ -295,6 +322,10 @@ final class FeatureRuntime: ObservableObject {
             if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
             else { NotchCalendarService.shared.stop() }
         },
+        .notchAgents: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { AgentUsageService.shared.stop() }
+        },
         .notchWatch: {
             if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
             else { NotchWatchService.shared.stop() }
@@ -315,6 +346,7 @@ final class FeatureRuntime: ObservableObject {
         // feature via a preset, a settings-backup import or a reset left the
         // service running.
         .screenRecorder: {
+            ScreenCaptureService.shared.syncWithPreferences()
             ScreenRecorderService.shared.syncWithPreferences()
             RecentCaptureService.shared.syncWithPreferences()
         },

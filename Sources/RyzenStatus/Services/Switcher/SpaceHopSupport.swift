@@ -12,33 +12,79 @@ enum SpaceHopSupport {
     /// with synthetic shortcuts.
     static let maximumArrowSteps = 16
 
+    /// What a hop does right after activating the app.
+    enum FirstStage: Equatable {
+        /// Activating the app travels on its own, so wait for it to land.
+        case waitForActivationTravel
+        /// Activation cannot travel; the move has to be asked for right away.
+        case moveASpace
+    }
+
+    /// macOS follows an activation to another Space only when the app has no
+    /// window where the user is already looking. With one there, activating
+    /// just raises that window, so waiting for a travel that cannot happen is
+    /// pure delay and the hop asks for the move immediately (issue #422).
+    static func firstStage(appHasWindowOnVisibleSpace: Bool) -> FirstStage {
+        appHasWindowOnVisibleSpace ? .moveASpace : .waitForActivationTravel
+    }
+
+    /// Whether an arrival pulse should run the focus pass again (issue #1733).
+    /// The first pulse always runs: it is the one Accessibility has to settle
+    /// for. A later pulse only repeats it when the earlier pass has not landed,
+    /// because raising a window that is already its app's focused window, with
+    /// that app in front, deactivates and reactivates it for nothing and reads
+    /// as a flicker. Only the process that owns the window counts as in front:
+    /// for a window of an embedded helper, fronting it makes the helper the
+    /// front process, so the host app in front means the keyboard is still
+    /// with the host even while the helper reports the window as focused. While
+    /// the window's Space is still hidden every pulse runs: when the "move a
+    /// space" shortcut is off or unreadable the pulses are the hop's last tries
+    /// to bring the window up, and the app can already be in front reporting
+    /// that window as focused before it has arrived.
+    static func arrivalPulseShouldFocus(isFirstPulse: Bool,
+                                        targetSpaceIsVisible: @autoclosure () -> Bool,
+                                        targetWindowID: CGWindowID,
+                                        windowOwnerPID: pid_t,
+                                        frontmostPID: pid_t?,
+                                        focusedWindowID: @autoclosure () -> CGWindowID?) -> Bool {
+        guard !isFirstPulse, targetSpaceIsVisible() else { return true }
+        guard frontmostPID == windowOwnerPID else { return true }
+        return focusedWindowID() != targetWindowID
+    }
+
     /// A window the window server places on at least one Space, none of which
     /// is visible right now, is a real window parked elsewhere. A window on no
     /// Space at all is a leftover surface (the ghosts the Accessibility veto
     /// exists for), and a window on a visible Space needs no special handling.
-    /// Whether the window server tags this window as excluded from the
-    /// ⌘-backtick cycle (the private tags query in SpaceWindowBridge).
-    static func isExcludedFromWindowCycle(windowTagsLow: UInt32) -> Bool {
-        let ignoresCycleTag: UInt32 = 1 << 18
-        return windowTagsLow & ignoresCycleTag != 0
-    }
-
     static func isParkedOnHiddenSpace(windowSpaces: [UInt64], visibleSpaces: Set<UInt64>) -> Bool {
         guard !windowSpaces.isEmpty, !visibleSpaces.isEmpty else { return false }
         return !windowSpaces.contains { visibleSpaces.contains($0) }
     }
 
+    /// Whether at least one Space assigned to a window is a native fullscreen
+    /// Space. This is stronger than guessing from the window frame: a tiled or
+    /// zoomed window can fill the same rectangle without owning its own Space.
+    static func isOnFullscreenSpace(windowSpaces: [UInt64],
+                                    fullscreenSpaces: Set<UInt64>) -> Bool {
+        windowSpaces.contains { fullscreenSpaces.contains($0) }
+    }
+
+    /// The window server marks surfaces that must stay out of app window
+    /// cycling. This remains meaningful when Accessibility cannot inspect a
+    /// window because it lives on another Space.
+    static func isExcludedFromWindowCycle(windowTagsLow: UInt32) -> Bool {
+        let ignoresCycleTag: UInt32 = 1 << 18
+        return windowTagsLow & ignoresCycleTag != 0
+    }
+
     /// How many "move a space" presses take the user from the visible Space to
     /// `target`. Positive means move right, negative means move left. Returns
     /// nil when the target is already visible, cannot be found, or sits
-    /// farther than `maximumArrowSteps` away. With more than one display it
-    /// always returns nil: the replayed shortcut moves whichever display has
-    /// keyboard focus, which is not necessarily the display owning the target,
-    /// so a hop there could shuffle the wrong display's desktops.
+    /// farther than `maximumArrowSteps` away.
     static func arrowSteps(orderedSpacesPerDisplay: [[UInt64]],
                            visibleSpaces: Set<UInt64>,
                            target: UInt64) -> Int? {
-        guard orderedSpacesPerDisplay.count == 1, let row = orderedSpacesPerDisplay.first else { return nil }
+        guard let row = orderedSpacesPerDisplay.first(where: { $0.contains(target) }) else { return nil }
         guard !visibleSpaces.contains(target) else { return nil }
         guard let targetIndex = row.firstIndex(of: target),
               let currentIndex = row.firstIndex(where: { visibleSpaces.contains($0) })

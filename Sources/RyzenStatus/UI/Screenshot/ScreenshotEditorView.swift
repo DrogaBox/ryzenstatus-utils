@@ -10,24 +10,35 @@ struct ScreenshotEditorView: View {
     @ObservedObject var model: ScreenshotEditorModel
     let controller: ScreenshotEditorController
     @ObservedObject private var l10n = L10n.shared
+    @StateObject private var keyboard = ScreenshotShortcutContext()
 
     @State private var editingText = ""
     @FocusState private var textFieldFocused: Bool
     @State private var dragInFlight = false
-    @State private var dragStartView: CGPoint = .zero
+    @State private var drag = ScreenshotSupport.EditorDrag()
+    @State private var dragCanvasArea: CGSize?
     @State private var appeared = false
     @State private var backdropPopoverShown = false
+    @State private var watermarkPopoverShown = false
     @State private var hoveredTool: ScreenshotSupport.Tool?
     @State private var toolOptionsShown = false
     @State private var sharing = false
     @State private var sharedRecord: ScreenshotShareRecord?
+    @State private var shareAnchor = ShelfSharePickerAnchor.Anchor()
     @AppStorage(DefaultsKey.screenshotToolOrder) private var toolOrderRaw =
         ScreenshotSupport.Tool.defaultOrderStorage
+    @AppStorage(DefaultsKey.screenshotToolShortcuts) private var bindingsRaw = ""
     @AppStorage(DefaultsKey.screenshotToolShortcutsEnabled) private var toolShortcutsEnabled = true
     @AppStorage(DefaultsKey.screenshotSharingEnabled) private var sharingEnabled = true
+    @AppStorage(DefaultsKey.shelfEnabled) private var shelfEnabled = false
+    @AppStorage(AppFeature.shelf.availabilityKey) private var shelfAvailable = false
 
     private var strings: ScreenshotFeatureStrings {
         FeatureStrings.screenshot(l10n.language)
+    }
+
+    private var recentCapturesTitle: String {
+        FeatureStrings.recentCaptures(l10n.language).title
     }
 
     var body: some View {
@@ -59,6 +70,8 @@ struct ScreenshotEditorView: View {
         .animation(.spring(response: 0.28, dampingFraction: 0.86), value: model.tool)
         .animation(.easeOut(duration: 0.16), value: model.annotationShadowsEnabled)
         .animation(.spring(response: 0.28, dampingFraction: 0.86), value: model.backdropStyle)
+        .onAppear { keyboard.start() }
+        .onDisappear { keyboard.stop() }
         .sheet(item: $sharedRecord) { record in
             ScreenshotEditorSharedLinkView(record: record,
                                            strings: strings,
@@ -103,15 +116,22 @@ struct ScreenshotEditorView: View {
 
     private var canvasArea: some View {
         GeometryReader { proxy in
-            let zoom = zoomFactor(available: proxy.size)
+            // A click can change the selection, and with it the footer's
+            // controls and row count. Until the drag ends the canvas and its
+            // scroll view keep the region they started in, so neither the
+            // fit nor a scroll offset clamped to a new height moves the
+            // canvas under a still cursor and turns the click into a drag.
+            let available = dragCanvasArea ?? proxy.size
+            let zoom = zoomFactor(available: available)
             let canvasSize = CGSize(width: contentPixelSize.width * zoom,
                                     height: contentPixelSize.height * zoom)
             ScrollView([.horizontal, .vertical]) {
-                canvas(zoom: zoom, canvasSize: canvasSize)
+                canvas(zoom: zoom, canvasSize: canvasSize, available: available)
                     .frame(width: canvasSize.width, height: canvasSize.height)
-                    .padding(canvasInsets(available: proxy.size, canvas: canvasSize))
+                    .padding(canvasInsets(available: available, canvas: canvasSize))
             }
             .scrollIndicators(.never)
+            .frame(width: available.width, height: available.height, alignment: .topLeading)
             // Trackpad pinch, anchored at the zoom the gesture started from.
             .simultaneousGesture(
                 MagnificationGesture()
@@ -124,6 +144,7 @@ struct ScreenshotEditorView: View {
                     .onEnded { _ in magnifyBase = nil }
             )
         }
+        .clipped()
     }
 
     @State private var magnifyBase: CGFloat?
@@ -156,7 +177,7 @@ struct ScreenshotEditorView: View {
                    trailing: max((available.width - canvas.width) / 2, Self.canvasMargin))
     }
 
-    private func canvas(zoom: CGFloat, canvasSize: CGSize) -> some View {
+    private func canvas(zoom: CGFloat, canvasSize: CGSize, available: CGSize) -> some View {
         let outerRadius = model.showsBackdrop
             ? 6
             : max(4, model.cardCornerPixels * zoom)
@@ -188,7 +209,7 @@ struct ScreenshotEditorView: View {
                 appeared = true
             }
         }
-        .gesture(canvasGesture(zoom: zoom))
+        .gesture(canvasGesture(zoom: zoom, available: available))
         .onContinuousHover { phase in
             switch phase {
             case .active(let location):
@@ -249,43 +270,73 @@ struct ScreenshotEditorView: View {
                                width: model.imageSize.width * zoom,
                                height: model.imageSize.height * zoom)
 
+        var cardPath: CGPath?
         if model.showsBackdrop {
             // The capture sits on the fill like a card: soft shadow and the
             // user's corner rounding, exactly what the exporter composes.
             let corner = model.cardCornerPixels * zoom
             let path = CGPath(roundedRect: imageRect,
                               cornerWidth: corner, cornerHeight: corner, transform: nil)
+            cardPath = path
             cg.saveGState()
             cg.setShadow(offset: CGSize(width: 0, height: -5), blur: 18,
                          color: CGColor(gray: 0, alpha: 0.38))
+            cg.addRect(CGRect(origin: .zero, size: size))
+            cg.addPath(path)
+            cg.clip(using: .evenOdd)
             cg.addPath(path)
             cg.setFillColor(CGColor(gray: 1, alpha: 1))
             cg.fillPath()
             cg.restoreGState()
+        }
+
+        func enterImageSpace() {
+            cg.scaleBy(x: zoom, y: zoom)
+            cg.translateBy(x: model.backdropPaddingPixels, y: model.backdropPaddingPixels)
+            if model.showsBackdrop {
+                // The exporter composes annotations before the backdrop, so they
+                // never spill onto the margin; the live canvas must agree.
+                cg.clip(to: CGRect(origin: .zero, size: model.imageSize))
+            }
+        }
+
+        // Blur areas replace the pixels under them. With any on the canvas,
+        // the capture and its annotations draw in a layer of their own, as
+        // the exporter flattens them, so that never reaches the card's
+        // shadow or the backdrop. Without one, the layer is skipped, since
+        // it costs a canvas-sized buffer on every redraw.
+        let isolatesBlurAreas = model.annotations.contains { $0.tool == .pixelate }
+        if isolatesBlurAreas { cg.beginTransparencyLayer(auxiliaryInfo: nil) }
+        if let cardPath {
             cg.saveGState()
-            cg.addPath(path)
+            cg.addPath(cardPath)
             cg.clip()
             drawImageUpright(cg, in: imageRect, canvasHeight: size.height)
             cg.restoreGState()
         } else {
             drawImageUpright(cg, in: imageRect, canvasHeight: size.height)
         }
-
         cg.saveGState()
-        cg.scaleBy(x: zoom, y: zoom)
-        cg.translateBy(x: model.backdropPaddingPixels, y: model.backdropPaddingPixels)
-        if model.showsBackdrop {
-            // The exporter composes annotations before the backdrop, so they
-            // never spill onto the margin; the live canvas must agree.
-            cg.clip(to: CGRect(origin: .zero, size: model.imageSize))
-        }
+        enterImageSpace()
         ScreenshotRenderer.drawAnnotations(model.annotations,
                                            in: cg,
-                                           pixelated: model.pixelated,
+                                           blurSources: model.blurSources,
                                            imageSize: model.imageSize,
                                            scale: model.scale,
                                            annotationShadowsEnabled: model.annotationShadowsEnabled,
                                            skippingText: model.editingTextID)
+        cg.restoreGState()
+        if isolatesBlurAreas { cg.endTransparencyLayer() }
+
+        cg.saveGState()
+        enterImageSpace()
+        ScreenshotRenderer.drawWatermark(model.watermarkStyle,
+                                         image: model.watermarkImage,
+                                         in: cg,
+                                         imageSize: model.imageSize,
+                                         scale: model.scale,
+                                         shadowsEnabled: model.annotationShadowsEnabled,
+                                         cornerRadius: model.cardCornerPixels)
         drawTextSelection(cg)
         drawSelectionChrome(cg)
         drawCropChrome(cg, canvasSize: size, zoom: zoom)
@@ -321,25 +372,30 @@ struct ScreenshotEditorView: View {
 
     // MARK: - Gestures
 
-    private func canvasGesture(zoom: CGFloat) -> some Gesture {
+    private func canvasGesture(zoom: CGFloat, available: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 let point = imagePoint(from: value.location, zoom: zoom)
                 if !dragInFlight {
                     dragInFlight = true
-                    dragStartView = value.location
+                    drag.begin(at: value.startLocation)
+                    dragCanvasArea = available
                     commitEditingTextIfNeeded()
-                    model.beginDrag(at: point)
+                    model.beginDrag(at: imagePoint(from: value.startLocation, zoom: zoom))
+                    if value.location != value.startLocation {
+                        model.continueDrag(to: point)
+                    }
                 } else {
                     model.continueDrag(to: point)
                 }
+                drag.update(to: value.location)
             }
             .onEnded { value in
                 dragInFlight = false
+                dragCanvasArea = nil
                 let point = imagePoint(from: value.location, zoom: zoom)
-                // A click is a click in screen points, whatever the zoom.
-                let isTap = hypot(value.location.x - dragStartView.x,
-                                  value.location.y - dragStartView.y) < 7
+                drag.update(to: value.location)
+                let isTap = drag.isTap(for: model.tool)
                 if isTap, model.tool == .text || model.tool == .sticker || model.tool == .counter,
                    !CGRect(origin: .zero, size: model.imageSize).contains(point) {
                     return
@@ -366,6 +422,9 @@ struct ScreenshotEditorView: View {
     @ViewBuilder
     private func cropLoupeOverlay(zoom: CGFloat, canvasSize: CGSize) -> some View {
         if let point = model.cropLoupePoint {
+            // A crop edge sits between pixels, not on one, so this loupe wants an
+            // even sample side to put that edge in the middle of the frame — the
+            // opposite of what the capture loupe's color read needs.
             let sourceRect = ScreenshotSupport.cropLoupeSampleRect(
                 around: point,
                 imageSize: model.imageSize,
@@ -512,7 +571,7 @@ struct ScreenshotEditorView: View {
     private func textEditorOverlay(zoom: CGFloat) -> some View {
         if let editingID = model.editingTextID,
            let annotation = model.annotations.first(where: { $0.id == editingID }) {
-            let fontSize = max(11, ScreenshotRenderer.fontSize(for: annotation.stroke,
+            let fontSize = max(11, ScreenshotRenderer.fontSize(for: annotation.textSize,
                                                                scale: model.scale) * zoom)
             let pad = model.backdropPaddingPixels
             TextField(strings.textPlaceholder, text: $editingText)
@@ -600,36 +659,36 @@ struct ScreenshotEditorView: View {
     private func railButton(_ tool: ScreenshotSupport.Tool) -> some View {
         let isActive = model.tool == tool
         let isHovered = hoveredTool == tool
-        let shortcutNumber = ScreenshotSupport.Tool.shortcutNumber(
-            for: tool,
-            orderRaw: toolOrderRaw,
-            enabled: toolShortcutsEnabled)
+        let shortcutLabel = ScreenshotSupport.Tool.shortcutLabel(
+            for: tool, orderRaw: toolOrderRaw, bindingsRaw: bindingsRaw, enabled: toolShortcutsEnabled,
+            capsLockOn: keyboard.capsLockOn)
         return Button {
             commitEditingTextIfNeeded()
             model.tool = tool
         } label: {
-            Image(systemName: tool.screenshotSymbolName)
-                .font(.system(size: 13.5, weight: .medium))
-                .symbolEffect(.bounce, value: isActive)
-                .frame(width: 33, height: 29)
-                .background(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(isActive
-                                ? Color.accentColor.opacity(0.22)
-                                : isHovered ? Color.primary.opacity(0.08) : .clear)
-                )
-                .foregroundStyle(isActive ? Color.accentColor : Color.primary.opacity(0.85))
-                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .scaleEffect(isHovered && !isActive ? 1.06 : 1)
-                .overlay(alignment: .topTrailing) {
-                    if let shortcutNumber {
-                        Text("\(shortcutNumber)")
-                            .font(.system(size: 8, weight: .bold, design: .rounded))
-                            .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
-                            .padding(2)
-                            .opacity(isHovered || isActive ? 0.9 : 0)
-                    }
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: tool.screenshotSymbolName)
+                    .font(.system(size: 13.5, weight: .medium))
+                    .symbolEffect(.bounce, value: isActive)
+                    .frame(width: 33, height: 29)
+                if let shortcutLabel {
+                    Text(shortcutLabel)
+                        .font(.system(size: 8, weight: .bold, design: .rounded))
+                        .fixedSize()
+                        .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
+                        .padding(2)
+                        .opacity(isHovered || isActive ? 0.9 : 0.55)
                 }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(isActive
+                            ? Color.accentColor.opacity(0.22)
+                            : isHovered ? Color.primary.opacity(0.08) : .clear)
+            )
+            .foregroundStyle(isActive ? Color.accentColor : Color.primary.opacity(0.85))
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .scaleEffect(isHovered && !isActive ? 1.06 : 1)
         }
         .buttonStyle(.borderless)
         .onHover { inside in
@@ -638,8 +697,9 @@ struct ScreenshotEditorView: View {
             }
         }
         .screenshotSafeHelp(tool.screenshotTitle(strings)
-            + (shortcutNumber.map { "  (\($0))" } ?? ""))
-        .accessibilityLabel(tool.screenshotTitle(strings))
+            + (shortcutLabel.map { "  (\($0))" } ?? ""))
+        .accessibilityLabel(tool.screenshotTitle(strings)
+            + (shortcutLabel.map { "  (\($0))" } ?? ""))
     }
 
     // MARK: - QR code (shown only when the capture holds one)
@@ -664,6 +724,18 @@ struct ScreenshotEditorView: View {
     private var actionCluster: some View {
         HStack(spacing: 4) {
             Button {
+                RecentCaptureService.shared.showHistoryWindow()
+            } label: {
+                Image(systemName: "clock.arrow.circlepath")
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.borderless)
+            .screenshotSafeHelp(recentCapturesTitle)
+            .accessibilityLabel(recentCapturesTitle)
+
+            Divider().frame(height: 16).padding(.horizontal, 3)
+
+            Button {
                 controller.discardAndClose()
             } label: {
                 Image(systemName: "trash")
@@ -684,8 +756,6 @@ struct ScreenshotEditorView: View {
             }
             .buttonStyle(.borderless)
             .disabled(!model.canUndo)
-            .screenshotSafeHelp(l10n.s.menuUndo + "  (⌘Z)")
-            .accessibilityLabel(l10n.s.menuUndo)
             Button {
                 commitEditingTextIfNeeded()
                 model.redo()
@@ -695,8 +765,6 @@ struct ScreenshotEditorView: View {
             }
             .buttonStyle(.borderless)
             .disabled(!model.canRedo)
-            .screenshotSafeHelp(l10n.s.menuRedo + "  (⇧⌘Z)")
-            .accessibilityLabel(l10n.s.menuRedo)
 
             if model.qrReading != nil {
                 Divider().frame(height: 16).padding(.horizontal, 3)
@@ -719,10 +787,28 @@ struct ScreenshotEditorView: View {
 
             Divider().frame(height: 16).padding(.horizontal, 3)
 
-            if sharingEnabled {
-                shareMenu
-                Divider().frame(height: 16).padding(.horizontal, 3)
+            Button {
+                commitEditingTextIfNeeded()
+                guard let url = controller.shareFile() else {
+                    NSSound.beep()
+                    return
+                }
+                shareAnchor.present([url]) { chosen in
+                    if chosen { model.markExported() }
+                }
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .frame(width: 24, height: 24)
             }
+            .buttonStyle(.borderless)
+            .background(ShelfSharePickerAnchor(anchor: shareAnchor))
+            .screenshotSafeHelp(strings.shareButton)
+            .accessibilityLabel(strings.shareButton)
+
+            if sharingEnabled, ScreenshotShareService.shared.isSharingConfigured {
+                shareMenu
+            }
+            Divider().frame(height: 16).padding(.horizontal, 3)
 
             Menu {
                 Button(strings.saveButton) {
@@ -732,6 +818,12 @@ struct ScreenshotEditorView: View {
                 Button(strings.saveAsButton) {
                     commitEditingTextIfNeeded()
                     controller.saveAs()
+                }
+                if shelfEnabled, shelfAvailable {
+                    Button(strings.addToShelfButton) {
+                        commitEditingTextIfNeeded()
+                        controller.addToShelf()
+                    }
                 }
             } label: {
                 Text(strings.saveButton)
@@ -784,9 +876,10 @@ struct ScreenshotEditorView: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+        // No upload service is configured unless a developer endpoint is set.
         .disabled(sharing || !ScreenshotShareService.shared.isSharingConfigured)
-        .screenshotSafeHelp(sharing ? strings.sharingHUD : strings.shareButton)
-        .accessibilityLabel(strings.shareButton)
+        .screenshotSafeHelp(sharing ? strings.sharingHUD : strings.shareSectionTitle)
+        .accessibilityLabel(strings.shareSectionTitle)
     }
 
     // MARK: - Bottom row
@@ -806,10 +899,40 @@ struct ScreenshotEditorView: View {
         }
     }
 
-    /// Depth only means something once a shape is picked, and only when there
-    /// is something else for it to pass.
+    private var showsBlurControls: Bool {
+        if model.tool == .pixelate { return true }
+        guard model.tool == .select,
+              let selectedID = model.selectedID,
+              let selected = model.annotations.first(where: { $0.id == selectedID })
+        else { return false }
+        return selected.tool == .pixelate
+    }
+
+    /// Text takes a point size where shapes take a thickness.
+    private var showsTextSizeControls: Bool {
+        if model.tool == .text { return true }
+        guard model.tool == .select,
+              let selectedID = model.selectedID,
+              let selected = model.annotations.first(where: { $0.id == selectedID })
+        else { return false }
+        return selected.tool == .text
+    }
+
+    private var showsArrowStyleControls: Bool {
+        if model.tool == .arrow { return true }
+        guard model.tool == .select,
+              let selectedID = model.selectedID,
+              let selected = model.annotations.first(where: { $0.id == selectedID })
+        else { return false }
+        return selected.tool == .arrow
+    }
+
+    /// Depth only means something when there is another shape to pass. The
+    /// buttons stay while there is, dimmed until a shape is picked, so picking
+    /// or dropping a shape never adds or removes them, and an empty editor
+    /// keeps no gap for them. A shape still being drawn counts once it lands.
     private var showsLayerControls: Bool {
-        model.selectedID != nil && model.annotations.count > 1
+        model.annotations.lazy.filter { $0.id != model.draftID }.count > 1
     }
 
     /// Each direction dims on its own once the shape reaches that end, so the
@@ -845,25 +968,52 @@ struct ScreenshotEditorView: View {
     }
 
     private var bottomRow: some View {
-        // One row, no stacking: the chips can never collide with the style
-        // bar on a narrow window.
-        HStack(alignment: .center, spacing: 10) {
-            infoChip
-            Spacer(minLength: 6)
-            if model.tool == .crop, model.cropDraft != nil {
-                cropBar
-            } else {
-                styleBar
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 10) {
+                infoChip
+                Spacer(minLength: 6)
+                contextualBar
+                Spacer(minLength: 6)
+                zoomChip
             }
-            Spacer(minLength: 6)
-            zoomChip
+            // Small captures open at the minimum window width. Keep the
+            // controls inside it rather than letting this row widen the root.
+            VStack(spacing: 6) {
+                contextualBar
+                HStack {
+                    infoChip
+                    Spacer()
+                    zoomChip
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var contextualBar: some View {
+        if model.tool == .crop, model.cropDraft != nil {
+            cropBar
+        } else {
+            styleBar
         }
     }
 
     private var styleBar: some View {
         HStack(spacing: 10) {
+            if showsArrowStyleControls {
+                arrowStyleMenu
+                Divider().frame(height: 16)
+            }
             if showsStickerControls {
                 stickerMenu
+                Divider().frame(height: 16)
+            }
+            if showsBlurControls {
+                blurStyleMenu
+                blurTextOnlyButton
+                if model.blurStyle.usesStrength {
+                    blurLevelControl
+                }
                 Divider().frame(height: 16)
             }
             if showsColorControls {
@@ -873,9 +1023,13 @@ struct ScreenshotEditorView: View {
                     }
                 }
                 Divider().frame(height: 16)
-                HStack(spacing: 3) {
-                    ForEach(ScreenshotSupport.StrokeID.allCases, id: \.self) { stroke in
-                        strokeGlyph(stroke)
+                if showsTextSizeControls {
+                    textSizeControl
+                } else {
+                    HStack(spacing: 3) {
+                        ForEach(ScreenshotSupport.StrokeID.allCases, id: \.self) { stroke in
+                            strokeGlyph(stroke)
+                        }
                     }
                 }
                 Divider().frame(height: 16)
@@ -890,6 +1044,8 @@ struct ScreenshotEditorView: View {
             annotationShadowButton
             Divider().frame(height: 16)
             backdropButton
+            Divider().frame(height: 16)
+            watermarkButton
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -899,6 +1055,40 @@ struct ScreenshotEditorView: View {
                 .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.16), radius: 12, y: 3)
+    }
+
+    /// The same kind of menu as the sticker picker: an inline picker gives
+    /// each style a native row with a checkmark, and the sample images come
+    /// from the editor's own renderer, so the menu shows exactly what draws.
+    private var arrowStyleMenu: some View {
+        Menu {
+            Picker(strings.arrowStyleLabel, selection: $model.arrowStyle) {
+                ForEach(ScreenshotSupport.ArrowStyleID.allCases, id: \.self) { style in
+                    Label {
+                        Text(strings.arrowStyleTitle(style))
+                    } icon: {
+                        Image(nsImage: ScreenshotArrowStyleSamples.image(for: style))
+                    }
+                    .tag(style)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            HStack(spacing: 5) {
+                Image(nsImage: ScreenshotArrowStyleSamples.image(for: model.arrowStyle))
+                    .renderingMode(.template)
+                Text(strings.arrowStyleTitle(model.arrowStyle))
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 7)
+            .frame(height: 24)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .screenshotSafeHelp(strings.arrowStyleLabel)
+        .accessibilityLabel(strings.arrowStyleLabel)
     }
 
     private var stickerMenu: some View {
@@ -952,7 +1142,7 @@ struct ScreenshotEditorView: View {
     private func colorDot(_ colorID: ScreenshotSupport.ColorID) -> some View {
         let selected = model.color == colorID
         return Button {
-            withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
                 model.color = colorID
             }
         } label: {
@@ -999,6 +1189,139 @@ struct ScreenshotEditorView: View {
         .buttonStyle(.borderless)
         .screenshotSafeHelp(strings.strokeLabel)
         .accessibilityLabel(strings.strokeLabel)
+    }
+
+    /// Smaller and larger buttons step through the presets; the menu jumps
+    /// straight to any of them.
+    private var textSizeControl: some View {
+        HStack(spacing: 1) {
+            textSizeStepButton(up: false)
+            Menu {
+                Picker(strings.fontSizeLabel, selection: $model.textSize) {
+                    ForEach(ScreenshotSupport.textSizes, id: \.self) { size in
+                        Text("\(size) pt").tag(size)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } label: {
+                Text("\(model.textSize) pt")
+                    .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .frame(height: 24)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            textSizeStepButton(up: true)
+        }
+        .screenshotSafeHelp(strings.fontSizeLabel)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(strings.fontSizeLabel)
+    }
+
+    /// Pixelate, blur or erase, picked the way an arrow style is.
+    private var blurStyleMenu: some View {
+        Menu {
+            Picker(strings.blurStyleLabel, selection: $model.blurStyle) {
+                ForEach(ScreenshotSupport.BlurStyleID.allCases, id: \.self) { style in
+                    Label(strings.blurStyleTitle(style), systemImage: style.screenshotSymbolName)
+                        .tag(style)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: model.blurStyle.screenshotSymbolName)
+                    .font(.system(size: 12, weight: .medium))
+                Text(strings.blurStyleTitle(model.blurStyle))
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 7)
+            .frame(height: 24)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .screenshotSafeHelp(strings.blurStyleLabel)
+        .accessibilityLabel(strings.blurStyleLabel)
+    }
+
+    /// Covers only the text recognized inside the area and leaves the rest of
+    /// the picture as it was. The name shows beside the icon because tooltips
+    /// are off on macOS 27.
+    private var blurTextOnlyButton: some View {
+        Button {
+            model.blurTextOnly.toggle()
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "character.textbox")
+                    .font(.system(size: 12, weight: .medium))
+                Text(strings.blurTextOnly)
+                    .font(.system(size: 11.5, weight: .medium))
+            }
+            .padding(.horizontal, 7)
+            .frame(height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(model.blurTextOnly ? Color.accentColor.opacity(0.20) : .clear)
+            )
+            .foregroundStyle(model.blurTextOnly ? Color.accentColor : Color.primary.opacity(0.65))
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .buttonStyle(.borderless)
+        .fixedSize()
+        .screenshotSafeHelp(strings.blurTextOnly)
+        .accessibilityLabel(strings.blurTextOnly)
+        .accessibilityAddTraits(model.blurTextOnly ? .isSelected : [])
+    }
+
+    /// Five steps from a light blur to a heavy one; the middle is the
+    /// strength the tool always had.
+    private var blurLevelControl: some View {
+        let levels = ScreenshotSupport.BlurStrength.levels
+        return HStack(spacing: 5) {
+            Image(systemName: "aqi.low")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            Slider(value: Binding(get: { Double(model.blurLevel) },
+                                  set: { model.blurLevel = Int($0.rounded()) }),
+                   in: Double(levels.lowerBound)...Double(levels.upperBound),
+                   step: 1)
+                .controlSize(.mini)
+                .frame(width: 84)
+            Image(systemName: "aqi.high")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .frame(height: 24)
+        .screenshotSafeHelp(strings.blurStrengthLabel)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(strings.blurStrengthLabel)
+        .accessibilityValue("\(model.blurLevel)")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: model.blurLevel = min(levels.upperBound, model.blurLevel + 1)
+            case .decrement: model.blurLevel = max(levels.lowerBound, model.blurLevel - 1)
+            @unknown default: break
+            }
+        }
+    }
+
+    private func textSizeStepButton(up: Bool) -> some View {
+        let next = ScreenshotSupport.steppedTextSize(from: model.textSize, up: up)
+        return Button {
+            if let next { model.textSize = next }
+        } label: {
+            Image(systemName: up ? "textformat.size.larger" : "textformat.size.smaller")
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 24, height: 24)
+        }
+        .buttonStyle(.borderless)
+        .disabled(next == nil)
+        .accessibilityLabel(strings.fontSizeLabel + (up ? " +" : " −"))
     }
 
     private var annotationShadowButton: some View {
@@ -1072,6 +1395,38 @@ struct ScreenshotEditorView: View {
 
     @State private var backdropButtonHovered = false
 
+    private var watermarkButton: some View {
+        // Built like the backdrop button: one tappable surface with a hover
+        // wash, tinted while a mark is actually on the capture.
+        let active = model.showsWatermark
+        return HStack(spacing: 6) {
+            Image(systemName: "signature")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(active ? Color.accentColor : Color.primary.opacity(0.85))
+            Text(strings.watermarkLabel)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(active ? Color.accentColor : Color.secondary)
+        }
+        .padding(.horizontal, 7)
+        .frame(height: 24)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(watermarkButtonHovered ? Color.primary.opacity(0.10) : .clear)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .onHover { inside in watermarkButtonHovered = inside }
+        .onTapGesture { watermarkPopoverShown.toggle() }
+        .screenshotSafeHelp(strings.watermarkLabel)
+        .accessibilityLabel(strings.watermarkLabel)
+        .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { watermarkPopoverShown.toggle() }
+        .popover(isPresented: $watermarkPopoverShown, arrowEdge: .top) {
+            ScreenshotWatermarkPopover(model: model)
+        }
+    }
+
+    @State private var watermarkButtonHovered = false
+
     private func fillPreview(for style: ScreenshotSupport.BackdropStyle) -> LinearGradient {
         let colors = BackdropPickerAssets.previewColors(for: style)
         return LinearGradient(colors: colors,
@@ -1103,7 +1458,6 @@ struct ScreenshotEditorView: View {
             } action: {
                 model.zoomOverride = nil
             }
-            .accessibilityLabel("Ajustar al lienzo")
             Text(zoomPercentLabel)
                 .font(.system(size: 10.5, weight: .medium).monospacedDigit())
                 .foregroundStyle(.secondary)
@@ -1156,31 +1510,32 @@ struct ScreenshotEditorView: View {
         return "\(width) × \(height) px\(retina)"
     }
 
-    /// A draggable thumbnail that exports the flattened PNG.
+    /// A draggable control that exports the flattened PNG. Lives in infoChip
+    /// (bottom row), not the top toolbar — that region overlaps the
+    /// window's real system title bar, where no subview-level override
+    /// can reliably stop AppKit from treating a click as "move the
+    /// window."
     private var dragOutHandle: some View {
-        Image(nsImage: NSImage(cgImage: model.baseImage,
-                               size: NSSize(width: 22, height: 22 * model.imageSize.height
-                                                / max(model.imageSize.width, 1))))
-            .resizable()
-            .aspectRatio(contentMode: .fit)
+        Label(strings.dragOutHandleLabel, systemImage: "arrow.up.doc")
+            .labelStyle(.iconOnly)
+            .font(.system(size: 11, weight: .medium))
             .frame(width: 26, height: 18)
-            .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.2), lineWidth: 1)
-            )
+            .contentShape(Rectangle())
             .onDrag {
                 commitEditingTextIfNeeded()
-                guard let image = model.exportImage(),
-                      let provider = ScreenshotService.dragItemProvider(image: image,
-                                                                        strings: strings)
+                guard let export = model.exportImage(),
+                      let provider = ScreenshotService.dragItemProvider(
+                          image: export.image,
+                          scale: export.scale,
+                          strings: strings
+                      )
                 else { return NSItemProvider() }
                 model.markExported()
                 return provider
             }
-            .screenshotSafeHelp(strings.editorTitle)
+            .screenshotSafeHelp(strings.dragOutHandleLabel)
+            .accessibilityLabel(strings.dragOutHandleLabel)
     }
-
 }
 
 private struct ScreenshotEditorSharedLinkView: View {
@@ -1300,10 +1655,74 @@ extension ScreenshotSupport.Tool {
         case .text: return strings.toolText
         case .sticker: return strings.toolSticker
         case .counter: return strings.toolCounter
-        case .pixelate: return strings.toolPixelate
+        case .pixelate: return strings.toolBlur
         case .redact: return strings.toolRedact
         case .crop: return strings.toolCrop
         }
+    }
+}
+
+extension ScreenshotSupport.BlurStyleID {
+    var screenshotSymbolName: String {
+        switch self {
+        case .pixelate: return "aqi.medium"
+        case .blur: return "drop.halffull"
+        case .erase: return "eraser"
+        }
+    }
+}
+
+/// Small samples of each arrow style, drawn by the editor's own renderer so
+/// the menu and the toolbar show exactly what a stroke will look like. They
+/// are templates, so menus tint them like their text.
+private enum ScreenshotArrowStyleSamples {
+    private static let images: [ScreenshotSupport.ArrowStyleID: NSImage] = Dictionary(
+        uniqueKeysWithValues: ScreenshotSupport.ArrowStyleID.allCases.map { ($0, render($0)) })
+
+    static func image(for style: ScreenshotSupport.ArrowStyleID) -> NSImage {
+        images[style] ?? render(style)
+    }
+
+    private static func render(_ style: ScreenshotSupport.ArrowStyleID) -> NSImage {
+        let size = NSSize(width: 36, height: 16)
+        let image = NSImage(size: size)
+        image.isTemplate = true
+        // Rasterized at 2x so the sample stays crisp on Retina displays.
+        let scale: CGFloat = 2
+        let pixels = CGSize(width: size.width * scale, height: size.height * scale)
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                            pixelsWide: Int(pixels.width),
+                                            pixelsHigh: Int(pixels.height),
+                                            bitsPerSample: 8,
+                                            samplesPerPixel: 4,
+                                            hasAlpha: true,
+                                            isPlanar: false,
+                                            colorSpaceName: .deviceRGB,
+                                            bytesPerRow: 0,
+                                            bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: bitmap)?.cgContext
+        else { return image }
+        bitmap.size = size
+        // The renderer works in top-down image pixels.
+        context.translateBy(x: 0, y: pixels.height)
+        context.scaleBy(x: 1, y: -1)
+        // A thin sample; the fixed seed keeps the scribbly one stable.
+        let sample = ScreenshotSupport.Annotation(
+            tool: .arrow,
+            points: [CGPoint(x: 3 * scale, y: pixels.height / 2),
+                     CGPoint(x: pixels.width - 3 * scale, y: pixels.height / 2)],
+            color: .black,
+            stroke: .small,
+            arrowStyle: style,
+            scribbleSeed: 0x5343524942424C59)
+        ScreenshotRenderer.drawAnnotations([sample],
+                                           in: context,
+                                           blurSources: .none,
+                                           imageSize: pixels,
+                                           scale: scale,
+                                           annotationShadowsEnabled: false)
+        image.addRepresentation(bitmap)
+        return image
     }
 }
 

@@ -3,8 +3,9 @@
 
 import CoreGraphics
 
-/// The floating style's place on a display without a camera: below the
-/// menu bar, never over it. Screen coordinates, y up, as AppKit's.
+/// Floating panels expand below the menu bar on notchless displays;
+/// compact activities and the companion stay in the bar. Coordinates are
+/// in screen points, y up, as AppKit's.
 ///
 /// The island is a capsule drawn `margin` inside its window, above and below
 /// its body, so the window starts that much above the island's visible top.
@@ -15,7 +16,8 @@ enum NotchFloatingLayout {
 
     /// How far the island's window hangs below the top of the display: the
     /// bar and the gap, less the margin the capsule keeps inside its window.
-    static func drop(barHeight: CGFloat, margin: CGFloat) -> CGFloat {
+    static func drop(barHeight: CGFloat, margin: CGFloat, expanded: Bool = true) -> CGFloat {
+        guard expanded else { return 0 }
         let bar = barHeight.isFinite ? max(0, barHeight) : 0
         let inset = margin.isFinite ? max(0, margin) : 0
         return max(0, bar + menuBarGap - inset)
@@ -26,23 +28,27 @@ enum NotchFloatingLayout {
         screen.maxY - (barHeight.isFinite ? max(0, barHeight) : 0)
     }
 
-    /// The visible top edge of the island, compact or open.
+    /// The visible top edge of the open island. Compact activities stay in
+    /// the bar and do not use it.
     static func islandTop(screen: CGRect, barHeight: CGFloat) -> CGFloat {
         menuBarBottom(screen: screen, barHeight: barHeight) - menuBarGap
     }
 
     /// The window of an island of `size`, centred on the display.
-    static func windowFrame(screen: CGRect, barHeight: CGFloat, margin: CGFloat, size: CGSize) -> CGRect {
+    static func windowFrame(screen: CGRect, barHeight: CGFloat, margin: CGFloat, size: CGSize,
+                            expanded: Bool = true) -> CGRect {
         let width = max(0, size.width), height = max(0, size.height)
         return CGRect(x: screen.midX - width / 2,
-                      y: screen.maxY - drop(barHeight: barHeight, margin: margin) - height,
+                      y: screen.maxY - drop(barHeight: barHeight, margin: margin, expanded: expanded) - height,
                       width: width, height: height)
     }
 
     /// The capsule's body inside that window: the window less its margin
     /// above and below.
-    static func visibleFrame(screen: CGRect, barHeight: CGFloat, margin: CGFloat, size: CGSize) -> CGRect {
-        let window = windowFrame(screen: screen, barHeight: barHeight, margin: margin, size: size)
+    static func visibleFrame(screen: CGRect, barHeight: CGFloat, margin: CGFloat, size: CGSize,
+                             expanded: Bool = true) -> CGRect {
+        let window = windowFrame(screen: screen, barHeight: barHeight, margin: margin, size: size,
+                                 expanded: expanded)
         let inset = min(margin.isFinite ? max(0, margin) : 0, window.height / 2)
         return window.insetBy(dx: 0, dy: inset)
     }
@@ -50,9 +56,14 @@ enum NotchFloatingLayout {
     /// The invisible strip that opens an island with nothing to show: from
     /// the bottom of the menu bar down through the gap and the pill's own
     /// height, as wide as the pill, centred. It never reaches into the bar.
-    static func hoverStrip(screen: CGRect, barHeight: CGFloat, width: CGFloat, height: CGFloat) -> CGRect {
-        let width = max(0, width), height = max(0, height) + menuBarGap
-        return CGRect(x: screen.midX - width / 2, y: menuBarBottom(screen: screen, barHeight: barHeight) - height,
+    static func hoverStrip(screen: CGRect, barHeight: CGFloat, width: CGFloat, height: CGFloat,
+                           expanded: Bool = true) -> CGRect {
+        let width = width.isFinite ? max(0, width) : 0
+        let body = height.isFinite ? max(0, height) : 0
+        let bar = barHeight.isFinite ? max(0, barHeight) : 0
+        let height = expanded ? body + menuBarGap : min(body, bar)
+        let top = expanded ? menuBarBottom(screen: screen, barHeight: bar) : screen.maxY
+        return CGRect(x: screen.midX - width / 2, y: top - height,
                       width: width, height: height)
     }
 }

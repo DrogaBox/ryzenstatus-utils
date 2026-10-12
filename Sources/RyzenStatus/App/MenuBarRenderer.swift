@@ -5,7 +5,7 @@ import AppKit
 
 /// A live reading the user can pin next to the menu bar icon.
 enum MenuBarMetric: String, CaseIterable, Identifiable {
-    case cpu, gpu, memory, cpuTemperature, gpuTemperature, cpuPower, gpuPower, cpuFrequency, cpuTempPower, gpuTempPower, batteryTemperature, network, diskUsage, diskActivity, battery, batteryTime, peripheralBattery, power
+    case cpu, gpu, memory, cpuTemperature, gpuTemperature, cpuPower, gpuPower, cpuFrequency, cpuTempPower, gpuTempPower, batteryTemperature, network, diskUsage, diskActivity, battery, batteryTime, peripheralBattery, power, connectedDevices
 
     var id: String { rawValue }
 
@@ -29,6 +29,7 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
         case .batteryTime: return DefaultsKey.menuBarBatteryTime
         case .peripheralBattery: return DefaultsKey.menuBarPeripheralBattery
         case .power: return DefaultsKey.menuBarPower
+        case .connectedDevices: return DefaultsKey.menuBarConnectedDevices
         }
     }
 
@@ -52,6 +53,7 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
         case .batteryTime: return "clock"
         case .peripheralBattery: return "keyboard"
         case .power: return "powerplug.fill"
+        case .connectedDevices: return "cable.connector"
         }
     }
 
@@ -75,6 +77,7 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
         case .batteryTime: return FeatureStrings.batteryTime(L10n.shared.language).title
         case .peripheralBattery: return strings.monitorShowPeripheralBattery
         case .power: return strings.monitorShowPowerLabel
+        case .connectedDevices: return FeatureStrings.connectedDevices(L10n.shared.language).title
         }
     }
 
@@ -83,7 +86,7 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
         .gpu, .gpuTemperature, .gpuPower, .gpuTempPower,
         .memory,
         .battery, .batteryTime, .batteryTemperature, .peripheralBattery,
-        .network, .diskUsage, .diskActivity, .power,
+        .network, .diskUsage, .diskActivity, .connectedDevices, .power,
     ]
 
     static func order(in defaults: UserDefaults) -> [MenuBarMetric] {
@@ -107,6 +110,7 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
         case .network: return .monitorNetwork
         case .diskUsage, .diskActivity: return .monitorDisk
         case .battery, .batteryTime, .batteryTemperature, .peripheralBattery, .power: return .monitorPower
+        case .connectedDevices: return .connectedDevices
         }
     }
 
@@ -694,6 +698,18 @@ enum MenuBarRenderer {
                                                 style: style,
                                                 pressure: nil)])
                 }
+            case .connectedDevices:
+                // The list has its own event-driven owner rather than a field
+                // in the AMD monitor's snapshot; nothing shows until it has
+                // been read once.
+                let devices = ConnectedDevicesMonitor.shared
+                if devices.hasLoadedOnce {
+                    groups.append([.metricBlock(label: FeatureStrings.connectedDevices(L10n.shared.language).menuBarLabel,
+                                                value: "\(devices.count)",
+                                                minimumValue: "99",
+                                                style: style,
+                                                pressure: nil)])
+                }
 
             }
         }
@@ -774,6 +790,8 @@ enum MenuBarRenderer {
             return 13      // symbol + " BAT 100%" / " PWR 105W"
         case (_, .batteryTime):
             return 12      // clock symbol + "99h 59m"
+        case (_, .connectedDevices):
+            return 6       // symbol + " 99"
         }
     }
 

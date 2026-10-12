@@ -47,7 +47,7 @@ enum NotchKeepAwakeSupport {
         let height = provisional.compactActivityContentHeight
         let textSize = NotchTimerSupport.stripTextSize(height: height)
         let reading = end.map {
-            (NotchSupport.readingShape(compactText(until: $0, now: now, locale: locale)) as NSString)
+            (NotchAgentSupport.readingShape(compactText(until: $0, now: now, locale: locale)) as NSString)
                 .size(withAttributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: textSize, weight: .medium)])
                 .width.rounded(.up)
         } ?? symbolWidth(openSymbol, size: textSize)

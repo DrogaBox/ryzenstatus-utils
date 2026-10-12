@@ -88,6 +88,7 @@ struct MenuPanelView: View {
     @State private var updateBannerHeight: CGFloat = 0
     @State private var selectedSection: PanelSectionID = .system
     @State private var selectedMetric: MetricDetailKind?
+    @FocusState private var focusedSection: PanelSectionID?
     let isDetachedWindow: Bool
     var notchSize: CGSize? = nil
 
@@ -97,18 +98,17 @@ struct MenuPanelView: View {
     }
 
     /// Cap the panel to the usable screen height so it never overflows the menu
-    /// bar; taller content scrolls inside.
-    /// Margin accounting (measured from the live window, 2026-09-12): the
-    /// popover window = SwiftUI total + NSPopover chrome (~26 pt arrow/border).
-    /// SwiftUI total = scroll cap + section chrome (now includes the 14 pt of
-    /// outer .padding below) ⇒ at the cap the window is
-    /// `visibleFrame − margin + 26`; the margin must exceed 26 + a bottom gap,
-    /// so 40. The old 24 made every capped panel ~16 pt taller than the screen
-    /// and macOS flipped the whole popover beside the icon (reproduced on both
-    /// the SMU core disclosure and the iStats chart editor — any capped
-    /// content, not a specific section).
+    /// bar; taller content scrolls inside. Measured against the display the
+    /// menu bar icon is on, which is not always the one holding the key window.
+    /// The popover's window is the panel plus 13 pt for the arrow and 13 pt
+    /// below it, and a window taller than the usable height makes AppKit open
+    /// the popover beside the icon instead of under it. RyzenStatus's panel
+    /// adds 14 pt of outer padding to that, so its cap leaves 40 pt (measured
+    /// on the live window, 2026-09-12).
     private var maxHeight: CGFloat {
-        max(360, (NSScreen.main?.visibleFrame.height ?? 760) - 40)
+        let anchored = PanelInteractionState.shared.anchorScreen
+            .flatMap { anchor in NSScreen.screens.contains(anchor) ? anchor : nil }
+        return max(360, ((anchored ?? NSScreen.withMenuBar)?.visibleFrame.height ?? 760) - 40)
     }
 
     var body: some View {
@@ -437,6 +437,7 @@ struct MenuPanelView: View {
         case .network: return 330
         case .disk: return 360
         case .battery, .power: return 360
+        case .connectedDevices: return 300
         }
     }
 
@@ -450,7 +451,10 @@ struct MenuPanelView: View {
         case .nowPlaying: NowPlayingSection(collapsible: collapsible)
         case .brightness: if showBrightness { BrightnessSection(collapsible: collapsible) }
         case .mixer: if showMixer { mixerOrPrioritySection(collapsible: collapsible) }
-        case .system: if showSystem { SystemSection(collapsible: collapsible) }
+        case .system:
+            if showSystem {
+                SystemSection(collapsible: collapsible)
+            }
         case .network: if showNetwork { NetworkSection(collapsible: collapsible) }
         case .disk: if showDisk { DiskSection(collapsible: collapsible) }
         case .power: if showPower { PowerSection(collapsible: collapsible) }
@@ -513,7 +517,10 @@ struct MenuPanelView: View {
                         .fill(isActive ? navigationActiveFill : Color.clear)
                 )
                 .help(id.title(l10n.s))
+                // Icon-only tabs: VoiceOver reads the section name, not the
+                // symbol's, and hears which one is showing.
                 .accessibilityLabel(id.title(l10n.s))
+                .accessibilityAddTraits(isActive ? .isSelected : [])
             }
         }
         .padding(4)
@@ -577,8 +584,20 @@ struct MenuPanelView: View {
         ZStack {
             MenuPanelHeader()
 
-            HStack {
+            HStack(spacing: 2) {
                 Spacer()
+                Button {
+                    appDelegate()?.openFeedbackWindow()
+                } label: {
+                    Image(systemName: "bubble.left.and.text.bubble.right")
+                        .font(.system(size: 11, weight: .medium))
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help(FeatureStrings.feedback(l10n.language).openButton)
+                .accessibilityLabel(FeatureStrings.feedback(l10n.language).openButton)
                 // Detach button: only visible when the panel is inside the popover
                 // (not when already detached to a standalone window)
                 if (NSApp.delegate as? AppDelegate)?.isPanelInPopover ?? true {
@@ -670,7 +689,7 @@ private enum UtilityPanelItem: String, PanelOrderItem, Identifiable {
     case screenshot, quickLauncher, appUpdates, cleaner, homebrew, media, clipboard, windowLayout,
          uninstaller, cleanURL, cleaning, screenOCR, colorPicker, micMute, cameraPreview, scratchpad,
          commandBar
-    case portManager
+    case portManager, screenRecorder
 
     var id: String { rawValue }
 
@@ -696,6 +715,7 @@ private enum UtilityPanelItem: String, PanelOrderItem, Identifiable {
         case .scratchpad: return .scratchpad
         case .commandBar: return .commandBar
         case .portManager: return .portManager
+        case .screenRecorder: return .screenRecorder
         }
     }
 }
@@ -731,6 +751,9 @@ struct UtilitiesSection: View {
     @AppStorage(DefaultsKey.panelUtilityScratchpad) private var showScratchpad = true
     @AppStorage(DefaultsKey.panelUtilityCommandBar) private var showCommandBar = true
     @AppStorage(DefaultsKey.panelUtilityPortManager) private var showPortManager = true
+    @AppStorage(DefaultsKey.panelUtilityScreenRecorder) private var showScreenRecorder = true
+    @ObservedObject private var recorder = ScreenRecorderService.shared
+    @State private var showRecentCapturesPanel = false
     @ObservedObject private var micMute = MicMuteService.shared
     @AppStorage(DefaultsKey.clipboardHistoryEnabled) private var clipboardEnabled = false
     @AppStorage(DefaultsKey.panelUtilityOrder) private var utilityOrderRaw = ""
@@ -748,7 +771,8 @@ struct UtilitiesSection: View {
                         && !showMediaPanel
                         && !showClipboardPanel
                         && !showWindowLayoutPanel
-                        && !showPortManagerPanel,
+                        && !showPortManagerPanel
+                        && !showRecentCapturesPanel,
                      resetAction: resetPanelDefaults) { editing in
             if showUninstaller {
                 PanelUninstallerView {
@@ -763,10 +787,10 @@ struct UtilitiesSection: View {
                     showURLCleaner = false
                 }
             } else if showHomebrewPanel {
-                PanelHomebrewView {
+                PackageManagerView(onClose: {
                     PanelInteractionState.shared.viewKeepsPopoverOpen = false
                     showHomebrewPanel = false
-                }
+                })
             } else if showMediaPanel {
                 PanelMediaView {
                     PanelInteractionState.shared.viewKeepsPopoverOpen = false
@@ -787,20 +811,24 @@ struct UtilitiesSection: View {
                     PanelInteractionState.shared.viewKeepsPopoverOpen = false
                     showAppUpdatesPanel = false
                 }
+            } else if showRecentCapturesPanel {
+                PanelRecentCapturesView {
+                    PanelInteractionState.shared.viewKeepsPopoverOpen = false
+                    showRecentCapturesPanel = false
+                }
             } else if showPortManagerPanel {
                 PanelPortManagerView {
                     PanelInteractionState.shared.viewKeepsPopoverOpen = false
                     showPortManagerPanel = false
                 }
             } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(items(editing: editing)) { item in
-                        PanelReorderableItem(item: item,
-                                             isEnabled: editing,
-                                             order: itemOrderBinding,
-                                             dragging: $draggingItem) {
-                            itemView(item, editing: editing)
-                        }
+                PanelRowGroup(items: items(editing: editing), showsDragHandles: editing) { item in
+                    PanelReorderableItem(item: item,
+                                         isEnabled: editing,
+                                         previewsAsCard: true,
+                                         order: itemOrderBinding,
+                                         dragging: $draggingItem) {
+                        itemView(item, editing: editing)
                     }
                 }
             }
@@ -821,7 +849,7 @@ struct UtilitiesSection: View {
     private var isHostingUtility: Bool {
         showUninstaller || showCleanerPanel || showURLCleaner || showHomebrewPanel
             || showAppUpdatesPanel || showMediaPanel || showClipboardPanel || showWindowLayoutPanel
-            || showPortManagerPanel
+            || showPortManagerPanel || showRecentCapturesPanel
     }
 
     private var cleaningNeedsAccessibility: Bool {
@@ -871,7 +899,27 @@ struct UtilitiesSection: View {
         case .screenshot: return showScreenshot
         case .commandBar: return showCommandBar
         case .portManager: return showPortManager
+        case .screenRecorder: return showScreenRecorder
         }
+    }
+
+    private var screenRecorderTitle: String {
+        let strings = FeatureStrings.recorder(l10n.language)
+        return recorder.isRecording ? strings.stopButton : strings.pageTitle
+    }
+
+    private var screenRecorderCaption: String {
+        guard permissions.screenRecording else {
+            return "\(l10n.s.permissionRequired): \(l10n.s.permissionScreenRecording)"
+        }
+        let strings = FeatureStrings.recorder(l10n.language)
+        return recorder.isRecording
+            ? RecorderSupport.elapsedLabel(seconds: recorder.elapsedSeconds)
+            : strings.panelCaption
+    }
+
+    private func showRecentCaptures() {
+        showRecentCapturesPanel = true
     }
 
     @ViewBuilder
@@ -882,7 +930,7 @@ struct UtilitiesSection: View {
             utilityLauncherItemView(item, editing: editing)
         case .windowLayout, .uninstaller, .cleaner, .cleanURL, .cleaning:
             utilityMaintenanceItemView(item, editing: editing)
-        case .screenOCR, .screenshot, .colorPicker, .micMute, .cameraPreview:
+        case .screenOCR, .screenshot, .screenRecorder, .colorPicker, .micMute, .cameraPreview:
             utilityCaptureAndMediaItemView(item, editing: editing)
         }
     }
@@ -932,6 +980,7 @@ struct UtilitiesSection: View {
                                 isEditing: editing,
                                 showsDragHandle: true,
                                 visibility: $showClipboard,
+                                captionStaysVisible: !clipboardEnabled,
                                 shortcutHint: shortcutHint(.clipboard),
                                 action: {
                                     PanelInteractionState.shared.viewKeepsPopoverOpen = true
@@ -1095,6 +1144,28 @@ struct UtilitiesSection: View {
                                         ScreenshotService.shared.capture()
                                     }
                                 })
+        case .screenRecorder:
+            UtilityActionButton(title: screenRecorderTitle,
+                                caption: screenRecorderCaption,
+                                systemImage: recorder.isRecording ? "stop.circle" : "record.circle",
+                                isEditing: editing,
+                                showsDragHandle: true,
+                                visibility: $showScreenRecorder,
+                                needsAttention: !permissions.screenRecording,
+                                captionStaysVisible: recorder.isRecording,
+                                permissionButtonTitle: l10n.s.permissionRequest,
+                                permissionAction: permissions.screenRecording ? nil : grantScreenRecordingPermission,
+                                shortcutHint: shortcutHint(.screenRecorder),
+                                accessoryTitle: recorder.isRecording
+                                    ? nil
+                                    : FeatureStrings.recentCaptures(l10n.language).title,
+                                accessoryAction: recorder.isRecording ? nil : showRecentCaptures,
+                                action: {
+                                    appDelegate()?.closePopover()
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                        ScreenRecorderService.shared.toggle()
+                                    }
+                                })
         case .colorPicker:
             UtilityActionButton(title: l10n.s.colorPickerName,
                                 caption: l10n.s.colorPickerCaption,
@@ -1206,9 +1277,9 @@ struct UtilitiesSection: View {
 }
 
 private enum ControlPanelItem: String, PanelOrderItem, Identifiable {
-    case mouseScroll, mouseNavigation, switcher, cutPaste, autoQuit, shelf, windowMaximize, dockPreview, keyDebounce,
-         dockClick, dockClickCycle, middleClick, textSnippets, radialMenu, superKey, notch
-    case linearScroll, focusFollowsMouse, mouseAcceleration, mouseClickDebounce, spacesOrder
+    case mouseScroll, linearScroll, focusFollowsMouse, mouseAcceleration, mouseNavigation, switcher, cutPaste, autoQuit, shelf, windowMaximize, dockPreview, keyDebounce,
+         dockClick, dockClickHide, dockClickCycle, middleClick, textSnippets, radialMenu, mouseButtonShortcuts, superKey,
+         mouseClickDebounce, notch, spacesOrder
 
     var id: String { rawValue }
 
@@ -1225,17 +1296,18 @@ private enum ControlPanelItem: String, PanelOrderItem, Identifiable {
         case .windowMaximize: return .windowMaximizer
         case .dockPreview: return .dockPreview
         case .keyDebounce: return .keyboardDebounce
-        case .dockClick, .dockClickCycle: return .dockClick
+        case .dockClick, .dockClickHide, .dockClickCycle: return .dockClick
         case .middleClick: return .middleClick
         case .textSnippets: return .textSnippets
+        case .notch: return .notch
+        case .spacesOrder: return .spacesOrder
         case .radialMenu: return .radialMenu
         case .superKey: return .superKey
         case .linearScroll: return .linearScroll
         case .focusFollowsMouse: return .focusFollowsMouse
         case .mouseAcceleration: return .mouseAcceleration
         case .mouseClickDebounce: return .mouseClickDebounce
-        case .spacesOrder: return .spacesOrder
-        case .notch: return .notch
+        case .mouseButtonShortcuts: return .mouseButtonShortcuts
         }
     }
 }
@@ -1249,16 +1321,15 @@ private enum ControlCategory: String, CaseIterable, Identifiable {
 
     static func category(for item: ControlPanelItem) -> ControlCategory {
         switch item {
-        case .switcher, .dockPreview, .dockClick, .dockClickCycle, .windowMaximize, .autoQuit, .notch:
+        case .switcher, .dockPreview, .dockClick, .dockClickHide, .dockClickCycle, .windowMaximize, .autoQuit, .notch,
+             .spacesOrder:
             return .windows
-        case .mouseScroll, .mouseNavigation, .middleClick, .keyDebounce, .textSnippets, .radialMenu, .superKey:
+        case .mouseScroll, .mouseNavigation, .mouseButtonShortcuts, .middleClick, .keyDebounce, .textSnippets, .radialMenu, .superKey:
             return .inputDevices
         case .cutPaste, .shelf:
             return .files
         case .linearScroll, .focusFollowsMouse, .mouseAcceleration, .mouseClickDebounce:
             return .inputDevices
-        case .spacesOrder:
-            return .windows
         }
     }
 }
@@ -1290,7 +1361,11 @@ struct QuickControlsSection: View {
     @AppStorage(DefaultsKey.keyboardDebounceEnabled) private var keyDebounceEnabled = false
     @AppStorage(DefaultsKey.keyboardDebounceWindowMs) private var keyDebounceWindow = Defaults.defaultKeyboardDebounceWindowMs
     @AppStorage(DefaultsKey.dockClickMinimize) private var dockClickEnabled = false
+    @AppStorage(DefaultsKey.dockClickHide) private var dockClickHideEnabled = false
+    @AppStorage(DefaultsKey.mouseButtonShortcutsEnabled) private var mouseButtonShortcutsEnabled = false
+    @AppStorage(DefaultsKey.mouseSpacesGestureEnabled) private var spacesEnabled = false
     @AppStorage(DefaultsKey.dockClickCycleWindows) private var dockClickCycleEnabled = false
+    @AppStorage(DefaultsKey.spacesOrderEnabled) private var spacesOrderEnabled = false
     @AppStorage(DefaultsKey.middleClickEnabled) private var middleClickEnabled = false
     @AppStorage(DefaultsKey.textSnippetsEnabled) private var textSnippetsEnabled = false
     @AppStorage(DefaultsKey.radialMenuEnabled) private var radialMenuEnabled = false
@@ -1300,7 +1375,6 @@ struct QuickControlsSection: View {
     @AppStorage(DefaultsKey.focusFollowsMouseEnabled) private var focusFollowsMouseEnabled = false
     @AppStorage(DefaultsKey.mouseAccelerationDisabled) private var mouseAccelerationDisabled = false
     @AppStorage(DefaultsKey.mouseClickDebounceEnabled) private var mouseClickDebounceEnabled = false
-    @AppStorage(DefaultsKey.spacesOrderEnabled) private var spacesOrderEnabled = false
     @AppStorage(DefaultsKey.panelControlLinearScroll) private var showLinearScroll = true
     @AppStorage(DefaultsKey.panelControlFocusFollowsMouse) private var showFocusFollowsMouse = true
     @AppStorage(DefaultsKey.panelControlMouseAcceleration) private var showMouseAcceleration = true
@@ -1318,6 +1392,8 @@ struct QuickControlsSection: View {
     @AppStorage(DefaultsKey.panelControlWindowMaximize) private var showWindowMaximize = true
     @AppStorage(DefaultsKey.panelControlKeyDebounce) private var showKeyDebounce = true
     @AppStorage(DefaultsKey.panelControlDockClick) private var showDockClick = true
+    @AppStorage(DefaultsKey.panelControlDockClickHide) private var showDockClickHide = true
+    @AppStorage(DefaultsKey.panelControlMouseButtonShortcuts) private var showMouseButtonShortcuts = true
     @AppStorage(DefaultsKey.panelControlDockClickCycle) private var showDockClickCycle = true
     @AppStorage(DefaultsKey.panelControlMiddleClick) private var showMiddleClick = true
     @AppStorage(DefaultsKey.panelControlTextSnippets) private var showTextSnippets = true
@@ -1353,9 +1429,10 @@ struct QuickControlsSection: View {
             VStack(alignment: .leading, spacing: 7) {
                 categoryHeader(category, items: categoryItems, editing: editing)
                 if editing || isExpanded(category) {
-                    ForEach(categoryItems) { item in
+                    PanelRowGroup(items: categoryItems, showsDragHandles: editing) { item in
                         PanelReorderableItem(item: item,
                                              isEnabled: editing,
+                                             previewsAsCard: true,
                                              order: itemOrderBinding,
                                              dragging: $draggingItem) {
                             itemView(item, editing: editing)
@@ -1434,6 +1511,7 @@ struct QuickControlsSection: View {
         case .keyDebounce: return keyDebounceEnabled
         case .dockClick: return dockClickEnabled
         case .dockClickCycle: return dockClickCycleEnabled
+        case .spacesOrder: return spacesOrderEnabled
         case .middleClick: return middleClickEnabled
         case .textSnippets: return textSnippetsEnabled
         case .radialMenu: return radialMenuEnabled
@@ -1442,7 +1520,8 @@ struct QuickControlsSection: View {
         case .focusFollowsMouse: return focusFollowsMouseEnabled
         case .mouseAcceleration: return mouseAccelerationDisabled
         case .mouseClickDebounce: return mouseClickDebounceEnabled
-        case .spacesOrder: return spacesOrderEnabled
+        case .dockClickHide: return dockClickHideEnabled
+        case .mouseButtonShortcuts: return mouseButtonShortcutsEnabled || spacesEnabled
         case .notch: return notchEnabled
         }
     }
@@ -1512,6 +1591,7 @@ struct QuickControlsSection: View {
         case .dockPreview: return showDockPreview
         case .dockClick: return showDockClick
         case .dockClickCycle: return showDockClickCycle
+        case .spacesOrder: return showSpacesOrder
         case .middleClick: return showMiddleClick
         case .textSnippets: return showTextSnippets
         case .radialMenu: return showRadialMenu
@@ -1520,7 +1600,8 @@ struct QuickControlsSection: View {
         case .focusFollowsMouse: return showFocusFollowsMouse
         case .mouseAcceleration: return showMouseAcceleration
         case .mouseClickDebounce: return showMouseClickDebounce
-        case .spacesOrder: return showSpacesOrder
+        case .dockClickHide: return showDockClickHide
+        case .mouseButtonShortcuts: return showMouseButtonShortcuts
         case .notch: return showNotch
         }
     }
@@ -1560,7 +1641,7 @@ struct QuickControlsSection: View {
                     requestAccessibilityIfNeeded(enabled)
                 }
         case .switcher:
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 0) {
                 PanelToggleRow(title: l10n.s.switcherSection,
                                caption: switcherCaption,
                                systemImage: "rectangle.on.rectangle",
@@ -1586,7 +1667,7 @@ struct QuickControlsSection: View {
                 }
             }
         case .keyDebounce:
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 0) {
                 PanelToggleRow(title: l10n.s.keyDebounceName,
                                caption: keyDebounceCaption,
                                systemImage: "keyboard",
@@ -1702,6 +1783,22 @@ struct QuickControlsSection: View {
                     DockClickService.shared.syncWithPreferences()
                     requestAccessibilityIfNeeded(enabled)
                 }
+        case .dockClickHide:
+            PanelToggleRow(title: l10n.s.dockClickHide,
+                           caption: caption(l10n.s.dockClickHideCaption, needsAccessibility: dockClickHideEnabled),
+                           systemImage: "eye.slash",
+                           isOn: $dockClickHideEnabled,
+                           isEditing: editing,
+                           showsDragHandle: true,
+                           visibility: $showDockClickHide,
+                           needsAttention: dockClickHideEnabled && !permissions.accessibility,
+                           permissionButtonTitle: l10n.s.permissionRequest,
+                           permissionAction: accessibilityPermissionAction(dockClickHideEnabled))
+                .onChange(of: dockClickHideEnabled) { _, enabled in
+                    if enabled { dockClickEnabled = false }
+                    DockClickService.shared.syncWithPreferences()
+                    requestAccessibilityIfNeeded(enabled)
+                }
         case .dockClickCycle:
             PanelToggleRow(title: l10n.s.dockClickCycleWindows,
                            caption: caption(l10n.s.dockClickCycleWindowsCaption, needsAccessibility: dockClickCycleEnabled),
@@ -1717,6 +1814,31 @@ struct QuickControlsSection: View {
                     DockClickService.shared.syncWithPreferences()
                     requestAccessibilityIfNeeded(enabled)
                 }
+        case .mouseButtonShortcuts:
+            let buttonStrings = FeatureStrings.mouseButtons(l10n.language)
+            // Either switch drives the same tap and needs the same grant
+            // (issue #1012), so every surface on this row reads them together.
+            let buttonsEngaged = mouseButtonShortcutsEnabled || spacesEnabled
+            PanelToggleRow(title: buttonStrings.pageTitle,
+                           caption: caption(buttonStrings.panelCaption,
+                                            needsAccessibility: buttonsEngaged),
+                           systemImage: "button.programmable",
+                           isOn: $mouseButtonShortcutsEnabled,
+                           isEditing: editing,
+                           showsDragHandle: true,
+                           visibility: $showMouseButtonShortcuts,
+                           needsAttention: buttonsEngaged && !permissions.accessibility,
+                           permissionButtonTitle: l10n.s.permissionRequest,
+                           permissionAction: accessibilityPermissionAction(buttonsEngaged),
+                           accessoryTitle: buttonsEngaged ? buttonStrings.manageButton : nil,
+                           accessoryAction: {
+                               SettingsRouter.shared.page = .mouse
+                               appDelegate()?.openSettingsWindow()
+                           })
+                .onChange(of: mouseButtonShortcutsEnabled) { _, enabled in
+                    MouseButtonShortcutService.shared.syncWithPreferences()
+                    requestAccessibilityIfNeeded(enabled)
+                }
         case .middleClick:
             PanelToggleRow(title: l10n.s.middleClickEnable,
                            caption: middleClickCaption,
@@ -1726,7 +1848,7 @@ struct QuickControlsSection: View {
                            showsDragHandle: true,
                            visibility: $showMiddleClick,
                            needsAttention: middleClickEnabled
-                               && (!permissions.accessibility || middleClick.systemDragGestureConflict),
+                               && (!permissions.accessibility || middleClick.touchDeviceMissing),
                            permissionButtonTitle: l10n.s.permissionRequest,
                            permissionAction: accessibilityPermissionAction(middleClickEnabled))
                 .onChange(of: middleClickEnabled) { _, enabled in
@@ -1915,6 +2037,8 @@ struct QuickControlsSection: View {
     private var middleClickCaption: String {
         guard middleClickEnabled else { return l10n.s.middleClickEnableCaption }
         if !permissions.accessibility { return missingPermission(l10n.s.permissionAccessibility) }
+        // Without a readable trackpad, turning off three-finger drag would not help yet.
+        if middleClick.touchDeviceMissing { return l10n.s.middleClickNoTrackpad }
         if middleClick.systemDragGestureConflict { return l10n.s.middleClickDragConflict }
         return l10n.s.middleClickEnableCaption
     }
@@ -1937,7 +2061,10 @@ struct QuickControlsSection: View {
         showDockPreview = true
         showKeyDebounce = true
         showDockClick = true
+        showDockClickHide = true
+        showMouseButtonShortcuts = true
         showDockClickCycle = true
+        showSpacesOrder = true
         showMiddleClick = true
         showRadialMenu = true
         showSuperKey = true
@@ -1983,7 +2110,7 @@ struct QuickControlsSection: View {
             }
         }
         .controlSize(.small)
-        .padding(.leading, 28)
+        .panelSubRowInsets()
     }
 
     private var keyDebounceWindowBinding: Binding<Int> {
@@ -2005,30 +2132,26 @@ struct QuickControlsSection: View {
     }
 
     private var switcherIconRowOption: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 8) {
-                Text(String(format: l10n.s.switcherIconRowMode, switcherShortcutDisplayString))
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                Toggle("", isOn: $switcherIconRowMode)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .disabled(switcherSimpleMode)
-                    .onChange(of: switcherIconRowMode) { _, _ in
-                        AppSwitcher.shared.syncWithPreferences()
-                    }
-            }
-            Text(l10n.s.switcherIconRowModeCaption)
-                .font(.system(size: 9.5))
-                .foregroundStyle(.tertiary)
+        HStack(spacing: 8) {
+            let title = String(format: l10n.s.switcherIconRowMode, switcherShortcutDisplayString)
+            Text(title)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Toggle(title, isOn: $switcherIconRowMode)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .disabled(switcherSimpleMode)
+                .accessibilityHint(l10n.s.switcherIconRowModeCaption)
+                .onChange(of: switcherIconRowMode) { _, _ in
+                    AppSwitcher.shared.syncWithPreferences()
+                }
         }
-        .padding(.leading, 31)
-        .padding(.trailing, 4)
-        .padding(.bottom, 2)
+        .help(l10n.s.switcherIconRowModeCaption)
+        .panelSubRowInsets()
     }
 
     private var switcherPermissionAction: (() -> Void)? {
@@ -2078,43 +2201,63 @@ struct UtilityActionButton: View {
     var showsDragHandle = false
     var visibility: Binding<Bool>? = nil
     var needsAttention = false
+    /// The caption reports something happening now or warns about a side
+    /// effect (a recording's time, a failed action, the Finder restarting),
+    /// so it stays on the row the way a permission note does. Any other
+    /// caption only describes the tool.
+    var captionStaysVisible = false
     var permissionButtonTitle: String? = nil
     var permissionAction: (() -> Void)? = nil
     /// The feature's enabled global shortcut, shown as a quiet key hint so
     /// the panel row doubles as a reminder that the keyboard path exists.
     var shortcutHint: String? = nil
+    var accessoryTitle: String? = nil
+    var accessoryAction: (() -> Void)? = nil
     let action: () -> Void
+    @State private var hovering = false
 
     var body: some View {
         Group {
             if isEditing {
                 rowContent(showChevron: false)
-                    .panelCard()
-            } else if permissionAction != nil {
+                    .panelRowInsets()
+            } else if permissionAction != nil || accessoryAction != nil {
                 VStack(alignment: .leading, spacing: 7) {
                     rowContent(showChevron: false)
                     permissionButton
                 }
-                .panelCard()
+                .panelRowInsets()
             } else {
                 Button(action: action) {
                     rowContent(showChevron: true)
-                        .panelCard()
+                        .panelRowInsets()
+                        .background(PanelRowHighlight(isVisible: hovering))
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .onHover { hovering = $0 }
             }
         }
+        .panelRowDescription(showsCaption ? nil : caption)
+    }
+
+    /// The panel is where tools are used, and the Features page and Settings
+    /// explain them. A plain description waits in the tooltip and the
+    /// VoiceOver help, so the list stays one line per tool. It comes back in
+    /// edit mode, where deciding what to keep is the whole point.
+    private var showsCaption: Bool {
+        needsAttention || captionStaysVisible || isEditing
     }
 
     private func rowContent(showChevron: Bool) -> some View {
-        HStack(spacing: 9) {
+        HStack(spacing: PanelRowMetrics.iconSpacing) {
             if isEditing && showsDragHandle {
                 PanelDragHandle()
             }
             Image(systemName: systemImage)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(iconColor)
-                .frame(width: 22)
+                .frame(width: PanelRowMetrics.iconWidth)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
                     Text(title)
@@ -2127,10 +2270,12 @@ struct UtilityActionButton: View {
                         PanelBetaBadge(text: badge)
                     }
                 }
-                Text(caption)
-                    .font(.system(size: 10))
-                    .foregroundStyle(captionColor)
-                    .fixedSize(horizontal: false, vertical: true)
+                if showsCaption {
+                    Text(caption)
+                        .font(.system(size: 10))
+                        .foregroundStyle(captionColor)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 0)
             if isEditing, let visibility {
@@ -2186,7 +2331,7 @@ struct UtilityActionButton: View {
 }
 
 
-private struct PanelToggleRow: View {
+struct PanelToggleRow: View {
     let title: String
     let caption: String
     let systemImage: String
@@ -2200,25 +2345,33 @@ private struct PanelToggleRow: View {
     var needsAttention = false
     var permissionButtonTitle: String? = nil
     var permissionAction: (() -> Void)? = nil
-    /// Optional inline action under the caption (e.g. "Open the shelf (3)"),
+    /// Optional inline action under the title (e.g. "Open the shelf (3)"),
     /// shown only outside edit mode.
     var accessoryTitle: String? = nil
     var accessoryAction: (() -> Void)? = nil
 
     var body: some View {
         rowContent
-            .panelCard()
+            .panelRowInsets()
+            .panelRowDescription(showsCaption ? nil : caption)
+    }
+
+    /// Only a problem to fix is spelled out on the row, and every description
+    /// in edit mode. Otherwise what the switch does is the tooltip, like on
+    /// every other panel row.
+    private var showsCaption: Bool {
+        needsAttention || isEditing
     }
 
     private var rowContent: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: PanelRowMetrics.iconSpacing) {
             if isEditing && showsDragHandle {
                 PanelDragHandle()
             }
             Image(systemName: systemImage)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(iconColor)
-                .frame(width: 22)
+                .frame(width: PanelRowMetrics.iconWidth)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
                     Text(title)
@@ -2231,10 +2384,12 @@ private struct PanelToggleRow: View {
                         PanelBetaBadge(text: badge)
                     }
                 }
-                Text(caption)
-                    .font(.system(size: 10))
-                    .foregroundStyle(captionColor)
-                    .fixedSize(horizontal: false, vertical: true)
+                if showsCaption {
+                    Text(caption)
+                        .font(.system(size: 10))
+                        .foregroundStyle(captionColor)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if isActive, let activeText {
                     Label(activeText, systemImage: "checkmark.circle.fill")
                         .font(.system(size: 9.5, weight: .medium))
@@ -2279,6 +2434,7 @@ private struct PanelToggleRow: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .toggleStyle(.switch)
+                .accessibilityHint(showsCaption ? "" : caption)
         }
     }
 
@@ -2295,6 +2451,116 @@ private struct PanelToggleRow: View {
 
     private var isHiddenInEditor: Bool {
         isEditing && visibility?.wrappedValue == false
+    }
+}
+
+// MARK: - Grouped rows
+
+/// Spacing shared by the rows inside a `PanelRowGroup`. The insets match
+/// the padding of the other panel cards, so a row's text lines up with
+/// them, and separators start under the titles rather than the icons.
+enum PanelRowMetrics {
+    static let iconWidth: CGFloat = 22
+    static let iconSpacing: CGFloat = 9
+    static let dragHandleWidth: CGFloat = 16
+
+    static func horizontalInset(island: Bool) -> CGFloat { island ? 12 : 10 }
+
+    static func verticalInset(island: Bool) -> CGFloat { island ? 10 : 8 }
+
+    static func separatorInset(island: Bool) -> CGFloat {
+        horizontalInset(island: island) + iconWidth + iconSpacing
+    }
+}
+
+/// One card for a list of panel rows, split by hairlines the way the mixer
+/// lists its apps: a long list reads as one block instead of a stack of
+/// separate boxes, and every row stays its own target.
+struct PanelRowGroup<Item: Hashable, Row: View>: View {
+    let items: [Item]
+    /// Edit mode puts a drag handle before every icon, so the separators
+    /// move over with the titles.
+    var showsDragHandles = false
+    @ViewBuilder let row: (Item) -> Row
+    @Environment(\.notchPresentation) private var notchPresentation
+
+    var body: some View {
+        if !items.isEmpty {
+            rows
+        }
+    }
+
+    private var rows: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element) { index, item in
+                if index > 0 {
+                    Divider()
+                        .padding(.leading, PanelRowMetrics.separatorInset(island: notchPresentation)
+                                    + (showsDragHandles ? PanelRowMetrics.dragHandleWidth + PanelRowMetrics.iconSpacing : 0))
+                        .padding(.trailing, PanelRowMetrics.horizontalInset(island: notchPresentation))
+                        .accessibilityHidden(true)
+                }
+                row(item)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .panelCard(interactive: false, padded: false)
+    }
+}
+
+/// The hover fill of a tappable row, inset from the group's edges so it
+/// never crosses the rounded corners of the card around it.
+struct PanelRowHighlight: View {
+    let isVisible: Bool
+    @Environment(\.notchPresentation) private var notchPresentation
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: notchPresentation ? 14 : 7, style: .continuous)
+            .fill((notchPresentation ? Color.white : Color.primary)
+                .opacity(isVisible ? (notchPresentation ? 0.08 : 0.06) : 0))
+            .padding(notchPresentation ? 4 : 3)
+    }
+}
+
+private struct PanelRowInsets: ViewModifier {
+    @Environment(\.notchPresentation) private var notchPresentation
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, PanelRowMetrics.horizontalInset(island: notchPresentation))
+            .padding(.vertical, PanelRowMetrics.verticalInset(island: notchPresentation))
+    }
+}
+
+private struct PanelSubRowInsets: ViewModifier {
+    @Environment(\.notchPresentation) private var notchPresentation
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.leading, PanelRowMetrics.separatorInset(island: notchPresentation))
+            .padding(.trailing, PanelRowMetrics.horizontalInset(island: notchPresentation))
+            .padding(.bottom, PanelRowMetrics.verticalInset(island: notchPresentation))
+    }
+}
+
+extension View {
+    /// The padding a row gets inside a `PanelRowGroup`.
+    func panelRowInsets() -> some View {
+        modifier(PanelRowInsets())
+    }
+
+    /// An option that belongs to the row above it, such as the switcher's
+    /// large icons, lined up under that row's title.
+    func panelSubRowInsets() -> some View {
+        modifier(PanelSubRowInsets())
+    }
+
+    /// A row's description as its tooltip, and through it the VoiceOver
+    /// help, whenever the row does not print it. An empty help keeps the
+    /// row one view while its caption comes and goes, so a switch that turns
+    /// on into a permission note is not rebuilt mid-animation.
+    func panelRowDescription(_ description: String?) -> some View {
+        help(description ?? "")
     }
 }
 
@@ -2538,14 +2804,33 @@ struct KeepAwakeCard: View {
     @ObservedObject private var permissions = Permissions.shared
     @AppStorage(DefaultsKey.defaultDuration) private var defaultDuration: Int = 0
     @AppStorage(DefaultsKey.keepAwakeAutoStart) private var keepAwakeAutoStart = false
+    @AppStorage(DefaultsKey.keepAwakeAllowDisplaySleep) private var keepAwakeAllowDisplaySleep = false
     @AppStorage(DefaultsKey.keepAwakeExternalDisplay) private var keepAwakeExternalDisplay = false
     @AppStorage(DefaultsKey.keepAwakeConnectedToPower) private var keepAwakeConnectedToPower = false
+    @AppStorage(DefaultsKey.keepAwakeRunningApps) private var keepAwakeRunningApps = false
+    @AppStorage(DefaultsKey.keepAwakePauseWhenLocked) private var keepAwakePauseWhenLocked = false
     @AppStorage(DefaultsKey.keepAwakeIconTint) private var keepAwakeIconTint = KeepAwakeIconTint.orange.rawValue
     @AppStorage(DefaultsKey.keepAwakeActiveIcon) private var keepAwakeActiveIcon = KeepAwakeActiveIcon.ryzenstatus.rawValue
     @AppStorage(DefaultsKey.keepAwakeMouseJiggleEnabled) private var keepAwakeMouseJiggle = false
     @AppStorage(DefaultsKey.keepAwakeMouseJiggleInterval) private var keepAwakeMouseJiggleInterval = 5
     @State private var optionsExpanded = false
     @State private var automationExpanded = false
+    /// The last started end time, which the popover opens on.
+    @AppStorage(DefaultsKey.keepAwakeUntilTime) private var savedUntilTime = 0.0
+    /// An edit not started yet; only starting saves it, so the switch keeps
+    /// restarting the session that actually ran.
+    @State private var untilDraft: Date?
+
+    /// Only the hour and minute matter; `resolvedUntilDate` picks the next one.
+    private var untilTime: Binding<Date> {
+        Binding(
+            get: {
+                untilDraft ?? (savedUntilTime > 0 ? Date(timeIntervalSinceReferenceDate: savedUntilTime)
+                    : Date().addingTimeInterval(3600))
+            },
+            set: { untilDraft = $0 }
+        )
+    }
     var collapsible = true
 
     var body: some View {
@@ -2554,29 +2839,68 @@ struct KeepAwakeCard: View {
         PanelSection(.keepAwake, title: l10n.s.keepAwakeTitle, collapsible: collapsible) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    statusLine
-                    Spacer()
-                    Toggle("", isOn: activeBinding)
+                    if awake.isActive, awake.endDate != nil {
+                        // Beside the extend chips a narrow panel has no room for the
+                        // status; the highlighted chip already shows the countdown
+                        // or the end time.
+                        ViewThatFits(in: .horizontal) {
+                            statusLine.fixedSize()
+                            Color.clear.frame(width: 0, height: 0)
+                        }
+                        Spacer(minLength: 4)
+                        HStack(spacing: 4) {
+                            ForEach([15, 30, 60], id: \.self) { minutes in
+                                Button("+" + DurationPicker.shortTitle(for: minutes, l10n.s, l10n.language)) {
+                                    awake.extend(minutes: minutes)
+                                }
+                                .buttonStyle(KeepAwakeChipStyle())
+                                .fixedSize()
+                            }
+                        }
+                    } else {
+                        // Without the extend chips a long status, such as the
+                        // conditions of an automatic session, wraps instead.
+                        statusLine
+                        Spacer(minLength: 4)
+                    }
+                    Toggle(l10n.s.keepAwakeTitle, isOn: activeBinding)
                         .toggleStyle(.switch)
                         .labelsHidden()
                 }
 
-                if awake.isActive, awake.endDate != nil {
-                    HStack(spacing: 6) {
-                        extendButton(15)
-                        extendButton(30)
-                        extendButton(60)
-                        Spacer()
+                // One click starts (or switches) a session; clicking the
+                // highlighted chip stops it. The switch reuses the last pick.
+                // The menu bar panel is narrower than the island, so the row
+                // folds into two rows of four when a single row would truncate.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 4) {
+                        ForEach(DurationPicker.choices, id: \.self, content: durationChip)
+                        untilChip
+                    }
+                    VStack(spacing: 4) {
+                        HStack(spacing: 4) {
+                            ForEach(DurationPicker.choices.prefix(4), id: \.self, content: durationChip)
+                        }
+                        HStack(spacing: 4) {
+                            ForEach(DurationPicker.choices.dropFirst(4), id: \.self, content: durationChip)
+                            untilChip
+                        }
                     }
                 }
 
-                if !awake.isActive {
-                    HStack {
-                        Text(l10n.s.durationLabel)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        DurationPicker(selection: $defaultDuration)
+                // Shown in both states so starting or stopping never changes
+                // the card's height (the panel would jump). Battery protection
+                // ends a session the moment it starts, so say why a chip
+                // seems to do nothing.
+                TimelineView(.periodic(from: .now, by: 30)) { _ in
+                    if let percent = awake.batteryProtectionPercent() {
+                        Label(batteryNote(percent), systemImage: "battery.25percent")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.orange)
+                    } else {
+                        Text(chipHint)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
                     }
                 }
 
@@ -2624,6 +2948,11 @@ struct KeepAwakeCard: View {
                     KeepAwakeIconPicker(iconValue: $keepAwakeActiveIcon,
                                         tintValue: $keepAwakeIconTint,
                                         compact: true)
+                    compactOptionToggle(
+                        icon: "display",
+                        title: displaySleepStrings.allowDisplaySleep,
+                        isOn: $keepAwakeAllowDisplaySleep
+                    )
                     compactOptionToggle(
                         icon: "play.circle",
                         title: l10n.s.keepAwakeAutoStart,
@@ -2677,8 +3006,15 @@ struct KeepAwakeCard: View {
             .buttonStyle(.plain)
 
             if automationExpanded {
-                KeepAwakeAutomationEditor(compact: true)
-                    .padding(.leading, 22)
+                VStack(alignment: .leading, spacing: 8) {
+                    KeepAwakeAutomationEditor(compact: true)
+                    compactOptionToggle(
+                        icon: "lock.fill",
+                        title: automationStrings.pauseWhenLockedToggle,
+                        isOn: $keepAwakePauseWhenLocked
+                    )
+                }
+                .padding(.leading, 22)
             }
         }
     }
@@ -2686,7 +3022,9 @@ struct KeepAwakeCard: View {
     @ViewBuilder
     private var automationSummaryBadges: some View {
         if !keepAwakeExternalDisplay,
-           !keepAwakeConnectedToPower {
+           !keepAwakeConnectedToPower,
+           !keepAwakeRunningApps,
+           !keepAwakePauseWhenLocked {
             Text(automationStrings.automationOff)
                 .font(.system(size: 9.5, weight: .medium))
                 .foregroundStyle(.tertiary)
@@ -2697,6 +3035,12 @@ struct KeepAwakeCard: View {
                 }
                 if keepAwakeConnectedToPower {
                     automationSystemBadge("powerplug.fill")
+                }
+                if keepAwakeRunningApps {
+                    automationSystemBadge("app.fill")
+                }
+                if keepAwakePauseWhenLocked {
+                    automationSystemBadge("lock.fill")
                 }
             }
         }
@@ -2723,8 +3067,9 @@ struct KeepAwakeCard: View {
                 Text(title)
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
-                Toggle("", isOn: isOn)
+                Toggle(title, isOn: isOn)
                     .toggleStyle(.switch)
                     .controlSize(.mini)
                     .labelsHidden()
@@ -2779,8 +3124,105 @@ struct KeepAwakeCard: View {
         .foregroundStyle(.secondary)
     }
 
+    private func durationChip(_ minutes: Int) -> some View {
+        let selected = manualSession && awake.sessionMinutes == minutes
+        return Button {
+            if selected {
+                awake.toggle()
+            } else {
+                awake.activate(minutes: minutes)
+            }
+        } label: {
+            // Every timed chip reserves "0:00:00", so ViewThatFits measures the
+            // countdown and neither a start nor an extend can overflow the row.
+            ZStack {
+                Text(DurationPicker.shortTitle(for: minutes, l10n.s, l10n.language))
+                if minutes > 0 {
+                    Text("0:00:00").hidden()
+                }
+            }
+                .opacity(selected && awake.endDate != nil ? 0 : 1)
+                .overlay {
+                    if selected, let end = awake.endDate {
+                        TimelineView(.periodic(from: .now, by: 1)) { _ in
+                            Text(Self.countdownText(until: end))
+                                .fixedSize()
+                        }
+                    }
+                }
+        }
+        .buttonStyle(KeepAwakeChipStyle(isSelected: selected))
+        .accessibilityLabel(DurationPicker.title(for: minutes, l10n.s))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var untilChip: some View {
+        KeepAwakeEndTimePicker(selection: untilTime,
+                               activeEnd: manualSession && awake.sessionMinutes == nil ? awake.endDate : nil,
+                               onStop: { awake.toggle() }) {
+            awake.activate(until: KeepAwakeAutomationSupport.resolvedUntilDate(picked: untilTime.wrappedValue, now: Date()))
+            untilDraft = nil
+        }
+    }
+
+    private var manualSession: Bool {
+        awake.isActive && awake.sessionTrigger == .manual
+    }
+
+    /// "58:12" or "1:05:12" for the highlighted chip.
+    static func countdownText(until end: Date) -> String {
+        let total = max(0, Int(end.timeIntervalSinceNow))
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        return hours > 0 ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
+            : String(format: "%d:%02d", minutes, seconds)
+    }
+
+    private func batteryNote(_ percent: Int) -> String {
+        switch l10n.language {
+        case .enUS: return "Battery at \(percent)%. Plug in or lower the battery limit to start"
+        case .ptBR: return "Bateria em \(percent)%. Conecte o carregador ou reduza o limite de bateria para iniciar"
+        case .tr: return "Pil %\(percent). Başlatmak için şarja takın veya pil sınırını düşürün"
+        case .ru: return "Заряд \(percent)%. Подключите питание или снизьте порог заряда, чтобы начать"
+        case .es: return "Batería al \(percent) %. Conecta el cargador o baja el límite de batería para empezar"
+        case .sk: return "Batéria na \(percent) %. Pripojte napájanie alebo znížte limit batérie a spustite"
+        case .de: return "Batterie bei \(percent) %. Zum Starten Netzteil anschließen oder Batteriegrenze senken"
+        case .fr: return "Batterie à \(percent)\u{00A0}%. Brancher le chargeur ou baisser la limite de batterie pour démarrer"
+        case .it: return "Batteria al \(percent)%. Collega l’alimentatore o abbassa il limite della batteria per iniziare"
+        case .ja: return "バッテリー残量 \(percent)%。電源に接続するかバッテリーの下限を下げると開始できます"
+        case .ko: return "배터리 \(percent)%. 전원을 연결하거나 배터리 한도를 낮추면 시작할 수 있습니다"
+        case .uk: return "Заряд \(percent)%. Підключіть живлення або знизьте поріг заряду, щоб почати"
+        case .zhHans: return "电量 \(percent)%。接通电源或调低电量下限即可开始"
+        case .zhTW, .zhHK: return "電量 \(percent)%。接上電源或調低電量下限即可開始"
+        }
+    }
+
+    private var chipHint: String {
+        switch l10n.language {
+        case .enUS: return "Click a chip to start. Click it again to stop"
+        case .ptBR: return "Clique em um chip para iniciar. Clique de novo para parar"
+        case .tr: return "Başlatmak için bir çipe tıklayın. Durdurmak için tekrar tıklayın"
+        case .ru: return "Нажмите на чип, чтобы начать. Нажмите снова, чтобы остановить"
+        case .es: return "Haz clic en un chip para empezar. Vuelve a hacer clic para detener"
+        case .sk: return "Kliknutím na čip spustíte. Ďalším kliknutím zastavíte"
+        case .de: return "Chip anklicken zum Starten. Erneut anklicken zum Beenden"
+        case .fr: return "Cliquer sur une puce pour démarrer. Cliquer à nouveau pour arrêter"
+        case .it: return "Fai clic su un chip per iniziare. Fai di nuovo clic per fermare"
+        case .ja: return "チップをクリックで開始、もう一度クリックで停止"
+        case .ko: return "칩을 클릭하면 시작하고, 다시 클릭하면 멈춥니다"
+        case .uk: return "Натисніть на чип, щоб почати. Натисніть ще раз, щоб зупинити"
+        case .zhHans: return "点按一个标签即可开始，再次点按即可停止"
+        case .zhTW, .zhHK: return "點按一個標籤即可開始，再次點按即可停止"
+        }
+    }
+
     private var automationStrings: KeepAwakeAutomationStrings {
         FeatureStrings.keepAwakeAutomation(l10n.language)
+    }
+
+    private var displaySleepStrings: KeepAwakeDisplaySleepStrings {
+        FeatureStrings.keepAwakeDisplaySleep(l10n.language)
     }
 
     private var clamshellCaption: String {
@@ -2804,7 +3246,7 @@ struct KeepAwakeCard: View {
             get: { awake.isActive },
             set: { on in
                 if on {
-                    awake.activate(minutes: defaultDuration)
+                    awake.startLastPick()
                 } else if awake.isActive {
                     awake.toggle()
                 }
@@ -2835,7 +3277,7 @@ struct KeepAwakeCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 8)
-            Toggle("", isOn: isOn)
+            Toggle(title, isOn: isOn)
                 .toggleStyle(.switch)
                 .controlSize(.mini)
                 .labelsHidden()
@@ -2843,15 +3285,7 @@ struct KeepAwakeCard: View {
         }
     }
 
-    private func extendButton(_ minutes: Int) -> some View {
-        Button("+\(minutes) min") {
-            awake.extend(minutes: minutes)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .font(.system(size: 10))
-    }
-
+    /// "1 h 05 min" style countdown, shared with the Energy page's status line.
     static func remainingText(until end: Date) -> String {
         let total = max(0, Int(end.timeIntervalSinceNow))
         let hours = total / 3600
@@ -2863,25 +3297,54 @@ struct KeepAwakeCard: View {
     }
 }
 
-/// Session duration picker shared by the panel and Settings.
-struct DurationPicker: View {
-    @ObservedObject private var l10n = L10n.shared
-    @Binding var selection: Int
+/// Session durations shared by the panel chips and Settings.
+enum DurationPicker {
+    /// The offered durations in minutes; 0 keeps the session open until it
+    /// is switched off.
+    static let choices = [15, 30, 60, 120, 240, 480, 0]
 
-    var body: some View {
-        Picker("", selection: $selection) {
-            Text(l10n.s.minutes15).tag(15)
-            Text(l10n.s.minutes30).tag(30)
-            Text(l10n.s.hour1).tag(60)
-            Text(l10n.s.hours2).tag(120)
-            Text(l10n.s.hours4).tag(240)
-            Text(l10n.s.hours8).tag(480)
-            Text(l10n.s.indefinite).tag(0)
+    static func title(for minutes: Int, _ s: Strings) -> String {
+        switch minutes {
+        case 15: return s.minutes15
+        case 30: return s.minutes30
+        case 60: return s.hour1
+        case 120: return s.hours2
+        case 240: return s.hours4
+        case 480: return s.hours8
+        default: return s.indefinite
         }
-        .labelsHidden()
-        .pickerStyle(.menu)
-        .controlSize(.small)
-        .fixedSize()
+    }
+
+    /// Chip-sized label ("15m", "1h" in English), localized by Foundation.
+    static func shortTitle(for minutes: Int, _ s: Strings, _ language: AppLanguage) -> String {
+        guard minutes > 0 else { return "∞" }
+        let formatter = DateComponentsFormatter()
+        var calendar = Calendar.current
+        calendar.locale = Locale(identifier: language.rawValue)
+        formatter.calendar = calendar
+        formatter.unitsStyle = .abbreviated
+        formatter.allowedUnits = [.hour, .minute]
+        return formatter.string(from: TimeInterval(minutes * 60)) ?? title(for: minutes, s)
+    }
+}
+
+/// Capsule chip used for the Keep awake presets and extensions.
+struct KeepAwakeChipStyle: ButtonStyle {
+    var isSelected = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 11, weight: .medium))
+            .monospacedDigit()
+            .lineLimit(1)
+            .foregroundStyle(isSelected ? Color.white : Color.primary)
+            .padding(.horizontal, 8)
+            .frame(minHeight: 22)
+            .frame(maxWidth: .infinity)
+            .background(Capsule().fill(isSelected
+                ? Color.accentColor.opacity(configuration.isPressed ? 0.8 : 1)
+                : Color.primary.opacity(configuration.isPressed ? 0.16 : 0.07)))
+            .contentShape(Capsule())
     }
 }
 

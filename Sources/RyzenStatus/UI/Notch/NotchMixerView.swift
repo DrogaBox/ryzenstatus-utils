@@ -341,16 +341,6 @@ private struct NotchOutputDeviceMenu: View {
     }
 }
 
-struct MixerOptionsControls: View {
-    @AppStorage(DefaultsKey.mixerHideInactiveApps) private var hideInactiveApps = false
-
-    var body: some View {
-        Toggle(FeatureStrings.mixer(L10n.shared.language).hideInactiveApps, isOn: $hideInactiveApps)
-            .toggleStyle(.checkbox)
-            .font(.system(size: 11))
-    }
-}
-
 /// Everything the desk leaves out, in one list that scrolls down: where the
 /// output, sound effects and the microphone go, the microphone's level, and
 /// the panel's options under them.
@@ -358,31 +348,23 @@ private struct NotchMixerOptions: View {
     @Binding var editingVolumeID: String?
     @ObservedObject private var mixer = AppVolumeMixer.shared
     @ObservedObject private var input = AudioInputDeviceManager.shared
-    @ObservedObject private var micMute = MicMuteService.shared
     @ObservedObject private var audioPriority = AudioPriorityService.shared
+    @ObservedObject private var micMute = MicMuteService.shared
     @ObservedObject private var l10n = L10n.shared
     private var outputDevices: [MixerOutputDevice] { mixer.outputDevices.filter(\.canBeDefaultOutput) }
     private var soundEffectsDevices: [MixerOutputDevice] { mixer.outputDevices.filter(\.canBeDefaultSystemOutput) }
     private var soundEffectsName: String {
-        soundEffectsDevices.first?.name ?? l10n.s.mixerOutputUnavailable
+        mixer.outputDevices.first(where: { $0.uid == mixer.currentSystemSoundOutputDeviceUID })?.name ?? l10n.s.mixerOutputUnavailable
     }
     private var microphoneName: String {
         guard let uid = selectedMicrophoneUID else { return l10n.s.mixerOutputDefault }
         return input.inputDevices.first(where: { $0.uid == uid })?.name ?? l10n.s.mixerInputUnavailable
     }
     private var selectedMicrophoneUID: String? {
-        // While device priority steers the input, show the one in use.
-        audioPriority.inputPriorityEnabled
-            ? input.currentInputDeviceUID
-            : input.preferredInputDeviceUID ?? input.currentInputDeviceUID
-    }
-
-    private func chooseMicrophone(_ uid: String?) {
-        if audioPriority.inputPriorityEnabled {
-            if let uid { input.setCurrentInputDeviceUID(uid) }
-        } else {
-            input.setPreferredInputDeviceUID(uid)
-        }
+        MixerRoutingSupport.selectedInputDeviceUID(
+            preferredUID: input.preferredInputDeviceUID,
+            currentUID: input.currentInputDeviceUID,
+            priorityIsActive: audioPriority.inputPriorityEnabled)
     }
 
     var body: some View {
@@ -402,7 +384,8 @@ private struct NotchMixerOptions: View {
                                         width: 200, lines: 1, alignment: .trailing,
                                         items: soundEffectsDevices.map { device in
                                             NotchMenuItem(title: device.name,
-                                                          checked: device.uid == soundEffectsDevices.first?.uid) {
+                                                          checked: device.uid == mixer.currentSystemSoundOutputDeviceUID) {
+                                                _ = mixer.setSystemSoundOutputDeviceUID(device.uid)
                                             }
                                         })
                     }
@@ -425,10 +408,15 @@ private struct NotchMixerOptions: View {
         row(l10n.s.mixerInputTitle, symbol: micMute.isMuted ? "mic.slash" : "mic") {
             NotchDeviceMenu(title: l10n.s.mixerInputTooltip, current: microphoneName, width: 200, lines: 1, alignment: .trailing,
                             items: [NotchMenuItem(title: l10n.s.mixerOutputDefault, checked: selectedMicrophoneUID == nil) {
-                                chooseMicrophone(nil)
+                                guard !audioPriority.inputPriorityEnabled else { return }
+                                input.setPreferredInputDeviceUID(nil)
                             }] + input.inputDevices.map { device in
                                 NotchMenuItem(title: device.name, checked: device.uid == selectedMicrophoneUID) {
-                                    chooseMicrophone(device.uid)
+                                    if audioPriority.inputPriorityEnabled {
+                                        input.setCurrentInputDeviceUID(device.uid)
+                                    } else {
+                                        input.setPreferredInputDeviceUID(device.uid)
+                                    }
                                 }
                             } + (!audioPriority.inputPriorityEnabled
                                  && input.preferredUnavailable && input.preferredInputDeviceUID != nil

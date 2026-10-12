@@ -154,6 +154,11 @@ final class NotchService: ObservableObject {
     /// When the output last moved its own level, so the rest of that ramp
     /// stays quiet with it.
     private var lastVolumeRide: TimeInterval = -.infinity
+    /// The source the layout notice last read, so a repeated announcement of
+    /// the same source, and the one the system posts at launch, say nothing.
+    private var inputSourceID: String?
+    /// The accepted Command Bar selection awaiting its source-change reading.
+    private var ownInputSourceID: String?
     private var notchNeedsMonitor = false
     private var menuSpaceTimer: Timer?
     private var menuSpaceReading = false
@@ -235,9 +240,11 @@ final class NotchService: ObservableObject {
     private var mascotSawKeepAwake: Bool?
     /// Whether an AI agent was at work when the companion last looked, nil
     /// before it first did, and when it last handed the island to one.
-        /// The calendar countdown the island showed when the companion last looked.
+    private var mascotSawAgents: Bool?
+    /// The calendar countdown the island showed when the companion last looked.
     private var mascotSawCountdown: NotchCalendarCountdown?
-        /// The companion is out in the Command Bar's drop, and the island rests without it.
+    private var lastMascotAgentStart: CFTimeInterval = -.infinity
+    /// The companion is out in the Command Bar's drop, and the island rests without it.
     @Published private(set) var mascotInBar = false
     /// The companion stands in the window's own layer while the island opens
     /// or closes around it, and the strip and the page leave theirs out.
@@ -282,6 +289,10 @@ final class NotchService: ObservableObject {
     @Published private var commandBarHeight: CGFloat?
     private var musicTitleWork: DispatchWorkItem?
     private static let musicTitleDuration: TimeInterval = 4
+    /// What the capsule's middle shows beside a closed song, by the centre
+    /// preference; nil leaves only the cover and the bars.
+    @Published private(set) var capsuleCenterText: String?
+    private var capsuleCenterTimer: Timer?
     private var mirrors: [CGDirectDisplayID: NotchMirror] = [:]
     /// Displays showing a full-screen Space, read as Spaces change.
     private var fullscreenDisplays: Set<CGDirectDisplayID> = []
@@ -304,7 +315,20 @@ final class NotchService: ObservableObject {
     private var floatsAtRestBelowMenuBar: Bool {
         geometry.floatsBelowMenuBar && !hiddenInFullscreen && !expanded && !peeking && notice == nil
             && !dragPlaceholder && captureControls == nil && compactActivity == nil && departingMusic == nil
-            && idleContent == .none
+            && idleContent == .none && restingCenterText == nil
+    }
+
+    /// The center reading a capsule rests with when it has nothing else to
+    /// rest with, beside the companion when it shows.
+    var restingCenterText: String? {
+        guard geometry.floats, compactActivity == nil, idleContent == .none else { return nil }
+        return capsuleCenterText
+    }
+
+    /// A capsule at rest: bare, or as wide as its center reading.
+    private func restingCapsuleSize(on geometry: NotchGeometry) -> CGSize {
+        guard let text = restingCenterText else { return geometry.restingSize(showsContent: false) }
+        return NotchCapsuleLayout.restingCenterSurface(text: text, companion: mascotShows(on: geometry), geometry: geometry)
     }
 
     /// Nothing at all to show, not even the companion: nothing is drawn, and
@@ -395,7 +419,9 @@ final class NotchService: ObservableObject {
         return NotchSupport.showsMusicActivity(isPlaying: held || playback?.isPlaying == true)
     }
 
-    var hasAgentActivity: Bool { false }
+    var hasAgentActivity: Bool {
+        NotchAgentSupport.showsLiveActivity() && !AgentUsageService.shared.snapshot.live.isEmpty
+    }
 
     var hasCalendarActivity: Bool {
         let calendar = NotchCalendarService.shared
@@ -417,7 +443,7 @@ final class NotchService: ObservableObject {
 
     var compactActivities: [NotchCompactActivity] {
         NotchSupport.compactActivities(timer: hasTimerActivity, watch: hasWatchActivity, downloads: hasDownloadActivity,
-                                      calendar: hasCalendarActivity,
+                                      agents: hasAgentActivity, calendar: hasCalendarActivity,
                                       music: hasMusicActivity, keepAwake: hasKeepAwakeActivity)
     }
 
@@ -482,7 +508,7 @@ final class NotchService: ObservableObject {
     func compactCompanions(of primary: NotchCompactActivity) -> [NotchCompactActivity] {
         NotchSupport.compactCompanions(of: primary, timer: hasTimerActivity,
                                        running: NotchTimerService.shared.session.isRunning,
-                                       downloads: hasDownloadActivity,
+                                       downloads: hasDownloadActivity, agents: hasAgentActivity,
                                        calendar: hasCalendarActivity, music: hasMusicActivity)
     }
 
@@ -537,7 +563,7 @@ final class NotchService: ObservableObject {
         case .downloads:
             let name = NotchDownloadService.shared.items.first { $0.active && !$0.completed }?.name
             return geometry.compactDownloadGeometry(wing: NotchDownloadSupport.compactWing(for: name, in: geometry))
-        
+        case .agents: return geometry.compactAgentGeometry(wing: agentStripWing(in: geometry))
         case .watch: return geometry.compactWatchGeometry(wing: watchStripWing(in: geometry))
         case .calendar:
             return geometry.compactCalendarGeometry(wing: calendarStripWing(for: companion, in: geometry),
@@ -612,7 +638,7 @@ final class NotchService: ObservableObject {
         let size = NotchTimerSupport.stripTextSize(height: height)
         let text = NotchTimerSupport.compactText(for: timer.session, at: timer.now,
                                                  locale: Locale(identifier: L10n.shared.language.rawValue))
-        let reading = (text.replacingOccurrences(of: #"[0-9]"#, with: "0", options: .regularExpression) as NSString).size(withAttributes: [
+        let reading = (NotchAgentSupport.readingShape(text) as NSString).size(withAttributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: size, weight: .medium)
         ]).width.rounded(.up) + provisional.compactActivityEdgeInset(boxHeight: size * 0.72, radius: 0)
         return max(reading, companionMarkWidth(companion, in: provisional)) + NotchTimerSupport.stripCameraGap
@@ -626,6 +652,11 @@ final class NotchService: ObservableObject {
         switch companion {
         case .music:
             return provisional.compactMusicArtworkSide + provisional.compactMusicArtworkInset
+        case .agents:
+            let working = Set(AgentUsageService.shared.snapshot.live.map(\.provider)).count
+            let side = NotchTimerSupport.stripAgentMarkSize(height: height, working: working)
+            return CGFloat(max(1, working)) * (side * 1.45 + 1) + CGFloat(max(0, working - 1))
+                + provisional.compactActivityEdgeInset(boxHeight: side + 4, radius: (side + 4) / 2)
         case .calendar:
             return provisional.compactActivityEdgeInset(boxHeight: 9, radius: 0) + calendarClockWidth
         default:
@@ -647,7 +678,25 @@ final class NotchService: ObservableObject {
     /// The wider of the two sides, the reading or the working agents' marks,
     /// with the clearance from the silhouette's curve that the strip keeps
     /// and air beside the camera.
-    private func agentStripWing(in geometry: NotchGeometry) -> CGFloat { 0 }
+    private func agentStripWing(in geometry: NotchGeometry) -> CGFloat {
+        let provisional = geometry.compactAgentGeometry(wing: NotchAgentSupport.stripWingRange.lowerBound)
+        let size = NotchAgentSupport.stripTextSize(height: provisional.compactActivityContentHeight)
+        let shape = NotchAgentSupport.readingShape(NotchAgentSupport.stripReading(
+            AgentUsageService.shared.snapshot, readout: NotchAgentSupport.readout(),
+            display: NotchAgentSupport.limitDisplay(), focus: NotchAgentSupport.limitFocus(), now: Date()))
+        let width = (shape as NSString).size(withAttributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: size, weight: .medium)
+        ]).width
+        let reading = width.rounded(.up) + provisional.compactActivityEdgeInset(boxHeight: size * 0.72, radius: 0)
+        // The marks on the other side, drawn as the strip draws them: two
+        // working agents share a smaller size, each in a frame wider than it.
+        let working = Set(AgentUsageService.shared.snapshot.live.map(\.provider)).count
+        let mark = CGFloat(working > 1 ? 11 : 14)
+        let frame = mark * 1.45 + 1
+        let marks = CGFloat(max(1, working)) * frame + CGFloat(max(0, working - 1))
+            + provisional.compactActivityEdgeInset(boxHeight: mark + 4, radius: (mark + 4) / 2)
+        return max(reading, marks) + NotchAgentSupport.stripCameraGap
+    }
 
     var expandedSize: CGSize {
         if showingSections {
@@ -717,14 +766,23 @@ final class NotchService: ObservableObject {
                                      toolCount: toolCount, capturePreviewHeight: capturePreviewHeight,
                                      timerHasSession: NotchTimerService.shared.session.hasSession,
                                      timerMode: NotchTimerService.shared.session.hasSession
-                                        ? NotchTimerService.shared.session.mode : NotchTimerSupport.savedMode())
+                                        ? NotchTimerService.shared.session.mode : NotchTimerSupport.savedMode(),
+                                     agentsHeight: module == .agents && !detail && !panel
+                                        ? agentsContentHeight(width: geometry.contentWidth) : nil)
     }
 
     /// The AI page is as tall as the cards it shows; nil while the logs are
     /// first read, when the page fills the island with its progress.
-    private func agentsContentHeight(width: CGFloat) -> CGFloat? { nil }
+    private func agentsContentHeight(width: CGFloat) -> CGFloat? {
+        let usage = AgentUsageService.shared.snapshot
+        guard usage.loaded else { return nil }
+        let providers = NotchAgentSupport.providers().filter(usage.seen.contains)
+        guard !providers.isEmpty else { return 0 }
+        return NotchAgentSupport.contentHeight(NotchAgentSupport.rows(
+            NotchAgentSupport.tiles(cards: NotchAgentSupport.cards(), providers: providers), width: width))
+    }
     var expandedGeometry: NotchGeometry {
-        var result = geometry
+        var result = geometry.forPresentation(expanded: true)
         // Capture editing has a full toolbar whose actions must stay reachable.
         result.requiresFullWidthHeader = selected == .captures && captureActions != nil
             && !showingSections && !showingAppPanel && selectedMetric == nil
@@ -826,7 +884,7 @@ final class NotchService: ObservableObject {
         if peeking || showsCompactActivityPicker { return nil }
         // At rest the charge or the allowance fits inside the bare capsule.
         let resting = compactActivity.map { capsuleStripSize(for: $0, companion: compactCompanion) }
-            ?? geometry.restingSize(showsContent: false)
+            ?? restingCapsuleSize(on: geometry)
         return hoverEmphasized ? NotchHoverEmphasis.size(from: resting, geometry: geometry) : resting
     }
 
@@ -873,7 +931,7 @@ final class NotchService: ObservableObject {
         let layout = NotchCapsuleLayout.self
         let language = L10n.shared.language
         let download = NotchDownloadService.shared.items.first { $0.active && !$0.completed }
-        let working = 0
+        let working = Set(AgentUsageService.shared.snapshot.live.map(\.provider)).count
         switch activity {
         case .music:
             let live = NowPlayingService.shared.playback
@@ -881,7 +939,7 @@ final class NotchService: ObservableObject {
             let playback = shown?.playback ?? live
             return layout.musicSurface(title: named
                                         ? playback?.track.title ?? FeatureStrings.radialMenu(language).mediaNowPlaying : nil,
-                                       geometry: geometry)
+                                       center: capsuleCenterText, geometry: geometry)
         case .timer:
             let timer = NotchTimerService.shared
             return layout.timerSurface(reading: NotchTimerSupport.compactText(for: timer.session, at: timer.now,
@@ -891,7 +949,11 @@ final class NotchService: ObservableObject {
         case .downloads:
             return layout.downloadSurface(name: download?.name ?? FeatureStrings.notchFiles(language).downloadsTitle,
                                           hasProgress: download?.fraction != nil, geometry: geometry, language: language)
-        
+        case .agents:
+            let reading = NotchAgentSupport.stripReading(AgentUsageService.shared.snapshot, readout: NotchAgentSupport.readout(),
+                                                         display: NotchAgentSupport.limitDisplay(),
+                                                         focus: NotchAgentSupport.limitFocus(), now: Date())
+            return layout.agentSurface(reading: reading, working: working, geometry: geometry)
         case .calendar:
             guard let countdown = NotchCalendarService.shared.countdown else { return geometry.restingSize(showsContent: false) }
             if let companion {
@@ -961,6 +1023,7 @@ final class NotchService: ObservableObject {
             running = true
             installObservers()
         }
+        syncCapsuleCenter()
         if !NotchTimerSupport.isEnabled() { NotchTimerService.shared.stop() }
         // A watch keeps reading while the island is away, as on the lock
         // screen, and says so with a notification if it cannot show itself.
@@ -971,7 +1034,7 @@ final class NotchService: ObservableObject {
         if !NotchFileToolsService.shared.offersMediaDrop { endFileDrop() }
         // Paused while the island is away, the section still stops at once
         // when it is turned off.
-        
+        if !NotchAgentSupport.isEnabled() { AgentUsageService.shared.stop() }
         guard !suspended else {
             if session.canRunTimer { NotchTimerService.shared.syncWithPreferences() }
             else { NotchTimerService.shared.suspend() }
@@ -986,7 +1049,7 @@ final class NotchService: ObservableObject {
         NotchCalendarService.shared.syncWithPreferences()
         NotchNotificationService.shared.syncWithPreferences()
         NotchAudioLevelService.shared.syncWithPreferences()
-        
+        AgentUsageService.shared.syncWithPreferences()
         followsPointer = displayPreference == .pointer || displayPreference == .all
         showsOnAllDisplays = displayPreference == .all
         updateFullscreenDisplays()
@@ -1057,7 +1120,7 @@ final class NotchService: ObservableObject {
         preferenceSyncWork?.cancel(); preferenceSyncWork = nil
         NotchLyricsImporter.shared.cancel()
         NotchFileToolsService.shared.stop()
-        
+        AgentUsageService.shared.stop()
         guard running else { return }
         running = false
         NotchMascotAutomation.shared.sync(islandRunning: false)
@@ -1119,7 +1182,7 @@ final class NotchService: ObservableObject {
         NotchDownloadService.shared.stop()
         NotchCalendarService.shared.stop()
         NotchNotificationService.shared.stop()
-        
+        AgentUsageService.shared.pause()
         settingsSignature = ""
         expanded = false
         peeking = false
@@ -1153,6 +1216,8 @@ final class NotchService: ObservableObject {
         releaseMonitor()
         musicTitleWork?.cancel(); musicTitleWork = nil
         capsuleMusicTitleShown = false
+        capsuleCenterTimer?.invalidate(); capsuleCenterTimer = nil
+        capsuleCenterText = nil
         closeMirrors()
         windowHost?.close()
         windowHost = nil
@@ -2105,7 +2170,7 @@ final class NotchService: ObservableObject {
         }
         open(selectedNotice.event == .download ? .downloads : selectedNotice.event == .timer ? .timer
              : selectedNotice.event == .accessory ? .system : selectedNotice.event == .systemNotification ? .notifications
-             : selectedNotice.event == .clipboard ? .clipboard 
+             : selectedNotice.event == .clipboard ? .clipboard : selectedNotice.event == .agents ? .agents
              : selectedNotice.event == .track ? .music : selectedNotice.event == .microphone ? .mixer
              : selectedNotice.event == .watch ? .watch : .controls)
     }
@@ -2379,6 +2444,7 @@ final class NotchService: ObservableObject {
         // measuring it can refresh again.
         defer { if releasedMusicStrip { syncMenuSpaceMonitoring() } }
         syncMascotKeepAwake()
+        syncMascotAgents()
         activitySelection.reconcile(available: compactActivities)
         if fullscreenCompact {
             finishMusicDeparture()
@@ -2449,7 +2515,9 @@ final class NotchService: ObservableObject {
            !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             NotificationCenter.default.post(name: .notchMascotRestYields, object: nil)
         }
-        var presented = expanded ? expandedGeometry : geometry
+        let belowBar = expanded || peeking || dragPlaceholder || noticeExpanded
+            || (captureControls != nil && !captureControlsCollapsed) || showsCompactActivityPicker
+        var presented = (expanded ? expandedGeometry : geometry).forPresentation(expanded: belowBar)
         presented.surfaceShift = surfaceShift
         windowHost?.present(size: size, geometry: presented, animated: animated,
                             transitionContent: contentTransition,
@@ -2465,7 +2533,7 @@ final class NotchService: ObservableObject {
         // capsule may sit below the display edge, so publish the island's
         // actual bottom inset as the controls collapse or reopen.
         captureControls?.onCaptureControlsSurfaceChange?(
-            geometry.screen, geometry.floatingDrop + size.height)
+            geometry.screen, presented.floatingDrop + size.height)
         // Closing can shrink the island away from a pointer that has not moved,
         // with no boundary crossing to report it. Only a pointer still over the
         // island may keep its next approach from opening it.
@@ -2626,6 +2694,44 @@ final class NotchService: ObservableObject {
         }
         musicTitleWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.musicTitleDuration, execute: work)
+    }
+
+    /// Reads the capsule's middle once a second while a preference asks for
+    /// one, and only redraws the strip's width when the reading needs it.
+    private func syncCapsuleCenter() {
+        if NotchCapsuleCenter.current() == .none {
+            capsuleCenterTimer?.invalidate(); capsuleCenterTimer = nil
+        } else if capsuleCenterTimer == nil {
+            let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.updateCapsuleCenter() }
+            timer.tolerance = 0.2
+            RunLoop.main.add(timer, forMode: .common)
+            capsuleCenterTimer = timer
+        }
+        updateCapsuleCenter()
+    }
+
+    private func updateCapsuleCenter() {
+        let language = L10n.shared.language
+        let track = NowPlayingService.shared.playback?.track
+        let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
+        let now = Date()
+        let support = NotchCapsuleCenterSupport.self
+        let text = support.text(center: NotchCapsuleCenter.current(),
+                                song: support.song(title: track?.title, artist: track?.artist),
+                                metric: support.metric(NotchCapsuleMetric.current(),
+                                                       snapshot: SystemMonitor.shared.snapshot, unit: unit),
+                                clock: support.clock(now, locale: language.formattingLocale()), now: now)
+        guard text != capsuleCenterText else { return }
+        let measure = { (text: String?) in text.map(NotchCapsuleLayout.centerWidth) ?? 0 }
+        let resizes = measure(text) != measure(capsuleCenterText)
+        capsuleCenterText = text
+        guard resizes else { return }
+        if compactActivity == nil {
+            // A capsule at rest grows around the reading, or gives it back.
+            if geometry.floats && idleContent == .none { refreshPresentation() }
+        } else {
+            refreshCapsuleMusic()
+        }
     }
 
     /// A capsule is as wide as what it shows of the song, here or on another display.
@@ -2843,6 +2949,7 @@ final class NotchService: ObservableObject {
                 // A copy floating below the bar shows only an activity or resting
                 // content; the companion keeps to the island itself.
                 let floatsEmpty = geometry.floatsBelowMenuBar && activity == nil && idleContent == .none
+                    && restingCenterText == nil
                 if (geometry.isNotched || geometry.compactSideRoom != nil) && !floatsEmpty { base = geometry }
             }
             guard let base else {
@@ -2880,7 +2987,8 @@ final class NotchService: ObservableObject {
     /// for that display, or the island at rest there.
     private func mirrorSurface(on base: NotchGeometry, activity: NotchCompactActivity?) -> (strip: NotchGeometry, size: CGSize) {
         guard let activity else {
-            return (base, base.restingSize(showsContent: !base.floats && (idleContent != .none || mascotShows(on: base))))
+            if base.floats { return (base, restingCapsuleSize(on: base)) }
+            return (base, base.restingSize(showsContent: idleContent != .none || mascotShows(on: base)))
         }
         let companion = compactCompanion
         if base.floats { return (base, capsuleStripSize(for: activity, companion: companion, geometry: base)) }
@@ -2940,9 +3048,10 @@ final class NotchService: ObservableObject {
     }
 
     private var screenEdgeClickArea: CGRect? {
-        // Below the menu bar the island's own window takes its clicks.
+        // Compact floating activities remain at the screen edge too. Only
+        // their expanded panel moves below the bar.
         guard running, !suspended, !expanded, captureControls == nil, notice == nil,
-              !geometry.floatsBelowMenuBar, !dragPlaceholder, !heldDrag, let panel, panel.isVisible, !panel.ignoresMouseEvents else { return nil }
+              !dragPlaceholder, !heldDrag, let panel, panel.isVisible, !panel.ignoresMouseEvents else { return nil }
         let geometry = compactActivityIsVisible ? compactActivityGeometry : self.geometry
         let area = geometry.activationArea(in: surfaceSize, hasHeader: peeking, compactActivity: compactActivityIsVisible)
         guard !area.isEmpty else { return nil }
@@ -3423,6 +3532,14 @@ final class NotchService: ObservableObject {
         else { NotchTimerService.shared.suspend() }
     }
 
+    /// Event monitors call back on the main thread, where the app delegate
+    /// lives, so reading the status item from them is safe.
+    private static func pointIsOverStatusItem(_ point: NSPoint) -> Bool {
+        MainActor.assumeIsolated {
+            (NSApp.delegate as? AppDelegate)?.isOverStatusItem(point) == true
+        }
+    }
+
     private func installEventMonitors() {
         guard eventMonitors.isEmpty else { return }
         clickedSinceOpening = false
@@ -3430,7 +3547,7 @@ final class NotchService: ObservableObject {
         if let token = NSEvent.addGlobalMonitorForEvents(matching: clicks, handler: { [weak self] _ in
             guard let self, !self.keepsWorkingSurface,
                   self.windowHost?.contains(NSEvent.mouseLocation) != true,
-                  (NSApp.delegate as? AppDelegate)?.isOverStatusItem(NSEvent.mouseLocation) != true,
+                  !Self.pointIsOverStatusItem(NSEvent.mouseLocation),
                   !AssistiveKeyboard.ownsCocoaPoint(NSEvent.mouseLocation) else { return }
             self.collapse()
         }) { eventMonitors.append(token) }
@@ -3492,7 +3609,7 @@ final class NotchService: ObservableObject {
             if click, islandWindow { self.clickedSinceOpening = true }
             if click, !islandWindow, !self.keepsWorkingSurface,
                self.windowHost?.contains(NSEvent.mouseLocation) != true,
-               (NSApp.delegate as? AppDelegate)?.isOverStatusItem(NSEvent.mouseLocation) != true,
+               !Self.pointIsOverStatusItem(NSEvent.mouseLocation),
                !AssistiveKeyboard.ownsCocoaPoint(NSEvent.mouseLocation) { self.collapse() }
             return event
         }) { eventMonitors.append(token) }
@@ -3703,6 +3820,20 @@ final class NotchService: ObservableObject {
             }
             NotchDownloadService.shared.onFailure = { [weak self] in self?.reactMascot(.confused) }
         }
+        if modules.contains(.agents) {
+            // Only what changes the island's size or strip: a turn starting or
+            // ending, the first read landing, which agents have cards, and
+            // which are working, since each one's mark widens the strip.
+            AgentUsageService.shared.$snapshot
+                .map { ($0.loaded, $0.live.isEmpty, $0.seen, Set($0.live.map(\.provider))) }
+                .removeDuplicates(by: ==)
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in
+                    self?.syncMenuSpaceMonitoring()
+                    self?.objectWillChange.send()
+                    self?.refreshPresentation()
+                }.store(in: &subscriptions)
+        }
         if modules.contains(.calendar) {
             NotchCalendarService.shared.$countdown.removeDuplicates()
                 .receive(on: DispatchQueue.main)
@@ -3730,6 +3861,36 @@ final class NotchService: ObservableObject {
                     self?.refreshPresentation()
                 }.store(in: &subscriptions)
         }
+        if NotchSupport.routes(.agents) {
+            AgentUsageService.shared.events.receive(on: DispatchQueue.main)
+                .sink { [weak self] in self?.showAgentEvent($0) }
+                .store(in: &subscriptions)
+        }
+        stopPower()
+        if NotchSupport.routes(.volume) {
+            bindVolumeEvents()
+        }
+        if NotchSupport.routes(.inputSource) {
+            // The layout labels already refresh on every source change and
+            // post when they do, including once at launch; the current source
+            // is read now so that first post announces nothing.
+            ownInputSourceID = nil
+            inputSourceID = InputSourceSelection.currentReading()?.id
+            NotificationCenter.default.publisher(for: GlobalShortcut.keyboardLayoutDidChange)
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in self?.inputSourceChanged() }
+                .store(in: &subscriptions)
+        }
+        if NotchSupport.routes(.systemNotification) {
+            NotchNotificationService.shared.received.sink { [weak self] item in
+                guard let self else { return }
+                let shown = self.show(NotchNotice(event: .systemNotification, title: item.content.title,
+                                                 detail: item.content.body, symbol: "bell.fill", notification: item.content, notificationID: item.id))
+                if shown, !self.expanded, self.captureControls == nil, !self.dragPlaceholder {
+                    NotchNotificationService.shared.hideNative(item.id)
+                }
+            }.store(in: &subscriptions)
+        }
         if NotchSupport.routes(.clipboard) {
             let history = ClipboardHistoryService.shared
             history.capturedEntry.receive(on: DispatchQueue.main).sink { [weak self] _ in
@@ -3743,7 +3904,41 @@ final class NotchService: ObservableObject {
         if NotchSupport.routes(.battery) || idleContent == .battery || NotchMascotSupport.isEnabled() { startPower() }
     }
 
-
+    private func showAgentEvent(_ event: AgentUsageEvent) {
+        let text = FeatureStrings.notchAgents(L10n.shared.language)
+        let locale = L10n.shared.language.formattingLocale()
+        let remaining = NotchAgentSupport.limitDisplay() == .remaining
+        func window(_ window: AgentLimitWindow) -> String {
+            switch window.kind {
+            case .session: return text.session
+            case .weekly: return window.scope.map { "\(text.weekly) · \($0)" } ?? text.weekly
+            case .other: return window.minutes.map { AgentFormat.duration(TimeInterval($0) * 60, locale: locale, units: 1) }
+                ?? text.readoutLimit
+            }
+        }
+        switch event {
+        case .finished(let provider, let duration, let cost, _, _):
+            show(NotchNotice(event: .agents, title: text.finished(provider.displayName),
+                             detail: [AgentFormat.duration(duration, locale: locale), cost > 0 ? AgentFormat.cost(cost) : ""]
+                                .filter { !$0.isEmpty }.joined(separator: " · "),
+                             symbol: provider.symbol, agent: provider))
+            // After the notice, the companion cheers the finished task.
+            reactMascot(.celebrate)
+        case .limitWarning(let provider, let limit):
+            let share = AgentFormat.percent(remaining ? limit.remainingFraction : limit.usedFraction)
+            show(NotchNotice(event: .agents, title: "\(provider.displayName) · \(window(limit))",
+                             detail: remaining ? text.left(share) : text.usedShare(share),
+                             symbol: "exclamationmark.triangle.fill", agent: provider))
+        case .limitReset(let provider, let limit):
+            // Work can go on: the companion is glad of it.
+            show(NotchNotice(event: .agents, title: "\(provider.displayName) · \(window(limit))",
+                             detail: text.limitRenewed, symbol: "arrow.clockwise", agent: provider, mascot: .celebrate))
+            reactMascot(.celebrate)
+        case .budgetReached(let spent, _):
+            show(NotchNotice(event: .agents, title: text.budgetTitle, detail: AgentFormat.cost(spent),
+                             symbol: "dollarsign.circle.fill"))
+        }
+    }
 
     func showCurrentVolume() {
         let mixer = AppVolumeMixer.shared
@@ -3813,9 +4008,35 @@ final class NotchService: ObservableObject {
     func showVolume(_ volume: Double, muted: Bool? = nil) -> Bool {
         guard volume.isFinite else { return false }
         let value = muted == true ? 0 : min(1, max(0, volume))
+        let mixer = AppVolumeMixer.shared
+        let output = mixer.outputDevices.first { $0.uid == mixer.currentOutputDeviceUID }
+        let symbol: String
+        if let output, output.isHeadphones {
+            symbol = NotchAccessorySupport.symbol(for: .audio, name: output.name)
+        } else {
+            symbol = value == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill"
+        }
         return show(NotchNotice(event: .volume, title: FeatureStrings.notch(L10n.shared.language).volume,
                                 detail: "\(Int((value * 100).rounded()))%",
-                                symbol: value == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill", level: value))
+                                symbol: symbol, level: value))
+    }
+
+    /// The Command Bar borrows a Latin layout while it is up and gives it
+    /// back on close. Neither switch is news the typist asked for, so each
+    /// one marks itself as the app's own.
+    func noteOwnInputSourceSwitch(to sourceID: String) {
+        ownInputSourceID = sourceID
+    }
+
+    private func inputSourceChanged() {
+        guard let reading = InputSourceSelection.currentReading(), reading.id != inputSourceID else { return }
+        inputSourceID = reading.id
+        let isOwnSwitch = reading.id == ownInputSourceID
+        ownInputSourceID = nil
+        guard !isOwnSwitch else { return }
+        // Like the volume reading, the code takes the value's place and the
+        // source's own name stands where the meter would.
+        show(NotchNotice(event: .inputSource, title: reading.code, detail: reading.name, symbol: "keyboard"))
     }
 
     private func startPower() {
@@ -4532,7 +4753,19 @@ extension NotchService {
     /// goes behind the camera and leaves the agent's mark there. Checked as
     /// the island refreshes, before that strip is drawn, at most once in a
     /// while.
-    
+    fileprivate func syncMascotAgents() {
+        // Agents already at work when the app opens are no news: their logs
+        // are read after the island first shows.
+        guard AgentUsageService.shared.snapshot.loaded else { return }
+        let working = hasAgentActivity
+        let saw = mascotSawAgents
+        mascotSawAgents = working
+        guard saw == false, working, mascotRestedInView, NotchMascotSupport.reacts() else { return }
+        let now = CACurrentMediaTime()
+        guard now - lastMascotAgentStart > NotchMascotSupport.agentStartInterval else { return }
+        lastMascotAgentStart = now
+        reactMascot(.ready, patience: 1)
+    }
 
     /// The event the island counted down to begins: the companion bounces,
     /// beside its time left or where it rests.

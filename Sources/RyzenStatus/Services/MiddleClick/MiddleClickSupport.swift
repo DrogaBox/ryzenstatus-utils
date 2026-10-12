@@ -3,7 +3,7 @@
 
 import Foundation
 
-/// What to do with an incoming left-button press.
+/// What to do with an incoming physical trackpad press.
 enum MiddleClickClickAction: Equatable {
     case transform
     case passThrough
@@ -20,8 +20,8 @@ enum MiddleClickSupport {
     /// trackpad, so anything older means the fingers already lifted.
     static let fingerFreshness: TimeInterval = 0.25
 
-    /// The three fingers must have been resting this long before the press:
-    /// a click that arrives together with the third finger's touchdown is a
+    /// The fingers must have been resting this long before the press: a
+    /// click that arrives together with the last finger's touchdown is a
     /// synthesized tap-to-click, not a press (a real press needs the fingers
     /// on the pad before the force builds up).
     static let minimumSettle: TimeInterval = 0.04
@@ -30,19 +30,21 @@ enum MiddleClickSupport {
     /// treated as a synthesizer bounce and dropped.
     static let repeatGuard: TimeInterval = 0.30
 
-    /// Decides what a left-button press becomes. Only real presses count
+    /// Decides what an incoming press becomes. Only real presses count
     /// (owner decision: taps, swipes and resting fingers must never click),
     /// and while the system's own three-finger drag gesture is enabled it
     /// owns three-finger touches: it synthesizes clicks from unpressed
     /// contact that are indistinguishable from real presses here, so the
-    /// feature stands down entirely rather than firing falsely.
+    /// press moves to four fingers, as the tap does (issue #2061).
     static func actionForClick(fingerCount: Int,
                                frameAge: TimeInterval,
                                settledFor: TimeInterval,
                                sinceLastTransformEnd: TimeInterval?,
                                systemDragGestureEnabled: Bool) -> MiddleClickClickAction {
-        guard !systemDragGestureEnabled else { return .passThrough }
-        guard fingerCount == 3, frameAge >= 0, frameAge <= fingerFreshness else { return .passThrough }
+        let pressFingers = systemDragGestureEnabled ? 4 : 3
+        guard fingerCount == pressFingers, frameAge >= 0, frameAge <= fingerFreshness else {
+            return .passThrough
+        }
         if let sinceLastTransformEnd, sinceLastTransformEnd >= 0,
            sinceLastTransformEnd < repeatGuard {
             return .swallow
@@ -92,5 +94,13 @@ enum MiddleClickSupport {
         guard maxSpreadChange <= tapSpreadChangeLimit else { return false }
         if tapFingers == 3, systemDragGestureEnabled { return false }
         return true
+    }
+
+    /// The finger count whose tap opens the radial menu, or 0 for none. Only
+    /// four fingers: macOS keeps no gesture of its own there, while three
+    /// belong to Look Up and three-finger drag. A middle click already set to
+    /// four fingers keeps them, so turning this on never changes it.
+    static func radialMenuTapFingers(radialMenuWantsTap: Bool, middleClickTapFingers: Int) -> Int {
+        radialMenuWantsTap && middleClickTapFingers != 4 ? 4 : 0
     }
 }

@@ -19,6 +19,7 @@ extension FeatureStrings {
         case .tr: return .tr
         case .ru: return .ru
         case .es: return .es
+        case .sk: return .sk
         case .de: return .de
         case .fr: return .fr
         case .it: return .it
@@ -27,7 +28,6 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
-        case .sk: return .sk
         case .uk: return .uk
         }
     }
@@ -74,6 +74,14 @@ extension WindowPreviewExclusionStrings {
         caption: "Las miniaturas de las ventanas se detienen mientras una de estas apps está en primer plano."
     )
 
+    static let sk = WindowPreviewExclusionStrings(
+        sectionTitle: "Miniatúry okien",
+        listTitle: "Pozastaviť v týchto aplikáciách",
+        addButton: "Pridať aplikáciu…",
+        removeButton: "Odstrániť",
+        caption: "Miniatúry okien sa zastavia, kým je jedna z týchto aplikácií v popredí."
+    )
+
     static let de = WindowPreviewExclusionStrings(
         sectionTitle: "Fenstervorschauen",
         listTitle: "In diesen Apps pausieren",
@@ -87,7 +95,7 @@ extension WindowPreviewExclusionStrings {
         listTitle: "Mettre en pause dans ces apps",
         addButton: "Ajouter une app…",
         removeButton: "Retirer",
-        caption: "Les aperçus des fenêtres s'arrêtent tant que l'une de ces apps est au premier plan."
+        caption: "Les aperçus des fenêtres s’arrêtent tant que l’une de ces apps est au premier plan."
     )
 
     static let it = WindowPreviewExclusionStrings(
@@ -137,20 +145,11 @@ extension WindowPreviewExclusionStrings {
         removeButton: "移除",
         caption: "當其中一個 App 位於前景時，視窗縮圖會暫停更新。"
     )
-
-    static let sk = WindowPreviewExclusionStrings(
-        sectionTitle: "Miniatúry okien",
-        listTitle: "Pozastaviť v týchto aplikáciách",
-        addButton: "Pridať aplikáciu…",
-        removeButton: "Odstrániť",
-        caption: "Miniatúry okien sa zastavia, kým je niektorá z týchto aplikácií v popredí."
-    )
-
     static let uk = WindowPreviewExclusionStrings(
         sectionTitle: "Мініатюри вікон",
-        listTitle: "Призупиняти в цих програмах",
+        listTitle: "Пауза в цих програмах",
         addButton: "Додати програму…",
         removeButton: "Видалити",
-        caption: "Мініатюри вікон не оновлюються, поки одна з цих програм на передньому плані."
+        caption: "Мініатюри вікон зупиняються, поки одна з цих програм на передньому плані."
     )
 }

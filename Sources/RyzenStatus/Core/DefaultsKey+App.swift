@@ -548,6 +548,8 @@ extension DefaultsKey {
     static let notchHideInFullscreen = "notchHideInFullscreen"
     static let notchHapticFeedback = "notchHapticFeedback"
     static let notchIdleContent = "notchIdleContent"
+    static let notchCapsuleCenter = "notchCapsuleCenter"
+    static let notchCapsuleMetric = "notchCapsuleMetric"
     static let notchShowPlayingMusic = "notchShowPlayingMusic"
     static let notchReturnHome = "notchReturnHome"
     static let notchHomeModule = "notchHomeModule"
@@ -769,6 +771,8 @@ extension DefaultsKey {
     static let urlCleanerDisabledParameters = "urlCleanerDisabledParameters" // built-in host|name pairs switched off
     static let windowMaximizeExcludedApps = "windowMaximizeExcludedApps" // [bundle id] whose green button stays native
     static let cleaningModeKeepScreenVisible = "cleaningModeKeepScreenVisible"
+    // Keep the legacy homebrew feature ID; the provider preference is portable.
+    static let packageManagerProvider = "packageManagerProvider" // automatic | macPorts | homebrew
     static let homebrewGroupDependencies = "homebrewGroupDependencies"
     static let appUpdatesIncludeOnlineCatalog = "appUpdatesIncludeOnlineCatalog"
     static let appUpdatesRules = "appUpdatesRules" // JSON, portable bundle-ID rules

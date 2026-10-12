@@ -5,13 +5,13 @@ import AppKit
 import SwiftUI
 
 enum MetricDetailKind: String, Equatable, Identifiable {
-    case cpu, gpu, memory, network, disk, battery, power
+    case cpu, gpu, memory, network, disk, battery, power, connectedDevices
 
     var id: String { rawValue }
 
     var panelSection: PanelSectionID {
         switch self {
-        case .cpu, .gpu, .memory, .battery:
+        case .cpu, .gpu, .memory, .battery, .connectedDevices:
             return .system
         case .network:
             return .network
@@ -31,6 +31,7 @@ enum MetricDetailKind: String, Equatable, Identifiable {
         case .disk: return "internaldrive"
         case .battery: return "battery.100"
         case .power: return "powerplug.fill"
+        case .connectedDevices: return "cable.connector"
         }
     }
 
@@ -53,6 +54,10 @@ enum MetricDetailKind: String, Equatable, Identifiable {
                                            batteryTemperature: true)
         case .power:
             return SystemMonitorPanelNeeds(power: true)
+        case .connectedDevices:
+            // The list has its own event-driven owner; the AMD monitor
+            // samples nothing extra for it.
+            return SystemMonitorPanelNeeds()
         }
     }
 
@@ -65,6 +70,7 @@ enum MetricDetailKind: String, Equatable, Identifiable {
         case .disk: return s.diskSection
         case .battery: return s.batteryLabel
         case .power: return s.powerSection
+        case .connectedDevices: return FeatureStrings.connectedDevices(L10n.shared.language).title
         }
     }
 
@@ -75,7 +81,7 @@ enum MetricDetailKind: String, Equatable, Identifiable {
         case .memory: return .memory
         case .power: return .energy
         case .network: return .network
-        case .disk, .battery: return nil
+        case .disk, .battery, .connectedDevices: return nil
         }
     }
 }
@@ -97,6 +103,8 @@ extension MenuBarMetric {
             return .battery
         case .batteryTime, .power:
             return .power
+        case .connectedDevices:
+            return .connectedDevices
         }
     }
 }
@@ -105,6 +113,7 @@ struct MetricDetailView: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var monitor = SystemMonitor.shared
     @ObservedObject private var speed = SpeedTest.shared
+    @ObservedObject private var connectedDevices = ConnectedDevicesMonitor.shared
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnit = TemperatureUnit.celsius.rawValue
     let kind: MetricDetailKind
@@ -130,6 +139,9 @@ struct MetricDetailView: View {
             if kind == .network {
                 startNetworkMonitoringIfNeeded()
             }
+            if kind == .connectedDevices {
+                connectedDevices.beginWatching()
+            }
             refreshProcessRows(force: true, delay: 0.2)
         }
         .onChange(of: kind) { oldKind, newKind in
@@ -137,6 +149,11 @@ struct MetricDetailView: View {
                 stopNetworkMonitoringIfNeeded()
             } else if oldKind != .network, newKind == .network {
                 startNetworkMonitoringIfNeeded()
+            }
+            if oldKind == .connectedDevices, newKind != .connectedDevices {
+                connectedDevices.endWatching()
+            } else if oldKind != .connectedDevices, newKind == .connectedDevices {
+                connectedDevices.beginWatching()
             }
             refreshProcessRows(force: true, delay: 0.2)
         }
@@ -146,6 +163,9 @@ struct MetricDetailView: View {
             processRows = []
             processRowsLoading = false
             stopNetworkMonitoringIfNeeded()
+            if kind == .connectedDevices {
+                connectedDevices.endWatching()
+            }
         }
     }
 
@@ -200,6 +220,8 @@ struct MetricDetailView: View {
             historyGraph(monitor.snapshot.batteryHistory, color: summaryColor, maxValue: 1)
         case .power:
             historyGraph(monitor.snapshot.systemPowerHistory, color: summaryColor)
+        case .connectedDevices:
+            EmptyView()
         }
     }
 
@@ -402,6 +424,16 @@ struct MetricDetailView: View {
                                     ?? strings.calculating))
             }
             return rows
+        case .connectedDevices:
+            let strings = FeatureStrings.connectedDevices(l10n.language)
+            guard !connectedDevices.devices.isEmpty else {
+                return [row(connectedDevices.hasLoadedOnce ? strings.noDevices : l10n.s.networkMeasuring, "")]
+            }
+            return connectedDevices.devices.map { device in
+                row(id: device.id,
+                    device.name.isEmpty ? strings.unnamedDevice : device.name,
+                    device.vendorName ?? "")
+            }
         }
     }
 
@@ -423,6 +455,8 @@ struct MetricDetailView: View {
             return snapshot.power?.chargePercent.map { "\($0)%" } ?? "-"
         case .power:
             return snapshot.power?.systemWatts.map(MetricFormat.wattsCompact) ?? "-"
+        case .connectedDevices:
+            return connectedDevices.hasLoadedOnce ? "\(connectedDevices.count)" : "-"
         }
     }
 
@@ -445,6 +479,8 @@ struct MetricDetailView: View {
             return (snapshot.power?.isCharging ?? false) ? l10n.s.powerCharging : l10n.s.powerOnBattery
         case .power:
             return powerSubtitle(snapshot.power)
+        case .connectedDevices:
+            return FeatureStrings.connectedDevices(l10n.language).formattedCount(connectedDevices.count)
         }
     }
 
@@ -462,6 +498,8 @@ struct MetricDetailView: View {
             return PanelMetricColor.green(for: colorScheme)
         case .power:
             return PanelMetricColor.orange(for: colorScheme)
+        case .connectedDevices:
+            return PanelMetricColor.cyan(for: colorScheme)
         }
     }
 
@@ -516,11 +554,14 @@ struct MetricDetailView: View {
         }
     }
 
-    private func row(_ title: String,
+    /// `id` defaults to the title; rows that can share a title, such as two
+    /// identical USB devices, pass their own.
+    private func row(id: String? = nil,
+                     _ title: String,
                      _ value: String,
                      showsPressure: Bool = false,
                      wrapsValue: Bool = false) -> MetricDetailRow {
-        MetricDetailRow(id: title,
+        MetricDetailRow(id: id ?? title,
                         title: title,
                         value: value,
                         showsPressure: showsPressure,

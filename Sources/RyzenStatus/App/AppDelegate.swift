@@ -36,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var onboardingWindow: NSWindow?
     private var dockPreviewIntroWindow: NSWindow?
     private var supportIntroWindow: NSWindow?
+    private var feedbackWindow: NSWindow?
     private var updateHighlightsWindow: NSWindow?
     private var supportIntroCanClose = false
     private var updateShowcaseWindow: NSWindow?
@@ -45,8 +46,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     // MARK: - Lifecycle
 
+    /// Asking another app about its windows waits for that app to answer, and
+    /// the default wait is long. An app that is busy saving, or stuck on a slow
+    /// disk, would hold this one still each time, and some of those questions
+    /// are asked where the whole session waits on them. The limit is set once
+    /// here, low enough that a slow answer is dropped rather than felt. It is
+    /// the process-wide default, so nothing else may set a timeout on the
+    /// system-wide element (#938); hot paths cap their own elements lower.
+    private static func boundAccessibilityWaits() {
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.35)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        Self.boundAccessibilityWaits()
         // Pay the first AppKit process lookup before an input callback needs
         // it. Each click still resolves the current process independently.
         _ = AssistiveKeyboard.isRunning
@@ -65,6 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // keyboard shortcuts (Cmd+H/M/W/Q and the Edit shortcuts Cmd+C/V/X/A) have
         // no menu items to fire and do nothing in the Settings window. Install one.
         installMainMenu()
+        HorizontalWheelScrolling.install()
         PanelLayout.resetCollapsedSectionsOnce(for: "2.15.1")
 
         statusController = StatusItemController()
@@ -84,6 +98,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         statusController.onMetricClick = { [weak self] metric, button in
             self?.captureStatusClick()
             self?.showMetricPanel(for: metric, anchoredTo: button)
+        }
+        // Opens the clipboard window, which centers on the pointer's screen
+        // instead of anchoring to a status item.
+        statusController.onClipboardPreviewClick = {
+            ClipboardHistoryService.shared.toggleHistoryWindow()
         }
         // The shelf drop zone chip anchors itself under the menu bar icon.
         ShelfService.shared.statusItemFrameProvider = { [weak self] in
@@ -119,6 +138,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         GlobalShortcut.startObservingKeyboardLayout()
         bindManagers()
 
+        // A marker from an earlier run may name macOS shortcuts this app
+        // switched off and never gave back (a crash, a forced quit). Give them
+        // back before the first feature claims anything: a claim resolves what
+        // every source wants together, and an unclaimed marker resolves to
+        // nothing. The switcher holds none here, so nothing is kept.
+        SystemShortcutTakeover.recoverIfNeeded(keeping: [])
         HotkeyManager.shared.onActivate = { KeepAwakeManager.shared.toggle() }
         HotkeyManager.shared.syncWithPreferences()
 
@@ -257,6 +282,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         AppVolumeMixer.shared.stopAll()
         // Flushes any scratchpad edit still inside the save debounce.
         ScratchpadService.shared.suspend()
+        // Every macOS shortcut a feature took over goes back now, whichever
+        // feature held it; not all of them suspend here.
+        SystemShortcutTakeover.restoreAll()
         // The clipboard history persists through an async pipeline; the last
         // mutation (often a Clear) must land before the process dies.
         if AppFeature.clipboardHistory.isAvailable {
@@ -435,6 +463,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         popoverIsSwitchingAnchor = true
         MenuPanelFocus.shared.setSwitchingMetricAnchor(true)
         let expectedMidX = statusButtonMidX(button)
+        // The panel measures itself against this while the popover lays out,
+        // so it has to be right before the content is asked for its size.
+        PanelInteractionState.shared.anchorScreen = statusScreen(for: button)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
         if let window = popover.contentViewController?.view.window,
@@ -585,6 +616,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
     }
 
+    /// The display whose menu bar holds the item, so the panel caps its height
+    /// against that screen rather than whichever one happens to be main.
+    private func statusScreen(for button: NSStatusBarButton) -> NSScreen? {
+        if let frame = button.window?.frame,
+           let hosting = NSScreen.screens.first(where: { $0.frame.intersects(frame) }) {
+            return hosting
+        }
+        return button.window?.screen ?? NSScreen.withMenuBar
+    }
+
     private func showPopover(anchor button: NSStatusBarButton? = nil,
                              allowRecentClose: Bool = false,
                              animate: Bool = true,
@@ -597,6 +638,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // The main panel and the now-playing popup never show together.
         closeNowPlayingPopup()
 
+        // The panel measures itself against this while the popover lays out, so
+        // it has to be known before the content is asked for its size.
+        PanelInteractionState.shared.anchorScreen = statusScreen(for: button)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         if let window = popover.contentViewController?.view.window {
             // Keep the panel alive next to fullscreen apps and on any Space —
@@ -756,7 +800,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         guard AppFeature.appUpdates.isAvailable else { return }
         let service = AppUpdatesService.shared
         service.applicationBecameActive()
-        guard service.consumeStoreHandoffReturn(),
+        guard service.consumeUpdateHandoffReturn(),
               settingsWindow?.isVisible == true else { return }
         openSettingsWindow()
     }
@@ -1197,6 +1241,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
         PanelInteractionState.shared.viewKeepsPopoverOpen = false
         PanelInteractionState.shared.isPresentingPopoverModal = false
+        if !popoverIsSwitchingAnchor {
+            // Nothing measures itself against a screen with the panel closed.
+            PanelInteractionState.shared.anchorScreen = nil
+        }
         popoverClosedAt = popoverIsSwitchingAnchor ? .distantPast : Date()
         popoverIsClosing = false
         runPopoverCloseCompletions()
@@ -1396,6 +1444,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         editMenu.addItem(NSMenuItem(title: strings.menuPaste, action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
         editMenu.addItem(NSMenuItem(title: strings.menuSelectAll, action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
 
+        // Drivers and other running copies of RyzenStatus may translate side
+        // buttons into menu commands before this process ever receives a raw
+        // mouse event, so Settings answers the Back and Forward commands too.
+        let navigationMenuItem = NSMenuItem()
+        navigationMenuItem.submenu = SettingsWindow.navigationMenu(language: L10n.shared.language)
+        mainMenu.addItem(navigationMenuItem)
+
         // Window menu (Minimize / Zoom / Close). Settings is .miniaturizable so
         // Cmd+M actually minimizes; AppKit manages enabling once windowsMenu is set.
         let windowMenuItem = NSMenuItem()
@@ -1423,7 +1478,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         let createdWindow = settingsWindow == nil
         if settingsWindow == nil {
             let host = NSHostingController(rootView: SettingsView())
-            let window = NSWindow(contentViewController: host)
+            let window = SettingsWindow(contentViewController: host)
+            window.isMouseButtonCaptureActive = { MouseButtonShortcutService.isCaptureActive }
             // .miniaturizable so the Window menu's Minimize (Cmd+M) actually works.
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             host.view.widthAnchor.constraint(greaterThanOrEqualToConstant: SettingsWindowSupport.minContentWidth).isActive = true
@@ -1464,6 +1520,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             guard let self, let window = self.settingsWindow else { return }
             self.positionSettingsWindow(window, force: false)
         }
+    }
+
+    /// Feedback opens a prefilled GitHub issue; this window only drafts it.
+    func openFeedbackWindow(kind: FeedbackKind = .bug) {
+        closePopover()
+        let host = NSHostingController(rootView: FeedbackView(initialKind: kind) { [weak self] in
+            self?.feedbackWindow?.close()
+        })
+        if let window = feedbackWindow {
+            window.contentViewController = host
+        } else {
+            let window = NSWindow(contentViewController: host)
+            window.styleMask = [.titled, .closable]
+            window.titleVisibility = .hidden
+            window.isReleasedWhenClosed = false
+            window.isRestorable = false
+            window.delegate = self
+            window.center()
+            feedbackWindow = window
+        }
+        feedbackWindow?.title = FeatureStrings.feedback(L10n.shared.language).windowTitle
+        NSApp.activate(ignoringOtherApps: true)
+        feedbackWindow?.makeKeyAndOrderFront(nil)
     }
 
     private func positionSettingsWindow(_ window: NSWindow, force: Bool) {

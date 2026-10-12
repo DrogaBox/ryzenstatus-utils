@@ -3,12 +3,23 @@
 
 import AppKit
 
+// The child Super Key leaves behind takes its key mapping back out if the app
+// dies without quitting, then exits.
+SuperKeyMappingGuard.runIfRequestedAndExit()
 Defaults.register()
+// The island's keyboard-light control appears only on a Mac whose built-in
+// keyboard backlight the system client can actually drive.
+NotchControlItem.keyboardLightIsSupported = { BrightnessService.keyboardLightIsSupported }
 
 // The child the mouse acceleration feature leaves behind puts the pointer
 // settings back if the app dies without quitting, then exits.
 MouseAccelerationGuard.runIfRequestedAndExit()
 MouseAccelerationService.recoverPendingAtLaunch()
+
+// A developer's check of the island's windows; release builds never run it.
+if AppInfo.isDeveloperBuild, CommandLine.arguments.contains("--notch-presentation-test") {
+    NotchPresentationProbe.runAndExit()
+}
 
 if CommandLine.arguments.contains("--selftest") {
     SelfTest.runAndExit()

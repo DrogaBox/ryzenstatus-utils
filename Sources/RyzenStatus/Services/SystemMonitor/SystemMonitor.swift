@@ -699,6 +699,9 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         case .peripheralBattery:
             plan.needPower = true
             plan.needPeripheralBattery = true
+        case .connectedDevices:
+            // ConnectedDevicesMonitor owns this list; nothing to sample here.
+            break
         }
     }
 

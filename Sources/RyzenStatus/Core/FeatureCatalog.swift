@@ -38,7 +38,7 @@ enum AppFeature: String, CaseIterable {
     case portManager
     // Dynamic Island
     case notch, notchCalendar, notchNotifications, notchGestures, notchTimer, notchAccessories, notchLyrics,
-         notchLiveEqualizer, notchQueue, notchDownloads, notchWatch, notchMascot
+         notchLiveEqualizer, notchQueue, notchDownloads, notchAgents, notchWatch, notchMascot
     // System monitor, one entry per metric family (temperatures live with
     // their parent metric: CPU temp with CPU, battery temp with power).
     case monitorCPU, monitorGPU, monitorMemory, monitorNetwork, monitorDisk, monitorPower,
@@ -93,7 +93,8 @@ extension AppFeature {
         case .portManager:
             return .tools
         case .notch, .notchCalendar, .notchNotifications, .notchGestures, .notchTimer, .notchAccessories,
-             .notchLyrics, .notchLiveEqualizer, .notchQueue, .notchDownloads, .notchWatch, .notchMascot:
+             .notchLyrics, .notchLiveEqualizer, .notchQueue, .notchDownloads, .notchAgents, .notchWatch,
+             .notchMascot:
             return .dynamicIsland
         case .monitorCPU, .monitorGPU, .monitorMemory, .monitorNetwork, .monitorDisk, .monitorPower,
              .monitorInsights, .monitorAnalytics, .monitorEnergy, .monitorNetworkDetails:
@@ -171,6 +172,7 @@ extension AppFeature {
         case .notchLiveEqualizer: return "waveform"
         case .notchQueue: return "list.bullet"
         case .notchDownloads: return "arrow.down.circle"
+        case .notchAgents: return "sparkles"
         case .notchNotifications: return "bell"
         case .notchCalendar: return "calendar"
         case .notchWatch: return "eye"
@@ -236,7 +238,9 @@ extension AppFeature {
         case .spacesOrder: return [DefaultsKey.spacesOrderEnabled]
         case .clipboardHistory: return [DefaultsKey.clipboardHistoryEnabled]
         case .pastePlain: return [DefaultsKey.pastePlainEnabled]
-        case .finderCutPaste: return [DefaultsKey.finderCutPasteEnabled]
+        // Pasting an image as a file runs through the same Finder tap.
+        case .finderCutPaste: return [DefaultsKey.finderCutPasteEnabled,
+                                      DefaultsKey.finderPasteImageAsFile]
         case .finderRename: return [DefaultsKey.finderRenameEnabled]
         case .shelf: return [DefaultsKey.shelfEnabled]
         case .urlCleaner: return [DefaultsKey.urlCleanerEnabled]
@@ -257,6 +261,7 @@ extension AppFeature {
         case .notchLiveEqualizer: return [DefaultsKey.notchLiveEqualizer]
         case .notchQueue: return [DefaultsKey.notchQueueEnabled]
         case .notchDownloads: return [DefaultsKey.notchDownloadsEnabled]
+        case .notchAgents: return [DefaultsKey.notchAgentsEnabled]
         case .notchNotifications: return [DefaultsKey.notchNotificationsEnabled]
         case .notchCalendar: return [DefaultsKey.notchCalendarEnabled]
         case .notchWatch: return [DefaultsKey.notchWatchEnabled]
@@ -332,6 +337,9 @@ extension AppFeature {
         case .notchCalendar: return [.calendar]
         case .notchNotifications: return [.accessibility]
         case .notchDownloads: return [.filesAndFolders]
+        // Agents reads the CLIs' own history files and the Claude app's saved
+        // limits; none of that needs a macOS permission.
+        case .notchAgents: return []
         case .notchWatch: return [.screenRecording, .notifications]
         case .notch: return [.accessibility]
         // Port Manager reads `lsof` and terminates through Kill Process;
@@ -427,8 +435,10 @@ extension AppFeature {
             case (.keepAwake, .accessibility):
                 return boolFor(DefaultsKey.keepAwakeMouseJiggleEnabled)
             case (.brightness, .accessibility):
+                // A finer key step answers the keys from the same tap.
                 return boolFor(DefaultsKey.brightnessKeysEnabled)
                     || boolFor(DefaultsKey.brightnessOSDEnabled)
+                    || BrightnessSupport.KeyStep.sanitized(stringFor(DefaultsKey.brightnessKeyStep)) != .standard
             case (.monitorCPU, .notifications):
                 return boolFor(DefaultsKey.monitorAlertCPU) || boolFor(DefaultsKey.monitorAlertCPUTemperature)
             case (.monitorMemory, .notifications):
@@ -569,7 +579,7 @@ extension AppFeature {
         case .mediaTools: return s.mediaName
         case .cleaner: return s.cleanerName
         case .uninstaller: return s.uninstallerName
-        case .homebrew: return s.homebrewName
+        case .homebrew: return FeatureStrings.packageManager(L10n.shared.language).title
         case .appUpdates: return FeatureStrings.appUpdates(L10n.shared.language).pageTitle
         case .monitorCPU: return s.monitorShowCPU
         case .monitorGPU: return s.monitorShowGPU
@@ -592,6 +602,7 @@ extension AppFeature {
         case .notchAccessories: return hub.titleNotchAccessories
         case .notchLyrics: return hub.titleNotchLyrics
         case .notchDownloads: return hub.titleNotchDownloads
+        case .notchAgents: return FeatureStrings.notchAgents(L10n.shared.language).title
         case .notchWatch: return hub.titleNotchWatch
         case .notchMascot: return hub.titleNotchMascot
         case .notchLiveEqualizer: return hub.titleNotchLiveEqualizer

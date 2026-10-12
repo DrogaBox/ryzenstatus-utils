@@ -1,5 +1,50 @@
 # Changelog
 
+## [1.38.0] — 2026-10-12 — kexts 3.34.17 (No kext changes)
+
+Package-manager coexistence for Intel, safer clipboard controls, a corrected floating Dynamic Island, and most of the upstream port (shared foundations, everyday tools, windows, captures, mouse and the Dynamic Island's AI section). This release is a continuation of the upstream port, not a claim that every remaining block is complete: AMD-aware metric views, the Settings redesign, the remaining upstream test suites and native translation review are still pending.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.34.17. Only the application's validation version pin changes.
+
+### Added
+
+- **MacPorts support** in the existing package-manager Settings page, menu panel and quick launcher. Automatic selection prefers MacPorts on Intel; Homebrew remains available for existing packages and casks. No automatic migration or installation.
+- Read-only MacPorts inventory, outdated packages and package search with bounded background processes. Install, upgrade, uninstall and self-update are explicitly confirmed and handed to Terminal for administrator authorization. Opening Terminal is not reported as completed installation.
+- **Opt-in system clipboard clearing** after a delay, on sleep, display sleep or screen lock, independently of recording history. Saved and pinned entries are never deleted by these triggers.
+- **Keep Awake until a chosen time**, with Calendar-based resolution of the next local occurrence, including daylight-saving transitions.
+- Regression checks for package-name injection/pseudo-ports, clipboard configuration invalidation, state-specific island geometry and mascot priorities/cooldowns/non-finite readings.
+- **AI agents in the Dynamic Island** (off by default): tokens, plan limits, API value and work in progress for Claude Code, Codex, OpenCode and GitHub Copilot, read from the history files those tools already keep on this Mac. Live strip beside the camera, lock-screen line, notices and a page of cards. Prices ship inside the app; optional daily updates come from this project's repository. Codex banked resets can be read and used, only after confirmation.
+- **Feedback**: report a bug or suggest a feature from Settings › General, the panel header or the Command Bar. The app opens a prefilled GitHub issue in your browser; nothing is sent until you submit it there.
+- **Connected devices in the menu bar and the island**: an optional USB device count next to the menu bar icon, its own detail page and a card in the island's System page.
+- **Capsule center** for Macs without a camera: while a song plays, the middle of the capsule or floating island can show the song, a live metric (CPU or GPU temperature, CPU usage, memory or network download), both in turns, or the clock. It also works at rest: with the island resting with the companion, the capsule shows the reading beside it. With Nothing, the capsule shrinks to the cover and the bars instead of keeping an empty black block. Settings › Dynamic Island, under the shape.
+- **Input source notices** in the island when the keyboard layout changes, and a headphones symbol on the volume notice when they are the output.
+- **Super Key safety guard**: a small helper takes the key mapping back out if the app is killed, so Caps Lock never stays remapped.
+- Clipboard: automatic cleanup, text preview, history window with saved size, OCR in previews, image editing, optional menu bar preview item.
+- Keep Awake: pause on lock, keep awake while chosen apps run, lid dimming, last-pick shortcut, battery protection.
+- Displays: lid-close dimming, keyboard backlight control, brightness shortcuts for display and keyboard.
+- Windows, switcher, captures and recorder from upstream: window layout gestures and exclusions, unified capture with watermark and tool picker, recorder blur, image overlay and export speed.
+- Mixer: AirPlay routes and the precise volume roller.
+- Radial menu: per-profile shortcuts, visual editor, Now Playing read from the app's single Now Playing engine.
+- Mouse and scrolling: one Mouse page, Spaces gesture, Back/Forward side buttons in Settings, time-based smooth scrolling with response and coast, linear scrolling.
+
+### Changed
+
+- The package-manager feature keeps its existing storage identity and Homebrew ownership safeguards, so current installations and preferences survive the new provider selector.
+- Homebrew commands inherit only supported proxy and `HOMEBREW_*` exports from a bounded login-shell session. Environment resolution stays off the main thread.
+- Launch synchronizes the island once for its installed modules and plans the monitor once for its metrics instead of repeatedly initializing the same services.
+- Memory in use follows upstream's definition (app + wired + compressed + tagged storage) and is read with a pure Swift decoder that understands macOS 26's newer statistics layout.
+- Decimal numbers in the monitor follow your region's separator.
+- Temporary-link sharing for captures and recordings stays hidden until a sharing server is configured; there is no default server.
+- Synthetic input events carry RyzenStatus's own marker, so they are never confused with another app's.
+
+### Fixed
+
+- **Floating island on displays without a notch**: compact activities and the transparent resting companion stay in the menu bar; expanded panels move below it without covering menu items.
+- Clearing recent clipboard history in Settings or the menu panel requires confirmation.
+- Invalid temperature, CPU or battery values no longer drive automatic mascot warnings or animations.
+- The Dynamic Island again shows volume notices and macOS notifications; both had stopped being connected during the port.
+- Panel dismissal accounts for the AirPlay picker, and the panel remembers which display its status item is on.
+
 ## [1.37.0] — 2026-10-11 — kexts 3.34.17 (No kext changes)
 
 Dynamic Island, Command Bar and Kill Process arrive, the Uninstaller recognizes apps installed with Homebrew, the Cleaner finds forgotten screenshots and reports what an automatic cleanup left behind, and the app now speaks Slovak and Ukrainian.

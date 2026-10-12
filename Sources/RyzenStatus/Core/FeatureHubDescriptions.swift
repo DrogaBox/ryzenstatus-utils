@@ -58,7 +58,7 @@ extension AppFeature {
         case .mediaTools: return hub.descMediaTools
         case .cleaner: return hub.descCleaner
         case .uninstaller: return hub.descUninstaller
-        case .homebrew: return hub.descHomebrew
+        case .homebrew: return FeatureStrings.packageManager(language).caption
         case .appUpdates: return FeatureStrings.appUpdates(language).hubDescription
         case .monitorCPU: return hub.descMonitorCPU
         case .monitorGPU: return hub.descMonitorGPU
@@ -85,6 +85,7 @@ extension AppFeature {
         case .notch: return NotchStrings.notch(language).description
         // Each island module says what it does, not what the island is.
         case .notchCalendar: return FeatureStrings.notchCalendar(language).description
+        case .notchAgents: return FeatureStrings.notchAgents(language).hubDescription
         case .notchNotifications: return FeatureStrings.notchNotifications(language).description
         case .notchGestures: return hub.descNotchGestures
         case .notchTimer: return FeatureStrings.notchActivities(language).timerDescription

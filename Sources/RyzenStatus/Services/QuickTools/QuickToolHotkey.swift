@@ -11,18 +11,12 @@ final class QuickToolHotkey {
     private static var instances: [UInt32: QuickToolHotkey] = [:]
     private static var sharedHandler: EventHandlerRef?
 
-    /// Unregisters every active QuickToolHotkey across the app. Called during
-    /// shortcut capture so the field records the user's intended combination
-    /// instead of firing a tool.
-    static func unregisterAll() {
-        for instance in instances.values {
-            instance.unregister()
-        }
-    }
-
     private let hotKeyID: UInt32
     private var hotKeyRef: EventHotKeyRef?
     private var registeredShortcut: GlobalShortcut?
+    /// The key the registered combination is stored under, so the take-over
+    /// hears about this hotkey coming and going.
+    private var claimedKey: String?
     var onPress: (() -> Void)?
 
     init(id: UInt32) {
@@ -31,16 +25,8 @@ final class QuickToolHotkey {
 
     /// Applies the wanted state; returns false when macOS refused the
     /// registration (combination taken by another app).
-    ///
-    /// `storageKey` is the defaults key the combination lives under. Upstream
-    /// makes it required and hands it to `SystemShortcutTakeover`, which
-    /// switches macOS symbolic hotkeys off while a tool holds the same keys.
-    /// That take-over is not ported to this fork (it rewrites WindowServer
-    /// preferences), so the key is accepted for call-site parity and unused;
-    /// it stays optional so tools without an upstream counterpart need not
-    /// pass one.
     @discardableResult
-    func sync(enabled: Bool, shortcut: GlobalShortcut, storageKey: String? = nil) -> Bool {
+    func sync(enabled: Bool, shortcut: GlobalShortcut, storageKey: String) -> Bool {
         guard enabled else {
             unregister()
             return true
@@ -62,6 +48,8 @@ final class QuickToolHotkey {
         }
         hotKeyRef = ref
         registeredShortcut = shortcut
+        claimedKey = storageKey
+        SystemShortcutTakeover.claim(storageKey, shortcut: shortcut)
         return true
     }
 
@@ -69,9 +57,20 @@ final class QuickToolHotkey {
         if let hotKeyRef {
             UnregisterEventHotKey(hotKeyRef)
         }
+        if let claimedKey {
+            SystemShortcutTakeover.release(claimedKey)
+        }
+        claimedKey = nil
         hotKeyRef = nil
         registeredShortcut = nil
         Self.instances.removeValue(forKey: hotKeyID)
+    }
+
+    /// Releases every quick tool key at once, for the moment a shortcut field
+    /// is listening and the combination being typed must reach it instead of
+    /// firing a tool. Each owner registers again on its next `sync`.
+    static func unregisterAll() {
+        for instance in instances.values { instance.unregister() }
     }
 
     private static func installSharedHandlerIfNeeded() {

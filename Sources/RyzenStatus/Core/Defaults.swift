@@ -208,7 +208,7 @@ enum Defaults {
         "gpu", "gpuTemperature", "gpuPower", "gpuTempPower",
         "memory",
         "battery", "batteryTime", "batteryTemperature", "peripheralBattery",
-        "network", "diskUsage", "diskActivity", "power",
+        "network", "diskUsage", "diskActivity", "connectedDevices", "power",
     ]
     static let allowedMenuBarLabelStyles = ["compact", "classic"]
     static let allowedMenuBarMemoryStyles = ["dot", "percent", "both"]
@@ -905,6 +905,8 @@ enum Defaults {
         DefaultsKey.notchIncludeOtherPlayers: true,
         DefaultsKey.notchPreferredPlayer: "",
         DefaultsKey.notchIdleContent: "music", // NotchIdleContent.music
+        DefaultsKey.notchCapsuleCenter: "song", // NotchCapsuleCenter.song
+        DefaultsKey.notchCapsuleMetric: "cpuTemperature", // NotchCapsuleMetric.cpuTemperature
         DefaultsKey.notchHiddenControls: "keyboardLight,microphone,screenshot,recording,speedTest,panel,commandBar,scratchpad", // NotchControlItem.defaultHidden
         DefaultsKey.notchScratchpadControlHidden: false,
         DefaultsKey.notchKeyboardLightControlHidden: false,
@@ -945,6 +947,7 @@ enum Defaults {
         DefaultsKey.radialMenuActivationMode: "pressOrHold", // RadialMenuActivationMode.pressOrHold upstream
         DefaultsKey.windowMaximizeExcludedApps: [String](),
         DefaultsKey.cleaningModeKeepScreenVisible: false,
+        DefaultsKey.packageManagerProvider: "automatic",
         DefaultsKey.homebrewGroupDependencies: true,
         DefaultsKey.appUpdatesIncludeOnlineCatalog: true,
         DefaultsKey.appUpdatesRules: "[]",

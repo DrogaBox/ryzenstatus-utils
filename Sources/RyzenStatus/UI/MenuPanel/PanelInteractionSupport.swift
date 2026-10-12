@@ -13,11 +13,13 @@ enum PanelInteractionSupport {
     /// even after the user switched to another section of it.
     static func blocksDismissal(viewKeepsPopoverOpen: Bool,
                                 isPresentingPopoverModal: Bool,
+                                airPlayPickerShown: Bool = false,
                                 homebrewOperationActive: Bool,
                                 cleanerRunning: Bool,
                                 uninstallerRunning: Bool) -> Bool {
         viewKeepsPopoverOpen
             || isPresentingPopoverModal
+            || airPlayPickerShown
             || homebrewOperationActive
             || cleanerRunning
             || uninstallerRunning

@@ -268,18 +268,19 @@ struct MascotMoodEngine {
 
     /// Latched on at or above `enter`, off below `exit`. No reading lets go.
     static func above(_ value: Double?, latched: Bool, enter: Double, exit: Double) -> Bool {
-        guard let value else { return false }
+        guard let value, value.isFinite else { return false }
         return latched ? value >= exit : value >= enter
     }
 
     /// Latched on at or below `enter`, off above `exit`. No reading lets go.
     static func below(_ value: Double?, latched: Bool, enter: Double, exit: Double) -> Bool {
-        guard let value else { return false }
+        guard let value, value.isFinite else { return false }
         return latched ? value <= exit : value <= enter
     }
 
     /// A share from 0 to 1 rounded to the nearest quarter.
     static func quarter(_ value: Double) -> Double {
-        (max(0, min(1, value)) * 4).rounded() / 4
+        guard value.isFinite else { return 0 }
+        return (max(0, min(1, value)) * 4).rounded() / 4
     }
 }

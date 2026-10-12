@@ -3,12 +3,9 @@
 
 import SwiftUI
 
-// The card-style building blocks the Dynamic Island page is drawn with. The
-// rest of this fork's Settings pages are grouped Forms; the island's page lays
-// out its own tabs, editor and previews, so it keeps the cards it was designed
-// with. Only the pieces that page uses are here.
-
-/// One rounded group of related controls, with an optional heading.
+/// One rounded group of related controls on a redesigned Settings page, with
+/// an optional heading. The same card the Dynamic Island page draws, so the
+/// pages read as one design.
 struct SettingsCard<Content: View>: View {
     let title: String?
     let content: Content
@@ -35,7 +32,7 @@ struct SettingsCard<Content: View>: View {
 let settingsRowTextInset: CGFloat = 26 + 12
 
 /// Icon, title, one line of explanation and the control on the right. A nil
-/// symbol shows a generic menu bar glyph.
+/// symbol shows the app's own menu bar glyph, for rows about that icon.
 struct SettingsRow<Accessory: View>: View {
     let symbol: String?
     let title: String
@@ -54,12 +51,7 @@ struct SettingsRow<Accessory: View>: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: symbol ?? "menubar.rectangle")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 26, height: 26)
-                .background(Color.accentColor.opacity(0.12),
-                            in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            iconTile
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(title)
@@ -82,6 +74,26 @@ struct SettingsRow<Accessory: View>: View {
             }
             Spacer(minLength: 12)
             accessory
+        }
+    }
+
+    @ViewBuilder
+    private var iconTile: some View {
+        if let symbol {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 26, height: 26)
+                .background(Color.accentColor.opacity(0.12),
+                            in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        } else {
+            // The menu bar draws the glyph white on a dark bar; the badge keeps
+            // that pairing so it reads as the same icon in both appearances.
+            MenuBarGlyph()
+                .frame(width: 17, height: 13)
+                .frame(width: 26, height: 26)
+                .background(Color.black.opacity(0.82),
+                            in: RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
     }
 }
@@ -170,9 +182,47 @@ struct SettingsChoiceRow<Value: Hashable, Options: View>: View {
     }
 }
 
+/// A row whose choice is a menu: beside the title while the row fits on one
+/// line, under the title otherwise, lined up with its text, or with its icon
+/// when the menu is wider than the text leaves room for. A menu kept beside a
+/// title that has to wrap squeezes the title letter by letter, and a row
+/// wider than its column would center the page and cut it on both sides.
+struct SettingsMenuRow<Value: Hashable, Options: View>: View {
+    let symbol: String?
+    let title: String
+    @Binding var selection: Value
+    let options: Options
+
+    init(symbol: String?, title: String, selection: Binding<Value>, @ViewBuilder options: () -> Options) {
+        self.symbol = symbol
+        self.title = title
+        _selection = selection
+        self.options = options()
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            SettingsRow(symbol: symbol, title: title) { menu }
+            VStack(alignment: .leading, spacing: 8) {
+                SettingsRow(symbol: symbol, title: title) { EmptyView() }
+                // Only the menu's width decides here: a title too long for one
+                // line wraps above it either way.
+                ViewThatFits(in: .horizontal) {
+                    menu.padding(.leading, settingsRowTextInset)
+                    menu
+                }
+            }
+        }
+    }
+
+    private var menu: some View {
+        Picker(title, selection: $selection) { options }.pickerStyle(.menu).labelsHidden().fixedSize()
+    }
+}
+
 /// A switch pushed to the trailing edge with its label at the leading one,
 /// so a shared control that carries its own label lines up with the rows
-/// around it on a card page.
+/// around it on a redesigned page.
 struct TrailingSwitchToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 12) {
@@ -197,5 +247,26 @@ extension AppFeature {
     @MainActor
     func showInFeatures() {
         SettingsRouter.shared.page = .features
+    }
+}
+
+/// The idle menu bar glyph, tinted white for dark surfaces. The custom
+/// symbol upstream lets people pick is not ported yet, so this is always the
+/// app's own mark.
+struct MenuBarGlyph: View {
+    var body: some View {
+        Group {
+            if let image = BlackHoleGlyph.image(active: false) {
+                Image(nsImage: image)
+                    .renderingMode(.template)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            } else {
+                Image(systemName: "circle.fill")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            }
+        }
+        .foregroundStyle(.white)
     }
 }

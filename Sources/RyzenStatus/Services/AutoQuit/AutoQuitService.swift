@@ -776,8 +776,10 @@ final class AutoQuitService: ObservableObject {
 
     private func elementAt(point: CGPoint) -> AXUIElement? {
         let system = AXUIElementCreateSystemWide()
-        // Enforce strict AX timeout inside event tap to prevent WindowServer input freeze
-        AXUIElementSetMessagingTimeout(system, Self.tapAXTimeout)
+        // No cap on the system-wide element: a timeout there becomes the
+        // default for every question this process asks, whoever asks it
+        // (#938). The process default is bounded once at launch; the element
+        // returned below gets this path's own cap.
         var element: AXUIElement?
         guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &element) == .success
         else { return nil }

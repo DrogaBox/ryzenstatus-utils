@@ -256,16 +256,17 @@ enum CommandBarCatalog {
                 ]
             }
             if feature == .mouseButtonShortcuts {
-                // PORT-TODO: this fork has no second switch to offer here.
-                // Upstream adds a row for `mouseSpacesGestureEnabled` labelled
-                // with `MouseButtonFeatureStrings.spacesEnableLabel`; neither
-                // that field nor any other label for the gesture exists in
-                // this fork (the key is stored but nothing shows it), so the
-                // gesture row is left out rather than shown in English.
-                return [entry(for: feature,
-                              key: DefaultsKey.mouseButtonShortcutsEnabled,
-                              name: feature.hubTitle(s, hub: hub),
-                              id: "toggle.mouseButtonShortcuts")]
+                let buttons = FeatureStrings.mouseButtons(language)
+                return [
+                    entry(for: feature,
+                          key: DefaultsKey.mouseButtonShortcutsEnabled,
+                          name: feature.hubTitle(s, hub: hub),
+                          id: "toggle.mouseButtonShortcuts"),
+                    entry(for: feature,
+                          key: DefaultsKey.mouseSpacesGestureEnabled,
+                          name: buttons.spacesEnableLabel,
+                          id: "toggle.mouseButtonShortcuts.spacesGesture"),
+                ]
             }
             // Two keys means two different switches; which one a single row
             // would flip is a guess, and a guess here changes the person's Mac.
@@ -299,7 +300,7 @@ enum CommandBarCatalog {
         /// A shortcut is only shown while it actually fires (its enables on),
         /// so the bar never teaches a dead combination.
         func roleShortcut(_ role: GlobalShortcutRole) -> GlobalShortcut? {
-            guard role.feature.isAvailable,
+            guard role.isAvailable(using: { $0.isAvailable }),
                   role.requiredEnableKeys.allSatisfy({ UserDefaults.standard.bool(forKey: $0) })
             else { return nil }
             return role.savedShortcut
@@ -388,20 +389,21 @@ enum CommandBarCatalog {
                     : .needsSetup(featureTitle: clipboard.title, page: .clipboard),
                 run: { _ in afterBeat(0.1) { ClipboardHistoryService.shared.showHistoryWindow() } }))
             // Counted when the bar lists it: a copy made before confirming is kept.
-            // This fork offers no count and asks nothing first: the panel and
-            // the clipboard window clear the unpinned items the moment their
-            // button is pressed, and the row does the same.
+            let recentIDs = ClipboardHistoryService.shared.recentEntriesSnapshot
             entries.append(CommandBarEntry(
                 id: "action.clipboardClearRecent",
                 title: clipboard.clearRecent,
                 subtitle: area(.clipboardHistory),
                 keywords: [clipboard.title, ClipboardFeatureStrings.enUS.title,
                            ClipboardFeatureStrings.enUS.clearRecent,
-                           clipboard.recent, ClipboardFeatureStrings.enUS.recent].joined(separator: " "),
+                           clipboard.recent, ClipboardFeatureStrings.enUS.recent,
+                           clipboard.clearRecentKeywords,
+                           ClipboardFeatureStrings.enUS.clearRecentKeywords].joined(separator: " "),
                 icon: .symbol("trash"),
                 trouble: canUseHistory ? nil
                     : .needsSetup(featureTitle: clipboard.title, page: .clipboard),
-                run: { _ in ClipboardHistoryService.shared.clearRecent() }))
+                confirmationPrompt: String(format: clipboard.clearRecentConfirmFormat, recentIDs.count),
+                run: { _ in ClipboardHistoryService.shared.clearRecent(recentIDs) }))
         }
         if AppFeature.textSnippets.isAvailable {
             entries.append(CommandBarEntry(
@@ -538,12 +540,14 @@ enum CommandBarCatalog {
             numericRange: 0...100,
             run: { value in
                 guard let value else { return }
-                // Setting the level publishes it, and the island observes that
-                // and shows the level itself; the floating copy is only for the
-                // case where volume is not routed there, where it would
-                // otherwise sit right below the island's own readout.
-                AppVolumeMixer.shared.setCurrentOutputVolume(Double(value) / 100)
-                if NotchSupport.routes(.volume) { return }
+                let level = Double(value) / 100
+                guard AppVolumeMixer.setSystemOutputVolume(level) else {
+                    NSSound.beep()
+                    return
+                }
+                // Dynamic Island shows the level itself, and a floating copy
+                // would sit right below it.
+                if NotchSupport.routes(.volume), NotchService.shared.showVolume(level) { return }
                 QuickToolHUD.show(icon: "speaker.wave.2",
                                   message: "\(FeatureStrings.commandBar(L10n.shared.language).volumeTitle) \(value)%")
             }))
@@ -662,7 +666,7 @@ enum CommandBarCatalog {
                     title: action.title(layoutText),
                     subtitle: layoutArea,
                     keywords: keywords,
-                    icon: .symbol(layoutSymbol(for: action)),
+                    icon: .symbol(action.symbolName),
                     shortcut: action.savedShortcut,
                     trouble: axTrouble,
                     run: { _ in
@@ -760,10 +764,19 @@ enum CommandBarCatalog {
                     CommandBarService.shared.query = ""
                 }))
         }
-        // PORT-TODO: the bug and feature-request rows are left out because this
-        // fork has no Feedback feature at all: there is no
-        // `FeatureStrings.feedback(_:)` and no `AppDelegate.openFeedbackWindow`.
-        // The two rows come back with that feature.
+        let feedback = FeatureStrings.feedback(language)
+        entries.append(CommandBarEntry(
+            id: "action.feedback.bug",
+            title: feedback.commandBug,
+            subtitle: feedback.commandSubtitle,
+            icon: .symbol("ladybug"),
+            run: { _ in afterBeat { appDelegate()?.openFeedbackWindow(kind: .bug) } }))
+        entries.append(CommandBarEntry(
+            id: "action.feedback.feature",
+            title: feedback.commandFeature,
+            subtitle: feedback.commandSubtitle,
+            icon: .symbol("lightbulb"),
+            run: { _ in afterBeat { appDelegate()?.openFeedbackWindow(kind: .feature) } }))
         entries.append(CommandBarEntry(
             id: "action.restartApp",
             title: String(format: bar.restartAppFormat, AppInfo.name),
@@ -1738,8 +1751,12 @@ enum CommandBarCatalog {
 
     /// The pause every surface gives a non-activating panel to leave the
     /// screen before the action captures, presents or resolves focus.
-    private static func afterBeat(_ delay: TimeInterval = 0.15, _ work: @escaping () -> Void) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    /// The work runs on the main queue, so it may touch main-actor state such
+    /// as the app delegate.
+    private static func afterBeat(_ delay: TimeInterval = 0.15, _ work: @escaping @MainActor () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            MainActor.assumeIsolated { work() }
+        }
     }
 
     /// Opens the Settings window on one page. The local router carries the
@@ -1753,37 +1770,6 @@ enum CommandBarCatalog {
         Task { @MainActor in
             SettingsRouter.shared.page = page
             (NSApp.delegate as? AppDelegate)?.openSettingsWindow()
-        }
-    }
-
-    /// The icon a window-layout row shows. The model carries no icon in this
-    /// fork — `WindowLayoutSettings` keeps this switch to itself — so the same
-    /// table, with the same symbol names, is repeated here for the bar's rows.
-    private static func layoutSymbol(for action: WindowLayoutAction) -> String {
-        switch action {
-        case .leftHalf: return "rectangle.leftthird.inset.filled"
-        case .rightHalf: return "rectangle.rightthird.inset.filled"
-        case .topHalf: return "rectangle.topthird.inset.filled"
-        case .bottomHalf: return "rectangle.bottomthird.inset.filled"
-        case .leftThird: return "rectangle.leftthird.inset.filled"
-        case .centerThird: return "rectangle.center.inset.filled"
-        case .rightThird: return "rectangle.rightthird.inset.filled"
-        case .leftTwoThirds: return "rectangle.leadinghalf.filled"
-        case .rightTwoThirds: return "rectangle.trailinghalf.filled"
-        case .topLeftSixth: return "arrow.up.left"
-        case .topCenterSixth: return "arrow.up"
-        case .topRightSixth: return "arrow.up.right"
-        case .bottomLeftSixth: return "arrow.down.left"
-        case .bottomCenterSixth: return "arrow.down"
-        case .bottomRightSixth: return "arrow.down.right"
-        case .topLeft: return "arrow.up.left"
-        case .topRight: return "arrow.up.right"
-        case .bottomLeft: return "arrow.down.left"
-        case .bottomRight: return "arrow.down.right"
-        case .maximize: return "arrow.up.left.and.arrow.down.right"
-        case .center: return "scope"
-        case .nextDisplay: return "arrow.right.to.line"
-        case .restore: return "arrow.uturn.backward"
         }
     }
 

@@ -8,8 +8,8 @@ import Foundation
 /// below and the unit tests can reason about pages without pulling SwiftUI in.
 enum SettingsPage: Hashable, CaseIterable {
     case general, features, energy, monitor
-    case mouse, switcher, keyDebounce, cutPaste, autoQuit, cleaner, uninstaller, urlCleaner, homebrew, appUpdates, media, clipboard, windowLayout, shelf, quickTools, textSnippets, screenshot, screenRecorder, radialMenu, nowPlaying
-    case mouseButtonShortcuts, superKey
+    case mouse, switcher, dock, keyDebounce, cutPaste, autoQuit, cleaner, uninstaller, urlCleaner, homebrew, appUpdates, media, clipboard, windowLayout, shelf, quickTools, textSnippets, screenshot, radialMenu, nowPlaying
+    case superKey
     case whatsAppDownloads
     case shortcuts, advanced, about, releaseNotes, support, fans, amdPower, amdOverclocking, sensors, dashboard, amdValidation
     case killProcess, notch, commandBar
@@ -22,7 +22,7 @@ enum SettingsPage: Hashable, CaseIterable {
 /// be added but never renamed.
 ///
 /// RyzenStatus: upstream's page mapping is kept where the page exists here.
-/// Dock tools live on the Switcher page, the recorder keeps a page of its own,
+/// Dock tools have their own page as upstream, the recorder keeps a page of its own,
 /// and the window maximizer has no section outside the Features hub yet.
 /// Upstream's `fanControl` anchor is left out: fan control is the AMD layer's.
 enum SettingsSectionAnchor: String, CaseIterable, Hashable {
@@ -73,18 +73,17 @@ enum SettingsSectionAnchor: String, CaseIterable, Hashable {
             return .general
         case .keepAwake, .brightness, .extraBrightness, .bluetoothSleep: return .energy
         case .scrollDirection, .focusFollowsMouse, .smoothScroll, .linearScroll, .mouseAcceleration, .mouseNavigation,
-             .middleClick, .mouseClickDebounce:
+             .mouseButtonShortcuts, .middleClick, .mouseClickDebounce:
             return .mouse
-        case .mouseButtonShortcuts: return .mouseButtonShortcuts
-        case .switcher, .dock, .dockClick: return .switcher
-        case .spacesOrder, .windowMaximizer: return .windowLayout
+        case .switcher: return .switcher
+        case .dock, .dockClick, .spacesOrder: return .dock
+        case .windowMaximizer: return .windowLayout
         case .finderCutPaste, .finderRename: return .cutPaste
         case .clipboardHistory, .pastePlain: return .clipboard
-        case .quickLauncher, .quickToggles, .micMute, .cameraPreview, .wallpaper, .scratchpad, .cleaningMode,
-             .colorPicker, .screenOCR:
+        case .quickLauncher, .quickToggles, .micMute, .cameraPreview, .wallpaper, .scratchpad, .cleaningMode:
             return .quickTools
-        case .screenshot: return .screenshot
-        case .screenRecorder: return .screenRecorder
+        // Every tool that starts from the screen shares one page, as upstream.
+        case .screenshot, .screenRecorder, .colorPicker, .screenOCR: return .screenshot
         case .keyboardBrightnessShortcuts: return .shortcuts
         }
     }
@@ -147,9 +146,9 @@ extension AppFeature {
     var settingsDestination: FeatureSettingsDestination {
         switch self {
         case .switcher: return FeatureSettingsDestination(.switcher, sectionAnchor: .switcher)
-        case .dockPreview: return FeatureSettingsDestination(.switcher, sectionAnchor: .dock)
-        case .dockClick: return FeatureSettingsDestination(.switcher, sectionAnchor: .dockClick)
-        case .spacesOrder: return FeatureSettingsDestination(.windowLayout, sectionAnchor: .spacesOrder)
+        case .dockPreview: return FeatureSettingsDestination(.dock, sectionAnchor: .dock)
+        case .dockClick: return FeatureSettingsDestination(.dock, sectionAnchor: .dockClick)
+        case .spacesOrder: return FeatureSettingsDestination(.dock, sectionAnchor: .spacesOrder)
         case .windowMaximizer: return FeatureSettingsDestination(.features)
         case .windowLayout: return FeatureSettingsDestination(.windowLayout)
         case .autoQuit: return FeatureSettingsDestination(.autoQuit)
@@ -167,7 +166,8 @@ extension AppFeature {
             return FeatureSettingsDestination(.mouse, sectionAnchor: .mouseAcceleration)
         case .mouseNavigation:
             return FeatureSettingsDestination(.mouse, sectionAnchor: .mouseNavigation)
-        case .mouseButtonShortcuts: return FeatureSettingsDestination(.mouseButtonShortcuts)
+        case .mouseButtonShortcuts:
+            return FeatureSettingsDestination(.mouse, sectionAnchor: .mouseButtonShortcuts)
         case .middleClick:
             return FeatureSettingsDestination(.mouse, sectionAnchor: .middleClick)
         case .mouseClickDebounce:
@@ -214,9 +214,9 @@ extension AppFeature {
         case .quickToggles:
             return FeatureSettingsDestination(.quickTools, sectionAnchor: .quickToggles)
         case .colorPicker:
-            return FeatureSettingsDestination(.quickTools, sectionAnchor: .colorPicker)
+            return FeatureSettingsDestination(.screenshot, sectionAnchor: .colorPicker)
         case .screenOCR:
-            return FeatureSettingsDestination(.quickTools, sectionAnchor: .screenOCR)
+            return FeatureSettingsDestination(.screenshot, sectionAnchor: .screenOCR)
         case .cleaningMode:
             return FeatureSettingsDestination(.quickTools, sectionAnchor: .cleaningMode)
         case .mediaTools: return FeatureSettingsDestination(.media)
@@ -227,19 +227,20 @@ extension AppFeature {
         case .homebrew: return FeatureSettingsDestination(.homebrew)
         case .appUpdates: return FeatureSettingsDestination(.appUpdates)
         case .whatsAppDownloads: return FeatureSettingsDestination(.whatsAppDownloads)
-        case .screenshot: return FeatureSettingsDestination(.screenshot)
+        case .screenshot: return FeatureSettingsDestination(.screenshot, sectionAnchor: .screenshot)
         case .cameraPreview:
             return FeatureSettingsDestination(.quickTools, sectionAnchor: .cameraPreview)
         case .wallpaper:
             return FeatureSettingsDestination(.quickTools, sectionAnchor: .wallpaper)
         case .notch, .notchCalendar, .notchNotifications, .notchGestures, .notchTimer, .notchAccessories,
-             .notchLyrics, .notchQueue, .notchLiveEqualizer, .notchDownloads, .notchWatch, .notchMascot:
+             .notchLyrics, .notchQueue, .notchLiveEqualizer, .notchDownloads, .notchAgents, .notchWatch,
+             .notchMascot:
             return FeatureSettingsDestination(.notch)
         case .radialMenu: return FeatureSettingsDestination(.radialMenu)
         case .scratchpad:
             return FeatureSettingsDestination(.quickTools, sectionAnchor: .scratchpad)
         case .commandBar: return FeatureSettingsDestination(.commandBar)
-        case .screenRecorder: return FeatureSettingsDestination(.screenRecorder)
+        case .screenRecorder: return FeatureSettingsDestination(.screenshot, sectionAnchor: .screenRecorder)
 
         case .monitorCPU, .monitorGPU, .monitorMemory, .monitorNetwork, .monitorDisk, .monitorPower,
              .monitorInsights, .monitorAnalytics, .monitorEnergy, .monitorNetworkDetails, .connectedDevices:
@@ -267,15 +268,16 @@ enum FeatureVisibilitySupport {
         case .monitor: return monitorFeatures + [.mixer, .soundOutputSwitcher, .connectedDevices]
         case .mouse: return [.scrollInverter, .smoothScroll, .mouseNavigation, .middleClick,
                              .scrollHorizontal, .focusFollowsMouse, .linearScroll, .mouseAcceleration,
-                             .mouseClickDebounce]
-        case .switcher: return [.switcher, .dockPreview, .dockClick, .spacesOrder]
+                             .mouseButtonShortcuts, .mouseClickDebounce]
+        case .switcher: return [.switcher]
+        case .dock: return [.dockPreview, .dockClick, .spacesOrder]
         case .windowLayout: return [.windowLayout, .windowMaximizer]
         case .autoQuit: return [.autoQuit]
         case .clipboard: return [.clipboardHistory, .pastePlain]
         case .cutPaste: return [.finderCutPaste, .finderRename]
         case .shelf: return [.shelf]
         case .media: return [.mediaTools]
-        case .quickTools: return [.quickLauncher, .quickToggles, .colorPicker, .screenOCR, .micMute,
+        case .quickTools: return [.quickLauncher, .quickToggles, .micMute,
                                   .cameraPreview, .scratchpad, .wallpaper]
         case .urlCleaner: return [.urlCleaner]
         case .homebrew: return [.homebrew]
@@ -284,11 +286,9 @@ enum FeatureVisibilitySupport {
         case .whatsAppDownloads: return [.whatsAppDownloads]
         case .uninstaller: return [.uninstaller]
         case .keyDebounce: return [.keyboardDebounce]
-        case .mouseButtonShortcuts: return [.mouseButtonShortcuts]
         case .superKey: return [.superKey]
         case .textSnippets: return [.textSnippets]
-        case .screenshot: return [.screenshot]
-        case .screenRecorder: return [.screenRecorder]
+        case .screenshot: return [.screenshot, .screenRecorder, .screenOCR, .colorPicker]
         case .radialMenu: return [.radialMenu]
         case .nowPlaying: return [.nowPlaying]
         case .killProcess: return [.killProcess]
@@ -326,14 +326,15 @@ extension AppFeature {
     /// configure beyond the hub's own switch, so the hub row is their page.
     var settingsPage: SettingsPage {
         switch self {
-        case .switcher, .dockPreview, .dockClick, .spacesOrder: return .switcher
+        case .switcher: return .switcher
+        case .dockPreview, .dockClick, .spacesOrder: return .dock
         case .windowLayout, .windowMaximizer: return .windowLayout
         case .autoQuit: return .autoQuit
         case .quitWindowProtection: return .quitProtection
         case .scrollInverter, .smoothScroll, .mouseNavigation, .middleClick, .scrollHorizontal,
-             .focusFollowsMouse, .linearScroll, .mouseAcceleration, .mouseClickDebounce:
+             .focusFollowsMouse, .linearScroll, .mouseAcceleration, .mouseClickDebounce,
+             .mouseButtonShortcuts:
             return .mouse
-        case .mouseButtonShortcuts: return .mouseButtonShortcuts
         case .superKey: return .superKey
         case .keyboardDebounce: return .keyDebounce
         case .textSnippets: return .textSnippets
@@ -346,9 +347,10 @@ extension AppFeature {
         // Inside another page: the Monitor page's panel configuration.
         case .mixer, .soundOutputSwitcher, .connectedDevices: return .monitor
         case .keepAwake, .brightness, .extraBrightness, .bluetoothSleep: return .energy
-        case .quickLauncher, .quickToggles, .colorPicker, .screenOCR, .micMute, .cameraPreview,
+        case .quickLauncher, .quickToggles, .micMute, .cameraPreview,
              .scratchpad, .wallpaper:
             return .quickTools
+        case .colorPicker, .screenOCR: return .screenshot
         case .mediaTools: return .media
         case .cleaner: return .cleaner
         case .uninstaller: return .uninstaller
@@ -358,15 +360,14 @@ extension AppFeature {
         case .killProcess: return .killProcess
         case .portManager: return .portManager
         case .commandBar: return .commandBar
-        case .screenshot: return .screenshot
-        case .screenRecorder: return .screenRecorder
+        case .screenshot, .screenRecorder: return .screenshot
         case .radialMenu: return .radialMenu
         case .nowPlaying: return .nowPlaying
         // Every island module is a section of the island's page, and the
         // companion is one of its tabs.
         case .notch, .notchCalendar, .notchNotifications, .notchGestures, .notchTimer,
              .notchAccessories, .notchLyrics, .notchLiveEqualizer, .notchQueue, .notchDownloads,
-             .notchWatch, .notchMascot:
+             .notchAgents, .notchWatch, .notchMascot:
             return .notch
         case .monitorCPU, .monitorGPU, .monitorMemory, .monitorNetwork, .monitorDisk,
              .monitorPower:

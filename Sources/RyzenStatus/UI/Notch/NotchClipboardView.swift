@@ -57,7 +57,7 @@ struct NotchClipboardView: View {
             }
             .disabled(history.recentEntries.isEmpty)
             NotchIconButton(symbol: "arrow.up.forward.app", title: text.title) {
-                service.perform { history.showHistoryWindow() }
+                service.perform { history.showHistoryWindow(preferNotch: false) }
             }
         }
         .padding(.horizontal, 12)
@@ -77,13 +77,18 @@ struct NotchClipboardView: View {
         }
     }
 
+    /// Deletes only the unpinned entries the button saw, never one copied
+    /// while the alert was up.
     private func confirmClearRecent() {
-        guard NSAlert.confirmAboveIsland(text.clearRecent,
-                                         message: text.clearAll,
-                                         action: text.clearRecent, destructive: true,
-                                         cancel: text.cancel) else { return }
-        history.clearRecent()
-        copiedID = nil
+        let ids = history.recentEntriesSnapshot
+        DispatchQueue.main.async {
+            guard NSAlert.confirmAboveIsland(String(format: text.clearRecentConfirmFormat, ids.count),
+                                             message: text.clearRecentConfirmMessage,
+                                             action: text.clearRecent, destructive: true,
+                                             cancel: text.cancel) else { return }
+            history.clearRecent(ids)
+            copiedID = nil
+        }
     }
 
     var body: some View {
@@ -194,6 +199,9 @@ struct NotchClipboardView: View {
                     .font(.system(size: 9.5, weight: .medium)).monospacedDigit()
                     .foregroundStyle(.tertiary)
                     .accessibilityHidden(true)
+            }
+            if entry.kind == .image, AppFeature.screenshot.isAvailable {
+                NotchIconButton(symbol: "pencil", title: text.edit) { history.editImage(entry) }
             }
             NotchIconButton(symbol: copiedID == entry.id ? "checkmark" : "doc.on.doc",
                             title: copiedID == entry.id ? text.copied : text.copy) { copy(entry) }

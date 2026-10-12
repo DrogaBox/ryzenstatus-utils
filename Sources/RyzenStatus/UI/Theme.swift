@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
+import AppKit
 import SwiftUI
 
 /// Shared look & feel: brand colors, card styling and the brand mark.
@@ -85,6 +86,33 @@ enum PanelSurface {
     static func suiteCardFill(for scheme: ColorScheme) -> Color {
         scheme == .light ? Color(NSColor.controlBackgroundColor) : Color.white.opacity(0.06)
     }
+
+    /// A control that sits ON a glass surface rather than in it: the system's
+    /// own round toggles read as physical because they are lighter than what
+    /// is behind them and carry their own shadow.
+    static func raisedFill(for scheme: ColorScheme) -> Color {
+        scheme == .light ? Color.white.opacity(0.88) : Color.white.opacity(0.14)
+    }
+
+    static func raisedBorder(for scheme: ColorScheme) -> Color {
+        let raised = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        return scheme == .light
+            ? Color.black.opacity(raised ? 0.22 : 0.07)
+            : Color.white.opacity(raised ? 0.32 : 0.16)
+    }
+
+    static func raisedShadow(for scheme: ColorScheme) -> Color {
+        scheme == .light ? Color.black.opacity(0.14) : Color.black.opacity(0.38)
+    }
+
+    /// The lit edge of a glass surface: bright where the light comes from,
+    /// gone by the bottom. Without it a translucent panel reads as paper.
+    static func rimHighlight(for scheme: ColorScheme) -> LinearGradient {
+        LinearGradient(colors: [Color.white.opacity(scheme == .light ? 0.95 : 0.30),
+                                Color.white.opacity(scheme == .light ? 0.12 : 0.04)],
+                       startPoint: .top,
+                       endPoint: .bottom)
+    }
 }
 
 func sectionTitle(_ text: String) -> some View {
@@ -95,9 +123,11 @@ func sectionTitle(_ text: String) -> some View {
 }
 
 extension View {
-    /// The rounded card background used by every panel section.
-    func panelCard() -> some View {
-        modifier(PanelCardModifier())
+    /// The rounded card background used by every panel section. Inside the
+    /// island it becomes the notch control surface; `interactive` tells that
+    /// surface whether the card reacts to the pointer.
+    func panelCard(interactive: Bool = true, padded: Bool = true) -> some View {
+        modifier(PanelCardModifier(interactive: interactive, padded: padded))
     }
 
     /// The structured card container used by Performance Suite dashboard sections.
@@ -131,11 +161,17 @@ private struct SuiteCardModifier: ViewModifier {
 }
 
 private struct PanelCardModifier: ViewModifier {
+    var interactive: Bool
+    var padded = true
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.notchPresentation) private var notchPresentation
 
     func body(content: Content) -> some View {
+        if notchPresentation {
+            content.padding(padded ? 12 : 0).modifier(NotchControlSurface(cornerRadius: 18, interactive: interactive))
+        } else {
         content
-            .padding(10)
+            .padding(padded ? 10 : 0)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(PanelSurface.cardFill(for: colorScheme))
@@ -144,6 +180,7 @@ private struct PanelCardModifier: ViewModifier {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(PanelSurface.border(for: colorScheme), lineWidth: 0.7)
             )
+        }
     }
 }
 

@@ -36,18 +36,18 @@ final class ScreenshotShareService: ObservableObject {
         configuration.waitsForConnectivity = false
         session = URLSession(configuration: configuration)
         refresh()
+        // An expiry that came due during sleep never triggers its timer: the
+        // deadline below is armed on a clock that stops with the Mac, so a link
+        // that ran out overnight stays listed as live for as long as the Mac
+        // slept. Waking up recomputes and catches the miss.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.refresh() }
+        }
     }
 
-    var endpoint: URL? {
-#if DEBUG
-        let override = UserDefaults.standard.string(forKey: DefaultsKey.screenshotSharingDeveloperEndpoint)
-#else
-        let override: String? = nil
-#endif
-        return ScreenshotSharingSupport.endpoint(
-            bundleIdentifier: Bundle.main.bundleIdentifier,
-            developerOverride: override)
-    }
+    var endpoint: URL? { ScreenshotSharingSupport.configuredEndpoint() }
 
     /// True when a share server endpoint is configured. Share controls stay
     /// disabled until then — this build never uploads screenshots by default.
@@ -74,7 +74,8 @@ final class ScreenshotShareService: ObservableObject {
 
     func createLink(pngData: Data,
                     duration: ScreenshotShareDuration) async throws -> ScreenshotShareRecord {
-        guard UserDefaults.standard.bool(forKey: DefaultsKey.screenshotSharingEnabled) else {
+        guard AppFeature.screenshot.isAvailable,
+              UserDefaults.standard.bool(forKey: DefaultsKey.screenshotSharingEnabled) else {
             throw ScreenshotShareError.unavailable
         }
         guard !pngData.isEmpty,
@@ -162,6 +163,8 @@ final class ScreenshotShareService: ObservableObject {
     func copy(_ url: URL) -> Bool {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
+        // Marked as this app's own write, so the clipboard history credits it.
+        pasteboard.declareRyzenStatusSource()
         return pasteboard.setString(url.absoluteString, forType: .string)
     }
 

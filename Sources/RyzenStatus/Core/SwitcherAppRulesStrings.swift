@@ -22,6 +22,7 @@ extension FeatureStrings {
         case .tr: return .tr
         case .ru: return .ru
         case .es: return .es
+        case .sk: return .sk
         case .de: return .de
         case .fr: return .fr
         case .it: return .it
@@ -30,7 +31,6 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
-        case .sk: return .sk
         case .uk: return .uk
         }
     }
@@ -90,6 +90,17 @@ extension SwitcherAppRulesStrings {
         windowsOnly: "Solo con ventanas",
         hidden: "No mostrar nunca",
         caption: "Elige cómo aparece cada app. Las apps sin regla usan la opción anterior."
+    )
+
+    static let sk = SwitcherAppRulesStrings(
+        listTitle: "Pravidlá podľa aplikácie",
+        addButton: "Pridať aplikáciu…",
+        removeButton: "Odstrániť",
+        behaviorLabel: "Správanie prepínača",
+        showWithoutWindows: "Zobraziť aj bez okien",
+        windowsOnly: "Len s oknami",
+        hidden: "Nikdy nezobrazovať",
+        caption: "Vyberte, ako sa má zobraziť každá aplikácia. Apky bez pravidla použijú voľbu vyššie."
     )
 
     static let de = SwitcherAppRulesStrings(
@@ -179,26 +190,14 @@ extension SwitcherAppRulesStrings {
         hidden: "一律不顯示",
         caption: "選擇每個 App 的顯示方式。沒有規則的 App 使用上方選項。"
     )
-
-    static let sk = SwitcherAppRulesStrings(
-        listTitle: "Pravidlá podľa aplikácie",
-        addButton: "Pridať aplikáciu…",
-        removeButton: "Odstrániť",
-        behaviorLabel: "Správanie v prepínači",
-        showWithoutWindows: "Zobraziť aj bez okien",
-        windowsOnly: "Iba s oknami",
-        hidden: "Nikdy nezobrazovať",
-        caption: "Vyberte, ako sa zobrazí každá aplikácia. Aplikácie bez pravidla použijú voľbu vyššie."
-    )
-
     static let uk = SwitcherAppRulesStrings(
-        listTitle: "Правила для програм",
+        listTitle: "Правила за програмами",
         addButton: "Додати програму…",
         removeButton: "Видалити",
-        behaviorLabel: "Поведінка в перемикачі",
+        behaviorLabel: "Поведінка перемикача",
         showWithoutWindows: "Показувати без вікон",
-        windowsOnly: "Лише з вікнами",
+        windowsOnly: "Лише вікна",
         hidden: "Ніколи не показувати",
-        caption: "Виберіть, як показувати кожну програму. Програми без правила використовують вибір вище."
+        caption: "Виберіть, як кожна програма з’являється. Програми без правила використовують вибір вище."
     )
 }

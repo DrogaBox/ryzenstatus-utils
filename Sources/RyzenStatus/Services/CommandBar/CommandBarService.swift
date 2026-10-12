@@ -2464,7 +2464,7 @@ final class CommandBarService: ObservableObject {
         // never reaches the local monitor. It quits RyzenStatus instead of
         // landing on the card (issue #1193). When Accessibility cannot
         // create the tap, the monitor below still records as before.
-        ShortcutRecordingTap.begin { [weak self] keyCode, modifiers in
+        ShortcutRecordingTap.begin { [weak self] keyCode, modifiers, _ in
             self?.handleCaptureKey(keyCode: keyCode, modifiers: modifiers)
         }
         mode = .capturingShortcut(entryID: entry.id)
@@ -3147,11 +3147,12 @@ final class CommandBarService: ObservableObject {
         if let loadedAt = windowsLoadedAt, Date().timeIntervalSince(loadedAt) < 4 { return }
         guard !windowsLoading else { return }
         windowsLoading = true
-        // The local walk has no display scope of its own: `listWindows()` is the
-        // same on-screen, user-facing list the switcher offers, which is the
-        // list the bar turns into window rows.
+        // The bar shares the switcher's window walk but not its visibility
+        // preferences: an app hidden from ⌘Tab stays searchable here.
+        // The snapshot reads main-thread state; the walk itself runs off main.
+        let enumerationSnapshot = WindowEnumerator.snapshot()
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let windows = WindowEnumerator.listWindows()
+            let windows = WindowEnumerator.listWindowsForCommandBar(snapshot: enumerationSnapshot)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.windowsLoading = false

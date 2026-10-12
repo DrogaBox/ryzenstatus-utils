@@ -98,7 +98,7 @@ extension AppFeature {
              .monitorInsights, .monitorAnalytics, .monitorEnergy, .monitorNetworkDetails:
             return .periodic
         case .pastePlain, .mixer, .soundOutputSwitcher, .micMute,
-             .musicBlock, .keepAwake, .brightness, .quickLauncher, .quickToggles, .colorPicker,
+             .musicBlock, .keepAwake, .quickLauncher, .quickToggles, .colorPicker,
              .screenOCR, .cleaningMode, .mediaTools, .cleaner, .uninstaller, .homebrew,
              .whatsAppDownloads, .screenshot, .screenRecorder,
              .cameraPreview, .scratchpad, .killProcess, .commandBar,
@@ -106,6 +106,20 @@ extension AppFeature {
              .notchAccessories, .notchLyrics, .notchLiveEqualizer, .notchQueue, .notchDownloads, .notchWatch, .notchMascot:
             // The process table is only sampled while its page is open.
             return .idle
+        case .notchAgents:
+            // The agents' history files are read again on an interval while
+            // the section is on.
+            return .periodic
+        case .brightness:
+            // Following the pointer, the overlay and a finer step answer the
+            // brightness keys from a tap; otherwise nothing runs until a
+            // slider moves.
+            let defaults = UserDefaults.standard
+            return defaults.bool(forKey: DefaultsKey.brightnessKeysEnabled)
+                || defaults.bool(forKey: DefaultsKey.brightnessOSDEnabled)
+                || BrightnessSupport.KeyStep.sanitized(
+                    defaults.string(forKey: DefaultsKey.brightnessKeyStep)) != .standard
+                ? .keyboard : .idle
         // Port Manager runs `lsof` only while its page or panel is open.
         // Connected Devices never polls here: it reads once and then follows
         // IOKit plug and unplug events while its panel row is on screen.

@@ -247,6 +247,10 @@ struct NotchLockScreenActivities: View {
     @ObservedObject private var timer = NotchTimerService.shared
     @ObservedObject private var downloads = NotchDownloadService.shared
     @ObservedObject private var calendar = NotchCalendarService.shared
+    @ObservedObject private var usage = AgentUsageService.shared
+    @AppStorage(DefaultsKey.notchAgentsReadout) private var readout = NotchAgentReadout.elapsed.rawValue
+    @AppStorage(DefaultsKey.notchAgentsLimitDisplay) private var display = NotchAgentLimitDisplay.remaining.rawValue
+    @AppStorage(DefaultsKey.notchAgentsLimitFocus) private var focus = NotchAgentLimitFocus.mostUsed.rawValue
     @ObservedObject private var l10n = L10n.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -272,6 +276,7 @@ struct NotchLockScreenActivities: View {
             calendar: calendar.countdown.map {
                 ($0.ongoing ? gates.timeLeft : gates.countdown || calendar.isChosen($0.event)) && $0.isShown(at: date)
             } == true,
+            agents: gates.agents && !usage.snapshot.live.isEmpty,
             downloads: gates.downloads && downloads.items.contains { $0.active && !$0.completed })
     }
 
@@ -321,6 +326,23 @@ struct NotchLockScreenActivities: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(countdown.ongoing ? text.ongoing : text.next)
             }
+        case .agents:
+            let working = AgentProvider.allCases.filter { provider in usage.snapshot.live.contains { $0.provider == provider } }
+            let reading = NotchAgentSupport.stripReading(usage.snapshot, readout: NotchAgentReadout(rawValue: readout) ?? .elapsed,
+                                                         display: NotchAgentLimitDisplay(rawValue: display) ?? .remaining,
+                                                         focus: NotchAgentLimitFocus(rawValue: focus) ?? .mostUsed, now: date)
+            // The agents and their reading only: a project's name stays off
+            // a screen anyone can walk up to.
+            HStack(spacing: 7) {
+                HStack(spacing: 1) {
+                    ForEach(working) { NotchAgentGlyph(provider: $0, size: 13) }
+                }
+                Text(working.map(\.displayName).joined(separator: " · ") + " " + reading)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(working.map(\.displayName).joined(separator: ", ") + ", "
+                                + FeatureStrings.notchLockScreen(l10n.language).working)
+            .accessibilityValue(reading)
         case .downloads:
             let fraction = downloads.items.first(where: { $0.active && !$0.completed })?.fraction
             HStack(spacing: 7) {

@@ -24,7 +24,7 @@ enum ScreenshotCaptureEngine {
         guard let display = content.displays.first(where: { $0.displayID == displayID })
         else { return nil }
 
-        let ownWindows = excludedOwnWindows(in: content,
+        let ownWindows = await excludedOwnWindows(in: content,
                                             hideRyzenStatusWindows: hideRyzenStatusWindows,
                                             protectedWindowIDs: protectedWindowIDs)
         return await captureDisplay(display,
@@ -33,6 +33,20 @@ enum ScreenshotCaptureEngine {
                                     includePointer: includePointer)
     }
 
+    static func captureDisplayRegion(displayID: CGDirectDisplayID,
+                                     pixelRect: CGRect,
+                                     includePointer: Bool,
+                                     hideRyzenStatusWindows: Bool,
+                                     protectedWindowIDs: Set<CGWindowID>) async -> CGImage? {
+        guard let capture = await prepareDisplayRegion(
+            displayID: displayID, pixelRect: pixelRect, includePointer: includePointer,
+            hideRyzenStatusWindows: hideRyzenStatusWindows, protectedWindowIDs: protectedWindowIDs)
+        else { return nil }
+        return await capture.image()
+    }
+
+    /// Immutable capture configuration owned by one scrolling session. Resolving
+    /// shareable windows for every frame adds latency and loses page overlap.
     final class RegionCapture: @unchecked Sendable {
         private let filter: SCContentFilter
         private let configuration: SCStreamConfiguration
@@ -48,6 +62,8 @@ enum ScreenshotCaptureEngine {
         }
     }
 
+    /// `keepsIslandOut` leaves the island out even where it normally shows in
+    /// captures, for a reading that must not see the island itself change.
     static func prepareDisplayRegion(displayID: CGDirectDisplayID,
                                      pixelRect: CGRect,
                                      includePointer: Bool,
@@ -64,9 +80,10 @@ enum ScreenshotCaptureEngine {
                                    height: CGFloat(display.height) * scale)
         let clamped = ScreenshotSupport.clamp(pixelRect, to: displayPixels).integral
         guard !clamped.isEmpty else { return nil }
-        let ownWindows = excludedOwnWindows(in: content,
+        let ownWindows = await excludedOwnWindows(in: content,
                                             hideRyzenStatusWindows: hideRyzenStatusWindows,
-                                            protectedWindowIDs: protectedWindowIDs)
+                                            protectedWindowIDs: protectedWindowIDs,
+                                            keepsIslandOut: keepsIslandOut)
         let filter = SCContentFilter(display: display, excludingWindows: ownWindows)
         let configuration = SCStreamConfiguration()
         configuration.sourceRect = CGRect(x: clamped.minX / scale,
@@ -80,19 +97,6 @@ enum ScreenshotCaptureEngine {
         return RegionCapture(filter: filter, configuration: configuration)
     }
 
-    static func captureDisplayRegion(displayID: CGDirectDisplayID,
-                                     pixelRect: CGRect,
-                                     includePointer: Bool,
-                                     hideRyzenStatusWindows: Bool,
-                                     protectedWindowIDs: Set<CGWindowID>) async -> CGImage? {
-        guard let capture = await prepareDisplayRegion(displayID: displayID,
-                                                      pixelRect: pixelRect,
-                                                      includePointer: includePointer,
-                                                      hideRyzenStatusWindows: hideRyzenStatusWindows,
-                                                      protectedWindowIDs: protectedWindowIDs) else { return nil }
-        return await capture.image()
-    }
-
     /// Captures every given screen, keyed by display id. Screens that fail
     /// are simply absent; the caller decides how to degrade.
     static func captureAllDisplays(includePointer: Bool,
@@ -101,7 +105,7 @@ enum ScreenshotCaptureEngine {
         guard let content = try? await SCShareableContent.excludingDesktopWindows(
             false, onScreenWindowsOnly: true)
         else { return [:] }
-        let ownWindows = excludedOwnWindows(in: content,
+        let ownWindows = await excludedOwnWindows(in: content,
                                             hideRyzenStatusWindows: hideRyzenStatusWindows,
                                             protectedWindowIDs: protectedWindowIDs)
         var result: [CGDirectDisplayID: CGImage] = [:]
@@ -122,16 +126,25 @@ enum ScreenshotCaptureEngine {
 
     /// The app's own windows a display capture must leave out, resolved
     /// against the same shareable-content snapshot the capture will use.
+    @MainActor
     private static func excludedOwnWindows(in content: SCShareableContent,
                                            hideRyzenStatusWindows: Bool,
-                                           protectedWindowIDs: Set<CGWindowID>) -> [SCWindow] {
+                                           protectedWindowIDs: Set<CGWindowID>,
+                                           keepsIslandOut: Bool = false) -> [SCWindow] {
         let ownWindowIDs = Set(content.windows.compactMap { window in
             window.owningApplication?.processID == getpid() ? window.windowID : nil
         })
+        // The island has its own preference for captures, independent of
+        // hiding the app's ordinary windows. It leaves itself out while it is
+        // the capture interface, so a selection's photograph, taken before
+        // the island turns into the controls, shows it as people saw it.
+        let islandIDs = !keepsIslandOut && NotchSupport.isEnabled()
+            ? NotchService.shared.captureVisibleWindowIDs : []
         let excludedIDs = ScreenshotCapturePolicy.excludedWindowIDs(
             hideRyzenStatusWindows: hideRyzenStatusWindows,
             ownWindowIDs: ownWindowIDs,
-            protectedWindowIDs: protectedWindowIDs)
+            protectedWindowIDs: protectedWindowIDs,
+            islandWindowIDs: islandIDs)
         return content.windows.filter { excludedIDs.contains($0.windowID) }
     }
 
@@ -153,7 +166,11 @@ enum ScreenshotCaptureEngine {
     /// switcher thumbnails use), full resolution, falling back to
     /// ScreenCaptureKit when the private route is unavailable or when it
     /// returns only the visible slice of a window that runs off the screen.
-    static func captureWindow(_ windowID: CGWindowID, scale: CGFloat) async -> CGImage? {
+    /// The scale comes back with the image: a composite with what the app
+    /// stacked on the window is drawn at the scale its layers were captured
+    /// at, which on mixed displays can differ from the one asked for.
+    static func captureWindow(_ windowID: CGWindowID,
+                              scale: CGFloat) async -> (image: CGImage, scale: CGFloat)? {
         // A sheet or dialog the app stacked on the window is a window of its
         // own, and neither single-window route draws it (issue #1098). The
         // window list answers this without waiting on shareable content, so
@@ -175,30 +192,45 @@ enum ScreenshotCaptureEngine {
                let composited = await captureAttached(plan) {
                 return composited
             }
+            // A window spanning two displays has no single display image to
+            // crop from; draw each window's own buffer at its place instead
+            // of dropping the dialog on it.
+            if let plan,
+               let composited = await composeAttached(plan, frames: Dictionary(
+                   onScreen.map { ($0.id, $0.frame) }, uniquingKeysWith: { first, _ in first })) {
+                return composited
+            }
         }
         var clippedFallback: CGImage?
-        if let image = WindowPreviewProvider.captureViaWindowServer(windowID) {
+        let capturedImage = await WindowPreviewProvider.captureViaWindowServer(windowID)
+        guard !Task.isCancelled else { return nil }
+        if let image = capturedImage {
             let bounds = windowBounds(windowID)
             if bounds.map({ SwitcherSupport.captureCoversWindow(imageWidth: image.width,
                                                                 imageHeight: image.height,
                                                                 windowSize: $0.size) }) ?? true {
-                return image
+                return (image, scale)
             }
             clippedFallback = image
         }
         guard let content = try? await SCShareableContent.excludingDesktopWindows(
             false, onScreenWindowsOnly: true),
             let window = content.windows.first(where: { $0.windowID == windowID })
-        else { return clippedFallback }
+        else { return clippedFallback.map { ($0, scale) } }
         let configuration = SCStreamConfiguration()
         configuration.width = max(1, Int((window.frame.width * scale).rounded()))
         configuration.height = max(1, Int((window.frame.height * scale).rounded()))
+        // The resolution choice only exists for an independent window, and
+        // its automatic setting may render below the window's own scale and
+        // stretch the result to the size asked for. The recorder already asks
+        // for the best one; this is the screenshot tool's only window stream.
+        configuration.captureResolution = .best
         configuration.showsCursor = false
         configuration.colorSpaceName = CGColorSpace.sRGB
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let capture = try? await SCScreenshotManager.captureImage(contentFilter: filter,
                                                                   configuration: configuration)
-        return capture ?? clippedFallback
+        return (capture ?? clippedFallback).map { ($0, scale) }
     }
 
     /// On-screen windows front to back, as the attached-window decision needs
@@ -208,7 +240,11 @@ enum ScreenshotCaptureEngine {
         guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
                                                     kCGNullWindowID) as? [[String: Any]]
         else { return [] }
-        return info.compactMap { entry in
+        return captureWindows(in: info)
+    }
+
+    private static func captureWindows(in info: [[String: Any]]) -> [ScreenshotCapturePolicy.CaptureWindow] {
+        info.compactMap { entry in
             guard let layer = entry[kCGWindowLayer as String] as? Int, layer == 0,
                   let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
                   let id = (entry[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
@@ -221,7 +257,8 @@ enum ScreenshotCaptureEngine {
                 frame: CGRect(x: boundsDict["X"] ?? 0,
                               y: boundsDict["Y"] ?? 0,
                               width: boundsDict["Width"] ?? 0,
-                              height: boundsDict["Height"] ?? 0))
+                              height: boundsDict["Height"] ?? 0),
+                isUntitled: (entry[kCGWindowName as String] as? String)?.isEmpty ?? true)
         }
     }
 
@@ -284,9 +321,10 @@ enum ScreenshotCaptureEngine {
     /// Draws the clicked window together with what the app stacked on it.
     /// ScreenCaptureKit is the only route that takes more than one window. It
     /// captures their composited display, then crops it to the area they cover.
-    /// `nil` leaves the single-window routes to answer.
+    /// `nil` leaves the single-window routes to answer. The scale is that
+    /// display's, which the crop keeps.
     private static func captureAttached(
-        _ plan: ScreenshotCapturePolicy.AttachedCapturePlan) async -> CGImage? {
+        _ plan: ScreenshotCapturePolicy.AttachedCapturePlan) async -> (image: CGImage, scale: CGFloat)? {
         guard let content = try? await SCShareableContent.excludingDesktopWindows(
             false, onScreenWindowsOnly: true)
         else { return nil }
@@ -324,7 +362,109 @@ enum ScreenshotCaptureEngine {
             imageSize: imageBounds.size)
         let cropBounds = ScreenshotSupport.clamp(pixelBounds, to: imageBounds)
         guard !cropBounds.isEmpty else { return nil }
-        return image.cropping(to: cropBounds)
+        let packedBounds = ScreenshotSupport.clamp(
+            CGRect(origin: .zero, size: cropBounds.size), to: imageBounds)
+        guard packedBounds != cropBounds, let alpha = alphaCoverage(of: image) else {
+            return image.cropping(to: cropBounds).map { ($0, pixelScale) }
+        }
+        return image.cropping(to: ScreenshotSupport.attachedCaptureCrop(
+            placed: cropBounds, packed: packedBounds, coverage: alpha)).map { ($0, pixelScale) }
+    }
+
+    /// The image's alpha, one byte per pixel with the top row first, which is
+    /// all it takes to tell where the included windows were drawn.
+    private static func alphaCoverage(of image: CGImage) -> ScreenshotSupport.AlphaCoverage? {
+        let width = image.width, height = image.height
+        guard width > 0, height > 0 else { return nil }
+        var alpha = [UInt8](repeating: 0, count: width * height)
+        let drawn = alpha.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height,
+                                          bitsPerComponent: 8, bytesPerRow: width,
+                                          space: CGColorSpaceCreateDeviceGray(),
+                                          bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue)
+            else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        return drawn ? ScreenshotSupport.AlphaCoverage(alpha: alpha, width: width, height: height) : nil
+    }
+
+    /// The clicked window and what the app stacked on it, each from its own
+    /// buffer, layered back to front on a canvas the size of the clicked
+    /// window. Every layer has to cover its frame whole at one scale: a
+    /// window-server buffer cut at a display edge or seam (a window spanning
+    /// two displays is drawn on only one of them while displays have
+    /// separate Spaces) is recaptured through its own ScreenCaptureKit
+    /// filter, and `nil` leaves the single-window capture to answer when that
+    /// is not whole either. The scale is the one the layers were captured
+    /// at, not necessarily the clicked display's.
+    private static func composeAttached(_ plan: ScreenshotCapturePolicy.AttachedCapturePlan,
+                                        frames: [CGWindowID: CGRect]) async -> (image: CGImage, scale: CGFloat)? {
+        let candidates = Array(Set(NSScreen.screens.map(\.backingScaleFactor)))
+        guard let targetID = plan.windowIDs.first, let targetFrame = frames[targetID],
+              !candidates.isEmpty else { return nil }
+        var content: SCShareableContent?
+        func independentCapture(_ id: CGWindowID, frame: CGRect, scale: CGFloat) async -> CGImage? {
+            if content == nil {
+                content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            }
+            guard let window = content?.windows.first(where: { $0.windowID == id }) else { return nil }
+            let configuration = SCStreamConfiguration()
+            configuration.width = max(1, Int((frame.width * scale).rounded()))
+            configuration.height = max(1, Int((frame.height * scale).rounded()))
+            configuration.captureResolution = .best
+            configuration.showsCursor = false
+            configuration.colorSpaceName = CGColorSpace.sRGB
+            // A desktop-independent window may extend beyond its source display.
+            // Requested dimensions alone do not restore pixels clipped there.
+            configuration.ignoreGlobalClipSingleWindow = true
+            return try? await SCScreenshotManager.captureImage(
+                contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: configuration)
+        }
+
+        // The clicked window sets the scale every other layer must match.
+        var targetImage = await WindowPreviewProvider.captureViaWindowServer(targetID)
+        guard let targetCapture = ScreenshotCapturePolicy.compositeTargetCapture(
+            buffer: targetImage.map { ($0.width, $0.height) }, frame: targetFrame, candidates: candidates)
+        else { return nil }
+        let scale = targetCapture.scale
+        if case .recapture = targetCapture {
+            targetImage = await independentCapture(targetID, frame: targetFrame, scale: scale)
+        }
+        guard let targetImage,
+              ScreenshotCapturePolicy.layerCoversFrame(imageWidth: targetImage.width,
+                                                       imageHeight: targetImage.height,
+                                                       frame: targetFrame, scale: scale)
+        else { return nil }
+
+        var layers: [(image: CGImage, frame: CGRect)] = [(targetImage, targetFrame)]
+        for id in plan.windowIDs.dropFirst() {
+            guard let frame = frames[id] else { return nil }
+            var image = await WindowPreviewProvider.captureViaWindowServer(id)
+            if image.map({ !ScreenshotCapturePolicy.layerCoversFrame(imageWidth: $0.width, imageHeight: $0.height,
+                                                                     frame: frame, scale: scale) }) ?? true {
+                image = await independentCapture(id, frame: frame, scale: scale)
+            }
+            guard let image,
+                  ScreenshotCapturePolicy.layerCoversFrame(imageWidth: image.width, imageHeight: image.height,
+                                                           frame: frame, scale: scale)
+            else { return nil }
+            layers.append((image, frame))
+        }
+        let width = max(1, Int((plan.bounds.width * scale).rounded()))
+        let height = max(1, Int((plan.bounds.height * scale).rounded()))
+        guard let context = CGContext(data: nil, width: width, height: height,
+                                      bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)
+                                          ?? CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        context.interpolationQuality = .high
+        for layer in layers {
+            context.draw(layer.image, in: ScreenshotCapturePolicy.compositeRect(
+                for: layer.frame, in: plan.bounds, scale: scale))
+        }
+        return context.makeImage().map { ($0, scale) }
     }
 
     /// The window's size as the window server knows it, used to tell a whole
@@ -348,13 +488,15 @@ enum ScreenshotCaptureEngine {
                                                     kCGNullWindowID) as? [[String: Any]]
         else { return [] }
         let ownPID = Int32(ProcessInfo.processInfo.processIdentifier)
+        let decorations = ScreenshotCapturePolicy.decorationWindowIDs(frontToBack: captureWindows(in: info))
         return info.compactMap { entry in
             guard let layer = entry[kCGWindowLayer as String] as? Int, layer == 0,
                   let pid = entry[kCGWindowOwnerPID as String] as? Int32,
                   let id = (entry[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
                   let boundsDict = entry[kCGWindowBounds as String] as? [String: CGFloat]
             else { return nil }
-            guard ScreenshotCapturePolicy.canPickWindow(
+            guard !decorations.contains(id),
+                  ScreenshotCapturePolicy.canPickWindow(
                 id,
                 isOwnWindow: pid == ownPID,
                 hideRyzenStatusWindows: hideRyzenStatusWindows,

@@ -32,6 +32,8 @@ enum SettingsBackupSupport {
         DefaultsKey.textSnippets,
         DefaultsKey.radialMenuItems,
         DefaultsKey.commandBarRowShortcuts,
+        // Which shortcuts the user let this app take from macOS.
+        DefaultsKey.systemShortcutTakeOverKeys,
         DefaultsKey.language,
         DefaultsKey.appVolumes,
         DefaultsKey.appOutputDevices,
@@ -96,6 +98,13 @@ enum SettingsBackupSupport {
         DefaultsKey.updateShowcaseMediaOverride,
         DefaultsKey.settingsWindowWidth,
         DefaultsKey.settingsWindowHeight,
+        // Which macOS shortcuts are switched off right now is this Mac's
+        // state; restoring it elsewhere would claim keys nobody asked for.
+        DefaultsKey.switcherNativeHotkeysSuppressed,
+        DefaultsKey.systemShortcutsSuppressed,
+        // A window size fits one Mac's displays.
+        DefaultsKey.clipboardHistoryWindowWidth,
+        DefaultsKey.clipboardHistoryWindowHeight,
         ]
 #if DEBUG
         keys.insert(DefaultsKey.simulateUpdate)

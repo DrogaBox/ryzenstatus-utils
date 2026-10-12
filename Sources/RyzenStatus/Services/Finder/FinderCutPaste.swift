@@ -72,10 +72,15 @@ final class FinderCutPaste: ObservableObject {
     private var resultDismiss: DispatchWorkItem?
     private var operationGeneration = 0
     private var moveInProgress = false
+    private var cutPasteEnabled = false
+    private var showHUD = true
+    private var pasteImageAsFileEnabled = false
+    private var imagePasteInProgress = false
+    private var appObserver: NSObjectProtocol?
 
     private static let finderBundleID = "com.apple.finder"
-    /// Marked on the synthetic ⌘V we post, so the tap skips its own event.
-    private static let syntheticPasteMarker: Int64 = 0x564F5249
+    private static let syntheticPasteMarker: Int64 = 0x52595249
+    private static let maxRawImageBytes = 64 * 1024 * 1024
 
     // ANSI virtual key codes.
     private enum Key {
@@ -84,20 +89,38 @@ final class FinderCutPaste: ObservableObject {
         static let v: Int64 = 9
     }
 
-    private init() {}
+    private init() {
+        SessionActivity.shared.onChange { [weak self] _ in self?.syncWithPreferences() }
+    }
 
     var isRunning: Bool { tapLifecycleLock.withLock { tap != nil } }
 
+    private var isFinderFrontmost: Bool {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Self.finderBundleID
+    }
+
     /// Applies the persisted preference; safe to call repeatedly.
     func syncWithPreferences() {
-        let enabled = AppFeature.finderCutPaste.isAvailable
+        let available = AppFeature.finderCutPaste.isAvailable
+        cutPasteEnabled = available
             && UserDefaults.standard.bool(forKey: DefaultsKey.finderCutPasteEnabled)
-        if enabled, Permissions.shared.accessibility {
+        showHUD = UserDefaults.standard.object(forKey: DefaultsKey.finderCutPasteShowHUD) as? Bool ?? true
+        pasteImageAsFileEnabled = available
+            && UserDefaults.standard.bool(forKey: DefaultsKey.finderPasteImageAsFile)
+        if SessionActivitySupport.tapShouldRun(featureWanted: cutPasteEnabled || pasteImageAsFileEnabled,
+                                               accessibilityGranted: AXIsProcessTrusted(),
+                                               sessionIsActive: SessionActivity.shared.isActive) {
             installTap()
         } else {
             removeTap()
+        }
+        if cutPasteEnabled {
+            installAppObserver()
+        } else {
+            removeAppObserver()
             clearMarks()
         }
+        refreshPanel()
     }
 
     /// Force-stops the tap regardless of the preference. Used before the app
@@ -105,7 +128,31 @@ final class FinderCutPaste: ObservableObject {
     /// leave a live tap behind.
     func suspend() {
         removeTap()
+        removeAppObserver()
         clearMarks()
+    }
+
+    private func installAppObserver() {
+        guard appObserver == nil else { return }
+        appObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleApplicationActivation()
+        }
+    }
+
+    private func removeAppObserver() {
+        if let observer = appObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            appObserver = nil
+        }
+    }
+
+    private func handleApplicationActivation() {
+        guard cutPasteEnabled else { return }
+        refreshPanel()
     }
 
     // MARK: - Event tap
@@ -210,7 +257,11 @@ final class FinderCutPaste: ObservableObject {
     private func route(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             let currentTap = tapLifecycleLock.withLock { shouldStopTapThread ? nil : tap }
-            if let currentTap { CGEvent.tapEnable(tap: currentTap, enable: true) }
+            if SessionActivity.shared.isActive, AXIsProcessTrusted(), let currentTap {
+                CGEvent.tapEnable(tap: currentTap, enable: true)
+            } else {
+                DispatchQueue.main.async { [weak self] in self?.syncWithPreferences() }
+            }
             return Unmanaged.passUnretained(event)
         }
         guard type == .keyDown,
@@ -241,53 +292,153 @@ final class FinderCutPaste: ObservableObject {
         // only for an actual ⌘X/C/V in Finder.
         guard Permissions.shared.accessibility else { return Unmanaged.passUnretained(event) }
 
+        let flags = event.flags
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
 
-        // Gate AX isEditingText IPC to ⌘X/⌘C/⌘V shortcuts only, dodging IPC on every Finder keystroke
-        guard [Key.x, Key.c, Key.v].contains(keyCode),
-              NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Self.finderBundleID,
+        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Self.finderBundleID,
               AXIsProcessTrusted(),
               !isEditingText()
         else { return Unmanaged.passUnretained(event) }
 
         switch keyCode {
         case Key.x:
+            guard cutPasteEnabled else { return Unmanaged.passUnretained(event) }
             // Finder has no native cut for files, so swallowing ⌘X is safe.
             cutAsync()
             return nil
         case Key.c:
             // Copying something else supersedes a pending cut; let Finder copy.
-            if !marked.isEmpty { clearMarks() }
+            if cutPasteEnabled, !marked.isEmpty { clearMarks() }
             return Unmanaged.passUnretained(event)
         case Key.v:
-            guard !marked.isEmpty else {
-                return Unmanaged.passUnretained(event) // nothing of ours to move → normal paste
-            }
-            guard NSPasteboard.general.changeCount == markedChangeCount else {
-                // Something else wrote to the pasteboard since the cut — the
-                // cut is dead, so drop the marks (and the HUD) and let the
-                // normal paste happen.
+            if cutPasteEnabled, !marked.isEmpty {
+                if NSPasteboard.general.changeCount == markedChangeCount {
+                    guard !moveInProgress else { return nil }
+                    pasteAsync()
+                    return nil
+                }
+                // Something else wrote to the pasteboard since the cut. Drop
+                // the marks, then let the image path below inspect that new
+                // content before falling back to Finder's normal paste.
                 clearMarks()
+            }
+            guard pasteImageAsFileEnabled,
+                  !flags.contains(.maskShift),
+                  !imagePasteInProgress,
+                  let targetPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            else {
                 return Unmanaged.passUnretained(event)
             }
-            guard !moveInProgress else {
-                return nil
-            }
-            pasteAsync()
+            pasteImageAsync(targetPID: targetPID,
+                            expectedChangeCount: NSPasteboard.general.changeCount)
             return nil
         default:
             return Unmanaged.passUnretained(event)
         }
     }
 
-    private static let tapAXTimeout: Float = 0.05
+    // MARK: - Paste image as file
+
+    /// The event tap only queues the work. Pasteboard decoding, Finder IPC and
+    /// disk writes stay off the main run loop; non-image content is handed
+    /// back to Finder as the same standard paste shortcut.
+    private func pasteImageAsync(targetPID: pid_t, expectedChangeCount: Int) {
+        imagePasteInProgress = true
+        GeneralPasteboardAccess.shared.async { [weak self] in
+            let pasteboard = NSPasteboard.general
+            guard pasteboard.changeCount == expectedChangeCount else {
+                DispatchQueue.main.async {
+                    self?.finishImagePaste(targetPID: targetPID, result: .notImage)
+                }
+                return
+            }
+            let identifiers = (pasteboard.types ?? []).map(\.rawValue)
+            guard let identifier = FinderPasteImageSupport.preferredImageType(in: identifiers) else {
+                DispatchQueue.main.async {
+                    self?.finishImagePaste(targetPID: targetPID, result: .notImage)
+                }
+                return
+            }
+            guard let source = pasteboard.data(forType: NSPasteboard.PasteboardType(identifier)),
+                  source.count <= Self.maxRawImageBytes,
+                  let bitmap = NSBitmapImageRep(data: source),
+                  let png = identifier == NSPasteboard.PasteboardType.png.rawValue
+                    ? source
+                    : bitmap.representation(using: .png, properties: [:]),
+                  png.count <= Self.maxRawImageBytes
+            else {
+                DispatchQueue.main.async {
+                    self?.finishImagePaste(targetPID: targetPID, result: .failed)
+                }
+                return
+            }
+
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let path = FinderBridge.insertionLocationPath() else {
+                    DispatchQueue.main.async {
+                        self?.finishImagePaste(targetPID: targetPID, result: .failed)
+                    }
+                    return
+                }
+                let directory = URL(fileURLWithPath: path, isDirectory: true)
+                let name = FinderPasteImageSupport.fileName(for: Date())
+                let destination = Self.uniqueDestination(for: name, in: directory,
+                                                         fm: FileManager.default)
+                do {
+                    try png.write(to: destination, options: .atomic)
+                    DispatchQueue.main.async {
+                        self?.finishImagePaste(targetPID: targetPID, result: .saved)
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        self?.finishImagePaste(targetPID: targetPID, result: .failed)
+                    }
+                }
+            }
+        }
+    }
+
+    private enum ImagePasteResult {
+        case notImage, saved, failed
+    }
+
+    private func finishImagePaste(targetPID: pid_t, result: ImagePasteResult) {
+        imagePasteInProgress = false
+        switch result {
+        case .notImage:
+            postNormalPaste(ifStillFrontmost: targetPID)
+        case .saved:
+            break
+        case .failed:
+            NSSound.beep()
+        }
+    }
+
+    private func postNormalPaste(ifStillFrontmost targetPID: pid_t) {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID else { return }
+        let source = CGEventSource(stateID: .hidSystemState)
+        source?.userData = Self.syntheticPasteMarker
+        guard let keyDown = CGEvent(keyboardEventSource: source,
+                                    virtualKey: CGKeyCode(Key.v), keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source,
+                                  virtualKey: CGKeyCode(Key.v), keyDown: false)
+        else { return }
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+        keyDown.post(tap: .cghidEventTap)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) {
+            keyUp.post(tap: .cghidEventTap)
+        }
+    }
 
     /// True when the keyboard focus is in an editable text control, so cut/copy/
     /// paste shortcuts must be left to the system (e.g. renaming a file).
+    private static let tapAXTimeout: Float = 0.05
+
     private func isEditingText() -> Bool {
         let system = AXUIElementCreateSystemWide()
-        // Enforce strict AX timeout inside event tap to prevent WindowServer input freeze
-        AXUIElementSetMessagingTimeout(system, Self.tapAXTimeout)
+        // No cap here: on the system-wide element a timeout is the default for
+        // every question this process asks, whoever asks it (#938).
         var focused: CFTypeRef?
         guard AXUIElementCopyAttributeValue(system, "AXFocusedUIElement" as CFString, &focused) == .success,
               let focused,
@@ -295,6 +446,8 @@ final class FinderCutPaste: ObservableObject {
               // an unexpected CF type must degrade gracefully, never crash.
               CFGetTypeID(focused) == AXUIElementGetTypeID() else { return false }
         let element = focused as! AXUIElement
+        // This runs inside the key tap: a slow focused app must not hold every
+        // keystroke in the session for the process-wide default.
         AXUIElementSetMessagingTimeout(element, Self.tapAXTimeout)
         var roleRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, "AXRole" as CFString, &roleRef) == .success,
@@ -340,33 +493,19 @@ final class FinderCutPaste: ObservableObject {
         operationGeneration += 1
         let generation = operationGeneration
         let urls = marked.map(\.url)
-        // Capture pasteboard image data here on the calling thread — NSPasteboard is not thread-safe
-        // and must not be accessed from DispatchQueue.global (issue #429 thread-safety fix).
-        let clipboardImageData: Data? = urls.isEmpty
-            ? (NSPasteboard.general.data(forType: .png) ?? NSPasteboard.general.data(forType: .tiff))
-            : nil
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let destPath = FinderBridge.insertionLocationPath() else {
                 DispatchQueue.main.async {
-                    self?.moveInProgress = false
-                    self?.finishPaste(generation: generation, moved: 0, failed: urls.count)
+                    self?.finishPaste(generation: generation, moved: 0, failed: urls.count,
+                                      stillCut: [])
                 }
                 return
             }
             let dir = URL(fileURLWithPath: destPath, isDirectory: true)
-
-            // If no files are cut, check for pre-captured image data to save as image file (issue #429)
-            if urls.isEmpty {
-                let imageSaved = self?.pasteImageFromPasteboard(data: clipboardImageData, into: dir) ?? false
-                DispatchQueue.main.async {
-                    self?.moveInProgress = false
-                    self?.finishPaste(generation: generation, moved: imageSaved ? 1 : 0, failed: 0)
-                }
-                return
-            }
             let fm = FileManager.default
             let plan = Self.progressPlan(urls: urls, dir: dir)
             var moved = 0, failed = 0
+            var refused: [URL] = []
             var finishedBytes: Int64 = 0
             for (index, src) in urls.enumerated() {
                 if plan.showsProgress {
@@ -379,7 +518,7 @@ final class FinderCutPaste: ObservableObject {
                                               totalBytes: plan.totalBytes))
                 }
                 var poller: DispatchSourceTimer?
-                let success = Self.move(src, into: dir, fm: fm) { dest in
+                let outcome = Self.move(src, into: dir, fm: fm) { dest in
                     guard plan.showsProgress, plan.totalBytes > 0 else { return }
                     poller = self?.makeBytePoller(destination: dest,
                                                   generation: generation,
@@ -390,10 +529,25 @@ final class FinderCutPaste: ObservableObject {
                 }
                 poller?.cancel()
                 finishedBytes += plan.sizes[index] ?? 0
-                if success { moved += 1 } else { failed += 1 }
+                switch outcome {
+                case .moved: moved += 1
+                case .failed: failed += 1
+                case .needsPrivileges:
+                    refused.append(src)
+                }
+            }
+            var stillCut: [URL] = []
+            if !refused.isEmpty {
+                let canceled = FinderBridge.move(refused, into: dir).canceled
+                let result = CutPastePrivilegeSupport.reconcile(
+                    refused, into: dir, canceled: canceled, fm: fm)
+                moved += result.moved
+                failed += result.failed
+                stillCut = result.stillCut
             }
             DispatchQueue.main.async {
-                self?.finishPaste(generation: generation, moved: moved, failed: failed)
+                self?.finishPaste(generation: generation, moved: moved, failed: failed,
+                                  stillCut: stillCut)
             }
         }
     }
@@ -429,32 +583,6 @@ final class FinderCutPaste: ObservableObject {
 
     private static func volumeIdentity(of url: URL) -> NSObject? {
         (try? url.resourceValues(forKeys: [.volumeIdentifierKey]))?.volumeIdentifier as? NSObject
-    }
-
-    private func pasteImageFromPasteboard(data: Data?, into dir: URL) -> Bool {
-        guard let data else { return false }
-        guard let image = NSImage(data: data),
-              let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else { return false }
-
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        let timestamp = formatter.string(from: Date())
-        var targetURL = dir.appendingPathComponent("Pasted Image \(timestamp).png")
-        var counter = 1
-        let fm = FileManager.default
-        while fm.fileExists(atPath: targetURL.path) {
-            targetURL = dir.appendingPathComponent("Pasted Image \(timestamp) \(counter).png")
-            counter += 1
-        }
-
-        do {
-            try pngData.write(to: targetURL)
-            return true
-        } catch {
-            return false
-        }
     }
 
     /// Samples the growing destination file while `FileManager` copies it, so
@@ -496,37 +624,49 @@ final class FinderCutPaste: ObservableObject {
         }
     }
 
-    private func finishPaste(generation: Int, moved: Int, failed: Int) {
+    private func finishPaste(generation: Int, moved: Int, failed: Int, stillCut: [URL]) {
         guard generation == operationGeneration else { return }
         // Invalidate the generation so a progress publish still in flight from
         // a just-cancelled poller can't revive the moving state after this.
         operationGeneration += 1
         moveInProgress = false
         moveProgress = nil
-        marked = []
-        markedChangeCount = 0
+        marked = stillCut.isEmpty ? [] : marked.filter { stillCut.contains($0.url) }
+        if marked.isEmpty {
+            markedChangeCount = 0
+        }
+        guard moved > 0 || failed > 0 else {
+            refreshPanel()
+            return
+        }
         lastResult = MoveResult(moved: moved, failed: failed)
         refreshPanel()
         scheduleResultDismiss()
+    }
+
+    private enum MoveOutcome {
+        case moved
+        case failed
+        case needsPrivileges
     }
 
     /// `willCopy` fires with the final destination just before the actual
     /// move, and only when one happens (not for no-op moves into the same
     /// folder), so the caller can watch the destination grow.
     private static func move(_ src: URL, into dir: URL, fm: FileManager,
-                             willCopy: (URL) -> Void = { _ in }) -> Bool {
+                             willCopy: (URL) -> Void = { _ in }) -> MoveOutcome {
         // A no-op move (already in the destination) counts as success.
         if src.deletingLastPathComponent().standardizedFileURL.path == dir.standardizedFileURL.path {
-            return true
+            return .moved
         }
-        guard fm.fileExists(atPath: src.path) else { return false }
+        guard fm.fileExists(atPath: src.path) else { return .failed }
         let dest = uniqueDestination(for: src.lastPathComponent, in: dir, fm: fm)
         willCopy(dest)
         do {
             try fm.moveItem(at: src, to: dest)
-            return true
+            return .moved
         } catch {
-            return false
+            return CutPastePrivilegeSupport.needsPrivileges(error) ? .needsPrivileges : .failed
         }
     }
 
@@ -587,7 +727,13 @@ final class FinderCutPaste: ObservableObject {
     }
 
     private func refreshPanel() {
-        if marked.isEmpty, lastResult == nil {
+        guard showHUD else {
+            panel?.orderOut(nil)
+            return
+        }
+        if marked.isEmpty, lastResult == nil, moveProgress == nil {
+            panel?.orderOut(nil)
+        } else if !isFinderFrontmost && lastResult == nil && moveProgress == nil {
             panel?.orderOut(nil)
         } else {
             showPanel()
@@ -595,6 +741,14 @@ final class FinderCutPaste: ObservableObject {
     }
 
     private func showPanel() {
+        guard showHUD else {
+            panel?.orderOut(nil)
+            return
+        }
+        guard isFinderFrontmost || lastResult != nil || moveProgress != nil else {
+            panel?.orderOut(nil)
+            return
+        }
         let panel = ensurePanel()
         let view = panel.contentViewController!.view
         view.layoutSubtreeIfNeeded()
@@ -609,9 +763,9 @@ final class FinderCutPaste: ObservableObject {
 
     private func ensurePanel() -> NSPanel {
         if let panel { return panel }
-        let panel = NSPanel(contentRect: .zero,
-                            styleMask: [.borderless, .nonactivatingPanel],
-                            backing: .buffered, defer: false)
+        let panel = OverlayPanel(contentRect: .zero,
+                                 styleMask: [.borderless, .nonactivatingPanel],
+                                 backing: .buffered, defer: false)
         panel.level = .statusBar
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -637,9 +791,6 @@ final class FinderCutPaste: ObservableObject {
 enum FinderBridge {
     private static let finderBundleID = "com.apple.finder"
 
-    /// `requestPermission` keeps the automation prompt with the person:
-    /// a background refresh asks macOS for the current answer instead of
-    /// triggering the dialog the first time it looks.
     static func selectionURLs(requestPermission: Bool = true) -> [URL] {
         let allowed = requestPermission
             ? AppleScriptRunner.consentToAutomate(bundleID: finderBundleID)
@@ -658,6 +809,26 @@ enum FinderBridge {
         guard result.ok else { return [] }
         return result.output.split(whereSeparator: \.isNewline)
             .map { URL(fileURLWithPath: String($0)) }
+    }
+
+    static func move(_ urls: [URL], into dir: URL) -> (ok: Bool, canceled: Bool) {
+        guard AppleScriptRunner.consentToAutomate(bundleID: finderBundleID) else {
+            return (false, false)
+        }
+        let targets = urls
+            .map { "set end of targets to (POSIX file \(AppleScriptRunner.literal($0.path)) as alias)" }
+            .joined(separator: "\n")
+        let script = """
+        with timeout of 600 seconds
+            tell application "Finder"
+                set targets to {}
+                \(targets)
+                move targets to folder (POSIX file \(AppleScriptRunner.literal(dir.path)) as alias) without replacing
+            end tell
+        end timeout
+        """
+        let result = AppleScriptRunner.runDetailed(script)
+        return (result.ok, result.errorNumber == -128)
     }
 
     static func insertionLocationPath() -> String? {

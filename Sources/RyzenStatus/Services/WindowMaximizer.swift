@@ -19,17 +19,22 @@ final class WindowMaximizer: ObservableObject {
     private var pendingClick: ClickTarget?
     private var originalFrames: [CGWindowID: AXFrame] = [:]
     private var frameAnimations: [CGWindowID: Timer] = [:]
+    private var assistiveModeSuspensions: [CGWindowID: EnhancedUserInterfaceSuspension] = [:]
 
     private let clickTolerance: CGFloat = 8
     private let frameTolerance: CGFloat = 4
     private let zoomAnimationDuration: TimeInterval = 0.22
 
-    private init() {}
+    private init() {
+        SessionActivity.shared.onChange { [weak self] _ in self?.syncWithPreferences() }
+    }
 
     func syncWithPreferences() {
         let wanted = AppFeature.windowMaximizer.isAvailable
             && UserDefaults.standard.bool(forKey: DefaultsKey.windowMaximizeEnabled)
-        if wanted, Permissions.shared.accessibility {
+        if SessionActivitySupport.tapShouldRun(featureWanted: wanted,
+                                               accessibilityGranted: AXIsProcessTrusted(),
+                                               sessionIsActive: SessionActivity.shared.isActive) {
             start()
         } else {
             stop()
@@ -41,11 +46,14 @@ final class WindowMaximizer: ObservableObject {
         if let runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         }
+        if let tap { CFMachPortInvalidate(tap) }
         tap = nil
         runLoopSource = nil
         pendingClick = nil
         for timer in frameAnimations.values { timer.invalidate() }
         frameAnimations.removeAll()
+        for suspension in assistiveModeSuspensions.values { suspension.resume() }
+        assistiveModeSuspensions.removeAll()
         originalFrames.removeAll()
         isRunning = false
     }
@@ -84,7 +92,11 @@ final class WindowMaximizer: ObservableObject {
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            if SessionActivity.shared.isActive, AXIsProcessTrusted(), let tap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            } else {
+                DispatchQueue.main.async { [weak self] in self?.syncWithPreferences() }
+            }
             return Unmanaged.passUnretained(event)
         }
 
@@ -126,6 +138,7 @@ final class WindowMaximizer: ObservableObject {
 
     private func target(at point: CGPoint) -> ClickTarget? {
         guard let candidate = WindowServerTrafficLightHitTest.candidate(at: point, button: .zoom),
+              !isExcluded(pid: candidate.pid),
               let element = elementAt(point: point),
               let window = topLevelWindow(from: element),
               role(of: window) == (kAXWindowRole as String),
@@ -144,6 +157,16 @@ final class WindowMaximizer: ObservableObject {
                            allowsNativeFallback: buttonFrame.allowsNativeFallback)
     }
 
+    /// The list is read here rather than cached: this only runs for a press on
+    /// a green button, and a restored backup needs no reload to take effect.
+    private func isExcluded(pid: pid_t) -> Bool {
+        let excluded = UserDefaults.standard.stringArray(forKey: DefaultsKey.windowMaximizeExcludedApps) ?? []
+        guard !excluded.isEmpty else { return false }
+        return WindowMaximizerSupport.excludes(
+            bundleIdentifier: NSRunningApplication(processIdentifier: pid)?.bundleIdentifier,
+            excludedBundleIdentifiers: excluded)
+    }
+
     @discardableResult
     private func toggle(_ target: ClickTarget) -> Bool {
         guard let current = frame(of: target.window),
@@ -155,17 +178,35 @@ final class WindowMaximizer: ObservableObject {
            let original = originalFrames[target.windowID],
            original.size.width > 80,
            original.size.height > 80 {
-            return animateFrame(original, on: target.window, windowID: target.windowID) { [weak self] success in
+            return changeFrame(to: original, of: target) { [weak self] success in
                 if success { self?.originalFrames.removeValue(forKey: target.windowID) }
             }
         } else {
             originalFrames[target.windowID] = current
-            if animateFrame(maximized, on: target.window, windowID: target.windowID, completion: { _ in }) {
+            if changeFrame(to: maximized, of: target, completion: { _ in }) {
                 return true
             }
             originalFrames.removeValue(forKey: target.windowID)
             return false
         }
+    }
+
+    // The suspension lives in a dictionary rather than in the completion so a
+    // superseding click or a stop() mid animation, which drop the completion,
+    // cannot leave the app's assistive mode switched off.
+    private func changeFrame(to frame: AXFrame,
+                             of target: ClickTarget,
+                             completion: @escaping (Bool) -> Void) -> Bool {
+        assistiveModeSuspensions.removeValue(forKey: target.windowID)?.resume()
+        assistiveModeSuspensions[target.windowID] = EnhancedUserInterfaceSuspension.suspend(forAppOf: target.window)
+        let started = animateFrame(frame, on: target.window, windowID: target.windowID) { [weak self] success in
+            self?.assistiveModeSuspensions.removeValue(forKey: target.windowID)?.resume()
+            completion(success)
+        }
+        if !started {
+            assistiveModeSuspensions.removeValue(forKey: target.windowID)?.resume()
+        }
+        return started
     }
 
     private func animateFrame(_ targetFrame: AXFrame,
@@ -192,8 +233,8 @@ final class WindowMaximizer: ObservableObject {
             guard progress >= 1 else { return }
             timer.invalidate()
             self.frameAnimations[windowID] = nil
-            let success = self.setFrame(targetFrame, on: window)
-            completion(success)
+            self.settleFrame(targetFrame, on: window, windowID: windowID,
+                             fallback: start, attempt: 0, completion: completion)
         }
         timer.tolerance = 0.004
         frameAnimations[windowID] = timer
@@ -218,10 +259,8 @@ final class WindowMaximizer: ObservableObject {
 
     private func elementAt(point: CGPoint) -> AXUIElement? {
         let system = AXUIElementCreateSystemWide()
-        // Bounded AX inside the mouse tap: a hung app under the cursor must
-        // not stall the main thread (and with it every event tap) for the
-        // 6 second default timeout.
-        AXUIElementSetMessagingTimeout(system, 0.35)
+        // No cap here: on the system-wide element a timeout is the default for
+        // every question this process asks, whoever asks it (#938).
         var element: AXUIElement?
         guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &element) == .success,
               let element
@@ -229,6 +268,7 @@ final class WindowMaximizer: ObservableObject {
         AXUIElementSetMessagingTimeout(element, 0.35)
         return element
     }
+
 
     /// An application element answers a role query by switching a Chromium app's
     /// renderers into full accessibility mode for the rest of the process's life
@@ -252,7 +292,6 @@ final class WindowMaximizer: ObservableObject {
             AXUIElementSetMessagingTimeout(window, 0.35)
             if role(of: window) == (kAXWindowRole as String) { return window }
         }
-
         if let window = elementAttribute(element, kAXTopLevelUIElementAttribute as String) {
             AXUIElementSetMessagingTimeout(window, 0.35)
             if role(of: window) == (kAXWindowRole as String) { return window }
@@ -291,22 +330,55 @@ final class WindowMaximizer: ObservableObject {
         return nil
     }
 
-    private func setFrame(_ frame: AXFrame, on window: AXUIElement) -> Bool {
-        let original = self.frame(of: window)
-
-        for _ in 0..<2 {
-            guard applyFrame(frame, on: window) else {
-                restoreFrame(original, on: window)
-                return false
+    // Some apps commit Accessibility size changes with a short delay, so reading
+    // the frame right after setting it can still return the old value. Give the
+    // window a grace period before deciding the app refused the frame; restoring
+    // on a stale read is what used to leave a window moved to the screen edge
+    // without ever growing. The wait lives in frameAnimations so a new animation
+    // for the same window cancels a pending settle instead of fighting it.
+    private func settleFrame(_ target: AXFrame,
+                             on window: AXUIElement,
+                             windowID: CGWindowID,
+                             fallback: AXFrame,
+                             attempt: Int,
+                             completion: @escaping (Bool) -> Void) {
+        guard applyFrame(target, on: window) else {
+            restoreFrame(fallback, on: window)
+            completion(false)
+            return
+        }
+        if let actual = frame(of: window),
+           WindowMaximizerSupport.overshoots(actual.size, target: target.size) {
+            _ = applyFrame(AXFrame(origin: WindowMaximizerSupport.approachOrigin(for: target.origin,
+                                                                                 tolerance: frameTolerance),
+                                   size: target.size),
+                           on: window)
+            _ = applyFrame(target, on: window)
+        }
+        if let actual = frame(of: window), actual.isClose(to: target, tolerance: frameTolerance) {
+            completion(true)
+            return
+        }
+        guard attempt < 2 else {
+            restoreFrame(fallback, on: window)
+            completion(false)
+            return
+        }
+        let timer = Timer(timeInterval: 0.15, repeats: false) { [weak self] _ in
+            guard let self else {
+                completion(false)
+                return
             }
-            if let actual = self.frame(of: window),
-               actual.isClose(to: frame, tolerance: frameTolerance) {
-                return true
+            self.frameAnimations[windowID] = nil
+            if let actual = self.frame(of: window), actual.isClose(to: target, tolerance: self.frameTolerance) {
+                completion(true)
+            } else {
+                self.settleFrame(target, on: window, windowID: windowID,
+                                 fallback: fallback, attempt: attempt + 1, completion: completion)
             }
         }
-
-        restoreFrame(original, on: window)
-        return false
+        frameAnimations[windowID] = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func applyFrame(_ frame: AXFrame, on window: AXUIElement) -> Bool {

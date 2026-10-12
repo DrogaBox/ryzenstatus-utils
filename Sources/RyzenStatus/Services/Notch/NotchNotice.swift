@@ -12,6 +12,8 @@ struct NotchNotice: Equatable {
     var level: Double? = nil
     var notification: NotchNotificationContent? = nil
     var notificationID: UUID? = nil
+    /// The agent an AI notice is about, which tints its mark.
+    var agent: AgentProvider? = nil
     /// With the companion on, it takes the symbol's place in the notice and
     /// plays this, so the notice itself is its reaction.
     var mascot: NotchMascotReaction? = nil

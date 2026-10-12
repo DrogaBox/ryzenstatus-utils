@@ -1,117 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
-import CoreGraphics
 import Foundation
-
-struct ScrollWheelEventTraits: Equatable {
-    let isContinuous: Bool
-    let momentumPhase: Int64
-    let scrollPhase: Int64
-    let scrollCount: Int64
-}
-
-struct ScrollWheelInversionPlan: Equatable {
-    let vertical: Bool
-    let horizontal: Bool
-}
-
-/// Tells mouse wheels apart from touch devices, shared by the scroll
-/// inverter and smooth scrolling so both features classify events the same
-/// way: discrete events are wheels; events flagged continuous are wheels
-/// only when they carry no gesture phase at all (how some mouse drivers
-/// report their wheels).
-enum ScrollWheelSupport {
-    /// How long after a gesture-phased event a phaseless continuous event is
-    /// still attributed to the same touch device.
-    static let touchGestureGraceSeconds: TimeInterval = 1.0
-
-    /// Marks the smooth glide so neither feature handles it twice. Events a
-    /// process posts come back through that same process's taps (measured at
-    /// every tap location), so without the mark the inverter would turn the
-    /// glide around again and cancel the flip smooth scrolling already
-    /// applied.
-    static let syntheticTag: Int64 = 0x564F5253  // "VORS"
-
-    /// Points in one scroll line. The window server measures the fixed-point
-    /// delta in lines, so an event that moved forty points reports four;
-    /// replaying that number as pixels would travel a tenth of the distance.
-    static let pointsPerLine: Double = 10
-
-    static func isMouseWheel(_ traits: ScrollWheelEventTraits,
-                             secondsSinceLastGesturePhase: TimeInterval?) -> Bool {
-        if !traits.isContinuous {
-            return true
-        }
-        guard traits.momentumPhase == 0, traits.scrollPhase == 0 else {
-            return false
-        }
-        // Trackpads/Magic Mouse can emit a phaseless transition event between
-        // gesture end and momentum start that still carries the gesture's
-        // scrollCount. Mouse wheels that report continuous never emit phases,
-        // so only events right after a phased one are treated as touch.
-        if traits.scrollCount != 0,
-           let elapsed = secondsSinceLastGesturePhase,
-           elapsed <= touchGestureGraceSeconds {
-            return false
-        }
-        return true
-    }
-
-    /// Shift redirects a discrete vertical wheel tick sideways above the event tap.
-    /// Select the setting for the direction the user will see, while leaving
-    /// genuine two-axis events independent.
-    static func inversionPlan(hasVerticalMovement: Bool,
-                              hasHorizontalMovement: Bool,
-                              shiftRedirectsVertical: Bool,
-                              invertVertical: Bool,
-                              invertHorizontal: Bool) -> ScrollWheelInversionPlan {
-        let shiftRedirectsVertically = shiftRedirectsVertical
-            && hasVerticalMovement
-            && !hasHorizontalMovement
-        return ScrollWheelInversionPlan(
-            vertical: hasVerticalMovement
-                && (shiftRedirectsVertically ? invertHorizontal : invertVertical),
-            horizontal: hasHorizontalMovement && invertHorizontal
-        )
-    }
-
-    /// Movement on the vertical axis only, as a plain mouse wheel sends it.
-    static func isVerticalOnly(_ event: CGEvent) -> Bool {
-        (event.getIntegerValueField(.scrollWheelEventDeltaAxis1) != 0
-            || event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1) != 0
-            || event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1) != 0)
-            && event.getIntegerValueField(.scrollWheelEventDeltaAxis2) == 0
-            && event.getIntegerValueField(.scrollWheelEventPointDeltaAxis2) == 0
-            && event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2) == 0
-    }
-
-    /// Moves a vertical-only event to the horizontal axis, keeping its sign
-    /// as Shift does.
-    static func moveVerticalToHorizontal(_ event: CGEvent) {
-        let line = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
-        let point = event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1)
-        let fixed = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
-        // Line writes can rederive pixel fields; restore the captured precision
-        // only after both line axes have been written.
-        event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: 0)
-        event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: line)
-        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: 0)
-        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: fixed)
-        event.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: 0)
-        event.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: point)
-    }
-
-    /// A mouse wheel only turns vertically, so a strip that scrolls only
-    /// sideways could not be moved with one. The wheel moves the strip when
-    /// nothing around it scrolls down; a list around it keeps the wheel.
-    static func wheelMovesStripSideways(stripScrollsHorizontally: Bool, stripScrollsVertically: Bool,
-                                        enclosingScrollsVertically: Bool) -> Bool {
-        stripScrollsHorizontally && !stripScrollsVertically && !enclosingScrollsVertically
-    }
-}
-
-// MARK: - Sideways scrolling and linear scrolling (ported from upstream)
+import CoreGraphics
 
 enum ScrollHorizontalModifier: String, CaseIterable {
     case shift, option, control, command
@@ -155,6 +46,18 @@ struct ScrollDirectionPreferences {
     }
 }
 
+struct ScrollWheelEventTraits: Equatable {
+    let isContinuous: Bool
+    let momentumPhase: Int64
+    let scrollPhase: Int64
+    let scrollCount: Int64
+}
+
+struct ScrollWheelInversionPlan: Equatable {
+    let vertical: Bool
+    let horizontal: Bool
+}
+
 /// The three delta fields a scroll event carries per axis: the line count,
 /// the point count and the fixed-point line count.
 struct ScrollWheelAxisDelta: Equatable {
@@ -165,25 +68,178 @@ struct ScrollWheelAxisDelta: Equatable {
     var hasMovement: Bool { line != 0 || point != 0 || fixedPoint != 0 }
 }
 
+/// Tells mouse wheels apart from touch devices, shared by the scroll
+/// inverter and smooth scrolling so both features classify events the same
+/// way: discrete events are wheels; events flagged continuous are wheels
+/// only when they carry no gesture phase at all (how some mouse drivers
+/// report their wheels).
+enum ScrollWheelSupport {
+    /// How long after a gesture-phased event a phaseless continuous event is
+    /// still attributed to the same touch device.
+    static let touchGestureGraceSeconds: TimeInterval = 1.0
 
-extension ScrollWheelSupport {
+    /// Marks the smooth glide so neither feature handles it twice. Events a
+    /// process posts come back through that same process's taps (measured at
+    /// every tap location), so without the mark the inverter would turn the
+    /// glide around again and cancel the flip smooth scrolling already
+    /// applied.
+    static let syntheticTag: Int64 = 0x52595253  // "RYRS"
     /// A redirected vertical wheel is not a physical side wheel. The session
     /// tap uses this marker to leave it out of side-wheel shortcut matching.
-    static let horizontalRedirectTag: Int64 = 0x52534844  // "RSHD"
+    static let horizontalRedirectTag: Int64 = 0x52595248  // "RYRH"
+
+    /// Points in one scroll line. The window server measures the fixed-point
+    /// delta in lines, so an event that moved forty points reports four;
+    /// replaying that number as pixels would travel a tenth of the distance.
+    static let pointsPerLine: Double = 10
 
     /// Called only after wheel classification and the scroll-direction exception
     /// check. Consume the modifier so the receiving app cannot redirect or zoom
     /// the transformed event a second time. Other shortcut combinations keep
     /// their native meaning, as do wheels already supplying a horizontal axis.
     @discardableResult
-    static func redirectVerticalScroll(_ event: CGEvent, modifier: ScrollHorizontalModifier) -> Bool {
+    static func redirectVerticalScroll(_ event: CGEvent, modifier: ScrollHorizontalModifier,
+                                       targetsOwnWindow: @autoclosure () -> Bool = false) -> Bool {
         let shortcutFlags: CGEventFlags = [.maskShift, .maskAlternate, .maskControl, .maskCommand]
         guard event.flags.intersection(shortcutFlags) == modifier.flag else { return false }
+
         guard isVerticalOnly(event) else { return false }
+        // Our capture/editor windows use these same modifiers for their own
+        // wheel gestures. Resolve the target only for a tick we would redirect.
+        guard !targetsOwnWindow() else { return false }
+
         moveVerticalToHorizontal(event)
         event.flags.remove(modifier.flag)
         event.setIntegerValueField(.eventSourceUserData, value: horizontalRedirectTag)
         return true
+    }
+
+    /// Movement on the vertical axis only, as a plain mouse wheel sends it.
+    static func isVerticalOnly(_ event: CGEvent) -> Bool {
+        (event.getIntegerValueField(.scrollWheelEventDeltaAxis1) != 0
+            || event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1) != 0
+            || event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1) != 0)
+            && event.getIntegerValueField(.scrollWheelEventDeltaAxis2) == 0
+            && event.getIntegerValueField(.scrollWheelEventPointDeltaAxis2) == 0
+            && event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2) == 0
+    }
+
+    /// Moves a vertical-only event to the horizontal axis, keeping its sign
+    /// as Shift does.
+    static func moveVerticalToHorizontal(_ event: CGEvent) {
+        let line = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+        let point = event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1)
+        let fixed = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
+        // Line writes can rederive pixel fields; restore the captured precision
+        // only after both line axes have been written.
+        event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: 0)
+        event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: line)
+        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: 0)
+        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: fixed)
+        event.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: 0)
+        event.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: point)
+    }
+
+    /// A mouse wheel only turns vertically, so a strip that scrolls only
+    /// sideways could not be moved with one. The wheel moves the strip when
+    /// nothing around it scrolls down; a list around it keeps the wheel.
+    static func wheelMovesStripSideways(stripScrollsHorizontally: Bool, stripScrollsVertically: Bool,
+                                        enclosingScrollsVertically: Bool) -> Bool {
+        stripScrollsHorizontally && !stripScrollsVertically && !enclosingScrollsVertically
+    }
+
+    /// The raw wheel path uses the same redirection as smoothing, then applies
+    /// inversion to the axis the user will actually scroll.
+    static func applyDirection(to event: CGEvent, isContinuous: Bool,
+                               invertVertical: Bool, invertHorizontal: Bool,
+                               horizontalModifier: ScrollHorizontalModifier?,
+                               targetsOwnWindow: @autoclosure () -> Bool = false) {
+        let redirected = event.getIntegerValueField(.eventSourceUserData) == horizontalRedirectTag
+            || (horizontalModifier.map {
+                redirectVerticalScroll(event, modifier: $0, targetsOwnWindow: targetsOwnWindow())
+            } ?? false)
+        // Capture both axes before any set: writing a line delta makes the
+        // system rederive its point and fixed-point fields.
+        let verticalLine = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+        let verticalPoint = event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1)
+        let verticalFixedPoint = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
+        let horizontalLine = event.getIntegerValueField(.scrollWheelEventDeltaAxis2)
+        let horizontalPoint = event.getIntegerValueField(.scrollWheelEventPointDeltaAxis2)
+        let horizontalFixedPoint = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2)
+        let hasVerticalMovement = verticalLine != 0 || verticalPoint != 0 || verticalFixedPoint != 0
+        let hasHorizontalMovement = horizontalLine != 0
+            || horizontalPoint != 0
+            || horizontalFixedPoint != 0
+        let plan = ScrollWheelSupport.inversionPlan(
+            hasVerticalMovement: hasVerticalMovement,
+            hasHorizontalMovement: hasHorizontalMovement,
+            shiftRedirectsVertical: !isContinuous && event.flags.contains(.maskShift),
+            invertVertical: invertVertical,
+            invertHorizontal: invertHorizontal
+        )
+        if plan.vertical {
+            event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: -verticalLine)
+            // A zero whole-line field cannot reconstruct a high-resolution tick.
+            if isContinuous || redirected || verticalLine == 0 {
+                event.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: -verticalPoint)
+                event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: -verticalFixedPoint)
+            }
+        }
+        if plan.horizontal {
+            event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: -horizontalLine)
+            if isContinuous || redirected || horizontalLine == 0 {
+                event.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: -horizontalPoint)
+                event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: -horizontalFixedPoint)
+            }
+        }
+    }
+
+    /// The list is front to back in Quartz coordinates. Do not restrict layers:
+    /// capture overlays sit above ordinary windows. An external window in front
+    /// must stop the search instead of exposing one of our windows behind it.
+    static func targetsOwnWindow(in windows: [[String: Any]], at point: CGPoint,
+                                 ownProcessID: Int32,
+                                 clickThroughWindowIDs: Set<CGWindowID>) -> Bool {
+        ScrollWheelTargetCache.windows(in: windows, ownProcessID: ownProcessID,
+            clickThroughWindowIDs: clickThroughWindowIDs).first { $0.frame.contains(point) }?.isOwn ?? false
+    }
+
+    static func isMouseWheel(_ traits: ScrollWheelEventTraits,
+                             secondsSinceLastGesturePhase: TimeInterval?) -> Bool {
+        if !traits.isContinuous {
+            return true
+        }
+        guard traits.momentumPhase == 0, traits.scrollPhase == 0 else {
+            return false
+        }
+        // Trackpads/Magic Mouse can emit a phaseless transition event between
+        // gesture end and momentum start that still carries the gesture's
+        // scrollCount. Mouse wheels that report continuous never emit phases,
+        // so only events right after a phased one are treated as touch.
+        if traits.scrollCount != 0,
+           let elapsed = secondsSinceLastGesturePhase,
+           elapsed <= touchGestureGraceSeconds {
+            return false
+        }
+        return true
+    }
+
+    /// Shift redirects a discrete vertical wheel tick sideways above the event tap.
+    /// Select the setting for the direction the user will see, while leaving
+    /// genuine two-axis events independent.
+    static func inversionPlan(hasVerticalMovement: Bool,
+                              hasHorizontalMovement: Bool,
+                              shiftRedirectsVertical: Bool,
+                              invertVertical: Bool,
+                              invertHorizontal: Bool) -> ScrollWheelInversionPlan {
+        let shiftRedirectsVertically = shiftRedirectsVertical
+            && hasVerticalMovement
+            && !hasHorizontalMovement
+        return ScrollWheelInversionPlan(
+            vertical: hasVerticalMovement
+                && (shiftRedirectsVertically ? invertHorizontal : invertVertical),
+            horizontal: hasHorizontalMovement && invertHorizontal
+        )
     }
 }
 
@@ -296,62 +352,6 @@ extension ScrollWheelSupport {
             event.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: horizontal.point)
             event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: horizontal.fixedPoint)
         }
-    }
-}
-
-extension ScrollWheelSupport {
-    /// The raw wheel path: redirects a modifier-held vertical tick sideways
-    /// when asked, then applies inversion to the axis the user will actually
-    /// scroll.
-    static func applyDirection(to event: CGEvent, isContinuous: Bool,
-                               invertVertical: Bool, invertHorizontal: Bool,
-                               horizontalModifier: ScrollHorizontalModifier?) {
-        let redirected = event.getIntegerValueField(.eventSourceUserData) == horizontalRedirectTag
-            || (horizontalModifier.map { redirectVerticalScroll(event, modifier: $0) } ?? false)
-        // Capture both axes before any set: writing a line delta makes the
-        // system rederive its point and fixed-point fields.
-        let verticalLine = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
-        let verticalPoint = event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1)
-        let verticalFixedPoint = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
-        let horizontalLine = event.getIntegerValueField(.scrollWheelEventDeltaAxis2)
-        let horizontalPoint = event.getIntegerValueField(.scrollWheelEventPointDeltaAxis2)
-        let horizontalFixedPoint = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2)
-        let hasVerticalMovement = verticalLine != 0 || verticalPoint != 0 || verticalFixedPoint != 0
-        let hasHorizontalMovement = horizontalLine != 0 || horizontalPoint != 0 || horizontalFixedPoint != 0
-        let plan = inversionPlan(
-            hasVerticalMovement: hasVerticalMovement,
-            hasHorizontalMovement: hasHorizontalMovement,
-            shiftRedirectsVertical: !isContinuous && event.flags.contains(.maskShift),
-            invertVertical: invertVertical,
-            invertHorizontal: invertHorizontal
-        )
-        if plan.vertical {
-            event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: -verticalLine)
-            // A zero whole-line field cannot reconstruct a high-resolution tick.
-            if isContinuous || redirected || verticalLine == 0 {
-                event.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: -verticalPoint)
-                event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: -verticalFixedPoint)
-            }
-        }
-        if plan.horizontal {
-            event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: -horizontalLine)
-            if isContinuous || redirected || horizontalLine == 0 {
-                event.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: -horizontalPoint)
-                event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: -horizontalFixedPoint)
-            }
-        }
-    }
-}
-
-extension ScrollWheelSupport {
-    /// The list is front to back in Quartz coordinates. Do not restrict layers:
-    /// capture overlays sit above ordinary windows. An external window in front
-    /// must stop the search instead of exposing one of our windows behind it.
-    static func targetsOwnWindow(in windows: [[String: Any]], at point: CGPoint,
-                                 ownProcessID: Int32,
-                                 clickThroughWindowIDs: Set<CGWindowID>) -> Bool {
-        ScrollWheelTargetCache.windows(in: windows, ownProcessID: ownProcessID,
-            clickThroughWindowIDs: clickThroughWindowIDs).first { $0.frame.contains(point) }?.isOwn ?? false
     }
 }
 

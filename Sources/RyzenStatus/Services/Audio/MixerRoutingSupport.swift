@@ -383,10 +383,8 @@ enum MixerRoutingSupport {
     /// Exact match only: real AirPlay devices macOS exposes are ordinary outputs
     /// and route through the normal tap, and a device name or UID that merely
     /// mentions AirPlay must never be mistaken for this entry.
-    static let airPlaySentinelUID = "ryzenstatus.output.airplay"
-
     static func isAirPlaySentinel(_ uid: String) -> Bool {
-        uid == airPlaySentinelUID
+        uid == AirPlayRouteManager.airPlaySentinelUID
     }
 
     /// The item in an app's output menu that opens the system's speaker list
@@ -668,10 +666,6 @@ enum MixerRoutingSupport {
         var ids = Set(hiddenApps.keys)
         if !showFinder { ids.insert(finderBundleIdentifier) }
         return ids
-    }
-
-    static func isHiddenFromMixer(bundleIdentifier: String?, showFinder: Bool) -> Bool {
-        bundleIdentifier == finderBundleIdentifier && !showFinder
     }
 
     /// A row without a persistence id cannot be hidden: there is no stable key
@@ -1011,9 +1005,3 @@ enum AudioListenerClients {
         lock.withLock { entries[UInt(bitPattern: client)] = nil }
     }
 }
-
-struct MixerAppDropTarget: Equatable {
-    let id: String
-    let after: Bool
-}
-

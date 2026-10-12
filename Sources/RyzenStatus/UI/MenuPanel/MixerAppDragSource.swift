@@ -111,6 +111,11 @@ struct MixerAppDragSource: NSViewRepresentable {
     }
 }
 
+struct MixerAppDropTarget: Equatable {
+    let id: String
+    let after: Bool
+}
+
 struct MixerAppReorderModifier: ViewModifier {
     let id: String?
     let icon: NSImage

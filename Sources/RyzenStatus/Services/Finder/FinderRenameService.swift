@@ -39,10 +39,10 @@ final class FinderRenameService {
         if SessionActivitySupport.tapShouldRun(featureWanted: enabled,
                                                accessibilityGranted: AXIsProcessTrusted(),
                                                sessionIsActive: SessionActivity.shared.isActive) {
-            // This tap is tail-append, so a combination macOS keeps as one of
-            // its own symbolic hotkeys never reaches it. Upstream can take such
-            // keys over from the system; this fork does not port that, so the
-            // chosen combination has to be free in macOS.
+            // This tap is tail-append, so the WindowServer answers a symbolic
+            // hotkey long before the key reaches it: on a taken-over key the
+            // claim is what makes the key arrive at all.
+            SystemShortcutTakeover.claim(DefaultsKey.finderRenameShortcut, shortcut: shortcut)
             installTap()
         } else {
             removeTap()
@@ -71,6 +71,10 @@ final class FinderRenameService {
     }
 
     private func removeTap() {
+        // The claim goes with the tap, so a key held for a rename that is no
+        // longer listening — switched off, or suspended for an uninstall —
+        // goes back to macOS.
+        SystemShortcutTakeover.release(DefaultsKey.finderRenameShortcut)
         let snapshot = lifecycleLock.withLock {
             () -> (runLoop: CFRunLoop?, tap: CFMachPort?, threadExists: Bool) in
             shouldStopTapThread = true
@@ -120,6 +124,9 @@ final class FinderRenameService {
                 userInfo: Unmanaged.passUnretained(self).toOpaque()
             ) else {
                 _ = clearEventTapThread()
+                // Without a tap nobody answers a taken-over key, so give it
+                // back rather than leaving the shortcut dead.
+                DispatchQueue.main.async { SystemShortcutTakeover.release(DefaultsKey.finderRenameShortcut) }
                 return
             }
 

@@ -16,76 +16,32 @@ import Vision
 final class ScreenTextService: ObservableObject {
     static let shared = ScreenTextService()
 
-    @Published private(set) var shortcutRegistrationFailed = false
-
-    private let hotkey = QuickToolHotkey(id: 13)
-    private var session: ScreenshotSelectionController?
     private var recognitionGeneration = 0
 
-    private var captureStrings: ScreenshotFeatureStrings {
-        FeatureStrings.screenshot(L10n.shared.language)
-    }
-
-    private init() {
-        hotkey.onPress = { [weak self] in self?.capture() }
-    }
+    private init() {}
 
     func syncWithPreferences() {
         guard AppFeature.screenOCR.isAvailable else {
-            shortcutRegistrationFailed = false
-            hotkey.unregister()
             cancelSession()
             return
         }
-        let enabled = UserDefaults.standard.bool(forKey: DefaultsKey.screenOCRShortcutEnabled)
-        let shortcut = GlobalShortcut.saved(for: DefaultsKey.screenOCRShortcut,
-                                            fallback: .screenOCRDefault)
-        shortcutRegistrationFailed = !hotkey.sync(enabled: enabled, shortcut: shortcut)
     }
 
     func suspend() {
-        hotkey.unregister()
         cancelSession()
     }
 
     private func cancelSession() {
         recognitionGeneration += 1
-        session?.cancel()
-        session = nil
     }
 
     func capture() {
-        guard session == nil, !ScreenshotSelectionController.isSessionOnScreen else { return }
-        guard Permissions.shared.screenRecording else {
-            Permissions.shared.requestScreenRecording()
-            return
-        }
+        ScreenCaptureService.shared.capture(initial: .text)
+    }
+
+    func receiveUnifiedCapture(_ capture: ScreenshotSelectionController.Capture) {
         recognitionGeneration += 1
-        // The screen is always photographed first here: text has to hold
-        // still while it is being framed, and a still also keeps a menu or a
-        // tooltip on screen instead of closing it under the pointer.
-        let controller = ScreenshotSelectionController(freeze: true,
-                                                       includePointer: false,
-                                                       showLastRegion: false,
-                                                       purpose: L10n.shared.s.ocrName)
-        session = controller
-        controller.begin { [weak self] outcome in
-            guard let self else { return }
-            self.session = nil
-            switch outcome {
-            case .captured(let capture):
-                self.recognize(capture.image)
-            case .region:
-                // Only the recorder asks for geometry; this session never does.
-                break
-            case .scrollingRegion:
-                break
-            case .cancelled:
-                break
-            case .failed:
-                QuickToolHUD.show(icon: "text.viewfinder", message: self.captureStrings.captureFailed)
-            }
-        }
+        recognize(capture.image)
     }
 
     /// What a captured region turned out to hold.
@@ -98,10 +54,12 @@ final class ScreenTextService: ObservableObject {
     private func recognize(_ image: CGImage) {
         let generation = recognitionGeneration
         let detectQRCodes = UserDefaults.standard.bool(forKey: DefaultsKey.screenOCRDetectQRCodes)
+        let removeLineBreaks = UserDefaults.standard.bool(forKey: DefaultsKey.screenOCRRemoveLineBreaks)
         let fallbackLanguages = MediaSupport.recognitionLanguages(for: L10n.shared.language.rawValue)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let outcome = ScreenTextService.outcome(for: image,
                                                     detectQRCodes: detectQRCodes,
+                                                    removeLineBreaks: removeLineBreaks,
                                                     fallbackLanguages: fallbackLanguages)
             DispatchQueue.main.async { [weak self] in
                 guard self?.recognitionGeneration == generation else { return }
@@ -127,12 +85,16 @@ final class ScreenTextService: ObservableObject {
     /// to exercise directly on a known image.
     static func outcome(for image: CGImage,
                         detectQRCodes: Bool,
+                        removeLineBreaks: Bool,
                         fallbackLanguages: [String] = ["en-US"]) -> Outcome {
         if detectQRCodes, let reading = BarcodeDetector.read(image) {
             return .qr(reading)
         }
 
-        var lines = recognizedLines(in: image, level: .accurate, automaticallyDetectLanguage: true)
+        var lines = recognizedLines(in: image,
+                                    level: .accurate,
+                                    automaticallyDetectLanguage: true,
+                                    preferredLanguages: fallbackLanguages)
         if lines.isEmpty {
             // The fast path uses a different recognition model. It is a
             // separate second chance when the accurate model returns no text.
@@ -141,7 +103,8 @@ final class ScreenTextService: ObservableObject {
                                     automaticallyDetectLanguage: false,
                                     preferredLanguages: fallbackLanguages)
         }
-        let text = QuickToolsSupport.joinedRecognizedText(lines)
+        let text = QuickToolsSupport.joinedRecognizedText(lines,
+                                                         removingLineBreaks: removeLineBreaks)
         return text.isEmpty ? .empty : .text(text)
     }
 
@@ -172,9 +135,10 @@ final class ScreenTextService: ObservableObject {
         }
     }
 
-    private static func copyToPasteboard(_ value: String) {
+    static func copyToPasteboard(_ value: String) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
+        pasteboard.declareRyzenStatusSource()
         pasteboard.setString(value, forType: .string)
     }
 }

@@ -7,35 +7,47 @@ import Combine
 import CoreGraphics
 import SwiftUI
 
-@MainActor
+@discardableResult
+private func requestDockPreviewApplicationQuit(_ item: SwitcherItem) -> Bool {
+    guard let app = NSRunningApplication(processIdentifier: item.pid),
+          !app.isTerminated else { return false }
+    return app.terminate()
+}
+
 final class DockPreviewService: ObservableObject {
     static let shared = DockPreviewService()
 
     @Published private(set) var isRunning = false
     @Published private(set) var blockedReason: DockPreviewBlockedReason?
-    /// Whether the Dock currently uses auto-hide. Surfaced so the UI can warn
-    /// that this still-beta feature is rougher in that mode (the native Dock
-    /// slides away mid-interaction and no public API can hold it open).
+    /// The user’s auto-hide preference, excluding our temporary session hold.
     @Published private(set) var dockAutohide = false
     @Published private(set) var windows: [SwitcherItem] = []
     @Published private(set) var previews: [CGWindowID: CGImage] = [:]
     @Published private(set) var selectedWindowID: CGWindowID?
     @Published private(set) var currentAppName: String?
     @Published private(set) var isPinned = false
+    /// Which edge the Dock is on, so the panel can run its cards along it.
+    @Published private(set) var orientation: DockPreviewOrientation = .bottom
+    private var isDraggingWindow = false
 
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var settingsTimer: Timer?
+    private let dockAutohideHold = DockAutohideHold()
+    private var dockFrameRestoration: DockPreviewFrameRestoration?
+    private var dockFrameRestorationGeneration = 0
+    private var dockHoldObservers: [NSObjectProtocol] = []
+    private var dockHoldInputTap: CFMachPort?
+    private var dockHoldInputSource: CFRunLoopSource?
     private var pendingHover: PendingHover?
     private var pendingHide: DispatchWorkItem?
-    private var pendingPeekReconcile: DispatchWorkItem?
+    private var lastMoveSampledAt: TimeInterval = 0
+    private var pendingMove: DispatchWorkItem?
+    private var pendingMovePoint: CGPoint?
+    private var pointerEventGeneration = 0
     private var lastAXMousePoint: CGPoint?
     private var lastAppKitMousePoint: CGPoint?
     private var panel: NSPanel?
-    /// The window the user came from, captured when a session first opens and
-    /// carried unchanged across app switches so cancelling always returns there —
-    /// not to a window we only peeked. Cleared when the session fully ends.
-    private var sessionOrigin: SessionOrigin?
     /// The app of the currently shown panel. `nil` means no session.
     private var currentSessionPID: pid_t?
     /// True once the cursor has reached the panel. Before this, the icon and
@@ -48,17 +60,10 @@ final class DockPreviewService: ObservableObject {
     private var activeCorridor: HoverCorridor?
     private var activeIconFrame: CGRect?
     private var activeDockPreferences: DockPreviewPreferences?
-    private var activePeekWindowID: CGWindowID?
-    /// The card the cursor is currently over, reconciled into an actual peek on a
-    /// short debounce so moving between cards never flickers through the origin.
-    private var desiredPeek: SwitcherItem?
-    private var touchedWindows: [CGWindowID: TouchedWindow] = [:]
-    private var touchedApps: [pid_t: Bool] = [:]
     private var pendingMinimizeConfirmations: [CGWindowID: UUID] = [:]
     private var pinnedPanels: [UUID: DockPreviewPinnedPanel] = [:]
     private var pinnedPanelWindows: [UUID: NSPanel] = [:]
     private var dockPIDCache: pid_t?
-    private var cachedPreferences: DockPreviewPreferences?
     /// Short-TTL cache of whether the Dock strip is on screen, so the per-mouse-move
     /// gate never pays a window-list round-trip more than a few times per second.
     private var dockStripOnScreenCache: Bool?
@@ -76,6 +81,9 @@ final class DockPreviewService: ObservableObject {
         tileSize: 64,
         magnification: false,
         magnifiedTileSize: 128)
+    private var cachedPreferences: DockPreviewPreferences?
+    private var currentSpaceOnly = false
+    private var spaceChangeObserver: NSObjectProtocol?
 
     private init() {}
 
@@ -84,6 +92,16 @@ final class DockPreviewService: ObservableObject {
     }
 
     func syncWithPreferences() {
+        if !UserDefaults.standard.bool(forKey: DefaultsKey.dockPreviewKeepDockVisible),
+           dockAutohideHold.isHolding {
+            endSession()
+        }
+        let freshScope = UserDefaults.standard.bool(forKey: DefaultsKey.dockPreviewCurrentSpaceOnly)
+        if freshScope != currentSpaceOnly {
+            currentSpaceOnly = freshScope
+            endSession()
+            // Pinned panels pick up the new scope on their existing refresh timer.
+        }
         let enabled = AppFeature.dockPreview.isAvailable
             && UserDefaults.standard.bool(forKey: DefaultsKey.dockPreviewEnabled)
         cachedPreferences = readDockPreferences()
@@ -105,7 +123,7 @@ final class DockPreviewService: ObservableObject {
 
         guard availability.canRun else {
             stopTap()
-            endSession(restore: true)
+            endSession()
             closeAllPinnedPanels()
             isRunning = false
             return
@@ -114,19 +132,44 @@ final class DockPreviewService: ObservableObject {
         if dockProcessID() == nil {
             blockedReason = .dockUnavailable
             stopTap()
-            endSession(restore: true)
+            endSession()
             closeAllPinnedPanels()
             isRunning = false
             return
         }
 
         startTap()
+        syncSpaceObservation()
+    }
+
+    private func syncSpaceObservation() {
+        guard isRunning, currentSpaceOnly else {
+            stopSpaceObservation()
+            return
+        }
+        guard spaceChangeObserver == nil else { return }
+        spaceChangeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self, self.isRunning, self.currentSpaceOnly,
+                  !self.isDraggingWindow else { return }
+            // Invalidate both the open list and a hover prefetched on the old
+            // desktop. Pinned panels keep their existing refresh cycle.
+            self.endSession()
+        }
+    }
+
+    private func stopSpaceObservation() {
+        if let spaceChangeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(spaceChangeObserver)
+        }
+        spaceChangeObserver = nil
     }
 
     func stop() {
         stopSettingsTimer()
         stopTap()
-        endSession(restore: true)
+        endSession()
         closeAllPinnedPanels()
         isRunning = false
         blockedReason = nil
@@ -135,9 +178,7 @@ final class DockPreviewService: ObservableObject {
     func preview(_ item: SwitcherItem) {
         guard isVisible, windows.contains(item) else { return }
         cancelPendingHide()
-        desiredPeek = item
         selectedWindowID = item.windowID
-        schedulePeekReconcile()
     }
 
     /// Whether a preview panel (session or pinned) covers the given top-left-
@@ -153,18 +194,16 @@ final class DockPreviewService: ObservableObject {
 
     /// A Dock icon click was handled — and swallowed — by DockClickService, so
     /// the listen-only tap here never sees that mouseDown. Mirror what a native
-    /// Dock click does to the session; without this the panel stays open with a
-    /// pre-click idea of which windows are minimized, and a later hover peek
-    /// would happily pull a just-minimized window back out.
+    /// Dock click does to the session so the panel cannot stay open with stale
+    /// window state.
     func dockClickWasHandled() {
         cancelPendingHover()
         guard isVisible else { return }
         let decision = DockPreviewSupport.mouseDownDecision(isVisible: isVisible,
                                                             isPinned: isPinned,
-                                                            isInsidePanel: false,
-                                                            clickedDock: true)
+                                                            isInsidePanel: false)
         if decision.shouldEndSession {
-            endSession(restore: decision.restoreOrigin)
+            endSession()
         } else {
             cancelPendingHide()
         }
@@ -172,99 +211,65 @@ final class DockPreviewService: ObservableObject {
 
     func endPreview(_ item: SwitcherItem) {
         guard isVisible else { return }
-        // Only the card that currently owns the peek may release it. If the
-        // cursor has already moved to another card, that card is now in charge,
-        // so a late "ended" for the old card must not undo the new peek. This is
-        // what makes the reconcile order-independent across card-to-card moves.
-        guard desiredPeek?.id == item.id else { return }
-        desiredPeek = nil
-        schedulePeekReconcile()
-    }
-
-    private func schedulePeekReconcile() {
-        cancelPendingPeekReconcile()
-        let work = DispatchWorkItem { [weak self] in self?.reconcilePeek() }
-        pendingPeekReconcile = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + DockPreviewSupport.peekDelay, execute: work)
-    }
-
-    /// Brings the screen in line with `desiredPeek`: peek the hovered window, or
-    /// revert to the origin when nothing is hovered. Debounced, so a flick across
-    /// several cards resolves to a single activation of the final card.
-    private func reconcilePeek() {
-        pendingPeekReconcile = nil
-        guard isVisible else { return }
-
-        selectedWindowID = desiredPeek?.windowID
-
-        let targetWindowID = desiredPeek?.windowID
-        guard targetWindowID != activePeekWindowID else { return }
-
-        if let item = desiredPeek {
-            // A minimized window is only pulled out by an explicit click, never
-            // by a hover. The card can also go stale while the panel is open
-            // (the window can minimize underneath us — ⌘M, another utility…),
-            // so trust a live check over the captured item — and when the live
-            // check cannot even resolve the window, fail closed: skipping a
-            // peek is invisible, peeking an unverifiable window restores it.
-            if let windowID = item.windowID {
-                let liveMinimized = WindowActivator.windowMinimizedState(windowID: windowID,
-                                                                         pid: item.windowOwnerPID)
-                if item.isMinimized || liveMinimized != false {
-                    if liveMinimized == true, !item.isMinimized {
-                        windows = windows.map {
-                            $0.windowID == windowID ? $0.withMinimized(true) : $0
-                        }
-                    }
-                    if activePeekWindowID != nil {
-                        activePeekWindowID = nil
-                        restoreOrigin(retry: false)
-                    }
-                    return
-                }
-            }
-            recordTouch(item)
-            activePeekWindowID = item.windowID
-            WindowActivator.activate(item, retry: false)
-        } else {
-            activePeekWindowID = nil
-            restoreOrigin(retry: false)
-        }
+        guard selectedWindowID == item.windowID else { return }
+        selectedWindowID = nil
     }
 
     func commit(_ item: SwitcherItem) {
         guard windows.contains(item) else { return }
-        cancelPendingPeekReconcile()
-        desiredPeek = nil
-        endSession(restore: false)
-        WindowActivator.activate(item)
+        let generation = dockFrameRestorationGeneration
+        let restoreFrame = dockFrameRestoration?.restoration(for: item) { [weak self] in
+            self?.isRunning == true && self?.dockFrameRestorationGeneration == generation
+        }
+        endSession()
+        guard WindowEnumerator.dockPreviewMayActivate(item) else { return }
+        // The app in front keeps the delayed focus handoff settling; it is
+        // not a session source, so minimizing the window later leaves it be.
+        WindowActivator.activate(
+            item,
+            handoffSourcePID: NSWorkspace.shared.frontmostApplication?.processIdentifier
+        )
+        restoreFrame?()
     }
 
     func closePreviewPanel() {
         guard isVisible else { return }
-        endSession(restore: true)
+        endSession()
+    }
+
+    func closeWindow(_ item: SwitcherItem) {
+        close(item, quitAppOnClose: false)
     }
 
     func close(_ item: SwitcherItem) {
+        close(item, quitAppOnClose: UserDefaults.standard.bool(forKey: DefaultsKey.dockPreviewQuitAppOnClose))
+    }
+
+    private func close(_ item: SwitcherItem, quitAppOnClose: Bool) {
         guard isVisible,
               windows.contains(item),
-              let windowID = item.windowID,
-              WindowActivator.closeWindow(windowID: windowID,
-                                           appPID: item.pid,
-                                           windowOwnerPID: item.windowOwnerPID)
+              let windowID = item.windowID
         else { return }
 
-        cancelPendingPeekReconcile()
-        if desiredPeek?.id == item.id {
-            desiredPeek = nil
-        }
-        if selectedWindowID == windowID {
-            selectedWindowID = nil
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
-            self?.finishClosing(item, windowID: windowID, attempt: 0)
-        }
+        DockPreviewSupport.performCloseAction(
+            quitAppOnClose: quitAppOnClose,
+            requestQuit: { [weak self] in
+                let accepted = requestDockPreviewApplicationQuit(item)
+                if accepted { self?.endSession() }
+                return accepted
+            },
+            closeWindow: {
+                WindowActivator.closeWindowIncludingHiddenState(item) { [weak self] didClose in
+                    guard didClose, let self else { return }
+                    if self.selectedWindowID == windowID {
+                        self.selectedWindowID = nil
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+                        self?.finishClosing(item, windowID: windowID, attempt: 0)
+                    }
+                }
+            }
+        )
     }
 
     func toggleMinimized(_ item: SwitcherItem) {
@@ -275,30 +280,80 @@ final class DockPreviewService: ObservableObject {
         else { return }
 
         let shouldMinimize = !item.isMinimized
-        let restoreOriginAfterMinimize = DockPreviewSupport.shouldRestoreOriginAfterMinimize(
-            originPID: sessionOrigin?.pid,
-            originWindowID: sessionOrigin?.windowID,
-            targetPID: item.pid,
-            targetWindowID: windowID
-        )
         guard WindowActivator.setWindowMinimized(shouldMinimize,
                                                  windowID: windowID,
                                                  pid: item.windowOwnerPID) else { return }
-        if shouldMinimize && !restoreOriginAfterMinimize {
-            sessionOrigin = nil
-        }
-        touchedWindows[windowID] = TouchedWindow(pid: item.windowOwnerPID, wasMinimized: false)
         scheduleMinimizeConfirmation(windowID: windowID,
                                      pid: item.windowOwnerPID,
                                      minimized: shouldMinimize,
-                                     restoreOriginAfterMinimize: restoreOriginAfterMinimize,
                                      attempt: 0)
+    }
+
+    // MARK: - Drag to place
+
+    /// Lifts a preview card into a pointer-following stand-in. The real window
+    /// is not touched until the drop, so an abandoned drag changes nothing.
+    ///
+    /// Minimized and fullscreen windows are refused: a minimized window has no
+    /// on-screen position to aim at, and a fullscreen one owns its Space and
+    /// ignores the position it is given.
+    func beginWindowDrag(_ item: SwitcherItem) {
+        guard isVisible,
+              windows.contains(item),
+              DockPreviewSupport.canDragToPlace(hasWindowID: item.windowID != nil,
+                                                isFullscreen: item.isFullscreen),
+              let image = item.previewWindowID.flatMap({ previews[$0] })
+        else { return }
+
+        isDraggingWindow = true
+        releaseDockAutohideHold()
+        cancelPendingHide()
+        cancelPendingHover()
+        DockPreviewDragGhost.shared.begin(image: image, at: NSEvent.mouseLocation)
+    }
+
+    func updateWindowDrag() {
+        guard isDraggingWindow else { return }
+        DockPreviewDragGhost.shared.move(to: NSEvent.mouseLocation)
+    }
+
+    /// Drops the window where the stand-in was: its top-left corner goes to the
+    /// pointer and the window keeps the size the user gave it, restored and
+    /// carried to this desktop if it was somewhere else. The session ends
+    /// either way, so a drop that could not move the window still gets the user
+    /// out of the panel instead of leaving it hanging over the desktop.
+    func endWindowDrag(_ item: SwitcherItem) {
+        guard isDraggingWindow else { return }
+        isDraggingWindow = false
+        DockPreviewDragGhost.shared.end()
+
+        guard item.windowID != nil else {
+            endSession()
+            return
+        }
+        let pointer = NSEvent.mouseLocation
+        let visibleFrame = (NSScreen.screens.first { NSMouseInRect(pointer, $0.frame, false) }
+            ?? NSScreen.withMouse)?.visibleFrame ?? .zero
+        let origin = axPoint(fromAppKit: DockPreviewSupport.dragOrigin(
+            pointer: pointer,
+            windowSize: item.frame.size,
+            visibleFrame: visibleFrame
+        ))
+        let moved = WindowActivator.place(item, origin: origin, pointer: pointer)
+        endSession()
+        if moved {
+            WindowActivator.activate(
+                item,
+                handoffSourcePID: NSWorkspace.shared.frontmostApplication?.processIdentifier
+            )
+            WindowActivator.focusPlacedWindow(item)
+        }
     }
 
     func togglePinned() {
         guard isVisible, let panel, !windows.isEmpty else { return }
         createPinnedPanel(from: panel.frame)
-        endSession(restore: true)
+        endSession()
     }
 
     func selectPreviousWindow() {
@@ -341,9 +396,7 @@ final class DockPreviewService: ObservableObject {
             callback: { _, type, event, userInfo in
                 guard let userInfo else { return Unmanaged.passUnretained(event) }
                 let service = Unmanaged<DockPreviewService>.fromOpaque(userInfo).takeUnretainedValue()
-                return MainActor.assumeIsolated {
-                    service.handle(type: type, event: event)
-                }
+                return service.handle(type: type, event: event)
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
@@ -361,15 +414,18 @@ final class DockPreviewService: ObservableObject {
     }
 
     private func stopTap() {
+        stopSpaceObservation()
         if let tap {
             CGEvent.tapEnable(tap: tap, enable: false)
         }
         if let runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         }
+        if let tap { CFMachPortInvalidate(tap) }
         tap = nil
         runLoopSource = nil
         cancelPendingHover()
+        cancelPendingMove()
     }
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -385,11 +441,21 @@ final class DockPreviewService: ObservableObject {
         // day. The tap's run-loop source lives on the main run loop, so this
         // callback already runs on the main thread and may read panel state
         // and settle those moves synchronously for free.
-        if type == .mouseMoved, discardFarMouseMove(axPoint: point) {
-            return Unmanaged.passUnretained(event)
+        if type == .mouseMoved {
+            if discardFarMouseMove(axPoint: point) {
+                cancelPendingMove()
+                return Unmanaged.passUnretained(event)
+            }
+            guard admitMouseMove(axPoint: point) else {
+                return Unmanaged.passUnretained(event)
+            }
+        } else {
+            cancelPendingMove()
         }
+        let generation = pointerEventGeneration
         DispatchQueue.main.async { [weak self] in
-            self?.handleOnMain(type: type, axPoint: point)
+            guard let self, self.pointerEventGeneration == generation else { return }
+            self.handleOnMain(type: type, axPoint: point)
         }
         return Unmanaged.passUnretained(event)
     }
@@ -400,12 +466,46 @@ final class DockPreviewService: ObservableObject {
     /// switch re-confirmations read these) — everything else falls through to
     /// the full handler.
     private func discardFarMouseMove(axPoint: CGPoint) -> Bool {
-        guard isRunning, !isVisible, pendingHover == nil else { return false }
+        // Nothing checks whether the tap is running: the only caller is the tap
+        // callback, which cannot run unless it is.
+        guard !isVisible, pendingHover == nil else { return false }
         let point = appKitPoint(fromAX: axPoint)
         guard !isNearDock(point) else { return false }
         lastAXMousePoint = axPoint
         lastAppKitMousePoint = point
         return true
+    }
+
+    /// Lets one move per display frame reach the AX path and retains the
+    /// newest dropped point, so a cursor that comes to rest still opens the
+    /// intended preview.
+    private func admitMouseMove(axPoint: CGPoint) -> Bool {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastMoveSampledAt < DockPreviewSupport.mouseMoveSampleInterval else {
+            lastMoveSampledAt = now
+            cancelPendingMove()
+            return true
+        }
+        pendingMovePoint = axPoint
+        guard pendingMove == nil else { return false }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingMove = nil
+            self.lastMoveSampledAt = ProcessInfo.processInfo.systemUptime
+            guard let point = self.pendingMovePoint else { return }
+            self.pendingMovePoint = nil
+            self.handleOnMain(type: .mouseMoved, axPoint: point)
+        }
+        pendingMove = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + DockPreviewSupport.mouseMoveSampleInterval,
+                                      execute: work)
+        return false
+    }
+
+    private func cancelPendingMove() {
+        pendingMove?.cancel()
+        pendingMove = nil
+        pendingMovePoint = nil
     }
 
     private func handleOnMain(type: CGEventType, axPoint: CGPoint) {
@@ -421,6 +521,10 @@ final class DockPreviewService: ObservableObject {
     }
 
     private func handleMouseMoved(_ axPoint: CGPoint) {
+        // A drag owns the pointer until it lifts. Without this the pointer
+        // leaving the panel would arm the hide, and passing over another Dock
+        // icon would swap the panel out from under the window being carried.
+        guard !isDraggingWindow else { return }
         lastAXMousePoint = axPoint
         let point = appKitPoint(fromAX: axPoint)
         lastAppKitMousePoint = point
@@ -491,22 +595,14 @@ final class DockPreviewService: ObservableObject {
     /// Whether the cursor sits within the Dock's edge strip, so the expensive
     /// `dockHit` Accessibility call is worth making.
     ///
-    /// Two gates, cheapest first:
-    /// 1. The Dock strip must actually be on screen. With the Dock hidden
-    ///    (fullscreen app, auto-hide parked) no icon is hittable, so a hit-test
-    ///    would run AX IPC against whatever window covers the band — often a
-    ///    game that answers accessibility slowly, freezing the shared main run
-    ///    loop (and every event tap on it) for the duration of each call.
-    /// 2. The cursor must be inside the strip's edge band. Unknown Dock geometry
-    ///    defaults to a bottom Dock instead of "everywhere", so a missing
-    ///    preference can never turn every mouse move system-wide into an AX call.
+    /// Two gates, cheapest first: the cursor must be inside the strip's edge
+    /// band, and only then must the Dock strip actually be on screen. Unknown
+    /// Dock geometry defaults to a bottom Dock instead of "everywhere", so a
+    /// missing preference can never turn every mouse move system-wide into an
+    /// AX call against whatever window (often a slow game) covers the band.
     private func isNearDock(_ point: CGPoint) -> Bool {
-        // Cheapest gate first: pure geometry, no IPC. The window-list round-trip
-        // below must never run for mid-screen moves — under game load it can
-        // stall the shared main run loop for a few ms, and a few ms between a
-        // click's down and up is all it takes for a game to read a drag.
         let preferences = cachedPreferences ?? Self.defaultDockPreferences
-        let screen = NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main
+        let screen = NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) } ?? NSScreen.main
         guard let frame = screen?.frame else { return false }
         let band = DockPreviewSupport.dockProximityBand(tileSize: preferences.hoverTileSize)
         let inBand: Bool
@@ -516,16 +612,13 @@ final class DockPreviewService: ObservableObject {
         case .right: inBand = point.x >= frame.maxX - band
         }
         guard inBand else { return false }
-        // Only then confirm the Dock is actually on screen (fullscreen apps and
-        // auto-hide park it). Cached, so this costs at most one window-list
-        // round-trip per TTL while the cursor stays in the strip.
+        // Fullscreen apps and auto-hide park the Dock. Cached, so this costs at
+        // most one window-list round-trip per TTL while the cursor stays here.
         return dockStripOnScreen()
     }
 
-    /// Whether the Dock's strip window is currently on screen — the same layer-20
-    /// window DockClickService keys on. Mirrors the Dock's real visibility:
-    /// hidden while a fullscreen app owns the Space, parked while auto-hide is on
-    /// and the cursor is away. Cached briefly so the hot path stays a memory read.
+    /// Whether the Dock's strip window (layer `.dockWindow`) is on screen.
+    /// Cached briefly so the hot path stays a memory read.
     private func dockStripOnScreen() -> Bool {
         let now = CFAbsoluteTimeGetCurrent()
         if let cached = dockStripOnScreenCache,
@@ -574,34 +667,24 @@ final class DockPreviewService: ObservableObject {
         let isInsidePanel = activePanelFrame?.contains(point) == true
         let initialDecision = DockPreviewSupport.mouseDownDecision(isVisible: isVisible,
                                                                    isPinned: isPinned,
-                                                                   isInsidePanel: isInsidePanel,
-                                                                   clickedDock: false)
+                                                                   isInsidePanel: isInsidePanel)
         if !initialDecision.shouldEndSession {
             cancelPendingHide()
             cancelPendingHover()
             return
         }
-        // A click on the Dock (this app's icon or any other) hands activation to
-        // the Dock itself, so don't fight it by restoring the previous window.
-        let clickedDock = dockHit(at: axPoint) != nil
-        let decision = DockPreviewSupport.mouseDownDecision(isVisible: isVisible,
-                                                            isPinned: false,
-                                                            isInsidePanel: false,
-                                                            clickedDock: clickedDock)
-        if decision.shouldEndSession {
-            endSession(restore: decision.restoreOrigin)
-        }
+        endSession()
     }
 
     private func scheduleHideIfStillOutside() {
-        guard !isPinned else { return }
+        guard !isPinned, !isDraggingWindow else { return }
         guard pendingHide == nil else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingHide = nil
             guard let point = self.lastAppKitMousePoint,
                   let axPoint = self.lastAXMousePoint else {
-                self.endSession(restore: true)
+                self.endSession()
                 return
             }
             switch self.currentZone(point: point, axPoint: axPoint) {
@@ -610,11 +693,11 @@ final class DockPreviewService: ObservableObject {
             case .ownIcon:
                 // Closes only once the panel was actually used; an unentered
                 // panel keeps resting on its opener icon.
-                if self.hasEnteredPanel { self.endSession(restore: true) }
+                if self.hasEnteredPanel { self.endSession() }
             case .otherIcon(let hit):
                 self.scheduleHover(hit, delay: DockPreviewSupport.switchDelay)
             case .outside:
-                self.endSession(restore: true)
+                self.endSession()
             }
         }
         pendingHide = work
@@ -671,8 +754,11 @@ final class DockPreviewService: ObservableObject {
     }
 
     private static func previewableWindows(for pid: pid_t) -> [SwitcherItem] {
-        WindowEnumerator.listWindows(for: pid, maximumCount: 12)
+        let windows = WindowEnumerator.listWindowsForDockPreview(for: pid, maximumCount: 12)
             .filter { $0.windowID != nil }
+        let order = DockPreviewWindowOrder.fromDefaults(
+            orderByCreation: UserDefaults.standard.bool(forKey: DefaultsKey.dockPreviewOrderByCreation))
+        return DockPreviewSupport.orderedWindows(windows, order: order)
     }
 
     private func beginHoverIfStillValid(token: UUID, initialHit: DockHit) {
@@ -702,25 +788,14 @@ final class DockPreviewService: ObservableObject {
         // An app with no real windows shows nothing; if a panel is already up
         // (the user moved here from another app), close it cleanly.
         guard !list.isEmpty else {
-            if isVisible { endSession(restore: true) }
+            if isVisible { endSession() }
             return
         }
 
-
-        // Switching apps: revert the previous app's peek and bring its origin
-        // back, but keep the panel on screen and carry the SAME origin into the
-        // new session — the user still came from that first window.
+        // Switching apps keeps the panel on screen and re-points it at the app
+        // under the cursor without changing the frontmost application.
         if isVisible {
-            tearDownVisuals(restore: true, retryRestore: false)
-        }
-
-        if sessionOrigin == nil {
-            let frontApp = NSWorkspace.shared.frontmostApplication
-            sessionOrigin = frontApp.map {
-                SessionOrigin(pid: $0.processIdentifier,
-                              windowID: WindowActivator.focusedWindowID(for: $0.processIdentifier),
-                              appName: $0.localizedName ?? "")
-            }
+            tearDownVisuals()
         }
 
         currentSessionPID = hit.app.processIdentifier
@@ -734,41 +809,39 @@ final class DockPreviewService: ObservableObject {
             }
         })
         selectedWindowID = nil
-        desiredPeek = nil
 
-        WindowPreviewProvider.shared.refreshPreviews(for: list, maxPixelSize: 420 * PreviewSizing.scale) { [weak self] windowID, image in
+        WindowPreviewProvider.shared.refreshPreviews(for: list, maxPixelSize: 420 * PreviewSizing.scale,
+                                                     excludedAppsKey: DefaultsKey.windowPreviewExcludedApps) { [weak self] windowID, image in
             guard let self, self.isVisible, self.windows.contains(where: { $0.previewWindowID == windowID }) else { return }
             self.previews[windowID] = image
         }
 
+        if hit.preferences.autohide,
+           UserDefaults.standard.bool(forKey: DefaultsKey.dockPreviewKeepDockVisible) {
+            beginDockAutohideHold()
+        }
         showPanel(for: hit, itemCount: list.count)
     }
 
-    /// Fully ends the session: tears down the panel and forgets the origin.
-    private func endSession(restore: Bool) {
+    /// Fully ends the session and tears down the panel.
+    private func endSession() {
+        isDraggingWindow = false
+        DockPreviewDragGhost.shared.end()
         cancelPendingHover()
         cancelPendingHide()
         WindowPreviewProvider.shared.cancel()
-        tearDownVisuals(restore: restore, retryRestore: restore)
-        sessionOrigin = nil
-        isPinned = false
+        // Remove the surface before publishing empty content. During a Space
+        // transition, an animated dismissal can otherwise carry a blank panel.
         panel?.orderOut(nil)
+        releaseDockAutohideHold()
+        tearDownVisuals()
+        isPinned = false
     }
 
-    /// Reverts any peek and clears all per-app state, optionally restoring the
-    /// origin window and the minimized/hidden state of anything we touched.
-    /// Deliberately leaves `sessionOrigin` and the panel window alone so the
-    /// same panel can be re-pointed at another app during a switch.
-    ///
-    /// `retryRestore` is false on a switch: a second, delayed origin activation
-    /// would land after the new app's first peek and snatch focus back.
-    private func tearDownVisuals(restore: Bool, retryRestore: Bool) {
-        cancelPendingPeekReconcile()
+    /// Clears all per-app panel state while leaving the panel window available
+    /// so the same session can be re-pointed during a Dock switch.
+    private func tearDownVisuals() {
         cancelPendingMinimizeConfirmations()
-
-        let origin = sessionOrigin
-        let touchedWindows = self.touchedWindows
-        let touchedApps = self.touchedApps
 
         windows = []
         previews = [:]
@@ -780,21 +853,6 @@ final class DockPreviewService: ObservableObject {
         activeCorridor = nil
         activeIconFrame = nil
         activeDockPreferences = nil
-        activePeekWindowID = nil
-        desiredPeek = nil
-        self.touchedWindows = [:]
-        self.touchedApps = [:]
-
-        guard restore else { return }
-        restoreOrigin(origin, retry: retryRestore)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
-            for (windowID, state) in touchedWindows where state.wasMinimized {
-                WindowActivator.setWindowMinimized(true, windowID: windowID, pid: state.pid)
-            }
-            for (pid, wasHidden) in touchedApps where wasHidden && pid != origin?.pid {
-                NSRunningApplication(processIdentifier: pid)?.hide()
-            }
-        }
     }
 
     private func cancelPendingHover() {
@@ -803,15 +861,9 @@ final class DockPreviewService: ObservableObject {
         pendingHover = nil
     }
 
-
     private func cancelPendingHide() {
         pendingHide?.cancel()
         pendingHide = nil
-    }
-
-    private func cancelPendingPeekReconcile() {
-        pendingPeekReconcile?.cancel()
-        pendingPeekReconcile = nil
     }
 
     private func cancelPendingMinimizeConfirmations() {
@@ -821,7 +873,6 @@ final class DockPreviewService: ObservableObject {
     private func scheduleMinimizeConfirmation(windowID: CGWindowID,
                                               pid: pid_t,
                                               minimized: Bool,
-                                              restoreOriginAfterMinimize: Bool,
                                               attempt: Int) {
         let token = pendingMinimizeConfirmations[windowID] ?? UUID()
         pendingMinimizeConfirmations[windowID] = token
@@ -830,7 +881,6 @@ final class DockPreviewService: ObservableObject {
             self?.confirmMinimizedState(windowID: windowID,
                                         pid: pid,
                                         minimized: minimized,
-                                        restoreOriginAfterMinimize: restoreOriginAfterMinimize,
                                         attempt: attempt,
                                         token: token)
         }
@@ -839,7 +889,6 @@ final class DockPreviewService: ObservableObject {
     private func confirmMinimizedState(windowID: CGWindowID,
                                        pid: pid_t,
                                        minimized: Bool,
-                                       restoreOriginAfterMinimize: Bool,
                                        attempt: Int,
                                        token: UUID) {
         guard isVisible,
@@ -851,16 +900,14 @@ final class DockPreviewService: ObservableObject {
         if isMinimized == minimized {
             pendingMinimizeConfirmations.removeValue(forKey: windowID)
             applyMinimizedState(windowID: windowID,
-                                minimized: minimized,
-                                restoreOriginAfterMinimize: restoreOriginAfterMinimize)
+                                minimized: minimized)
             return
         }
 
         guard attempt + 1 < DockPreviewMinimizeConfirmation.delays.count else {
             pendingMinimizeConfirmations.removeValue(forKey: windowID)
             applyMinimizedState(windowID: windowID,
-                                minimized: isMinimized,
-                                restoreOriginAfterMinimize: false)
+                                minimized: isMinimized)
             return
         }
 
@@ -868,59 +915,21 @@ final class DockPreviewService: ObservableObject {
         scheduleMinimizeConfirmation(windowID: windowID,
                                      pid: pid,
                                      minimized: minimized,
-                                     restoreOriginAfterMinimize: restoreOriginAfterMinimize,
                                      attempt: attempt + 1)
     }
 
     private func applyMinimizedState(windowID: CGWindowID,
-                                     minimized: Bool,
-                                     restoreOriginAfterMinimize: Bool) {
+                                     minimized: Bool) {
         windows = windows.map { candidate in
             candidate.windowID == windowID ? candidate.withMinimized(minimized) : candidate
         }
 
         if minimized {
-            cancelPendingPeekReconcile()
-            if desiredPeek?.windowID == windowID {
-                desiredPeek = nil
-            }
             if selectedWindowID == windowID {
                 selectedWindowID = nil
             }
-            if activePeekWindowID == windowID {
-                activePeekWindowID = nil
-                if restoreOriginAfterMinimize {
-                    restoreOrigin(retry: false)
-                }
-            }
         } else {
             selectedWindowID = windowID
-        }
-    }
-
-    private func restoreOrigin(retry: Bool) {
-        restoreOrigin(sessionOrigin, retry: retry)
-    }
-
-    private func restoreOrigin(_ origin: SessionOrigin?, retry: Bool) {
-        guard let origin else { return }
-        WindowActivator.activate(pid: origin.pid,
-                                 windowID: origin.windowID,
-                                 appName: origin.appName,
-                                 retry: retry)
-    }
-
-    private func recordTouch(_ item: SwitcherItem) {
-        if touchedApps[item.pid] == nil {
-            touchedApps[item.pid] = NSRunningApplication(processIdentifier: item.pid)?.isHidden ?? false
-        }
-        if let windowID = item.windowID, touchedWindows[windowID] == nil {
-            touchedWindows[windowID] = TouchedWindow(
-                pid: item.windowOwnerPID,
-                wasMinimized: item.isMinimized
-                    || WindowActivator.windowIsMinimized(windowID: windowID,
-                                                         pid: item.windowOwnerPID)
-            )
         }
     }
 
@@ -943,13 +952,10 @@ final class DockPreviewService: ObservableObject {
     }
 
     private func applyClosedWindowRemoval(_ closedWindowID: CGWindowID) {
-        let wasActivePreview = activePeekWindowID == closedWindowID || desiredPeek?.windowID == closedWindowID
         let state = DockPreviewSupport.closeState(
             afterRemoving: closedWindowID,
             windowIDs: windows.compactMap(\.windowID),
-            selectedWindowID: selectedWindowID,
-            activePeekWindowID: activePeekWindowID,
-            desiredWindowID: desiredPeek?.windowID
+            selectedWindowID: selectedWindowID
         )
         let remaining = Set(state.remainingWindowIDs)
 
@@ -959,19 +965,11 @@ final class DockPreviewService: ObservableObject {
         }
         previews = previews.filter { remaining.contains($0.key) }
         selectedWindowID = state.selectedWindowID
-        activePeekWindowID = state.activePeekWindowID
-        if state.desiredWindowID == nil {
-            desiredPeek = nil
-        }
-        touchedWindows.removeValue(forKey: closedWindowID)
 
         if state.shouldEndSession {
-            endSession(restore: true)
+            endSession()
         } else {
             resizePanelForCurrentWindows()
-            if wasActivePreview {
-                restoreOrigin(retry: false)
-            }
         }
     }
 
@@ -980,7 +978,10 @@ final class DockPreviewService: ObservableObject {
     private func showPanel(for hit: DockHit, itemCount: Int) {
         let panel = ensurePanel()
         let screenVisibleFrame = visibleFrameForScreen(containing: hit.iconFrame)
-        let size = DockPreviewSupport.panelSize(itemCount: itemCount, screenVisibleFrame: screenVisibleFrame)
+        let size = DockPreviewSupport.panelSize(itemCount: itemCount,
+                                                screenVisibleFrame: screenVisibleFrame,
+                                                isPinned: false,
+                                                orientation: hit.preferences.orientation)
         let gap = hit.preferences.autohide ? DockPreviewSupport.autohidePanelGap : DockPreviewSupport.panelGap
         let frame = DockPreviewSupport.panelFrame(anchor: hit.iconFrame,
                                                   panelSize: size,
@@ -993,8 +994,10 @@ final class DockPreviewService: ObservableObject {
             panelFrame: frame,
             orientation: hit.preferences.orientation
         )
+        // Resizing keeps the opening anchor even after the Dock auto-hides.
         activeIconFrame = hit.iconFrame
         activeDockPreferences = hit.preferences
+        orientation = hit.preferences.orientation
 
         panel.setFrame(frame, display: true, animate: false)
         panel.contentViewController?.view.layoutSubtreeIfNeeded()
@@ -1009,13 +1012,24 @@ final class DockPreviewService: ObservableObject {
         else { return }
 
         let screenVisibleFrame = visibleFrameForScreen(containing: iconFrame)
-        let size = DockPreviewSupport.panelSize(itemCount: windows.count, screenVisibleFrame: screenVisibleFrame)
+        let size = DockPreviewSupport.panelSize(itemCount: windows.count,
+                                                screenVisibleFrame: screenVisibleFrame,
+                                                isPinned: false,
+                                                orientation: preferences.orientation)
         let gap = preferences.autohide ? DockPreviewSupport.autohidePanelGap : DockPreviewSupport.panelGap
-        let frame = DockPreviewSupport.panelFrame(anchor: iconFrame,
+        var frame = DockPreviewSupport.panelFrame(anchor: iconFrame,
                                                   panelSize: size,
                                                   screenVisibleFrame: screenVisibleFrame,
                                                   orientation: preferences.orientation,
                                                   gap: gap)
+        // The Dock's work area can expand after it hides. Keep the panel's
+        // Dock-facing edge where it opened, while still fitting the screen.
+        switch preferences.orientation {
+        case .bottom: frame.origin.y = panel.frame.minY
+        case .left: frame.origin.x = panel.frame.minX
+        case .right: frame.origin.x = panel.frame.maxX - frame.width
+        }
+        frame = clampedPanelFrame(frame)
         activePanelFrame = frame
         activeCorridor = DockPreviewSupport.hoverCorridor(
             iconFrame: iconFrame,
@@ -1024,6 +1038,87 @@ final class DockPreviewService: ObservableObject {
         )
         panel.setFrame(frame, display: true, animate: true)
         panel.contentViewController?.view.layoutSubtreeIfNeeded()
+    }
+
+    private func beginDockAutohideHold() {
+        guard dockHoldObservers.isEmpty, startDockHoldInputTap() else { return }
+        dockFrameRestorationGeneration &+= 1
+        let frameRestoration = DockPreviewFrameRestoration()
+        guard dockAutohideHold.begin() else {
+            stopDockHoldInputTap()
+            return
+        }
+        dockFrameRestoration = frameRestoration
+        let workspace = NSWorkspace.shared.notificationCenter
+        let events = [NSWorkspace.activeSpaceDidChangeNotification,
+                      NSWorkspace.willSleepNotification,
+                      NSWorkspace.sessionDidResignActiveNotification]
+        dockHoldObservers = events.map { name in
+            workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.endSession()
+            }
+        }
+    }
+
+    // An active tap returns the original key only AFTER restoring the Dock.
+    // A passive monitor or an async dispatch can restore after a system shortcut
+    // has already changed auto-hide, overwriting the user's new choice.
+    private func startDockHoldInputTap() -> Bool {
+        guard dockHoldInputTap == nil else { return true }
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: CGEventMask(1) << CGEventType.keyDown.rawValue,
+            callback: { _, type, event, userInfo in
+                guard let userInfo else { return Unmanaged.passUnretained(event) }
+                let service = Unmanaged<DockPreviewService>.fromOpaque(userInfo).takeUnretainedValue()
+                service.handleDockHoldInput(type: type)
+                return Unmanaged.passUnretained(event)
+            },
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) else { return false }
+        dockHoldInputTap = tap
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        dockHoldInputSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        return true
+    }
+
+    private func handleDockHoldInput(type: CGEventType) {
+        guard dockAutohideHold.isHolding else { return }
+        if type == .keyDown || type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            // Discard a sampled mouse move that predates the key, so it cannot
+            // reopen the hover immediately after keyboard use ended it.
+            pointerEventGeneration &+= 1
+            cancelPendingMove()
+            endSession()
+        }
+    }
+
+    private func stopDockHoldInputTap() {
+        if let tap = dockHoldInputTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+        }
+        if let source = dockHoldInputSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+        }
+        dockHoldInputTap = nil
+        dockHoldInputSource = nil
+    }
+
+    private func releaseDockAutohideHold() {
+        // Restore before invalidating an active input callback: detaching the
+        // tap must never let its key reach the system ahead of this write.
+        dockAutohideHold.end()
+        dockFrameRestoration = nil
+        stopDockHoldInputTap()
+        for observer in dockHoldObservers {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        dockHoldObservers.removeAll()
     }
 
     private func clampedPanelFrame(_ frame: CGRect) -> CGRect {
@@ -1047,16 +1142,17 @@ final class DockPreviewService: ObservableObject {
     private func ensurePanel() -> NSPanel {
         if let panel { return panel }
 
-        let panel = NSPanel(contentRect: .zero,
-                            styleMask: [.borderless, .nonactivatingPanel],
-                            backing: .buffered,
-                            defer: false)
+        let panel = OverlayPanel(contentRect: .zero,
+                                 styleMask: [.borderless, .nonactivatingPanel],
+                                 backing: .buffered,
+                                 defer: false)
         panel.level = .statusBar
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.isMovable = true
         panel.hidesOnDeactivate = false
+        panel.animationBehavior = .none
         panel.isReleasedWhenClosed = false
         panel.acceptsMouseMovedEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
@@ -1089,16 +1185,17 @@ final class DockPreviewService: ObservableObject {
     }
 
     private func makePinnedPanel(for pinned: DockPreviewPinnedPanel) -> NSPanel {
-        let panel = NSPanel(contentRect: .zero,
-                            styleMask: [.borderless, .nonactivatingPanel],
-                            backing: .buffered,
-                            defer: false)
+        let panel = OverlayPanel(contentRect: .zero,
+                                 styleMask: [.borderless, .nonactivatingPanel],
+                                 backing: .buffered,
+                                 defer: false)
         panel.level = .statusBar
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.isMovable = true
         panel.hidesOnDeactivate = false
+        panel.animationBehavior = .none
         panel.isReleasedWhenClosed = false
         panel.acceptsMouseMovedEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
@@ -1133,22 +1230,34 @@ final class DockPreviewService: ObservableObject {
               let dockPID = dockProcessID()
         else { return nil }
 
-        let system = AXUIElementCreateSystemWide()
-        AXUIElementSetMessagingTimeout(system, Self.tapAXTimeout)
         var rawElement: AXUIElement?
-        guard AXUIElementCopyElementAtPosition(system, Float(axPoint.x), Float(axPoint.y), &rawElement) == .success,
-              let element = rawElement
-        else { return nil }
+        // Resolve only after finding a visible Dock, and reuse the answer
+        // when a pass-through overlay made the ownership check ask first.
+        func hitElement() -> AXUIElement? {
+            if let rawElement { return rawElement }
+            // No cap on the system-wide element: a timeout there becomes the
+            // default for every question this process asks, whoever asks it
+            // (#938). The element it returns, and its parents, are capped.
+            let system = AXUIElementCreateSystemWide()
+            guard AXUIElementCopyElementAtPosition(system,
+                                                   Float(axPoint.x), Float(axPoint.y),
+                                                   &rawElement) == .success else { return nil }
+            if let rawElement { AXUIElementSetMessagingTimeout(rawElement, Self.tapAXTimeout) }
+            return rawElement
+        }
 
-        // The cursor is not over the Dock: the element's parents all live in the
-        // same (possibly slow) app as it does, so walking them — up to 8 AX
-        // round-trips against, say, a busy game that answers accessibility
-        // slowly — can only ever confirm "not the dock". Bail before any IPC.
-        guard pid(of: element) == dockPID else { return nil }
-        AXUIElementSetMessagingTimeout(element, Self.tapAXTimeout)
+        guard DockClickSupport.dockOwnsPoint(
+            axPoint,
+            windows: WindowServerSupport.onScreenWindows(),
+            dockProcessID: dockPID,
+            dockLayer: Int(CGWindowLevelForKey(.dockWindow)),
+            ownProcessID: getpid(),
+            accessibilityHitProcessID: { hitElement().flatMap { self.pid(of: $0) } }
+        ), let element = hitElement() else { return nil }
 
         for candidate in elementAndParents(from: element) {
-            guard let frame = appKitFrame(of: candidate),
+            guard pid(of: candidate) == dockPID,
+                  let frame = appKitFrame(of: candidate),
                   let app = runningApplication(forDockElement: candidate)
             else { continue }
             return DockHit(app: app, iconFrame: frame, preferences: preferences)
@@ -1231,14 +1340,12 @@ final class DockPreviewService: ObservableObject {
         // slow beat and the full (tap/session/pid) resync below only happens
         // when something actually changed.
         let timer = Timer(timeInterval: 10, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                let fresh = self.readDockPreferences()
-                // Resync on a real change — or while blocked, so a Dock that was
-                // restarting (or briefly unavailable) still brings the tap back.
-                if fresh != self.cachedPreferences || !self.isRunning {
-                    self.syncWithPreferences()
-                }
+            guard let self else { return }
+            let fresh = self.readDockPreferences()
+            // Resync on a real change — or while blocked, so a Dock that was
+            // restarting (or briefly unavailable) still brings the tap back.
+            if fresh != self.cachedPreferences || !self.isRunning {
+                self.syncWithPreferences()
             }
         }
         timer.tolerance = 2.5
@@ -1259,7 +1366,7 @@ final class DockPreviewService: ObservableObject {
         }
         return DockPreviewPreferences.sanitized(
             orientation: domain["orientation"] as? String,
-            autohide: boolValue(domain["autohide"]),
+            autohide: dockAutohideHold.isHolding ? true : boolValue(domain["autohide"]),
             tileSize: doubleValue(domain["tilesize"]),
             magnification: boolValue(domain["magnification"]),
             magnifiedTileSize: doubleValue(domain["largesize"])
@@ -1411,18 +1518,6 @@ private struct PendingHover {
     var windows: [SwitcherItem]?
 }
 
-
-private struct SessionOrigin {
-    let pid: pid_t
-    let windowID: CGWindowID?
-    let appName: String
-}
-
-private struct TouchedWindow {
-    let pid: pid_t
-    let wasMinimized: Bool
-}
-
 private enum DockPreviewMinimizeConfirmation {
     static let delays: [TimeInterval] = [0.04, 0.12, 0.28, 0.55]
 
@@ -1487,21 +1582,46 @@ final class DockPreviewPinnedPanel: ObservableObject, Identifiable {
 
     func commit(_ item: SwitcherItem) {
         guard windows.contains(item) else { return }
+        guard WindowEnumerator.dockPreviewMayActivate(item) else {
+            refreshWindows()
+            return
+        }
         selectedWindowID = item.windowID
-        WindowActivator.activate(item)
+        WindowActivator.activate(
+            item,
+            handoffSourcePID: NSWorkspace.shared.frontmostApplication?.processIdentifier
+        )
+    }
+
+    func closeWindow(_ item: SwitcherItem) {
+        close(item, quitAppOnClose: false)
     }
 
     func close(_ item: SwitcherItem) {
+        close(item, quitAppOnClose: UserDefaults.standard.bool(forKey: DefaultsKey.dockPreviewQuitAppOnClose))
+    }
+
+    private func close(_ item: SwitcherItem, quitAppOnClose: Bool) {
         guard windows.contains(item),
-              let windowID = item.windowID,
-              WindowActivator.closeWindow(windowID: windowID,
-                                           appPID: item.pid,
-                                           windowOwnerPID: item.windowOwnerPID)
+              let windowID = item.windowID
         else { return }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
-            self?.finishClosing(item, windowID: windowID, attempt: 0)
-        }
+        DockPreviewSupport.performCloseAction(
+            quitAppOnClose: quitAppOnClose,
+            requestQuit: { [weak self] in
+                let accepted = requestDockPreviewApplicationQuit(item)
+                if accepted { self?.closePreviewPanel() }
+                return accepted
+            },
+            closeWindow: {
+                WindowActivator.closeWindowIncludingHiddenState(item) { [weak self] didClose in
+                    guard didClose else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+                        self?.finishClosing(item, windowID: windowID, attempt: 0)
+                    }
+                }
+            }
+        )
     }
 
     func toggleMinimized(_ item: SwitcherItem) {
@@ -1606,8 +1726,12 @@ final class DockPreviewPinnedPanel: ObservableObject, Identifiable {
 
     private func refreshWindows() {
         let previousIDs = windows.compactMap(\.windowID)
-        let refreshed = WindowEnumerator.listWindows(for: appPID, maximumCount: Self.maximumWindowCount)
-            .filter { $0.windowID != nil }
+        let refreshed = DockPreviewSupport.orderedWindows(
+            WindowEnumerator.listWindowsForDockPreview(for: appPID, maximumCount: Self.maximumWindowCount)
+                .filter { $0.windowID != nil },
+            order: DockPreviewWindowOrder.fromDefaults(
+                orderByCreation: UserDefaults.standard.bool(
+                    forKey: DefaultsKey.dockPreviewOrderByCreation)))
         guard !refreshed.isEmpty else {
             closePreviewPanel()
             return
@@ -1651,7 +1775,8 @@ final class DockPreviewPinnedPanel: ObservableObject, Identifiable {
                                         missingPreview: Bool) {
         guard windowIDsChanged || missingPreview else { return }
 
-        previewProvider.refreshPreviews(for: items, maxPixelSize: 420 * PreviewSizing.scale) { [weak self] windowID, image in
+        previewProvider.refreshPreviews(for: items, maxPixelSize: 420 * PreviewSizing.scale,
+                                        excludedAppsKey: DefaultsKey.windowPreviewExcludedApps) { [weak self] windowID, image in
             guard let self, self.windows.contains(where: { $0.previewWindowID == windowID }) else { return }
             self.previews[windowID] = image
         }
@@ -1684,7 +1809,8 @@ final class DockPreviewPinnedPanel: ObservableObject, Identifiable {
     private func resizePanel() {
         guard let panel else { return }
         let size = DockPreviewSupport.panelSize(itemCount: windows.count,
-                                                screenVisibleFrame: visibleFrameForScreen(containing: panel.frame))
+                                                screenVisibleFrame: visibleFrameForScreen(containing: panel.frame),
+                                                isPinned: true)
         var frame = panel.frame
         frame.size = size
         panel.setFrame(clampedPanelFrame(frame), display: true, animate: true)

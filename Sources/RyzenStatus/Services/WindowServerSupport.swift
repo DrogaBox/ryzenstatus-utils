@@ -5,10 +5,21 @@ import CoreGraphics
 import Darwin
 import Foundation
 
-// `TrafficLightButton`, `TrafficLightCandidate` and `WindowServerWindowCandidate`
-// are declared in WindowServerTrafficLightHitTest.swift in this fork; upstream
-// keeps them in this file. They are identical, so only the shared reads below
-// are added here.
+enum TrafficLightButton {
+    case close
+    case zoom
+}
+
+struct TrafficLightCandidate {
+    let pid: pid_t
+    let windowID: CGWindowID
+}
+
+struct WindowServerWindowCandidate {
+    let pid: pid_t
+    let windowID: CGWindowID
+    let frame: CGRect
+}
 
 /// The window server's on-screen list and the scans run over it. Asking for
 /// the list and reading a rectangle out of an entry were written out again at
@@ -60,6 +71,22 @@ enum WindowServerSupport {
         for window in windows
         where (window[kCGWindowNumber as String] as? NSNumber)?.uint32Value == windowID {
             return bounds(from: window)
+        }
+        return nil
+    }
+
+    /// The process that owns one window, straight from the window server.
+    static func ownerProcessID(ofWindowID windowID: CGWindowID) -> pid_t? {
+        guard let infos = CGWindowListCopyWindowInfo(.optionIncludingWindow, windowID)
+                as? [[String: Any]] else { return nil }
+        return ownerProcessID(ofWindowID: windowID, in: infos)
+    }
+
+    /// The scan itself, matching the identifier like the rectangle scan.
+    static func ownerProcessID(ofWindowID windowID: CGWindowID, in windows: [[String: Any]]) -> pid_t? {
+        for window in windows
+        where (window[kCGWindowNumber as String] as? NSNumber)?.uint32Value == windowID {
+            return (window[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value
         }
         return nil
     }

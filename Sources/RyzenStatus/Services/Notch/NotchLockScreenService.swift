@@ -88,6 +88,7 @@ final class NotchLockScreenService {
         model.padlockOpen = closingPadlock
         let gates = NotchLockScreenModel.Gates(
             music: NotchLockScreenSupport.showsMusic(), timer: NotchTimerSupport.isEnabled(),
+            agents: NotchAgentSupport.showsLiveActivity(),
             downloads: NotchSupport.routes(.download), countdown: NotchCalendarSupport.showsCountdown(),
             timeLeft: NotchCalendarSupport.showsTimeLeft())
         if model.gates != gates { model.gates = gates }
@@ -148,6 +149,7 @@ final class NotchLockScreenService {
         if gates.countdown || gates.timeLeft || !NotchCalendarSupport.chosenCountdowns().isEmpty {
             NotchCalendarService.shared.syncWithPreferences()
         }
+        if gates.agents { AgentUsageService.shared.syncWithPreferences() }
     }
 
     private func hide(unlocking: Bool, stopsSources: Bool) {
@@ -155,6 +157,7 @@ final class NotchLockScreenService {
             NowPlayingService.shared.stopIslandFeed()
             NotchDownloadService.shared.stop()
             NotchCalendarService.shared.stop()
+            AgentUsageService.shared.pause()
         }
         playbackSubscription = nil
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }

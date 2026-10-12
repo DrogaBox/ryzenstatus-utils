@@ -723,6 +723,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     case screenshotLastCapture
     case recentCaptures
     case screenshotClipboard
+    case screenshotUpload
     case cameraPreview
     case radialMenu
     case scratchpad
@@ -730,6 +731,11 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     case commandBar
     case screenRecorder
     // RyzenStatus: the Now Playing popup surfaces keep their own shortcuts.
+    case displayBrightnessDecrease
+    case displayBrightnessIncrease
+    case keyboardBrightnessDecrease
+    case keyboardBrightnessIncrease
+    case pointerNextDisplay
     case nowPlayingPopup
     case nowPlayingDetached
 
@@ -754,12 +760,18 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .screenshotLastCapture: return DefaultsKey.screenshotLastCaptureShortcut
         case .recentCaptures: return DefaultsKey.recentCapturesShortcut
         case .screenshotClipboard: return DefaultsKey.screenshotClipboardShortcut
+        case .screenshotUpload: return DefaultsKey.screenshotUploadShortcut
         case .cameraPreview: return DefaultsKey.cameraPreviewShortcut
         case .radialMenu: return DefaultsKey.radialMenuShortcut
         case .scratchpad: return DefaultsKey.scratchpadShortcut
         case .snippetLibrary: return DefaultsKey.snippetLibraryShortcut
         case .commandBar: return DefaultsKey.commandBarShortcut
         case .screenRecorder: return DefaultsKey.recorderShortcut
+        case .displayBrightnessDecrease: return DefaultsKey.displayBrightnessDecreaseShortcut
+        case .displayBrightnessIncrease: return DefaultsKey.displayBrightnessIncreaseShortcut
+        case .keyboardBrightnessDecrease: return DefaultsKey.keyboardBrightnessDecreaseShortcut
+        case .keyboardBrightnessIncrease: return DefaultsKey.keyboardBrightnessIncreaseShortcut
+        case .pointerNextDisplay: return DefaultsKey.pointerDisplayShortcut
         case .nowPlayingPopup: return DefaultsKey.nowPlayingPopupShortcut
         case .nowPlayingDetached: return DefaultsKey.nowPlayingDetachedShortcut
         }
@@ -784,12 +796,18 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .screenshotLastCapture: return .screenshotLastCaptureDefault
         case .recentCaptures: return .recentCapturesDefault
         case .screenshotClipboard: return .screenshotClipboardDefault
+        case .screenshotUpload: return .screenshotUploadDefault
         case .cameraPreview: return .cameraPreviewDefault
         case .radialMenu: return .radialMenuDefault
         case .scratchpad: return .scratchpadDefault
         case .snippetLibrary: return .snippetLibraryDefault
         case .commandBar: return .commandBarDefault
         case .screenRecorder: return .screenRecorderDefault
+        case .displayBrightnessDecrease: return .displayBrightnessDecreaseDefault
+        case .displayBrightnessIncrease: return .displayBrightnessIncreaseDefault
+        case .keyboardBrightnessDecrease: return .keyboardBrightnessDecreaseDefault
+        case .keyboardBrightnessIncrease: return .keyboardBrightnessIncreaseDefault
+        case .pointerNextDisplay: return .pointerNextDisplayDefault
         case .nowPlayingPopup: return .nowPlayingPopupDefault
         case .nowPlayingDetached: return .nowPlayingDetachedDefault
         }
@@ -836,6 +854,8 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
             return FeatureStrings.screenshot(L10n.shared.language).editLastCapture
         case .recentCaptures:
             return FeatureStrings.recentCaptures(L10n.shared.language).title
+        case .screenshotUpload:
+            return FeatureStrings.screenshot(L10n.shared.language).uploadLastCapture
         case .screenshotClipboard:
             return FeatureStrings.screenshot(L10n.shared.language).editClipboardImage
         case .cameraPreview: return FeatureStrings.cameraPreview(L10n.shared.language).pageTitle
@@ -844,6 +864,15 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .snippetLibrary: return FeatureStrings.snippets(L10n.shared.language).libraryTitle
         case .commandBar: return FeatureStrings.commandBar(L10n.shared.language).pageTitle
         case .screenRecorder: return FeatureStrings.recorder(L10n.shared.language).pageTitle
+        case .displayBrightnessDecrease:
+            return FeatureStrings.brightness(L10n.shared.language).displayBrightnessDecrease
+        case .displayBrightnessIncrease:
+            return FeatureStrings.brightness(L10n.shared.language).displayBrightnessIncrease
+        case .keyboardBrightnessDecrease:
+            return FeatureStrings.brightness(L10n.shared.language).keyboardBrightnessDecrease
+        case .keyboardBrightnessIncrease:
+            return FeatureStrings.brightness(L10n.shared.language).keyboardBrightnessIncrease
+        case .pointerNextDisplay: return PointerDisplayStrings.localized(L10n.shared.language).title
         case .nowPlayingPopup: return FeatureStrings.nowPlaying(L10n.shared.language).popupShortcutLabel
         case .nowPlayingDetached: return FeatureStrings.nowPlaying(L10n.shared.language).detachedShortcutLabel
         }
@@ -856,18 +885,12 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     /// for a feature that is switched off still blocks a second feature from
     /// taking it, so turning the first one back on never registers a duplicate.
     /// Upstream only checks live roles by default; pass `false` for that.
-    ///
-    /// The radial menu still has one wheel here, so its role shortcut is the
-    /// one it registers. When the per-profile wheels are ported, the default
-    /// becomes `RadialMenuSupport.profileShortcuts()`.
     static func conflict(for shortcut: GlobalShortcut,
                          excluding role: GlobalShortcutRole? = nil,
                          isOn: (String) -> Bool = { UserDefaults.standard.bool(forKey: $0) },
                          isAvailable: (AppFeature) -> Bool = { $0.isAvailable },
                          includeInactive: Bool = true,
-                         radialMenuShortcuts: () -> [GlobalShortcut] = {
-                             [GlobalShortcutRole.radialMenu.savedShortcut]
-                         })
+                         radialMenuShortcuts: () -> [GlobalShortcut] = { RadialMenuSupport.profileShortcuts() })
         -> GlobalShortcutRole? {
         let candidates = includeInactive
             ? availableRoles(isAvailable: isAvailable)
@@ -902,6 +925,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .screenshot: return [DefaultsKey.screenshotShortcutEnabled]
         case .screenshotFullScreen: return [DefaultsKey.screenshotFullScreenShortcutEnabled]
         case .screenshotLastCapture: return [DefaultsKey.screenshotLastCaptureShortcutEnabled]
+        case .screenshotUpload: return [DefaultsKey.screenshotUploadShortcutEnabled, DefaultsKey.screenshotSharingEnabled]
         case .recentCaptures: return [DefaultsKey.recentCapturesShortcutEnabled]
         case .screenshotClipboard: return [DefaultsKey.screenshotClipboardShortcutEnabled]
         case .cameraPreview: return [DefaultsKey.cameraPreviewShortcutEnabled]
@@ -910,6 +934,11 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .snippetLibrary: return [DefaultsKey.snippetLibraryEnabled]
         case .commandBar: return [DefaultsKey.commandBarShortcutEnabled]
         case .screenRecorder: return [DefaultsKey.recorderShortcutEnabled]
+        case .displayBrightnessDecrease, .displayBrightnessIncrease:
+            return [DefaultsKey.brightnessControlEnabled, DefaultsKey.displayBrightnessShortcutsEnabled]
+        case .keyboardBrightnessDecrease, .keyboardBrightnessIncrease:
+            return [DefaultsKey.keyboardBrightnessShortcutsEnabled]
+        case .pointerNextDisplay: return [DefaultsKey.pointerDisplayEnabled]
         case .nowPlayingPopup: return [DefaultsKey.nowPlayingEnabled,
                                        DefaultsKey.nowPlayingPopupShortcutEnabled]
         case .nowPlayingDetached: return [DefaultsKey.nowPlayingEnabled,
@@ -934,7 +963,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .micMute: return .micMute
         case .quickLauncher: return .quickLauncher
         case .screenshot, .screenshotFullScreen, .screenshotLastCapture, .recentCaptures,
-             .screenshotClipboard:
+             .screenshotClipboard, .screenshotUpload:
             return .screenshot
         case .cameraPreview: return .cameraPreview
         case .radialMenu: return .radialMenu
@@ -942,15 +971,25 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .snippetLibrary: return .textSnippets
         case .commandBar: return .commandBar
         case .screenRecorder: return .screenRecorder
+        case .displayBrightnessDecrease, .displayBrightnessIncrease,
+             .keyboardBrightnessDecrease, .keyboardBrightnessIncrease: return .brightness
+        case .pointerNextDisplay: return .windowLayout
         case .nowPlayingPopup, .nowPlayingDetached: return .nowPlaying
         }
     }
 
-    /// The editor group a shortcut is listed under. Upstream files its
-    /// keyboard-backlight shortcuts under keyboard controls; those roles arrive
-    /// with the brightness shortcuts, so every role follows its feature here.
+    /// Keyboard-backlight shortcuts belong with keyboard controls in the
+    /// editor, while their implementation remains part of the brightness
+    /// service and follows that feature's availability.
     var group: FeatureGroup {
-        feature.group
+        switch self {
+        case .keyboardBrightnessDecrease, .keyboardBrightnessIncrease: return .mouseKeyboard
+        default: return feature.group
+        }
+    }
+
+    var isKeyboardBrightness: Bool {
+        self == .keyboardBrightnessDecrease || self == .keyboardBrightnessIncrease
     }
 
     /// Whether a claim ever reaches `SystemShortcutTakeover` for this key, and

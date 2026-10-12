@@ -1,13 +1,248 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
+import Accelerate
 import CoreGraphics
 import Foundation
+
+/// Lets cancellation win while an asynchronous capture start is suspended.
+/// Stop waits for start to leave its await points before closing the writer,
+/// so no late stream can append after the recording file was finalized.
+final class RecorderStartGate: @unchecked Sendable {
+    private enum Finalizer {
+        case startFailure
+        case stop
+    }
+
+    private let lock = NSLock()
+    private var starting = false
+    private var cancelled = false
+    private var finalizer: Finalizer?
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func begin() -> Bool {
+        lock.withLock {
+            guard !cancelled, !starting else { return false }
+            starting = true
+            return true
+        }
+    }
+
+    var isAuthorized: Bool {
+        lock.withLock { !cancelled }
+    }
+
+    /// Start failure and Stop race for exactly one right to terminalize the
+    /// writer. Whichever arrives second must leave it alone.
+    func claimStartFailure() -> Bool {
+        lock.withLock {
+            guard finalizer == nil else { return false }
+            cancelled = true
+            finalizer = .startFailure
+            return true
+        }
+    }
+
+    func cancelAndClaimStop() -> Bool {
+        lock.withLock {
+            cancelled = true
+            guard finalizer == nil else { return false }
+            finalizer = .stop
+            return true
+        }
+    }
+
+    func finish() {
+        let continuations = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            guard starting else { return [] }
+            starting = false
+            defer { waiters.removeAll() }
+            return waiters
+        }
+        continuations.forEach { $0.resume() }
+    }
+
+    func waitUntilFinished() async {
+        await withCheckedContinuation { continuation in
+            let resumeNow = lock.withLock { () -> Bool in
+                guard starting else { return true }
+                waiters.append(continuation)
+                return false
+            }
+            if resumeNow { continuation.resume() }
+        }
+    }
+}
+
+/// One capture engine is used for exactly one recording. Once stopping begins,
+/// queued stream callbacks stay rejected permanently instead of becoming live
+/// again after `stopCapture()` returns.
+struct RecorderCaptureLifecycle {
+    private enum State: Equatable {
+        case idle
+        case starting
+        case running
+        case stopped
+    }
+
+    private var state: State = .idle
+
+    var acceptsSamples: Bool { state == .starting || state == .running }
+    var isRunning: Bool { state == .running }
+
+    mutating func beginStart() -> Bool {
+        guard state == .idle else { return false }
+        state = .starting
+        return true
+    }
+
+    mutating func didStart() -> Bool {
+        guard state == .starting else { return false }
+        state = .running
+        return true
+    }
+
+    mutating func stop() {
+        state = .stopped
+    }
+}
+
+/// Removes pauses from the recording's clock without stopping and rebuilding
+/// the capture stream. Samples inside a pause are discarded; everything after
+/// it moves back by exactly the time that was left out.
+struct RecorderPauseTimeline {
+    private struct Interval {
+        let start: Double
+        let end: Double
+    }
+
+    private var intervals: [Interval] = []
+    private var pauseStart: Double?
+
+    var isPaused: Bool { pauseStart != nil }
+
+    @discardableResult
+    mutating func pause(at time: Double) -> Bool {
+        guard time.isFinite, pauseStart == nil else { return false }
+        pauseStart = time
+        return true
+    }
+
+    @discardableResult
+    mutating func resume(at time: Double) -> Bool {
+        guard time.isFinite, let start = pauseStart else { return false }
+        intervals.append(Interval(start: start, end: max(start, time)))
+        pauseStart = nil
+        return true
+    }
+
+    /// Time on the finished recording. While a pause is open this stays fixed
+    /// at the instant the pause began.
+    func elapsed(since origin: Double, at time: Double) -> Double {
+        guard origin.isFinite, time.isFinite, time > origin else { return 0 }
+        return max(0, time - origin - excludedDuration(from: origin, to: time))
+    }
+
+    /// Maps a captured sample onto the compact recording timeline. An audio
+    /// buffer that crosses a pause boundary is dropped whole, avoiding overlap
+    /// with the first buffer after recording resumes.
+    func sampleTime(start: Double, duration: Double, since origin: Double) -> Double? {
+        guard start.isFinite, duration.isFinite, origin.isFinite, start >= origin else { return nil }
+        let end = start + max(0, duration)
+        guard !overlapsPause(from: start, to: end) else { return nil }
+        return elapsed(since: origin, at: start)
+    }
+
+    /// Maps pointer and typing events. Events that happened while paused do
+    /// not become edits, clicks or typing zooms later.
+    func eventTime(_ time: Double, since origin: Double) -> Double? {
+        guard time.isFinite, origin.isFinite,
+              !overlapsPause(from: time, to: time)
+        else { return nil }
+        return elapsed(since: origin, at: time)
+    }
+
+    private func excludedDuration(from lower: Double, to upper: Double) -> Double {
+        let closed = intervals.reduce(0.0) { total, interval in
+            total + max(0, min(upper, interval.end) - max(lower, interval.start))
+        }
+        guard let pauseStart else { return closed }
+        return closed + max(0, upper - max(lower, pauseStart))
+    }
+
+    private func overlapsPause(from start: Double, to end: Double) -> Bool {
+        let isInstant = end <= start
+        let overlaps: (Double, Double) -> Bool = { pauseStart, pauseEnd in
+            if isInstant { return start >= pauseStart && start < pauseEnd }
+            return start < pauseEnd && end > pauseStart
+        }
+        if intervals.contains(where: { overlaps($0.start, $0.end) }) { return true }
+        guard let pauseStart else { return false }
+        return isInstant ? start >= pauseStart : end > pauseStart
+    }
+}
+
+/// One origin and pause state for the writer, event samplers and elapsed display.
+/// It exists only for the lifetime of one recording. Starting a later source
+/// must never rebase events against that source's startup time.
+final class RecorderPauseClock {
+    private let lock = NSLock()
+    private var timeline = RecorderPauseTimeline()
+    private var origin: Double?
+
+    var isPaused: Bool { lock.withLock { timeline.isPaused } }
+
+    @discardableResult
+    func begin(at time: Double) -> Bool {
+        lock.withLock {
+            guard origin == nil, time.isFinite else { return false }
+            origin = time
+            return true
+        }
+    }
+
+    @discardableResult
+    func pause(at time: Double) -> Bool {
+        lock.withLock { origin != nil && timeline.pause(at: time) }
+    }
+
+    @discardableResult
+    func resume(at time: Double) -> Bool {
+        lock.withLock { timeline.resume(at: time) }
+    }
+
+    func elapsed(at time: Double) -> Double {
+        lock.withLock {
+            guard let origin else { return 0 }
+            return timeline.elapsed(since: origin, at: time)
+        }
+    }
+
+    func sampleTime(start: Double, duration: Double) -> Double? {
+        lock.withLock {
+            guard let origin else { return nil }
+            return timeline.sampleTime(start: start, duration: duration, since: origin)
+        }
+    }
+
+    func eventTime(_ time: Double) -> Double? {
+        lock.withLock {
+            guard let origin, time >= origin else { return nil }
+            return timeline.eventTime(time, since: origin)
+        }
+    }
+}
 
 /// Pure policy and geometry for the screen recorder: everything that can be
 /// decided without a stream, a writer or a window, so it can be reasoned about
 /// and tested on its own.
 enum RecorderSupport {
+    static func pendingStartIsAuthorized(requestGeneration: Int,
+                                         currentGeneration: Int,
+                                         featureIsAvailable: Bool) -> Bool {
+        featureIsAvailable && requestGeneration == currentGeneration
+    }
+
 
     // MARK: - What is being recorded
 
@@ -72,6 +307,34 @@ enum RecorderSupport {
         return CGRect(origin: origin, size: size)
     }
 
+    // MARK: - System audio source
+
+    /// Whether the next recording writes the Mac's sound from the process
+    /// tap rather than from the screen stream. A tap without its permission
+    /// delivers silence, never an error, so only sound it actually heard
+    /// earns trust, and a recording in which the stream heard sound the tap
+    /// missed takes that trust away. A silent recording proves nothing.
+    static func trustsSystemAudioTap(previously trusted: Bool,
+                                     tapHeardSound: Bool,
+                                     streamHeardSound: Bool) -> Bool {
+        if tapHeardSound { return true }
+        if streamHeardSound { return false }
+        return trusted
+    }
+
+    /// Turns the tap's interleaved samples back up by what its stereo mixdown
+    /// took from an output with more than two channels. Sound that fills every
+    /// channel of such an output, like a film in 5.1, can add up past full
+    /// scale once restored, so the mixer's limiter keeps it inside rather than
+    /// letting the file clip. Runs on the audio thread and allocates nothing.
+    static func restoreTapLevel(_ samples: UnsafeMutablePointer<Float>, count: Int, channels: Int,
+                                gain: Float, limiter: inout BoostLimiter, release: Float) {
+        guard count > 0, channels > 0 else { return }
+        var gain = gain
+        vDSP_vsmul(samples, 1, &gain, samples, 1, vDSP_Length(count))
+        limiter.process(samples, frames: count / channels, channels: channels, release: release)
+    }
+
     // MARK: - Frame rate
 
     static let frameRates = [30, 60]
@@ -83,25 +346,30 @@ enum RecorderSupport {
     // MARK: - Quality
 
     /// Three named outcomes instead of a codec form. Screen content is
-    /// low-entropy, so the encoder undershoots these ceilings hard; what the
-    /// preset really decides is the output scale, and the ceiling only caps
-    /// the busy moments.
+    /// low-entropy, so the encoder undershoots these ceilings hard, and the
+    /// ceiling only caps the busy moments. Only Small trades pixels for size:
+    /// a recording is mostly text, and a picture written at two thirds and
+    /// stretched back over the same display reads as blurry next to the
+    /// system recorder, which keeps every pixel. Balanced keeps them too and
+    /// saves on bits instead, which flat screen content barely misses.
     enum Quality: String, CaseIterable {
         case small, balanced, high
 
         var outputScale: CGFloat {
             switch self {
             case .small: return 0.5
-            case .balanced: return 2.0 / 3.0
-            case .high: return 1
+            case .balanced, .high: return 1
             }
         }
 
-        /// Bits per pixel per frame, from measurements on real screen content.
+        /// Bits per pixel per frame. Small and High come from measurements on
+        /// real screen content; Balanced sits between them now that it writes
+        /// the full picture, where each pixel carries less detail than in a
+        /// scaled-down one.
         var bitsPerPixel: Double {
             switch self {
             case .small: return 0.05
-            case .balanced: return 0.082
+            case .balanced: return 0.06
             case .high: return 0.09
             }
         }
@@ -161,14 +429,44 @@ enum RecorderSupport {
         Aspect(rawValue: raw ?? "") ?? .original
     }
 
+    struct VideoGeometry: Equatable {
+        let size: CGSize
+        let transform: CGAffineTransform
+    }
+
+    /// Normalizes a movie track's orientation into a display-sized rectangle
+    /// whose origin is zero. Screen recordings are already identity; imported
+    /// portrait and rotated movies commonly are not.
+    static func videoGeometry(naturalSize: CGSize,
+                              preferredTransform: CGAffineTransform) -> VideoGeometry {
+        guard naturalSize.width.isFinite, naturalSize.height.isFinite,
+              naturalSize.width > 0, naturalSize.height > 0
+        else { return VideoGeometry(size: .zero, transform: .identity) }
+        let naturalRect = CGRect(origin: .zero, size: naturalSize)
+        let displayed = naturalRect.applying(preferredTransform)
+        guard displayed.width.isFinite, displayed.height.isFinite,
+              displayed.width != 0, displayed.height != 0
+        else { return VideoGeometry(size: .zero, transform: .identity) }
+        var normalized = preferredTransform
+        normalized.tx -= displayed.minX
+        normalized.ty -= displayed.minY
+        return VideoGeometry(
+            size: evenSize(CGSize(width: abs(displayed.width), height: abs(displayed.height))),
+            transform: normalized)
+    }
+
     /// Nothing is ever encoded larger than this on its long edge: a background
     /// with a generous margin can otherwise ask for a picture much bigger than
     /// the recording it frames, for no visible gain.
     static let maximumCanvasEdge: CGFloat = 3840
 
-    /// The whole picture, background included. The recording keeps its own
-    /// pixels and the canvas grows around it, so a margin never costs sharpness.
-    static func canvasSize(source: CGSize, padding: Double, aspect: Aspect) -> CGSize {
+    /// The whole picture, background included. With a background the canvas
+    /// grows around the recording, so a margin never costs sharpness. Without
+    /// one, choosing a shape crops the largest centred frame from the source.
+    static func canvasSize(source: CGSize,
+                           padding: Double,
+                           aspect: Aspect,
+                           cropsToAspect: Bool = false) -> CGSize {
         guard source.width > 0, source.height > 0 else { return evenSize(source) }
         let margin = min(0.35, max(0, padding))
         let inner = 1 - 2 * margin
@@ -176,11 +474,20 @@ enum RecorderSupport {
         var width = source.width / inner
         var height = source.height / inner
         if let ratio = aspect.ratio {
-            // Grow the short side until the shape matches; never crop.
-            if width / height < ratio {
-                width = height * ratio
+            if cropsToAspect {
+                if width / height > ratio {
+                    width = height * ratio
+                } else {
+                    height = width / ratio
+                }
             } else {
-                height = width / ratio
+                // A visible background grows the short side instead of
+                // cutting away the recording it is meant to frame.
+                if width / height < ratio {
+                    width = height * ratio
+                } else {
+                    height = width / ratio
+                }
             }
         }
         let longest = max(width, height)
@@ -192,15 +499,20 @@ enum RecorderSupport {
         return evenSize(CGSize(width: width, height: height))
     }
 
-    /// Where the recording sits inside the canvas: centred, as large as the
-    /// margin allows, keeping its own proportions.
-    static func cardRect(canvas: CGSize, source: CGSize, padding: Double) -> CGRect {
+    /// Where the recording sits inside the canvas: centred and keeping its own
+    /// proportions. A crop covers the canvas and lets the excess hang outside;
+    /// a framed recording fits wholly inside its available area.
+    static func cardRect(canvas: CGSize,
+                         source: CGSize,
+                         padding: Double,
+                         fillsCanvas: Bool = false) -> CGRect {
         guard source.width > 0, source.height > 0, canvas.width > 0, canvas.height > 0
         else { return CGRect(origin: .zero, size: canvas) }
         let margin = min(0.35, max(0, padding))
         let available = CGSize(width: canvas.width * (1 - 2 * margin),
                                height: canvas.height * (1 - 2 * margin))
-        let factor = min(available.width / source.width, available.height / source.height)
+        let factors = (available.width / source.width, available.height / source.height)
+        let factor = fillsCanvas ? max(factors.0, factors.1) : min(factors.0, factors.1)
         let size = CGSize(width: (source.width * factor).rounded(),
                           height: (source.height * factor).rounded())
         return CGRect(x: ((canvas.width - size.width) / 2).rounded(),
@@ -232,6 +544,37 @@ enum RecorderSupport {
     static func sanitizedAudioGain(_ raw: Double) -> Double {
         guard raw.isFinite else { return 1 }
         return min(audioGainRange.upperBound, max(audioGainRange.lowerBound, raw))
+    }
+
+    /// How coarse the mosaic under a blur is, in the recording's own pixels.
+    /// Sized from the area rather than the picture: a strip drawn around one
+    /// line of text gets blocks taller than its letters, which is what makes
+    /// it unreadable, while a big area is not turned into four squares.
+    /// Strengths below the default shrink the blocks under that size and can
+    /// leave the text readable; a new blur starts at the default.
+    static func blurBlockSize(for area: CGSize,
+                              strength: Int = ScreenshotSupport.BlurStrength.defaultLevel) -> CGFloat {
+        let side = min(area.width, area.height)
+        let base: CGFloat = side.isFinite && side > 0 ? min(48, max(8, (side / 3).rounded())) : 8
+        return max(2, (base * ScreenshotSupport.BlurStrength.blockFactor(for: strength)).rounded())
+    }
+
+    /// A point on the stage, turned into the recorded picture's own 0...1
+    /// space with a top-left origin. The picture is letterboxed inside the
+    /// stage, so the empty bands on either side come off first. Not clamped:
+    /// the caller decides whether a point outside the picture means anything.
+    static func unitPoint(at location: CGPoint,
+                          in viewSize: CGSize,
+                          sourceSize: CGSize) -> CGPoint? {
+        guard sourceSize.width > 0, sourceSize.height > 0,
+              viewSize.width > 0, viewSize.height > 0
+        else { return nil }
+        let fit = min(viewSize.width / sourceSize.width, viewSize.height / sourceSize.height)
+        let shown = CGSize(width: sourceSize.width * fit, height: sourceSize.height * fit)
+        let originX = (viewSize.width - shown.width) / 2
+        let originY = (viewSize.height - shown.height) / 2
+        return CGPoint(x: (location.x - originX) / shown.width,
+                       y: (location.y - originY) / shown.height)
     }
 
     /// How big the drawn pointer is in the recording's own pixels. Tied to the
@@ -299,6 +642,41 @@ enum RecorderSupport {
             }
             guard let createdAt = take.createdAt else { return nil }
             return now.timeIntervalSince(createdAt) > unwrittenMaxAge ? take.id : nil
+        }
+    }
+
+    // MARK: - Finished file
+
+    /// Where an export is written before it takes the destination's place.
+    /// Save as can be pointed at a file that already exists, and that file has
+    /// to survive an export that is cancelled or fails halfway: it is only
+    /// replaced by a finished one. A hidden sibling of the destination, so
+    /// putting it in place afterwards is a rename on the same volume and not a
+    /// second copy of the whole recording, and it carries the destination's
+    /// own extension, so nothing on the way writes a file of one kind under
+    /// the name of another.
+    static func stagingURL(for destination: URL) -> URL {
+        let name = ".ryzenstatus-partial-\(UUID().uuidString)"
+        let staged = destination.deletingLastPathComponent().appendingPathComponent(name)
+        return destination.pathExtension.isEmpty
+            ? staged
+            : staged.appendingPathExtension(destination.pathExtension)
+    }
+
+    /// Puts the finished file where the person asked for it, replacing what
+    /// was there in a single step. False means nothing was moved and whatever
+    /// was at the destination is still there, untouched.
+    static func commitExport(from staged: URL, to destination: URL) -> Bool {
+        let manager = FileManager.default
+        do {
+            if manager.fileExists(atPath: destination.path) {
+                _ = try manager.replaceItemAt(destination, withItemAt: staged)
+            } else {
+                try manager.moveItem(at: staged, to: destination)
+            }
+            return true
+        } catch {
+            return false
         }
     }
 

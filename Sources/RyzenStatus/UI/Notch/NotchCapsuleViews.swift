@@ -73,6 +73,8 @@ struct NotchCapsuleNoticeView: View {
 
     private var tint: Color {
         switch notice.event {
+        // A warning reads as one in any agent's color; other AI notices wear it.
+        case .agents: return notice.symbol.hasPrefix("exclamationmark") ? .orange : notice.agent?.tint ?? .white
         case .timer: return .orange
         default: return .white
         }
@@ -137,12 +139,15 @@ struct NotchCapsuleNoticeView: View {
 
     @ViewBuilder private var mark: some View {
         // With the companion on, it stands in for the symbol and reacts, unless
-        // its reactions are off.
+        // its reactions are off. A notice about the agent itself wears its
+        // mark; warnings and renewals keep a symbol that says what happened.
         if NotchMascotSupport.isEnabled(), let reaction = notice.mascot {
             let side = min(CapsuleLayout.symbolWidth, CapsuleLayout.artworkSide(geometry))
             NotchMascotView(look: NotchMascotSupport.look(), mood: NotchService.shared.mascotRestingMood,
                             size: side, reaction: NotchMascotSupport.reacts() ? reaction : nil)
                 .frame(width: CapsuleLayout.symbolWidth, height: side)
+        } else if notice.event == .agents, let agent = notice.agent, notice.symbol == agent.symbol {
+            NotchAgentMark(provider: agent, size: CapsuleLayout.symbolSize).frame(width: CapsuleLayout.symbolWidth)
         } else if notice.event == .track {
             NotchCapsuleTrackArtwork(side: min(CapsuleLayout.symbolWidth, CapsuleLayout.artworkSide(geometry)))
                 .frame(width: CapsuleLayout.symbolWidth)
@@ -185,11 +190,7 @@ struct NotchCapsuleRestingView: View {
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: contentStepsAside)
             .overlay {
                 if service.mascotShows(on: geometry) {
-                    NotchMascotTrackView(look: NotchMascotSupport.look(),
-                                         track: NotchMascotSupport.track(stripWidth: size.width,
-                                                                         stripHeight: geometry.stripHeight,
-                                                                         wing: 0, cameraWidth: 0, floats: true,
-                                                                         bodyHeight: geometry.stripBodyHeight),
+                    NotchMascotTrackView(look: NotchMascotSupport.look(), track: mascotTrack,
                                          rests: service.mascotAtRest, visit: service.mascotVisit,
                                          mood: service.mascotRestingMood, reaction: service.mascotReaction,
                                          yieldsToActivities: true)
@@ -198,6 +199,15 @@ struct NotchCapsuleRestingView: View {
                 }
             }
             .accessibilityHidden(true)
+    }
+
+    /// The companion rests in the middle, or at the row's start beside a center reading.
+    private var mascotTrack: NotchMascotTrack {
+        var track = NotchMascotSupport.track(stripWidth: size.width, stripHeight: geometry.stripHeight,
+                                             wing: 0, cameraWidth: 0, floats: true,
+                                             bodyHeight: geometry.stripBodyHeight)
+        if service.restingCenterText != nil { track.rest = CapsuleLayout.restingCenterMascotRest(geometry) }
+        return track
     }
 
     private var resting: some View {
@@ -216,6 +226,9 @@ struct NotchCapsuleRestingView: View {
                         Text("\(percent)%").font(Font(CapsuleLayout.smallFont as CTFont)).lineLimit(1)
                             .foregroundStyle(tint)
                     }
+                case .agents:
+                    NotchAgentRestingWing(leading: true)
+                    NotchAgentRestingWing(leading: false)
                 case .music:
                     if let artwork = music.artworkImage {
                         NotchMusicCover(artwork: artwork, side: CapsuleLayout.artworkSide(geometry),
@@ -225,7 +238,19 @@ struct NotchCapsuleRestingView: View {
                         NotchLiveEqualizerBars(bars: 3, barWidth: 2, height: 10, tint: music.artworkTint?.color ?? .white)
                     }
                 case .none:
-                    EmptyView()
+                    if let center = service.restingCenterText {
+                        HStack(spacing: CapsuleLayout.groupSpacing) {
+                            // The companion stands here; its own view draws it.
+                            if service.mascotShows(on: geometry) {
+                                Color.clear.frame(width: CapsuleLayout.restingCenterMascotSize(geometry))
+                            }
+                            Text(center).font(Font(CapsuleLayout.levelFont as CTFont)).lineLimit(1)
+                                .truncationMode(.tail).foregroundStyle(.white.opacity(0.85))
+                                .contentTransition(.numericText())
+                                .frame(maxWidth: .infinity)
+                        }
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: center)
+                    }
                 }
             }
             .foregroundStyle(.white.opacity(0.9))
@@ -275,7 +300,10 @@ struct NotchCapsuleMusicStrip: View {
         // cover, and a strip on its way out leaves as it was. Otherwise the
         // cover and bars say enough.
         let named = service.capsuleMusicTitleShown || (live ? service.musicStripNamesSong : snapshot?.namesSong == true)
-        NotchCapsuleRow(size: size ?? CapsuleLayout.musicSurface(title: named ? title : nil, geometry: geometry),
+        // Otherwise the centre preference's reading, which a strip on its way out leaves behind.
+        let center = snapshot == nil ? service.capsuleCenterText : nil
+        NotchCapsuleRow(size: size ?? CapsuleLayout.musicSurface(title: named ? title : nil, center: center,
+                                                                 geometry: geometry),
                         geometry: geometry, leading: 0, trailing: 0) {
             HStack(spacing: 0) {
                 NotchMusicCover(artwork: artwork, side: side, radius: side / 2)
@@ -285,8 +313,13 @@ struct NotchCapsuleMusicStrip: View {
                     .onHover { if live { service.hoverMusicStrip(.cover, entered: $0) } }
                 Group {
                     if named { Text(title).capsuleTitle().truncationMode(.tail).transition(.opacity) }
-                    else { Color.clear }
+                    else if let center {
+                        Text(center).font(Font(CapsuleLayout.levelFont as CTFont)).lineLimit(1)
+                            .truncationMode(.tail).foregroundStyle(.white.opacity(0.85))
+                            .contentTransition(.numericText()).transition(.opacity)
+                    } else { Color.clear }
                 }
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: center)
                 .padding(.horizontal, CapsuleLayout.endPadding)
                 .frame(maxWidth: .infinity)
                 ZStack {
@@ -370,19 +403,32 @@ struct NotchCapsuleTimerStrip: View {
             .modifier(NotchRollingDigits(value: text, countsDown: !timer.session.countsUp, everySecond: false))
             // A reading that gains or loses a character, like 10m becoming
             // 9m, resizes the capsule; the service measures the same reading.
-            .onChange(of: CapsuleLayout.readingShape(text)) { _, _ in
+            .onChange(of: NotchAgentSupport.readingShape(text)) { _, _ in
                 DispatchQueue.main.async { service.refreshPresentation() }
             }
     }
 }
 
+/// The working agents' marks, side by side, each in a frame wider than it.
+private struct NotchCapsuleAgentMarks: View {
+    let providers: [AgentProvider]
+
+    var body: some View {
+        HStack(spacing: 1) {
+            ForEach(providers) { NotchAgentGlyph(provider: $0, size: CapsuleLayout.agentMarkSize(working: providers.count)) }
+        }
+    }
+}
+
 /// What shares the capsule with a timer or an event: a download's arrow and
-/// percentage, the playing track's cover, or the next event's dot and countdown.
+/// percentage, the working agents, the playing track's cover, or the next
+/// event's dot and countdown.
 private struct NotchCapsuleCompanionMark: View {
     let companion: NotchCompactActivity
     let geometry: NotchGeometry
     @ObservedObject private var downloads = NotchDownloadService.shared
     @ObservedObject private var music = NowPlayingService.shared
+    @ObservedObject private var usage = AgentUsageService.shared
     @ObservedObject private var calendar = NotchCalendarService.shared
     @ObservedObject private var l10n = L10n.shared
 
@@ -397,6 +443,10 @@ private struct NotchCapsuleCompanionMark: View {
                         .frame(width: CapsuleLayout.downloadPercentWidth(l10n.language), alignment: .trailing)
                 }
             }
+        case .agents:
+            NotchCapsuleAgentMarks(providers: AgentProvider.allCases.filter { provider in
+                usage.snapshot.live.contains { $0.provider == provider }
+            })
         case .music:
             let side = CapsuleLayout.artworkSide(geometry)
             NotchMusicCover(artwork: music.artworkImage, side: side, radius: side / 2)
@@ -409,6 +459,61 @@ private struct NotchCapsuleCompanionMark: View {
         case .timer, .keepAwake, .watch:
             EmptyView()
         }
+    }
+}
+
+/// A working agent: its mark and the reading the person chose.
+struct NotchCapsuleAgentStrip: View {
+    @ObservedObject var service: NotchService
+    let size: CGSize
+    /// Another display's capsule, when the island shows on every display.
+    var displayGeometry: NotchGeometry? = nil
+    @ObservedObject private var usage = AgentUsageService.shared
+    @ObservedObject private var l10n = L10n.shared
+    @AppStorage(DefaultsKey.notchAgentsReadout) private var readout = NotchAgentReadout.elapsed.rawValue
+    @AppStorage(DefaultsKey.notchAgentsLimitDisplay) private var display = NotchAgentLimitDisplay.remaining.rawValue
+    @AppStorage(DefaultsKey.notchAgentsLimitFocus) private var focus = NotchAgentLimitFocus.mostUsed.rawValue
+
+    private func working(_ live: [AgentLiveSession]) -> [AgentProvider] {
+        AgentProvider.allCases.filter { provider in live.contains { $0.provider == provider } }
+    }
+
+    var body: some View {
+        // The last agent stopping empties the list before the strip has left.
+        NotchStripHold(usage.snapshot.live, shows: !usage.snapshot.live.isEmpty) { row(live: $0) }
+    }
+
+    @ViewBuilder private func row(live: [AgentLiveSession]) -> some View {
+        let working = working(live)
+        NotchCapsuleRow(size: size, geometry: displayGeometry ?? service.geometry) {
+            HStack(spacing: CapsuleLayout.spacing) {
+                NotchCapsuleAgentMarks(providers: working)
+                NotchAgentReadoutTimeline(readout: NotchAgentReadout(rawValue: readout) ?? .elapsed) { date in
+                    let text = reading(at: date, live: live)
+                    Text(text)
+                        .font(Font(CapsuleLayout.readingFont as CTFont))
+                        .foregroundStyle(working.first?.tint ?? .white)
+                        .lineLimit(1).fixedSize()
+                        // A reading that gains a digit, like an hour passing,
+                        // widens the capsule; the service measures the same.
+                        .onChange(of: NotchAgentSupport.readingShape(text)) { _, _ in
+                            DispatchQueue.main.async { service.refreshPresentation() }
+                        }
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(working.map(\.displayName).joined(separator: ", "))
+        .accessibilityValue(reading(at: Date(), live: live))
+        .accessibilityHint(FeatureStrings.notch(l10n.language).open)
+    }
+
+    private func reading(at now: Date, live: [AgentLiveSession]) -> String {
+        var snapshot = usage.snapshot
+        snapshot.live = live
+        return NotchAgentSupport.stripReading(snapshot, readout: NotchAgentReadout(rawValue: readout) ?? .elapsed,
+                                              display: NotchAgentLimitDisplay(rawValue: display) ?? .remaining,
+                                              focus: NotchAgentLimitFocus(rawValue: focus) ?? .mostUsed, now: now)
     }
 }
 
@@ -621,7 +726,7 @@ struct NotchCapsuleKeepAwakeStrip: View {
                         .lineLimit(1).fixedSize()
                         // A reading that gains or loses a character, like 10m
                         // becoming 9m, resizes the capsule; the service measures the same.
-                        .onChange(of: CapsuleLayout.readingShape(text)) { _, _ in
+                        .onChange(of: NotchAgentSupport.readingShape(text)) { _, _ in
                             DispatchQueue.main.async { service.refreshPresentation() }
                         }
                 } else {

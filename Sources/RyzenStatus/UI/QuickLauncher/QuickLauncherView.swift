@@ -93,7 +93,7 @@ struct QuickLauncherView: View {
             VStack(alignment: .leading, spacing: 0) {
                 switch item {
                 case .homebrew:
-                    PanelHomebrewView { launcher.closeUtility() }
+                    PackageManagerView(onClose: { launcher.closeUtility() })
                 case .media:
                     PanelMediaView { launcher.closeUtility() }
                 case .urlCleaner:

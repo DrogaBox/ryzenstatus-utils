@@ -23,6 +23,7 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchCalendarCountdown) private var calendarCountdown = false
     @AppStorage(DefaultsKey.notchCalendarTimeLeft) private var calendarTimeLeft = false
     @AppStorage(DefaultsKey.notchCalendarWeekNumbers) private var calendarWeekNumbers = false
+    @AppStorage(DefaultsKey.notchAgentsEnabled) private var agentsEnabled = false
     @AppStorage(DefaultsKey.notchWatchEnabled) private var watchEnabled = true
     @AppStorage(DefaultsKey.notchLyricsEnabled) private var lyricsEnabled = true
     @AppStorage(DefaultsKey.notchLyricsOnline) private var lyricsOnline = false
@@ -37,6 +38,8 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchMascotSide) private var mascotSide = NotchMascotSide.left.rawValue
     @AppStorage(DefaultsKey.notchDisplay) private var display = NotchDisplay.automatic.rawValue
     @AppStorage(DefaultsKey.notchSilhouette) private var silhouette = NotchSilhouette.capsule.rawValue
+    @AppStorage(DefaultsKey.notchCapsuleCenter) private var capsuleCenter = NotchCapsuleCenter.song.rawValue
+    @AppStorage(DefaultsKey.notchCapsuleMetric) private var capsuleMetric = NotchCapsuleMetric.cpuTemperature.rawValue
     @AppStorage(DefaultsKey.notchOpenOnHover) private var hover = false
     @AppStorage(DefaultsKey.notchHideInFullscreen) private var hideInFullscreen = false
     @AppStorage(DefaultsKey.notchHideUntilHover) private var hideUntilHover = false
@@ -49,6 +52,7 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchHiddenModules) private var hidden = ""
     @AppStorage(DefaultsKey.notchModuleOrder) private var order = ""
     @AppStorage(DefaultsKey.notchVolume) private var volume = true
+    @AppStorage(DefaultsKey.notchInputSource) private var inputSource = true
     @AppStorage(DefaultsKey.notchMicrophone) private var microphone = true
     @AppStorage(DefaultsKey.notchBrightness) private var brightness = true
     @AppStorage(DefaultsKey.notchBattery) private var battery = true
@@ -117,11 +121,12 @@ struct NotchSettings: View {
          String(capsuleFitWidth), String(capsuleFitHeight), String(capsuleFitDrop), String(hapticFeedback),
          String(shelfWindow), String(dragReveal), String(captureControls), String(quickPanel), String(appPanel),
          String(hoverExpand), String(hideUntilHover), String(hideInFullscreen), String(coversMenus),
-         display, silhouette, String(hover), hidden, order, String(volume), String(brightness), String(keyboardLight),
+         display, silhouette, capsuleCenter, capsuleMetric, String(hover), hidden, order, String(volume), String(inputSource),
+         String(brightness), String(keyboardLight),
          String(microphone), String(battery), String(clipboard), String(clipboardWindow),
          String(capture), String(trackChange), captureAction, String(showInCaptures),
          String(returnHome), homeModule, String(opensActivity), String(scratchpad),
-         String(watchEnabled), String(keepAwakeActivity)]
+         String(agentsEnabled), String(watchEnabled), String(keepAwakeActivity)]
     }
 
     private var access: Binding<NotchQuickAccessConfiguration> {
@@ -251,6 +256,10 @@ struct NotchSettings: View {
                     if NotchSilhouette(rawValue: silhouette) == .floating {
                         Text(text.floatingShapeHint).font(.caption).foregroundStyle(.secondary)
                     }
+                }
+                // A capsule has no camera in its middle, so it can carry a reading there.
+                if NotchSilhouette(rawValue: silhouette) ?? .capsule != .notch {
+                    capsuleCenterCard
                 }
                 if NotchSilhouette(rawValue: silhouette) ?? .capsule == .capsule {
                     SettingsCard(title: text.capsuleFit) {
@@ -494,6 +503,8 @@ struct NotchSettings: View {
             }
         case .scratchpad:
             destination(FeatureStrings.scratchpad(l10n.language).pageTitle, symbol: "note.text", value: $scratchpad)
+        case .agents:
+            NotchAgentsSettingsControls()
         case .watch:
             NotchWatchSettingsControls()
                 .toggleStyle(TrailingSwitchToggleStyle())
@@ -517,6 +528,12 @@ struct NotchSettings: View {
                     }
                     idleChoice(.music, title: text.music, symbol: "music.note",
                                reason: pageReason(.music, feature: nil), fix: pageAction(.music, feature: nil))
+                    // Offered once the section is on, and kept while it is the
+                    // saved choice, waiting like the others.
+                    if NotchSupport.canRest(with: .agents) || idle == NotchIdleContent.agents.rawValue {
+                        idleChoice(.agents, title: FeatureStrings.notchAgents(l10n.language).restingTitle, symbol: "sparkles",
+                                   reason: pageReason(.agents, feature: .notchAgents), fix: pageAction(.agents, feature: .notchAgents))
+                    }
                 }
                 if restingChoice == .battery { lowBatteryControls }
                 switchRow("menubar.rectangle", text.coverMenus, caption: text.coverMenusHint, isOn: $coversMenus)
@@ -581,6 +598,10 @@ struct NotchSettings: View {
                     toggleCard(text.newTrack, symbol: "music.note", value: $trackChange, available: musicAvailable,
                                reason: pageReason(.music, feature: nil), reservesReason: reserves,
                                unavailableAction: pageAction(.music, feature: nil))
+                    // A layout change is read straight from the system, so
+                    // this card never waits on another feature.
+                    toggleCard(text.inputSource, symbol: "keyboard", value: $inputSource,
+                               available: true, reservesReason: reserves)
                 }
                 if accessoriesEnabled { Text(FeatureStrings.notchActivities(l10n.language).accessoryDescription).font(.caption).foregroundStyle(.secondary) }
                 if enabled, (volume || brightness || keyboardLight), !permissions.accessibility { PermissionRow(kind: .accessibility) }
@@ -748,6 +769,34 @@ struct NotchSettings: View {
     }
 
     /// Each outline in a slice of menu bar, drawn as the island draws it.
+    private var capsuleCenterCard: some View {
+        let strings = FeatureStrings.notchCapsuleCenter(l10n.language)
+        let center = NotchCapsuleCenter(rawValue: capsuleCenter) ?? .song
+        return SettingsCard {
+            SettingsRow(symbol: "capsule.inset.filled", title: strings.title, caption: strings.caption) {
+                Picker(strings.title, selection: $capsuleCenter) {
+                    ForEach(NotchCapsuleCenter.allCases, id: \.self) { item in
+                        Text(strings.title(for: item)).tag(item.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            if center == .metric || center == .rotate {
+                SettingsRow(symbol: "gauge.with.dots.needle.33percent", title: strings.metricLabel) {
+                    Picker(strings.metricLabel, selection: $capsuleMetric) {
+                        ForEach(NotchCapsuleMetric.allCases, id: \.self) { item in
+                            Text(strings.title(for: item)).tag(item.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                .padding(.leading, settingsRowTextInset)
+            }
+        }
+    }
+
     private func silhouetteChoice(_ item: NotchSilhouette, title: String) -> some View {
         let selected = (NotchSilhouette(rawValue: silhouette) ?? .capsule) == item
         return Button { silhouette = item.rawValue } label: {
@@ -803,6 +852,7 @@ struct NotchSettings: View {
         case .camera: return .cameraPreview
         case .downloads: return .notchDownloads
         case .scratchpad: return .scratchpad
+        case .agents: return .notchAgents
         case .watch: return .notchWatch
         }
     }
@@ -888,7 +938,7 @@ struct NotchSettings: View {
                         } else if item != .none {
                             Image(systemName: symbol).font(.system(size: 11))
                             RoundedRectangle(cornerRadius: 4).fill(.black).frame(width: 20, height: 12)
-                            if item == .battery { Text("76%").font(.system(size: 9, weight: .medium)) }
+                            if item == .battery || item == .agents { Text(item == .agents ? "62%" : "76%").font(.system(size: 9, weight: .medium)) }
                             else { Image(systemName: item == .music ? "waveform" : "minus").font(.system(size: 9)) }
                         } else { Color.clear.frame(width: 50, height: 12) }
                     }.foregroundStyle(.white).padding(10).background(.black, in: Capsule())
@@ -976,13 +1026,14 @@ struct NotchSettings: View {
         Binding {
             (module != .timer || timerEnabled) && (module != .camera || cameraEnabled)
                 && (module != .calendar || calendarEnabled) && (module != .notifications || notificationsEnabled)
-                && (module != .watch || watchEnabled)
+                && (module != .agents || agentsEnabled) && (module != .watch || watchEnabled)
                 && !hidden.split(separator: ",").contains(Substring(module.rawValue))
         } set: { shown in
             if module == .timer { timerEnabled = shown }
             if module == .camera { cameraEnabled = shown }
             if module == .calendar { calendarEnabled = shown }
             if module == .notifications { notificationsEnabled = shown }
+            if module == .agents { agentsEnabled = shown }
             if module == .watch { watchEnabled = shown }
             var values = Set(hidden.split(separator: ",").map(String.init))
             if shown { values.remove(module.rawValue) } else { values.insert(module.rawValue) }
@@ -1021,8 +1072,8 @@ private struct NotchSilhouetteSample: View {
         let geometry = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 1440, height: 900), safeAreaTop: 0,
                                      cameraWidth: 0, menuBarHeight: 24, silhouette: silhouette)
         let island = geometry.restingSize(showsContent: false)
-        // Floating shows nothing at rest, so its sample shows a live activity
-        // as a pill below the whole menu bar, with no block in the bar.
+        // Compact activities stay in the bar. The card below previews where
+        // a floating panel expands without covering menus or status items.
         let floating = geometry.floatsBelowMenuBar
         let pill = CGSize(width: max(island.width, 112), height: geometry.stripHeight)
         ZStack(alignment: .top) {
@@ -1054,6 +1105,10 @@ private struct NotchSilhouetteSample: View {
                     }
                     .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
                     .offset(y: geometry.floatingDrop)
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(.primary.opacity(0.12))
+                    .frame(width: 148, height: 24)
+                    .offset(y: geometry.forPresentation(expanded: true).floatingDrop)
             } else {
                 NotchShape.island(height: island.height, geometry: geometry).fill(.black)
                     .frame(width: island.width, height: island.height)

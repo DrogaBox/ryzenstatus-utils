@@ -8,8 +8,11 @@ struct NotchSystemView: View {
     let select: (MetricDetailKind) -> Void
     @ObservedObject private var monitor = SystemMonitor.shared
     @ObservedObject private var l10n = L10n.shared
+    @ObservedObject private var connectedDevices = ConnectedDevicesMonitor.shared
     @AppStorage(DefaultsKey.networkSpeedUnit) private var networkSpeedUnit = NetworkSpeedUnit.bytes
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Pairs the device list's begin and end, whatever the hub does meanwhile.
+    @State private var holdsDeviceWatch = false
 
     private struct Card: Identifiable {
         let kind: MetricDetailKind
@@ -69,6 +72,11 @@ struct NotchSystemView: View {
                               value: power?.systemWatts.map(MetricFormat.wattsCompact),
                               detail: power?.externalConnected == true ? power?.adapterWatts.map(MetricFormat.watts) : nil))
         }
+        if AppFeature.connectedDevices.isAvailable {
+            let strings = FeatureStrings.connectedDevices(l10n.language)
+            cards.append(Card(kind: .connectedDevices, title: strings.title, symbol: "cable.connector",
+                              value: connectedDevices.hasLoadedOnce ? "\(connectedDevices.count)" : nil))
+        }
         return cards
     }
 
@@ -78,6 +86,21 @@ struct NotchSystemView: View {
     }
 
     var body: some View {
+        content
+            .onAppear {
+                guard watchesConnectedDevices, !holdsDeviceWatch else { return }
+                holdsDeviceWatch = true
+                connectedDevices.beginWatching()
+            }
+            .onDisappear {
+                guard holdsDeviceWatch else { return }
+                holdsDeviceWatch = false
+                connectedDevices.endWatching()
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         let cards = cards
         if cards.isEmpty {
             NotchEmptyView(symbol: "gauge.with.dots.needle.50percent", message: l10n.s.monitorUnavailable)
@@ -99,6 +122,9 @@ struct NotchSystemView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
+
+    /// The device card reads the list only while this page is on screen.
+    private var watchesConnectedDevices: Bool { AppFeature.connectedDevices.isAvailable }
 
     private func grid(cards: [Card], rows: [Range<Int>]) -> some View {
         VStack(spacing: NotchLayout.rowSpacing) {

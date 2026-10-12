@@ -87,6 +87,7 @@ final class SoundOutputSwitcher: ObservableObject {
             hotKeyRef = ref
             registeredShortcut = shortcut
             registrationFailed = false
+            SystemShortcutTakeover.claim(DefaultsKey.soundOutputSwitcherShortcut, shortcut: shortcut)
         } else {
             hotKeyRef = nil
             registeredShortcut = nil
@@ -94,23 +95,19 @@ final class SoundOutputSwitcher: ObservableObject {
         }
     }
 
+    /// Lets go of the global key while a shortcut field is listening, so the
+    /// user can record the very combination this feature uses. The next
+    /// `syncWithPreferences` takes it back.
     func suspendShortcut() { unregisterHotkey() }
 
     private func unregisterHotkey() {
         if let hotKeyRef {
             UnregisterEventHotKey(hotKeyRef)
+            SystemShortcutTakeover.release(DefaultsKey.soundOutputSwitcherShortcut)
         }
-        if let eventHandler {
-            RemoveEventHandler(eventHandler)
-        }
-        eventHandler = nil
         hotKeyRef = nil
         registeredShortcut = nil
         registrationFailed = false
         lastSwitchFailed = false
-    }
-
-    deinit {
-        unregisterHotkey()
     }
 }

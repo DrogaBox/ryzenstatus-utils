@@ -17,7 +17,7 @@ enum OwnKeyEvent {
     // it from QuitProtectionSupport keeps one value for both sides.
     static let quitProtectionMarker: Int64 = QuitProtectionSupport.syntheticEventMarker
     // Same value TextSnippetService already posts with; kept for compatibility.
-    static let textSnippetMarker: Int64 = 0x564F5253
+    static let textSnippetMarker: Int64 = 0x52595253
 
     private static let ownProcessID = Int64(getpid())
 

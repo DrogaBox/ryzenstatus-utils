@@ -65,8 +65,6 @@ final class AudioInputDeviceManager: ObservableObject {
     /// The microphone selector lives in the mixer panel section, so it
     /// follows the mixer's hub availability.
     func syncWithPreferences() {
-        // Audio device priority steers the input too, so the shared
-        // observer also lives while that feature alone is installed.
         inputPriorityIsActive = AppFeature.audioPriority.isAvailable
             && UserDefaults.standard.bool(forKey: DefaultsKey.audioPriorityInputEnabled)
         if AppFeature.mixer.isAvailable || AppFeature.audioPriority.isAvailable {

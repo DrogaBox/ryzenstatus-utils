@@ -16,7 +16,7 @@ final class TextSnippetService {
     /// Marks our own synthetic events so the tap never re-processes them.
     /// Same value upstream keeps in `OwnKeyEvent.textSnippetMarker`; that
     /// enum is not ported here (its other users are not in this fork).
-    private static let syntheticMarker: Int64 = 0x564F5253
+    private static let syntheticMarker: Int64 = 0x52595253
 
     // The tap callback and its mutable text state live off the main thread so
     // demanding foreground apps cannot turn a main-thread stall into queued

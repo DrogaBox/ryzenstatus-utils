@@ -1,12 +1,31 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
+import AppKit
 import Foundation
 
 /// Pure DDC/CI helpers for the display brightness feature: packet building,
 /// reply parsing, value scaling and the display-to-service match score. No
 /// IOKit here so the unit tests cover every byte.
 enum BrightnessSupport {
+    struct DisplayTopology: Equatable {
+        let online: Set<UInt32>
+        let active: Set<UInt32>
+    }
+
+    /// Opening the panel while a display scan is already running should use
+    /// that scan instead of queuing the same slow DDC work again. A changed
+    /// topology and the wake path still require a fresh rebuild.
+    static func shouldQueueRebuild(topology: DisplayTopology,
+                                   pending: DisplayTopology?,
+                                   force: Bool = false) -> Bool {
+        force || pending != topology
+    }
+
+    static func brightnessAfterRebuild(probed: Double, pending: Double?) -> Double {
+        pending ?? probed
+    }
+
     /// VCP code for luminance in the DDC/CI standard.
     static let luminanceCode: UInt8 = 0x10
     /// 7-bit I2C address DDC displays listen on.
@@ -23,6 +42,64 @@ enum BrightnessSupport {
     static let writeCycles = 2
     static let retryAttempts = 4
     static let replyLength = 11
+
+    /// Discovery keeps the normal number of reply chances. Every attempt but
+    /// the last sends one request before its read, so the read and retry
+    /// pauses keep those requests more than 50ms apart instead of pairing
+    /// them 10ms apart.
+    static func ddcProbeAttempts() -> Int {
+        retryAttempts + 1
+    }
+
+    /// Some monitors answer NULL until a second request arrives a few
+    /// milliseconds behind the first, which is why field implementations pair
+    /// theirs. The last discovery attempt pairs them too, before a channel
+    /// that never answered is written off and cached as write-only.
+    static func ddcProbeWriteCycles(classifyingChannel: Bool,
+                                    isFinalAttempt: Bool = false) -> Int {
+        classifyingChannel && !isFinalAttempt ? 1 : writeCycles
+    }
+
+    static let defaultKeyboardLightLevel: Float = 0.5
+    static let keyboardLightStep: Float = 1.0 / 16.0
+
+    static func keyboardLightOnLevel(lastNonzero: Float?) -> Float {
+        guard let lastNonzero, lastNonzero > 0 else { return defaultKeyboardLightLevel }
+        return min(lastNonzero, 1)
+    }
+
+    /// A slider hands over whatever the drag produced. Nothing but a finite
+    /// value inside the supported range reaches the private setter.
+    static func sliderKeyboardLightLevel(_ level: Float) -> Float? {
+        guard level.isFinite else { return nil }
+        return min(max(level, 0), 1)
+    }
+
+    static func steppedKeyboardLightLevel(current: Float, direction: Int) -> Float {
+        guard current.isFinite else { return 0 }
+        let step = direction < 0 ? -keyboardLightStep : keyboardLightStep
+        return min(max(current + step, 0), 1)
+    }
+
+    /// The DDC/CI standard also spaces whole commands apart: a host waits at
+    /// least 50ms after one command before starting the next. The pauses
+    /// above pace the steps inside a command; without this one, a slider
+    /// drag or a held brightness key chains commands at the write pause,
+    /// five times faster than monitors are promised, and some react to the
+    /// stream by dropping their signal until they are power cycled
+    /// (issue #301).
+    static let commandIntervalMicroseconds: UInt64 = 50_000
+
+    /// How long the next command must still wait, given when the previous
+    /// one to the same display finished. A first command, or a clock that
+    /// moved backwards, waits nothing.
+    static func ddcCommandDelay(nowMicroseconds: UInt64,
+                                lastCommandEndMicroseconds: UInt64?) -> UInt32 {
+        guard let last = lastCommandEndMicroseconds, last <= nowMicroseconds else { return 0 }
+        let elapsed = nowMicroseconds - last
+        guard elapsed < commandIntervalMicroseconds else { return 0 }
+        return UInt32(commandIntervalMicroseconds - elapsed)
+    }
 
     /// Wraps a DDC payload: length-tagged header, payload, XOR checksum. The
     /// checksum seed covers the destination address, and the sub-address only
@@ -84,13 +161,117 @@ enum BrightnessSupport {
         return writeAccepted ? .writeOnly : .dead
     }
 
+    /// Identifies one physical monitor on one connection path. A monitor may
+    /// answer DDC directly but become write-only behind a particular hub, so
+    /// neither the display fingerprint nor the port is sufficient alone.
+    static func ddcPathKey(displayFingerprint: String,
+                           ioDisplayLocation: String) -> String? {
+        guard !displayFingerprint.isEmpty, !ioDisplayLocation.isEmpty else { return nil }
+        return "\(displayFingerprint)|\(ioDisplayLocation)"
+    }
+
+    /// Keeps recent write-only paths unique and bounded. Re-adding a path
+    /// moves it to the end, while a successful reply or rejected write removes
+    /// it so a changed connection can be classified again.
+    static func updatedWriteOnlyDDCPaths(_ stored: [String],
+                                         path: String,
+                                         isWriteOnly: Bool,
+                                         limit: Int = 16) -> [String] {
+        guard !path.isEmpty, limit > 0 else { return [] }
+        var updated = stored.filter { !$0.isEmpty && $0 != path }
+        if isWriteOnly { updated.append(path) }
+        return Array(updated.suffix(limit))
+    }
+
+    static func shouldProbeDDC(pathKey: String?, writeOnlyPaths: Set<String>) -> Bool {
+        guard let pathKey else { return true }
+        return !writeOnlyPaths.contains(pathKey)
+    }
+
     // MARK: - Display switching
+
+    enum DisplayConfigurationResult: Equatable {
+        case success, closedLid, failed
+    }
+
+    /// An enable the closed lid denied waits here until the lid opens. Failed
+    /// restore-all requests also wait for a later wake. A request a person
+    /// tapped for, or one a restore-all owes, is kept when a headless recovery
+    /// brings another display back instead.
+    struct DeferredDisplayRestoration {
+        private(set) var ids = Set<UInt32>()
+        private var headlessIDs = Set<UInt32>()
+        private var keptIDs = Set<UInt32>()
+        private var lastLidClosed: Bool? = true
+
+        mutating func record(_ id: UInt32, result: DisplayConfigurationResult) {
+            if result == .closedLid {
+                ids.insert(id)
+                lastLidClosed = true
+            }
+            if result == .failed, keptIDs.contains(id) {
+                ids.insert(id)
+            }
+            if result == .success {
+                ids.remove(id)
+                headlessIDs.remove(id)
+                keptIDs.remove(id)
+            }
+        }
+
+        mutating func keep(_ id: UInt32) {
+            keptIDs.insert(id)
+        }
+
+        mutating func recordHeadless(_ id: UInt32,
+                                     result: DisplayConfigurationResult) {
+            record(id, result: result)
+            if result == .closedLid && !keptIDs.contains(id) {
+                headlessIDs.insert(id)
+            }
+        }
+
+        mutating func cancelHeadless() {
+            ids.subtract(headlessIDs.subtracting(keptIDs))
+            headlessIDs.removeAll()
+        }
+
+        mutating func candidates(lidClosed: Bool?, retryFailures: Bool = false) -> Set<UInt32> {
+            let opened = lidClosed == false && lastLidClosed != false
+            if let lidClosed { lastLidClosed = lidClosed }
+            return opened || retryFailures ? ids : []
+        }
+    }
+
+    static func canConfigureDisplay(enabled: Bool, isBuiltIn: Bool, lidClosed: Bool?) -> Bool {
+        !(enabled && isBuiltIn && lidClosed == true)
+    }
 
     /// Turning off the final drawable display would leave no UI path to turn
     /// it back on. The target must be active and another active display must
     /// remain after the transaction.
-    static func canDisableDisplay(activeDisplayIDs: Set<UInt32>, target: UInt32) -> Bool {
-        activeDisplayIDs.contains(target) && activeDisplayIDs.count > 1
+    static func canDisableDisplay(drawableDisplayIDs: Set<UInt32>, target: UInt32) -> Bool {
+        drawableDisplayIDs.contains(target) && drawableDisplayIDs.count > 1
+    }
+
+    /// Active display lists can include virtual devices with no picture a
+    /// person can use. Keep only online, active, non-virtual displays when
+    /// deciding whether the Mac has been left without a visible screen.
+    static func drawableDisplayIDs(onlineDisplayIDs: Set<UInt32>,
+                                   activeDisplayIDs: Set<UInt32>,
+                                   virtualDisplayIDs: Set<UInt32>) -> Set<UInt32> {
+        onlineDisplayIDs.intersection(activeDisplayIDs).subtracting(virtualDisplayIDs)
+    }
+
+    /// If a cable removal leaves the Mac with no drawable display, bring back
+    /// one display this app switched off. Prefer the built-in panel so the
+    /// portable Mac recovers without changing any other disabled display.
+    static func headlessRecoveryCandidates(drawableDisplayIDs: Set<UInt32>,
+                                           managedDisabledIDs: Set<UInt32>,
+                                           builtInDisabledIDs: Set<UInt32>) -> [UInt32] {
+        guard drawableDisplayIDs.isEmpty else { return [] }
+        let builtIn = managedDisabledIDs.intersection(builtInDisabledIDs)
+        return builtIn.sorted() + managedDisabledIDs.subtracting(builtIn).sorted()
     }
 
     // MARK: - Software dimming (gamma curve)
@@ -123,6 +304,18 @@ enum BrightnessSupport {
         appliedByApp ? (remembered ?? 1.0) : 1.0
     }
 
+    /// The dim level put back on a display that just returned from a
+    /// connection gap. The saved level is honoured, but never so dark that
+    /// the screen reads as dead: replugging the cable is the one gesture
+    /// left to someone facing a black picture, and it has to land on
+    /// something visible (issue #301). Live control is untouched and still
+    /// reaches true black.
+    static let reconnectionDimFloor = 0.25
+
+    static func reconnectedDimLevel(_ saved: Double) -> Double {
+        max(min(saved, 1), reconnectionDimFloor)
+    }
+
     // MARK: - Brightness keys
 
     /// The keyboard brightness keys arrive as system-defined events, not key
@@ -132,10 +325,115 @@ enum BrightnessSupport {
     /// increments.
     static let brightnessKeyStep = 1.0 / 16.0
 
+    /// How far one press of the brightness keys or the display brightness
+    /// shortcuts moves a display. Standard is the system's sixteenth; half
+    /// and quarter divide it, and quarter is the step the system itself
+    /// takes for Option-Shift.
+    enum KeyStep: String, CaseIterable {
+        case standard, half, quarter
+
+        static func sanitized(_ raw: String?) -> KeyStep {
+            KeyStep(rawValue: raw ?? "") ?? .standard
+        }
+
+        var fraction: Double {
+            switch self {
+            case .standard: return brightnessKeyStep
+            case .half: return brightnessKeyStep / 2
+            case .quarter: return brightnessKeyStep / 4
+            }
+        }
+
+        /// A press never moves further than the chosen step. A step that is
+        /// already finer, like the system's Option-Shift quarter, stays as is.
+        func limited(_ delta: Double) -> Double {
+            guard abs(delta) > fraction else { return delta }
+            return delta < 0 ? -fraction : fraction
+        }
+
+        /// How many of the system's own Option-Shift quarter steps make one
+        /// press. Nil when the system's plain step already is the choice.
+        var systemQuarterSteps: Int? {
+            switch self {
+            case .standard: return nil
+            case .half: return 2
+            case .quarter: return 1
+            }
+        }
+    }
+
+    /// A press this app leaves to the system is sent on as the system's own
+    /// quarter steps when a finer step is chosen, so the system still moves
+    /// the display and shows its own feedback. A press held with Command,
+    /// Control or Option means something else to the system (another
+    /// display, Displays settings, its own quarter step) and stays untouched.
+    static func systemQuarterSteps(for step: KeyStep, command: Bool, control: Bool,
+                                   option: Bool) -> Int? {
+        guard !command, !control, !option else { return nil }
+        return step.systemQuarterSteps
+    }
+
+    /// The two halves of one Option-Shift brightness press, laid out the way
+    /// the keyboard sends them: key code and press state in data1, the
+    /// state repeated under the Option and Shift flags.
+    static func systemQuarterStepHalves(increase: Bool) -> [(data1: Int, flags: UInt)] {
+        let keyCode = increase ? 2 : 3
+        let optionShift: UInt = 0x80000 | 0x20000
+        return [0x0A, 0x0B].map { state in
+            ((keyCode << 16) | (state << 8), UInt(state << 8) | optionShift)
+        }
+    }
+
+    /// Marks the Option-Shift presses this app sends on to the system, so its
+    /// own tap lets them through.
+    static let systemQuarterStepMarker: Int64 = 0x52594252 // "RYBR"
+
+    /// One brightness key press sent on as `count` of the system's own
+    /// Option-Shift quarter steps, each a press and a release carrying the
+    /// marker. Posting is left to the caller.
+    static func systemQuarterStepEvents(increase: Bool, count: Int) -> [CGEvent] {
+        let halves = systemQuarterStepHalves(increase: increase)
+        return (0..<max(0, count)).flatMap { _ in
+            halves.compactMap { half -> CGEvent? in
+                guard let event = NSEvent.otherEvent(
+                    with: .systemDefined, location: .zero,
+                    modifierFlags: NSEvent.ModifierFlags(rawValue: half.flags),
+                    timestamp: 0, windowNumber: 0, context: nil,
+                    subtype: 8, data1: half.data1, data2: -1)?.cgEvent
+                else { return nil }
+                event.setIntegerValueField(.eventSourceUserData, value: systemQuarterStepMarker)
+                return event
+            }
+        }
+    }
+
     struct BrightnessKeyEvent: Equatable {
         let delta: Double
         let isKeyDown: Bool
         let isRepeat: Bool
+    }
+
+    enum BrightnessKeyOwner: Equatable {
+        case system
+        case app(delta: Double)
+    }
+
+    struct BrightnessKeyOwnership {
+        private var owners = [Bool: BrightnessKeyOwner]()
+
+        mutating func owner(of press: BrightnessKeyEvent, option: Bool, shift: Bool,
+                            commandOrControl: Bool) -> BrightnessKeyOwner {
+            let increases = press.delta > 0
+            guard press.isKeyDown else { return owners.removeValue(forKey: increases) ?? .system }
+            if !press.isRepeat {
+                if commandOrControl || (option && !shift) {
+                    owners[increases] = .system
+                } else {
+                    owners[increases] = .app(delta: option ? press.delta / 4 : press.delta)
+                }
+            }
+            return owners[increases] ?? .system
+        }
     }
 
     static func brightnessKeyEvent(subtype: Int, data1: Int) -> BrightnessKeyEvent? {
@@ -152,8 +450,110 @@ enum BrightnessSupport {
         return BrightnessKeyEvent(delta: delta, isKeyDown: state == 10, isRepeat: (raw & 0x1) != 0)
     }
 
+    static func isKeyboardLightPress(subtype: Int, data1: Int) -> Bool {
+        guard subtype == 8 else { return false }
+        let raw = UInt32(truncatingIfNeeded: data1)
+        // Native illumination up, down and toggle. Key-up is always left alone.
+        return (21...23).contains((raw >> 16) & 0xFFFF) && ((raw >> 8) & 0xFF) == 10
+    }
+
+    /// Keyboards other than the built-in one do not send brightness as a
+    /// media key at all. They send an ordinary key press: either one of the
+    /// two dedicated brightness codes, or F14 and F15, which the system
+    /// offers as brightness keys in its own keyboard shortcuts whenever an
+    /// external keyboard is attached. Measured against the display server:
+    /// all four move brightness by the same sixteenth of the range as the
+    /// built-in keys (issue #287).
+    enum BrightnessKeyCode {
+        static let increase = 144
+        static let decrease = 145
+        static let functionIncrease = 113
+        static let functionDecrease = 107
+    }
+
+    /// Cheap enough for the hot path: every keystroke in the session passes
+    /// through the tap, and only these four may cost anything more.
+    static func isBrightnessKeyCode(_ keyCode: Int) -> Bool {
+        keyCode == BrightnessKeyCode.increase || keyCode == BrightnessKeyCode.decrease
+            || keyCode == BrightnessKeyCode.functionIncrease
+            || keyCode == BrightnessKeyCode.functionDecrease
+    }
+
+    static func brightnessFunctionKeyEvent(keyCode: Int,
+                                           isKeyDown: Bool,
+                                           isRepeat: Bool,
+                                           hasModifiers: Bool,
+                                           functionKeysAdjustBrightness: Bool) -> BrightnessKeyEvent? {
+        // A modified press means something else: the system opens its own
+        // display settings, and finer steps are its business too.
+        guard !hasModifiers else { return nil }
+        let delta: Double
+        switch keyCode {
+        case BrightnessKeyCode.increase: delta = brightnessKeyStep
+        case BrightnessKeyCode.decrease: delta = -brightnessKeyStep
+        case BrightnessKeyCode.functionIncrease where functionKeysAdjustBrightness:
+            delta = brightnessKeyStep
+        case BrightnessKeyCode.functionDecrease where functionKeysAdjustBrightness:
+            delta = -brightnessKeyStep
+        default: return nil
+        }
+        return BrightnessKeyEvent(delta: delta, isKeyDown: isKeyDown, isRepeat: isRepeat)
+    }
+
+    /// Whether F14 and F15 still mean brightness. The system ships them
+    /// switched on, so an absent entry means yes; a user who turned them off
+    /// in the system's keyboard shortcuts gets them left alone.
+    static func functionKeysAdjustBrightness(symbolicHotKeys: [String: Any]?) -> Bool {
+        guard let symbolicHotKeys else { return true }
+        for identifier in ["53", "54"] {
+            guard let entry = symbolicHotKeys[identifier] as? [String: Any] else { continue }
+            if let enabled = entry["enabled"] as? Bool, !enabled { return false }
+            if let enabled = entry["enabled"] as? NSNumber, !enabled.boolValue { return false }
+        }
+        return true
+    }
+
+    /// Plain brightness key presses reach the system unless this app answers
+    /// them: to follow the pointer, to show its own overlay or the island in
+    /// place of the system's, or to take a finer step. Only then is their
+    /// keystroke tap worth it.
+    static func answersPlainBrightnessKeys(followsPointer: Bool, overlayReplacesNative: Bool,
+                                           finerSteps: Bool) -> Bool {
+        followsPointer || overlayReplacesNative || finerSteps
+    }
+
+    /// The display a plain brightness key moves: the one under the pointer
+    /// when the pointer decides, otherwise the one the system's keys move.
+    static func plainKeyTarget(followsPointer: Bool, pointerDisplay: UInt32?, systemTarget: UInt32?) -> UInt32? {
+        followsPointer ? pointerDisplay : systemTarget
+    }
+
+    static func shortcutDisplay(followsPointer: Bool, pointerDisplay: UInt32?,
+                                primaryDisplay: UInt32, eligible: Set<UInt32>) -> UInt32? {
+        let target = followsPointer ? pointerDisplay : primaryDisplay
+        guard let target, eligible.contains(target) else { return nil }
+        return target
+    }
+
     static func steppedBrightness(_ current: Double, delta: Double) -> Double {
         min(max(current + delta, 0), 1)
+    }
+
+    /// The change the system's easing call needs to bring a display from the
+    /// level it reports to `target`: that call moves the level by an amount,
+    /// not to one. Nil when the reported level is not a real one or the
+    /// display is already there, and the level is written directly instead.
+    static func easedBrightnessChange(to target: Double, from reported: Float) -> Float? {
+        guard target.isFinite, reported.isFinite, reported >= 0, reported <= 1 else { return nil }
+        let change = Float(min(max(target, 0), 1)) - reported
+        return change == 0 ? nil : change
+    }
+
+    /// Whether an eased step left the display at the level it asked for. The
+    /// system reports the new level as soon as it accepts the change, so a
+    /// display that ignored it still reports the old one.
+    static func easedBrightnessLanded(on target: Double, reported: Float) -> Bool {
+        reported.isFinite && abs(Double(reported) - target) < 0.001
     }
 
     /// Whether a brightness key press aimed at a system-routed display is
@@ -170,19 +570,14 @@ enum BrightnessSupport {
         return overlayReplacesNative
     }
 
-    /// Whether a remembered brightness level for a display can be trusted
-    /// as the monitor's actual luminance, or a probe should read it fresh.
-    /// A remembered level is trusted for a short window after it was last
-    /// known to match the display (written by this process), so held keys
-    /// stay smooth; after the window expires, the monitor may have moved
-    /// on its own (brightness keys, System Settings, the monitor's buttons)
-    /// and a read is needed before stepping.
-    static func trustsRememberedLevel(lastKnownAt: Date?,
-                                      now: Date,
-                                      window: TimeInterval) -> Bool {
-        guard let lastKnownAt else { return false }
-        let age = now.timeIntervalSince(lastKnownAt)
-        return age >= 0 && age < window
+    /// Whether this app shows a brightness change in place of the system:
+    /// with its overlay when that option is on, or in the island while the
+    /// island shows notices. An island hidden until hover or away in full
+    /// screen shows none, so the key keeps the system's own feedback rather
+    /// than bringing back the overlay its option turned off.
+    static func overlayReplacesNative(overlayEnabled: Bool, islandRoutes: Bool,
+                                      islandShowsNotices: Bool) -> Bool {
+        overlayEnabled || (islandRoutes && islandShowsNotices)
     }
 
     /// Sixteen segments match the system brightness steps. A non-zero value
@@ -200,6 +595,18 @@ enum BrightnessSupport {
     }
 
     /// DDC value to the 0...1 slider scale.
+    /// Whether a remembered brightness can still be stepped from, or the
+    /// monitor has to be asked first. A value the app itself just wrote is
+    /// true; one that has been sitting around is only a guess, because the
+    /// monitor has buttons of its own (issue #370).
+    static func trustsRememberedLevel(lastKnownAt: Date?,
+                                      now: Date,
+                                      window: TimeInterval) -> Bool {
+        guard let lastKnownAt else { return false }
+        let age = now.timeIntervalSince(lastKnownAt)
+        return age >= 0 && age < window
+    }
+
     static func normalized(current: UInt16, maximum: UInt16) -> Double {
         let ceiling = sanitizedMaximum(maximum)
         return min(max(Double(current) / Double(ceiling), 0), 1)
@@ -210,6 +617,26 @@ enum BrightnessSupport {
         let ceiling = sanitizedMaximum(maximum)
         let clamped = min(max(normalized, 0), 1)
         return UInt16((clamped * Double(ceiling)).rounded())
+    }
+
+    /// An optional lower quarter of the slider dims the picture after the
+    /// monitor has reached its own minimum. The rest keeps using its backlight.
+    static let extendedDimmingRange = 0.25
+
+    static func extendedDimmingComponents(for brightness: Double) -> (hardware: Double, picture: Double) {
+        let level = min(max(brightness, 0), 1)
+        if level < extendedDimmingRange {
+            return (0, level / extendedDimmingRange)
+        }
+        return ((level - extendedDimmingRange) / (1 - extendedDimmingRange), 1)
+    }
+
+    static func extendedDimmingLevel(hardware: Double, remembered: Double?, pictureDimmed: Bool) -> Double {
+        let physical = extendedDimmingRange
+            + min(max(hardware, 0), 1) * (1 - extendedDimmingRange)
+        guard pictureDimmed, hardware <= 0.001, let remembered,
+              remembered < extendedDimmingRange else { return physical }
+        return min(max(remembered, 0), extendedDimmingRange)
     }
 
     // MARK: - Display to service matching

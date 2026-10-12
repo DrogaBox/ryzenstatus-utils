@@ -45,6 +45,11 @@ final class NowPlayingService: ObservableObject {
     var statusItemButton: NSStatusBarButton? { statusItem?.button }
 
     @Published private(set) var snapshot = NowPlayingSnapshot.empty
+    /// Bumped after every finished poll, whatever it found, so a one-off
+    /// reader can tell "nothing is playing" from "not read yet".
+    @Published private(set) var completedReadings = 0
+    /// Polling is running and has answered at least once.
+    var hasCurrentReading: Bool { timer != nil && completedReadings > 0 }
     @Published private(set) var artworkImage: NSImage?
     /// Fingerprint of the current artwork (dimensions + 12×12 pixel hash).
     /// Views key their change animations on it: identical pixels never
@@ -121,6 +126,8 @@ final class NowPlayingService: ObservableObject {
     enum Consumer: Hashable {
         case menuBar
         case notch
+        /// The radial menu's Now Playing slice, held only until one reading lands.
+        case radialMenu
     }
     private var activeConsumers = Set<Consumer>()
 
@@ -235,6 +242,7 @@ final class NowPlayingService: ObservableObject {
         pollGeneration += 1
         lastPollStartedAt = 0
         snapshot = .empty
+        completedReadings = 0
         artworkImage = nil
         artworkIdentity = ""
         lastFingerprintedData = nil
@@ -276,6 +284,7 @@ final class NowPlayingService: ObservableObject {
                         NowPlayingAnimatedArtworkCenter.shared.sync(with: next)
                         self.syncIslandFeed()
                     }
+                    self.completedReadings &+= 1
                     self.renderMenuBar()
                 }
             }
@@ -320,6 +329,7 @@ final class NowPlayingService: ObservableObject {
                         NowPlayingAnimatedArtworkCenter.shared.sync(with: next)
                         self.syncIslandFeed()
                     }
+                    self.completedReadings &+= 1
                     self.renderMenuBar()
                 }
             }
@@ -500,10 +510,12 @@ final class NowPlayingService: ObservableObject {
                                                     fallback: .nowPlayingDetachedDefault)
         popupShortcutRegistrationFailed = !popupHotkey.sync(
             enabled: defaults.bool(forKey: DefaultsKey.nowPlayingPopupShortcutEnabled),
-            shortcut: popupShortcut)
+            shortcut: popupShortcut,
+            storageKey: DefaultsKey.nowPlayingPopupShortcut)
         detachedShortcutRegistrationFailed = !detachedHotkey.sync(
             enabled: defaults.bool(forKey: DefaultsKey.nowPlayingDetachedShortcutEnabled),
-            shortcut: detachedShortcut)
+            shortcut: detachedShortcut,
+            storageKey: DefaultsKey.nowPlayingDetachedShortcut)
     }
 
     /// Drops the cached artwork fingerprints so covers are re-hashed from

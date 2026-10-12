@@ -21,7 +21,7 @@ import Foundation
 enum ShortcutRecordingTap {
     private static var tap: CFMachPort?
     private static var runLoopSource: CFRunLoopSource?
-    private static var handler: ((Int64, GlobalShortcutModifiers) -> Void)?
+    private static var handler: ((Int64, GlobalShortcutModifiers, CGEventFlags) -> Void)?
     /// The key most recently pressed while recording and possibly still down.
     private static var heldKeyCode: Int64?
     /// Set when recording ends with a key still down: its autorepeats and
@@ -31,19 +31,26 @@ enum ShortcutRecordingTap {
     /// This tap is created after the super key's and therefore sits ahead of
     /// it, so the trigger key arrives here bare. Reading it the same way the
     /// super key does lets a field record the combination the way it will be
-    /// pressed later, instead of asking for the four modifiers by hand.
+    /// pressed later, instead of asking for the chosen modifiers by hand.
     private static var superState = SuperKeySupport.State()
+    private static var observingSession = false
 
     /// Starts swallowing key events and delivering each fresh press to the
     /// handler. Returns false when the tap cannot exist (no Accessibility),
     /// in which case the caller keeps its ordinary event path.
     @discardableResult
-    static func begin(_ newHandler: @escaping (Int64, GlobalShortcutModifiers) -> Void) -> Bool {
+    static func begin(_ newHandler: @escaping (Int64, GlobalShortcutModifiers, CGEventFlags) -> Void) -> Bool {
         drainWatchdog?.cancel()
         drainWatchdog = nil
         drainingKeyCode = nil
         heldKeyCode = nil
         superState.reset()
+        // Registered before the Accessibility check: ShortcutCapture.begin() has
+        // already switched the global shortcuts off, and the resign must give them back.
+        if !observingSession {
+            observingSession = true
+            SessionActivity.shared.onChange { if !$0 { tearDown(); ShortcutCapture.end() } }
+        }
         // A tap the system disabled behind our back reads as dead; rebuild.
         if let tap, !CGEvent.tapIsEnabled(tap: tap) {
             tearDown()
@@ -79,12 +86,21 @@ enum ShortcutRecordingTap {
         guard tap != nil else { return }
         if let heldKeyCode {
             drainingKeyCode = heldKeyCode
-            let watchdog = DispatchWorkItem { tearDown() }
-            drainWatchdog = watchdog
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: watchdog)
+            armDrainWatchdog()
         } else {
             tearDown()
         }
+    }
+
+    /// The drain must outlive the key, not the clock: each swallowed
+    /// autorepeat pushes the deadline back, so the tap dies after a second of
+    /// silence instead of mid-hold, where the key's remaining repeats would
+    /// reach the frontmost app as fresh presses of the recorded combination.
+    private static func armDrainWatchdog() {
+        drainWatchdog?.cancel()
+        let watchdog = DispatchWorkItem { tearDown() }
+        drainWatchdog = watchdog
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: watchdog)
     }
 
     private static func tearDown() {
@@ -107,13 +123,17 @@ enum ShortcutRecordingTap {
 
     private static func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            if SessionActivity.shared.isActive, AXIsProcessTrusted(), let tap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            } else {
+                DispatchQueue.main.async { tearDown(); ShortcutCapture.end() }
+            }
             return Unmanaged.passUnretained(event)
         }
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
         if let handler {
-            // Holding the super key while recording means the four modifiers it
+            // Holding the super key while recording means the modifiers it
             // stands for, and the key holding them is never the shortcut.
             var heldModifiers: GlobalShortcutModifiers = []
             if SuperKeyService.isEngaged {
@@ -141,7 +161,8 @@ enum ShortcutRecordingTap {
                 // Autorepeats of a held key are swallowed but never re-fed:
                 // the field wants the press, not a stream of it.
                 if !isRepeat {
-                    handler(keyCode, GlobalShortcutModifiers(cgFlags: event.flags).union(heldModifiers))
+                    handler(keyCode, GlobalShortcutModifiers(cgFlags: event.flags).union(heldModifiers),
+                            event.flags)
                 }
             } else if keyCode == heldKeyCode {
                 heldKeyCode = nil
@@ -149,7 +170,11 @@ enum ShortcutRecordingTap {
             return nil
         }
         if let drainingKeyCode, keyCode == drainingKeyCode {
-            if type == .keyUp { tearDown() }
+            if type == .keyUp {
+                tearDown()
+            } else {
+                armDrainWatchdog()
+            }
             return nil
         }
         return Unmanaged.passUnretained(event)

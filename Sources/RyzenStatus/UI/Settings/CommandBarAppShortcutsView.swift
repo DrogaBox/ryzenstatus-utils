@@ -167,8 +167,9 @@ struct CommandBarAppShortcutsView: View {
             ShortcutRecorderButton(
                 shortcut: shortcut ?? .commandBarDefault,
                 isEnabled: AppFeature.commandBar.isAvailable,
-                recordingTitle: l10n.s.shortcutRecording,
+                waitingTitle: l10n.s.shortcutPressKeys,
                 emptyTitle: shortcut == nil ? text.appShortcutRecord : nil,
+                notCapturedAction: { report(l10n.s.shortcutNotCaptured, for: entry) },
                 invalidAction: { report(l10n.s.shortcutInvalid, for: entry) },
                 captureAction: { record($0, for: entry) })
                 .frame(width: 140, height: 28)
