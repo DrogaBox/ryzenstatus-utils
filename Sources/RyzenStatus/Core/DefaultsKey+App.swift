@@ -672,4 +672,223 @@ extension DefaultsKey {
     static let mixerHiddenApps = "mixerHiddenApps"
     static let scratchpadTextSize = "scratchpadTextSize"
     static let networkSpeedUnit = "networkSpeedUnit"
+
+    // MARK: Ported from upstream fe24c17 (block A, shared foundations)
+    // Keys for areas that are still being ported live here already, so each
+    // area compiles against them. Upstream keeps them in Core/Defaults.swift;
+    // here they sit in this extension because the command bar harness
+    // compiles this file and not Defaults.swift. Upstream fan control keys are
+    // left out on purpose: fan control belongs to the AMD layer.
+    static let dimScreenOnLidClose = "dimScreenOnLidClose" // dim the built-in display to zero while the lid is closed
+    static let featureHubKeptFeatures = "featureHubKeptFeatures" // comma-joined AppFeature raw values
+    static let brightnessUpdatePromptState = "brightnessUpdatePromptState"
+    static let keepAwakeRunningApps = "keepAwakeRunningApps"
+    static let keepAwakeRunningAppBundleIDs = "keepAwakeRunningAppBundleIDs"
+    // Match mode over the automation conditions: false is Any (one matching
+    // condition starts a session), true is All (every enabled condition has
+    // to match, and losing one ends the session). Issue #1587.
+    static let keepAwakeAutomationRequireAll = "keepAwakeAutomationRequireAll"
+    static let keepAwakePauseWhenLocked = "keepAwakePauseWhenLocked"
+    static let keepAwakeSwitchUsesUntil = "keepAwakeSwitchUsesUntil" // panel switch restarts the Until chip
+    static let keepAwakeUntilTime = "keepAwakeUntilTime"  // last picked end time; 0 = none yet
+    static let dimmedDisplaySavedBrightness = "ryzenstatusDimmedDisplaySavedBrightness" // internal guard for closed-lid screen dimming recovery
+    static let smoothScrollResponse = "smoothScrollResponse" // 0...100, higher follows the wheel sooner
+    static let smoothScrollCoast = "smoothScrollCoast" // 0...100, higher coasts the same distance out longer
+    static let mouseSpacesGestureFollowsDrag = "mouseSpacesGestureFollowsDrag" // the Space moves with the hand, the way natural scrolling does
+    static let superKeyExceptions = "superKeyExceptions"
+    static let switcherTakeOverSystemShortcuts = "switcherTakeOverSystemShortcuts"
+    // Machine state, never exported: the system shortcuts this process owns,
+    // so a launch after a crash can restore them. The switcher-only key is
+    // what builds before the take-over was shared wrote; it is read once,
+    // folded into the shared one, and then retired.
+    static let switcherNativeHotkeysSuppressed = "switcherNativeHotkeysSuppressed"
+    static let systemShortcutsSuppressed = "systemShortcutsSuppressed"
+    // Storage keys of shortcuts the user chose to take over from macOS. A
+    // preference, exported.
+    static let systemShortcutTakeOverKeys = "systemShortcutTakeOverKeys"
+    static let switcherMinimizedPlacement = "switcherMinimizedPlacement"
+    static let switcherTreatHiddenAppsLikeMinimized = "switcherTreatHiddenAppsLikeMinimized"
+    static let switcherShowFullscreenWindows = "switcherShowFullscreenWindows"
+    static let switcherInstantSelection = "switcherInstantSelection" // skip selection and reveal animations while browsing
+    static let switcherScreenPlacement = "switcherScreenPlacement" // SwitcherScreenPlacement raw value: which display the panel opens on
+    static let switcherCurrentDisplayOnly = "switcherCurrentDisplayOnly" // list only windows on the display under the pointer (issue #1391)
+    static let minimalWindowPreviews = "minimalWindowPreviews"
+    static let dockPreviewKeepDockVisible = "dockPreviewKeepDockVisible"
+    static let dockPreviewRestoreAutohide = "dockPreviewRestoreAutohide" // local crash recovery; never backed up
+    static let dockPreviewCurrentSpaceOnly = "dockPreviewCurrentSpaceOnly"
+    static let dockPreviewQuitAppOnClose = "dockPreviewQuitAppOnClose" // the preview card's close button quits the owning app instead of closing one window
+    static let dockPreviewOrderByCreation = "dockPreviewOrderByCreation" // order Dock Preview windows by ascending window ID (creation proxy) instead of last use
+    static let switcherPreviewSize = "switcherPreviewSize" // app switcher thumbnail size
+    static let includeBetaUpdates = "includeBetaUpdates"
+    static let mixerUniversalOutputDevice = "mixerUniversalOutputDevice" // retired: all-apps output saved by 3.4.1 betas
+    static let preciseVolumeRollerEnabled = "preciseVolumeRollerEnabled"
+    static let finderCutPasteShowHUD = "finderCutPasteShowHUD"
+    static let finderPasteImageAsFile = "finderPasteImageAsFile"
+    static let brightnessKeyStep = "brightnessKeyStep" // BrightnessSupport.KeyStep raw value
+    static let displayBrightnessShortcutsEnabled = "displayBrightnessShortcutsEnabled"
+    static let displayBrightnessDecreaseShortcut = "displayBrightnessDecreaseShortcut"
+    static let displayBrightnessIncreaseShortcut = "displayBrightnessIncreaseShortcut"
+    static let keyboardBrightnessShortcutsEnabled = "keyboardBrightnessShortcutsEnabled"
+    static let keyboardBrightnessDecreaseShortcut = "keyboardBrightnessDecreaseShortcut"
+    static let keyboardBrightnessIncreaseShortcut = "keyboardBrightnessIncreaseShortcut"
+    // Per-monitor connection paths that accept brightness writes but never
+    // answer reads. Kept local so wake handling does not repeatedly probe a
+    // sensitive display path.
+    static let brightnessDDCWriteOnlyPaths = "brightnessDDCWriteOnlyPaths"
+    // Set once the paths cached before paired discovery requests have been
+    // dropped, so a monitor written off then is classified again exactly once.
+    static let brightnessDDCWriteOnlyPathsRechecked = "brightnessDDCWriteOnlyPathsRechecked"
+    // Per-monitor connection paths a person has told this app to dim in
+    // software: the only way to know a write-only channel swallows its writes
+    // is to watch the panel, which no probe can do. Issue #1589.
+    static let brightnessForcedSoftwarePaths = "brightnessForcedSoftwarePaths"
+    // Per-monitor connections where the lower end of the brightness slider
+    // also dims the picture below the panel's hardware minimum.
+    static let brightnessExtendedDimmingPaths = "brightnessExtendedDimmingPaths"
+    // Displays this app switched off, so a run that ends without putting them
+    // back can be repaired on the next start instead of needing a replug.
+    static let displaysSwitchedOff = "displaysSwitchedOff"
+    // Identity saved before disabling each display, kept separate so older
+    // versions can still read the repair list of display numbers.
+    static let displaysSwitchedOffFingerprints = "displaysSwitchedOffFingerprints"
+    // Set while a start is under way and cleared once the app has run
+    // healthily for a while, or when it is quit properly. Found still set at
+    // the next start, it means the previous one died on the way up.
+    static let startupDidNotFinish = "startupDidNotFinish"
+    static let musicBlockPlayReplacement = "musicBlockPlayReplacement" // play after Play/Pause opens the replacement
+    static let urlCleanerSiteParameters = "urlCleanerSiteParameters"       // host|name pairs added to one site
+    static let urlCleanerDisabledParameters = "urlCleanerDisabledParameters" // built-in host|name pairs switched off
+    static let windowMaximizeExcludedApps = "windowMaximizeExcludedApps" // [bundle id] whose green button stays native
+    static let cleaningModeKeepScreenVisible = "cleaningModeKeepScreenVisible"
+    static let homebrewGroupDependencies = "homebrewGroupDependencies"
+    static let appUpdatesIncludeOnlineCatalog = "appUpdatesIncludeOnlineCatalog"
+    static let appUpdatesRules = "appUpdatesRules" // JSON, portable bundle-ID rules
+    // Findings already announced once, so a pending update nobody installs
+    // does not speak up again after every relaunch.
+    static let appUpdatesNotifiedIDs = "appUpdatesNotifiedIDs"
+    static let panelControlMouseButtonShortcuts = "panelControlMouseButtonShortcuts"
+    static let panelToggleKeyboardLight = "panelToggleKeyboardLight"
+    // Keep the existing storage key so moving the row preserves its visibility choice.
+    static let panelToggleMicMute = "panelUtilityMicMute"
+    static let menuBarConnectedDevices = "menuBarConnectedDevices"
+    static let menuBarIconSymbol = "menuBarIconSymbol" // system symbol name drawn instead of the glyph; empty keeps the glyph
+    static let menuBarDiskStyle = "menuBarDiskStyle"       // percent | free | used
+    static let monitorGraphScale = "monitorGraphScale"
+    static let monitorSysCPUCores = "monitorSysCPUCores"
+    static let monitorNetAddresses = "monitorNetAddresses"
+    static let monitorPwrTemperature = "monitorPwrTemperature"
+    static let monitorAlertBatteryTemperature = "monitorAlertBatteryTemperature"
+    static let monitorAlertBatteryTemperatureThreshold = "monitorAlertBatteryTemperatureThreshold"
+    static let windowLayoutWindowGap = "windowLayoutWindowGap" // px between adjacent snapped windows
+    static let windowLayoutScreenGap = "windowLayoutScreenGap" // px between a snapped window and the visible frame edge
+    static let windowLayoutMarginPercent = "windowLayoutMarginPercent" // per-edge percentage for margin maximize
+    static let windowLayoutSideRepeatCyclesThirds = "windowLayoutSideRepeatCyclesThirds" // repeated Left/Right cycles half, 2/3, 1/3 on the same display
+    static let windowLayoutIgnoredApps = "windowLayoutIgnoredApps" // apps that temporarily disable window layout while focused
+    static let mediaImageResizeKind = "mediaImageResizeKind"
+    static let mediaImageResizeWidth = "mediaImageResizeWidth"
+    static let mediaImageResizeHeight = "mediaImageResizeHeight"
+    static let mediaImageExactResizeMode = "mediaImageExactResizeMode"
+    static let mediaImageWatermarkKind = "mediaImageWatermarkKind"
+    static let mediaImageWatermarkText = "mediaImageWatermarkText"
+    static let mediaImageWatermarkLogoPath = "mediaImageWatermarkLogoPath"
+    static let mediaImageWatermarkPosition = "mediaImageWatermarkPosition"
+    static let mediaImageWatermarkOpacity = "mediaImageWatermarkOpacity"
+    static let mediaImageWatermarkMargin = "mediaImageWatermarkMargin"
+    static let mediaImageWatermarkScale = "mediaImageWatermarkScale"
+    static let mediaImageRenamePattern = "mediaImageRenamePattern"
+    static let mediaImageBackground = "mediaImageBackground"
+    static let mediaImagePreserveModificationDate = "mediaImagePreserveModificationDate"
+    static let mediaImageSaveInSubfolder = "mediaImageSaveInSubfolder"
+    static let mediaImageProfiles = "mediaImageProfiles"
+    static let mediaImageSelectedProfileID = "mediaImageSelectedProfileID"
+    static let clipboardHistoryLayout = "clipboardHistoryLayout" // cards | list, how the history window shows entries
+    static let clipboardHistoryWindowWidth = "clipboardHistoryWindowWidth" // the list window's chosen size
+    static let clipboardHistoryWindowHeight = "clipboardHistoryWindowHeight"
+    static let clipboardHistoryMenuBarPreview = "clipboardHistoryMenuBarPreview" // show latest copy next to the menu bar icon
+    static let clipboardHistoryMenuBarPreviewLength = "clipboardHistoryMenuBarPreviewLength" // characters shown before truncating
+    // Auto clear: wipes the system pasteboard on a delay or on sleep and lock.
+    // Deliberately outside the clipboardHistory family, since it clears the
+    // pasteboard without touching saved entries, and runs with capture off.
+    static let clipboardAutoClearOnDelay = "clipboardAutoClearOnDelay"
+    static let clipboardAutoClearDelay = "clipboardAutoClearDelaySeconds" // seconds since the last copy
+    static let clipboardAutoClearOnSleep = "clipboardAutoClearOnSleep"
+    static let clipboardAutoClearOnDisplaySleep = "clipboardAutoClearOnDisplaySleep"
+    static let clipboardAutoClearOnScreenLock = "clipboardAutoClearOnScreenLock"
+    static let switcherPreviewExcludedApps = "switcherPreviewExcludedApps" // pause app switcher thumbnail capture while these apps are in front
+    static let screenOCRRemoveLineBreaks = "screenOCRRemoveLineBreaks"
+    static let scratchpadBackgroundOpacity = "scratchpadBackgroundOpacity" // opaque fill over the pad material (ScratchpadSupport.backgroundOpacityRange)
+    static let unifiedScreenCaptureShortcutMigrated = "unifiedScreenCaptureShortcutMigrated"
+    static let restoredScreenCaptureShortcutsMigrated = "restoredScreenCaptureShortcutsMigrated"
+    static let orphanedCaptureShortcutMigrated = "orphanedCaptureShortcutMigrated"
+    static let screenshotHighlightWindows = "screenshotHighlightWindows"
+    static let screenshotLoupeStartsOn = "screenshotLoupeStartsOn"
+    static let screenshotLoupeRememberZoom = "screenshotLoupeRememberZoom"
+    static let screenshotLoupeDefaultZoom = "screenshotLoupeDefaultZoom"
+    static let screenshotLoupeLastZoom = "screenshotLoupeLastZoom"
+    static let screenshotLoupeSteppedZoomByDefault = "screenshotLoupeSteppedZoomByDefault"
+    static let screenshotLastTextSize = "screenshotLastTextSize"
+    static let screenshotLastBlurLevel = "screenshotLastBlurLevel"
+    static let screenshotLastBlurStyle = "screenshotLastBlurStyle"
+    static let screenshotLastBlurTextOnly = "screenshotLastBlurTextOnly"
+    static let screenshotLastArrowStyle = "screenshotLastArrowStyle"
+    static let screenshotToolShortcuts = "screenshotToolShortcuts"
+    static let screenshotWatermarkStyle = "screenshotWatermarkStyle"
+    static let screenshotWatermarkPresets = "screenshotWatermarkPresets"
+    static let screenshotAddToShelf = "screenshotAddToShelf"
+    static let screenshotPreviewTakesFocus = "screenshotPreviewTakesFocus"
+    static let screenshotUploadShortcutEnabled = "screenshotUploadShortcutEnabled"
+    static let screenshotUploadShortcut = "screenshotUploadShortcut"
+    static let screenshotUploadDuration = "screenshotUploadDuration"
+    static let screenshotPreviewEnabled = "screenshotPreviewEnabled"
+    static let screenshotPreviewDuration = "screenshotPreviewDuration"
+    // Machine state, never exported: whether this Mac's audio system has let
+    // a recording hear the Mac's sound through a process tap.
+    static let recorderSystemAudioTapVerified = "recorderSystemAudioTapVerified"
+    static let recorderAutomaticZoom = "recorderAutomaticZoom"
+    static let panelUtilityScreenRecorder = "panelUtilityScreenRecorder"
+    static let windowDirectionalEnabled = "windowDirectionalEnabled"
+    static let windowDirectionalShortcut = "windowDirectionalShortcut"
+    static let pointerDisplayEnabled = "pointerDisplayEnabled"
+    static let pointerDisplayShortcut = "pointerDisplayShortcut"
+    static let windowEdgeSnapEnabled = "windowEdgeSnapEnabled"
+    static let windowEdgeSnapDisabledZones = "windowEdgeSnapDisabledZones" // comma-separated visual zone ids
+    static let windowEdgeSnapZoneActions = "windowEdgeSnapZoneActions" // zone=action entries, + between split areas
+    static let windowLayoutShortcutCenterHalf = "windowLayoutShortcutCenterHalf"
+    static let windowLayoutShortcutCenterTwoThirds = "windowLayoutShortcutCenterTwoThirds"
+    static let windowLayoutShortcutTopThird = "windowLayoutShortcutTopThird"
+    static let windowLayoutShortcutMiddleThird = "windowLayoutShortcutMiddleThird"
+    static let windowLayoutShortcutBottomThird = "windowLayoutShortcutBottomThird"
+    static let windowLayoutShortcutTopTwoThirds = "windowLayoutShortcutTopTwoThirds"
+    static let windowLayoutShortcutBottomTwoThirds = "windowLayoutShortcutBottomTwoThirds"
+    static let windowLayoutShortcutTopQuarter = "windowLayoutShortcutTopQuarter"
+    static let windowLayoutShortcutUpperMiddleQuarter = "windowLayoutShortcutUpperMiddleQuarter"
+    static let windowLayoutShortcutLowerMiddleQuarter = "windowLayoutShortcutLowerMiddleQuarter"
+    static let windowLayoutShortcutBottomQuarter = "windowLayoutShortcutBottomQuarter"
+    static let windowLayoutShortcutLeftQuarter = "windowLayoutShortcutLeftQuarter"
+    static let windowLayoutShortcutLeftMiddleQuarter = "windowLayoutShortcutLeftMiddleQuarter"
+    static let windowLayoutShortcutRightMiddleQuarter = "windowLayoutShortcutRightMiddleQuarter"
+    static let windowLayoutShortcutRightQuarter = "windowLayoutShortcutRightQuarter"
+    static let windowLayoutShortcutFullScreen = "windowLayoutShortcutFullScreen"
+    static let notchAgentsOptInMigrated = "notchAgentsOptInMigrated" // local migration marker; never backed up
+    static let notchAgentsClaude = "notchAgentsClaude"
+    static let notchAgentsCodex = "notchAgentsCodex"
+    static let notchAgentsOpenCode = "notchAgentsOpenCode"
+    static let notchAgentsCopilot = "notchAgentsCopilot"
+    static let notchAgentsCardOrder = "notchAgentsCardOrder"
+    static let notchAgentsHiddenCards = "notchAgentsHiddenCards"
+    static let notchAgentsPeriod = "notchAgentsPeriod"
+    static let notchAgentsLimitDisplay = "notchAgentsLimitDisplay"
+    static let notchAgentsLimitFocus = "notchAgentsLimitFocus"
+    static let notchAgentsLiveActivity = "notchAgentsLiveActivity"
+    static let notchAgentsReadout = "notchAgentsReadout"
+    static let notchAgentsFinishAlert = "notchAgentsFinishAlert"
+    static let notchAgentsFinishMinimum = "notchAgentsFinishMinimum"
+    static let notchAgentsLimitAlert = "notchAgentsLimitAlert"
+    static let notchAgentsLimitThreshold = "notchAgentsLimitThreshold"
+    static let notchAgentsDailyBudget = "notchAgentsDailyBudget"
+    static let notchAgentsPriceUpdates = "notchAgentsPriceUpdates"
+    static let notchInputSource = "notchInputSource"
+    static let radialMenuActivationMode = "radialMenuActivationMode" // RadialMenuActivationMode.rawValue
+    static let radialMenuProfiles = "radialMenuProfiles"  // Data: [RadialMenuProfile] JSON
+    static let simulateBetaUI = "simulateBetaUI"
 }

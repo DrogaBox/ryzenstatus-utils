@@ -8,17 +8,142 @@ import SwiftUI
 /// the Features section, so every feature gets its own page.
 /// Selects the visible Settings page; the menu bar uses it to open Settings
 /// directly on a specific page.
+///
+/// Upstream's destination API is carried here too: `request(_:)` selects a
+/// page and, optionally, a section on it, with a fresh request identity even
+/// when the same destination is asked for twice, and a back/forward history.
+/// Pages opt into the landing highlight with `settingsSectionFocus(for:)`.
 @MainActor
 final class SettingsRouter: ObservableObject {
     static let shared = SettingsRouter()
-    @Published var page: SettingsPage = .general
+
+    private struct HistoryEntry {
+        let destination: FeatureSettingsDestination
+        let sidebarFeature: AppFeature?
+    }
+
+    @Published var page: SettingsPage = .general {
+        didSet {
+            guard page != oldValue else { return }
+            destination = FeatureSettingsDestination(page)
+            sidebarFeature = nil
+            pendingDestinationRequest = nil
+            pendingFeatureTarget = nil
+            if !isTraversingHistory {
+                history.removeSubrange((historyIndex + 1)..<history.count)
+                history.append(HistoryEntry(destination: destination, sidebarFeature: nil))
+                historyIndex += 1
+            }
+        }
+    }
+    @Published private(set) var destination = FeatureSettingsDestination(.general)
+    @Published private(set) var sidebarFeature: AppFeature?
+    @Published private(set) var requestID = UUID()
+    @Published private(set) var pendingDestinationRequest: SettingsDestinationRequest?
+    /// One-shot hint for the Features hub: which feature row to reveal once
+    /// the requested page lands. Always set (to nil when no target is given)
+    /// on every `request`, so a stale target from an earlier search can never
+    /// leak into a later, unrelated navigation.
+    @Published private(set) var pendingFeatureTarget: SettingsFeatureTargetRequest?
     /// One-shot hint for the Dynamic Island page, so a section of the island
     /// can open its own options. Consumed and cleared on arrival.
     @Published var notchModule: NotchModule?
     /// One-shot hint for the Dynamic Island page to show the companion's tab,
     /// where its settings live. Consumed and cleared on arrival.
     @Published var notchCompanion = false
+
+    private var history = [HistoryEntry(destination: FeatureSettingsDestination(.general),
+                                        sidebarFeature: nil)]
+    private var historyIndex = 0
+    private var isTraversingHistory = false
+
     private init() {}
+
+    /// `replacingVisit` swaps what the current visit shows without adding a
+    /// history entry, for a fallback when the visited tool went away.
+    func request(_ destination: FeatureSettingsDestination, targetFeature: AppFeature? = nil,
+                 sidebarFeature: AppFeature? = nil, replacingVisit: Bool = false) {
+        // Any request, history included, drops a companion hint nobody took.
+        notchCompanion = false
+        let requestID = UUID()
+        let samePage = page == destination.page
+        page = destination.page
+        self.destination = destination
+        self.sidebarFeature = sidebarFeature?.settingsDestination == destination ? sidebarFeature : nil
+        let entry = HistoryEntry(destination: destination, sidebarFeature: self.sidebarFeature)
+        // Section requests refine the current page visit, not a new history
+        // entry. General and Energy show one tool per anchor, so switching
+        // tools there is a visit of its own.
+        if samePage && !isTraversingHistory && !replacingVisit
+            && Self.anchorSelectsTool(on: destination.page)
+            && history[historyIndex].destination != destination {
+            history.removeSubrange((historyIndex + 1)..<history.count)
+            history.append(entry)
+            historyIndex += 1
+        } else {
+            history[historyIndex] = entry
+        }
+        pendingDestinationRequest = SettingsDestinationRequest(id: requestID,
+                                                               destination: destination)
+        pendingFeatureTarget = targetFeature.map {
+            SettingsFeatureTargetRequest(id: requestID, feature: $0)
+        }
+        self.requestID = requestID
+    }
+
+    private static func anchorSelectsTool(on page: SettingsPage) -> Bool {
+        page == .general || page == .energy
+    }
+
+    func goBack(isPageVisible: (SettingsPage) -> Bool = { _ in true }) {
+        navigateHistory(step: -1, isPageVisible: isPageVisible)
+    }
+
+    func goForward(isPageVisible: (SettingsPage) -> Bool = { _ in true }) {
+        navigateHistory(step: 1, isPageVisible: isPageVisible)
+    }
+
+    func canGoBack(isPageVisible: (SettingsPage) -> Bool = { _ in true }) -> Bool {
+        historyTarget(step: -1, isPageVisible: isPageVisible) != nil
+    }
+
+    func canGoForward(isPageVisible: (SettingsPage) -> Bool = { _ in true }) -> Bool {
+        historyTarget(step: 1, isPageVisible: isPageVisible) != nil
+    }
+
+    private func navigateHistory(step: Int, isPageVisible: (SettingsPage) -> Bool) {
+        guard let index = historyTarget(step: step, isPageVisible: isPageVisible) else { return }
+        historyIndex = index
+        isTraversingHistory = true
+        notchModule = nil
+        let entry = history[index]
+        request(entry.destination, sidebarFeature: entry.sidebarFeature)
+        isTraversingHistory = false
+    }
+
+    private func historyTarget(step: Int, isPageVisible: (SettingsPage) -> Bool) -> Int? {
+        var index = historyIndex + step
+        while history.indices.contains(index) {
+            if isPageVisible(history[index].destination.page) { return index }
+            index += step
+        }
+        return nil
+    }
+
+    /// Clears only the request a view actually handled. A newer request that
+    /// arrived while the destination page was being installed must survive.
+    func consumeDestinationRequest(id: UUID) {
+        guard pendingDestinationRequest?.id == id else { return }
+        pendingDestinationRequest = nil
+    }
+
+    /// Clears only the feature target a view actually revealed. Mirrors
+    /// `consumeDestinationRequest`: a newer request that arrived while the
+    /// Features hub was still laying out must survive.
+    func consumeFeatureTarget(id: UUID) {
+        guard pendingFeatureTarget?.id == id else { return }
+        pendingFeatureTarget = nil
+    }
 }
 
 /// System-Settings-style window: a sidebar of pages on the left, the selected
@@ -1478,5 +1603,81 @@ private struct SidebarSearchField: View {
         .padding(.horizontal, 10)
         .padding(.top, 8)
         .padding(.bottom, 4)
+    }
+}
+
+/// Secure Event Input blocks every synthetic keystroke. Typing a snippet
+/// trigger then does nothing at all, while the snippet library and the
+/// Command Bar's typing actions beep; none of the four paths says what is
+/// wrong or who is holding it. This row is the only place the app explains
+/// that, and it names the holder when the session can attribute it.
+///
+/// Both call sites instantiate it only once secure input is on, and the
+/// snippets page waits for one of its own toggles as well, so the `.off`
+/// branch below is there to keep the switch exhaustive and for nothing else.
+/// What drives the feature is the polling demand on each page; see
+/// `SecureInputObservation`.
+struct SecureInputRow: View {
+    @ObservedObject private var l10n = L10n.shared
+    @ObservedObject private var monitor = SecureInputMonitor.shared
+
+    var body: some View {
+        switch monitor.holder {
+        case .off:
+            EmptyView()
+        case .app(let name, _):
+            row(caption: String(format: l10n.s.secureInputHeldFormat, name)) {
+                Button(String(format: l10n.s.secureInputRevealFormat, name)) {
+                    monitor.revealHolder()
+                }
+                .controlSize(.small)
+            }
+        case .unattributed:
+            row(caption: l10n.s.secureInputUnattributed) { EmptyView() }
+        case .unknown:
+            row(caption: l10n.s.secureInputUnidentified) { EmptyView() }
+        }
+    }
+
+    private func row<Action: View>(caption: String,
+                                   @ViewBuilder action: () -> Action) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(.orange)
+                Text(l10n.s.secureInputTitle)
+                Spacer()
+            }
+            Text(caption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            action()
+        }
+    }
+}
+
+/// Keeps secure input polled for as long as the page is on screen and
+/// `isActive` holds, e.g. the snippets page only while one of its own
+/// toggles is on, since with both off nothing this row could report can
+/// show. The demand cannot live on `SecureInputRow`: nothing would
+/// register it until the state it reports had already been reached.
+private struct SecureInputObservation: ViewModifier {
+    let isActive: Bool
+    @State private var demandID = UUID()
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { SecureInputMonitor.shared.setObservingSurface(demandID, visible: isActive) }
+            .onDisappear { SecureInputMonitor.shared.setObservingSurface(demandID, visible: false) }
+            .onChange(of: isActive) { _, active in
+                SecureInputMonitor.shared.setObservingSurface(demandID, visible: active)
+            }
+    }
+}
+
+extension View {
+    func observesSecureInput(isActive: Bool = true) -> some View {
+        modifier(SecureInputObservation(isActive: isActive))
     }
 }

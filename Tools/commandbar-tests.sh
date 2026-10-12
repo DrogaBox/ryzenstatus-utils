@@ -49,6 +49,9 @@ swiftc -O -num-threads 8 -target "$TARGET" -sdk "$SDK" \
     Sources/RyzenStatus/Core/DefaultsKey+App.swift \
     Sources/RyzenStatus/Core/DefaultsKey+Monitor.swift \
     Sources/RyzenStatus/Core/GlobalShortcut.swift \
+    Sources/RyzenStatus/Core/SymbolicHotKeys.swift \
+    Sources/RyzenStatus/Services/Switcher/SpaceHopSupport.swift \
+    Sources/RyzenStatus/Core/RecentCaptureStrings.swift \
     Sources/RyzenStatus/Core/FeatureCatalog.swift \
     Sources/RyzenStatus/Core/FeatureHubStrings.swift \
     Sources/RyzenStatus/Core/BrightnessStrings.swift \
