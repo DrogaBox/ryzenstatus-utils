@@ -30,13 +30,23 @@ final class AppAppearanceController: ObservableObject {
         }
     }
 
+    @Published var notchLiquidGlassEnabled: Bool {
+        didSet {
+            guard notchLiquidGlassEnabled != oldValue else { return }
+            UserDefaults.standard.set(notchLiquidGlassEnabled, forKey: DefaultsKey.notchLiquidGlassEnabled)
+        }
+    }
+
     private init() {
         appearance = AppAppearance.sanitized(
             UserDefaults.standard.string(forKey: DefaultsKey.appearance)
         )
         liquidGlassEnabled = UserDefaults.standard.bool(forKey: DefaultsKey.liquidGlassEnabled)
+        notchLiquidGlassEnabled = UserDefaults.standard.bool(forKey: DefaultsKey.notchLiquidGlassEnabled)
     }
 
+    /// RyzenStatus keeps two panels (the main one and Now Playing's), so it
+    /// tracks every registered popover where upstream keeps a single one.
     /// The panels are popovers anchored to menu bar items, so they take their
     /// appearance from that status bar window instead of from the app and have
     /// to be told separately. Measured on macOS 27.

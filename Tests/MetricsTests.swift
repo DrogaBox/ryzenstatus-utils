@@ -1275,8 +1275,9 @@ struct MetricsTests {
 //               "highlights tour never leaks into another release")
         expect(registeredDefaults[DefaultsKey.mixerLowerVolumeOnHeadphonesDisconnect] as? Bool == false,
                "headphone disconnect volume lowering is opt-in")
-        expect(registeredDefaults[DefaultsKey.mixerHeadphonesDisconnectVolumePercent] as? Int == 0,
-               "headphone disconnect volume keeps the existing mute behavior by default")
+        expect(registeredDefaults[DefaultsKey.mixerHeadphonesDisconnectVolumePercent] as? Int
+               == Defaults.defaultMixerHeadphonesDisconnectVolumePercent,
+               "headphone disconnect volume defaults to an audible level, never a mute")
         expect(registeredDefaults[DefaultsKey.mixerShowFinder] as? Bool == true,
                "Finder returns to the mixer by default")
         expect(registeredDefaults[DefaultsKey.soundOutputSwitcherEnabled] as? Bool == false,
@@ -2114,8 +2115,8 @@ struct MetricsTests {
                == ["com.example.One", "com.example.Two"],
                "bundle id lists are trimmed and deduplicated")
         expect(Defaults.sanitizedAutoQuitExceptions(["com.example.One", Defaults.finderBundleIdentifier])
-               == [Defaults.finderBundleIdentifier, "com.example.One"],
-               "Finder is mandatory in the auto-quit exception list")
+               == [Defaults.finderBundleIdentifier, Defaults.phoneBundleIdentifier, "com.example.One"],
+               "Finder and Phone are mandatory in the auto-quit exception list")
         expect(!AutoQuitSupport.shouldScheduleWindowCheck(for: .appDeactivated,
                                                           hasRecentCloseRequest: false),
                "AutoQuit does not treat app deactivation as a window close")
@@ -2622,8 +2623,42 @@ struct MetricsTests {
         expectClose(Defaults.sanitizedAppVolume(.infinity), 1, "non-finite app volume falls back to unity")
         expect(Defaults.sanitizedMixerHeadphonesDisconnectVolumePercent(35) == 35,
                "headphone disconnect volume preserves valid percentages")
-        expect(Defaults.sanitizedMixerHeadphonesDisconnectVolumePercent(-5) == 0,
-               "headphone disconnect volume clamps low values")
+        expect(Defaults.sanitizedMixerHeadphonesDisconnectVolumePercent(-5)
+               == Defaults.minimumMixerHeadphonesDisconnectVolumePercent,
+               "headphone disconnect volume never drops below the audible floor")
+        expect(Defaults.sanitizedMixerHeadphonesDisconnectVolumePercent(0)
+               == Defaults.minimumMixerHeadphonesDisconnectVolumePercent,
+               "headphone disconnect protection lowers the speakers, it never silences them")
+        if let silent = UserDefaults(suiteName: "ryzenstatus.tests.mixer.headphones") {
+            silent.removePersistentDomain(forName: "ryzenstatus.tests.mixer.headphones")
+            silent.set(0, forKey: DefaultsKey.mixerHeadphonesDisconnectVolumePercent)
+            Defaults.migrateSilentHeadphonesDisconnectVolume(in: silent)
+            expect(silent.integer(forKey: DefaultsKey.mixerHeadphonesDisconnectVolumePercent)
+                   == Defaults.defaultMixerHeadphonesDisconnectVolumePercent,
+                   "a stored headphone volume of zero migrates to the default")
+            silent.set(60, forKey: DefaultsKey.mixerHeadphonesDisconnectVolumePercent)
+            Defaults.migrateSilentHeadphonesDisconnectVolume(in: silent)
+            expect(silent.integer(forKey: DefaultsKey.mixerHeadphonesDisconnectVolumePercent) == 60,
+                   "a chosen headphone volume survives the migration")
+            silent.removePersistentDomain(forName: "ryzenstatus.tests.mixer.headphones")
+        }
+        expect(SecureInputSupport.holder(isEnabled: false, read: .holder(42),
+                                         runningApp: { _ in ("App", 42) }, isProcessAlive: { _ in true }) == .off,
+               "secure input off wins over a stale recorded holder")
+        expect(SecureInputSupport.holder(isEnabled: true, read: .unavailable,
+                                         runningApp: { _ in nil }, isProcessAlive: { _ in true }) == .unknown,
+               "a failed secure input read is unknown, not unattributed")
+        expect(SecureInputSupport.holder(isEnabled: true, read: .holder(42),
+                                         runningApp: { _ in nil }, isProcessAlive: { _ in false }) == .unattributed,
+               "a dead secure input holder is unattributed")
+        expect(!SecureInputSupport.shouldPoll(observingSurfaceCount: 1, windowIsOpen: false),
+               "secure input polling waits for the Settings window")
+        expect(MenuBarAllowanceSupport.allowance(forBundleID: "com.ryzenstatus.utils", trackedApplications: [
+            ["location": ["bundle": ["_0": "com.ryzenstatus.utils"]], "isAllowed": false],
+        ]) == .disallowed, "a menu bar entry switched off reads as disallowed")
+        expect(MenuBarAllowanceSupport.allowance(forBundleID: "com.ryzenstatus.utils", trackedApplications: [
+            ["bundle": ["_0": "com.ryzenstatus.utils"]],
+        ]) == .unknown, "a bare menu bar marker is no verdict")
         expect(Defaults.sanitizedMixerHeadphonesDisconnectVolumePercent(105) == 100,
                "headphone disconnect volume clamps high values")
         expect(Defaults.sanitizedAppOutputDeviceUID(" BuiltInSpeakerDevice ") == "BuiltInSpeakerDevice",

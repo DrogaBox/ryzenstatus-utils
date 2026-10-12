@@ -116,6 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         setUpPopover()
         setUpNowPlayingPopover()
         AppAppearanceController.shared.apply()
+        GlobalShortcut.startObservingKeyboardLayout()
         bindManagers()
 
         HotkeyManager.shared.onActivate = { KeepAwakeManager.shared.toggle() }
@@ -273,7 +274,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// force the icon back and pop the panel so there's immediate proof the app is
     /// alive. Without this, a hidden icon would strand the app running with no way
     /// in. (A cold launch can't happen while running, so this is the recovery path.)
+    /// Reopens that Siri and Shortcuts send on their own are ignored.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        let requester = ReopenRequestSupport.currentSender()
+        guard ReopenRequestSupport.isPersonOpeningApp(requester) else {
+            os_log("reopen ignored from %{public}s", ReopenRequestSupport.logName(requester))
+            return false
+        }
         guard !flag else { return true }
         // Gaming Mode hides the status icon by design — a relaunch is the
         // guaranteed way back in, so skip the icon-recovery dance and open
@@ -1448,6 +1455,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
+        // Reopening on the very page that was showing at close never runs
+        // that page's own onAppear, since its view was never removed from
+        // the hierarchy; the window itself is the only reliable signal here.
+        SecureInputMonitor.shared.setSettingsWindowOpen(true)
+        SettingsWindowVisibility.shared.set(true)
         DispatchQueue.main.async { [weak self] in
             guard let self, let window = self.settingsWindow else { return }
             self.positionSettingsWindow(window, force: false)
@@ -1556,6 +1568,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             }
             guard attemptsLeft <= 1 else {
                 self.verifyIconReappeared(attemptsLeft: attemptsLeft - 1)
+                return
+            }
+            // With the app switched off under System Settings > Menu Bar >
+            // "Allow in the Menu Bar" (macOS 26), macOS never places the item
+            // whatever its identity. Name the switch instead of blaming a
+            // full menu bar.
+            if MenuBarAllowanceSupport.currentAllowance() == .disallowed {
+                self.logStatusItemPlacement("disallowed by system")
+                let s = L10n.shared.s
+                NSApp.activate(ignoringOtherApps: true)
+                let alert = NSAlert()
+                alert.messageText = s.menuBarIconStillHiddenTitle
+                alert.informativeText = s.menuBarIconDisallowedBody
+                alert.runModal()
                 return
             }
             self.logStatusItemPlacement("still hidden")
@@ -2002,6 +2028,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         saveSettingsWindowSize(window)
     }
 
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === settingsWindow else { return }
+        // Minimized, on another Space or covered, Settings draws for nobody too.
+        SettingsWindowVisibility.shared.set(window.isVisible && window.occlusionState.contains(.visible))
+    }
+
     /// Remembers the user-chosen Settings size (as content size, so the
     /// restore is title bar independent).
     private func saveSettingsWindowSize(_ window: NSWindow) {
@@ -2022,6 +2054,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         if window === settingsWindow {
             // Covers size changes that end without a live resize (zoom).
             saveSettingsWindowSize(window)
+            // Whatever page was showing, its own onDisappear does not always
+            // run before the window finishes closing; stop the poll from
+            // here too rather than let it run until the app quits. The
+            // page's own demand is left alone, so it resumes on its own the
+            // moment the window reopens, on this page or any other.
+            SecureInputMonitor.shared.setSettingsWindowOpen(false)
+            SettingsWindowVisibility.shared.set(false)
             return
         }
         if window === onboardingWindow {

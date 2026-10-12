@@ -148,6 +148,14 @@ if (( TEST )); then
         Sources/RyzenStatus/Services/QuickTools/ScratchpadSupport.swift \
         Sources/RyzenStatus/Core/AppInfo.swift \
         Sources/RyzenStatus/Core/GlobalShortcut.swift \
+        Sources/RyzenStatus/Core/SymbolicHotKeys.swift \
+        Sources/RyzenStatus/Services/Switcher/SpaceHopSupport.swift \
+        Sources/RyzenStatus/Core/RecentCaptureStrings.swift \
+        Sources/RyzenStatus/Core/ColorValue.swift \
+        Sources/RyzenStatus/Core/SecureInputSupport.swift \
+        Sources/RyzenStatus/App/MenuBarAllowanceSupport.swift \
+        Sources/RyzenStatus/Services/WindowServerSupport.swift \
+        Sources/RyzenStatus/Services/WindowServerTrafficLightHitTest.swift \
         Sources/RyzenStatus/Core/Localization.swift \
         Sources/RyzenStatus/Core/Localizations/Strings+*.swift \
         Sources/RyzenStatus/Core/FeatureStrings.swift \

@@ -7,6 +7,7 @@ import SwiftUI
 struct CommandBarSettings: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var service = CommandBarService.shared
+    @ObservedObject private var secureInput = SecureInputMonitor.shared
     @AppStorage(DefaultsKey.commandBarShortcutEnabled) private var shortcutEnabled = false
     @AppStorage(DefaultsKey.commandBarCompactMode) private var compactMode = false
     @AppStorage(DefaultsKey.commandBarEmojiSkinTone) private var emojiSkinTone = ""
@@ -108,6 +109,9 @@ struct CommandBarSettings: View {
                     Text(l10n.s.shortcutUnavailable)
                         .font(.caption)
                         .foregroundStyle(.orange)
+                }
+                if secureInput.holder != .off {
+                    SecureInputRow()
                 }
                 DisclosureGroup(FeatureStrings.recorder(l10n.language).moreOptions,
                                 isExpanded: $showsLayoutOptions) {
@@ -357,6 +361,7 @@ struct CommandBarSettings: View {
             }
         }
         .formStyle(.grouped)
+        .observesSecureInput()
         .sheet(isPresented: $showsAppShortcuts) {
             CommandBarAppShortcutsView()
         }
