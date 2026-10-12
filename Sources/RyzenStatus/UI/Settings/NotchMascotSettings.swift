@@ -18,6 +18,7 @@ struct NotchMascotSettings: View {
     @AppStorage(DefaultsKey.notchMascotVisits) private var visits = true
     @AppStorage(DefaultsKey.notchMascotReactions) private var reactions = true
     @AppStorage(DefaultsKey.notchMascotHidesWhenIdle) private var hidesWhenIdle = true
+    @AppStorage(DefaultsKey.notchMascotPerch) private var perch = true
     @AppStorage(DefaultsKey.notchMascotStyle) private var style = NotchMascotStyle.minimal.rawValue
     @AppStorage(DefaultsKey.notchMascotShape) private var shape = NotchMascotShape.ball.rawValue
     @AppStorage(DefaultsKey.notchMascotPalette) private var palette = NotchMascotPalette.pearl.rawValue
@@ -56,6 +57,12 @@ struct NotchMascotSettings: View {
     /// A capsule holds it in the middle.
     private var restsBesideCamera: Bool {
         NotchSupport.hasNotchedDisplay || NotchSilhouette(rawValue: silhouette) == .notch
+    }
+
+    /// The floating style on a display without a camera, where the open
+    /// island leaves it up in the menu bar.
+    private var perchesInMenuBar: Bool {
+        NotchSupport.hasDisplayWithoutNotch && NotchSilhouette(rawValue: silhouette) == .floating
     }
 
     private var animation: Animation? { reduceMotion ? nil : .smooth(duration: 0.25) }
@@ -225,6 +232,10 @@ struct NotchMascotSettings: View {
                 .padding(.leading, settingsRowTextInset)
             }
             switchRow("eye.slash", text.hidesWhenIdle, caption: text.hidesWhenIdleHint, isOn: $hidesWhenIdle)
+            if perchesInMenuBar {
+                let perchText = FeatureStrings.notchMascotPerch(l10n.language)
+                switchRow("menubar.rectangle", perchText.title, caption: perchText.caption, isOn: $perch)
+            }
             switchRow("figure.walk", text.visits, caption: text.visitsHint, isOn: $visits)
             if visits {
                 SettingsChoiceRow(symbol: "clock", title: text.frequency, selection: $frequency) {

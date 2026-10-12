@@ -620,6 +620,7 @@ extension DefaultsKey {
     static let notchMascotSide = "notchMascotSide"
     static let notchMascotVisitFrequency = "notchMascotVisitFrequency"
     static let notchMascotHidesWhenIdle = "notchMascotHidesWhenIdle"
+    static let notchMascotPerch = "notchMascotPerch"
     static let notchMascotBetaInstalled = "notchMascotBetaInstalled"
     /// Automatic reactions to what the Mac does, and each kind of them.
     static let notchMascotAutomatic = "notchMascotAutomatic"

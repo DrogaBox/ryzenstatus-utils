@@ -1321,6 +1321,12 @@ enum NotchMascotSupport {
         isEnabled(in: defaults) && defaults.bool(forKey: DefaultsKey.notchMascotHidesWhenIdle)
     }
 
+    /// Whether it watches from the menu bar while a floating island is open
+    /// below it.
+    static func perchesWhenOpen(in defaults: UserDefaults = .standard) -> Bool {
+        isEnabled(in: defaults) && defaults.bool(forKey: DefaultsKey.notchMascotPerch)
+    }
+
     static func visitFrequency(in defaults: UserDefaults = .standard) -> NotchMascotVisitFrequency {
         NotchMascotVisitFrequency(rawValue: defaults.string(forKey: DefaultsKey.notchMascotVisitFrequency) ?? "") ?? .normal
     }

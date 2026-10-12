@@ -24,7 +24,10 @@ final class NotchService: ObservableObject {
     @Published private(set) var captureControlsCollapsed = false
     @Published private(set) var captureSelectionInProgress = false
     @Published var pinned = false
-    @Published private(set) var selected: NotchModule = .controls
+    @Published private(set) var selected: NotchModule = .controls {
+        // The companion watching from the menu bar glances at the new page.
+        didSet { if selected != oldValue { mascotPerch.glance() } }
+    }
     @Published private(set) var showingAppPanel = false
     @Published private(set) var showingSections = false
     @Published private(set) var sectionQuery = ""
@@ -63,6 +66,8 @@ final class NotchService: ObservableObject {
     @Published private var musicDetailVisible = false
 
     private var windowHost: NotchWindowHost?
+    /// The companion in the menu bar while a floating island is open below it.
+    private let mascotPerch = NotchMascotPerch()
     private var panel: NotchPanel? { windowHost?.panel }
     private var captureControlsCancel: (() -> Void)?
     private var captureControlsSubscription: AnyCancellable?
@@ -1218,6 +1223,7 @@ final class NotchService: ObservableObject {
         capsuleMusicTitleShown = false
         capsuleCenterTimer?.invalidate(); capsuleCenterTimer = nil
         capsuleCenterText = nil
+        mascotPerch.hide(animated: false)
         closeMirrors()
         windowHost?.close()
         windowHost = nil
@@ -2445,6 +2451,7 @@ final class NotchService: ObservableObject {
         defer { if releasedMusicStrip { syncMenuSpaceMonitoring() } }
         syncMascotKeepAwake()
         syncMascotAgents()
+        syncMascotPerch()
         activitySelection.reconcile(available: compactActivities)
         if fullscreenCompact {
             finishMusicDeparture()
@@ -4451,6 +4458,26 @@ extension NotchService {
             return header.headerTitleWidth + lane <= side
         case .right:
             return headerActionsWidth + lane <= side
+        }
+    }
+
+    /// Open below the menu bar, the floating island leaves the companion up
+    /// in the bar, where it rests while the island is closed, to watch what
+    /// happens below, as the open island beside a camera keeps it, tucked
+    /// away or not. Not in full screen, with no bar to stand in, nor while
+    /// it is out in the Command Bar.
+    private var mascotPerches: Bool {
+        running && !suspended && expanded && geometry.floatsBelowMenuBar && !hiddenInFullscreen
+            && mascotOn && !mascotInBar && captureControls == nil && !dragPlaceholder
+            && windowHost != nil && NotchMascotSupport.perchesWhenOpen()
+    }
+
+    private func syncMascotPerch() {
+        if mascotPerches {
+            mascotPerch.show(geometry: geometry, look: NotchMascotSupport.look(), mood: mascotRestingMood,
+                             visibleInCaptures: NotchSupport.showsInCaptures())
+        } else if mascotPerch.isShown {
+            mascotPerch.hide()
         }
     }
 

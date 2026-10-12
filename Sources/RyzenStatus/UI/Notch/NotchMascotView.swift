@@ -1153,6 +1153,15 @@ final class NotchMascotHostView: NSView {
         mascot.attend(to: NotchMascotSupport.pointerGaze(from: mascot.root.position, to: point, size: mascot.size))
     }
 
+    /// Perched in the menu bar over the open island, its eyes follow the
+    /// pointer anywhere on screen, and the pointer wakes it.
+    func attend(toScreenPoint point: NSPoint) {
+        guard !mascot.isVisiting, let window else { return }
+        greetPointer()
+        let local = convert(window.convertPoint(fromScreen: point), from: nil)
+        mascot.attend(to: NotchMascotSupport.pointerGaze(from: mascot.root.position, to: local, size: mascot.size))
+    }
+
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 

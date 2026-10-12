@@ -490,6 +490,7 @@ enum Defaults {
         DefaultsKey.notchMascotSide: "left",
         DefaultsKey.notchMascotVisitFrequency: "normal",
         DefaultsKey.notchMascotHidesWhenIdle: true,
+        DefaultsKey.notchMascotPerch: true,
         DefaultsKey.notchMascotAutomatic: true,
         DefaultsKey.notchMascotAutoLoad: true,
         DefaultsKey.notchMascotAutoMusic: true,

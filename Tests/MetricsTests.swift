@@ -10669,6 +10669,48 @@ struct MetricsTests {
             }
         }
 
+        // MARK: Companion perch
+        do {
+            let screen = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+            let frame = NotchMascotPerchLayout.frame(screen: screen, barHeight: 24, centerX: 960, size: 16)
+            expect(frame.maxY == screen.maxY, "the perch hangs from the top of the screen")
+            expect(frame.height == 24, "the perch is as tall as the menu bar")
+            expect(frame.width >= 32, "the perch leaves room for the companion's props")
+            expect(abs(frame.midX - 960) <= 1, "the perch is centred where it stands")
+            let tall = NotchMascotPerchLayout.frame(screen: screen, barHeight: 24, centerX: 960, size: 30)
+            expect(tall.height >= 34 && tall.maxY == screen.maxY, "a large companion still fits its perch")
+            expect(NotchMascotPerchLayout.reach(cameraWidth: 200, sideRoom: 400, windowWidth: 39)
+                       == NotchMascotPerchLayout.maximumReach, "a wide free bar lets it walk its full reach")
+            expect(NotchMascotPerchLayout.reach(cameraWidth: 40, sideRoom: 10, windowWidth: 39) == 10.5,
+                   "it walks no farther than the free bar beside the capsule")
+            expect(NotchMascotPerchLayout.reach(cameraWidth: 0, sideRoom: nil, windowWidth: 39) == 0,
+                   "without free bar it stays in the middle")
+            expect(NotchMascotPerchLayout.reach(cameraWidth: .infinity, sideRoom: 10, windowWidth: 39) == 0,
+                   "an unknown bar keeps it in the middle")
+            expect(NotchMascotPerchLayout.walkTarget(pointerX: 965, standing: 960, middle: 960, reach: 72) == nil,
+                   "a small move turns its eyes, not its feet")
+            expect(NotchMascotPerchLayout.walkTarget(pointerX: 1500, standing: 960, middle: 960, reach: 72) == 1032,
+                   "it walks after the pointer up to its reach")
+            expect(NotchMascotPerchLayout.walkTarget(pointerX: 100, standing: 960, middle: 960, reach: 72) == 888,
+                   "it walks the other way up to its reach")
+            expect(NotchMascotPerchLayout.walkTarget(pointerX: 1500, standing: 1032, middle: 960, reach: 72) == nil,
+                   "at the end of its reach it stays put")
+            expect(NotchMascotPerchLayout.walkTarget(pointerX: .nan, standing: 960, middle: 960, reach: 72) == nil,
+                   "an unreadable pointer does not move it")
+            let domain = "ryzenstatus-mascot-perch-\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: domain)!
+            defer { defaults.removePersistentDomain(forName: domain) }
+            defaults.register(defaults: [DefaultsKey.notchMascotPerch: true])
+            expect(Defaults.registeredDefaults[DefaultsKey.notchMascotPerch] as? Bool == true,
+                   "the companion watches from the menu bar by default")
+            expect(!NotchMascotSupport.perchesWhenOpen(in: defaults), "a companion that is off never perches")
+            for language in AppLanguage.allCases {
+                let strings = FeatureStrings.notchMascotPerch(language)
+                expect(!strings.title.isEmpty && !strings.caption.isEmpty,
+                       "menu bar companion strings are filled in \(language.rawValue)")
+            }
+        }
+
         // MARK: Upstream suites
         // Ported unchanged apart from the brand, so each keeps checking the
         // behavior it was written for. They report into this run's totals.
