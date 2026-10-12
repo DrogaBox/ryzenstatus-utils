@@ -16,10 +16,12 @@ NotchControlItem.keyboardLightIsSupported = { BrightnessService.keyboardLightIsS
 MouseAccelerationGuard.runIfRequestedAndExit()
 MouseAccelerationService.recoverPendingAtLaunch()
 
-// A developer's check of the island's windows; release builds never run it.
-if AppInfo.isDeveloperBuild, CommandLine.arguments.contains("--notch-presentation-test") {
+// A developer's check of the island's windows, only in debug builds.
+#if DEBUG
+if CommandLine.arguments.contains("--notch-presentation-test") {
     NotchPresentationProbe.runAndExit()
 }
+#endif
 
 if CommandLine.arguments.contains("--selftest") {
     SelfTest.runAndExit()

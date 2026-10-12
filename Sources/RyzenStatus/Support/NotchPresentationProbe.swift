@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
+#if DEBUG
 import AppKit
 import SwiftUI
 import QuartzCore
@@ -8,8 +9,8 @@ import QuartzCore
 /// Exercises the production window host without touching user preferences, files,
 /// clipboard, keyboard input or hardware controls. Tests keep the window
 /// invisible; the separate, explicitly requested notice preview is visible.
-/// Upstream compiles it only into development builds; here the build script
-/// defines no such flag, so `main.swift` runs it only from a developer build.
+/// Like the window host's probe hooks it reads, it exists only in debug builds
+/// (`swift build`), never in a release bundle.
 enum NotchPresentationProbe {
     /// Exercise the production backdrop, including its native glass rendering,
     /// without changing the app's preferences or making the test windows visible.
@@ -1203,3 +1204,4 @@ enum NotchPresentationProbe {
         exit(failures.isEmpty ? 0 : 1)
     }
 }
+#endif
