@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.39.0] — 2026-10-12 — kexts 3.34.17 (No kext changes)
+
+Themed menu bar graphs: history, network and memory graphs are redrawn as one-point columns, the cores graph as one bar per core and the donut as a ring, each in a box that adapts to light and dark menu bars, with palettes chosen per appearance.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.34.17. Only the application's validation version pin changes.
+
+> **First published build since 1.36.1**: 1.37.0 and 1.38.0 were never released on their own, so this download also brings everything in their notes below: Dynamic Island, Command Bar, Kill Process, MacPorts support, the capsule center and the rest.
+
+### Bluetooth on a Hackintosh
+
+Three features in this release talk to Bluetooth: the Dynamic Island's accessory notices, the Bluetooth battery scan and Bluetooth sleep. On a Mac whose Bluetooth service answers slowly, which can happen on a Hackintosh, test builds of this release could keep RyzenStatus's menu bar icons from appearing for more than 20 seconds at launch, because the list of paired devices was read on the app's main thread. The release reads that list in the background, so launch no longer waits for it. What to do depends on your Mac:
+
+- **No Bluetooth controller at all**: nothing. The app detects it, never asks the system about Bluetooth, and the switch below does not appear.
+- **A Bluetooth controller that answers slowly or does not work**: turn off **Use Bluetooth** in Settings › General. The app then stops its own Bluetooth queries until you turn it back on: Dynamic Island connection notices, the Bluetooth battery scan (headphones and other devices macOS lists only under Bluetooth) and Bluetooth sleep. Mice, keyboards and trackpads whose battery macOS already reports keep showing it, with their low-battery notices. If an earlier sleep left Bluetooth off, the app still turns it back on once.
+- **Working Bluetooth**: leave the switch on, which is the default. Nothing changes.
+
+This is an app setting only. No kext is involved and nothing has to change in your EFI.
+
+### Added
+
+- **Graph themes** in Settings › Monitor: follow the system accent or pick one of ten palettes, six soft variants or monochrome, separately for light and dark menu bars. On a light menu bar graphs sit on a dark pill by default, or on an outline. History width, column spacing and the network layout (mirrored, top and bottom, both rising) are configurable. The bar colors and limits keep applying to the Bars style.
+
+### Changed
+
+- **Menu bar graphs redrawn**: history graphs are one-point columns with the newest sample on the right instead of a stretched line, network fills its box with one column per sample (the whole history width instead of the last 12 samples), upload and download each still scaled to their own busiest visible sample, cores get one bar per core in a box sized to the core count (with the kext loaded, SMT threads fold into their core), and the donut is a clean ring. CPU history, ring and cores stack system time over user time in the theme's second color. Memory now draws its history and ring too: app memory in the theme's main color, with the rest of used memory above it in the second color. No more artificial 8 % floor: idle reads as idle, any activity keeps one point.
+- Graphs no longer print their value over the plot by default. Settings › Monitor › Show numeric value inside graph brings it back; anyone who already set that switch keeps their choice.
+
+### Fixed
+
+- **Possible crash after about 248 days awake**: per-core CPU load read the kernel's tick counters as signed 32-bit numbers, so a counter past 2^31 made the conversion trap. They are now read as the unsigned values the kernel keeps, and a reading whose busy or system counters went backwards is discarded instead of being trusted.
+
 ## [1.38.0] — 2026-10-12 — kexts 3.34.17 (No kext changes)
 
 Package-manager coexistence for Intel, safer clipboard controls, a corrected floating Dynamic Island, and most of the upstream port (shared foundations, everyday tools, windows, captures, mouse and the Dynamic Island's AI section). This release is a continuation of the upstream port, not a claim that every remaining block is complete: AMD-aware metric views, the Settings redesign, the remaining upstream test suites and native translation review are still pending.
@@ -18,7 +49,7 @@ Package-manager coexistence for Intel, safer clipboard controls, a corrected flo
 - **Connected devices in the menu bar and the island**: an optional USB device count next to the menu bar icon, its own detail page and a card in the island's System page.
 - **Capsule center** for Macs without a camera: while a song plays, the middle of the capsule or floating island can show the song, a live metric (CPU or GPU temperature, CPU usage, memory or network download), both in turns, or the clock. It also works at rest: with the island resting with the companion, the capsule shows the reading beside it. With Nothing, the capsule shrinks to the cover and the bars instead of keeping an empty black block. Settings › Dynamic Island, under the shape.
 - **Companion in the menu bar while the floating island is open**: instead of disappearing, it stays up in the bar where it rests, follows the pointer with its eyes, walks a little after it, hops when you click in the island and glances around when you change page. With Reduce Motion it only moves its eyes. Settings › Companion › Watch from the menu bar, on by default.
-- **Use Bluetooth** switch in Settings › General (only on Macs with a Bluetooth controller): turn it off and the app stops asking the system about Bluetooth devices, so accessory notices, Bluetooth device batteries and Bluetooth sleep stay idle. Useful on Hackintoshes without working Bluetooth.
+- **Use Bluetooth** switch in Settings › General (only on Macs with a Bluetooth controller): turn it off and the app stops its own Bluetooth queries, so Dynamic Island connection notices, the Bluetooth battery scan and Bluetooth sleep stop. Useful on Hackintoshes whose Bluetooth answers slowly or does not work; see *Bluetooth on a Hackintosh* under 1.39.0.
 - **Input source notices** in the island when the keyboard layout changes, and a headphones symbol on the volume notice when they are the output.
 - **Super Key safety guard**: a small helper takes the key mapping back out if the app is killed, so Caps Lock never stays remapped.
 - Clipboard: automatic cleanup, text preview, history window with saved size, OCR in previews, image editing, optional menu bar preview item.
@@ -45,7 +76,7 @@ Package-manager coexistence for Intel, safer clipboard controls, a corrected flo
 - Clearing recent clipboard history in Settings or the menu panel requires confirmation.
 - Invalid temperature, CPU or battery values no longer drive automatic mascot warnings or animations.
 - The Dynamic Island again shows volume notices and macOS notifications; both had stopped being connected during the port.
-- **Slow launch on Macs with an unresponsive Bluetooth service**: the island's accessory notices asked for the paired Bluetooth devices on the main thread, which could hold the whole menu bar for more than 20 seconds while the system answered. The list is now read in the background.
+- **Slow launch on Macs with an unresponsive Bluetooth service** (test builds only): the island's accessory notices asked for the paired Bluetooth devices on the app's main thread, which could keep RyzenStatus's menu bar icons from appearing for more than 20 seconds while the system answered. The list is now read in the background.
 - **Screen Recording permission after installing a new build**: macOS keeps the permission bound to the copy of the app that received it, so a newer copy found the switch on and the permission gone, and macOS never asked again. The panel's Grant Access button now closes the panel and opens System Settings, so the guide card is no longer hidden behind it. When the permission does not arrive, the card explains why and offers Start Over, which removes the old entry and asks again; once granted, it offers Relaunch, since Screen Recording applies only to a new launch.
 - **Screen Recording row in the panel**: it showed Grant Access even with the permission granted, the button did nothing, the row no longer started a recording and its Recent Captures button was missing. The permission button now appears only while the permission is missing, and the row and Recent Captures work again.
 - Panel dismissal accounts for the AirPlay picker, and the panel remembers which display its status item is on.
