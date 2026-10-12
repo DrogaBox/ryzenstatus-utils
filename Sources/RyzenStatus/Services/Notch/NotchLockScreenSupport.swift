@@ -30,7 +30,7 @@ final class NotchLockScreenModel: ObservableObject {
     @Published var playedWhileLocked = false
     @Published var padlockOpen = false
 
-    func showsMusic(_ playback: NotchPlayback?) -> Bool {
+    func showsMusic(_ playback: NowPlayingPlayback?) -> Bool {
         gates.music && playback.map {
             NotchLockScreenSupport.showsMusic(isPlaying: $0.isPlaying, playedWhileLocked: playedWhileLocked)
         } == true

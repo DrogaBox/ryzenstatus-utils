@@ -115,10 +115,10 @@ struct NotchNoticeView: View {
 }
 
 private struct NotchTrackArtwork: View {
-    @ObservedObject private var music = NotchMusicService.shared
+    @ObservedObject private var music = NowPlayingService.shared
     let size: CGFloat
 
-    var body: some View { NotchArtwork(image: music.artwork, size: size) }
+    var body: some View { NotchArtwork(image: music.artworkImage, size: size) }
 }
 
 struct NotchExpandedLevelView: View {

@@ -119,7 +119,7 @@ final class NotchService: ObservableObject {
     private var headerShowsSectionsButton = false
     private var keepsWorkingSurface: Bool {
         pinned || trackingMenu || NSApp.modalWindow != nil || panel?.attachedSheet != nil
-            || NotchLyricsService.shared.isImporting
+            || NotchLyricsImporter.shared.isImporting
             // Like the lyrics chooser, these panels stand beside the island
             // instead of hanging from it; a click in them is not a click away.
             || (expanded && MediaWorkspaceView.panelModalActive)
@@ -182,7 +182,7 @@ final class NotchService: ObservableObject {
     /// A song paused from the strip's button stays on the island while the
     /// pointer does, so the same button can play it again. Held by its player
     /// and recording, so no other song paused meanwhile takes its place.
-    private var musicStripHeldSong: NotchPlaybackContext?
+    private var musicStripHeldSong: NowPlayingPlaybackContext?
     /// The held song as its strip last showed it, which a player can drop for
     /// a moment and give back as a new recording.
     private var musicStripHeldMusic: NotchCompactMusicSnapshot?
@@ -313,7 +313,7 @@ final class NotchService: ObservableObject {
     /// A Mac without a battery has no charge to show, so a saved battery
     /// choice rests empty there; playing music still shows as before.
     var idleContent: NotchIdleContent {
-        let content = NotchSupport.visibleIdleContent(isPlaying: !awaitsTrackNotice && NotchMusicService.shared.playback?.isPlaying == true)
+        let content = NotchSupport.visibleIdleContent(isPlaying: !awaitsTrackNotice && NowPlayingService.shared.playback?.isPlaying == true)
         return content == .battery && !PowerSampler.hasInternalBattery ? .none : content
     }
 
@@ -358,7 +358,7 @@ final class NotchService: ObservableObject {
     }
 
     var hasMusicActivity: Bool {
-        let playback = NotchMusicService.shared.playback
+        let playback = NowPlayingService.shared.playback
         // A song paused from the strip's button counts as playing while the pointer stays.
         let held = playback.map { musicStripHolds(context: $0.commandContext, player: $0.track.appPID) } ?? false
         return NotchSupport.showsMusicActivity(isPlaying: held || playback?.isPlaying == true)
@@ -678,7 +678,7 @@ final class NotchService: ObservableObject {
         let musicExtras = NotchLyricsSupport.isEnabled() || NotchQueueSupport.isEnabled()
         return geometry.expandedSize(module: module, detail: detail, panel: panel, detailHeight: detailHeight,
                                      shortcutCount: shortcuts,
-                                     sliderCount: sliders, controlsHaveMusic: controls.contains(.music), musicHasContent: NotchMusicService.shared.playback != nil,
+                                     sliderCount: sliders, controlsHaveMusic: controls.contains(.music), musicHasContent: NowPlayingService.shared.playback != nil,
                                      musicHasControlsRow: AppFeature.mixer.isAvailable || musicExtras,
                                      musicExtraHeight: musicExtraHeight, fileMediaHeight: fileMediaHeight,
                                      systemCards: NotchSupport.systemCardCount(hasBattery: PowerSampler.hasInternalBattery,
@@ -845,7 +845,7 @@ final class NotchService: ObservableObject {
         let working = 0
         switch activity {
         case .music:
-            let live = NotchMusicService.shared.playback
+            let live = NowPlayingService.shared.playback
             let shown = heldMusic ?? (ownDisplay ? musicStripStandIn(for: live) : nil)
             let playback = shown?.playback ?? live
             return layout.musicSurface(title: named
@@ -1022,7 +1022,7 @@ final class NotchService: ObservableObject {
 
     func stop(restoreCapture: Bool = true) {
         preferenceSyncWork?.cancel(); preferenceSyncWork = nil
-        NotchLyricsService.shared.stop()
+        NotchLyricsImporter.shared.cancel()
         NotchFileToolsService.shared.stop()
         
         guard running else { return }
@@ -1078,7 +1078,7 @@ final class NotchService: ObservableObject {
         awaitsTrackNotice = false
         subscriptions.removeAll()
         stopPower()
-        NotchMusicService.shared.stop()
+        NowPlayingService.shared.stopIslandFeed()
         NotchAudioLevelService.shared.stop()
         CameraPreviewService.shared.hideEmbedded()
         NotchAccessoryService.shared.suspend()
@@ -2086,7 +2086,7 @@ final class NotchService: ObservableObject {
             // The open island already shows the song, or holds something else
             // the person is doing.
             guard !self.expanded, !self.peeking, !self.dragPlaceholder, self.captureControls == nil,
-                  let playback = NotchMusicService.shared.playback, playback.isPlaying,
+                  let playback = NowPlayingService.shared.playback, playback.isPlaying,
                   let title = playback.track.title, !title.isEmpty else { return }
             self.show(NotchNotice(event: .track, title: title, detail: playback.track.artist ?? "",
                                   symbol: "music.note"))
@@ -2299,7 +2299,7 @@ final class NotchService: ObservableObject {
         return !expanded && !peeking && compactActivity != nil && notice == nil ? .replace : requested
     }
 
-    private func rememberPresentedMusic(playback: NotchPlayback?, artwork: NSImage?, tint: NotchArtworkTint?) {
+    private func rememberPresentedMusic(playback: NowPlayingPlayback?, artwork: NSImage?, tint: NowPlayingArtworkTint?) {
         guard compactMusicIsVisible, panel?.isVisible == true, let playback else {
             presentedMusic = nil
             // Whatever hid the strip ends the hold; it comes back with the live song.
@@ -2449,8 +2449,8 @@ final class NotchService: ObservableObject {
                 } else { self.toggle() }
             })
         if panel?.isVisible != true { panel?.orderFrontRegardless() }
-        let music = NotchMusicService.shared
-        rememberPresentedMusic(playback: music.playback, artwork: music.artwork, tint: music.artworkTint)
+        let music = NowPlayingService.shared
+        rememberPresentedMusic(playback: music.playback, artwork: music.artworkImage, tint: music.artworkTint)
         if contentTransition == .depart {
             if windowHost?.departsContent == true {
                 let work = DispatchWorkItem { [weak self] in self?.finishMusicDeparture() }
@@ -2606,7 +2606,7 @@ final class NotchService: ObservableObject {
     var namedMusicWings: NotchNoticeWings? {
         guard musicStripNamesSong, !geometry.floats else { return nil }
         // The song the strip shows, which may still be the one a skip left.
-        let live = NotchMusicService.shared.playback
+        let live = NowPlayingService.shared.playback
         let track = (heldMusic ?? musicStripStandIn(for: live))?.playback.track ?? live?.track
         return NotchMusicStripLayout.namedWings(title: track?.title, artist: track?.artist, geometry: compactActivityGeometry,
                                                 room: geometry.compactSideRoom ?? 0)
@@ -2614,14 +2614,14 @@ final class NotchService: ObservableObject {
 
     /// Whether a reading is the song paused from the strip's button, or one
     /// from its player without a name, which some players send for a moment.
-    private func musicStripHolds(context: NotchPlaybackContext?, player: Int32?) -> Bool {
+    private func musicStripHolds(context: NowPlayingPlaybackContext?, player: Int32?) -> Bool {
         guard let held = musicStripHeldSong else { return false }
         return context.map { $0 == held } ?? (player == held.pid)
     }
 
     /// The held song, which the strip shows whole in place of a reading from
     /// its player without a name, so neither its words, cover nor width change.
-    func musicStripStandIn(for playback: NotchPlayback?) -> NotchCompactMusicSnapshot? {
+    func musicStripStandIn(for playback: NowPlayingPlayback?) -> NotchCompactMusicSnapshot? {
         guard let playback, playback.commandContext == nil,
               musicStripHolds(context: nil, player: playback.track.appPID) else { return nil }
         return musicStripHeldMusic
@@ -2648,10 +2648,9 @@ final class NotchService: ObservableObject {
         musicStripPointer == .bars && musicStripAnswers(.bars) && heldMusic == nil && musicStripCanToggle
     }
 
-    /// A command still on its way keeps the button, and a click then waits for it.
+    /// The strip's song can take play or pause.
     private var musicStripCanToggle: Bool {
-        let music = NotchMusicService.shared
-        return music.canPerform(.toggle) || music.commandPending
+        NowPlayingService.shared.canPerform(.toggle)
     }
 
     /// The strip reports the pointer resting on its cover or its bars, or
@@ -2705,11 +2704,11 @@ final class NotchService: ObservableObject {
     /// player cannot take the command.
     @discardableResult
     func toggleMusicStripSong() -> Bool {
-        let music = NotchMusicService.shared
+        let music = NowPlayingService.shared
         guard heldMusic == nil, musicStripCanToggle, let playback = music.playback else { return false }
         let playing = musicStripRequest ?? playback.isPlaying
         // A command still on its way keeps the button, and a click meanwhile only waits for it.
-        guard music.send(.toggle, context: playback.commandContext) else { return music.commandPending }
+        guard music.send(.toggle, context: playback.commandContext) else { return false }
         // Paused under the pointer, the song stays for the button to play it
         // again, and it keeps staying while the player takes the word back.
         if playing && inside {
@@ -2737,7 +2736,7 @@ final class NotchService: ObservableObject {
     /// and its hold on the island, end with it. A player can drop the song's
     /// name for a moment, which reads as no recording, and give the same song
     /// back as a new one, which keeps the hold.
-    private func endMusicStripSong(_ playback: NotchPlayback?) {
+    private func endMusicStripSong(_ playback: NowPlayingPlayback?) {
         endMusicStripRequest()
         guard let held = musicStripHeldSong, playback?.commandContext != held else { return }
         if let playback, playback.track.appPID == held.pid {
@@ -3518,7 +3517,7 @@ final class NotchService: ObservableObject {
         case .close: collapse()
         case .nextTrack, .previousTrack:
             guard musicSurface else { gesture = NotchGestureSupport(); return false }
-            NotchMusicService.shared.skipFromGesture(forward: action == .nextTrack)
+            NowPlayingService.shared.skipFromGesture(forward: action == .nextTrack)
         }
         return true
     }
@@ -3559,8 +3558,8 @@ final class NotchService: ObservableObject {
                 }.store(in: &subscriptions)
         }
         if modules.contains(.music) {
-            let music = NotchMusicService.shared
-            music.$playback.combineLatest(music.$artwork, music.$artworkTint)
+            let music = NowPlayingService.shared
+            music.$playback.combineLatest(music.$artworkImage, music.$artworkTint)
                 .sink { [weak self] playback, artwork, tint in
                     // @Published sends before storing the new value. Keep the last
                     // visible track and cover before playback disappears.
@@ -3593,7 +3592,7 @@ final class NotchService: ObservableObject {
                 }.store(in: &subscriptions)
             // Received once the reading of the song or player taking over is
             // stored, so the island refreshes for that one.
-            music.$playback.removeDuplicates(by: NotchPlayback.sameRecording).receive(on: DispatchQueue.main)
+            music.$playback.removeDuplicates(by: NowPlayingPlayback.sameRecording).receive(on: DispatchQueue.main)
                 .sink { [weak self] playback in self?.endMusicStripSong(playback) }
                 .store(in: &subscriptions)
             // Music starting, not music already playing when the island came up.
@@ -3612,7 +3611,7 @@ final class NotchService: ObservableObject {
         if NotchSupport.routes(.track) {
             // Received at once, on the main thread, while the strip still
             // shows the previous song.
-            NotchMusicService.shared.trackChanges
+            NowPlayingService.shared.trackChanges
                 .sink { [weak self] in self?.scheduleTrackNotice() }
                 .store(in: &subscriptions)
         }
@@ -3810,7 +3809,7 @@ final class NotchService: ObservableObject {
             CameraPreviewService.shared.hideEmbedded()
             // A copy on another display still shows the song playing.
             let copiesShowMusic = showsCopies && NotchSupport.watchesMusicActivity()
-            if copiesShowMusic { NotchMusicService.shared.start() } else { NotchMusicService.shared.stop() }
+            if copiesShowMusic { NowPlayingService.shared.startIslandFeed() } else { NowPlayingService.shared.stopIslandFeed() }
             releaseMonitor()
             return
         }
@@ -3821,7 +3820,7 @@ final class NotchService: ObservableObject {
         let musicWanted = modules.contains(.music) && ((expanded && (selected == .music || (selected == .controls && NotchSupport.controls().contains(.music)))
             && !showingAppPanel && !showingSections && !showingCommandBar)
             || (!hiddenUntilHover && (NotchSupport.watchesMusicActivity() || NotchSupport.routes(.track))))
-        if musicWanted { NotchMusicService.shared.start() } else { NotchMusicService.shared.stop() }
+        if musicWanted { NowPlayingService.shared.startIslandFeed() } else { NowPlayingService.shared.stopIslandFeed() }
         let needs = expanded && selected == .system && selectedMetric == nil && modules.contains(.system) && !showingAppPanel
             && !showingSections && !showingCommandBar
         var detailNeeds = expanded && !showingSections ? selectedMetric?.monitorNeeds ?? .none : .none
@@ -4488,7 +4487,7 @@ extension NotchService {
         let now = CACurrentMediaTime()
         guard NotchMascotSupport.reacts(), now - lastMascotGroove > NotchMascotSupport.grooveInterval else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + NotchMascotSupport.grooveDelay) { [weak self] in
-            guard NotchMusicService.shared.playback?.isPlaying == true else { return }
+            guard NowPlayingService.shared.playback?.isPlaying == true else { return }
             self?.reactMascot(.groove, patience: 3)
         }
     }

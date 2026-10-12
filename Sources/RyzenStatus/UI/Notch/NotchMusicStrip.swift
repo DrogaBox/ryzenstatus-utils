@@ -5,9 +5,9 @@ import SwiftUI
 
 /// The last visible compact track stays intact while its island retracts.
 struct NotchCompactMusicSnapshot {
-    let playback: NotchPlayback
+    let playback: NowPlayingPlayback
     let artwork: NSImage?
-    let tint: NotchArtworkTint?
+    let tint: NowPlayingArtworkTint?
     let geometry: NotchGeometry
     /// The left side of a strip that was naming its song.
     var namedWing: CGFloat? = nil
@@ -23,7 +23,7 @@ struct NotchMusicStrip: View {
     var snapshot: NotchCompactMusicSnapshot? = nil
     var displayGeometry: NotchGeometry? = nil
     var interactive = false
-    @ObservedObject private var music = NotchMusicService.shared
+    @ObservedObject private var music = NowPlayingService.shared
     @ObservedObject private var l10n = L10n.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -32,9 +32,9 @@ struct NotchMusicStrip: View {
     private var shown: NotchCompactMusicSnapshot? {
         snapshot ?? service.heldMusic ?? (interactive ? service.musicStripStandIn(for: music.playback) : nil)
     }
-    private var playback: NotchPlayback? { shown?.playback ?? music.playback }
-    private var artwork: NSImage? { shown == nil ? music.artwork : shown?.artwork }
-    private var tint: NotchArtworkTint? { shown == nil ? music.artworkTint : shown?.tint }
+    private var playback: NowPlayingPlayback? { shown?.playback ?? music.playback }
+    private var artwork: NSImage? { shown == nil ? music.artworkImage : shown?.artwork }
+    private var tint: NowPlayingArtworkTint? { shown == nil ? music.artworkTint : shown?.tint }
     private var live: Bool { interactive && snapshot == nil }
     private var innerInset: CGFloat { Layout.innerInset(geometry) }
 
@@ -197,7 +197,7 @@ struct NotchMusicSwipeFeedback: ViewModifier {
                 CubicKeyframe(8, duration: 0.09)
                 SpringKeyframe(0, duration: 0.25, spring: .smooth)
             }
-            .onReceive(NotchMusicService.shared.gestureSkips) { forward in
+            .onReceive(NowPlayingService.shared.gestureSkips) { forward in
                 guard enabled, !reduceMotion else { return }
                 direction = forward ? -1 : 1
                 trigger &+= 1

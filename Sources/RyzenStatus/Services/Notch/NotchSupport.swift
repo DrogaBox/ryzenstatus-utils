@@ -2695,3 +2695,27 @@ enum NotchTranslucentTint {
         }
     }
 }
+
+/// Whether the island shows its lyrics page, and whether it may look lyrics
+/// up online. The lyrics themselves come from `NowPlayingLyricsCenter`.
+enum NotchLyricsSupport {
+    static func isEnabled(in defaults: UserDefaults = .standard) -> Bool {
+        NotchSupport.isEnabled(in: defaults) && AppFeature.notchLyrics.isAvailable(in: defaults)
+            && defaults.bool(forKey: DefaultsKey.notchLyricsEnabled)
+            && NotchSupport.modules(in: defaults).contains(.music)
+    }
+
+    static func onlineEnabled(in defaults: UserDefaults = .standard) -> Bool {
+        isEnabled(in: defaults) && defaults.bool(forKey: DefaultsKey.notchLyricsOnline)
+    }
+}
+
+/// Whether the island shows its queue page. The queue itself comes from
+/// `NowPlayingService.upcoming`.
+enum NotchQueueSupport {
+    static func isEnabled(in defaults: UserDefaults = .standard) -> Bool {
+        NotchSupport.isEnabled(in: defaults) && AppFeature.notchQueue.isAvailable(in: defaults)
+            && defaults.bool(forKey: DefaultsKey.notchQueueEnabled)
+            && NotchSupport.modules(in: defaults).contains(.music)
+    }
+}

@@ -13,7 +13,7 @@ struct NotchLockScreenIsland: View {
     let geometry: NotchGeometry
     var window: CGSize? = nil
     var origin: CGPoint = .zero
-    @ObservedObject private var music = NotchMusicService.shared
+    @ObservedObject private var music = NowPlayingService.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -113,7 +113,7 @@ private struct NotchLockScreenMaterial: NSViewRepresentable {
 struct NotchLockScreenPlayer: View {
     @ObservedObject var model: NotchLockScreenModel
     let size: CGSize
-    @ObservedObject private var music = NotchMusicService.shared
+    @ObservedObject private var music = NowPlayingService.shared
     @ObservedObject private var l10n = L10n.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var requestedPlaying: Bool?
@@ -145,7 +145,7 @@ struct NotchLockScreenPlayer: View {
         }
     }
 
-    private func player(_ playback: NotchPlayback, artwork: CGFloat) -> some View {
+    private func player(_ playback: NowPlayingPlayback, artwork: CGFloat) -> some View {
         VStack(spacing: 0) {
             cover(size: artwork, playback: playback)
                 .padding(.bottom, 14)
@@ -166,7 +166,7 @@ struct NotchLockScreenPlayer: View {
         .pane()
     }
 
-    private func compact(_ playback: NotchPlayback) -> some View {
+    private func compact(_ playback: NowPlayingPlayback) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 cover(size: 52, playback: playback)
@@ -187,14 +187,14 @@ struct NotchLockScreenPlayer: View {
         .pane()
     }
 
-    private func cover(size: CGFloat, playback: NotchPlayback) -> some View {
-        NotchArtwork(image: music.artwork, size: size)
+    private func cover(size: CGFloat, playback: NowPlayingPlayback) -> some View {
+        NotchArtwork(image: music.artworkImage, size: size)
             .shadow(color: (music.artworkTint?.color ?? .black).opacity(0.5), radius: size * 0.28, y: size * 0.1)
             .scaleEffect(playback.isPlaying || reduceMotion ? 1 : 0.92)
             .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: playback.isPlaying)
     }
 
-    private func transport(_ playback: NotchPlayback) -> some View {
+    private func transport(_ playback: NowPlayingPlayback) -> some View {
         HStack(spacing: 46) {
             if !music.lacksTrackSkipping(.previous) {
                 button("backward.fill", size: 22, title: text.mediaPrevious, command: .previous, playback: playback)
@@ -208,8 +208,8 @@ struct NotchLockScreenPlayer: View {
         .frame(height: 46)
     }
 
-    private func button(_ symbol: String, size: CGFloat, title: String, command: NotchMusicService.Command,
-                        playback: NotchPlayback) -> some View {
+    private func button(_ symbol: String, size: CGFloat, title: String, command: NowPlayingTransportCommand,
+                        playback: NowPlayingPlayback) -> some View {
         Button {
             let playing = requestedPlaying ?? playback.isPlaying
             if music.send(command, context: playback.commandContext), command == .toggle,

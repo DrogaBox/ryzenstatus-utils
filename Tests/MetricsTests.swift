@@ -7973,6 +7973,115 @@ struct MetricsTests {
             checks += 28
         }
 
+        // MARK: Now Playing island feed (playback mapping, song changes, timed lyrics, scripting)
+
+        do {
+            // Snapshot -> playback mapping
+            expect(NowPlayingPlayback.make(from: .empty, pid: 42, sampledAt: Date()) == nil,
+                   "Island feed: an empty snapshot maps to no playback")
+            var snap = NowPlayingSnapshot()
+            snap.title = "Song"
+            snap.artist = "Artist"
+            snap.album = "Album"
+            snap.appBundleID = "com.apple.Music"
+            snap.isPlaying = true
+            snap.elapsed = 30
+            snap.duration = 200
+            let sampled = Date(timeIntervalSinceReferenceDate: 1_000)
+            let mapped = NowPlayingPlayback.make(from: snap, pid: 42, sampledAt: sampled)
+            expect(mapped?.track.title == "Song" && mapped?.track.appPID == 42
+                   && mapped?.track.appBundleIdentifier == "com.apple.Music", "Island feed: track fields carry over")
+            expect(mapped?.canSeek == true && mapped?.rate == 1 && mapped?.hasPosition == true,
+                   "Island feed: a playing track with a duration is seekable at rate 1")
+            expectClose(mapped?.position(at: sampled.addingTimeInterval(10)) ?? -1, 40,
+                        "Island feed: position advances with the clock while playing")
+            expectClose(mapped?.position(at: sampled.addingTimeInterval(1_000)) ?? -1, 200,
+                        "Island feed: position is clamped to the duration")
+            snap.isPlaying = false
+            let paused = NowPlayingPlayback.make(from: snap, pid: 42, sampledAt: sampled)
+            expectClose(paused?.position(at: sampled.addingTimeInterval(10)) ?? -1, 30,
+                        "Island feed: a paused position stays still")
+            snap.duration = nil
+            expect(NowPlayingPlayback.make(from: snap, pid: nil, sampledAt: sampled)?.canSeek == false,
+                   "Island feed: no duration means no seeking")
+
+            // Song changes
+            var detector = NowPlayingTrackChange()
+            snap.isPlaying = true
+            snap.duration = 200
+            let first = NowPlayingPlayback.make(from: snap, pid: 42, sampledAt: sampled)
+            expect(!detector.isNewSong(first, first: true), "Song change: the first reading is not a change")
+            expect(!detector.isNewSong(first, first: false), "Song change: the same song is not a change")
+            snap.title = "Other"
+            let second = NowPlayingPlayback.make(from: snap, pid: 42, sampledAt: sampled)
+            expect(detector.isNewSong(second, first: false), "Song change: a new title while playing is a change")
+            expect(NowPlayingPlayback.sameRecording(first, second), "Song change: same player without context is one recording")
+
+            // Commands
+            expect(NowPlayingTransportCommand.validPosition(10) && !NowPlayingTransportCommand.validPosition(-1)
+                   && !NowPlayingTransportCommand.validPosition(.nan), "Commands: seek positions are bounded and finite")
+
+            // Artwork tint
+            expect(NowPlayingArtworkTint.from(red: 0.5, green: 0.5, blue: 0.5) == nil, "Tint: grey covers have no tint")
+            expect(NowPlayingArtworkTint.from(red: 0.8, green: 0.2, blue: 0.1) != nil, "Tint: coloured covers tint")
+
+            // Timed lyrics built from a payload
+            let payload = NowPlayingLyricsPayload(sourceName: "lrclib.net", lines: [
+                NowPlayingLyricsLine(text: "One", startTime: 10),
+                NowPlayingLyricsLine(text: "Two", startTime: 20),
+                NowPlayingLyricsLine(text: "Two b", startTime: 20),
+            ], isTimed: true)
+            let timed = NowPlayingTimedLyrics(payload)
+            expect(timed.lines.count == 2 && timed.lines[1].text == "Two\nTwo b",
+                   "Timed lyrics: lines sharing a time stamp form one verse")
+            expect(timed.activeIndex(at: 5) == nil, "Timed lyrics: nothing is sung before the first verse")
+            expect(timed.activeIndex(at: 15) == 0 && timed.activeIndex(at: 25) == 1, "Timed lyrics: the sung verse is found")
+            expect(timed.activeIndex(at: 15, offset: 6) == nil, "Timed lyrics: a later offset delays the verse")
+            let plain = NowPlayingTimedLyrics(NowPlayingLyricsPayload(sourceName: "Music", lines: [
+                NowPlayingLyricsLine(text: "A", startTime: nil), NowPlayingLyricsLine(text: "B", startTime: nil),
+            ], isTimed: false))
+            expect(plain.lines.isEmpty && plain.plain == "A\nB", "Timed lyrics: plain lyrics stay untimed")
+            var earlySnap = snap
+            earlySnap.elapsed = 5
+            if let playing = NowPlayingPlayback.make(from: earlySnap, pid: 42, sampledAt: sampled) {
+                let dates = timed.changeDates(for: playing, offset: 0, from: sampled)
+                expect(dates.count == 4 && dates.last == .distantFuture,
+                       "Timed lyrics: one wake-up per upcoming verse plus a terminal entry")
+            }
+            if let still = paused {
+                expect(timed.changeDates(for: still, offset: 0, from: sampled).count == 1,
+                       "Timed lyrics: no wake-ups while paused")
+            }
+            expectClose(NowPlayingTimedLyrics.adjustedOffset(0, by: 0.3), 0.25, "Lyrics offset: rounded to quarter seconds")
+            expectClose(NowPlayingTimedLyrics.adjustedOffset(9.9, by: 1), 10, "Lyrics offset: clamped to 10 s")
+            expect(NowPlayingLyricsImport.payload(from: Data("[00:01.00]Hi".utf8))?.isTimed == true,
+                   "Lyrics import: LRC files import timed")
+            expect(NowPlayingLyricsImport.payload(from: Data("Just words".utf8))?.isTimed == false,
+                   "Lyrics import: plain files import untimed")
+            expect(NowPlayingLyricsImport.payload(from: Data(count: NowPlayingLyricsImport.maximumBytes + 1)) == nil,
+                   "Lyrics import: oversized files are refused")
+
+            // Scripting dictionaries
+            let sdef = """
+            <dictionary><suite name="Player" code="Plyr">
+            <command name="playpause" code="hookPlPs"/>
+            <command name="next track" code="hookNext"/>
+            <class name="application" code="capp">
+            <property name="player position" code="pPos" type="real" access="rw"/>
+            <property name="shuffling" code="shuf" type="boolean" access="rw"/>
+            </class></suite></dictionary>
+            """
+            let capabilities = NowPlayingScriptingCapabilities.parse(Data(sdef.utf8))
+            expect(capabilities?.canToggle == true, "Scripting: a declared playpause toggles")
+            expect(capabilities?.event(for: .next, isPlaying: true) != nil, "Scripting: next track is declared")
+            expect(capabilities?.event(for: .previous, isPlaying: true) == nil, "Scripting: undeclared commands are absent")
+            expect(capabilities?.position?.integer == false, "Scripting: a real player position seeks in seconds")
+            expect(capabilities?.shuffle != nil, "Scripting: the shuffle switch is found")
+            expect(NowPlayingScriptingCapabilities.parse(Data("<dictionary/>".utf8)) == nil,
+                   "Scripting: a dictionary with no playback vocabulary is refused")
+            checks += 31
+        }
+
         // MARK: C6 residency sampling
 
         // No counter (raw == 0) → pct nil, baseline zeroed

@@ -18,11 +18,20 @@ enum NowPlayingLyricsPaneState: Equatable {
 /// then its search endpoint with candidate scoring, then the Music app's own
 /// embedded lyrics via AppleScript. Results are cached per track fingerprint
 /// and in-flight requests are cancelled on track change.
+///
+/// It is the only lyrics engine: the popup's details pane and the Dynamic
+/// Island's lyrics page both read `paneState`/`payload`. The island adds a
+/// per-track timing `offset` and lyrics imported from a file, both kept here.
 final class NowPlayingLyricsCenter: ObservableObject {
     static let shared = NowPlayingLyricsCenter()
 
     @Published private(set) var paneState: NowPlayingLyricsPaneState = .idle
     @Published private(set) var payload: NowPlayingLyricsPayload?
+    /// The user's timing nudge for the current track's synced lyrics, in
+    /// seconds. A different track starts back at zero.
+    @Published private(set) var offset = 0.0
+    /// Main-thread key of the track the offset belongs to.
+    private var offsetKey = ""
 
     private let queue = DispatchQueue(label: "com.ryzenstatus.utils.now-playing-lyrics", qos: .utility)
     private let maxCacheEntries = 64
@@ -46,13 +55,21 @@ final class NowPlayingLyricsCenter: ObservableObject {
     /// Shows the cached or freshly fetched lyrics for the snapshot's track.
     /// Safe to call repeatedly: a cache hit publishes instantly, an in-flight
     /// lookup for the same track is not duplicated.
+    ///
+    /// `allowNetwork: false` (the island before its online opt-in) skips
+    /// lrclib.net and only reads the Music app's own lyrics; a miss then is
+    /// not cached, so a later online lookup still runs. `forceRefresh`
+    /// drops a cached result first (the island's retry).
     func ensureLyrics(title: String,
                       artist: String,
                       album: String,
                       duration: TimeInterval?,
-                      bundleID: String?) {
+                      bundleID: String?,
+                      allowNetwork: Bool = true,
+                      forceRefresh: Bool = false) {
         let key = NowPlayingLyricsCacheKey.make(title: title, artist: artist,
                                                 album: album, duration: duration)
+        selectOffsetTrack(key)
         guard !title.isEmpty else {
             paneState = .unavailable
             payload = nil
@@ -61,15 +78,72 @@ final class NowPlayingLyricsCenter: ObservableObject {
         queue.async { [weak self] in
             guard let self else { return }
             self.activeKey = key
+            if forceRefresh {
+                self.cache.removeValue(forKey: key)
+                self.cacheAccessOrder.removeAll { $0 == key }
+            }
             if let entry = self.cache[key] {
                 self.touchCacheKey(key)
                 self.publish(entry: entry)
                 return
             }
             self.publish(paneState: .loading, payload: nil)
+            guard allowNetwork else {
+                self.fetchMusicAppLyrics(bundleID: bundleID) { payload in
+                    guard self.activeKey == key else { return }
+                    if let payload {
+                        self.finish(key: key, entry: .available(payload))
+                    } else {
+                        self.publish(paneState: .unavailable, payload: nil)
+                    }
+                }
+                return
+            }
             self.runPipeline(key: key, title: title, artist: artist,
                              album: album, duration: duration, bundleID: bundleID)
         }
+    }
+
+    /// Lyrics the user picked from a file replace whatever the track had,
+    /// and stay cached for it like a lookup would. A file that reads as
+    /// nothing reports `.failed`.
+    func importLyrics(from url: URL,
+                      title: String,
+                      artist: String,
+                      album: String,
+                      duration: TimeInterval?) {
+        let key = NowPlayingLyricsCacheKey.make(title: title, artist: artist,
+                                                album: album, duration: duration)
+        selectOffsetTrack(key)
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.activeKey = key
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            var data: Data?
+            if let handle = try? FileHandle(forReadingFrom: url) {
+                data = try? handle.read(upToCount: NowPlayingLyricsImport.maximumBytes + 1)
+                try? handle.close()
+            }
+            guard let payload = data.flatMap(NowPlayingLyricsImport.payload(from:)) else {
+                self.publish(paneState: .failed, payload: nil)
+                return
+            }
+            DispatchQueue.main.async { if self.offsetKey == key { self.offset = 0 } }
+            self.finish(key: key, entry: .available(payload))
+        }
+    }
+
+    func adjustOffset(by amount: Double) {
+        offset = NowPlayingTimedLyrics.adjustedOffset(offset, by: amount)
+    }
+
+    func resetOffset() { offset = 0 }
+
+    private func selectOffsetTrack(_ key: String) {
+        guard key != offsetKey else { return }
+        offsetKey = key
+        offset = 0
     }
 
     /// A track change or a closed pane invalidates the in-flight lookup; the

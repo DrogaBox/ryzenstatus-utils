@@ -154,17 +154,17 @@ struct NotchCapsuleNoticeView: View {
 
 /// The new song's cover, read as it arrives: it often lands after the title.
 private struct NotchCapsuleTrackArtwork: View {
-    @ObservedObject private var music = NotchMusicService.shared
+    @ObservedObject private var music = NowPlayingService.shared
     let side: CGFloat
 
-    var body: some View { NotchMusicCover(artwork: music.artwork, side: side, radius: side * 0.24) }
+    var body: some View { NotchMusicCover(artwork: music.artworkImage, side: side, radius: side * 0.24) }
 }
 
 /// The closed capsule at rest: bare, or with the charge in its middle.
 /// The companion rests in its middle when nothing else is there, and walks through on its visits.
 struct NotchCapsuleRestingView: View {
     @ObservedObject var service: NotchService
-    @ObservedObject private var music = NotchMusicService.shared
+    @ObservedObject private var music = NowPlayingService.shared
     @AppStorage(DefaultsKey.notchLowBatteryTint) private var lowBatteryTint = false
     @AppStorage(DefaultsKey.notchLowBatteryThreshold) private var lowBatteryThreshold = NotchSupport.defaultLowBatteryThreshold
     @AppStorage(DefaultsKey.notchLowBatteryEarly) private var earlyBatteryWarning = false
@@ -217,7 +217,7 @@ struct NotchCapsuleRestingView: View {
                             .foregroundStyle(tint)
                     }
                 case .music:
-                    if let artwork = music.artwork {
+                    if let artwork = music.artworkImage {
                         NotchMusicCover(artwork: artwork, side: CapsuleLayout.artworkSide(geometry),
                                         radius: CapsuleLayout.artworkSide(geometry) / 2)
                     }
@@ -245,7 +245,7 @@ struct NotchCapsuleMusicStrip: View {
     /// The island's own capsule answers the pointer. A copy on another
     /// display or a strip on its way out only shows the song.
     var interactive = false
-    @ObservedObject private var music = NotchMusicService.shared
+    @ObservedObject private var music = NowPlayingService.shared
     @ObservedObject private var l10n = L10n.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -255,9 +255,9 @@ struct NotchCapsuleMusicStrip: View {
     private var shown: NotchCompactMusicSnapshot? {
         snapshot ?? service.heldMusic ?? (interactive ? service.musicStripStandIn(for: music.playback) : nil)
     }
-    private var playback: NotchPlayback? { shown?.playback ?? music.playback }
-    private var artwork: NSImage? { shown == nil ? music.artwork : shown?.artwork }
-    private var tint: NotchArtworkTint? { shown == nil ? music.artworkTint : shown?.tint }
+    private var playback: NowPlayingPlayback? { shown?.playback ?? music.playback }
+    private var artwork: NSImage? { shown == nil ? music.artworkImage : shown?.artwork }
+    private var tint: NowPlayingArtworkTint? { shown == nil ? music.artworkTint : shown?.tint }
     private var title: String { playback?.track.title ?? FeatureStrings.nowPlaying(l10n.language).pageTitle }
     private var live: Bool { interactive && snapshot == nil }
     private var showsControl: Bool { live && service.musicStripShowsControl }
@@ -382,7 +382,7 @@ private struct NotchCapsuleCompanionMark: View {
     let companion: NotchCompactActivity
     let geometry: NotchGeometry
     @ObservedObject private var downloads = NotchDownloadService.shared
-    @ObservedObject private var music = NotchMusicService.shared
+    @ObservedObject private var music = NowPlayingService.shared
     @ObservedObject private var calendar = NotchCalendarService.shared
     @ObservedObject private var l10n = L10n.shared
 
@@ -399,7 +399,7 @@ private struct NotchCapsuleCompanionMark: View {
             }
         case .music:
             let side = CapsuleLayout.artworkSide(geometry)
-            NotchMusicCover(artwork: music.artwork, side: side, radius: side / 2)
+            NotchMusicCover(artwork: music.artworkImage, side: side, radius: side / 2)
         case .calendar:
             if let countdown = calendar.countdown {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
