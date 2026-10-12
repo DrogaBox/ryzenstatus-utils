@@ -9,7 +9,9 @@ jobs:
   build:
     name: Build & selftest
     runs-on: macos-26
-    timeout-minutes: 30
+    # Tests, the concurrency gate and the release build each compile the
+    # whole app; together they no longer fit in 30 minutes on a hosted runner.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
 
@@ -53,7 +55,7 @@ jobs:
   sdk15:
     name: SDK 15 fallback build (Xcode 16)
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
 
