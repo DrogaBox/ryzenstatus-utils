@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.40.0] — 2026-10-12 — kexts 3.34.17 (No kext changes)
+
+The graphs outside the menu bar now match it: the menu panel, the iStats widgets, the metric details, the Dynamic Island and both dashboards draw their history as columns, newest on the right, in the graph theme picked for their appearance, and the AMD Ryzen Power graphs get steady scales.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.34.17. Only the application's validation version pin changes.
+
+### Changed
+
+- **AMD Ryzen Power graphs**: package power is drawn against the PPT limit when the PM table reports it (otherwise against its busiest sample rounded up to 25 W, at least 50 W), and package temperature against 0–100 °C, stretching in 10 °C steps above that. Each graph shows its latest value and the top of its scale. They used to rescale to their own busiest sample, so a steady reading always sat at the top, and the smoothed line could overshoot the frame. The per-core clock and temperature graphs are one-point columns.
+- **Menu panel graphs**: CPU shows system time behind user time. Network and disk put upload or writes above and download or reads below, laid out like the menu bar network graph, each direction scaled to its own busiest visible sample, so a slow upload stays readable next to a fast download; the arrows next to the rates take the graph's colors. System power shows the top of its scale.
+- **Metric details** (menu panel and Dynamic Island): CPU stacks system and user time and adds the average clock below it on its own scale, memory shows app memory in front of the rest of used memory, and network and disk use the two-direction graph.
+- **iStats widgets**: the CPU card adds a load history, and its per-core bars show system time behind user time. Its legend's User figure is now user time (it showed the total load), next to System and the core count. Core and memory rings, histories and legends use the graph theme. Memory lists app, used, compressed and free memory and adds a history, and the GPU card adds a history. Card titles that were fixed in English are translated.
+- **Dynamic Island**: the CPU, GPU and memory cards show a small history instead of a level bar once two samples are in, orange while the reading is high.
+- **Dashboards**: Performance Suite and the btop-style dashboard draw columns in each metric's own color, and the analytics charts get quarter guide lines and a scale label. The btop network graph covers the whole history instead of the last 24 samples, each direction on its own scale.
+
+### Fixed
+
+- The average above the CPU, GPU and memory analytics charts in Performance Suite lost its percent sign.
+
 ## [1.39.0] — 2026-10-12 — kexts 3.34.17 (No kext changes)
 
 Themed menu bar graphs: history, network and memory graphs are redrawn as one-point columns, the cores graph as one bar per core and the donut as a ring, each in a box that adapts to light and dark menu bars, with palettes chosen per appearance.

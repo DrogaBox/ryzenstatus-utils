@@ -196,77 +196,93 @@ struct MetricDetailView: View {
     private var graph: some View {
         switch kind {
         case .cpu:
-            let freqHist = monitor.snapshot.cpuFreqHistory
-            let cpuHist = monitor.snapshot.cpuHistory
-            if freqHist.count >= 2 && cpuHist.count >= 2 {
-                let maxFreq = max(freqHist.max() ?? 1, 5.0)
-                ZStack {
-                    Sparkline(values: cpuHist, color: summaryColor, maxValue: 1.0, showsZeroBaseline: true)
-                    Sparkline(values: freqHist, color: Color.orange.opacity(0.8), maxValue: maxFreq, fillOpacity: 0.05)
-                }
-                .frame(height: 38)
-            } else {
-                historyGraph(cpuHist, color: summaryColor, maxValue: 1)
+            // System time shows in the second color behind user time.
+            let total = monitor.snapshot.cpuHistory
+            if total.count >= 2 {
+                ColumnHistoryGraph(layers: [total, MenuBarGraphGeometry.userShares(total: total,
+                                                                                   system: monitor.snapshot.cpuSystemHistory)],
+                                   inks: [.secondary, .primary])
+                    .frame(height: 38)
             }
+            frequencyGraph
         case .gpu:
-            historyGraph(monitor.snapshot.gpuHistory, color: summaryColor, maxValue: 1)
+            historyGraph(monitor.snapshot.gpuHistory)
         case .memory:
-            historyGraph(monitor.snapshot.memoryHistory, color: summaryColor, maxValue: 1)
+            // App memory in the main color, the rest of used memory above it.
+            let used = monitor.snapshot.memoryHistory
+            if used.count >= 2 {
+                ColumnHistoryGraph(layers: [used, monitor.snapshot.memoryAppHistory], inks: [.secondary, .primary])
+                    .frame(height: 38)
+            }
         case .network:
             networkGraph
         case .disk:
             diskGraph
         case .battery:
-            historyGraph(monitor.snapshot.batteryHistory, color: summaryColor, maxValue: 1)
+            historyGraph(monitor.snapshot.batteryHistory)
         case .power:
-            historyGraph(monitor.snapshot.systemPowerHistory, color: summaryColor)
+            let history = monitor.snapshot.systemPowerHistory
+            let ceiling = ColumnGraphGeometry.roundedCeiling(peak: history.filter(\.isFinite).max() ?? 0,
+                                                             step: 10, minimum: 10)
+            historyGraph(ColumnGraphGeometry.fractions(history, ceiling: ceiling))
         case .connectedDevices:
             EmptyView()
         }
     }
 
+    /// A history already in fractions of its full scale (0...1).
     @ViewBuilder
-    private func historyGraph(_ values: [Double], color: Color, maxValue: Double? = nil) -> some View {
-        if values.count >= 2 {
-            Sparkline(values: values,
-                      color: color,
-                      maxValue: maxValue,
-                      showsZeroBaseline: true)
+    private func historyGraph(_ fractions: [Double]) -> some View {
+        if fractions.count >= 2 {
+            ColumnHistoryGraph(layers: [fractions], inks: [.primary])
                 .frame(height: 38)
         }
     }
 
+    /// Average CPU clock under the load graph, on its own scale: the busiest sample,
+    /// rounded up to the next GHz and never below 5 GHz.
+    @ViewBuilder
+    private var frequencyGraph: some View {
+        let history = monitor.snapshot.cpuFreqHistory
+        if history.count >= 2 {
+            let ceiling = ColumnGraphGeometry.roundedCeiling(peak: history.filter(\.isFinite).max() ?? 0,
+                                                             step: 1, minimum: 5)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(l10n.s.amdAvgFrequency)
+                    Spacer(minLength: 4)
+                    if let latest = history.last, latest.isFinite, latest > 0 {
+                        Text(String(format: "%.2f GHz", latest)).monospacedDigit()
+                    }
+                }
+                .font(.system(size: 9.5, weight: .medium))
+                .foregroundStyle(.secondary)
+                ColumnHistoryGraph(layers: [ColumnGraphGeometry.fractions(history, ceiling: ceiling)],
+                                   inks: [.tertiary])
+                    .frame(height: 16)
+            }
+        }
+    }
+
+    /// Upload above, download below, each against its own busiest visible sample.
     @ViewBuilder
     private var networkGraph: some View {
         let down = monitor.snapshot.netDownHistory
         let up = monitor.snapshot.netUpHistory
         if down.count >= 2 || up.count >= 2 {
-            let peak = max(down.max() ?? 0, up.max() ?? 0, 1)
-            ZStack {
-                Sparkline(values: down, color: .accentColor, maxValue: peak, showsZeroBaseline: true)
-                Sparkline(values: up,
-                          color: PanelMetricColor.green(for: colorScheme),
-                          maxValue: peak,
-                          fillOpacity: 0.08)
-            }
-            .frame(height: 38)
+            DualColumnHistoryGraph(upper: up, lower: down)
+                .frame(height: 38)
         }
     }
 
+    /// Writes above, reads below, laid out like the network graph.
     @ViewBuilder
     private var diskGraph: some View {
         let read = monitor.snapshot.diskReadHistory
         let write = monitor.snapshot.diskWriteHistory
         if read.count >= 2 || write.count >= 2 {
-            let peak = max(read.max() ?? 0, write.max() ?? 0, 1)
-            ZStack {
-                Sparkline(values: read, color: summaryColor, maxValue: peak, showsZeroBaseline: true)
-                Sparkline(values: write,
-                          color: PanelMetricColor.pink(for: colorScheme),
-                          maxValue: peak,
-                          fillOpacity: 0.08)
-            }
-            .frame(height: 38)
+            DualColumnHistoryGraph(upper: write, lower: read)
+                .frame(height: 38)
         }
     }
 

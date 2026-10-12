@@ -226,16 +226,19 @@ struct DiskSection: View {
         } else {
             VStack(alignment: .leading, spacing: 8) {
                 blockHeader(l10n.s.monitorItemDiskActivity, editing: editing, visible: $diskActivity)
-                HStack(spacing: 10) {
-                    rateColumn(icon: "arrow.down",
-                               label: l10n.s.diskRead,
-                               value: disk.readBytesPerSec,
-                               color: .accentColor)
-                    Divider().frame(height: 28)
-                    rateColumn(icon: "arrow.up",
-                               label: l10n.s.diskWrite,
-                               value: disk.writeBytesPerSec,
-                               color: PanelMetricColor.pink(for: colorScheme))
+                // The arrows take the graph's colors, so they double as its legend.
+                GraphThemeReader { colors in
+                    HStack(spacing: 10) {
+                        rateColumn(icon: "arrow.down",
+                                   label: l10n.s.diskRead,
+                                   value: disk.readBytesPerSec,
+                                   color: colors.primary)
+                        Divider().frame(height: 28)
+                        rateColumn(icon: "arrow.up",
+                                   label: l10n.s.diskWrite,
+                                   value: disk.writeBytesPerSec,
+                                   color: colors.secondary)
+                    }
                 }
                 if showGraph, monitor.snapshot.diskReadHistory.count >= 2 {
                     graph
@@ -254,18 +257,12 @@ struct DiskSection: View {
         }
     }
 
+    /// Writes above, reads below, each against its own busiest visible
+    /// sample, laid out like the network graph.
     private var graph: some View {
-        let read = monitor.snapshot.diskReadHistory
-        let write = monitor.snapshot.diskWriteHistory
-        let peak = max(read.max() ?? 0, write.max() ?? 0, 1)
-        return ZStack {
-            Sparkline(values: read, color: .accentColor, maxValue: peak, showsZeroBaseline: true)
-            Sparkline(values: write,
-                      color: PanelMetricColor.pink(for: colorScheme),
-                      maxValue: peak,
-                      fillOpacity: 0.08)
-        }
-        .frame(height: 30)
+        DualColumnHistoryGraph(upper: monitor.snapshot.diskWriteHistory,
+                               lower: monitor.snapshot.diskReadHistory)
+            .frame(height: 30)
     }
 
     private func rateColumn(icon: String, label: String, value: Double?, color: Color) -> some View {

@@ -1956,6 +1956,36 @@ struct MetricsTests {
         expectClose(MenuBarGraphGeometry.userShares(total: [0.1], system: [0.4]).first ?? -1, 0,
                     "a system share above the total never makes user time negative")
 
+        expect(ColumnGraphGeometry.visibleCount(width: 308) == 103,
+               "a panel-wide graph shows one two-point column every three points")
+        expect(ColumnGraphGeometry.visibleCount(width: 28, columnWidth: 1, spacing: 0) == 28,
+               "a 28-point per-core graph shows 28 one-point columns")
+        expect(ColumnGraphGeometry.visibleCount(width: 1) == 0,
+               "a graph narrower than one column shows none")
+        expect(ColumnGraphGeometry.visibleCount(width: .nan) == 0,
+               "an invalid width shows no columns")
+        expect(ColumnGraphGeometry.newestColumnX(in: CGRect(x: 0, y: 0, width: 10.6, height: 5)) == 8,
+               "the newest column is pinned to a whole point at the right edge")
+        expect(ColumnGraphGeometry.fractions([0, 50, 100, 200, .nan, -5], ceiling: 100) == [0, 0.5, 1, 1, 0, 0],
+               "graph fractions clamp to the scale and drop invalid readings")
+        expect(ColumnGraphGeometry.fractions([10, 20], ceiling: 0) == [0, 0],
+               "a missing scale draws no columns instead of dividing by zero")
+        let traffic = ColumnGraphGeometry.trafficFractions([99_999, 512, 1024, 4096], visible: 3)
+        expect(traffic.fractions.count == 3 && traffic.peak == 4096,
+               "traffic is scaled to its busiest visible sample only")
+        expectClose(traffic.fractions[0], pow(0.125, 0.75), "small traffic is compressed so it keeps some height")
+        expectClose(traffic.fractions[2], 1, "the busiest visible sample fills its half")
+        expect(ColumnGraphGeometry.trafficFractions([10, 20], visible: 5).peak == ColumnGraphGeometry.trafficFloor,
+               "idle traffic never shrinks the scale below the floor")
+        expect(ColumnGraphGeometry.roundedCeiling(peak: 42, step: 10, minimum: 10) == 50,
+               "a watts scale rounds the peak up to the next step")
+        expect(ColumnGraphGeometry.roundedCeiling(peak: 105, step: 10, minimum: 100) == 110,
+               "a temperature above 100 °C stretches the scale by one step")
+        expect(ColumnGraphGeometry.roundedCeiling(peak: 60, step: 10, minimum: 100) == 100,
+               "a temperature scale never drops below its minimum")
+        expect(ColumnGraphGeometry.roundedCeiling(peak: .nan, step: 10, minimum: 10) == 10,
+               "an invalid peak keeps the minimum scale")
+
         let firstTicks = CPUTickSample(user: 100, system: 50, idle: 850, nice: 0)
         let laterTicks = CPUTickSample(user: 160, system: 70, idle: 870, nice: 0)
         let tickLoad = laterTicks.load(since: firstTicks)

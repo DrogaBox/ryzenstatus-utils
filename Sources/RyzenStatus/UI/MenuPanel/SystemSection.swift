@@ -546,10 +546,12 @@ struct SystemSection: View {
                             smuGridModePicker
                         }
                     } else if monitor.snapshot.cpuHistory.count >= 2 {
-                        Sparkline(values: monitor.snapshot.cpuHistory,
-                                  color: .accentColor,
-                                  maxValue: 1,
-                                  showsZeroBaseline: true)
+                        // System time shows in the second color behind user time.
+                        let total = monitor.snapshot.cpuHistory
+                        ColumnHistoryGraph(
+                            layers: [total, MenuBarGraphGeometry.userShares(total: total,
+                                                                            system: monitor.snapshot.cpuSystemHistory)],
+                            inks: [.secondary, .primary])
                             .frame(height: 22)
                     }
                 }
@@ -570,10 +572,7 @@ struct SystemSection: View {
                 }
 
                 if graphGPU, monitor.snapshot.gpuHistory.count >= 2 {
-                    Sparkline(values: monitor.snapshot.gpuHistory,
-                              color: PanelMetricColor.orange(for: colorScheme),
-                              maxValue: 1,
-                              showsZeroBaseline: true)
+                    ColumnHistoryGraph(layers: [monitor.snapshot.gpuHistory], inks: [.primary])
                         .frame(height: 22)
                 }
 

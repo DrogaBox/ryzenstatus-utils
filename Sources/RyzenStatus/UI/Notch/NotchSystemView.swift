@@ -21,6 +21,9 @@ struct NotchSystemView: View {
         let value: String?
         var detail: String? = nil
         var level: Double? = nil
+        /// History layers (fractions, drawn back to front) shown instead of
+        /// the level meter, like the panel's graphs.
+        var history: [[Double]]? = nil
         var wantsAttention = false
         var id: String { kind.rawValue }
     }
@@ -31,11 +34,15 @@ struct NotchSystemView: View {
         if AppFeature.monitorCPU.isAvailable {
             cards.append(Card(kind: .cpu, title: l10n.s.cpuLabel, symbol: "cpu",
                               value: percent(snapshot.cpuUsage), level: snapshot.cpuUsage,
+                              history: history([snapshot.cpuHistory,
+                                                MenuBarGraphGeometry.userShares(total: snapshot.cpuHistory,
+                                                                                system: snapshot.cpuSystemHistory)]),
                               wantsAttention: isBusy(snapshot.cpuUsage)))
         }
         if AppFeature.monitorGPU.isAvailable {
             cards.append(Card(kind: .gpu, title: l10n.s.gpuLabel, symbol: "rectangle.connected.to.line.below",
                               value: percent(snapshot.gpuUsage), level: snapshot.gpuUsage,
+                              history: history([snapshot.gpuHistory]),
                               wantsAttention: isBusy(snapshot.gpuUsage)))
         }
         if AppFeature.monitorMemory.isAvailable {
@@ -43,7 +50,9 @@ struct NotchSystemView: View {
                 snapshot.memoryTotal.flatMap { total in total > 0 ? Double(used) / Double(total) : nil }
             }
             cards.append(Card(kind: .memory, title: l10n.s.memorySection, symbol: "memorychip",
-                              value: percent(ratio), level: ratio, wantsAttention: isBusy(ratio)))
+                              value: percent(ratio), level: ratio,
+                              history: history([snapshot.memoryHistory, snapshot.memoryAppHistory]),
+                              wantsAttention: isBusy(ratio)))
         }
         if AppFeature.monitorPower.isAvailable, let power = snapshot.power, power.hasBattery {
             cards.append(Card(kind: .battery, title: l10n.s.batteryLabel,
@@ -78,6 +87,11 @@ struct NotchSystemView: View {
                               value: connectedDevices.hasLoadedOnce ? "\(connectedDevices.count)" : nil))
         }
         return cards
+    }
+
+    /// Layers worth drawing: nothing until the first layer has two samples.
+    private func history(_ layers: [[Double]]) -> [[Double]]? {
+        (layers.first?.count ?? 0) >= 2 ? layers : nil
     }
 
     private func isBusy(_ level: Double?) -> Bool {
@@ -151,6 +165,15 @@ struct NotchSystemView: View {
                     .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: card.value)
                 if let detail = card.detail {
                     Text(detail).font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
+                } else if let history = card.history {
+                    // Stacked readings put their running total behind the top layer.
+                    let inks: [GraphInk] = card.wantsAttention
+                        ? [.fixed(.orange.opacity(0.55)), .fixed(.orange)]
+                        : [.secondary, .primary]
+                    ColumnHistoryGraph(layers: history,
+                                       inks: history.count > 1 ? inks : Array(inks.suffix(1)),
+                                       showsBaseline: false)
+                        .frame(height: 14)
                 } else if let level = card.level {
                     NotchMeter(value: level, tint: card.wantsAttention ? .orange : .white)
                 }

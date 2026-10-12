@@ -173,16 +173,19 @@ struct NetworkSection: View {
                         PanelInlineHideButton(isVisible: $netSpeed)
                     }
                 }
-                HStack(spacing: 10) {
-                    rateColumn(icon: "arrow.down",
-                               label: l10n.s.networkDownload,
-                               value: monitor.snapshot.netDownBytesPerSec,
-                               color: .accentColor)
-                    Divider().frame(height: 28)
-                    rateColumn(icon: "arrow.up",
-                               label: l10n.s.networkUpload,
-                               value: monitor.snapshot.netUpBytesPerSec,
-                               color: PanelMetricColor.green(for: colorScheme))
+                // The arrows take the graph's colors, so they double as its legend.
+                GraphThemeReader { colors in
+                    HStack(spacing: 10) {
+                        rateColumn(icon: "arrow.down",
+                                   label: l10n.s.networkDownload,
+                                   value: monitor.snapshot.netDownBytesPerSec,
+                                   color: colors.primary)
+                        Divider().frame(height: 28)
+                        rateColumn(icon: "arrow.up",
+                                   label: l10n.s.networkUpload,
+                                   value: monitor.snapshot.netUpBytesPerSec,
+                                   color: colors.secondary)
+                    }
                 }
                 if showGraph, monitor.snapshot.netDownHistory.count >= 2 {
                     graph
@@ -210,19 +213,12 @@ struct NetworkSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Download (filled) and upload (line) share one scale so they compare fairly.
+    /// Upload above, download below, each against its own busiest visible
+    /// sample: a slow upload stays readable next to a fast download.
     private var graph: some View {
-        let down = monitor.snapshot.netDownHistory
-        let up = monitor.snapshot.netUpHistory
-        let peak = max(down.max() ?? 0, up.max() ?? 0, 1)
-        return ZStack {
-            Sparkline(values: down, color: .accentColor, maxValue: peak, showsZeroBaseline: true)
-            Sparkline(values: up,
-                      color: PanelMetricColor.green(for: colorScheme),
-                      maxValue: peak,
-                      fillOpacity: 0.08)
-        }
-        .frame(height: 30)
+        DualColumnHistoryGraph(upper: monitor.snapshot.netUpHistory,
+                               lower: monitor.snapshot.netDownHistory)
+            .frame(height: 30)
     }
 
     @ViewBuilder

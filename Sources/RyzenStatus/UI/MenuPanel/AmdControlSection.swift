@@ -58,6 +58,18 @@ struct AmdControlSection: View {
         return .orange
     }
 
+    /// Package power is drawn against the PPT limit when the PM table
+    /// reports it (the same scale as the dashboard), so a full column means
+    /// the CPU is at its limit. Without the table the busiest sample,
+    /// rounded up to 25 W, sets the scale.
+    private var packagePowerCeiling: Double {
+        if let ppt = controls.pmTableDecoded?.summary.pptLimitW, ppt.isFinite, ppt > 0 {
+            return max(60, Double(ppt) * 1.05)
+        }
+        let peak = controls.packagePowerHistory.filter(\.isFinite).max() ?? 0
+        return ColumnGraphGeometry.roundedCeiling(peak: peak, step: 25, minimum: 50)
+    }
+
     var body: some View {
         PanelSection(.amdPower, title: L10n.shared.amdPower.sidebarTitle, collapsible: collapsible) {
             VStack(alignment: .leading, spacing: 18) {
@@ -130,24 +142,24 @@ struct AmdControlSection: View {
                             }
                         }
 
-                        // S2-T2: package power / temp sparklines from the 3 s
-                        // sync history (no new timers, no extra kext traffic).
+                        // S2-T2: package power / temp history from the 3 s
+                        // sync (no new timers, no extra kext traffic), drawn
+                        // as columns on steady scales so a flat reading sits
+                        // where it belongs instead of hugging the top.
                         if controls.packagePowerHistory.count >= 2 {
                             HStack(spacing: 10) {
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(L10n.shared.amdPower.packagePowerLabel)
-                                        .font(.system(size: 8, weight: .medium))
-                                        .foregroundColor(.secondary)
-                                    Sparkline(values: controls.packagePowerHistory, color: .cyan, fillOpacity: 0.14, lineWidth: 1.2)
-                                        .frame(height: 26)
-                                }
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(L10n.shared.amdPower.packageTempLabel)
-                                        .font(.system(size: 8, weight: .medium))
-                                        .foregroundColor(.secondary)
-                                    Sparkline(values: controls.packageTempHistory, color: .orange, fillOpacity: 0.14, lineWidth: 1.2)
-                                        .frame(height: 26)
-                                }
+                                AmdHistoryGraph(label: L10n.shared.amdPower.packagePowerLabel,
+                                                values: controls.packagePowerHistory,
+                                                ceiling: packagePowerCeiling,
+                                                ink: .primary,
+                                                format: { String(format: "%.0f W", $0) })
+                                AmdHistoryGraph(label: L10n.shared.amdPower.packageTempLabel,
+                                                values: controls.packageTempHistory,
+                                                ceiling: ColumnGraphGeometry.roundedCeiling(
+                                                    peak: controls.packageTempHistory.filter(\.isFinite).max() ?? 0,
+                                                    step: 10, minimum: 100),
+                                                ink: .secondary,
+                                                format: { String(format: "%.0f °C", $0) })
                             }
                         }
 
@@ -533,11 +545,53 @@ struct AmdControlSection: View {
     }
 }
 
+// MARK: - Package history graph (menu panel)
+
+/// One package reading over the last few minutes: its name and latest value
+/// above, the columns below with the scale's top in the corner, the way the
+/// sensor graphs elsewhere read.
+struct AmdHistoryGraph: View {
+    let label: String
+    let values: [Double]
+    let ceiling: Double
+    let ink: GraphInk
+    let format: (Double) -> String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Text(label)
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 2)
+                if let latest = values.last, latest.isFinite, latest > 0 {
+                    Text(format(latest))
+                        .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.primary)
+                }
+            }
+            ColumnHistoryGraph(layers: [ColumnGraphGeometry.fractions(values, ceiling: ceiling)],
+                               inks: [ink])
+                .frame(height: 26)
+                .overlay(alignment: .topLeading) {
+                    Text(format(ceiling))
+                        .font(.system(size: 7, weight: .medium, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.8))
+                }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue(values.last.map(format) ?? "")
+    }
+}
+
 // MARK: - Per-core PM-table row (menu panel)
 
 /// One per-core telemetry row for the AMD Power panel section: SMU PM-table
-/// effective clock, temperature and power for a single core slot, plus two
-/// tiny sparklines fed by rolling windows in `AmdPowerControlsModel`
+/// effective clock, temperature and power for a single core slot, plus
+/// two tiny column graphs fed by rolling windows in `AmdPowerControlsModel`
 /// (sampled on the model's 3 s sync tick — no timers here). Monospaced
 /// technical fields by design — same convention as the Settings PM Table
 /// diagnostics section (raw telemetry renders without localization).
@@ -553,7 +607,7 @@ struct AmdPmTableCoreRowView: View {
     let tempHistory: [Double]?
     /// Optional per-core columns, each toggled independently in the section.
     /// Fixed frame widths keep the trailing columns row-aligned while a
-    /// column is on; the leading slot/clock/sparkline group never shifts.
+    /// column is on; the leading slot/clock/graph group never shifts.
     let showsVoltage: Bool
     let showsC0: Bool
     let showsCC6: Bool
@@ -581,14 +635,19 @@ struct AmdPmTableCoreRowView: View {
                 .font(.system(size: 9, weight: core.isSleeping ? .medium : .semibold, design: .monospaced))
                 .foregroundColor(core.isSleeping ? Color.secondary.opacity(0.55) : .cyan)
                 .frame(width: 46, alignment: .leading)
+            // One-point columns, newest on the right: 28 samples fit, and a
+            // sleeping core reads as an empty column rather than a dive.
             VStack(spacing: 1) {
-                Sparkline(values: clockHistory ?? [], color: .cyan,
-                          maxValue: Self.clockScaleMHz, fillOpacity: 0.12, lineWidth: 0.8)
+                ColumnHistoryGraph(layers: [ColumnGraphGeometry.fractions(clockHistory ?? [],
+                                                                          ceiling: Self.clockScaleMHz)],
+                                   inks: [.primary], columnWidth: 1, spacing: 0, showsBaseline: false)
                     .frame(width: 28, height: 8)
-                Sparkline(values: tempHistory ?? [], color: .orange,
-                          maxValue: Self.tempScaleC, fillOpacity: 0.12, lineWidth: 0.8)
+                ColumnHistoryGraph(layers: [ColumnGraphGeometry.fractions(tempHistory ?? [],
+                                                                          ceiling: Self.tempScaleC)],
+                                   inks: [.secondary], columnWidth: 1, spacing: 0, showsBaseline: false)
                     .frame(width: 28, height: 8)
             }
+            .background(Color.primary.opacity(0.05))
             if showsVoltage {
                 Text(String(format: "%.2f V", core.voltageRaw))
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
