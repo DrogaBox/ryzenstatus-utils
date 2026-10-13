@@ -9,3 +9,7 @@
 
 /* macOS Microphone permission prompt. */
 "NSMicrophoneUsageDescription" = "RyzenStatus, ekran kayıtlarına sesinizi dahil etmek ve ses düzeylerini izlemek için mikrofonunuzu kullanır.";
+
+/* macOS Location permission prompt. */
+"NSLocationUsageDescription" = "RyzenStatus konumunuzu yalnızca yaklaşan bir etkinliğe yol süresini hesaplamak için kullanır; böylece Dynamic Island ne zaman çıkmanız gerektiğini söyleyebilir. Konumunuz saklanmaz.";
+"NSLocationWhenInUseUsageDescription" = "RyzenStatus konumunuzu yalnızca yaklaşan bir etkinliğe yol süresini hesaplamak için kullanır; böylece Dynamic Island ne zaman çıkmanız gerektiğini söyleyebilir. Konumunuz saklanmaz.";

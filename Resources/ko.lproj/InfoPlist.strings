@@ -9,3 +9,7 @@
 
 /* macOS Microphone permission prompt. */
 "NSMicrophoneUsageDescription" = "RyzenStatus는 화면 녹화에 음성을 포함하고 오디오 레벨을 모니터링하기 위해 마이크를 사용합니다.";
+
+/* macOS Location permission prompt. */
+"NSLocationUsageDescription" = "RyzenStatus는 다가오는 일정까지의 이동 시간을 계산해 Dynamic Island에서 출발 시간을 알려 주는 데에만 위치를 사용합니다. 위치는 저장되지 않습니다.";
+"NSLocationWhenInUseUsageDescription" = "RyzenStatus는 다가오는 일정까지의 이동 시간을 계산해 Dynamic Island에서 출발 시간을 알려 주는 데에만 위치를 사용합니다. 위치는 저장되지 않습니다.";

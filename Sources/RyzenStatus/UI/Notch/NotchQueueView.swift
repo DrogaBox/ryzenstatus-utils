@@ -44,6 +44,7 @@ struct NotchQueueView: View {
 
     private var emptyMessage: String {
         guard let queue = service.upcoming else { return text.queueUnavailable }
+        if queue.isStreaming { return text.queueStreaming }
         return queue.isShuffled ? text.queueShuffled : text.queueEmpty
     }
 

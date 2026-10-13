@@ -29,6 +29,10 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchLyricsOnline) private var lyricsOnline = false
     @AppStorage(DefaultsKey.notchQueueEnabled) private var queueEnabled = true
     @AppStorage(DefaultsKey.notchLiveEqualizer) private var liveEqualizer = false
+    @AppStorage(DefaultsKey.notchMusicVisualizer) private var visualizerMode = NotchMusicVisualizerMode.titleThenVisualizer.rawValue
+    @AppStorage(DefaultsKey.notchMusicVisualizerStyle) private var visualizerStyle = NotchMusicVisualizerStyle.retro.rawValue
+    @AppStorage(DefaultsKey.notchMusicTitleSeconds) private var titleSeconds = NotchMusicVisualizerSupport.defaultTitleSeconds
+    @AppStorage(DefaultsKey.notchMascotDances) private var mascotDances = true
     @AppStorage(DefaultsKey.notchEnabled) private var enabled = false
     @AppStorage(DefaultsKey.notchMascotEnabled) private var mascotEnabled = false
     @AppStorage(DefaultsKey.notchMascotHidesWhenIdle) private var mascotHidesWhenIdle = true
@@ -86,6 +90,10 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchCapsuleFitHeight) private var capsuleFitHeight = 0.0
     @AppStorage(DefaultsKey.notchCapsuleFitDrop) private var capsuleFitDrop = 0.0
     @AppStorage(DefaultsKey.notchHapticFeedback) private var hapticFeedback = true
+    @AppStorage(DefaultsKey.notchProgressiveBlur) private var progressiveBlur = false
+    @AppStorage(DefaultsKey.notchLeaveAlert) private var leaveAlert = false
+    @AppStorage(DefaultsKey.notchLeaveTransport) private var leaveTransport = NotchLeaveTransport.automobile.rawValue
+    @AppStorage(DefaultsKey.notchFocusEnabled) private var focusEnabled = false
     @AppStorage(DefaultsKey.notchTranslucentBackground) private var translucentBackground = false
     @AppStorage(DefaultsKey.notchLiquidGlassEnabled) private var liquidGlass = false
     @AppStorage(DefaultsKey.notchShelf) private var shelfWindow = true
@@ -109,6 +117,7 @@ struct NotchSettings: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     private var text: NotchStrings { FeatureStrings.notch(l10n.language) }
     private var editor: NotchEditorStrings { FeatureStrings.notchEditor(l10n.language) }
+    private var extras: NotchIslandExtrasStrings { FeatureStrings.notchIslandExtras(l10n.language) }
 
     private var configuration: [String] {
         [String(enabled), String(calendarEnabled), String(calendarCountdown), String(calendarTimeLeft),
@@ -126,7 +135,9 @@ struct NotchSettings: View {
          String(microphone), String(battery), String(clipboard), String(clipboardWindow),
          String(capture), String(trackChange), captureAction, String(showInCaptures),
          String(returnHome), homeModule, String(opensActivity), String(scratchpad),
-         String(agentsEnabled), String(watchEnabled), String(keepAwakeActivity)]
+         String(agentsEnabled), String(watchEnabled), String(keepAwakeActivity),
+         visualizerMode, visualizerStyle, String(titleSeconds), String(mascotDances),
+         String(progressiveBlur), String(leaveAlert), leaveTransport, String(focusEnabled)]
     }
 
     private var access: Binding<NotchQuickAccessConfiguration> {
@@ -214,6 +225,7 @@ struct NotchSettings: View {
 
     private func sync() {
         NotchService.shared.syncWithPreferences()
+        NotchService.shared.musicVisualizerChanged()
         if !NotchLyricsSupport.isEnabled() { NotchLyricsImporter.shared.cancel() }
         if AppFeature.brightness.isAvailable { BrightnessService.shared.syncWithPreferences() }
     }
@@ -261,23 +273,31 @@ struct NotchSettings: View {
                 if NotchSilhouette(rawValue: silhouette) ?? .capsule != .notch {
                     capsuleCenterCard
                 }
-                if NotchSilhouette(rawValue: silhouette) ?? .capsule == .capsule {
+                if NotchSilhouette(rawValue: silhouette) ?? .capsule != .notch {
+                    // The floating style stays centred in the bar, so it only narrows and shrinks.
+                    let floating = NotchSilhouette(rawValue: silhouette) == .floating
                     SettingsCard(title: text.capsuleFit) {
                         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                             // Even widths keep the capsule centred on whole points.
                             fitSlider(text.width, card: text.capsuleFit, value: $capsuleFitWidth,
                                       range: NotchCapsuleFit.widthRange, step: 2)
                             fitSlider(text.height, card: text.capsuleFit, value: $capsuleFitHeight,
-                                      range: NotchCapsuleFit.heightRange, step: 1)
-                            fitSlider(text.fromTop, card: text.capsuleFit, value: $capsuleFitDrop,
-                                      range: NotchCapsuleFit.dropRange, step: 1)
+                                      range: floating ? NotchCapsuleFit.floatingHeightRange : NotchCapsuleFit.heightRange,
+                                      step: floating ? 2 : 1)
+                            if !floating {
+                                fitSlider(text.fromTop, card: text.capsuleFit, value: $capsuleFitDrop,
+                                          range: NotchCapsuleFit.dropRange, step: 1)
+                            }
                         }
-                        Text(text.capsuleFitHint).font(.caption).foregroundStyle(.secondary)
+                        Text(floating ? text.floatingFitHint : text.capsuleFitHint)
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
             SettingsCard {
                 switchRow("capsule", text.showOutline, isOn: $outlineEnabled)
+                switchRow("aqi.medium", extras.progressiveBlur, caption: extras.progressiveBlurHint,
+                          isOn: $progressiveBlur)
             }
             // Only a physical camera has an outline to match.
             if NotchSupport.hasNotchedDisplay {
@@ -447,6 +467,48 @@ struct NotchSettings: View {
             SettingsFeatureSwitchRow(symbol: "waveform", title: music.liveEqualizer,
                                      caption: NotchAudioLevelSupport.isSupported ? music.liveEqualizerHint : music.liveEqualizerUnavailable,
                                      isOn: $liveEqualizer, feature: .notchLiveEqualizer, enabled: NotchAudioLevelSupport.isSupported)
+            let visualizer = FeatureStrings.notchMusicVisualizer(l10n.language)
+            SettingsRow(symbol: "chart.bar.xaxis", title: visualizer.title, caption: visualizer.hint) {
+                Picker(visualizer.title, selection: $visualizerMode) {
+                    ForEach(NotchMusicVisualizerMode.allCases) { mode in
+                        Text(visualizer.name(of: mode)).tag(mode.rawValue)
+                    }
+                }
+                .labelsHidden()
+            }
+            if visualizerMode == NotchMusicVisualizerMode.titleThenVisualizer.rawValue {
+                SettingsRow(symbol: "timer", title: visualizer.titleSeconds) {
+                    Picker(visualizer.titleSeconds, selection: $titleSeconds) {
+                        ForEach(NotchMusicVisualizerSupport.titleSecondsChoices, id: \.self) { seconds in
+                            Text(visualizer.seconds(seconds)).tag(seconds)
+                        }
+                    }
+                    .labelsHidden()
+                }
+                .padding(.leading, settingsRowTextInset)
+            }
+            if visualizerMode != NotchMusicVisualizerMode.title.rawValue {
+                SettingsRow(symbol: "paintpalette", title: visualizer.style) {
+                    HStack(spacing: 10) {
+                        // The chosen style moving as on the island, on the island's black.
+                        NotchSpectrumBars(height: 18, tint: .accentColor,
+                                          style: NotchMusicVisualizerStyle(rawValue: visualizerStyle) ?? .retro)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(Capsule().fill(.black))
+                        Picker(visualizer.style, selection: $visualizerStyle) {
+                            ForEach(NotchMusicVisualizerStyle.allCases) { style in
+                                Text(visualizer.name(of: style)).tag(style.rawValue)
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                }
+                .padding(.leading, settingsRowTextInset)
+                switchRow("pawprint.fill", visualizer.dances, caption: visualizer.dancesHint, isOn: $mascotDances)
+                    .padding(.leading, settingsRowTextInset)
+            }
         case .notifications:
             let notifications = FeatureStrings.notchNotifications(l10n.language)
             switchRow("bell.slash", notifications.hideSystemBanner, caption: notifications.hideSystemBannerHint,
@@ -469,6 +531,18 @@ struct NotchSettings: View {
                       isOn: $calendarCountdown)
             switchRow("hourglass", calendar.timeLeft, caption: calendar.timeLeftHint, isOn: $calendarTimeLeft)
             switchRow("number", calendar.weekNumbers, isOn: $calendarWeekNumbers)
+            switchRow("figure.walk.departure", extras.leaveAlert, caption: extras.leaveAlertHint, isOn: $leaveAlert)
+            if leaveAlert {
+                SettingsRow(symbol: "map", title: extras.transport) {
+                    Picker(extras.transport, selection: $leaveTransport) {
+                        Text(extras.car).tag(NotchLeaveTransport.automobile.rawValue)
+                        Text(extras.walking).tag(NotchLeaveTransport.walking.rawValue)
+                        Text(extras.transit).tag(NotchLeaveTransport.transit.rawValue)
+                    }
+                    .labelsHidden()
+                }
+                .padding(.leading, settingsRowTextInset)
+            }
             if permissions.calendarAccess == .fullAccess { NotchCalendarSelection() }
         case .timer:
             let activities = FeatureStrings.notchActivities(l10n.language)
@@ -601,6 +675,8 @@ struct NotchSettings: View {
                     // A layout change is read straight from the system, so
                     // this card never waits on another feature.
                     toggleCard(text.inputSource, symbol: "keyboard", value: $inputSource,
+                               available: true, reservesReason: reserves)
+                    toggleCard(extras.focus, symbol: "moon.fill", value: $focusEnabled,
                                available: true, reservesReason: reserves)
                 }
                 if accessoriesEnabled { Text(FeatureStrings.notchActivities(l10n.language).accessoryDescription).font(.caption).foregroundStyle(.secondary) }

@@ -11039,10 +11039,67 @@ struct MetricsTests {
             expect(forms.effective(choice: .form(.golden), level: 45) == .golden
                    && forms.effective(choice: .form(.divine), level: 25) == .golden,
                    "a picked transformation shows once unlocked, the newest one before")
+            expect(growth.unlocksEverything(name: " DrogaBox ") && !growth.unlocksEverything(name: "drogabox")
+                   && !growth.unlocksEverything(name: "") && !growth.unlocksEverything(name: nil),
+                   "only that exact name unlocks everything")
+            expect(growth.shownLevel(earned: 3, name: "DrogaBox") == growth.maxLevel
+                   && growth.shownLevel(earned: 3, name: "Droga") == 3,
+                   "the name lifts the level shown, and another name brings the earned one back")
             expect(NotchMascotFormChoice(rawValue: "none") == .off && NotchMascotFormChoice(rawValue: nil) == .automatic
                    && NotchMascotFormChoice(rawValue: "divine") == .form(.divine)
                    && NotchMascotFormChoice(rawValue: NotchMascotFormChoice.form(.goldenFury).rawValue) == .form(.goldenFury),
                    "the transformation picked survives the preferences")
+
+            // The island's music visualizer.
+            let visualizer = NotchMusicVisualizerSupport.self
+            let spectrumBins = NotchAudioLevelSupport.bandRanges(sampleRate: 48_000, size: 1024,
+                                                                 edges: NotchAudioLevelSupport.spectrumEdgesHz)
+            expect(spectrumBins.count == NotchAudioLevelSupport.spectrumBandCount
+                   && zip(spectrumBins, spectrumBins.dropFirst()).allSatisfy { $0.upperBound <= $1.lowerBound },
+                   "every visualizer band reads spectrum bins of its own")
+            let mirrored = NotchAudioLevelSupport.mirrored([1, 0.5, 0], bars: 6)
+            expect(mirrored == mirrored.reversed() && mirrored[2] == 1 && mirrored[0] == 0,
+                   "the visualizer mirrors the bass into the middle and the treble to both ends")
+            let spread = NotchAudioLevelSupport.spread([1, 0.5, 0], bars: 6)
+            expect(spread.count == 6 && spread.first == 1 && spread.last == 0
+                   && zip(spread, spread.dropFirst()).allSatisfy { $0 >= $1 },
+                   "the retro, LED and wave styles run from the bass on the left to the treble on the right")
+            expect(NotchMusicVisualizerStyle(rawValue: "") == nil
+                   && NotchMusicVisualizerStyle.current(in: UserDefaults(suiteName: "ryzenstatus.tests.visualizer.style")!) == .retro,
+                   "the visualizer starts in the retro style")
+            let focusOn = NotchFocusSupport.activeMode(
+                inLogMessage: "Handling state update: com.apple.donotdisturb.mode.default; previous: (null)")
+            let focusOff = NotchFocusSupport.activeMode(
+                inLogMessage: "Handling state update: (null); previous: com.apple.donotdisturb.mode.default")
+            let focusOther = NotchFocusSupport.activeMode(
+                inLogMessage: "Ignoring request to coordinate app configurations; from and to mode are the same.")
+            expect(focusOn == "com.apple.donotdisturb.mode.default" && focusOff == "" && focusOther == nil,
+                   "a Focus turning on or off is read from the log line that reports it, and nothing else")
+            expect(abs(NotchAudioLevelSupport.bass([0.8, 0.6, 0.1]) - 0.7) < 1e-9 && NotchAudioLevelSupport.bass(nil) == 0,
+                   "the bass is the spectrum's two lowest bands")
+            var peaks = NotchAudioLevelSupport.PeakHold()
+            _ = peaks.next([0.9], at: 0, step: 0.1)
+            let held = peaks.next([0.1], at: 0.2, step: 0.1)
+            let sinking = peaks.next([0.1], at: 1, step: 0.1)
+            expect(held == [0.9] && sinking[0] < 0.9 && sinking[0] >= 0.1,
+                   "a peak cap rests a moment, then sinks no lower than its bar")
+            expect(visualizer.shows(mode: .titleThenVisualizer, named: false, playing: true, reduceMotion: false)
+                   && !visualizer.shows(mode: .titleThenVisualizer, named: true, playing: true, reduceMotion: false)
+                   && !visualizer.shows(mode: .title, named: false, playing: true, reduceMotion: false)
+                   && !visualizer.shows(mode: .visualizer, named: false, playing: true, reduceMotion: true)
+                   && !visualizer.shows(mode: .visualizer, named: false, playing: false, reduceMotion: false),
+                   "the bars show only while a song plays unnamed, in a mode with them and with motion allowed")
+            expect(visualizer.namesPaused(mode: .visualizer, playing: false)
+                   && !visualizer.namesPaused(mode: .title, playing: false)
+                   && !visualizer.namesNewSong(.visualizer) && visualizer.namesNewSong(.titleThenVisualizer),
+                   "a paused song is named where the bars were, and only the visualizer skips a new song's name")
+            let visualizerDefaults = UserDefaults(suiteName: "visualizer-tests-\(UUID().uuidString)")!
+            visualizerDefaults.set(7, forKey: DefaultsKey.notchMusicTitleSeconds)
+            let fallbackSeconds = visualizer.titleSeconds(in: visualizerDefaults)
+            visualizerDefaults.set(10, forKey: DefaultsKey.notchMusicTitleSeconds)
+            expect(fallbackSeconds == 5 && visualizer.titleSeconds(in: visualizerDefaults) == 10
+                   && NotchMusicVisualizerMode.current(in: visualizerDefaults) == .titleThenVisualizer,
+                   "the name's time is one of the choices, and the name then the visualizer is the default")
             expect(!NotchMascotAccessory.santaHat.isPickable && NotchMascotAccessory.bow.isPickable,
                    "costumes cannot be picked")
             expect(wardrobe.effective(chosen: .crown, level: 3, date: day(2026, 6, 15), adopted: nil,

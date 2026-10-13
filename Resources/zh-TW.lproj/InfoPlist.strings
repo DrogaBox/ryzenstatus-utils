@@ -9,3 +9,7 @@
 
 /* macOS Microphone permission prompt. */
 "NSMicrophoneUsageDescription" = "RyzenStatus 使用您的麥克風在螢幕錄影中加入您的聲音並監測音訊電平。";
+
+/* macOS Location permission prompt. */
+"NSLocationUsageDescription" = "RyzenStatus 只會使用你的位置來計算前往即將到來的行程所需的路程時間，讓動態島提醒你何時出發。你的位置不會被儲存。";
+"NSLocationWhenInUseUsageDescription" = "RyzenStatus 只會使用你的位置來計算前往即將到來的行程所需的路程時間，讓動態島提醒你何時出發。你的位置不會被儲存。";

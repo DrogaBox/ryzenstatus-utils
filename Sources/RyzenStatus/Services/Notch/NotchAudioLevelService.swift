@@ -17,6 +17,8 @@ final class NotchAudioLevelService: ObservableObject {
 
     /// Band levels from 0 to 1 while a player is being read, nil otherwise.
     @Published private(set) var levels: [Double]?
+    /// The visualizer's finer spectrum, read along with the bands.
+    @Published private(set) var spectrum: [Double]?
 
     private var enabled = false
     private var subscription: AnyCancellable?
@@ -52,6 +54,7 @@ final class NotchAudioLevelService: ObservableObject {
         readerPID = 0
         readerID = nil
         if levels != nil { levels = nil }
+        if spectrum != nil { spectrum = nil }
     }
 
     private func playbackChanged(_ playback: NowPlayingPlayback?) {
@@ -150,9 +153,10 @@ final class NotchAudioLevelService: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
     }
 
-    private func receive(_ next: [Double], from pid: pid_t) {
-        guard reader != nil, readerPID == pid, levels != next else { return }
-        levels = next
+    private func receive(_ next: NotchAudioLevelSupport.Reading, from pid: pid_t) {
+        guard reader != nil, readerPID == pid else { return }
+        if levels != next.bands { levels = next.bands }
+        if spectrum != next.spectrum { spectrum = next.spectrum }
     }
 }
 
@@ -215,7 +219,7 @@ private final class NotchAudioLevelReader {
     private let queue = DispatchQueue(label: "com.ryzenstatus.notch-audio-levels", qos: .utility)
     private static let teardownQueue = DispatchQueue(label: "com.ryzenstatus.notch-audio-levels.teardown", qos: .utility)
     private let pid: pid_t
-    private let onLevels: ([Double]) -> Void
+    private let onLevels: (NotchAudioLevelSupport.Reading) -> Void
     private let onSilence: () -> Void
     private let onUnavailable: () -> Void
     private let onProcessesLeft: () -> Void
@@ -229,6 +233,7 @@ private final class NotchAudioLevelReader {
     private var timer: DispatchSourceTimer?
     private var analyzer: NotchAudioAnalyzer?
     private var smoother = NotchAudioLevelSupport.Smoother()
+    private var spectrumSmoother = NotchAudioLevelSupport.Smoother()
     private var samples: [Float] = []
     private var hostDeviceUID: String?
     private var sampleRate: Double = 0
@@ -245,7 +250,7 @@ private final class NotchAudioLevelReader {
     private var processCheck: DispatchWorkItem?
     private var stopped = false
 
-    init(pid: pid_t, onLevels: @escaping ([Double]) -> Void,
+    init(pid: pid_t, onLevels: @escaping (NotchAudioLevelSupport.Reading) -> Void,
          onSilence: @escaping () -> Void, onUnavailable: @escaping () -> Void,
          onProcessesLeft: @escaping () -> Void) {
         self.pid = pid
@@ -562,7 +567,8 @@ private final class NotchAudioLevelReader {
         }
         let magnitudes = analyzer.magnitudes(of: samples)
         let raw = NotchAudioLevelSupport.bandLevels(magnitudes: magnitudes, bands: analyzer.bands)
-        onLevels(smoother.next(raw))
+        let fine = NotchAudioLevelSupport.bandLevels(magnitudes: magnitudes, bands: analyzer.spectrumBands)
+        onLevels(NotchAudioLevelSupport.Reading(bands: smoother.next(raw), spectrum: spectrumSmoother.next(fine)))
     }
 
     // MARK: - Core Audio
@@ -708,6 +714,7 @@ private final class NotchAudioRing {
 private final class NotchAudioAnalyzer {
     let size = 1024
     let bands: [Range<Int>]
+    let spectrumBands: [Range<Int>]
     private let setup: vDSP_DFT_Setup
     private var window: [Float]
     private var windowed: [Float]
@@ -727,6 +734,8 @@ private final class NotchAudioAnalyzer {
         outImaginary = [Float](repeating: 0, count: size)
         magnitudes = [Float](repeating: 0, count: size / 2)
         bands = NotchAudioLevelSupport.bandRanges(sampleRate: sampleRate, size: size)
+        spectrumBands = NotchAudioLevelSupport.bandRanges(sampleRate: sampleRate, size: size,
+                                                          edges: NotchAudioLevelSupport.spectrumEdgesHz)
     }
 
     deinit { vDSP_DFT_DestroySetup(setup) }

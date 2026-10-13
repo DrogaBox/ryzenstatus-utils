@@ -529,6 +529,10 @@ enum Defaults {
         DefaultsKey.notchLyricsEnabled: true,
         DefaultsKey.notchLyricsOnline: false,
         DefaultsKey.notchLiveEqualizer: false,
+        DefaultsKey.notchMusicVisualizer: "titleThenVisualizer", // NotchMusicVisualizerMode.titleThenVisualizer
+        DefaultsKey.notchMusicVisualizerStyle: "retro", // NotchMusicVisualizerStyle.retro
+        DefaultsKey.notchMusicTitleSeconds: 5,
+        DefaultsKey.notchMascotDances: true,
         DefaultsKey.notchQueueEnabled: true,
         DefaultsKey.notchDownloadsEnabled: true,
         DefaultsKey.notchWatchEnabled: true,
@@ -933,6 +937,10 @@ enum Defaults {
         DefaultsKey.notchCameraFitWidth: 0.0,
         DefaultsKey.notchCameraFitHeight: 0.0,
         DefaultsKey.notchHapticFeedback: true,
+        DefaultsKey.notchProgressiveBlur: false,
+        DefaultsKey.notchLeaveAlert: false,
+        DefaultsKey.notchLeaveTransport: "automobile",
+        DefaultsKey.notchFocusEnabled: false,
         DefaultsKey.notchTranslucentBackground: false,
         DefaultsKey.notchShelf: true,
         DefaultsKey.notchDragReveal: true,

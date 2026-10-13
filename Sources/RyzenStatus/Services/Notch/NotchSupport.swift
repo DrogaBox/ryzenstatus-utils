@@ -167,7 +167,9 @@ struct NotchCameraFit: Equatable {
 /// the middle, as the camera fit's do.
 struct NotchCapsuleFit: Equatable {
     static let widthRange = -40.0...40.0
-    static let heightRange = -4.0...4.0
+    static let heightRange = -8.0...4.0
+    /// The floating style only shrinks within the bar.
+    static let floatingHeightRange = -8.0...0.0
     static let dropRange = 0.0...20.0
     static let zero = NotchCapsuleFit(width: 0, height: 0, drop: 0)
 
@@ -914,10 +916,13 @@ enum NotchCapsuleLayout {
     /// A song being named takes the middle; otherwise `center` does, the
     /// reading the capsule centre preference shows. With neither, the strip
     /// is only its cover and bars.
-    static func musicSurface(title: String?, center: String? = nil, geometry: NotchGeometry) -> CGSize {
+    static func musicSurface(title: String?, center: String? = nil, visualizer: Bool = false,
+                             geometry: NotchGeometry) -> CGSize {
         let middle: CGFloat
         if let title {
             middle = endPadding + width(title, font: titleFont) + endPadding
+        } else if visualizer {
+            middle = endPadding + NotchMusicVisualizerSupport.width + endPadding
         } else if let center, !center.isEmpty {
             middle = endPadding + centerWidth(center) + endPadding
         } else {
@@ -926,14 +931,16 @@ enum NotchCapsuleLayout {
         }
         let content = artworkSide(geometry) + middle + barsWidth
         return surface(content: content, leading: artworkInset(geometry), maximum: Maximum.music,
-                       shrinks: title == nil && (center ?? "").isEmpty, geometry: geometry)
+                       shrinks: title == nil && !visualizer && (center ?? "").isEmpty, geometry: geometry)
     }
 
     /// The capsule at rest with a center reading, the companion resting at
     /// the start of the row when it shows.
-    static func restingCenterSurface(text: String, companion: Bool, geometry: NotchGeometry) -> CGSize {
+    static func restingCenterSurface(text: String, companion: Bool, visualizer: Bool = false,
+                                     geometry: NotchGeometry) -> CGSize {
         let mascot = companion ? restingCenterMascotSize(geometry) + groupSpacing : 0
-        return surface(content: mascot + centerWidth(text), maximum: Maximum.activity, geometry: geometry)
+        let middle = visualizer ? NotchMusicVisualizerSupport.width + endPadding : centerWidth(text)
+        return surface(content: mascot + middle, maximum: Maximum.activity, geometry: geometry)
     }
 
     static func restingCenterMascotSize(_ geometry: NotchGeometry) -> CGFloat {
@@ -1442,6 +1449,10 @@ enum NotchEvent: String, CaseIterable {
     case volume, brightness, battery, clipboard, capture, systemNotification, keyboardLight, timer, accessory, download, agents, track, microphone, watch, inputSource
     /// The companion's own word: a daily greeting, a new level, an anniversary.
     case companion
+    /// The moment to set off for an event somewhere else.
+    case leave
+    /// A Focus turning on or off.
+    case focus
 
     var preferenceKey: String {
         switch self {
@@ -1461,14 +1472,16 @@ enum NotchEvent: String, CaseIterable {
         case .clipboard: return DefaultsKey.notchClipboard
         case .capture: return DefaultsKey.notchCapture
         case .companion: return DefaultsKey.notchMascotSpeech
+        case .leave: return DefaultsKey.notchLeaveAlert
+        case .focus: return DefaultsKey.notchFocusEnabled
         }
     }
 
     var priority: Int {
         switch self {
         case .volume, .brightness, .keyboardLight, .microphone, .inputSource: return 3
-        case .capture, .timer, .watch: return 2
-        case .battery, .systemNotification, .accessory, .agents: return 1
+        case .capture, .timer, .watch, .leave: return 2
+        case .battery, .systemNotification, .accessory, .agents, .focus: return 1
         case .clipboard, .download, .track, .companion: return 0
         }
     }
@@ -1483,6 +1496,8 @@ enum NotchEvent: String, CaseIterable {
         case .clipboard: return 2.5
         case .capture: return 12
         case .companion: return 3.5
+        case .leave: return 8
+        case .focus: return 2.5
         }
     }
 }
@@ -1811,6 +1826,8 @@ enum NotchSupport {
         // A layout notice needs no feature of its own, only its own toggle.
         case .inputSource: return true
         case .companion: return NotchMascotSupport.isEnabled(in: defaults)
+        case .leave: return NotchCalendarSupport.isEnabled(in: defaults)
+        case .focus: return true
         }
     }
 
@@ -2048,20 +2065,25 @@ struct NotchGeometry: Equatable {
         // The floating style is a capsule too, only below the bar.
         let below = !isNotched && silhouette == .floating
         floatsBelowMenuBar = below
+        // Closed, the floating style sits in the bar like a status item: a
+        // smaller fit shrinks it evenly within its margins, so it stays
+        // centred, and never moves it down.
+        let floatingShrink = below ? max(0, -capsuleFit.height) / 2 : 0
         let gap: CGFloat? = !isNotched && (silhouette == .capsule || below)
-            ? NotchLayout.capsuleGap(barHeight: barHeight) : nil
+            ? NotchLayout.capsuleGap(barHeight: barHeight) + floatingShrink : nil
         floatingGap = gap
         // A fitted capsule grows from its top edge, keeping its margins. The
-        // floating style takes its place from the bar, not from a fit.
-        let capsuleFit = gap == nil || below ? NotchCapsuleFit.zero : capsuleFit
+        // floating style takes its place from the bar and only its width from a fit.
+        let capsuleFit = gap == nil ? NotchCapsuleFit.zero
+            : below ? NotchCapsuleFit(width: Double(capsuleFit.width), height: 0, drop: 0) : capsuleFit
         compactDrop = capsuleFit.drop
         capsuleWidthFit = capsuleFit.width
         // The bar ends in a hairline, `barEdge` thick, that reads as its edge:
         // the capsule's margin below is measured from it, as the one above is
         // from the top of the display, so the capsule shows centred in the
-        // bar. Its width keeps following the whole bar. Below the bar there
-        // is no hairline to centre on.
-        let edge = barEdge.isFinite && !below ? min(max(0, barEdge), 1) : 0
+        // bar. Its width keeps following the whole bar. The floating style's
+        // closed capsule sits in the bar too, so it centres on the same line.
+        let edge = barEdge.isFinite ? min(max(0, barEdge), 1) : 0
         let fullStrip = gap.map { max(barHeight + capsuleFit.height, $0 * 2 + 12) }
         let stripHeight = gap.map { max(barHeight - edge + capsuleFit.height, $0 * 2 + 12) } ?? barHeight
         let profileHeight = gap.flatMap { gap in fullStrip.map { $0 - (gap - NotchLayout.capsuleMargin) * 2 } }

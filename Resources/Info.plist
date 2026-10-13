@@ -37,13 +37,13 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.42.0</string>
+	<string>1.45.0</string>
 	<key>CFBundleSupportedPlatforms</key>
 	<array>
 		<string>MacOSX</string>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>87</string>
+	<string>90</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>
@@ -58,6 +58,10 @@
 	<string>RyzenStatus taps individual app audio only to adjust each app's volume in the mixer. Nothing is recorded or leaves your Mac.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>RyzenStatus uses Bluetooth only to read the battery level of connected peripherals. Nothing leaves your Mac.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>RyzenStatus uses your location only to work out the travel time to an upcoming event, so the Dynamic Island can tell you when to leave. Your location is not stored.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>RyzenStatus uses your location only to work out the travel time to an upcoming event, so the Dynamic Island can tell you when to leave. Your location is not stored.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>RyzenStatus shows your upcoming appointments in the Dynamic Island. Calendar events stay on this Mac.</string>
 	<key>NSCameraUsageDescription</key>

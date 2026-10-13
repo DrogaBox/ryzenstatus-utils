@@ -193,4 +193,7 @@ struct NowPlayingQueue: Equatable {
     let canPlay: Bool
     /// Shuffle is on, so the playlist order says nothing about what plays next.
     var isShuffled = false
+    /// Music plays from outside a library playlist, as an Apple Music
+    /// stream does, and keeps that queue to itself.
+    var isStreaming = false
 }

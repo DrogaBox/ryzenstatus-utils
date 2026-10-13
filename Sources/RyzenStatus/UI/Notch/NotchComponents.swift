@@ -237,11 +237,26 @@ struct NotchPillButton: View {
 struct NotchArtwork: View {
     let image: NSImage?
     let size: CGFloat
+    /// The cover's fingerprint. Given one, a new cover turns over into place.
+    var identity: String? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        if let identity, !reduceMotion {
+            ZStack {
+                cover.id(identity).transition(NotchArtworkFlip.transition)
+            }
+            .frame(width: size, height: size)
+            .animation(.linear(duration: NotchArtworkFlip.half * 2), value: identity)
+        } else {
+            cover
+        }
+    }
+
+    private var cover: some View {
         Group {
             if let image {
-                Image(nsImage: image).resizable().scaledToFill()
+                Image(nsImage: NotchArtworkLift.image(for: image)).resizable().scaledToFill()
             } else {
                 Color.black.overlay {
                     Image(systemName: "music.note")

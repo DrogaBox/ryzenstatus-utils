@@ -87,6 +87,22 @@ enum NotchMascotGrowth {
     /// Ages in days worth a celebration, then every year.
     static let milestoneAges = [7, 30, 100, 365]
 
+    /// The name that dresses it with everything: every level shown, every
+    /// accessory and transformation unlocked, for as long as it is called
+    /// that. The experience it really earned is kept underneath, so another
+    /// name brings its own level back.
+    static let unlockAllName = "DrogaBox"
+
+    static func unlocksEverything(name: String?) -> Bool {
+        (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == unlockAllName
+    }
+
+    /// The level to show and unlock with: the earned one, or the last for
+    /// the name that unlocks everything.
+    static func shownLevel(earned: Int, name: String?) -> Int {
+        unlocksEverything(name: name) ? maxLevel : earned
+    }
+
     static func level(for experience: Int) -> Int {
         thresholds.lastIndex { experience >= $0 }.map { $0 + 1 } ?? 1
     }
@@ -298,6 +314,12 @@ final class NotchMascotBondStore: ObservableObject {
 
     var level: Int { NotchMascotGrowth.level(for: bond.experience) }
 
+    /// The level shown and unlocked with, which the name can lift to the top.
+    var shownLevel: Int { NotchMascotGrowth.shownLevel(earned: level, name: displayName) }
+
+    /// Everything unlocked by its name rather than by growing.
+    var unlocksEverything: Bool { NotchMascotGrowth.unlocksEverything(name: displayName) }
+
     /// Counts `event` now, announces a new level, and answers the experience
     /// it brought.
     @discardableResult
@@ -397,14 +419,21 @@ extension NotchMascotSupport {
     static func form(in defaults: UserDefaults = .standard) -> NotchMascotForm? {
         NotchMascotTransformation.effective(
             choice: NotchMascotFormChoice(rawValue: defaults.string(forKey: DefaultsKey.notchMascotForm)),
-            level: max(1, defaults.integer(forKey: DefaultsKey.notchMascotLevel)))
+            level: shownLevel(in: defaults))
+    }
+
+    /// The level stored with its experience, lifted by the name that
+    /// unlocks everything.
+    static func shownLevel(in defaults: UserDefaults = .standard) -> Int {
+        NotchMascotGrowth.shownLevel(earned: max(1, defaults.integer(forKey: DefaultsKey.notchMascotLevel)),
+                                     name: defaults.string(forKey: DefaultsKey.notchMascotName))
     }
 
     /// The accessory to draw now, cheap enough for every redraw: the level
     /// and the adoption day come from plain preferences.
     static func accessory(in defaults: UserDefaults = .standard, now: Date = Date()) -> NotchMascotAccessory {
         let chosen = NotchMascotAccessory(rawValue: defaults.string(forKey: DefaultsKey.notchMascotAccessory) ?? "") ?? .none
-        let level = max(1, defaults.integer(forKey: DefaultsKey.notchMascotLevel))
+        let level = shownLevel(in: defaults)
         return NotchMascotWardrobe.effective(chosen: chosen, level: level, date: now,
                                              adopted: NotchMascotBondStore.shared.bond.adopted,
                                              seasonal: defaults.bool(forKey: DefaultsKey.notchMascotSeasonal),

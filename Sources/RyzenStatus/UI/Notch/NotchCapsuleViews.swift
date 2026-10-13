@@ -244,12 +244,24 @@ struct NotchCapsuleRestingView: View {
                             if service.mascotShows(on: geometry) {
                                 Color.clear.frame(width: CapsuleLayout.restingCenterMascotSize(geometry))
                             }
-                            Text(center).font(Font(CapsuleLayout.levelFont as CTFont)).lineLimit(1)
-                                .truncationMode(.tail).foregroundStyle(.white.opacity(0.85))
-                                .contentTransition(.numericText())
-                                .frame(maxWidth: .infinity)
+                            Group {
+                                if service.restingVisualizes {
+                                    NotchLiveSpectrumBars(height: CapsuleLayout.artworkSide(geometry),
+                                                          tint: music.artworkTint?.color ?? .white)
+                                        .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .center)))
+                                } else {
+                                    NotchMarquee {
+                                        Text(center).font(Font(CapsuleLayout.levelFont as CTFont))
+                                            .foregroundStyle(.white.opacity(0.85))
+                                            .contentTransition(.numericText())
+                                    }
+                                    .transition(.opacity)
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
                         }
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: center)
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: service.restingVisualizes)
                     }
                 }
             }
@@ -272,9 +284,12 @@ struct NotchCapsuleMusicStrip: View {
     var interactive = false
     @ObservedObject private var music = NowPlayingService.shared
     @ObservedObject private var l10n = L10n.shared
+    @AppStorage(DefaultsKey.notchMusicVisualizer) private var visualizerMode = NotchMusicVisualizerMode.titleThenVisualizer.rawValue
+    @AppStorage(DefaultsKey.notchMascotDances) private var mascotDances = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var geometry: NotchGeometry { snapshot?.geometry ?? displayGeometry ?? service.geometry }
+    private var mode: NotchMusicVisualizerMode { NotchMusicVisualizerMode(rawValue: visualizerMode) ?? .titleThenVisualizer }
     /// A new song stays off the strip until its notice has shown it, and a
     /// held song through a reading from its player without a name.
     private var shown: NotchCompactMusicSnapshot? {
@@ -299,11 +314,20 @@ struct NotchCapsuleMusicStrip: View {
         // A song is named as it starts and while the pointer rests on its
         // cover, and a strip on its way out leaves as it was. Otherwise the
         // cover and bars say enough.
+        // With the visualizer, a paused song is named instead, and the bars
+        // fill the middle the rest of the time.
+        let songPlaying = playback?.isPlaying == true
         let named = service.capsuleMusicTitleShown || (live ? service.musicStripNamesSong : snapshot?.namesSong == true)
+            || NotchMusicVisualizerSupport.namesPaused(mode: mode, playing: songPlaying)
+        let visualizes = NotchMusicVisualizerSupport.shows(mode: mode, named: named, playing: songPlaying,
+                                                           reduceMotion: reduceMotion)
         // Otherwise the centre preference's reading, which a strip on its way out leaves behind.
         let center = snapshot == nil ? service.capsuleCenterText : nil
+        // The companion dances at the far end while the bars play, unless the
+        // pointer asks there for the play or pause button.
+        let dances = visualizes && mascotDances && NotchMascotSupport.isEnabled()
         NotchCapsuleRow(size: size ?? CapsuleLayout.musicSurface(title: named ? title : nil, center: center,
-                                                                 geometry: geometry),
+                                                                 visualizer: visualizes, geometry: geometry),
                         geometry: geometry, leading: 0, trailing: 0) {
             HStack(spacing: 0) {
                 NotchMusicCover(artwork: artwork, side: side, radius: side / 2)
@@ -312,23 +336,40 @@ struct NotchCapsuleMusicStrip: View {
                     .contentShape(Rectangle())
                     .onHover { if live { service.hoverMusicStrip(.cover, entered: $0) } }
                 Group {
-                    if named { Text(title).capsuleTitle().truncationMode(.tail).transition(.opacity) }
-                    else if let center {
+                    if named { NotchMarquee { Text(title).capsuleTitle() }.transition(.opacity) }
+                    else if visualizes {
+                        NotchLiveSpectrumBars(isPlaying: playing, height: CapsuleLayout.artworkSide(geometry),
+                                              tint: tint?.color ?? .white)
+                            .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .center)))
+                    } else if let center {
                         Text(center).font(Font(CapsuleLayout.levelFont as CTFont)).lineLimit(1)
                             .truncationMode(.tail).foregroundStyle(.white.opacity(0.85))
                             .contentTransition(.numericText()).transition(.opacity)
                     } else { Color.clear }
                 }
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: center)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: visualizes)
                 .padding(.horizontal, CapsuleLayout.endPadding)
                 .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+                // Resting on the bars names the song, as on the cover, and
+                // leaving gives the bars back.
+                .onHover { entered in
+                    if live && (visualizes || !entered) { service.hoverMusicStrip(.cover, entered: entered) }
+                }
                 ZStack {
-                    NotchLiveEqualizerBars(isPlaying: playing && !showsControl,
+                    NotchLiveEqualizerBars(isPlaying: playing && !showsControl && !visualizes,
                                            bars: NotchLayout.compactMusicBarCount,
                                            barWidth: NotchLayout.compactMusicBarWidth,
                                            height: CapsuleLayout.barsHeight(geometry),
                                            tint: tint?.color ?? .white)
-                        .opacity(showsControl ? 0 : 1)
+                        .opacity(showsControl || visualizes ? 0 : 1)
+                    if dances && !showsControl {
+                        let side = min(CapsuleLayout.barsWidth, CapsuleLayout.artworkSide(geometry))
+                        NotchMascotView(look: NotchMascotSupport.look(), mood: .happy, size: side, dances: true)
+                            .frame(width: side, height: side)
+                            .transition(.opacity)
+                    }
                     if showsControl {
                         NotchMusicStripButton(playing: playing, tint: tint?.color ?? .white,
                                               height: CapsuleLayout.barsHeight(geometry))
@@ -336,6 +377,7 @@ struct NotchCapsuleMusicStrip: View {
                     }
                 }
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: showsControl)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: dances)
                 .padding(.trailing, CapsuleLayout.endPadding)
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())

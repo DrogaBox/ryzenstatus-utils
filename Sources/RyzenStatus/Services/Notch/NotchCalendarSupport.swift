@@ -26,6 +26,9 @@ struct NotchCalendarEvent: Equatable, Identifiable, Sendable {
     /// How a countdown chosen from the event's menu remembers it; see
     /// `NotchCalendarSupport.countdownKey`.
     var countdownKey = ""
+    /// Where the event takes place, when the calendar pinned it on a map.
+    var latitude: Double? = nil
+    var longitude: Double? = nil
 }
 
 /// What the closed island counts down to: an event's start or, while the

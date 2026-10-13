@@ -1,6 +1,48 @@
 # Changelog
 
-## [Unreleased]
+## [1.45.0] — 2026-10-13 — kexts 3.34.17 (No kext changes)
+
+The Dynamic Island learns new moves and new looks: swipe sideways through what it shows and flick notices away, pick a retro, LED, mirror or wave visualizer that also plays beside the companion, and let the island say when a Focus turns on or when it is time to leave for your next event. Long song names scroll, dark covers keep their edges, and the floating capsule sits centred in the menu bar at the size you choose.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.34.17. Only the application's validation version pin changes.
+
+### Added
+
+- **Visualizer styles**: Retro, bars rising from the floor with the bass on the left, green into yellow into red, and grey caps that rest on the peaks; LED, bars of lit blocks in the cover's colour with one block left floating at the peak, like a 90s hi-fi; Mirror, the bars of 1.44.0 growing up and down from the middle; and Wave, one glowing line over the spectrum. Pick one in Settings › Dynamic Island › Content › Music, next to a live preview. Retro is the new default.
+- **Visualizer beside the companion**: with the capsule resting on the companion and the song in its middle, a new song is named for a few seconds and then the visualizer takes its place, as it does in the music capsule.
+- **Swipe gestures**: with Dynamic Island gestures on, swiping sideways on the closed island switches between the activities it shows (or skips the song on the music capsule), and swiping up flicks a notice away.
+- **Time to leave**: before a calendar event that has a place, the island tells you when to set off, from the travel time there by car, on foot or by transit. Turn it on under Settings › Dynamic Island › Content › Calendar. Your location is asked for only while it is on and is used only for the route through Apple Maps.
+- **Focus on the island**: the island shows when a Focus turns on or off, with the name and symbol you gave it. Turn it on in Settings › Dynamic Island › Activity › Indicators.
+- **Blur behind the open island**: the top of the screen blurs and darkens behind the open island, fading out below it, so what it shows reads over a busy window. It is in Settings › Dynamic Island › Layout and stays off with Reduce Transparency.
+- **Floating capsule size**: Capsule fit now works with the floating style too. Width narrows it and height makes it smaller, evenly above and below so it stays centred in the menu bar.
+
+### Changed
+
+- **Long song names scroll** in the capsule, pausing at their start each time round, instead of being cut short. With Reduce Motion they are still cut short.
+- **Hovering names the song again**: moving the pointer onto the closed island shows the song's name and starts its seconds over before the visualizer returns.
+- **Covers**: a dark cover has its deepest shadows lifted just off black so it keeps its edges on the island, and a new cover turns over like a card.
+- **Apple Music streaming queue**: when Music plays from Apple Music outside your library, the queue page now says that Music does not share what plays next there, and that an album or playlist from your library shows it.
+
+### Fixed
+
+- **Floating capsule centring**: the floating style's capsule sat half a point low in the menu bar, because it centred on the bar including its bottom hairline. It now keeps the same margin above and below, as the capsule style does.
+
+## [1.44.0] — 2026-10-13 — kexts 3.34.17 (No kext changes)
+
+The Dynamic Island gets a music visualizer: a new song is named for a few seconds, then mirrored bars move with the music in the middle of the capsule while the companion dances to the bass at its end.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.34.17. Only the application's validation version pin changes.
+
+### Added
+
+- **Music visualizer in the Dynamic Island**: on a capsule island, a new song's name shows for a few seconds and then 20 mirrored bars take the middle, bass in the centre and treble at both ends, in the cover's colour, each with a peak cap that rests and sinks slowly. They follow the real sound with "Bars follow the music" on and keep their own motion otherwise. Resting the pointer on them or pausing names the song again. Pick between the song name, the name then the visualizer, or the visualizer only, and how long the name stays (3, 5 or 10 seconds), in Settings › Dynamic Island › Music.
+- **The companion dances**: while the visualizer plays it stands at the end of the island and nods to the bass. It can be turned off in the same place.
+
+## [1.43.0] — 2026-10-13 — kexts 3.34.17 (No kext changes)
+
+The companion grows up: it now reaches level 50, and levels 20, 30, 40 and 50 unlock four transformations with their own auras and a full transformation scene, and petting it finally shows. The Dynamic Island queue page lists what Apple Music plays next.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.34.17. Only the application's validation version pin changes.
 
 ### Added
 

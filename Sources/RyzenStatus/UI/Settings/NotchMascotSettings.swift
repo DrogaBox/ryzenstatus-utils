@@ -46,7 +46,7 @@ struct NotchMascotSettings: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var life: NotchMascotLifeStrings { FeatureStrings.notchMascotLife(l10n.language) }
-    private var level: Int { bondStore.level }
+    private var level: Int { NotchMascotGrowth.shownLevel(earned: bondStore.level, name: petName) }
     private var chosenAccessory: NotchMascotAccessory { NotchMascotAccessory(rawValue: accessory) ?? .none }
     private var forms: NotchMascotFormStrings { FeatureStrings.notchMascotForms(l10n.language) }
     private var choice: NotchMascotFormChoice { NotchMascotFormChoice(rawValue: formChoice) }
@@ -241,7 +241,9 @@ struct NotchMascotSettings: View {
 
     private var storyCard: some View {
         let bond = bondStore.bond
-        let progress = NotchMascotGrowth.progress(for: bond.experience)
+        // The name that unlocks everything shows it at the top, full bar.
+        let progress = NotchMascotGrowth.unlocksEverything(name: petName)
+            ? nil : NotchMascotGrowth.progress(for: bond.experience)
         return SettingsCard(title: life.bondTitle) {
             Text(life.bondHint).font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -249,8 +251,16 @@ struct NotchMascotSettings: View {
                 TextField(life.namePlaceholder, text: $petName)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 180)
-                    .onChange(of: petName) { _, name in
+                    .onChange(of: petName) { old, name in
                         if name.count > 24 { petName = String(name.prefix(24)) }
+                        // Taking the name that unlocks everything greets it
+                        // with the transformation it now has.
+                        if NotchMascotGrowth.unlocksEverything(name: name),
+                           !NotchMascotGrowth.unlocksEverything(name: old) {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                NotificationCenter.default.post(name: .notchMascotTransforms, object: nil)
+                            }
+                        }
                     }
             }
             SettingsRow(symbol: "star.fill", title: life.level(level)) {

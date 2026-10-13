@@ -68,6 +68,7 @@ final class NotchService: ObservableObject {
     private var windowHost: NotchWindowHost?
     /// The companion in the menu bar while a floating island is open below it.
     private let mascotPerch = NotchMascotPerch()
+    private let blurBackdrop = NotchBlurBackdrop()
     private var panel: NotchPanel? { windowHost?.panel }
     private var captureControlsCancel: (() -> Void)?
     private var captureControlsSubscription: AnyCancellable?
@@ -293,7 +294,6 @@ final class NotchService: ObservableObject {
     @Published private(set) var showingCommandBar = false
     @Published private var commandBarHeight: CGFloat?
     private var musicTitleWork: DispatchWorkItem?
-    private static let musicTitleDuration: TimeInterval = 4
     /// What the capsule's middle shows beside a closed song, by the centre
     /// preference; nil leaves only the cover and the bars.
     @Published private(set) var capsuleCenterText: String?
@@ -330,10 +330,21 @@ final class NotchService: ObservableObject {
         return capsuleCenterText
     }
 
-    /// A capsule at rest: bare, or as wide as its center reading.
+    /// At rest beside the companion, a playing song's reading gives way to
+    /// the visualizer once the song has been named, as the music strip's does.
+    var restingVisualizes: Bool {
+        guard restingCenterText != nil, NotchCapsuleCenter.current() == .song,
+              NowPlayingService.shared.playback?.isPlaying == true else { return false }
+        return NotchMusicVisualizerSupport.shows(
+            mode: .current(), named: capsuleMusicTitleShown, playing: true,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+    }
+
+    /// A capsule at rest: bare, or as wide as its center reading or the visualizer.
     private func restingCapsuleSize(on geometry: NotchGeometry) -> CGSize {
         guard let text = restingCenterText else { return geometry.restingSize(showsContent: false) }
-        return NotchCapsuleLayout.restingCenterSurface(text: text, companion: mascotShows(on: geometry), geometry: geometry)
+        return NotchCapsuleLayout.restingCenterSurface(text: text, companion: mascotShows(on: geometry),
+                                                       visualizer: restingVisualizes, geometry: geometry)
     }
 
     /// Nothing at all to show, not even the companion: nothing is drawn, and
@@ -931,7 +942,7 @@ final class NotchService: ObservableObject {
                                   geometry: NotchGeometry? = nil) -> CGSize {
         // Only the island's own capsule is under the pointer. Its copies name a song as it starts.
         let ownDisplay = geometry == nil
-        let named = capsuleMusicTitleShown || ownDisplay && musicStripNamesSong
+        var named = capsuleMusicTitleShown || ownDisplay && musicStripNamesSong
         let geometry = geometry ?? self.geometry
         let layout = NotchCapsuleLayout.self
         let language = L10n.shared.language
@@ -942,9 +953,16 @@ final class NotchService: ObservableObject {
             let live = NowPlayingService.shared.playback
             let shown = heldMusic ?? (ownDisplay ? musicStripStandIn(for: live) : nil)
             let playback = shown?.playback ?? live
+            // The same choice the strip makes between the name and the bars.
+            let mode = NotchMusicVisualizerMode.current()
+            let playing = playback?.isPlaying == true
+            named = named || NotchMusicVisualizerSupport.namesPaused(mode: mode, playing: playing)
+            let visualizes = NotchMusicVisualizerSupport.shows(
+                mode: mode, named: named, playing: playing,
+                reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
             return layout.musicSurface(title: named
                                         ? playback?.track.title ?? FeatureStrings.radialMenu(language).mediaNowPlaying : nil,
-                                       center: capsuleCenterText, geometry: geometry)
+                                       center: capsuleCenterText, visualizer: visualizes, geometry: geometry)
         case .timer:
             let timer = NotchTimerService.shared
             return layout.timerSurface(reading: NotchTimerSupport.compactText(for: timer.session, at: timer.now,
@@ -1052,6 +1070,8 @@ final class NotchService: ObservableObject {
         refreshModules()
         NotchDownloadService.shared.syncWithPreferences()
         NotchCalendarService.shared.syncWithPreferences()
+        NotchLeaveService.shared.syncWithPreferences()
+        NotchFocusService.shared.syncWithPreferences()
         NotchNotificationService.shared.syncWithPreferences()
         NotchAudioLevelService.shared.syncWithPreferences()
         AgentUsageService.shared.syncWithPreferences()
@@ -1186,7 +1206,10 @@ final class NotchService: ObservableObject {
         NotchAccessoryService.shared.suspend()
         NotchDownloadService.shared.stop()
         NotchCalendarService.shared.stop()
+        NotchLeaveService.shared.stop()
+        NotchFocusService.shared.stop()
         NotchNotificationService.shared.stop()
+        blurBackdrop.hide()
         AgentUsageService.shared.pause()
         settingsSignature = ""
         expanded = false
@@ -1225,6 +1248,7 @@ final class NotchService: ObservableObject {
         capsuleCenterText = nil
         mascotPerch.hide(animated: false)
         closeMirrors()
+        blurBackdrop.hide()
         windowHost?.close()
         windowHost = nil
         // Shown again, an island that follows the pointer starts on its display.
@@ -1411,6 +1435,8 @@ final class NotchService: ObservableObject {
             && windowHost?.isConcealedForMissionControl == false
             : floatingStrip || windowHost?.containsHover(point) == true || pointerOverChildWindow(point)
         hoverState.update(pointerInside: inside)
+        // Coming onto the closed island names the song again.
+        if inside, !wasInside, !expanded, !peeking, notice == nil { nameCapsuleSong(again: true) }
         // The music strip names its song only while the pointer stays on the
         // island: leaving ends it, and a name left from before goes on return.
         let unnamesMusic = inside != wasInside && endMusicStripHover(leaving: !inside)
@@ -2178,7 +2204,7 @@ final class NotchService: ObservableObject {
              : selectedNotice.event == .accessory ? .system : selectedNotice.event == .systemNotification ? .notifications
              : selectedNotice.event == .clipboard ? .clipboard : selectedNotice.event == .agents ? .agents
              : selectedNotice.event == .track ? .music : selectedNotice.event == .microphone ? .mixer
-             : selectedNotice.event == .watch ? .watch : .controls)
+             : selectedNotice.event == .watch ? .watch : selectedNotice.event == .leave ? .calendar : .controls)
     }
 
     /// Skipping through songs, or a title that lands before its artist, shows
@@ -2466,6 +2492,7 @@ final class NotchService: ObservableObject {
             syncMirrors()
             flushMascotReaction()
             mascotRestedInView = mascotRestsInView && !expanded
+            syncBlurBackdrop()
         }
         if hiddenUntilHover || (captureControls != nil && captureSelectionInProgress) {
             finishMusicDeparture()
@@ -2686,11 +2713,24 @@ final class NotchService: ObservableObject {
 
     /// A new song's title shows in the capsule for a few seconds, then the
     /// capsule keeps only the cover and the bars.
-    private func nameCapsuleSong() {
+    /// `again` names the playing song once more, as the pointer comes onto
+    /// the island, and starts its few seconds over before the bars return.
+    private func nameCapsuleSong(again: Bool = false) {
         // The song held for the next one's notice is the one that ended; the
         // next song is named once the notice lets it go.
         guard heldMusic == nil else { return }
+        if again {
+            guard NowPlayingService.shared.playback?.isPlaying == true,
+                  NotchMusicVisualizerMode.current() != .title,
+                  compactActivity == .music || restingCenterText != nil else { return }
+        }
         musicTitleWork?.cancel()
+        // With only the visualizer, the bars come at once.
+        guard again || NotchMusicVisualizerSupport.namesNewSong(NotchMusicVisualizerMode.current()) else {
+            musicTitleWork = nil
+            if capsuleMusicTitleShown { capsuleMusicTitleShown = false; refreshCapsuleMusic() }
+            return
+        }
         capsuleMusicTitleShown = true
         refreshCapsuleMusic()
         let work = DispatchWorkItem { [weak self] in
@@ -2700,7 +2740,7 @@ final class NotchService: ObservableObject {
             self.refreshCapsuleMusic()
         }
         musicTitleWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.musicTitleDuration, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + NotchMusicVisualizerSupport.titleSeconds(), execute: work)
     }
 
     /// Reads the capsule's middle once a second while a preference asks for
@@ -2741,8 +2781,18 @@ final class NotchService: ObservableObject {
         }
     }
 
+    /// The visualizer's preferences changed: the capsule fits what it shows now.
+    func musicVisualizerChanged() {
+        refreshCapsuleMusic()
+    }
+
     /// A capsule is as wide as what it shows of the song, here or on another display.
     private func refreshCapsuleMusic() {
+        // A capsule resting with the song beside the companion fits the name or the bars.
+        if compactActivity == nil, geometry.floats, restingCenterText != nil {
+            refreshPresentation()
+            return
+        }
         guard compactActivity == .music,
               geometry.floats || mirrors.values.contains(where: { $0.model.geometry.floats }) else { return }
         refreshPresentation()
@@ -3686,7 +3736,11 @@ final class NotchService: ObservableObject {
         let vertical = NotchGestureSupport.allowsVertical(expanded: expanded, inHeader: inHeader,
                                                           musicSurface: musicSurface,
                                                           control: interaction.control, scroll: interaction.scroll)
-        let horizontal = !interaction.control && !interaction.scroll && !inHeader && musicSurface
+        // Over another closed activity, a sideways swipe steps through the
+        // activities the picker offers, as choosing the next one there.
+        let activitySurface = !musicSurface && compactActivityIsVisible && compactActivities.count > 1
+        let horizontal = !interaction.control && !interaction.scroll && !inHeader && (musicSurface || activitySurface)
+        let dismissible = notice != nil && !expanded && !peeking
         let x = NotchGestureSupport.movement(Double(event.scrollingDeltaX), precise: event.hasPreciseScrollingDeltas,
                                              inverted: event.isDirectionInvertedFromDevice)
         let y = NotchGestureSupport.movement(Double(event.scrollingDeltaY), precise: event.hasPreciseScrollingDeltas,
@@ -3697,15 +3751,44 @@ final class NotchService: ObservableObject {
                                           momentum: !event.momentumPhase.isEmpty,
                                           precise: event.hasPreciseScrollingDeltas,
                                           hasPhase: !event.phase.isEmpty,
-                                          allowVertical: vertical, allowHorizontal: horizontal, expanded: expanded) else { return false }
+                                          allowVertical: vertical, allowHorizontal: horizontal, expanded: expanded,
+                                          dismissible: dismissible) else { return false }
         switch action {
         case .open: open()
         case .close: collapse()
-        case .nextTrack, .previousTrack:
-            guard musicSurface else { gesture = NotchGestureSupport(); return false }
-            NowPlayingService.shared.skipFromGesture(forward: action == .nextTrack)
+        case .dismiss:
+            guard notice != nil, !expanded else { gesture = NotchGestureSupport(); return false }
+            dismissNotice()
+            provideHapticFeedback()
+        case .forward, .back:
+            if musicSurface {
+                NowPlayingService.shared.skipFromGesture(forward: action == .forward)
+            } else if activitySurface {
+                stepCompactActivity(forward: action == .forward)
+            } else {
+                gesture = NotchGestureSupport(); return false
+            }
+            // Opening taps on its own; a skip or a step has nothing else to feel.
+            provideHapticFeedback()
         }
         return true
+    }
+
+    /// The shade behind the open island, while it is open on screen.
+    private func syncBlurBackdrop() {
+        let visible = running && !suspended && expanded && !fullscreenCompact && !hiddenUntilHover
+            && panel?.isVisible == true && NotchBlurBackdrop.isEnabled()
+        let bottom = expandedGeometry.forPresentation(expanded: true).floatingDrop + surfaceSize.height
+        blurBackdrop.update(visible: visible, screen: geometry.screen, islandBottom: bottom, above: panel)
+    }
+
+    /// The next or previous closed activity, wrapping at either end.
+    private func stepCompactActivity(forward: Bool) {
+        let activities = compactActivities
+        guard activities.count > 1, let current = compactActivity,
+              let index = activities.firstIndex(of: current) else { return }
+        let next = (index + (forward ? 1 : activities.count - 1)) % activities.count
+        selectCompactActivity(activities[next])
     }
 
     private func removeEventMonitors() {
@@ -3792,6 +3875,12 @@ final class NotchService: ObservableObject {
                 .merge(with: $heldMusic.map { $0?.playback.track.title }.removeDuplicates().map { _ in () })
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] in self?.nameCapsuleSong() }
+                .store(in: &subscriptions)
+            // Pausing names the song where the visualizer was, and playing
+            // gives the bars back, so the capsule fits either.
+            music.$playback.map { $0?.isPlaying == true }.removeDuplicates().dropFirst()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in self?.refreshCapsuleMusic() }
                 .store(in: &subscriptions)
         }
         if NotchSupport.routes(.track) {
