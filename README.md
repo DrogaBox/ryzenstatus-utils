@@ -29,6 +29,11 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License GPL 3.0 or later"></a>
 </p>
 
+<p align="center">
+  <img src="docs/assets/readme/panel-system.png" width="316" alt="System tab of the menu bar panel with CPU and GPU cards, history graphs and memory">
+  <img src="docs/assets/readme/panel-amd-power.png" width="328" alt="AMD Ryzen Power tab with fan speed, Auto EPP, package power and temperature graphs and energy presets">
+</p>
+
 Per app volume, a real system monitor with AMD Ryzen telemetry and fan curves, a Dynamic Island with a companion that follows your hardware, a Command Bar, a better app switcher, window snapping, Dock previews, clipboard history, text snippets, a file shelf, an uninstaller. The utilities Mac users usually buy one by one, together behind a single menu bar icon, with no account, no telemetry and no subscription.
 
 ## Install only what you use
@@ -37,7 +42,15 @@ Nobody needs all of it, and RyzenStatus is built around that. The Features page 
 
 Three one click bundles, Essentials, Windows, and Battery and quiet, shape the whole app in one move, and onboarding ends by asking which one you want. Every feature also wears an honest energy badge saying what it keeps alive while on.
 
+<p align="center">
+  <img src="docs/assets/readme/settings-features.png" width="720" alt="The Features page in Settings, with installed features, the never switched on batch and the Dynamic Island group">
+</p>
+
 The rest bends the same way: Settings is grouped by tool and searchable down to the exact setting, the menu bar panel has an editor with a live miniature to reorder and hide its sections, settings export to a file and import on a new Mac, and the whole app speaks fifteen languages: English (US), Português (Brasil), Español, Deutsch, Français, Italiano, 日本語, 한국어, Русский, Türkçe, Slovenčina, Українська, 简体中文, 繁體中文 (香港), and 繁體中文 (台灣).
+
+<p align="center">
+  <img src="docs/assets/readme/settings-menu-bar.png" width="720" alt="Menu bar settings with a live miniature of the panel, its sections in order and the menu bar icon gallery">
+</p>
 
 ## Everything it does
 
@@ -62,6 +75,10 @@ All AMD pages live together in their own **AMD Ryzen** section of Settings: dash
 - **Gaming Mode:** A one-click toggle to apply the Extreme power preset (EPP 0) and prevent display sleep during intense workloads.
 - **EPP & C-State Management:** Manage Energy Performance Preference (EPP) with an optional Auto EPP that steps up fast and down slowly, CPPC Active Mode, and Deep C-States (C6) directly from settings for latency and power optimization.
 
+<p align="center">
+  <img src="docs/assets/readme/settings-dashboard.png" width="720" alt="The Performance Suite dashboard with CPU, RAM, GPU and network cards, SMU per-core telemetry and the process manager">
+</p>
+
 ### Dynamic Island and companion
 
 - **Dynamic Island.** An optional island at the top of the screen that brings music, controls and everyday tools together: Now Playing with lyrics, queue and a live equalizer, timers, downloads, notifications, upcoming calendar events, gestures, accessory and input source notices, and live CPU, GPU and memory cards. Off by default.
@@ -69,6 +86,11 @@ All AMD pages live together in their own **AMD Ryzen** section of Settings: dash
 - **Watch any window.** Turn any part of any window into a live activity, with an alert when it changes, finishes or shows what you are waiting for.
 - **A companion that grows.** Give it a name and watch it reach ten levels with pats and time together, unlocking accessories (glasses, scarf, headphones, a crown and more), with seasonal costumes and its own greetings. It follows your AMD hardware: the fan companion spins at your CPU fan's real speed and the chip glows with package power.
 - **AI agents, opt in.** Tokens, plan limits and work in progress for Claude Code, Codex, OpenCode and GitHub Copilot, read from their local history files. Off by default.
+
+<p align="center">
+  <img src="docs/assets/readme/settings-companion.png" width="410" alt="Dynamic Island companion settings with its reactions, name and level">
+  <img src="docs/assets/readme/settings-island-content.png" width="410" alt="Dynamic Island content settings with draggable sections and the calendar options">
+</p>
 
 ### Sound, Media & Now Playing
 
