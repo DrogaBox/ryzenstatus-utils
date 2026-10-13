@@ -18,6 +18,27 @@ enum NotchMusicVisualizerMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// How the visualizer draws the music.
+enum NotchMusicVisualizerStyle: String, CaseIterable, Identifiable {
+    /// Bars up from the floor, bass on the left, green into yellow into red,
+    /// each with a grey cap that rests on its peak: the classic desktop player.
+    case retro
+    /// Bars of lit blocks, as on a 90s hi-fi, in the cover's colour, with
+    /// one block left floating at the peak.
+    case led
+    /// Bars growing up and down from the middle, the bass in the centre.
+    case mirror
+    /// One glowing line over the spectrum, like a scope, softly filled below.
+    case wave
+
+    var id: String { rawValue }
+
+    static func current(in defaults: UserDefaults = .standard) -> NotchMusicVisualizerStyle {
+        NotchMusicVisualizerStyle(rawValue: defaults.string(forKey: DefaultsKey.notchMusicVisualizerStyle) ?? "")
+            ?? .retro
+    }
+}
+
 /// The rules behind the visualizer, kept pure so the tests cover them.
 enum NotchMusicVisualizerSupport {
     /// How long a new song's name can stay before the bars take over.

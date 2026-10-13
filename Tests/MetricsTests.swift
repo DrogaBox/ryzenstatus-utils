@@ -11060,6 +11060,21 @@ struct MetricsTests {
             let mirrored = NotchAudioLevelSupport.mirrored([1, 0.5, 0], bars: 6)
             expect(mirrored == mirrored.reversed() && mirrored[2] == 1 && mirrored[0] == 0,
                    "the visualizer mirrors the bass into the middle and the treble to both ends")
+            let spread = NotchAudioLevelSupport.spread([1, 0.5, 0], bars: 6)
+            expect(spread.count == 6 && spread.first == 1 && spread.last == 0
+                   && zip(spread, spread.dropFirst()).allSatisfy { $0 >= $1 },
+                   "the retro, LED and wave styles run from the bass on the left to the treble on the right")
+            expect(NotchMusicVisualizerStyle(rawValue: "") == nil
+                   && NotchMusicVisualizerStyle.current(in: UserDefaults(suiteName: "ryzenstatus.tests.visualizer.style")!) == .retro,
+                   "the visualizer starts in the retro style")
+            let focusOn = NotchFocusSupport.activeMode(
+                inLogMessage: "Handling state update: com.apple.donotdisturb.mode.default; previous: (null)")
+            let focusOff = NotchFocusSupport.activeMode(
+                inLogMessage: "Handling state update: (null); previous: com.apple.donotdisturb.mode.default")
+            let focusOther = NotchFocusSupport.activeMode(
+                inLogMessage: "Ignoring request to coordinate app configurations; from and to mode are the same.")
+            expect(focusOn == "com.apple.donotdisturb.mode.default" && focusOff == "" && focusOther == nil,
+                   "a Focus turning on or off is read from the log line that reports it, and nothing else")
             expect(abs(NotchAudioLevelSupport.bass([0.8, 0.6, 0.1]) - 0.7) < 1e-9 && NotchAudioLevelSupport.bass(nil) == 0,
                    "the bass is the spectrum's two lowest bands")
             var peaks = NotchAudioLevelSupport.PeakHold()

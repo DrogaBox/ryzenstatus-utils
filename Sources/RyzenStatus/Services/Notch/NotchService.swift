@@ -330,10 +330,21 @@ final class NotchService: ObservableObject {
         return capsuleCenterText
     }
 
-    /// A capsule at rest: bare, or as wide as its center reading.
+    /// At rest beside the companion, a playing song's reading gives way to
+    /// the visualizer once the song has been named, as the music strip's does.
+    var restingVisualizes: Bool {
+        guard restingCenterText != nil, NotchCapsuleCenter.current() == .song,
+              NowPlayingService.shared.playback?.isPlaying == true else { return false }
+        return NotchMusicVisualizerSupport.shows(
+            mode: .current(), named: capsuleMusicTitleShown, playing: true,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+    }
+
+    /// A capsule at rest: bare, or as wide as its center reading or the visualizer.
     private func restingCapsuleSize(on geometry: NotchGeometry) -> CGSize {
         guard let text = restingCenterText else { return geometry.restingSize(showsContent: false) }
-        return NotchCapsuleLayout.restingCenterSurface(text: text, companion: mascotShows(on: geometry), geometry: geometry)
+        return NotchCapsuleLayout.restingCenterSurface(text: text, companion: mascotShows(on: geometry),
+                                                       visualizer: restingVisualizes, geometry: geometry)
     }
 
     /// Nothing at all to show, not even the companion: nothing is drawn, and
@@ -1424,6 +1435,8 @@ final class NotchService: ObservableObject {
             && windowHost?.isConcealedForMissionControl == false
             : floatingStrip || windowHost?.containsHover(point) == true || pointerOverChildWindow(point)
         hoverState.update(pointerInside: inside)
+        // Coming onto the closed island names the song again.
+        if inside, !wasInside, !expanded, !peeking, notice == nil { nameCapsuleSong(again: true) }
         // The music strip names its song only while the pointer stays on the
         // island: leaving ends it, and a name left from before goes on return.
         let unnamesMusic = inside != wasInside && endMusicStripHover(leaving: !inside)
@@ -2700,13 +2713,20 @@ final class NotchService: ObservableObject {
 
     /// A new song's title shows in the capsule for a few seconds, then the
     /// capsule keeps only the cover and the bars.
-    private func nameCapsuleSong() {
+    /// `again` names the playing song once more, as the pointer comes onto
+    /// the island, and starts its few seconds over before the bars return.
+    private func nameCapsuleSong(again: Bool = false) {
         // The song held for the next one's notice is the one that ended; the
         // next song is named once the notice lets it go.
         guard heldMusic == nil else { return }
+        if again {
+            guard NowPlayingService.shared.playback?.isPlaying == true,
+                  NotchMusicVisualizerMode.current() != .title,
+                  compactActivity == .music || restingCenterText != nil else { return }
+        }
         musicTitleWork?.cancel()
         // With only the visualizer, the bars come at once.
-        guard NotchMusicVisualizerSupport.namesNewSong(NotchMusicVisualizerMode.current()) else {
+        guard again || NotchMusicVisualizerSupport.namesNewSong(NotchMusicVisualizerMode.current()) else {
             musicTitleWork = nil
             if capsuleMusicTitleShown { capsuleMusicTitleShown = false; refreshCapsuleMusic() }
             return
@@ -2768,6 +2788,11 @@ final class NotchService: ObservableObject {
 
     /// A capsule is as wide as what it shows of the song, here or on another display.
     private func refreshCapsuleMusic() {
+        // A capsule resting with the song beside the companion fits the name or the bars.
+        if compactActivity == nil, geometry.floats, restingCenterText != nil {
+            refreshPresentation()
+            return
+        }
         guard compactActivity == .music,
               geometry.floats || mirrors.values.contains(where: { $0.model.geometry.floats }) else { return }
         refreshPresentation()

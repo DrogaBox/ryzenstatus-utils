@@ -653,6 +653,7 @@ extension DefaultsKey {
     static let notchLyricsOnline = "notchLyricsOnline"
     static let notchLiveEqualizer = "notchLiveEqualizer"
     static let notchMusicVisualizer = "notchMusicVisualizer"
+    static let notchMusicVisualizerStyle = "notchMusicVisualizerStyle"
     static let notchMusicTitleSeconds = "notchMusicTitleSeconds"
     static let notchMascotDances = "notchMascotDances"
     static let notchQueueEnabled = "notchQueueEnabled"

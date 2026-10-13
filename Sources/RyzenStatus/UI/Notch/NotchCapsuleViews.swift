@@ -244,12 +244,24 @@ struct NotchCapsuleRestingView: View {
                             if service.mascotShows(on: geometry) {
                                 Color.clear.frame(width: CapsuleLayout.restingCenterMascotSize(geometry))
                             }
-                            Text(center).font(Font(CapsuleLayout.levelFont as CTFont)).lineLimit(1)
-                                .truncationMode(.tail).foregroundStyle(.white.opacity(0.85))
-                                .contentTransition(.numericText())
-                                .frame(maxWidth: .infinity)
+                            Group {
+                                if service.restingVisualizes {
+                                    NotchLiveSpectrumBars(height: CapsuleLayout.artworkSide(geometry),
+                                                          tint: music.artworkTint?.color ?? .white)
+                                        .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .center)))
+                                } else {
+                                    NotchMarquee {
+                                        Text(center).font(Font(CapsuleLayout.levelFont as CTFont))
+                                            .foregroundStyle(.white.opacity(0.85))
+                                            .contentTransition(.numericText())
+                                    }
+                                    .transition(.opacity)
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
                         }
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: center)
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: service.restingVisualizes)
                     }
                 }
             }
@@ -324,7 +336,7 @@ struct NotchCapsuleMusicStrip: View {
                     .contentShape(Rectangle())
                     .onHover { if live { service.hoverMusicStrip(.cover, entered: $0) } }
                 Group {
-                    if named { Text(title).capsuleTitle().truncationMode(.tail).transition(.opacity) }
+                    if named { NotchMarquee { Text(title).capsuleTitle() }.transition(.opacity) }
                     else if visualizes {
                         NotchLiveSpectrumBars(isPlaying: playing, height: CapsuleLayout.artworkSide(geometry),
                                               tint: tint?.color ?? .white)

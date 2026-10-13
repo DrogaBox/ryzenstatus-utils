@@ -16,12 +16,26 @@ struct NotchMusicVisualizerStrings {
     let secondsFormat: String
     let dances: String
     let dancesHint: String
+    let style: String
+    let styleRetro: String
+    let styleLED: String
+    let styleMirror: String
+    let styleWave: String
 
     func name(of mode: NotchMusicVisualizerMode) -> String {
         switch mode {
         case .title: return modeTitle
         case .titleThenVisualizer: return modeTitleThenVisualizer
         case .visualizer: return modeVisualizer
+        }
+    }
+
+    func name(of style: NotchMusicVisualizerStyle) -> String {
+        switch style {
+        case .retro: return styleRetro
+        case .led: return styleLED
+        case .mirror: return styleMirror
+        case .wave: return styleWave
         }
     }
 
@@ -60,7 +74,9 @@ extension NotchMusicVisualizerStrings {
         titleSeconds: "Show the name for",
         secondsFormat: "%d s",
         dances: "Companion dances to the music",
-        dancesHint: "It nods to the bass at the end of the island while the visualizer plays."
+        dancesHint: "It nods to the bass at the end of the island while the visualizer plays.",
+        style: "Visualizer style",
+        styleRetro: "Retro", styleLED: "LED", styleMirror: "Mirror", styleWave: "Wave"
     )
 
     static let ptBR = NotchMusicVisualizerStrings(
@@ -72,7 +88,9 @@ extension NotchMusicVisualizerStrings {
         titleSeconds: "Mostrar o nome por",
         secondsFormat: "%d s",
         dances: "O companheiro dança com a música",
-        dancesHint: "Ele balança a cabeça com o grave na ponta da ilha enquanto o visualizador toca."
+        dancesHint: "Ele balança a cabeça com o grave na ponta da ilha enquanto o visualizador toca.",
+        style: "Estilo do visualizador",
+        styleRetro: "Retrô", styleLED: "LED", styleMirror: "Espelho", styleWave: "Onda"
     )
 
     static let es = NotchMusicVisualizerStrings(
@@ -84,7 +102,9 @@ extension NotchMusicVisualizerStrings {
         titleSeconds: "Mostrar el nombre durante",
         secondsFormat: "%d s",
         dances: "El compañero baila con la música",
-        dancesHint: "Mueve la cabeza con los graves en la punta de la isla mientras suena el visualizador."
+        dancesHint: "Mueve la cabeza con los graves en la punta de la isla mientras suena el visualizador.",
+        style: "Estilo del visualizador",
+        styleRetro: "Retro", styleLED: "LED", styleMirror: "Espejo", styleWave: "Onda"
     )
 
     static let sk = NotchMusicVisualizerStrings(
@@ -96,7 +116,9 @@ extension NotchMusicVisualizerStrings {
         titleSeconds: "Zobraziť názov na",
         secondsFormat: "%d s",
         dances: "Spoločník tancuje do hudby",
-        dancesHint: "Na konci ostrova kýva hlavou do basov, kým hrá vizualizér."
+        dancesHint: "Na konci ostrova kýva hlavou do basov, kým hrá vizualizér.",
+        style: "Štýl vizualizéra",
+        styleRetro: "Retro", styleLED: "LED", styleMirror: "Zrkadlo", styleWave: "Vlna"
     )
 
     static let de = NotchMusicVisualizerStrings(
@@ -108,7 +130,9 @@ extension NotchMusicVisualizerStrings {
         titleSeconds: "Namen anzeigen für",
         secondsFormat: "%d s",
         dances: "Begleiter tanzt zur Musik",
-        dancesHint: "Er nickt am Ende der Insel zum Bass, solange der Visualizer läuft."
+        dancesHint: "Er nickt am Ende der Insel zum Bass, solange der Visualizer läuft.",
+        style: "Visualizer-Stil",
+        styleRetro: "Retro", styleLED: "LED", styleMirror: "Spiegel", styleWave: "Welle"
     )
 
     static let fr = NotchMusicVisualizerStrings(
@@ -120,7 +144,9 @@ extension NotchMusicVisualizerStrings {
         titleSeconds: "Afficher le nom pendant",
         secondsFormat: "%d s",
         dances: "Le compagnon danse sur la musique",
-        dancesHint: "Il hoche la tête sur les basses au bout de l’île pendant le visualiseur."
+        dancesHint: "Il hoche la tête sur les basses au bout de l’île pendant le visualiseur.",
+        style: "Style du visualiseur",
+        styleRetro: "Rétro", styleLED: "LED", styleMirror: "Miroir", styleWave: "Onde"
     )
 
     static let it = NotchMusicVisualizerStrings(
@@ -132,7 +158,9 @@ extension NotchMusicVisualizerStrings {
         titleSeconds: "Mostra il nome per",
         secondsFormat: "%d s",
         dances: "Il compagno balla con la musica",
-        dancesHint: "Muove la testa sui bassi in fondo all’isola mentre suona il visualizzatore."
+        dancesHint: "Muove la testa sui bassi in fondo all’isola mentre suona il visualizzatore.",
+        style: "Stile del visualizzatore",
+        styleRetro: "Retrò", styleLED: "LED", styleMirror: "Specchio", styleWave: "Onda"
     )
 
     static let ru = NotchMusicVisualizerStrings(
@@ -144,7 +172,9 @@ extension NotchMusicVisualizerStrings {
         titleSeconds: "Показывать название",
         secondsFormat: "%d с",
         dances: "Компаньон танцует под музыку",
-        dancesHint: "Он кивает в такт басам в конце острова, пока играет визуализатор."
+        dancesHint: "Он кивает в такт басам в конце острова, пока играет визуализатор.",
+        style: "Стиль визуализатора",
+        styleRetro: "Ретро", styleLED: "LED", styleMirror: "Зеркало", styleWave: "Волна"
     )
 
     static let tr = NotchMusicVisualizerStrings(
@@ -156,7 +186,9 @@ extension NotchMusicVisualizerStrings {
         titleSeconds: "Adı gösterme süresi",
         secondsFormat: "%d sn",
         dances: "Arkadaş müzikle dans eder",
-        dancesHint: "Görselleştirici çalarken adanın ucunda baslara göre başını sallar."
+        dancesHint: "Görselleştirici çalarken adanın ucunda baslara göre başını sallar.",
+        style: "Görselleştirici stili",
+        styleRetro: "Retro", styleLED: "LED", styleMirror: "Ayna", styleWave: "Dalga"
     )
 
     static let ja = NotchMusicVisualizerStrings(
@@ -168,7 +200,9 @@ extension NotchMusicVisualizerStrings {
         titleSeconds: "曲名の表示時間",
         secondsFormat: "%d秒",
         dances: "コンパニオンが音楽に合わせて踊る",
-        dancesHint: "ビジュアライザの再生中、アイランドの端で低音に合わせてうなずきます。"
+        dancesHint: "ビジュアライザの再生中、アイランドの端で低音に合わせてうなずきます。",
+        style: "ビジュアライザのスタイル",
+        styleRetro: "レトロ", styleLED: "LED", styleMirror: "ミラー", styleWave: "ウェーブ"
     )
 
     static let ko = NotchMusicVisualizerStrings(
@@ -180,7 +214,9 @@ extension NotchMusicVisualizerStrings {
         titleSeconds: "제목 표시 시간",
         secondsFormat: "%d초",
         dances: "컴패니언이 음악에 맞춰 춤추기",
-        dancesHint: "비주얼라이저가 재생되는 동안 아일랜드 끝에서 베이스에 맞춰 고개를 끄덕입니다."
+        dancesHint: "비주얼라이저가 재생되는 동안 아일랜드 끝에서 베이스에 맞춰 고개를 끄덕입니다.",
+        style: "비주얼라이저 스타일",
+        styleRetro: "레트로", styleLED: "LED", styleMirror: "미러", styleWave: "웨이브"
     )
 
     static let zhHans = NotchMusicVisualizerStrings(
@@ -192,7 +228,9 @@ extension NotchMusicVisualizerStrings {
         titleSeconds: "名称显示时长",
         secondsFormat: "%d 秒",
         dances: "伙伴随音乐跳舞",
-        dancesHint: "可视化播放时，它会在灵动岛末端随低音点头。"
+        dancesHint: "可视化播放时，它会在灵动岛末端随低音点头。",
+        style: "可视化样式",
+        styleRetro: "复古", styleLED: "LED", styleMirror: "镜像", styleWave: "波形"
     )
 
     static let zhTW = NotchMusicVisualizerStrings(
@@ -204,7 +242,9 @@ extension NotchMusicVisualizerStrings {
         titleSeconds: "名稱顯示時間",
         secondsFormat: "%d 秒",
         dances: "夥伴隨音樂跳舞",
-        dancesHint: "視覺化播放時，它會在動態島末端隨低音點頭。"
+        dancesHint: "視覺化播放時，它會在動態島末端隨低音點頭。",
+        style: "視覺化樣式",
+        styleRetro: "復古", styleLED: "LED", styleMirror: "鏡像", styleWave: "波形"
     )
 
     static let zhHK = NotchMusicVisualizerStrings(
@@ -216,7 +256,9 @@ extension NotchMusicVisualizerStrings {
         titleSeconds: "名稱顯示時間",
         secondsFormat: "%d 秒",
         dances: "夥伴隨音樂跳舞",
-        dancesHint: "視覺化播放時，佢會喺動態島末端隨低音點頭。"
+        dancesHint: "視覺化播放時，佢會喺動態島末端隨低音點頭。",
+        style: "視覺化樣式",
+        styleRetro: "復古", styleLED: "LED", styleMirror: "鏡像", styleWave: "波形"
     )
 
     static let uk = NotchMusicVisualizerStrings(
@@ -228,6 +270,8 @@ extension NotchMusicVisualizerStrings {
         titleSeconds: "Показувати назву",
         secondsFormat: "%d с",
         dances: "Компаньйон танцює під музику",
-        dancesHint: "Він киває в такт басам у кінці острова, поки грає візуалізатор."
+        dancesHint: "Він киває в такт басам у кінці острова, поки грає візуалізатор.",
+        style: "Стиль візуалізатора",
+        styleRetro: "Ретро", styleLED: "LED", styleMirror: "Дзеркало", styleWave: "Хвиля"
     )
 }

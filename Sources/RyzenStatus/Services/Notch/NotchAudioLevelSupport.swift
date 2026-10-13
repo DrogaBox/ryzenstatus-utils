@@ -141,6 +141,21 @@ enum NotchAudioLevelSupport {
         }
     }
 
+    /// The level each of `bars` bars shows from the bass on the left to the
+    /// treble on the right, read between the bands so neighbours differ.
+    static func spread(_ spectrum: [Double], bars: Int) -> [Double] {
+        guard bars > 0, !spectrum.isEmpty else { return [] }
+        guard spectrum.count > 1 else { return Array(repeating: spectrum[0], count: bars) }
+        return (0..<bars).map { bar in
+            let position = min(Double(spectrum.count - 1),
+                               max(0, (Double(bar) + 0.5) / Double(bars) * Double(spectrum.count) - 0.5))
+            let low = Int(position.rounded(.down))
+            let high = min(spectrum.count - 1, low + 1)
+            let fraction = position - Double(low)
+            return spectrum[low] + (spectrum[high] - spectrum[low]) * fraction
+        }
+    }
+
     /// A peak cap rests on each bar's highest point and sinks slowly after it.
     struct PeakHold {
         static let hold: CFTimeInterval = 0.35

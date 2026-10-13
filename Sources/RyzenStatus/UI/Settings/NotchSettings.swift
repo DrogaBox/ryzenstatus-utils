@@ -30,6 +30,7 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchQueueEnabled) private var queueEnabled = true
     @AppStorage(DefaultsKey.notchLiveEqualizer) private var liveEqualizer = false
     @AppStorage(DefaultsKey.notchMusicVisualizer) private var visualizerMode = NotchMusicVisualizerMode.titleThenVisualizer.rawValue
+    @AppStorage(DefaultsKey.notchMusicVisualizerStyle) private var visualizerStyle = NotchMusicVisualizerStyle.retro.rawValue
     @AppStorage(DefaultsKey.notchMusicTitleSeconds) private var titleSeconds = NotchMusicVisualizerSupport.defaultTitleSeconds
     @AppStorage(DefaultsKey.notchMascotDances) private var mascotDances = true
     @AppStorage(DefaultsKey.notchEnabled) private var enabled = false
@@ -135,7 +136,7 @@ struct NotchSettings: View {
          String(capture), String(trackChange), captureAction, String(showInCaptures),
          String(returnHome), homeModule, String(opensActivity), String(scratchpad),
          String(agentsEnabled), String(watchEnabled), String(keepAwakeActivity),
-         visualizerMode, String(titleSeconds), String(mascotDances),
+         visualizerMode, visualizerStyle, String(titleSeconds), String(mascotDances),
          String(progressiveBlur), String(leaveAlert), leaveTransport, String(focusEnabled)]
     }
 
@@ -272,18 +273,24 @@ struct NotchSettings: View {
                 if NotchSilhouette(rawValue: silhouette) ?? .capsule != .notch {
                     capsuleCenterCard
                 }
-                if NotchSilhouette(rawValue: silhouette) ?? .capsule == .capsule {
+                if NotchSilhouette(rawValue: silhouette) ?? .capsule != .notch {
+                    // The floating style stays centred in the bar, so it only narrows and shrinks.
+                    let floating = NotchSilhouette(rawValue: silhouette) == .floating
                     SettingsCard(title: text.capsuleFit) {
                         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                             // Even widths keep the capsule centred on whole points.
                             fitSlider(text.width, card: text.capsuleFit, value: $capsuleFitWidth,
                                       range: NotchCapsuleFit.widthRange, step: 2)
                             fitSlider(text.height, card: text.capsuleFit, value: $capsuleFitHeight,
-                                      range: NotchCapsuleFit.heightRange, step: 1)
-                            fitSlider(text.fromTop, card: text.capsuleFit, value: $capsuleFitDrop,
-                                      range: NotchCapsuleFit.dropRange, step: 1)
+                                      range: floating ? NotchCapsuleFit.floatingHeightRange : NotchCapsuleFit.heightRange,
+                                      step: floating ? 2 : 1)
+                            if !floating {
+                                fitSlider(text.fromTop, card: text.capsuleFit, value: $capsuleFitDrop,
+                                          range: NotchCapsuleFit.dropRange, step: 1)
+                            }
                         }
-                        Text(text.capsuleFitHint).font(.caption).foregroundStyle(.secondary)
+                        Text(floating ? text.floatingFitHint : text.capsuleFitHint)
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -481,6 +488,24 @@ struct NotchSettings: View {
                 .padding(.leading, settingsRowTextInset)
             }
             if visualizerMode != NotchMusicVisualizerMode.title.rawValue {
+                SettingsRow(symbol: "paintpalette", title: visualizer.style) {
+                    HStack(spacing: 10) {
+                        // The chosen style moving as on the island, on the island's black.
+                        NotchSpectrumBars(height: 18, tint: .accentColor,
+                                          style: NotchMusicVisualizerStyle(rawValue: visualizerStyle) ?? .retro)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(Capsule().fill(.black))
+                        Picker(visualizer.style, selection: $visualizerStyle) {
+                            ForEach(NotchMusicVisualizerStyle.allCases) { style in
+                                Text(visualizer.name(of: style)).tag(style.rawValue)
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                }
+                .padding(.leading, settingsRowTextInset)
                 switchRow("pawprint.fill", visualizer.dances, caption: visualizer.dancesHint, isOn: $mascotDances)
                     .padding(.leading, settingsRowTextInset)
             }

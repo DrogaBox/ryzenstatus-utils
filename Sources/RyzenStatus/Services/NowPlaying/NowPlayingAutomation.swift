@@ -505,6 +505,10 @@ enum NowPlayingAutomation {
             end try
             try
                 set pl to current playlist
+            on error
+                return {"streaming"}
+            end try
+            try
                 set cid to database ID of current track
                 set n to count of tracks of pl
                 set i to 0
@@ -533,6 +537,7 @@ enum NowPlayingAutomation {
         guard error == nil else { return nil }
         switch desc.atIndex(1)?.stringValue {
         case "shuffled": return NowPlayingQueue(items: [], canPlay: false, isShuffled: true)
+        case "streaming": return NowPlayingQueue(items: [], canPlay: false, isStreaming: true)
         case "ok": break
         default: return nil
         }

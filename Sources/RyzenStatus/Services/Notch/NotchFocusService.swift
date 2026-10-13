@@ -55,10 +55,22 @@ enum NotchFocusSupport {
         return modes
     }
 
+    static let doNotDisturb = "com.apple.donotdisturb.mode.default"
+
+    /// The log's category that reports each change of the active mode once.
+    static let logCategory = "AppFocusConfiguration"
+
     /// The mode a log line reports as now active, `""` when it reports none,
-    /// or nil when the line says nothing about the active mode.
+    /// or nil when the line says nothing about the active mode. The line
+    /// reads `Handling state update: <mode>; previous: <mode>`, with
+    /// `(null)` for no mode.
     static func activeMode(inLogMessage message: String) -> String? {
-        nil
+        let prefix = "Handling state update: "
+        guard let start = message.range(of: prefix)?.upperBound,
+              let end = message.range(of: ";", range: start..<message.endIndex)?.lowerBound else { return nil }
+        let mode = message[start..<end].trimmingCharacters(in: .whitespaces)
+        guard !mode.contains(" ") else { return nil }
+        return mode == "(null)" ? "" : mode
     }
 }
 
@@ -94,8 +106,8 @@ final class NotchFocusService {
     private func start() {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/log")
-        process.arguments = ["stream", "--style", "ndjson", "--level", "info",
-                             "--predicate", "subsystem == \"com.apple.donotdisturb\""]
+        process.arguments = ["stream", "--style", "ndjson", "--predicate",
+                             "subsystem == \"com.apple.donotdisturb\" AND category == \"\(NotchFocusSupport.logCategory)\""]
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
@@ -149,7 +161,9 @@ final class NotchFocusService {
         let modes = NotchFocusSupport.configuredModes()
         let shown = mode.isEmpty ? previous : mode
         let focus = modes[shown]
-        let name = focus.map(\.name).flatMap { $0.isEmpty ? nil : $0 } ?? text.focus
+        // The built-in Focus keeps its English name on disk; macOS translates it.
+        let name = shown == NotchFocusSupport.doNotDisturb ? text.doNotDisturb
+            : focus.map(\.name).flatMap { $0.isEmpty ? nil : $0 } ?? text.focus
         let symbol = focus?.symbol ?? NotchFocusSupport.symbol(for: shown)
         NotchService.shared.show(NotchNotice(event: .focus, title: name,
                                              detail: mode.isEmpty ? text.focusOff : text.focusOn,
