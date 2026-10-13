@@ -660,6 +660,8 @@ final class CommandBarService: ObservableObject {
             // a no-op — while a missed record strands the typist on the
             // borrowed layout.
             guard InputSourceSelection.select(sourceID: target) else { return }
+            // Borrowed, not chosen: the island keeps its layout notice quiet.
+            NotchService.shared.noteOwnInputSourceSwitch(to: target)
             self.suspendedInputSourceID = currentID
         }
         if Thread.isMainThread {
@@ -692,6 +694,7 @@ final class CommandBarService: ObservableObject {
     func restoreBorrowedInputSource() {
         guard let sourceID = suspendedInputSourceID,
               InputSourceSelection.select(sourceID: sourceID) else { return }
+        NotchService.shared.noteOwnInputSourceSwitch(to: sourceID)
         suspendedInputSourceID = nil
     }
 

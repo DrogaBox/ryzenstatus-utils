@@ -20,6 +20,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// setting): the popover hosts an EmptyView until the next open.
     private var nowPlayingPopupUnloaded = false
     private var popoverClosedAt = Date.distantPast
+    /// The app that was in front when the panel opened, followed while it
+    /// stays open, so a plain dismissal can hand activation back to it.
+    private var panelActivationSource: NSRunningApplication?
+    private var panelActivationObservers: [NSObjectProtocol] = []
+    /// Why the panel is closing, decided by whoever asked for the close.
+    private var popoverCloseReason: PanelCloseReason?
     private var popoverDismissMonitor: Any?
     private var popoverLocalDismissMonitor: Any?
     private var popoverKeyboardMonitor: Any?
@@ -108,7 +114,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         ShelfService.shared.statusItemFrameProvider = { [weak self] in
             guard let item = self?.statusController.statusItem, item.isVisible,
                   let window = self?.statusController.button?.window else { return nil }
-            return window.frame
+            // A hidden menu bar parks the item's window at a fallback spot;
+            // trusting it would dock the shelf there instead of where the
+            // pointer is.
+            let frame = window.frame
+            guard StatusItemAnchorSupport.isTrustworthyStatusFrame(frame) else { return nil }
+            return frame
         }
         // The now-playing menu bar item toggles its own detached popup
         // anchored to its own status item — never the main panel.
@@ -216,8 +227,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         } else {
             // Keep the last seen version marker current without opening
             // post-update release notes; the update flow already previews them.
+            let previousVersion = defaults.string(forKey: DefaultsKey.lastUpdateIntroVersion)
             defaults.set(OnboardingInfo.currentFeatureSet, forKey: DefaultsKey.featuresOnboardingVersion)
             defaults.set(AppInfo.version, forKey: DefaultsKey.lastUpdateIntroVersion)
+            recoverStatusItemAfterUpdate(previousVersion: previousVersion)
             presentUpdateIntros()
         }
     }
@@ -399,7 +412,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     private func togglePopover(anchor button: NSStatusBarButton? = nil) {
         if popover.isShown {
-            closePopover()
+            closePopover(reason: .statusItem)
             return
         }
         showPopover(anchor: button)
@@ -433,7 +446,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             if MenuPanelFocus.shared.activeMetric == detailKind {
                 metricAnchorSwitchSerial &+= 1
                 MenuPanelFocus.shared.clearMetricFocus()
-                closePopover(animated: false)
+                closePopover(animated: false, reason: .statusItem)
                 return
             }
             MenuPanelFocus.shared.focus(detailKind)
@@ -509,7 +522,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// cursor; the captured point is immune to that. Accessibility presses
     /// (no mouse event) capture nothing, so they never "correct" toward a
     /// pointer parked anywhere on screen.
-    private var lastStatusClick: (x: CGFloat, at: Date)?
+    private var lastStatusClick: (point: NSPoint, at: Date)?
     private var popoverDriftTargetMidX: CGFloat?
     private var popoverDriftObservers: [NSObjectProtocol] = []
     /// Which popover currently owns the drift correction. Both popovers
@@ -520,8 +533,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     private func captureStatusClick() {
         guard let event = NSApp.currentEvent,
-              Self.statusClickEventTypes.contains(event.type) else { return }
-        lastStatusClick = (NSEvent.mouseLocation.x, Date())
+              Self.statusClickEventTypes.contains(event.type),
+              (0...Self.statusClickFreshness).contains(ProcessInfo.processInfo.systemUptime - event.timestamp)
+        else {
+            lastStatusClick = nil
+            return
+        }
+        lastStatusClick = (NSEvent.mouseLocation, Date())
+    }
+
+    /// How long a captured click still says where the person clicked.
+    private static let statusClickFreshness: TimeInterval = 0.5
+
+    private var freshStatusClick: NSPoint? {
+        guard let click = lastStatusClick,
+              (0...Self.statusClickFreshness).contains(Date().timeIntervalSince(click.at)) else { return nil }
+        return click.point
     }
 
     /// The on-screen midX the open panel must center on, or nil when the
@@ -532,8 +559,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// positioning rect cannot express this (AppKit intersects it with the
     /// button's bounds), so the correction moves the popover's window instead.
     private func correctedPopoverMidX(for button: NSStatusBarButton) -> CGFloat? {
-        guard let click = lastStatusClick,
-              Date().timeIntervalSince(click.at) < 0.5,
+        guard let click = freshStatusClick,
               let reportedMidX = statusButtonMidX(button),
               StatusItemAnchorSupport.anchorDriftX(clickX: click.x,
                                                    reportedMidX: reportedMidX,
@@ -622,6 +648,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// The display whose menu bar holds the item, so the panel caps its height
     /// against that screen rather than whichever one happens to be main.
     private func statusScreen(for button: NSStatusBarButton) -> NSScreen? {
+        // Replicated menu bars (including Sidecar) can report the status
+        // window on a different display. The captured click identifies the
+        // actual bar, including vertically arranged screens with the same x.
+        if let click = freshStatusClick,
+           let clicked = NSScreen.screens.first(where: { NSMouseInRect(click, $0.frame, false) }) {
+            return clicked
+        }
         if let frame = button.window?.frame,
            let hosting = NSScreen.screens.first(where: { $0.frame.intersects(frame) }) {
             return hosting
@@ -667,6 +700,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             }
         }
         if activate {
+            beginPanelActivationTracking()
             NSApp.activate(ignoringOtherApps: true)
         }
         // Only arm the dismiss monitor if the popover actually presented — otherwise
@@ -689,7 +723,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             guard let self, self.popover.isShown else { return }
             guard !PanelInteractionState.shared.preventsPopoverDismissal else { return }
             guard self.statusController.containsStatusItem(at: NSEvent.mouseLocation) == false else { return }
-            self.closePopover()
+            self.closePopover(reason: .outsideClick)
         }
 
         // Local events cover our own Settings window. Keep Settings + panel open
@@ -700,7 +734,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         ) { [weak self] event in
             guard let self, self.popover.isShown else { return event }
             if self.shouldDismissPopover(forLocalEvent: event) {
-                self.closePopover()
+                self.closePopover(reason: .outsideClick)
             }
             return event
         }
@@ -738,7 +772,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     private func handlePopoverKeyDown(_ event: NSEvent) -> NSEvent? {
         if popover.isShown, event.keyCode == UInt16(kVK_Escape) {
-            closePopover()
+            closePopover(reason: .escape)
             return nil
         }
 
@@ -783,7 +817,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // our own Settings window keeps the app active, so it stays open.
         if popover.isShown, !PanelInteractionState.shared.preventsPopoverDismissal {
             guard statusController.containsStatusItem(at: NSEvent.mouseLocation) == false else { return }
-            closePopover()
+            closePopover(reason: .outsideClick)
         }
     }
 
@@ -813,8 +847,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// closes the popover on its own way open.
     func closePopover(animated: Bool = true, after delay: TimeInterval = 0,
                       preservingNotch: Bool = false,
+                      reason: PanelCloseReason = .action,
                       completion: (() -> Void)? = nil) {
         if !preservingNotch, NotchSupport.isEnabled() { NotchService.shared.collapse() }
+        if popover.isShown { popoverCloseReason = reason }
         if delay <= 0 {
             closePopoverNow(animated: animated, completion: completion)
             return
@@ -1250,7 +1286,100 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
         popoverClosedAt = popoverIsSwitchingAnchor ? .distantPast : Date()
         popoverIsClosing = false
+        if !popoverIsSwitchingAnchor {
+            returnActivation(to: endPanelActivationTracking(), after: popoverCloseReason)
+        }
+        popoverCloseReason = nil
         runPopoverCloseCompletions()
+    }
+
+    /// Remembers the app in front as the panel opens with activation, and
+    /// follows it while the panel is shown. The observers live only as long
+    /// as the panel.
+    private func beginPanelActivationTracking() {
+        endPanelActivationTracking()
+        let ownPID = NSRunningApplication.current.processIdentifier
+        let front = NSWorkspace.shared.frontmostApplication
+        // Opened while RyzenStatus was already in front (from Settings, say):
+        // there is nothing to hand back when the panel closes.
+        panelActivationSource = front?.processIdentifier == ownPID ? nil : front
+        let center = NSWorkspace.shared.notificationCenter
+        panelActivationObservers = [
+            center.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
+                               object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.updatePanelActivationSource(.activeSpaceChanged) }
+            },
+            center.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
+                               object: nil, queue: .main) { [weak self] note in
+                guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey]
+                        as? NSRunningApplication else { return }
+                MainActor.assumeIsolated { self?.updatePanelActivationSource(.appActivated(app)) }
+            },
+        ]
+    }
+
+    private func updatePanelActivationSource(_ change: PanelActivationChange<NSRunningApplication>) {
+        let ownPID = NSRunningApplication.current.processIdentifier
+        panelActivationSource = StatusItemAnchorSupport.panelActivationSource(
+            after: change, current: panelActivationSource,
+            isOwnApp: { $0.processIdentifier == ownPID })
+    }
+
+    /// Stops following activation and returns the app remembered last.
+    @discardableResult
+    private func endPanelActivationTracking() -> NSRunningApplication? {
+        let center = NSWorkspace.shared.notificationCenter
+        panelActivationObservers.forEach { center.removeObserver($0) }
+        panelActivationObservers.removeAll()
+        let source = panelActivationSource
+        panelActivationSource = nil
+        return source
+    }
+
+    /// Closing the panel leaves RyzenStatus active, and macOS keeps reporting
+    /// it as the frontmost app until something else is focused, which
+    /// misleads window managers and anything that follows the active app.
+    private func returnActivation(to source: NSRunningApplication?, after closeReason: PanelCloseReason?) {
+        guard let source, closeReason?.dismissesWithoutTakeover == true else { return }
+        // One turn later, so the close animation has finished and anything the
+        // dismissal itself focused has become key.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.popover.isShown, !source.isTerminated,
+                  StatusItemAnchorSupport.shouldReturnActivation(
+                      to: source.processIdentifier,
+                      ownPID: NSRunningApplication.current.processIdentifier,
+                      frontmostPID: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                      ownWindowIsKey: NSApp.keyWindow != nil || NSApp.modalWindow != nil,
+                      closeReason: closeReason),
+                  !self.handbackWouldSwitchDesktop(to: source.processIdentifier)
+            else { return }
+            ActivationHandoff.yield(to: source)
+            if !source.activate(from: NSRunningApplication.current, options: []) {
+                source.activate(options: [])
+            }
+        }
+    }
+
+    /// Reads the Spaces of the app's normal windows from the window server.
+    /// Windows the app has ordered out (minimized, or kept after a close) do
+    /// not make activation travel, so they are left out.
+    private func handbackWouldSwitchDesktop(to pid: pid_t) -> Bool {
+        guard SpaceWindowBridge.canResolveSpaces,
+              let info = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements],
+                                                    kCGNullWindowID) as? [[String: Any]]
+        else { return false }
+        let windowSpaces: [[UInt64]] = info.compactMap { window in
+            guard (window[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid,
+                  (window[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+                  let number = (window[kCGWindowNumber as String] as? NSNumber)?.uint32Value
+            else { return nil }
+            let windowID = CGWindowID(number)
+            guard SpaceWindowBridge.isWindowOrderedIn(windowID) != false else { return nil }
+            return SpaceWindowBridge.spaces(of: windowID)
+        }
+        return StatusItemAnchorSupport.handbackWouldSwitchDesktop(
+            windowSpaces: windowSpaces,
+            visibleSpaces: SpaceWindowBridge.topology()?.visibleSpaces)
     }
 
     // MARK: - Context menu (right click)
@@ -1478,6 +1607,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     func openSettingsWindow() {
         // Intentionally does NOT close the panel: the panel uses applicationDefined
         // dismissal, so it stays open beside Settings for a live preview.
+        // Capture the destination before activation changes the key window.
+        let targetScreen = (popover.isShown
+            ? popover.contentViewController?.view.window?.screen
+            : nil) ?? NSScreen.withMouse
         let createdWindow = settingsWindow == nil
         if settingsWindow == nil {
             let host = NSHostingController(rootView: SettingsView())
@@ -1495,7 +1628,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             window.minSize = minFrame
             window.contentMinSize = NSSize(width: SettingsWindowSupport.minContentWidth,
                                            height: SettingsWindowSupport.minContentHeight)
-            let visible = NSScreen.pointerVisibleFrame
+            let visible = targetScreen?.visibleFrame ?? NSScreen.pointerVisibleFrame
             let size = SettingsWindowSupport.initialContentSize(
                 savedWidth: UserDefaults.standard.double(forKey: DefaultsKey.settingsWindowWidth),
                 savedHeight: UserDefaults.standard.double(forKey: DefaultsKey.settingsWindowHeight),
@@ -1588,6 +1721,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         window.setFrame(frame.integral, display: false)
     }
 
+    /// Only the first launch of a newer version gets this bounded check.
+    /// Replacing the app can leave macOS without a place for its item, and the
+    /// person then has no icon to click. Normal launches and activations must
+    /// not disturb an arranged menu bar.
+    private func recoverStatusItemAfterUpdate(previousVersion: String?) {
+        guard let previousVersion, !AppInfo.isDeveloperBuild,
+              let previous = UpdateServiceSupport.SemanticVersion(raw: previousVersion),
+              let current = UpdateServiceSupport.SemanticVersion(raw: AppInfo.version), current > previous,
+              let item = statusController?.statusItem else { return }
+        let screens = NSScreen.screens.map(\.frame)
+        guard !screens.isEmpty else { return }
+        verifyPostUpdateStatusItem(item, screenFrames: screens,
+                                   deadline: Date().addingTimeInterval(30))
+    }
+
+    private func verifyPostUpdateStatusItem(_ item: NSStatusItem,
+                                            screenFrames: [CGRect],
+                                            deadline: Date,
+                                            attemptsLeft: Int = 12,
+                                            recreated: Bool = false) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.reshowVerifyInterval) { [weak self, weak item] in
+            // Reopening or explicitly recovering the app replaces this item,
+            // cancelling these callbacks. A sleep, display change or hidden bar
+            // is not evidence of failed placement, so those stop the check too.
+            guard let self, let item, self.statusController?.statusItem === item,
+                  !self.isTerminating, !self.isReshowingStatusItem,
+                  !self.popover.isShown, item.menu == nil, item.isVisible,
+                  self.statusController?.mainItemHiddenByChoice != true,
+                  NSEvent.pressedMouseButtons == 0,
+                  Date() < deadline,
+                  !UserDefaults.standard.bool(forKey: DefaultsKey.menuBarHideIconWithMetrics),
+                  NSScreen.screens.map(\.frame) == screenFrames,
+                  NSMenu.menuBarVisible(),
+                  NSApp.currentSystemPresentationOptions.intersection(
+                    [.autoHideMenuBar, .hideMenuBar, .fullScreen]).isEmpty,
+                  let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+                  SessionActivitySupport.isOnConsole(session),
+                  !KeepAwakeAutomationSupport.isScreenLocked(sessionDictionary: session),
+                  Self.runningMenuBarManagerName() == nil else { return }
+            if self.iconIsOnScreen() {
+                self.logStatusItemPlacement("post-update appeared")
+                return
+            }
+            guard attemptsLeft <= 1 else {
+                self.verifyPostUpdateStatusItem(item, screenFrames: screenFrames, deadline: deadline,
+                                                attemptsLeft: attemptsLeft - 1, recreated: recreated)
+                return
+            }
+            // Preserve the autosave identity and position. The more disruptive
+            // reset remains exclusive to the person's explicit recovery action.
+            guard !recreated else {
+                self.logStatusItemPlacement("post-update still hidden")
+                return
+            }
+            self.logStatusItemPlacement("post-update recreating")
+            self.statusController?.recreateStatusItem()
+            if let replacement = self.statusController?.statusItem {
+                self.verifyPostUpdateStatusItem(replacement, screenFrames: screenFrames,
+                                                deadline: deadline, recreated: true)
+            }
+        }
+    }
+
     /// Rebuilds the menu bar item so the icon reappears when the OS has dropped it
     /// from a crowded or notched menu bar. Backs the "Show menu bar icon" button.
     /// The rebuild can silently lose to a full bar or to a menu bar manager app
@@ -1601,7 +1797,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // the "still hidden" alert).
         UserDefaults.standard.set(false, forKey: DefaultsKey.menuBarHideIconWithMetrics)
         UserDefaults.standard.set(false, forKey: DefaultsKey.notchHidesMenuBarIcon)
-        statusController?.recreateStatusItem(resetPlacement: true)
+        guard !isReshowingStatusItem else { return }
+        isReshowingStatusItem = true
+        // First keep the spot the person arranged; only a rebuild that still
+        // does not show gives it up below.
+        statusController?.recreateStatusItem()
         logStatusItemPlacement("rebuilt")
         verifyIconReappeared(attemptsLeft: Self.reshowVerifyAttempts)
     }
@@ -1609,32 +1809,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// macOS places a rebuilt status item on its own schedule, and a busy bar
     /// can take longer than one look to settle. Judging it once meant a slow
     /// placement read as a failure and the person was told the bar was full
-    /// when it was not (issue #369).
-    private static let reshowVerifyAttempts = 4
+    /// when it was not (issue #369). A newborn item also reports a zero-height
+    /// frame for a few seconds; that settling grace is separate from the
+    /// "still hidden" countdown so recovery does not burn the arranged spot
+    /// while macOS is still placing the window.
+    private var isReshowingStatusItem = false
+    private static let reshowVerifyAttempts = 6
+    private static let reshowSettlingGraceAttempts = 8
     private static let reshowVerifyInterval: TimeInterval = 0.8
 
-    private func verifyIconReappeared(attemptsLeft: Int) {
+    private func iconIsSettling() -> Bool {
+        StatusItemAnchorSupport.isSettlingStatusFrame(
+            statusController?.statusItem.button?.window?.frame)
+    }
+
+    private func verifyIconReappeared(attemptsLeft: Int,
+                                      settlingGraceLeft: Int = AppDelegate.reshowSettlingGraceAttempts,
+                                      placementWasReset: Bool = false) {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.reshowVerifyInterval) { [weak self] in
             guard let self else { return }
-            // A later choice to let Dynamic Island stand in for the icon
-            // cancels the explicit recovery.
-            guard !StatusItemController.islandHidesStatusIcon(
+            // A later choice to hide the icon cancels the explicit recovery.
+            guard !UserDefaults.standard.bool(forKey: DefaultsKey.menuBarHideIconWithMetrics),
+                  !StatusItemController.islandHidesStatusIcon(
                     in: .standard,
                     hiddenInFullscreen: self.statusController?.islandHiddenInFullscreen == true)
-            else { return }
+            else {
+                self.isReshowingStatusItem = false
+                return
+            }
             if self.iconIsOnScreen() {
+                self.isReshowingStatusItem = false
                 self.logStatusItemPlacement("appeared")
                 return
             }
+            if StatusItemPlacementSupport.shouldKeepWaitingForSettlement(
+                isOnScreen: false,
+                isSettling: self.iconIsSettling(),
+                settlingGraceLeft: settlingGraceLeft) {
+                self.logStatusItemPlacement("settling")
+                self.verifyIconReappeared(attemptsLeft: attemptsLeft,
+                                          settlingGraceLeft: settlingGraceLeft - 1,
+                                          placementWasReset: placementWasReset)
+                return
+            }
             guard attemptsLeft <= 1 else {
-                self.verifyIconReappeared(attemptsLeft: attemptsLeft - 1)
+                self.verifyIconReappeared(attemptsLeft: attemptsLeft - 1,
+                                          settlingGraceLeft: settlingGraceLeft,
+                                          placementWasReset: placementWasReset)
                 return
             }
             // With the app switched off under System Settings > Menu Bar >
             // "Allow in the Menu Bar" (macOS 26), macOS never places the item
-            // whatever its identity. Name the switch instead of blaming a
-            // full menu bar.
+            // whatever its identity, so a reset would only burn the arranged
+            // spot. Name the switch instead of blaming a full menu bar.
             if MenuBarAllowanceSupport.currentAllowance() == .disallowed {
+                self.isReshowingStatusItem = false
                 self.logStatusItemPlacement("disallowed by system")
                 let s = L10n.shared.s
                 NSApp.activate(ignoringOtherApps: true)
@@ -1644,6 +1873,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                 alert.runModal()
                 return
             }
+            // Keeping the arranged spot did not bring the icon back, so the
+            // saved position is itself part of what macOS will not show. Start
+            // the item over under a new identity and look again before telling
+            // anyone there is nothing left to try.
+            guard placementWasReset else {
+                self.logStatusItemPlacement("resetting placement")
+                self.statusController?.recreateStatusItem(resetPlacement: true)
+                self.verifyIconReappeared(attemptsLeft: Self.reshowVerifyAttempts,
+                                          settlingGraceLeft: Self.reshowSettlingGraceAttempts,
+                                          placementWasReset: true)
+                return
+            }
+            self.isReshowingStatusItem = false
             self.logStatusItemPlacement("still hidden")
             let s = L10n.shared.s
             var body = s.menuBarIconStillHiddenBody

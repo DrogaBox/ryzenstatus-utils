@@ -54,7 +54,7 @@ final class StatusItemController {
     private static let mainAutosaveName = "RyzenStatusMenuBarItem"
     private static let metricAutosavePrefix = "RyzenStatusMetric"
     private static let clipboardPreviewAutosaveName = "RyzenStatusClipboardPreview"
-    private static let emptyClipboardImage = NSImage()
+    private static let emptyStatusImage = NSImage()
     private static let maxPlacementGeneration = 10_000
 
     private struct MetricStatusGroup {
@@ -75,7 +75,10 @@ final class StatusItemController {
     var button: NSStatusBarButton? { statusItem.button }
 
     func containsStatusItem(at screenPoint: NSPoint) -> Bool {
-        let buttons = ([statusItem?.button] + metricStatusItems.values.map(\.button)).compactMap { $0 }
+        let items = [statusItem, clipboardPreviewStatusItem].compactMap { $0 } + Array(metricStatusItems.values)
+        // A hidden item keeps its last frame, which another app's item may
+        // occupy by now.
+        let buttons = items.filter(\.isVisible).compactMap(\.button)
         let screenFrames = NSScreen.screens.map(\.frame)
         return buttons.contains { button in
             guard let frame = button.window?.frame,
@@ -128,29 +131,26 @@ final class StatusItemController {
         updateIconAppearance()
     }
 
-    /// Tears the status item down and builds a fresh one. When recovery is explicit,
-    /// reset the saved placement too; otherwise macOS can restore the new item to
-    /// the same hidden/crowded position that made it unreachable.
+    /// Tears the status item down and builds a fresh one, dropping the hidden
+    /// state macOS remembered for it so the rebuilt one is not put straight
+    /// back out of sight, while keeping the spot the person arranged. Only an
+    /// explicit reset gives up that spot, under a brand new identity, and the
+    /// item then lands wherever macOS puts a first-time item. A fixed offset
+    /// used to be seeded here instead, which on many bars put the icon right
+    /// under the system battery item.
     func recreateStatusItem(resetPlacement: Bool = false) {
+        // The item goes away first: AppKit writes its placement and remembered
+        // visibility back under its own name as it is removed, which would put
+        // back whatever was cleared a moment earlier.
+        if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
         if resetPlacement {
             Self.bumpPlacementGeneration(in: .standard)
-            Self.seedProtectedPlacement(in: .standard)
+        } else {
+            let name = Self.mainAutosaveName(in: .standard)
+            UserDefaults.standard.removeObject(forKey: "NSStatusItem Visible \(name)")
+            UserDefaults.standard.removeObject(forKey: "NSStatusItem VisibleCC \(name)")
         }
-        if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
         installStatusItem()
-    }
-
-    /// Placed with no saved position, a new item lands at the LEFT end of the
-    /// status area, right by the notch, which is the first zone macOS hides
-    /// when the bar runs out of room. That made the recovery useless exactly
-    /// on the crowded bars that lose the icon (issue #167). Seeding a small
-    /// preferred position (distance from the screen's right edge) makes the
-    /// rebuilt item claim a spot beside the clock, the last zone to be hidden.
-    private static let protectedPlacementOffset: Double = 64
-
-    private static func seedProtectedPlacement(in defaults: UserDefaults) {
-        defaults.set(protectedPlacementOffset,
-                     forKey: "NSStatusItem Preferred Position \(mainAutosaveName(in: defaults))")
     }
 
     private static func placementGeneration(in defaults: UserDefaults) -> Int {
@@ -170,6 +170,8 @@ final class StatusItemController {
         let previousName = mainAutosaveName(in: defaults)
         defaults.removeObject(forKey: "NSStatusItem Preferred Position \(previousName)")
         defaults.removeObject(forKey: "NSStatusItem Visible \(previousName)")
+        // The spelling macOS actually uses for the remembered visibility.
+        defaults.removeObject(forKey: "NSStatusItem VisibleCC \(previousName)")
         defaults.set((placementGeneration(in: defaults) % maxPlacementGeneration) + 1,
                      forKey: DefaultsKey.statusItemPlacementGeneration)
     }
@@ -397,7 +399,9 @@ final class StatusItemController {
         statusItem.isVisible = !mainItemHidden
 
         guard !hidden else {
-            button.image = nil
+            // A non-nil image lets macOS apply the inactive-display appearance
+            // to the title while keeping the glyph visually absent.
+            button.image = Self.emptyStatusImage
             return
         }
         let stateImage: NSImage?
@@ -668,7 +672,9 @@ final class StatusItemController {
                 button.font = font
                 button.attributedTitle = full
             }
-            if button.image != nil { button.image = nil }
+            // Empty rather than nil, so the title dims with the menu bar on
+            // an inactive display like every other item.
+            if button.image !== Self.emptyStatusImage { button.image = Self.emptyStatusImage }
             if button.imagePosition != .noImage { button.imagePosition = .noImage }
             if button.toolTip != group.title { button.toolTip = group.title }
         }
@@ -832,7 +838,7 @@ final class StatusItemController {
         guard let button = item.button else { return }
         // A non-nil empty image so the title dims on an inactive display the
         // same way the metric items do.
-        if button.image !== Self.emptyClipboardImage { button.image = Self.emptyClipboardImage }
+        if button.image !== Self.emptyStatusImage { button.image = Self.emptyStatusImage }
         if button.imagePosition != .noImage { button.imagePosition = .noImage }
         let font = MenuBarRenderer.statusFont(stacked: false)
         if button.font?.isEqual(font) != true { button.font = font }
@@ -903,7 +909,7 @@ enum BlackHoleGlyph {
 
     static func image(active: Bool) -> NSImage? {
         let tint = KeepAwakeIconTint.current
-        guard active else { return base ?? fallback(active: false) }
+        guard active else { return mark() ?? fallback(active: false) }
         return activeImage(style: .current, tint: tint)
     }
 
@@ -913,7 +919,7 @@ enum BlackHoleGlyph {
         if let symbolName = style.systemSymbolName {
             source = fixedSizeSymbol(named: symbolName)
         } else {
-            source = base
+            source = mark()
         }
         guard let source else { return fallback(active: tint != .none) }
         guard let color = color(for: tint) else {
@@ -921,6 +927,26 @@ enum BlackHoleGlyph {
             return source
         }
         return tintedImage(source, color: color) ?? fallback(active: true)
+    }
+
+    /// The symbol named in the menu bar settings, empty for the mark.
+    static var chosenSymbolName: String {
+        Defaults.sanitizedMenuBarIconSymbol(
+            UserDefaults.standard.string(forKey: DefaultsKey.menuBarIconSymbol))
+    }
+
+    /// What every state starts from: the chosen symbol, or the bundled mark
+    /// when none is chosen or this Mac has no symbol by that name.
+    static func mark(symbolName: String = BlackHoleGlyph.chosenSymbolName) -> NSImage? {
+        customMark(named: symbolName) ?? base
+    }
+
+    /// A system symbol on the canvas the active symbols use, or nil when
+    /// this Mac has no symbol by that name: a typo, or a name from a newer
+    /// macOS that came with a settings backup.
+    static func customMark(named name: String) -> NSImage? {
+        guard !name.isEmpty else { return nil }
+        return fixedSizeSymbol(named: name)
     }
 
     /// System symbols have different natural widths. Center them inside the
@@ -950,8 +976,8 @@ enum BlackHoleGlyph {
     /// A blue, full-strength glyph used to flag an available update. Non-template
     /// (a real color), drawn by masking blue into the glyph's shape.
     static func attentionImage() -> NSImage? {
-        guard let base else { return fallback(active: true) }
-        return tintedImage(base, color: .systemBlue) ?? fallback(active: true)
+        guard let glyph = mark() else { return fallback(active: true) }
+        return tintedImage(glyph, color: .systemBlue) ?? fallback(active: true)
     }
 
     /// The given state image with a red slashed microphone beside it, shown

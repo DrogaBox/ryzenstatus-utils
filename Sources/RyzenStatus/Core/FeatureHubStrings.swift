@@ -137,6 +137,20 @@ struct FeatureHubStrings {
     let energyInputs: String
     let energyPeriodic: String
     let energyHelp: String
+    let experimentalBadge: String
+    let explainAppManagement: String
+    let onboardingSelectedPermissionsTitle: String
+    let onboardingNoSelectedPermissions: String
+    let onboardingOtherPermissionsTitle: String
+    let onboardingOtherPermissionsCaption: String
+    let notchUninstallTitle: String
+    let notchUninstallMessageFormat: String   // "…: %@. …", the installed extensions' names
+    let notchUninstallWithExtensions: String
+    let notchUninstallKeepExtensions: String
+    let neverUsedTitle: String
+    let neverUsedMessageFormat: String   // "…: %@. …" with the feature names
+    let neverUsedUninstall: String
+    let neverUsedKeep: String
 }
 
 extension FeatureStrings {
@@ -285,7 +299,21 @@ extension FeatureHubStrings {
         energyKeyboard: "키보드 감시",
         energyInputs: "마우스와 키보드 감시",
         energyPeriodic: "일정 간격으로 확인",
-        energyHelp: "기능이 켜져 있을 때 계속 유지하는 작업입니다. 제거한 기능은 전혀 불러오지 않습니다."
+        energyHelp: "기능이 켜져 있을 때 계속 유지하는 작업입니다. 제거한 기능은 전혀 불러오지 않습니다.",
+        experimentalBadge: "실험적",
+        explainAppManagement: "업데이트가 패키지 관리자로 설치한 앱을 교체하거나 제거할 수 있게 합니다.",
+        onboardingSelectedPermissionsTitle: "선택한 기능에 필요한 권한",
+        onboardingNoSelectedPermissions: "설정을 마치는 데 필요한 권한이 없습니다.",
+        onboardingOtherPermissionsTitle: "기타 권한",
+        onboardingOtherPermissionsCaption: "선택 사항입니다. 기능에서 필요할 때 지금 또는 나중에 허용할 수 있습니다.",
+        notchUninstallTitle: "Dynamic Island 제거",
+        notchUninstallMessageFormat: "다음 확장 기능은 Dynamic Island 안에서만 작동합니다: %@. 함께 제거할까요? 아무것도 삭제되지 않으며 한 번의 클릭으로 모두 되돌릴 수 있습니다.",
+        notchUninstallWithExtensions: "확장 기능도 제거",
+        notchUninstallKeepExtensions: "확장 기능 유지",
+        neverUsedTitle: "한 번도 켜지 않은 기능",
+        neverUsedMessageFormat: "다음 기능은 설치되어 있지만 한 번도 켜진 적이 없습니다: %@. 제거하면 패널과 설정이 짧아집니다. 아무것도 삭제되지 않으며 클릭 한 번으로 다시 돌아옵니다.",
+        neverUsedUninstall: "이 기능 제거",
+        neverUsedKeep: "유지"
     )
 }
 
@@ -413,7 +441,21 @@ extension FeatureHubStrings {
         energyKeyboard: "Listens to the keyboard",
         energyInputs: "Listens to mouse and keyboard",
         energyPeriodic: "Checks on an interval",
-        energyHelp: "What the feature keeps alive while it is on. Uninstalled features load nothing at all."
+        energyHelp: "What the feature keeps alive while it is on. Uninstalled features load nothing at all.",
+        experimentalBadge: "Experimental",
+        explainAppManagement: "Lets updates replace or remove apps installed by the package manager.",
+        onboardingSelectedPermissionsTitle: "Permissions for your choices",
+        onboardingNoSelectedPermissions: "You do not need to grant any permission to finish setup.",
+        onboardingOtherPermissionsTitle: "Other permissions",
+        onboardingOtherPermissionsCaption: "Optional. Grant these now or later, when a feature needs them.",
+        notchUninstallTitle: "Uninstall Dynamic Island",
+        notchUninstallMessageFormat: "These extensions only work inside the Dynamic Island: %@. Uninstall them too? Nothing is deleted, and everything comes back with one click.",
+        notchUninstallWithExtensions: "Uninstall extensions too",
+        notchUninstallKeepExtensions: "Keep extensions",
+        neverUsedTitle: "Never turned on",
+        neverUsedMessageFormat: "These features are installed but have never been on: %@. Uninstalling them makes the panel and Settings shorter. Nothing is deleted, and each one comes back with one click.",
+        neverUsedUninstall: "Uninstall these",
+        neverUsedKeep: "Keep them"
     )
 
     static let ptBR = FeatureHubStrings(
@@ -539,7 +581,21 @@ extension FeatureHubStrings {
         energyKeyboard: "Escuta o teclado",
         energyInputs: "Escuta mouse e teclado",
         energyPeriodic: "Verifica em intervalos",
-        energyHelp: "O custo enquanto a função está ligada. Desinstalada, ela não carrega nada."
+        energyHelp: "O custo enquanto a função está ligada. Desinstalada, ela não carrega nada.",
+        experimentalBadge: "Experimental",
+        explainAppManagement: "Permite que as atualizações substituam ou removam apps instalados pelo gerenciador de pacotes.",
+        onboardingSelectedPermissionsTitle: "Permissões para suas escolhas",
+        onboardingNoSelectedPermissions: "Você não precisa conceder nenhuma permissão para concluir a configuração.",
+        onboardingOtherPermissionsTitle: "Outras permissões",
+        onboardingOtherPermissionsCaption: "Opcional. Você pode concedê-las agora ou depois, quando algum recurso precisar.",
+        notchUninstallTitle: "Desinstalar Dynamic Island",
+        notchUninstallMessageFormat: "Estas extensões só funcionam dentro da Dynamic Island: %@. Desinstalar também? Nada é apagado e tudo volta com um clique.",
+        notchUninstallWithExtensions: "Desinstalar extensões também",
+        notchUninstallKeepExtensions: "Manter extensões",
+        neverUsedTitle: "Nunca ativados",
+        neverUsedMessageFormat: "Estes recursos estão instalados, mas nunca foram ativados: %@. Desinstalar deixa o painel e os Ajustes mais curtos. Nada é apagado, e cada um volta com um clique.",
+        neverUsedUninstall: "Desinstalar estes",
+        neverUsedKeep: "Manter"
     )
 
     static let tr = FeatureHubStrings(
@@ -665,7 +721,21 @@ extension FeatureHubStrings {
         energyKeyboard: "Klavyeyi dinler",
         energyInputs: "Fare ve klavyeyi dinler",
         energyPeriodic: "Aralıklarla denetler",
-        energyHelp: "Özellik açıkken tuttuğu maliyet. Kaldırılan özellik hiçbir şey yüklemez."
+        energyHelp: "Özellik açıkken tuttuğu maliyet. Kaldırılan özellik hiçbir şey yüklemez.",
+        experimentalBadge: "Deneysel",
+        explainAppManagement: "Güncellemelerin paket yöneticisiyle yüklenen uygulamaları değiştirmesini veya kaldırmasını sağlar.",
+        onboardingSelectedPermissionsTitle: "Seçimleriniz için gereken izinler",
+        onboardingNoSelectedPermissions: "Kurulumu tamamlamak için izin vermeniz gerekmiyor.",
+        onboardingOtherPermissionsTitle: "Diğer izinler",
+        onboardingOtherPermissionsCaption: "İsteğe bağlıdır. Bir özellik gerektiğinde şimdi veya daha sonra izin verebilirsiniz.",
+        notchUninstallTitle: "Dynamic Island’ı kaldır",
+        notchUninstallMessageFormat: "Bu uzantılar yalnızca Dynamic Island içinde çalışır: %@. Onlar da kaldırılsın mı? Hiçbir şey silinmez, hepsi tek tıkla geri gelir.",
+        notchUninstallWithExtensions: "Uzantıları da kaldır",
+        notchUninstallKeepExtensions: "Uzantılar kalsın",
+        neverUsedTitle: "Hiç açılmadı",
+        neverUsedMessageFormat: "Bu özellikler yüklü ama hiç açılmadı: %@. Kaldırırsanız panel ve Ayarlar kısalır. Hiçbir şey silinmez ve her biri tek tıkla geri gelir.",
+        neverUsedUninstall: "Bunları kaldır",
+        neverUsedKeep: "Kalsın"
     )
 
     static let ru = FeatureHubStrings(
@@ -791,7 +861,21 @@ extension FeatureHubStrings {
         energyKeyboard: "Слушает клавиатуру",
         energyInputs: "Слушает мышь и клавиатуру",
         energyPeriodic: "Проверяет с интервалом",
-        energyHelp: "Стоимость, пока функция включена. Удалённая функция ничего не загружает."
+        energyHelp: "Стоимость, пока функция включена. Удалённая функция ничего не загружает.",
+        experimentalBadge: "Экспериментально",
+        explainAppManagement: "Позволяет обновлениям заменять или удалять приложения, установленные через менеджер пакетов.",
+        onboardingSelectedPermissionsTitle: "Разрешения для выбранных функций",
+        onboardingNoSelectedPermissions: "Для завершения настройки разрешения не нужны.",
+        onboardingOtherPermissionsTitle: "Другие разрешения",
+        onboardingOtherPermissionsCaption: "Необязательно. Их можно выдать сейчас или позже, когда они понадобятся функции.",
+        notchUninstallTitle: "Удалить Dynamic Island",
+        notchUninstallMessageFormat: "Эти расширения работают только внутри Dynamic Island: %@. Удалить и их? Ничего не стирается, всё возвращается одним кликом.",
+        notchUninstallWithExtensions: "Удалить и расширения",
+        notchUninstallKeepExtensions: "Оставить расширения",
+        neverUsedTitle: "Ни разу не включались",
+        neverUsedMessageFormat: "Эти функции установлены, но ни разу не включались: %@. Если их удалить, панель и настройки станут короче. Ничего не стирается, и любую можно вернуть одним щелчком.",
+        neverUsedUninstall: "Удалить их",
+        neverUsedKeep: "Оставить"
     )
 
     static let es = FeatureHubStrings(
@@ -917,7 +1001,21 @@ extension FeatureHubStrings {
         energyKeyboard: "Escucha el teclado",
         energyInputs: "Escucha ratón y teclado",
         energyPeriodic: "Comprueba a intervalos",
-        energyHelp: "El coste mientras la función está activada. Desinstalada, no carga nada."
+        energyHelp: "El coste mientras la función está activada. Desinstalada, no carga nada.",
+        experimentalBadge: "Experimental",
+        explainAppManagement: "Permite que las actualizaciones sustituyan o eliminen apps instaladas con el gestor de paquetes.",
+        onboardingSelectedPermissionsTitle: "Permisos para tus elecciones",
+        onboardingNoSelectedPermissions: "No necesitas conceder permisos para terminar la configuración.",
+        onboardingOtherPermissionsTitle: "Otros permisos",
+        onboardingOtherPermissionsCaption: "Opcional. Concédelos ahora o después, cuando una función los necesite.",
+        notchUninstallTitle: "Desinstalar Dynamic Island",
+        notchUninstallMessageFormat: "Estas extensiones solo funcionan dentro del Dynamic Island: %@. ¿Desinstalarlas también? No se borra nada y todo vuelve con un clic.",
+        notchUninstallWithExtensions: "Desinstalar también las extensiones",
+        notchUninstallKeepExtensions: "Conservar las extensiones",
+        neverUsedTitle: "Nunca activadas",
+        neverUsedMessageFormat: "Estas funciones están instaladas, pero nunca se activaron: %@. Desinstalarlas acorta el panel y los Ajustes. No se borra nada y cada una vuelve con un clic.",
+        neverUsedUninstall: "Desinstalar estas",
+        neverUsedKeep: "Conservarlas"
     )
 
     static let de = FeatureHubStrings(
@@ -1043,7 +1141,21 @@ extension FeatureHubStrings {
         energyKeyboard: "Hört auf die Tastatur",
         energyInputs: "Hört auf Maus und Tastatur",
         energyPeriodic: "Prüft in Intervallen",
-        energyHelp: "Die Kosten, solange die Funktion an ist. Deinstalliert lädt sie gar nichts."
+        energyHelp: "Die Kosten, solange die Funktion an ist. Deinstalliert lädt sie gar nichts.",
+        experimentalBadge: "Experimentell",
+        explainAppManagement: "Erlaubt App-Updates, vom Paketmanager installierte Apps zu ersetzen oder zu entfernen.",
+        onboardingSelectedPermissionsTitle: "Berechtigungen für deine Auswahl",
+        onboardingNoSelectedPermissions: "Zum Abschließen der Einrichtung ist keine Berechtigung nötig.",
+        onboardingOtherPermissionsTitle: "Weitere Berechtigungen",
+        onboardingOtherPermissionsCaption: "Optional. Erlaube sie jetzt oder später, wenn eine Funktion sie benötigt.",
+        notchUninstallTitle: "Dynamic Island deinstallieren",
+        notchUninstallMessageFormat: "Diese Erweiterungen funktionieren nur im Dynamic Island: %@. Auch deinstallieren? Nichts wird gelöscht, alles kommt mit einem Klick zurück.",
+        notchUninstallWithExtensions: "Erweiterungen auch deinstallieren",
+        notchUninstallKeepExtensions: "Erweiterungen behalten",
+        neverUsedTitle: "Nie eingeschaltet",
+        neverUsedMessageFormat: "Diese Funktionen sind installiert, waren aber nie eingeschaltet: %@. Deinstallierst du sie, werden Panel und Einstellungen kürzer. Nichts wird gelöscht, und jede kommt mit einem Klick zurück.",
+        neverUsedUninstall: "Diese deinstallieren",
+        neverUsedKeep: "Behalten"
     )
 
     static let fr = FeatureHubStrings(
@@ -1169,7 +1281,21 @@ extension FeatureHubStrings {
         energyKeyboard: "Écoute le clavier",
         energyInputs: "Écoute souris et clavier",
         energyPeriodic: "Vérifie par intervalles",
-        energyHelp: "Le coût quand la fonction est active. Désinstallée, elle ne charge rien."
+        energyHelp: "Le coût quand la fonction est active. Désinstallée, elle ne charge rien.",
+        experimentalBadge: "Expérimental",
+        explainAppManagement: "Permet aux mises à jour de remplacer ou supprimer les apps installées par le gestionnaire de paquets.",
+        onboardingSelectedPermissionsTitle: "Autorisations pour vos choix",
+        onboardingNoSelectedPermissions: "Aucune autorisation n’est nécessaire pour terminer la configuration.",
+        onboardingOtherPermissionsTitle: "Autres autorisations",
+        onboardingOtherPermissionsCaption: "Facultatif. Accordez-les maintenant ou plus tard, lorsqu’une fonction en aura besoin.",
+        notchUninstallTitle: "Désinstaller Dynamic Island",
+        notchUninstallMessageFormat: "Ces extensions ne fonctionnent que dans Dynamic Island\u{00A0}: %@. Les désinstaller aussi\u{00A0}? Rien n’est effacé et tout revient en un clic.",
+        notchUninstallWithExtensions: "Désinstaller aussi les extensions",
+        notchUninstallKeepExtensions: "Conserver les extensions",
+        neverUsedTitle: "Jamais activées",
+        neverUsedMessageFormat: "Ces fonctions sont installées mais n’ont jamais été activées\u{00A0}: %@. Les désinstaller raccourcit le panneau et les Réglages. Rien n’est effacé, et chacune revient en un clic.",
+        neverUsedUninstall: "Les désinstaller",
+        neverUsedKeep: "Les garder"
     )
 
     static let it = FeatureHubStrings(
@@ -1295,7 +1421,21 @@ extension FeatureHubStrings {
         energyKeyboard: "Ascolta la tastiera",
         energyInputs: "Ascolta mouse e tastiera",
         energyPeriodic: "Controlla a intervalli",
-        energyHelp: "Il costo mentre la funzione è attiva. Disinstallata non carica nulla."
+        energyHelp: "Il costo mentre la funzione è attiva. Disinstallata non carica nulla.",
+        experimentalBadge: "Sperimentale",
+        explainAppManagement: "Consente agli aggiornamenti di sostituire o rimuovere le app installate dal gestore di pacchetti.",
+        onboardingSelectedPermissionsTitle: "Permessi per le tue scelte",
+        onboardingNoSelectedPermissions: "Non servono permessi per completare la configurazione.",
+        onboardingOtherPermissionsTitle: "Altri permessi",
+        onboardingOtherPermissionsCaption: "Facoltativo. Concedili ora o più tardi, quando una funzione ne avrà bisogno.",
+        notchUninstallTitle: "Disinstalla Dynamic Island",
+        notchUninstallMessageFormat: "Queste estensioni funzionano solo nel Dynamic Island: %@. Disinstallare anche loro? Nulla viene cancellato e tutto torna con un clic.",
+        notchUninstallWithExtensions: "Disinstalla anche le estensioni",
+        notchUninstallKeepExtensions: "Mantieni le estensioni",
+        neverUsedTitle: "Mai attivate",
+        neverUsedMessageFormat: "Queste funzioni sono installate ma non sono mai state attivate: %@. Disinstallarle accorcia il pannello e le Impostazioni. Non si cancella nulla e ognuna torna con un clic.",
+        neverUsedUninstall: "Disinstalla queste",
+        neverUsedKeep: "Mantienile"
     )
 
     static let ja = FeatureHubStrings(
@@ -1421,7 +1561,21 @@ extension FeatureHubStrings {
         energyKeyboard: "キーボードを監視",
         energyInputs: "マウスとキーボードを監視",
         energyPeriodic: "一定間隔で確認",
-        energyHelp: "オンの間のコストです。アンインストールすれば何も読み込みません。"
+        energyHelp: "オンの間のコストです。アンインストールすれば何も読み込みません。",
+        experimentalBadge: "実験的",
+        explainAppManagement: "パッケージマネージャでインストールしたAppをアップデートで置き換えたり削除したりできるようにします。",
+        onboardingSelectedPermissionsTitle: "選んだ機能に必要な許可",
+        onboardingNoSelectedPermissions: "設定を完了するための許可は必要ありません。",
+        onboardingOtherPermissionsTitle: "その他の許可",
+        onboardingOtherPermissionsCaption: "任意です。機能で必要になったときに、今または後で許可できます。",
+        notchUninstallTitle: "Dynamic Islandをアンインストール",
+        notchUninstallMessageFormat: "次の拡張機能はDynamic Islandの中でのみ動作します：%@。これらもアンインストールしますか？何も削除されず、すべてワンクリックで戻ります。",
+        notchUninstallWithExtensions: "拡張機能もアンインストール",
+        notchUninstallKeepExtensions: "拡張機能を残す",
+        neverUsedTitle: "一度もオンにしていない機能",
+        neverUsedMessageFormat: "次の機能はインストール済みですが、一度もオンになっていません: %@。アンインストールするとパネルと設定が短くなります。何も消えず、どれもワンクリックで戻せます。",
+        neverUsedUninstall: "これらをアンインストール",
+        neverUsedKeep: "残す"
     )
 
     static let zhHans = FeatureHubStrings(
@@ -1547,7 +1701,21 @@ extension FeatureHubStrings {
         energyKeyboard: "监听键盘",
         energyInputs: "监听鼠标和键盘",
         energyPeriodic: "按间隔检查",
-        energyHelp: "功能开启期间的开销。卸载后完全不加载。"
+        energyHelp: "功能开启期间的开销。卸载后完全不加载。",
+        experimentalBadge: "实验性",
+        explainAppManagement: "允许更新替换或移除通过软件包管理器安装的 App。",
+        onboardingSelectedPermissionsTitle: "所选功能需要的权限",
+        onboardingNoSelectedPermissions: "完成设置无需授予任何权限。",
+        onboardingOtherPermissionsTitle: "其他权限",
+        onboardingOtherPermissionsCaption: "可选。你可以现在授予，也可以等功能需要时再授予。",
+        notchUninstallTitle: "卸载 Dynamic Island",
+        notchUninstallMessageFormat: "以下扩展只能在 Dynamic Island 中使用：%@。要一并卸载吗？不会删除任何内容，一键即可全部恢复。",
+        notchUninstallWithExtensions: "一并卸载扩展",
+        notchUninstallKeepExtensions: "保留扩展",
+        neverUsedTitle: "从未开启",
+        neverUsedMessageFormat: "这些功能已安装，但从未开启：%@。卸载后，面板和设置会更简短。不会删除任何数据，每项都能一键恢复。",
+        neverUsedUninstall: "卸载这些",
+        neverUsedKeep: "保留"
     )
 
     static let zhTW = FeatureHubStrings(
@@ -1673,7 +1841,21 @@ extension FeatureHubStrings {
         energyKeyboard: "監聽鍵盤",
         energyInputs: "監聽滑鼠與鍵盤",
         energyPeriodic: "按間隔檢查",
-        energyHelp: "功能開啟期間的負擔。解除安裝後完全不載入。"
+        energyHelp: "功能開啟期間的負擔。解除安裝後完全不載入。",
+        experimentalBadge: "實驗性",
+        explainAppManagement: "允許更新取代或移除透過套件管理器安裝的 App。",
+        onboardingSelectedPermissionsTitle: "所選功能需要的權限",
+        onboardingNoSelectedPermissions: "完成設定不需要授予任何權限。",
+        onboardingOtherPermissionsTitle: "其他權限",
+        onboardingOtherPermissionsCaption: "可選。你可以現在授予，也可以等功能需要時再授予。",
+        notchUninstallTitle: "解除安裝 Dynamic Island",
+        notchUninstallMessageFormat: "以下延伸功能只能在 Dynamic Island 中使用：%@。要一併解除安裝嗎？不會刪除任何內容，一鍵即可全部復原。",
+        notchUninstallWithExtensions: "一併解除安裝延伸功能",
+        notchUninstallKeepExtensions: "保留延伸功能",
+        neverUsedTitle: "從未開啟",
+        neverUsedMessageFormat: "這些功能已安裝，但從未開啟：%@。解除安裝後，面板和設定會更簡短。不會刪除任何資料，每項都能一鍵恢復。",
+        neverUsedUninstall: "解除安裝這些",
+        neverUsedKeep: "保留"
     )
 
     static let zhHK = FeatureHubStrings(
@@ -1799,7 +1981,21 @@ extension FeatureHubStrings {
         energyKeyboard: "監聽鍵盤",
         energyInputs: "監聽滑鼠與鍵盤",
         energyPeriodic: "按間隔檢查",
-        energyHelp: "功能開啟期間的負擔。解除安裝後完全不載入。"
+        energyHelp: "功能開啟期間的負擔。解除安裝後完全不載入。",
+        experimentalBadge: "實驗性",
+        explainAppManagement: "允許更新取代或移除透過套件管理器安裝的 App。",
+        onboardingSelectedPermissionsTitle: "所選功能需要嘅權限",
+        onboardingNoSelectedPermissions: "完成設定唔需要授予任何權限。",
+        onboardingOtherPermissionsTitle: "其他權限",
+        onboardingOtherPermissionsCaption: "可選。你可以而家授予，亦可以等功能需要時再授予。",
+        notchUninstallTitle: "解除安裝 Dynamic Island",
+        notchUninstallMessageFormat: "以下延伸功能只能在 Dynamic Island 中使用：%@。要一併解除安裝嗎？不會刪除任何內容，一鍵即可全部復原。",
+        notchUninstallWithExtensions: "一併解除安裝延伸功能",
+        notchUninstallKeepExtensions: "保留延伸功能",
+        neverUsedTitle: "從未開啟",
+        neverUsedMessageFormat: "這些功能已安裝，但從未開啟：%@。解除安裝後，面板和設定會更簡短。不會刪除任何資料，每項都可以一鍵恢復。",
+        neverUsedUninstall: "解除安裝這些",
+        neverUsedKeep: "保留"
     )
 
     static let sk = FeatureHubStrings(
@@ -1925,7 +2121,21 @@ extension FeatureHubStrings {
         energyKeyboard: "Sleduje klávesnicu",
         energyInputs: "Sleduje myš a klávesnicu",
         energyPeriodic: "Kontroluje v intervaloch",
-        energyHelp: "Čo funkcia udržiava v chode, kým je zapnutá. Odinštalované funkcie nenačítavajú vôbec nič."
+        energyHelp: "Čo funkcia udržiava v chode, kým je zapnutá. Odinštalované funkcie nenačítavajú vôbec nič.",
+        experimentalBadge: "Experimentálne",
+        explainAppManagement: "Umožňuje aktualizáciám nahradiť alebo odstrániť aplikácie nainštalované správcom balíkov.",
+        onboardingSelectedPermissionsTitle: "Povolenia pre váš výber",
+        onboardingNoSelectedPermissions: "Na dokončenie nastavenia nemusíte udeliť žiadne povolenie.",
+        onboardingOtherPermissionsTitle: "Ostatné povolenia",
+        onboardingOtherPermissionsCaption: "Voliteľné. Udeľte ich teraz alebo neskôr, keď ich bude funkcia potrebovať.",
+        notchUninstallTitle: "Odinštalovať Dynamic Island",
+        notchUninstallMessageFormat: "Tieto rozšírenia fungujú len v rámci Dynamic Island: %@. Odinštalovať aj ich? Nič sa nevymaže, všetko sa dá vrátiť jedným kliknutím.",
+        notchUninstallWithExtensions: "Odinštalovať aj rozšírenia",
+        notchUninstallKeepExtensions: "Ponechať rozšírenia",
+        neverUsedTitle: "Nikdy nezapnuté",
+        neverUsedMessageFormat: "Tieto funkcie sú nainštalované, ale ešte nikdy neboli zapnuté: %@. Ich odinštalovaním sa panel a nastavenia skrátia. Nič sa nevymaže a každá sa vráti jedným kliknutím.",
+        neverUsedUninstall: "Odinštalovať tieto",
+        neverUsedKeep: "Ponechať"
     )
 
     static let uk = FeatureHubStrings(
@@ -2051,6 +2261,20 @@ extension FeatureHubStrings {
         energyKeyboard: "Стежить за клавіатурою",
         energyInputs: "Стежить за мишею та клавіатурою",
         energyPeriodic: "Перевіряє з інтервалом",
-        energyHelp: "Що функція тримає активним, поки ввімкнена. Видалені функції не завантажують нічого."
+        energyHelp: "Що функція тримає активним, поки ввімкнена. Видалені функції не завантажують нічого.",
+        experimentalBadge: "Експериментальне",
+        explainAppManagement: "Дозволяє оновленням замінювати або видаляти програми, встановлені через менеджер пакетів.",
+        onboardingSelectedPermissionsTitle: "Дозволи для вашого вибору",
+        onboardingNoSelectedPermissions: "Вам не потрібно надавати жодних дозволів для завершення налаштування.",
+        onboardingOtherPermissionsTitle: "Інші дозволи",
+        onboardingOtherPermissionsCaption: "Необов’язково. Надайте їх зараз або пізніше, коли функція їх потребуватиме.",
+        notchUninstallTitle: "Видалити Dynamic Island",
+        notchUninstallMessageFormat: "Наступні розширення працюють лише з Dynamic Island: %@. Видалити їх разом? Нічого не стирається, усе повертається одним клацанням.",
+        notchUninstallWithExtensions: "Видалити розширення разом",
+        notchUninstallKeepExtensions: "Залишити розширення",
+        neverUsedTitle: "Жодного разу не вмикалися",
+        neverUsedMessageFormat: "Ці функції встановлені, але жодного разу не вмикалися: %@. Якщо їх видалити, панель і налаштування стануть коротшими. Нічого не стирається, і будь-яку можна повернути одним клацанням.",
+        neverUsedUninstall: "Видалити їх",
+        neverUsedKeep: "Залишити"
     )
 }

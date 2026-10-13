@@ -3991,6 +3991,15 @@ struct MetricsTests {
         let adhocInstallerScript = UpdateInstallerSupport.installerScript(allowAdhoc: true)
         expect(adhocInstallerScript.contains("ALLOW_ADHOC=1") && adhocInstallerScript.contains("-R='identifier \"com.ryzenstatus.utils\"'"),
                "ad-hoc mode is supported for developer builds when explicitly enabled")
+        expect(installerScript.contains("EXPECTED_VERSION=\"$6\"")
+                && installerScript.contains("CFBundleShortVersionString")
+                && installerScript.contains("note fail-version"),
+               "the installer refuses a DMG whose app is not the offered version")
+        expect(UpdateInstallerSupport.elevatedInstallCommand(appPath: "/A.app", dmgPath: "/u.dmg", pid: 1,
+                                                             resultPath: "/r", uid: 501,
+                                                             expectedVersion: "1.42.0")
+                .contains("'1.42.0'"),
+               "the elevated installer receives the offered version")
         expect(installerScript.contains("VERIFY_OK"),
                "installer gate separates signature integrity from publisher identity")
         expect(installerScript.contains("chown -R"),
@@ -5260,17 +5269,193 @@ struct MetricsTests {
 
         // MARK: URL cleaning
 
-        expectEqual(URLCleaning.cleanedString(from: "https://example.com/path?utm_source=news&id=42&fbclid=abc") ?? "",
+        expectEqual(URLCleaning.clean("https://example.com/path?utm_source=news&id=42&fbclid=abc")?.url ?? "",
                     "https://example.com/path?id=42",
                     "URL cleaner removes tracking and preserves useful query")
-        expectEqual(URLCleaning.cleanedString(from: " https://example.com/?GCLID=one&utm_campaign=x#section ") ?? "",
+        expectEqual(URLCleaning.clean(" https://example.com/?GCLID=one&utm_campaign=x#section ")?.url ?? "",
                     "https://example.com/#section",
                     "URL cleaner is case-insensitive and preserves fragments")
-        expectEqual(URLCleaning.cleanedString(from: "https://example.com/?id=42") ?? "",
+        expectEqual(URLCleaning.clean("https://example.com/?id=42")?.url ?? "",
                     "https://example.com/?id=42",
                     "URL cleaner leaves clean URLs alone")
-        expect(URLCleaning.cleanedString(from: "not a url") == nil,
+        expect(URLCleaning.clean("not a url") == nil,
                "URL cleaner rejects plain text")
+        let customURLParameters = URLCleaning.customParameters(from: " Ref, source\nref,  ")
+        expect(customURLParameters == ["ref", "source"],
+               "URL cleaner normalizes comma-separated custom parameter names")
+        let customURLRules = URLCleaning.rules(globalNames: " Ref, source\nref,  ",
+                                               siteNames: nil, disabledNames: nil)
+        expectEqual(URLCleaning.clean("https://example.com/?REF=one&id=42&source=two",
+                                              rules: customURLRules)?.url ?? "",
+                    "https://example.com/?id=42",
+                    "URL cleaner removes custom parameters by exact case-insensitive name")
+        expectEqual(URLCleaning.clean("https://example.com/?reference=one",
+                                              rules: customURLRules)?.url ?? "",
+                    "https://example.com/?reference=one",
+                    "URL cleaner does not treat custom parameter names as prefixes")
+        let keptUTM = URLCleaning.rules(globalNames: nil, siteNames: nil, disabledNames: "|utm_*")
+        expectEqual(URLCleaning.clean("https://example.com/?utm_source=news&fbclid=abc&id=1",
+                                      rules: keptUTM)?.url ?? "",
+                    "https://example.com/?utm_source=news&id=1",
+                    "switching the utm row off keeps every utm name and leaves the rest cleaning")
+        let keptShareToken = URLCleaning.rules(globalNames: nil, siteNames: nil,
+                                               disabledNames: "youtube.com|si")
+        expectEqual(URLCleaning.clean("https://www.youtube.com/watch?v=1&si=x&feature=share",
+                                      rules: keptShareToken)?.url ?? "",
+                    "https://www.youtube.com/watch?v=1&si=x",
+                    "a switched off site name stays in the link while its siblings still go")
+        let addedSiteRule = URLCleaning.rules(globalNames: nil, siteNames: "weibo.com|sudaref",
+                                              disabledNames: nil)
+        expectEqual(URLCleaning.clean("https://weibo.com/a?sudaref=x&id=1", rules: addedSiteRule)?.url ?? "",
+                    "https://weibo.com/a?id=1",
+                    "a name added to one site cleans that site")
+        expectEqual(URLCleaning.clean("https://example.com/?sudaref=x", rules: addedSiteRule)?.url ?? "",
+                    "https://example.com/?sudaref=x",
+                    "a name added to one site never reaches another")
+        expect(URLCleaning.clean("https://example.com/?utm_source=a&fbclid=b&id=1")?.removed
+                == ["utm_source", "fbclid"],
+               "cleaning answers with the names it took out, in the order the link carried them")
+        expect(URLCleaning.outcome(for: nil, input: "nope") == .notAURL,
+               "text that is not a link reads as no URL")
+        let paddedLink = " https://example.com/?id=1 "
+        expect(URLCleaning.outcome(for: URLCleaning.clean(paddedLink), input: paddedLink) == .unchanged,
+               "trimming alone does not count as a clean")
+
+        let editedRules = URLCleaning.rules(globalNames: "ref", siteNames: "weibo.com|sudaref",
+                                            disabledNames: "|fbclid")
+        let ruleGroups = URLCleaning.ruleGroups(rules: editedRules)
+        expect(ruleGroups.first?.site == URLCleaning.allSites,
+               "the rules that apply everywhere lead the list")
+        expect(ruleGroups.first?.entries.first?.name == URLCleaning.utmWildcard,
+               "one row stands for every utm name")
+        expect(ruleGroups.first?.entries.allSatisfy {
+            $0.name == URLCleaning.utmWildcard || !$0.name.hasPrefix("utm_")
+        } == true, "the utm names that row already covers are not listed again")
+        expect(ruleGroups.first?.entries.contains { $0.name == "fbclid" && !$0.isEnabled } == true,
+               "a switched off built-in stays listed so it can be switched back on")
+        expect(ruleGroups.first?.entries.contains { $0.name == "ref" && !$0.isBuiltIn } == true,
+               "names the user added share the list with the built-in ones")
+        expect(ruleGroups.contains { $0.site == "weibo.com" },
+               "a site the user added gets a row of its own")
+        expect(ruleGroups.contains { $0.site == "youtube.com" },
+               "every built-in site is listed")
+        expectEqual(URLCleaning.clean("https://www.xiaohongshu.com/?shareRedId=a&exSource=b&id=1")?.url ?? "",
+                    "https://www.xiaohongshu.com/?id=1",
+                    "a built-in name spelled in mixed case by the site is still removed")
+        let upperCaseBuiltIns = URLCleaning.ruleGroups(rules: .none)
+            .flatMap(\.entries).map(\.name).filter { $0 != $0.lowercased() }
+        expect(upperCaseBuiltIns.isEmpty,
+               "built-in names are lowercase, since matching and switched off names are: \(upperCaseBuiltIns)")
+        expectEqual(URLCleaning.siteKey(from: " https://WWW.Weibo.com/path?x=1 ") ?? "",
+                    "weibo.com", "the site field takes a pasted link and keeps the host")
+        expect(URLCleaning.siteKey(from: "not a host") == nil,
+               "text that is not a host is refused rather than stored")
+        expectEqual(URLCleaning.parameterName(from: " Ref ") ?? "", "ref",
+                    "a parameter name is trimmed and lowercased")
+        expect(URLCleaning.parameterName(from: "a=b") == nil,
+               "a name a query cannot carry as one parameter is refused")
+        expect(URLCleaning.tokens(from: "youtube.com|si, |ref") == ["youtube.com": ["si"], "": ["ref"]],
+               "stored tokens read back as site and global names")
+        expectEqual(URLCleaning.storageValue(forTokens: URLCleaning.tokens(from: "youtube.com|si, |ref")),
+                    "|ref,youtube.com|si", "tokens are stored in a stable order")
+        expectEqual(URLCleaning.clean("https://www.bilibili.com/video/BV1TY8J67EUB/?spm_id_from=333.1007.tianma.1-1-1.click&vd_source=3b2eea5")?.url ?? "",
+                    "https://www.bilibili.com/video/BV1TY8J67EUB/",
+                    "URL cleaner strips Bilibili share tracking")
+        expectEqual(URLCleaning.clean("https://www.bilibili.com/video/BV1xx411c7mD/?p=3&t=90&vd_source=abc")?.url ?? "",
+                    "https://www.bilibili.com/video/BV1xx411c7mD/?p=3&t=90",
+                    "URL cleaner keeps the Bilibili part number and playback position")
+        expectEqual(URLCleaning.clean("https://search.bilibili.com/all?keyword=swift&from_source=webtop_search")?.url ?? "",
+                    "https://search.bilibili.com/all?keyword=swift",
+                    "URL cleaner keeps the Bilibili search keyword")
+        expectEqual(URLCleaning.clean("https://youtu.be/TImSMeurR84?si=Xq1&t=42")?.url ?? "",
+                    "https://youtu.be/TImSMeurR84?t=42",
+                    "URL cleaner strips the YouTube share token and keeps the timestamp")
+        expectEqual(URLCleaning.clean("https://www.youtube.com/watch?v=TImSMeurR84")?.url ?? "",
+                    "https://www.youtube.com/watch?v=TImSMeurR84",
+                    "URL cleaner leaves a bare YouTube watch link alone")
+        expectEqual(URLCleaning.clean("https://x.com/user/status/1?s=20&t=abc")?.url ?? "",
+                    "https://x.com/user/status/1",
+                    "URL cleaner strips X share tracking")
+        expectEqual(URLCleaning.clean("https://example.com/?si=keep&t=keep&s=keep")?.url ?? "",
+                    "https://example.com/?si=keep&t=keep&s=keep",
+                    "site rules never leak onto other hosts")
+        expectEqual(URLCleaning.clean("https://open.spotify.com/track/abc?si=xyz")?.url ?? "",
+                    "https://open.spotify.com/track/abc",
+                    "site rules match subdomains")
+        expectEqual(URLCleaning.clean("https://www.reddit.com/r/swift/comments/abc/?%24deep_link=true&%243p=x&share_id=y&sort=new")?.url ?? "",
+                    "https://www.reddit.com/r/swift/comments/abc/?sort=new",
+                    "URL cleaner strips Reddit's deep-link tracking in either spelling")
+
+        // MARK: URL cleaning is a pure deletion
+
+        // Cleaning a link is only allowed to take parameters out of it. The
+        // query is therefore filtered while it is still percent-encoded and
+        // the survivors are put back byte for byte. Decoding them and writing
+        // them back through `queryItems` re-encodes with a much wider allowed
+        // set, so the cleaner respells a value it was never asked to touch —
+        // and on a link with nothing to remove it respells the whole query
+        // and then reports a clean.
+        let wrappedLink = "https://example.com/?redirect=https%3A%2F%2Fexample.org%2F%3Futm_source%3Dkeepme%26z%3D9&gclid=1"
+        let wrappedClean = URLCleaning.clean(wrappedLink)
+        expectEqual(wrappedClean?.url ?? "",
+                    "https://example.com/?redirect=https%3A%2F%2Fexample.org%2F%3Futm_source%3Dkeepme%26z%3D9",
+                    "cleaning a wrapper link takes the tracker out and leaves the wrapped target encoded")
+        expect(wrappedClean?.removed == ["gclid"],
+               "a wrapper link reports only the tracker it really removed")
+        // A link with nothing to remove must come back identical, or the
+        // clipboard poll replaces the user's copy with a different, wrong one
+        // and the UI calls it a clean.
+        let nothingToRemove = "https://example.com/url?q=https%3A%2F%2Fexample.com%2Fpage%3Fa%3D1%26utm_source%3Dnews&sa=U"
+        expect(URLCleaning.clean(nothingToRemove)?.url == nothingToRemove
+               && URLCleaning.outcome(for: URLCleaning.clean(nothingToRemove), input: nothingToRemove) == .unchanged,
+               "a link with no tracked parameter is returned byte for byte and reads as unchanged")
+        for untouched in [
+            "https://example.com/",
+            "https://example.com/?",
+            "https://example.com/path?a=1&a=2",
+            "https://example.com/?q=a+b&r=%5B%5D&s=%20x",
+            "https://user:pw@example.com:8443/p?id=1",
+            "https://[::1]:8443/p?id=1",
+        ] {
+            expect(URLCleaning.clean(untouched)?.url == untouched,
+                   "a link with no tracked parameter is never re-encoded, reordered or normalised: \(untouched)")
+        }
+        expectEqual(URLCleaning.clean("https://example.com/?flag&utm_medium&utm_source=news&id=1")?.url ?? "",
+                    "https://example.com/?flag&id=1",
+                    "a pair with no equals sign is judged by its whole text and a valueless tracker still goes")
+        expectEqual(URLCleaning.clean("https://example.com/?%75tm_source=news&id=1")?.url ?? "",
+                    "https://example.com/?id=1",
+                    "a tracker name spelled percent-encoded is decoded before it is matched")
+        expect(URLCleaning.clean("https://example.com/?utm_source=a&fbclid=b&utm_source=c")?.removed
+                == ["utm_source", "fbclid"],
+               "a name repeated in one link is still reported once")
+
+        let unicodeURL = "https://éxample.com/cafe\u{0301}?x=%2f&q=é#re\u{0301}sume\u{0301}"
+        let unchangedUnicode = URLCleaning.clean(unicodeURL)
+        expect(unchangedUnicode?.url.utf8.elementsEqual(unicodeURL.utf8) == true
+               && unchangedUnicode?.removed.isEmpty == true,
+               "a no-op preserves Unicode spelling and existing escapes byte for byte")
+        let preservedURLCases = [
+            ("https://example.com/p?x=%2f&q=é&utm_source=x", "https://example.com/p?x=%2f&q=é"),
+            ("https://éxample.com/cafe\u{0301}?x=%2f&utm_source=x#re\u{0301}sume\u{0301}",
+             "https://éxample.com/cafe\u{0301}?x=%2f#re\u{0301}sume\u{0301}"),
+            ("https://example.com/p?utm_source=x&\u{0301}id=1", "https://example.com/p?\u{0301}id=1"),
+            ("https://example.com/p?fbclid=\u{0301}x&id=1", "https://example.com/p?id=1"),
+            ("https://example.com/p?\u{0301}id=1&utm_source=x", "https://example.com/p?\u{0301}id=1"),
+            ("https://example.com/p?utm_source=x#\u{0301}keep?utm_medium=y", "https://example.com/p#\u{0301}keep?utm_medium=y"),
+            ("https://example.com/p?utm_source=x#", "https://example.com/p#"),
+            ("https://example.com/p?utm_source=x&", "https://example.com/p?"),
+            ("https://example.com/p?&utm_source=x&&id=%26%3D%3F%23", "https://example.com/p?&&id=%26%3D%3F%23"),
+            ("https://example.com/p#fragment?utm_source=x", "https://example.com/p#fragment?utm_source=x"),
+        ]
+        for (input, expected) in preservedURLCases {
+            expect(URLCleaning.clean(input)?.url.utf8.elementsEqual(expected.utf8) == true,
+                   "cleaning preserves every surviving byte, including delimiters beside combining marks: \(input)")
+        }
+        for separator in ["\n", "\r\n", "\t", " ", "\u{00A0}"] {
+            expect(URLCleaning.clean("https://a.example/x?utm_source=x\(separator)https://b.example/y") == nil,
+                   "automatic URL cleaning cannot discard a second link from a separated text copy")
+        }
 
         // MARK: Cleaner forgotten screenshots
 
@@ -6127,8 +6312,10 @@ struct MetricsTests {
             let hub = FeatureStrings.hub(language)
             // Mouse buttons live on the unified Mouse page now, so its search
             // keywords carry their title instead of a separate sidebar row.
-            expect(directory.first(where: { $0.page == .mouse })?.keywords.contains(hub.titleMouseButtons) == true
-                    && directory.first { $0.page == .superKey }?.title == hub.titleSuperKey
+            expect(directory.first(where: { $0.page == .mouse })?.keywords
+                        .contains(FeatureStrings.mouseButtons(language).pageTitle) == true
+                    && directory.first { $0.page == .superKey }?.title
+                        == FeatureStrings.superKey(language).pageTitle
                     && directory.first { $0.page == .dashboard }?.title
                         == FeatureStrings.performanceSuite(language).dashboardTab,
                    "\(settingsPrefix) sidebar titles come from the localized catalog")
@@ -8194,8 +8381,9 @@ struct MetricsTests {
                 && backupKeys.contains(DefaultsKey.windowGestureModifiers)
                 && backupKeys.contains(DefaultsKey.windowGestureRaiseWindow),
                "window gesture choices travel with the settings backup")
+        expect(!backupKeys.contains(DefaultsKey.screenshotSaveFolder),
+               "a chosen screenshot folder stays on the Mac that chose it")
         expect(backupKeys.contains(DefaultsKey.screenshotFreeze)
-                && backupKeys.contains(DefaultsKey.screenshotSaveFolder)
                 && backupKeys.contains(DefaultsKey.screenshotToolOrder)
                 && backupKeys.contains(DefaultsKey.screenshotToolShortcutsEnabled)
                 && backupKeys.contains(DefaultsKey.panelUtilityScreenshot),

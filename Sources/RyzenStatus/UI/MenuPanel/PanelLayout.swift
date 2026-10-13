@@ -40,7 +40,7 @@ enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
         case .keepAwake: return "moon.zzz.fill"
         case .nowPlaying: return "music.note"
         case .brightness: return "display.2"
-        case .mixer: return "slider.horizontal.3"
+        case .mixer: return "speaker.wave.2"
         case .system: return "cpu"
         case .network: return "network"
         case .disk: return "internaldrive"
@@ -98,9 +98,9 @@ enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
                                  .commandBar, .portManager]
         case .controls: return [.scrollInverter, .mouseNavigation, .mouseButtonShortcuts, .switcher,
                                 .finderCutPaste, .autoQuit,
-                                .shelf, .windowMaximizer, .dockPreview, .keyboardDebounce, .dockClick,
-                                .middleClick, .textSnippets, .superKey, .radialMenu, .notch]
-        case .toggles: return [.quickToggles]
+                                .shelf, .windowMaximizer, .dockPreview, .keyboardDebounce, .dockClick, .spacesOrder,
+                                .middleClick, .textSnippets, .superKey, .radialMenu, .mouseClickDebounce, .notch]
+        case .toggles: return [.quickToggles, .micMute]
         case .wallpaper: return [.wallpaper]
         }
     }
@@ -161,6 +161,16 @@ enum PanelLayout {
 
     static func isShown(_ id: PanelSectionID) -> Bool {
         defaults.object(forKey: id.visibilityKey) as? Bool ?? id.shownByDefault
+    }
+
+    /// Whether a section shows in the panel: installed, switched on, and for
+    /// the displays section, with display controls enabled. A section the hub
+    /// uninstalled stays out even when its switch is on, so it comes back
+    /// from Settings rather than from an empty panel screen. The one rule the
+    /// live panel and its preview in Settings both read.
+    static func isVisibleInPanel(_ id: PanelSectionID) -> Bool {
+        guard id.isAvailable, isShown(id) else { return false }
+        return id != .brightness || defaults.bool(forKey: DefaultsKey.brightnessControlEnabled)
     }
 
     static func setShown(_ shown: Bool, for id: PanelSectionID) {

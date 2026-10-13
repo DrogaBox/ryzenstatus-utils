@@ -610,3 +610,53 @@ extension AppFeature {
         }
     }
 }
+
+extension AppFeature {
+    /// What can only run inside the Dynamic Island: they do nothing without
+    /// it, so its uninstall asks whether they leave too.
+    static var dynamicIslandExtensions: [AppFeature] {
+        features(in: .dynamicIsland).filter { $0 != .notch }
+    }
+
+    /// Whether this Mac can run the feature. Every feature in this app runs
+    /// on any supported Mac, so the gate only exists to read the same as the
+    /// hub's install paths.
+    var isHardwareSupported: Bool { true }
+
+    /// Why an install is refused on this Mac, shown in place of Install.
+    /// Set only while the feature is not installed, so an install that
+    /// predates a check keeps its ordinary row.
+    var installBlockedReason: String? {
+        guard !isAvailable, !isHardwareSupported else { return nil }
+        return nil
+    }
+
+    /// Switches the Features page may offer to uninstall once they turn out
+    /// never used. Each one does nothing until its own switch is on, and no
+    /// other feature leans on it while it is off.
+    static let offeredWhenNeverSwitchedOn: [AppFeature] = [
+        .dockPreview, .dockClick, .windowMaximizer, .autoQuit,
+        .scrollInverter, .linearScroll, .focusFollowsMouse, .mouseAcceleration, .mouseNavigation,
+        .mouseButtonShortcuts, .middleClick, .keyboardDebounce, .mouseClickDebounce, .superKey,
+        .finderCutPaste,
+    ]
+
+    /// Installed features from that list whose switches are off and were never
+    /// saved on this Mac: installed, but not once turned on. A switch turned
+    /// on and back off is saved, so a feature someone used keeps its place.
+    static func neverSwitchedOn(isAvailable: (AppFeature) -> Bool,
+                                boolFor: (String) -> Bool,
+                                isSaved: (String) -> Bool) -> [AppFeature] {
+        offeredWhenNeverSwitchedOn.filter { feature in
+            isAvailable(feature)
+                && !feature.enabledKeys.isEmpty
+                && !feature.enabledKeys.contains(where: boolFor)
+                && !feature.enabledKeys.contains { isSaved($0) && !savedOnEveryMac.contains($0) }
+        }
+    }
+
+    /// Switches a launch migration saves on every Mac, the horizontal scroll
+    /// direction copying the vertical one, so a saved value there says
+    /// nothing about use. Only one that is on counts.
+    private static let savedOnEveryMac: Set<String> = [DefaultsKey.scrollInverterHorizontalEnabled]
+}

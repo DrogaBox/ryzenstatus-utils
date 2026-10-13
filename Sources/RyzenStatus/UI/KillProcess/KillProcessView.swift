@@ -273,6 +273,7 @@ struct KillProcessView: View {
 
     private func copy(_ value: String) {
         NSPasteboard.general.clearContents()
+        NSPasteboard.general.declareRyzenStatusSource()
         NSPasteboard.general.setString(value, forType: .string)
     }
 

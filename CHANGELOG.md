@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.42.0] — 2026-10-13 — kexts 3.34.17 (No kext changes)
+
+Settings get their new layout: a grouped sidebar with search suggestions, the General page in cards with the menu bar panel editor and a menu bar icon you can pick from the system symbols, the Monitor page reorganized around a live preview, and AMD Ryzen pages gathered in a section of their own. The Features page offers to tidy away features you never switched on, the image converter gains profiles, resizing, renaming and watermarks, the URL cleaner learns per-site rules, and the menu bar panel hands focus back to the app you were using when it closes.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.34.17. Only the application's validation version pin changes.
+
+### Added
+
+- **Menu bar icon**: pick any system symbol to stand in for the RyzenStatus mark, from a gallery or by name, in Settings › General › Menu bar panel. The keep-awake states draw on top of the symbol you chose.
+- **Menu bar panel editor**: a miniature of the panel next to its sections, dragged into order with a switch each, in Settings › General › Menu bar panel, with the accordion mode beside it.
+- **URL cleaner rules**: every rule is listed and can be switched off on its own, by site or everywhere, and you can add a parameter for one site only. The panel cleans as you type or paste, and every surface says which parameters it took out.
+- **Image converter**: saved profiles, exact or proportional resizing, fit and fill, background colour, renaming with tokens, text or logo watermarks, an output subfolder and keeping the original modification date.
+- **Scratchpad**: Markdown preview, text size, background opacity and find in the pad.
+- **Features page**: features installed but never switched on are offered for removal in one batch, with Undo, or kept for good. Removing the Dynamic Island asks whether its extensions go too, and the island's row is marked experimental.
+- **Network speed unit** in Settings › Monitor: bytes (MB/s) or bits (Mbps), used by the panel, the metric details and the menu bar.
+
+### Changed
+
+- **Settings sidebar**: tools sit in groups (Utilities, Sound, Energy and Display, Windows and Dock, Mouse and Keyboard, Files) with one row per tool, the AMD Ryzen pages (dashboard, fans, AMD Ryzen Power, overclocking, sensors and validation) have a section of their own under the essentials, and search suggests the exact setting, grouped by page, with the arrow keys.
+- **General** is laid out in cards: launch at login with approval guidance, language, appearance with previews of each mode, Liquid Glass, the Keep Awake shortcut, feedback and the Use Bluetooth switch.
+- **Monitor** is laid out in cards: the menu bar preview stays pinned at the top while you change what it shows, then the panel, its graphs, and the readings both share.
+- **Launch at login** is read and changed off the main thread, since Service Management can stall while answering.
+- **Music app blocking** only blocks a launch a media key explains: each key explains one launch, a click or key press after it takes precedence, and the replacement player starts playing when the key was Play.
+- **Updates** refuse a downloaded app whose version is not the release that was offered, and the What's New video download is bounded while it runs.
+
+### Fixed
+
+- **Closing the menu bar panel** with Esc or by clicking the icon again gives activation back to the app you were using, unless that would switch desktops. RyzenStatus used to stay the active app until something else was clicked.
+- **Show menu bar icon** keeps the spot you arranged and only starts the icon over under a new identity when keeping it does not work. It no longer places the icon 64 pt from the edge, right under the system battery item, and it waits for macOS to finish placing the icon before saying it is still hidden.
+- **After an update**, the first launch checks that the menu bar icon made it on screen and rebuilds it once, keeping its spot, if not.
+- **Panel on the right display**: with a menu bar on several displays (or Sidecar), the panel and Settings open on the display you clicked.
+- **Inactive menu bar**: metric items and a hidden icon now dim with the rest of the menu bar on an inactive display.
+- **Shelf placement** ignores the parked frame a hidden menu bar leaves behind, and clicks on hidden menu bar items no longer count as clicks on the icon.
+- **Calendar permission** shows its name and explanation in your language instead of English.
+- **Portuguese** donation texts were in Spanish.
+- **Settings backups** no longer carry folders chosen on one Mac (save folders, file scopes, bookmarks) or one Mac's history, such as the Command Bar's usage and the WhatsApp organizer's records.
+
 ## [1.41.0] — 2026-10-13 — kexts 3.34.17 (No kext changes)
 
 The Dynamic Island's companion grows with you: it has a name, a level and a story, dresses up from a wardrobe that unlocks as it levels, wears costumes for the season, follows your AMD hardware and says a word of its own now and then.

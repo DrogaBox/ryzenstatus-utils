@@ -149,32 +149,213 @@ final class SettingsRouter: ObservableObject {
 /// System-Settings-style window: a sidebar of pages on the left, the selected
 /// page on the right. Scales cleanly as features are added, and gives each
 /// feature a page of its own with room for examples and advanced options.
+/// Directory construction is much more expensive than selecting an existing
+/// row. Rebuild only when its language, icon source or availability changes.
+private final class SettingsDirectoryCache {
+    private struct Key: Equatable {
+        let language: AppLanguage
+        let superKeySource: SuperKeySource
+        let featureRevision: Int
+    }
+
+    private var navigationKey: Key?
+    private(set) var sections: [SettingsSidebarSection] = []
+    private(set) var items: [SettingsSidebarItem] = []
+    private var searchKey: Key?
+    private var searchItems: [SettingsSearchItem] = []
+
+    func navigation(strings: Strings, language: AppLanguage,
+                    superKeySource: SuperKeySource, featureRevision: Int,
+                    isAvailable: (AppFeature) -> Bool) -> [SettingsSidebarSection] {
+        let key = Key(language: language, superKeySource: superKeySource,
+                      featureRevision: featureRevision)
+        if navigationKey != key {
+            sections = SettingsDirectory.sidebarSections(
+                strings, language: language, superKeySource: superKeySource,
+                isAvailable: isAvailable)
+            items = sections.flatMap(\.items)
+            navigationKey = key
+        }
+        return sections
+    }
+
+    func search(strings: Strings, language: AppLanguage,
+                superKeySource: SuperKeySource, featureRevision: Int) -> [SettingsSearchItem] {
+        let key = Key(language: language, superKeySource: superKeySource,
+                      featureRevision: featureRevision)
+        if searchKey != key {
+            searchItems = SettingsDirectory.searchItems(
+                strings, language: language, superKeySource: superKeySource)
+            searchKey = key
+        }
+        return searchItems
+    }
+}
+
+/// Settings window with named tools in the sidebar. The detail keeps each
+/// tool's existing settings and section anchor.
 struct SettingsView: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var router = SettingsRouter.shared
     @ObservedObject private var features = FeatureRuntime.shared
-    @ObservedObject private var superKey = SuperKeyService.shared
+    @AppStorage(DefaultsKey.superKeySource) private var superKeySourceRaw =
+        SuperKeySource.capsLock.rawValue
     @State private var searchQuery = ""
+    @State private var activeSearchIndex: Int?
+    @State private var directoryCache = SettingsDirectoryCache()
+    @State private var collapsedSectionIDs: Set<Int> = []
+    @State private var navigationFromSidebar = false
+    /// The row just picked in the sidebar, until the router has taken it.
+    @State private var sidebarPick: SettingsSidebarItem.ID?
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @FocusState private var sidebarSearchFocused: Bool
+
+    private struct SearchResultsSnapshot: Equatable {
+        let query: String
+        let groups: [SettingsSearchGroup]
+
+        var isBlank: Bool {
+            query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
+        var items: [SettingsSearchSuggestion] {
+            groups.flatMap { group in
+                (group.parentMatches ? [group.parentSuggestion] : []) + group.suggestions
+            }
+        }
+
+        var ids: [SettingsSearchSuggestion.ID] { items.map(\.id) }
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.query == rhs.query && lhs.ids == rhs.ids
+        }
+    }
+
+    private var sidebarSections: [SettingsSidebarSection] {
+        directoryCache.navigation(
+            strings: l10n.s, language: l10n.language,
+            superKeySource: SuperKeySource.sanitized(superKeySourceRaw),
+            featureRevision: features.revision,
+            isAvailable: { features.isAvailable($0) })
+    }
+
+    private var sidebarItems: [SettingsSidebarItem] {
+        _ = sidebarSections
+        return directoryCache.items
+    }
+
+    private var sidebarSelection: Binding<SettingsSidebarItem.ID?> {
+        Binding(
+            get: {
+                sidebarPick ?? SettingsSidebarSupport.selection(
+                    for: router.destination, in: sidebarItems,
+                    preferredID: router.sidebarFeature.map { .feature($0) })
+            },
+            // The list sets its selection during a view update, where the
+            // router must not publish, so the pick is routed once it ends.
+            set: { selectedID in
+                guard let selectedID,
+                      sidebarItems.contains(where: { $0.id == selectedID }) else { return }
+                sidebarPick = selectedID
+            }
+        )
+    }
+
+    private func routeSidebarPick(_ selectedID: SettingsSidebarItem.ID?) {
+        guard let selectedID else { return }
+        sidebarPick = nil
+        guard let item = sidebarItems.first(where: { $0.id == selectedID }) else { return }
+        let feature: AppFeature?
+        if case .feature(let selectedFeature) = selectedID {
+            feature = selectedFeature
+        } else {
+            feature = nil
+        }
+        navigationFromSidebar = true
+        router.request(item.destination, sidebarFeature: feature)
+    }
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
+        let searchResults: SearchResultsSnapshot = {
+            guard hasSearchQuery else { return SearchResultsSnapshot(query: searchQuery, groups: []) }
+            return SearchResultsSnapshot(
+                query: searchQuery,
+                groups: SettingsSearchSupport.groupedMatchingItems(
+                    query: searchQuery,
+                    items: directoryCache.search(
+                        strings: l10n.s, language: l10n.language,
+                        superKeySource: SuperKeySource.sanitized(superKeySourceRaw),
+                        featureRevision: features.revision),
+                    isAvailable: { features.isAvailable($0) }))
+        }()
+
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            sidebar(searchResults: searchResults)
                 .navigationSplitViewColumnWidth(min: 198, ideal: 210, max: 240)
         } detail: {
-            // The detail slot can ask its content for an unconstrained ideal
-            // size; a page that wraps a ScrollView in a VStack (Dynamic
-            // Island) then answers with its full content height and grows
-            // the window past the screen, so it never scrolls. GeometryReader
-            // reports the space actually given and breaks that chain.
+            // NavigationSplitView's detail slot sometimes queries its content
+            // for an unconstrained ideal size (settling the divider, or on a
+            // page switch). `List` answers that with its full content height
+            // rather than a viewport size the way `ScrollView` does, and
+            // `.frame(maxHeight: .infinity)` only bounds a size it is given,
+            // not one it is asked to report - so a few hundred rows (Kill
+            // Process) grew the whole window. `GeometryReader` reports the
+            // real space it was actually given for normal layout, and ~zero
+            // when asked for an unconstrained ideal size, breaking the chain.
             GeometryReader { geometry in
                 detail
+                    .settingsSectionFocus(for: router.page)
                     .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
             }
         }
         .navigationSplitViewStyle(.balanced)
-        .frame(minWidth: 840, maxWidth: .infinity, minHeight: 560, maxHeight: .infinity)
-        .onAppear { ensureVisiblePage() }
+        .toolbar {
+            // SwiftUI adds its sidebar button only to windows it creates, and
+            // this one is AppKit's. Without it, a sidebar dragged shut could
+            // only be dragged back from a one-point strip at the window's
+            // edge, and a full-screen window could only peek at it.
+            ToolbarItem(placement: .navigation) {
+                let strings = SettingsNavigationStrings.localized(l10n.language)
+                let title = sidebarShown ? strings.hideSidebar : strings.showSidebar
+                Button(action: toggleSidebar) {
+                    Label(title, systemImage: "sidebar.left")
+                }
+                .keyboardShortcut("s", modifiers: [.control, .command])
+                .help(title)
+            }
+            ToolbarItemGroup(placement: .navigation) {
+                let strings = SettingsNavigationStrings.localized(l10n.language)
+                Button {
+                    router.goBack(isPageVisible: isPageVisible)
+                } label: {
+                    Label(strings.back, systemImage: "chevron.backward")
+                }
+                .disabled(!router.canGoBack(isPageVisible: isPageVisible))
+                .help(strings.back)
+
+                Button {
+                    router.goForward(isPageVisible: isPageVisible)
+                } label: {
+                    Label(strings.forward, systemImage: "chevron.forward")
+                }
+                .disabled(!router.canGoForward(isPageVisible: isPageVisible))
+                .help(strings.forward)
+            }
+        }
+        .frame(minWidth: 772, maxWidth: .infinity, minHeight: 528, maxHeight: .infinity)
+        .onAppear {
+            ensureVisiblePage()
+            expandSelectedSection()
+        }
         .onChange(of: features.revision) { _, _ in ensureVisiblePage() }
+        .onChange(of: searchResults, initial: true) { previous, current in
+            updateSearchSelection(previous: previous, current: current)
+        }
+        .onChange(of: router.requestID) { _, _ in
+            searchQuery = ""
+            activeSearchIndex = nil
+            ensureVisiblePage()
+        }
     }
 
     /// macOS 27 backs the pinned sidebar search field with a hard top scroll
@@ -185,96 +366,383 @@ struct SettingsView: View {
     /// list, where rows can never reach it. Earlier systems keep the classic
     /// opaque sidebar chrome.
     @ViewBuilder
-    private var sidebar: some View {
+    private func sidebar(searchResults: SearchResultsSnapshot) -> some View {
 #if compiler(>=6.2)
         if #available(macOS 27, *) {
-            sidebarList
+            sidebarList(searchResults: searchResults)
                 .searchable(text: $searchQuery,
                             placement: .sidebar,
                             prompt: l10n.s.settingsSearchPlaceholder)
                 .scrollEdgeEffectStyle(.hard, for: .top)
         } else if #available(macOS 26, *) {
             VStack(spacing: 0) {
-                SidebarSearchField(query: $searchQuery)
-                sidebarList
+                SidebarSearchField(query: $searchQuery, isFocused: $sidebarSearchFocused)
+                sidebarList(searchResults: searchResults)
             }
         } else {
-            sidebarList
+            sidebarList(searchResults: searchResults)
                 .searchable(text: $searchQuery,
                             placement: .sidebar,
                             prompt: l10n.s.settingsSearchPlaceholder)
         }
 #else
-        sidebarList
+        sidebarList(searchResults: searchResults)
             .searchable(text: $searchQuery,
                         placement: .sidebar,
                         prompt: l10n.s.settingsSearchPlaceholder)
 #endif
     }
 
-    private var sidebarList: some View {
-        List(selection: $router.page) {
-            // One list for the whole window: the sidebar draws it and the
-            // command bar searches it.
-            let sections = SettingsDirectory.sections(l10n.s, language: l10n.language,
-                                                      superKeySource: superKey.source)
-            ForEach(sections, id: \.title) { section in
-                let items = section.items.filter {
-                    FeatureVisibilitySupport.isPageVisible($0.page) { $0.isAvailable }
-                        && SettingsSearchSupport.matches(query: searchQuery, title: $0.title,
-                                                         keywords: $0.keywords)
+    private var hasSearchQuery: Bool {
+        !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// A sidebar dragged shut reports `.detailOnly` here as well.
+    private var sidebarShown: Bool { columnVisibility != .detailOnly }
+
+    private func toggleSidebar() {
+        let next: NavigationSplitViewVisibility = sidebarShown ? .detailOnly : .all
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            columnVisibility = next
+        } else {
+            withAnimation { columnVisibility = next }
+        }
+    }
+
+    @ViewBuilder
+    private func sidebarList(searchResults: SearchResultsSnapshot) -> some View {
+        ScrollViewReader { proxy in
+            List(selection: sidebarSelection) {
+                if hasSearchQuery {
+                    searchResultRows(searchResults)
+                } else {
+                    normalSidebarRows
                 }
-                if !items.isEmpty {
-                    Section(section.title) {
-                        ForEach(items) { item in
-                            Label(item.title, systemImage: item.icon).tag(item.page)
-                        }
-                    }
+            }
+            .listStyle(.sidebar)
+            .onChange(of: sidebarPick) { _, selectedID in routeSidebarPick(selectedID) }
+            .onChange(of: activeSearchIndex) { _, index in
+                guard let index, searchResults.items.indices.contains(index) else { return }
+                let id = searchResults.items[index].id
+                if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                    proxy.scrollTo(id)
+                } else {
+                    withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id) }
+                }
+            }
+            .onChange(of: hasSearchQuery) { _, searching in
+                // The list stays in place across a search so the field keeps
+                // focus, which also keeps the results' scroll offset. Centering
+                // the chosen tool brings it back into view; near the top, the
+                // pages clamp to where a fresh list starts, and a top anchor
+                // would leave the list's inset hidden.
+                guard !searching else { return }
+                expandSelectedSection()
+                DispatchQueue.main.async { scrollSidebarToSelection(proxy) }
+            }
+            .onChange(of: router.requestID) { _, _ in
+                // A click in the sidebar is already visible. Only external
+                // routes need to reveal and scroll to their destination.
+                let fromSidebar = navigationFromSidebar
+                navigationFromSidebar = false
+                guard !fromSidebar else { return }
+                expandSelectedSection()
+                DispatchQueue.main.async { scrollSidebarToSelection(proxy) }
+            }
+            .background {
+                SearchKeyMonitor(customSearchFocused: sidebarSearchFocused) { keyCode in
+                    handleSearchKey(keyCode, searchResults: searchResults.items)
                 }
             }
         }
-        .listStyle(.sidebar)
+    }
+
+    private var selectedSidebarItem: SettingsSidebarItem.ID? {
+        let items = sidebarItems
+        return SettingsSidebarSupport.selection(for: router.destination, in: items,
+                                                preferredID: router.sidebarFeature.map { .feature($0) })
+            ?? items.first?.id
+    }
+
+    private func scrollSidebarToSelection(_ proxy: ScrollViewProxy) {
+        guard !hasSearchQuery, let selected = selectedSidebarItem else { return }
+        proxy.scrollTo(selected, anchor: .center)
+    }
+
+    private func expandSelectedSection() {
+        guard let selected = selectedSidebarItem,
+              let section = sidebarSections.first(where: { section in
+                  section.items.contains(where: { $0.id == selected })
+              }) else { return }
+        collapsedSectionIDs.remove(section.id)
+    }
+
+    @ViewBuilder
+    private var normalSidebarRows: some View {
+        let sections = sidebarSections
+        let items = directoryCache.items
+        let selectedID = SettingsSidebarSupport.selection(for: router.destination, in: items,
+                                                          preferredID: router.sidebarFeature.map { .feature($0) })
+        ForEach(sections) { section in
+            Section {
+                if !collapsedSectionIDs.contains(section.id) {
+                    ForEach(section.items) { item in
+                        HStack(spacing: 9) {
+                            Image(systemName: item.icon)
+                                .foregroundStyle(selectedID == item.id
+                                    ? AnyShapeStyle(.primary) : AnyShapeStyle(.tint))
+                                .frame(width: 18)
+                            Text(item.title)
+                        }
+                        .tag(item.id)
+                        .id(item.id)
+                        .help(item.title)
+                    }
+                }
+            } header: {
+                Button {
+                    if !collapsedSectionIDs.insert(section.id).inserted {
+                        collapsedSectionIDs.remove(section.id)
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: collapsedSectionIDs.contains(section.id)
+                            ? "chevron.right" : "chevron.down")
+                            .font(.system(size: 9, weight: .semibold))
+                            .frame(width: 12)
+                        Text(section.title)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func searchResultRows(_ searchResults: SearchResultsSnapshot) -> some View {
+        ForEach(searchResults.groups, id: \.parentSuggestion.id) { group in
+            searchPageRow(group, searchResults: searchResults)
+            ForEach(group.suggestions) { suggestion in
+                searchSuggestionRow(suggestion, searchResults: searchResults)
+            }
+        }
+    }
+
+    private func searchPageRow(_ group: SettingsSearchGroup,
+                               searchResults: SearchResultsSnapshot) -> some View {
+        let suggestion = group.parentSuggestion
+        let selectionIndex = searchResults.items.firstIndex { $0.id == suggestion.id }
+        let isSelected = selectionIndex == activeSearchIndex
+        return Button {
+            requestSearchItem(suggestion)
+        } label: {
+            Label(group.pageItem.title, systemImage: group.pageItem.icon)
+                .fontWeight(.semibold)
+                .searchResultRowStyle(isSelected: isSelected)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .id(suggestion.id)
+    }
+
+    private func searchSuggestionRow(_ suggestion: SettingsSearchSuggestion,
+                                     searchResults: SearchResultsSnapshot) -> some View {
+        let selectionIndex = searchResults.items.firstIndex { $0.id == suggestion.id }
+        let isSelected = selectionIndex == activeSearchIndex
+        return Button {
+            requestSearchItem(suggestion)
+        } label: {
+            Label(suggestion.title, systemImage: suggestion.icon)
+                .searchResultRowStyle(isSelected: isSelected)
+                .padding(.leading, 18)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .id(suggestion.id)
+    }
+
+    private func handleSearchKey(_ keyCode: UInt16,
+                                  searchResults: [SettingsSearchSuggestion]) -> Bool {
+        switch keyCode {
+        case 126: // Up
+            guard !searchResults.isEmpty else { return false }
+            activeSearchIndex = SettingsSearchSupport.moveSelection(
+                index: activeSearchIndex, delta: -1, count: searchResults.count)
+            return true
+        case 125: // Down
+            guard !searchResults.isEmpty else { return false }
+            activeSearchIndex = SettingsSearchSupport.moveSelection(
+                index: activeSearchIndex, delta: 1, count: searchResults.count)
+            return true
+        case 36, 76: // Return / Keypad Enter
+            guard let index = activeSearchIndex,
+                  searchResults.indices.contains(index) else { return false }
+            requestSearchItem(searchResults[index])
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func updateSearchSelection(previous: SearchResultsSnapshot,
+                                       current: SearchResultsSnapshot) {
+        guard !current.isBlank, !current.items.isEmpty else {
+            activeSearchIndex = nil
+            return
+        }
+        if previous.query != current.query {
+            activeSearchIndex = 0
+        } else if previous.ids != current.ids {
+            activeSearchIndex = SettingsSearchSupport.reconciledSelection(
+                index: activeSearchIndex,
+                previousIDs: previous.ids,
+                resultIDs: current.ids)
+        }
+    }
+
+    private struct SearchKeyMonitor: NSViewRepresentable {
+        var customSearchFocused: Bool
+        var handleKey: (UInt16) -> Bool
+
+        func makeNSView(context: Context) -> NSView {
+            let view = NSView()
+            context.coordinator.install(for: view)
+            return view
+        }
+
+        func updateNSView(_ nsView: NSView, context: Context) {
+            context.coordinator.customSearchFocused = customSearchFocused
+            context.coordinator.handleKey = handleKey
+        }
+
+        func makeCoordinator() -> Coordinator {
+            Coordinator(customSearchFocused: customSearchFocused, handleKey: handleKey)
+        }
+
+        static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+            coordinator.removeMonitor()
+        }
+
+        final class Coordinator: NSObject {
+            var customSearchFocused: Bool
+            var handleKey: (UInt16) -> Bool
+            private var monitor: Any?
+
+            init(customSearchFocused: Bool, handleKey: @escaping (UInt16) -> Bool) {
+                self.customSearchFocused = customSearchFocused
+                self.handleKey = handleKey
+            }
+
+            func install(for view: NSView) {
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+                    [weak self, weak view] event in
+                    guard let self, let view, let window = view.window,
+                          event.window === window,
+                          Self.isNavigationKey(event),
+                          let editor = window.firstResponder as? NSTextView,
+                          editor.isFieldEditor,
+                          (customSearchFocused || Self.isSidebarSearchEditor(editor, near: view)),
+                          !editor.hasMarkedText() else { return event }
+                    return handleKey(event.keyCode) ? nil : event
+                }
+            }
+
+            func removeMonitor() {
+                guard let monitor else { return }
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+
+            private static func isNavigationKey(_ event: NSEvent) -> Bool {
+                let blockedModifiers: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
+                guard event.modifierFlags.intersection(blockedModifiers).isEmpty else { return false }
+                return [UInt16(126), 125, 36, 76].contains(event.keyCode)
+            }
+
+            private static func isSidebarSearchEditor(_ editor: NSTextView,
+                                                      near monitorView: NSView) -> Bool {
+                guard let searchField = editor.delegate as? NSSearchField else { return false }
+                let searchMidX = searchField.convert(searchField.bounds, to: nil).midX
+                let sidebarFrame = monitorView.convert(monitorView.bounds, to: nil)
+                return sidebarFrame.minX...sidebarFrame.maxX ~= searchMidX
+            }
+        }
+    }
+
+    private func requestSearchItem(_ suggestion: SettingsSearchSuggestion) {
+        activeSearchIndex = nil
+        let routed = SettingsSearchSupport.route(for: suggestion)
+        router.request(routed.destination, targetFeature: routed.targetFeature,
+                       sidebarFeature: suggestion.item.feature)
     }
 
     /// The selected page can leave the sidebar when its last feature is
     /// switched off in the hub; fall back to the hub itself, where the
     /// feature can be brought back.
     private func ensureVisiblePage() {
-        if !FeatureVisibilitySupport.isPageVisible(router.page, isAvailable: { $0.isAvailable }) {
+        if !isPageVisible(router.page) {
             router.page = .features
+            return
         }
+        guard router.destination.sectionAnchor != nil,
+              !sidebarItems.contains(where: { $0.destination == router.destination }) else { return }
+        switch router.page {
+        case .general:
+            // General stays visible when one of its tools is uninstalled.
+            router.request(FeatureSettingsDestination(.general), replacingVisit: true)
+        case .energy:
+            // Energy has no overview row. A history visit to an uninstalled
+            // tool should show another available tool, not an empty detail.
+            if let available = sidebarItems.first(where: { $0.destination.page == .energy }) {
+                router.request(available.destination, replacingVisit: true)
+            }
+        default:
+            break
+        }
+    }
+
+    private func isPageVisible(_ page: SettingsPage) -> Bool {
+        FeatureVisibilitySupport.isPageVisible(page, isAvailable: { $0.isAvailable })
     }
 
     @ViewBuilder
     private var detail: some View {
         switch router.page {
-        case .general: GeneralSettings()
+        case .general:
+            if let anchor = router.destination.sectionAnchor,
+               [.panelConfiguration, .mixer, .soundOutputSwitcher,
+                .audioPriority, .musicBlocking].contains(anchor),
+               sidebarItems.contains(where: { $0.destination == router.destination }) {
+                GeneralToolSettings(anchor: anchor)
+            } else {
+                GeneralSettings()
+            }
         case .features: FeatureHubSettings()
         case .textSnippets: TextSnippetsSettings()
+        case .notch: NotchSettings()
         case .radialMenu: RadialMenuSettings()
-        case .energy: EnergySettings()
+        case .commandBar: CommandBarSettings()
+        case .energy: EnergySettings(focus: router.destination.sectionAnchor)
         case .monitor: MonitorSettings()
         case .mouse: MouseSettings()
-        case .superKey: SuperKeySettings()
         case .switcher: SwitcherSettings()
         case .dock: DockSettings()
         case .keyDebounce: KeyboardDebounceSettings()
+        case .superKey: SuperKeySettings()
         case .cutPaste: CutPasteSettings()
         case .autoQuit: AutoQuitSettings()
-        case .cleaner: CleanerSettings()
+        case .quitProtection: QuitProtectionSettings()
         case .uninstaller: UninstallerView()
         case .killProcess: KillProcessView()
         case .portManager: PortManagerView()
-        case .quitProtection: QuitProtectionSettings()
-        case .commandBar: CommandBarSettings()
         case .urlCleaner: URLCleanerSettings()
+        case .cleaner: CleanerSettings()
         case .homebrew: PackageManagerView()
         case .appUpdates: AppUpdatesSettings()
-        case .whatsAppDownloads: WhatsAppDownloadsSettings()
         case .media: MediaSettings()
         case .clipboard: ClipboardSettings()
         case .quickTools: QuickToolsSettings()
-        case .nowPlaying: NowPlayingSettings()
         case .screenshot: ScreenCaptureSettings()
         case .windowLayout: WindowLayoutSettings()
         case .shelf: ShelfSettings()
@@ -283,173 +751,15 @@ struct SettingsView: View {
         case .about: AboutSettings()
         case .releaseNotes: ReleaseNotesSettings()
         case .support: SupportSettings()
+        case .whatsAppDownloads: WhatsAppDownloadsSettings()
+        case .nowPlaying: NowPlayingSettings()
         case .fans: FansSettingsView()
         case .amdPower: AmdPowerSettingsView()
         case .amdOverclocking: AmdOverclockingSettingsView()
         case .amdValidation: AmdValidationSettingsView()
         case .dashboard: PerformanceSuiteView(monitor: SystemMonitor.shared)
         case .sensors: SensorsView()
-        case .notch: NotchSettings()
         }
-    }
-}
-
-// MARK: - General
-
-struct GeneralSettings: View {
-    @ObservedObject private var l10n = L10n.shared
-    @ObservedObject private var features = FeatureRuntime.shared
-    @ObservedObject private var hotkeys = HotkeyManager.shared
-    @ObservedObject private var appearance = AppAppearanceController.shared
-    @State private var launchAtLogin = LaunchAtLogin.isEnabled
-    @State private var loginError: String?
-    @AppStorage(DefaultsKey.hotkeyEnabled) private var hotkeyEnabled = true
-    @AppStorage(DefaultsKey.showCountdown) private var showCountdown = false
-    @AppStorage(DefaultsKey.musicBlockEnabled) private var musicBlockEnabled = false
-    @AppStorage(DefaultsKey.musicBlockReplacementPath) private var musicBlockReplacementPath = ""
-    @AppStorage(DefaultsKey.panelAccordionMode) private var accordionMode = false
-    @AppStorage(DefaultsKey.bluetoothEnabled) private var bluetoothEnabled = true
-
-    var body: some View {
-        Form {
-            Section {
-                Toggle(l10n.s.launchAtLogin, isOn: $launchAtLogin)
-                    .onChange(of: launchAtLogin) { _, enabled in
-                        do {
-                            try LaunchAtLogin.setEnabled(enabled)
-                            loginError = nil
-                        } catch {
-                            loginError = error.localizedDescription
-                            launchAtLogin = LaunchAtLogin.isEnabled
-                        }
-                    }
-                    .onAppear { launchAtLogin = LaunchAtLogin.isEnabled }
-                if let loginError {
-                    Text(loginError)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
-                Picker(l10n.s.languageLabel, selection: $l10n.language) {
-                    ForEach(AppLanguage.allCases) { language in
-                        Text(language.displayName).tag(language)
-                    }
-                }
-                Picker(FeatureStrings.appearance(l10n.language).label, selection: $appearance.appearance) {
-                    ForEach(AppAppearance.allCases) { option in
-                        Text(option.title(FeatureStrings.appearance(l10n.language))).tag(option)
-                    }
-                }
-                // A Mac without a Bluetooth controller never uses it, so there is nothing to switch.
-                if BluetoothSleepService.isSupported {
-                    let bluetooth = FeatureStrings.bluetoothUsage(l10n.language)
-                    Toggle(isOn: $bluetoothEnabled) {
-                        Text(bluetooth.title)
-                        Text(bluetooth.caption)
-                    }
-                    .onChange(of: bluetoothEnabled) { _, _ in BluetoothUsage.preferenceChanged() }
-                }
-            }
-            Section(l10n.s.menuBarSection) {
-                if AppFeature.keepAwake.isAvailable {
-                    Toggle(l10n.s.showCountdown, isOn: $showCountdown)
-                }
-                Button(l10n.s.showMenuBarIcon) {
-                    appDelegate()?.reshowStatusItem()
-                }
-                Text(l10n.s.showMenuBarIconCaption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            // The panel hosts more than monitoring, so its layout editor lives
-            // here with the app-wide options rather than on the Monitor page
-            // (which the hub can hide entirely).
-            Section(l10n.s.monitorOrderSection) {
-                PanelOrderEditor()
-                Toggle(l10n.s.panelAccordionMode, isOn: $accordionMode)
-                Text(l10n.s.monitorOrderHint)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if AppFeature.keepAwake.isAvailable {
-                Section(l10n.s.globalHotkeySection) {
-                    Toggle(l10n.s.hotkeyToggle, isOn: $hotkeyEnabled)
-                        .onChange(of: hotkeyEnabled) { _, enabled in
-                            HotkeyManager.shared.setEnabled(enabled)
-                        }
-                    ShortcutPreferenceRow(role: .keepAwake, isEnabled: hotkeyEnabled) {
-                        HotkeyManager.shared.syncWithPreferences()
-                    }
-                    if hotkeyEnabled, hotkeys.registrationFailed {
-                        Text(l10n.s.shortcutUnavailable)
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    }
-                    Text(l10n.s.hotkeyCaption)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            if AppFeature.musicBlock.isAvailable {
-                Section(l10n.s.musicBlockSection) {
-                    Toggle(l10n.s.musicBlockTitle, isOn: $musicBlockEnabled)
-                        .onChange(of: musicBlockEnabled) { _, _ in
-                            MusicLaunchBlocker.shared.syncWithPreferences()
-                        }
-                    if musicBlockEnabled {
-                        HStack {
-                            Text(l10n.s.musicBlockReplacementLabel)
-                            Spacer()
-                            Text(musicBlockReplacementName)
-                                .foregroundStyle(.secondary)
-                            Button(l10n.s.musicBlockChooseApp) { chooseMusicReplacement() }
-                            if !musicBlockReplacementPath.isEmpty {
-                                Button {
-                                    musicBlockReplacementPath = ""
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(.secondary)
-                                .help(l10n.s.urlCleanerClearButton)
-                            }
-                        }
-                    }
-                    SettingsCaptionText(l10n.s.musicBlockCaption)
-                }
-            }
-            if AppFeature.audioPriority.isAvailable {
-                Section(l10n.s.audioPrioritySection) {
-                    AudioPriorityDisclosure(initiallyExpanded: true, showsHeader: false)
-                }
-            }
-            Section(FeatureStrings.feedback(l10n.language).sectionTitle) {
-                Button(FeatureStrings.feedback(l10n.language).openButton) {
-                    appDelegate()?.openFeedbackWindow()
-                }
-                SettingsCaptionText(FeatureStrings.feedback(l10n.language).sectionCaption)
-            }
-        }
-        .formStyle(.grouped)
-    }
-
-    private var musicBlockReplacementName: String {
-        guard !musicBlockReplacementPath.isEmpty else { return l10n.s.musicBlockReplacementNone }
-        let name = FileManager.default.displayName(atPath: musicBlockReplacementPath)
-        return (name as NSString).deletingPathExtension
-    }
-
-    private func chooseMusicReplacement() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.applicationBundle]
-        panel.directoryURL = URL(fileURLWithPath: "/Applications")
-        NSApp.activate(ignoringOtherApps: true)
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        // Picking the blocked app itself would start a launch-and-kill loop.
-        if let bundleID = Bundle(url: url)?.bundleIdentifier,
-           MusicLaunchBlocker.blockedBundleIDs.contains(bundleID) { return }
-        musicBlockReplacementPath = url.path
     }
 }
 
@@ -939,48 +1249,6 @@ struct PermissionRow: View {
 /// It sits on a fixed header outside the List, so scrolling rows can never
 /// cross it (issues #183, #254). Esc and the clear button empty the query,
 /// matching the system field.
-private struct SidebarSearchField: View {
-    @ObservedObject private var l10n = L10n.shared
-    @Binding var query: String
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField(l10n.s.settingsSearchPlaceholder, text: $query)
-                .textFieldStyle(.plain)
-                .onExitCommand { query = "" }
-            if !query.isEmpty {
-                Button {
-                    query = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help(l10n.s.urlCleanerClearButton)
-            }
-        }
-        .padding(.vertical, 5)
-        .padding(.horizontal, 7)
-        .background(.quaternary.opacity(0.5), in: Capsule())
-        .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
-    }
-}
-
-/// Secure Event Input blocks every synthetic keystroke. Typing a snippet
-/// trigger then does nothing at all, while the snippet library and the
-/// Command Bar's typing actions beep; none of the four paths says what is
-/// wrong or who is holding it. This row is the only place the app explains
-/// that, and it names the holder when the session can attribute it.
-///
-/// Both call sites instantiate it only once secure input is on, and the
-/// snippets page waits for one of its own toggles as well, so the `.off`
-/// branch below is there to keep the switch exhaustive and for nothing else.
-/// What drives the feature is the polling demand on each page; see
-/// `SecureInputObservation`.
 struct SecureInputRow: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var monitor = SecureInputMonitor.shared
@@ -1043,5 +1311,52 @@ private struct SecureInputObservation: ViewModifier {
 extension View {
     func observesSecureInput(isActive: Bool = true) -> some View {
         modifier(SecureInputObservation(isActive: isActive))
+    }
+}
+
+private struct SidebarSearchField: View {
+    @ObservedObject private var l10n = L10n.shared
+    @Binding var query: String
+    var isFocused: FocusState<Bool>.Binding
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField(l10n.s.settingsSearchPlaceholder, text: $query)
+                .textFieldStyle(.plain)
+                .focused(isFocused)
+                .onExitCommand { query = "" }
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(l10n.s.urlCleanerClearButton)
+            }
+        }
+        .padding(.vertical, 5)
+        .padding(.horizontal, 7)
+        .background(.quaternary.opacity(0.5), in: Capsule())
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
+}
+
+private extension View {
+    func searchResultRowStyle(isSelected: Bool) -> some View {
+        frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .padding(.vertical, 4)
+            .padding(.horizontal, 6)
+            .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+            .background {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isSelected ? Color.accentColor.opacity(0.18) : .clear)
+            }
     }
 }

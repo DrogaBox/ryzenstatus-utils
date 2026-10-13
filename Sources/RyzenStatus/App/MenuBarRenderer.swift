@@ -619,8 +619,8 @@ enum MenuBarRenderer {
                                                              style: style)
                         groups.append([.customImage(img)])
                     } else {
-                        groups.append([.networkBlock(down: MetricFormat.bytesPerSecCompact(down),
-                                                     up: MetricFormat.bytesPerSecCompact(up),
+                        groups.append([.networkBlock(down: MetricFormat.networkRateCompact(down),
+                                                     up: MetricFormat.networkRateCompact(up),
                                                      style: style)])
                     }
                 }

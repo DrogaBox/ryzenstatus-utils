@@ -464,7 +464,7 @@ struct MetricDetailView: View {
             guard let used = snapshot.memoryUsed, let total = snapshot.memoryTotal, total > 0 else { return "-" }
             return MetricFormat.percent(Double(used) / Double(total))
         case .network:
-            return snapshot.netDownBytesPerSec.map(MetricFormat.bytesPerSecCompact) ?? "-"
+            return snapshot.netDownBytesPerSec.map { MetricFormat.networkRateCompact($0) } ?? "-"
         case .disk:
             return primaryDisk(from: snapshot.disk).map { MetricFormat.percent($0.usedFraction) } ?? "-"
         case .battery:
@@ -487,7 +487,7 @@ struct MetricDetailView: View {
             guard let used = snapshot.memoryUsed, let total = snapshot.memoryTotal else { return l10n.s.memoryPressure }
             return "\(formatMemory(used)) / \(formatMemory(total))"
         case .network:
-            return "\(l10n.s.networkUpload) \(snapshot.netUpBytesPerSec.map(MetricFormat.bytesPerSecCompact) ?? "-")"
+            return "\(l10n.s.networkUpload) \(snapshot.netUpBytesPerSec.map { MetricFormat.networkRateCompact($0) } ?? "-")"
         case .disk:
             guard let disk = primaryDisk(from: snapshot.disk) else { return l10n.s.diskNoDisks }
             return "\(MetricFormat.diskBytes(disk.freeBytes)) \(l10n.s.diskFree)"
@@ -646,7 +646,7 @@ struct MetricDetailView: View {
         case .network:
             let down = row.networkDownBytesPerSec ?? 0
             let up = row.networkUpBytesPerSec ?? 0
-            return "↓\(MetricFormat.bytesPerSecCompact(down)) ↑\(MetricFormat.bytesPerSecCompact(up))"
+            return "↓\(MetricFormat.networkRateCompact(down)) ↑\(MetricFormat.networkRateCompact(up))"
         default:
             return String(format: "%.1f%%", row.value)
         }

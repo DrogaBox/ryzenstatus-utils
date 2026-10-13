@@ -26,7 +26,7 @@ enum UpdateInstallerSupport {
         """
         #!/bin/sh
         ALLOW_ADHOC=\(allowAdhoc ? 1 : 0)
-        APP="$1"; DMG="$2"; PID="$3"; RESULT="$4"; ASUSER="$5"
+        APP="$1"; DMG="$2"; PID="$3"; RESULT="$4"; ASUSER="$5"; EXPECTED_VERSION="$6"
         SCRIPT="$0"
         # Write-ahead markers go to a progress file; only a FINISHED run
         # promotes it to the real marker. The app may relaunch while this
@@ -105,6 +105,14 @@ enum UpdateInstallerSupport {
                 #      to an intact seal plus the project's bundle identifier —
                 # Production updates strictly enforce the Developer ID requirement.
                 # In developer builds or testing, ad-hoc is gated behind allowAdhoc.
+                # The bundle must be the release that was offered: a DMG that
+                # carries another version (an old asset served under the new
+                # name) is refused before anything is replaced.
+                BUNDLE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$STAGE/Contents/Info.plist" 2>/dev/null)"
+                VERSION_OK=0
+                if [ -z "$EXPECTED_VERSION" ] || [ "$BUNDLE_VERSION" = "$EXPECTED_VERSION" ]; then
+                    VERSION_OK=1
+                fi
                 VERIFY_REQ='identifier "com.ryzenstatus.utils" and anchor apple generic and certificate leaf[subject.OU] = "3D485NHW29"'
                 note fail-verify
                 VERIFY_OK=0
@@ -128,7 +136,10 @@ enum UpdateInstallerSupport {
                 elif /usr/sbin/spctl -a -t exec "$STAGE" >/dev/null 2>&1; then
                     GATEKEEPER_OK=1
                 fi
-                if [ "$VERIFY_OK" = 1 ] && [ "$GATEKEEPER_OK" = 1 ]; then
+                if [ "$VERIFY_OK" = 1 ] && [ "$GATEKEEPER_OK" = 1 ] && [ "$VERSION_OK" != 1 ]; then
+                    note fail-version
+                fi
+                if [ "$VERIFY_OK" = 1 ] && [ "$GATEKEEPER_OK" = 1 ] && [ "$VERSION_OK" = 1 ]; then
                     note fail-swap
                     # The backup name is unique per run: after an elevated
                     # install the old bundle is root-owned, a later user-run
@@ -186,9 +197,10 @@ enum UpdateInstallerSupport {
                                        pid: Int32,
                                        resultPath: String,
                                        uid: uid_t,
+                                       expectedVersion: String = "",
                                        allowAdhoc: Bool = false) -> String {
         let script = shellSingleQuoted(installerScript(allowAdhoc: allowAdhoc))
-        let args = [appPath, dmgPath, "\(pid)", resultPath, "\(uid)"]
+        let args = [appPath, dmgPath, "\(pid)", resultPath, "\(uid)", expectedVersion]
             .map(shellSingleQuoted)
             .joined(separator: " ")
         return "/usr/bin/nohup /bin/sh -c \(script) ryzenstatus-installer \(args) >/dev/null 2>&1 &"

@@ -62,7 +62,7 @@ final class UpdateShowcaseMediaLoader: ObservableObject {
     }
 
     @Published private(set) var state: State = .idle
-    private var task: URLSessionDownloadTask?
+    private var session: URLSession?
     private static let maxDownloadBytes: Int64 = 50 * 1024 * 1024
 
     func load() {
@@ -84,38 +84,52 @@ final class UpdateShowcaseMediaLoader: ObservableObject {
         let request = URLRequest(url: UpdateShowcaseInfo.remoteMediaURL,
                                  cachePolicy: .reloadIgnoringLocalCacheData,
                                  timeoutInterval: 12)
-        task = URLSession.shared.downloadTask(with: request) { [weak self] tempURL, response, error in
-            guard let self else { return }
-            let ok = (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? true
-            guard let tempURL, error == nil, ok else {
-                DispatchQueue.main.async { self.state = .failed }
-                return
-            }
-
-            let fileSize = (try? FileManager.default.attributesOfItem(atPath: tempURL.path))?[.size] as? Int64 ?? 0
-            guard fileSize > 0, fileSize <= Self.maxDownloadBytes else {
-                try? FileManager.default.removeItem(at: tempURL)
-                DispatchQueue.main.async { self.state = .failed }
-                return
-            }
-
-            do {
-                try FileManager.default.createDirectory(at: UpdateShowcaseInfo.cacheDirectory,
-                                                        withIntermediateDirectories: true)
-                let target = UpdateShowcaseInfo.cachedMediaURL
-                try? FileManager.default.removeItem(at: target)
-                try FileManager.default.moveItem(at: tempURL, to: target)
-                DispatchQueue.main.async { self.state = .ready(target) }
-            } catch {
-                DispatchQueue.main.async { self.state = .failed }
-            }
+        // Bounded while it downloads, not checked afterwards: a response can
+        // fill the disk on its way to a size check, and a request timeout only
+        // limits the gap between packets, which a slow trickle never exceeds.
+        let delegate: BoundedUpdateDownloadDelegate
+        do {
+            delegate = try BoundedUpdateDownloadDelegate(
+                byteLimit: Self.maxDownloadBytes,
+                progress: { _, _ in },
+                completion: { [weak self] tempURL, response, error in
+                    guard let self else { return }
+                    self.session?.finishTasksAndInvalidate()
+                    DispatchQueue.main.async { self.session = nil }
+                    let ok = (response as? HTTPURLResponse)
+                        .map { (200..<300).contains($0.statusCode) } ?? true
+                    let fileSize = tempURL
+                        .flatMap { try? FileManager.default.attributesOfItem(atPath: $0.path)[.size] as? Int64 } ?? 0
+                    guard let tempURL, error == nil, ok, fileSize > 0 else {
+                        DispatchQueue.main.async { self.state = .failed }
+                        return
+                    }
+                    do {
+                        try FileManager.default.createDirectory(at: UpdateShowcaseInfo.cacheDirectory,
+                                                                withIntermediateDirectories: true)
+                        let target = UpdateShowcaseInfo.cachedMediaURL
+                        try? FileManager.default.removeItem(at: target)
+                        try FileManager.default.moveItem(at: tempURL, to: target)
+                        DispatchQueue.main.async { self.state = .ready(target) }
+                    } catch {
+                        DispatchQueue.main.async { self.state = .failed }
+                    }
+                })
+        } catch {
+            state = .failed
+            return
         }
-        task?.resume()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 12
+        configuration.timeoutIntervalForResource = 120
+        let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+        self.session = session
+        session.dataTask(with: request).resume()
     }
 
     func cancel() {
-        task?.cancel()
-        task = nil
+        session?.invalidateAndCancel()
+        session = nil
     }
 
     func cleanupCache() {
