@@ -214,7 +214,7 @@ struct NotchMusicCover: View {
     var body: some View {
         Group {
             if let artwork {
-                Image(nsImage: artwork).resizable().scaledToFill()
+                Image(nsImage: NotchArtworkLift.image(for: artwork)).resizable().scaledToFill()
             } else {
                 Color.black.overlay { Image(systemName: "music.note").foregroundStyle(.secondary) }
             }

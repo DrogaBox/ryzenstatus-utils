@@ -6,12 +6,16 @@ import AppKit
 /// One decision per physical scroll sequence. No timer is needed for wheel
 /// devices without phases: the next event itself expires an old sequence.
 struct NotchGestureSupport {
-    enum Action: Equatable { case open, close, nextTrack, previousTrack }
+    /// A sideways swipe means forward or back through whatever the surface
+    /// under it steps through: songs over the music, otherwise the closed
+    /// island's activities.
+    enum Action: Equatable { case open, close, dismiss, forward, back }
     private enum Axis { case horizontal, vertical }
     private struct Origin {
         let vertical: Bool
         let horizontal: Bool
         let expanded: Bool
+        let dismissible: Bool
     }
     private var origin: Origin?
     private var axis: Axis?
@@ -55,7 +59,8 @@ struct NotchGestureSupport {
 
     mutating func handle(x: Double, y: Double, timestamp: TimeInterval,
                          began: Bool, ended: Bool, momentum: Bool, precise: Bool, hasPhase: Bool,
-                         allowVertical: Bool, allowHorizontal: Bool, expanded: Bool) -> Action? {
+                         allowVertical: Bool, allowHorizontal: Bool, expanded: Bool,
+                         dismissible: Bool = false) -> Action? {
         guard timestamp.isFinite, x.isFinite, y.isFinite else { self = Self(); return nil }
         // A quick flick lifts the fingers before the swipe has travelled far
         // enough. Its momentum can finish the opening or closing it began,
@@ -71,7 +76,7 @@ struct NotchGestureSupport {
             }
             lastTimestamp = timestamp
             distance += y
-            return verticalAction(expanded: origin.expanded)
+            return verticalAction(expanded: origin.expanded, dismissible: origin.dismissible)
         }
         if ended {
             coasting = origin != nil && axis == .vertical && !fired
@@ -82,7 +87,8 @@ struct NotchGestureSupport {
         if hasPhase {
             if began {
                 self = Self()
-                origin = Origin(vertical: allowVertical, horizontal: allowHorizontal, expanded: expanded)
+                origin = Origin(vertical: allowVertical, horizontal: allowHorizontal, expanded: expanded,
+                                dismissible: dismissible)
             }
             // AppKit keeps a phased scroll attached to its original view.
             // A blocked beginning stays blocked, and an interrupted sequence
@@ -98,6 +104,7 @@ struct NotchGestureSupport {
         let allowVertical = origin?.vertical ?? allowVertical
         let allowHorizontal = origin?.horizontal ?? allowHorizontal
         let expanded = origin?.expanded ?? expanded
+        let dismissible = origin?.dismissible ?? dismissible
         if axis == nil {
             // Establish intent from a little accumulated travel, not the first
             // fraction of a point as the fingers touch the trackpad.
@@ -119,19 +126,22 @@ struct NotchGestureSupport {
         case .horizontal where allowHorizontal:
             guard abs(distance) >= 40 else { return nil }
             fired = true
-            return distance < 0 ? .nextTrack : .previousTrack
+            return distance < 0 ? .forward : .back
         case .vertical where allowVertical:
-            return verticalAction(expanded: expanded)
+            return verticalAction(expanded: expanded, dismissible: dismissible)
         default:
             return nil
         }
     }
 
-    private mutating func verticalAction(expanded: Bool) -> Action? {
+    /// Down opens and up closes. Up over a closed island showing a notice
+    /// sends the notice away, as flicking a banner off the top of the screen.
+    private mutating func verticalAction(expanded: Bool, dismissible: Bool) -> Action? {
         guard abs(distance) >= Self.verticalThreshold else { return nil }
         fired = true
         if distance > 0, !expanded { return .open }
         if distance < 0, expanded { return .close }
+        if distance < 0, dismissible { return .dismiss }
         return nil
     }
 }

@@ -171,7 +171,7 @@ struct NotchMusicView: View {
         let roomy = height >= 140
         return HStack(spacing: roomy ? 20 : 16) {
             Button { NowPlayingApplication.open(playback.track) } label: {
-                NotchArtwork(image: service.artworkImage, size: height)
+                NotchArtwork(image: service.artworkImage, size: height, identity: service.artworkIdentity)
                     .scaleEffect(playback.isPlaying || reduceMotion ? 1 : 0.94)
                     .shadow(color: halo.opacity(0.42), radius: 20, y: 7)
                     .shadow(color: halo.opacity(0.2), radius: 42, y: 14)

@@ -3703,7 +3703,11 @@ final class NotchService: ObservableObject {
         let vertical = NotchGestureSupport.allowsVertical(expanded: expanded, inHeader: inHeader,
                                                           musicSurface: musicSurface,
                                                           control: interaction.control, scroll: interaction.scroll)
-        let horizontal = !interaction.control && !interaction.scroll && !inHeader && musicSurface
+        // Over another closed activity, a sideways swipe steps through the
+        // activities the picker offers, as choosing the next one there.
+        let activitySurface = !musicSurface && compactActivityIsVisible && compactActivities.count > 1
+        let horizontal = !interaction.control && !interaction.scroll && !inHeader && (musicSurface || activitySurface)
+        let dismissible = notice != nil && !expanded && !peeking
         let x = NotchGestureSupport.movement(Double(event.scrollingDeltaX), precise: event.hasPreciseScrollingDeltas,
                                              inverted: event.isDirectionInvertedFromDevice)
         let y = NotchGestureSupport.movement(Double(event.scrollingDeltaY), precise: event.hasPreciseScrollingDeltas,
@@ -3714,15 +3718,36 @@ final class NotchService: ObservableObject {
                                           momentum: !event.momentumPhase.isEmpty,
                                           precise: event.hasPreciseScrollingDeltas,
                                           hasPhase: !event.phase.isEmpty,
-                                          allowVertical: vertical, allowHorizontal: horizontal, expanded: expanded) else { return false }
+                                          allowVertical: vertical, allowHorizontal: horizontal, expanded: expanded,
+                                          dismissible: dismissible) else { return false }
         switch action {
         case .open: open()
         case .close: collapse()
-        case .nextTrack, .previousTrack:
-            guard musicSurface else { gesture = NotchGestureSupport(); return false }
-            NowPlayingService.shared.skipFromGesture(forward: action == .nextTrack)
+        case .dismiss:
+            guard notice != nil, !expanded else { gesture = NotchGestureSupport(); return false }
+            dismissNotice()
+            provideHapticFeedback()
+        case .forward, .back:
+            if musicSurface {
+                NowPlayingService.shared.skipFromGesture(forward: action == .forward)
+            } else if activitySurface {
+                stepCompactActivity(forward: action == .forward)
+            } else {
+                gesture = NotchGestureSupport(); return false
+            }
+            // Opening taps on its own; a skip or a step has nothing else to feel.
+            provideHapticFeedback()
         }
         return true
+    }
+
+    /// The next or previous closed activity, wrapping at either end.
+    private func stepCompactActivity(forward: Bool) {
+        let activities = compactActivities
+        guard activities.count > 1, let current = compactActivity,
+              let index = activities.firstIndex(of: current) else { return }
+        let next = (index + (forward ? 1 : activities.count - 1)) % activities.count
+        selectCompactActivity(activities[next])
     }
 
     private func removeEventMonitors() {
