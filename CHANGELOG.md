@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Up next from Apple Music in the Dynamic Island**: the queue page lists the next songs of the playlist or album Music is playing from (up to 25), and clicking one plays it. Music does not share its own Up Next list, so songs you add with Play Next or Play Later are not shown, and with shuffle on the page says the order is not shared. Other players still show the queue as unavailable.
+
 ## [1.42.0] — 2026-10-13 — kexts 3.34.17 (No kext changes)
 
 Settings get their new layout: a grouped sidebar with search suggestions, the General page in cards with the menu bar panel editor and a menu bar icon you can pick from the system symbols, the Monitor page reorganized around a live preview, and AMD Ryzen pages gathered in a section of their own. The Features page offers to tidy away features you never switched on, the image converter gains profiles, resizing, renaming and watermarks, the URL cleaner learns per-site rules, and the menu bar panel hands focus back to the app you were using when it closes.

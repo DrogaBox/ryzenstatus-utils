@@ -1815,7 +1815,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// while macOS is still placing the window.
     private var isReshowingStatusItem = false
     private static let reshowVerifyAttempts = 6
-    private static let reshowSettlingGraceAttempts = 8
+    nonisolated private static let reshowSettlingGraceAttempts = 8
     private static let reshowVerifyInterval: TimeInterval = 0.8
 
     private func iconIsSettling() -> Bool {

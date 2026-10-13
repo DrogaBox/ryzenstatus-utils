@@ -62,8 +62,9 @@ final class NowPlayingService: ObservableObject {
     @Published private(set) var playback: NowPlayingPlayback?
     /// The cover's colour for halos and accents; nil for neutral covers.
     @Published private(set) var artworkTint: NowPlayingArtworkTint?
-    /// The player's upcoming songs. No provider exposes a queue to this app,
-    /// so it stays nil and the island reports the queue as unavailable.
+    /// The player's upcoming songs: the rest of Music's current playlist
+    /// while the island's queue is on. Nil for every other player, and the
+    /// island reports the queue as unavailable.
     @Published private(set) var upcoming: NowPlayingQueue?
     /// Consent state for the player's scripting dictionary, when it has one.
     @Published private(set) var automationAvailability: NowPlayingScripting.Availability?
@@ -86,6 +87,11 @@ final class NowPlayingService: ObservableObject {
     private var shuffleGeneration = UUID()
     private var shuffleSwitchID = UUID()
     private var shuffleReading = false
+    /// The song and shuffle state `upcoming` was read for, so the playlist is
+    /// asked again only when either changes, not on every poll.
+    private var upcomingKey = ""
+    private var upcomingGeneration = UUID()
+    private static let upcomingLimit = 25
 
     private let queue = DispatchQueue(label: "com.ryzenstatus.utils.now-playing", qos: .utility)
     /// Apple Events to scriptable players wait up to a second for a reply;
@@ -568,6 +574,7 @@ final class NowPlayingService: ObservableObject {
         playback = next
         NowPlayingPreferredPlayer.remember(next)
         refreshAutomation()
+        refreshUpcomingIfNeeded()
         if isNewSong {
             trackChanges.send()
         }
@@ -579,6 +586,8 @@ final class NowPlayingService: ObservableObject {
         tintIdentity = ""
         automationAvailability = nil
         upcoming = nil
+        upcomingKey = ""
+        upcomingGeneration = UUID()
         trackChangeDetector.reset()
         stopShuffleReading()
     }
@@ -674,6 +683,45 @@ final class NowPlayingService: ObservableObject {
                                          cancellation: DispatchWorkItem {}, validatedAt: validatedAt)
         }
         return true
+    }
+
+    // MARK: - Island queue
+
+    /// Reads Music's upcoming songs when the song or shuffle changed. Every
+    /// other player keeps the queue unavailable.
+    private func refreshUpcomingIfNeeded() {
+        guard NotchQueueSupport.isEnabled(), snapshot.appBundleID == NowPlayingAutomation.musicBundleID else {
+            upcomingKey = ""
+            upcomingGeneration = UUID()
+            if upcoming != nil { upcoming = nil }
+            return
+        }
+        let key = [snapshot.title, snapshot.artist, snapshot.album].map { $0 ?? "" }.joined(separator: "\u{1F}")
+            + (snapshot.isShuffleEnabled ? "|shuffled" : "")
+        guard key != upcomingKey else { return }
+        upcomingKey = key
+        reloadUpcoming()
+    }
+
+    private func reloadUpcoming() {
+        let generation = UUID()
+        upcomingGeneration = generation
+        scriptingQueue.async { [weak self] in
+            let queue = NowPlayingAutomation.fetchMusicUpcoming(limit: Self.upcomingLimit)
+            DispatchQueue.main.async {
+                guard let self, self.upcomingGeneration == generation else { return }
+                self.upcoming = queue
+            }
+        }
+    }
+
+    /// Plays one of the listed songs in Music. The next poll sees the new
+    /// song and reads the queue again from there.
+    func playUpcoming(_ item: NowPlayingQueueItem) {
+        guard upcoming?.canPlay == true, let databaseID = Int(item.id) else { return }
+        scriptingQueue.async {
+            NowPlayingAutomation.playMusicUpcoming(databaseID: databaseID)
+        }
     }
 
     // MARK: - Island shuffle
