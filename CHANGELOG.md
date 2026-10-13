@@ -1,6 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [1.43.0] — 2026-10-13 — kexts 3.34.17 (No kext changes)
+
+The companion grows up: it now reaches level 50, and levels 20, 30, 40 and 50 unlock four transformations with their own auras and a full transformation scene, and petting it finally shows. The Dynamic Island queue page lists what Apple Music plays next.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.34.17. Only the application's validation version pin changes.
 
 ### Added
 
