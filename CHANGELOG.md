@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.44.0] — 2026-10-13 — kexts 3.34.17 (No kext changes)
+
+The Dynamic Island gets a music visualizer: a new song is named for a few seconds, then mirrored bars move with the music in the middle of the capsule while the companion dances to the bass at its end.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.34.17. Only the application's validation version pin changes.
+
+### Added
+
+- **Music visualizer in the Dynamic Island**: on a capsule island, a new song's name shows for a few seconds and then 20 mirrored bars take the middle, bass in the centre and treble at both ends, in the cover's colour, each with a peak cap that rests and sinks slowly. They follow the real sound with "Bars follow the music" on and keep their own motion otherwise. Resting the pointer on them or pausing names the song again. Pick between the song name, the name then the visualizer, or the visualizer only, and how long the name stays (3, 5 or 10 seconds), in Settings › Dynamic Island › Music.
+- **The companion dances**: while the visualizer plays it stands at the end of the island and nods to the bass. It can be turned off in the same place.
+
 ## [1.43.0] — 2026-10-13 — kexts 3.34.17 (No kext changes)
 
 The companion grows up: it now reaches level 50, and levels 20, 30, 40 and 50 unlock four transformations with their own auras and a full transformation scene, and petting it finally shows. The Dynamic Island queue page lists what Apple Music plays next.
