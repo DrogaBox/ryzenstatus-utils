@@ -12,6 +12,8 @@ You can review or change every grant in System Settings, under Privacy and Secur
 | Microphone | Yes | Screen recordings with microphone audio |
 | Camera | Yes | The camera preview mirror |
 | Notifications | Yes | Keep awake, battery, Monitor and update alerts |
+| Calendars | Yes | Upcoming events in the Dynamic Island |
+| Bluetooth | Yes | Accessory notices in the Dynamic Island and Bluetooth sleep |
 | Full Disk Access | Yes | A deeper uninstaller scan |
 | Administrator (one time) | Yes | Password free closed lid toggling |
 | Automation | Yes | Finder cut and paste, moving leftovers to the Trash, emptying the Trash and Homebrew Terminal handoff |
@@ -93,6 +95,26 @@ You can review or change every grant in System Settings, under Privacy and Secur
 **If you say no.** RyzenStatus runs without a peep, and the same information is still right there in the panel and in Settings.
 
 **Optional.** Yes.
+
+## Calendars
+
+**Why it comes up.** macOS asks before any app can read your calendar events.
+
+**What uses it.** The calendar section of the Dynamic Island, which shows your upcoming events from the calendars you pick.
+
+**If you say no.** The island simply shows no events. Everything else carries on as normal.
+
+**Optional.** Yes. Events are read on your Mac and never leave it.
+
+## Bluetooth
+
+**Why it comes up.** macOS asks before an app can talk to the Bluetooth controller.
+
+**What uses it.** Accessory notices in the Dynamic Island, such as headphones connecting, and Bluetooth sleep, which turns Bluetooth off while the Mac sleeps. On a Hackintosh whose Bluetooth controller answers slowly, turn off **Use Bluetooth** in Settings › General and the app stops its own Bluetooth queries.
+
+**If you say no.** Those notices and Bluetooth sleep stay off.
+
+**Optional.** Yes. Nothing leaves your Mac.
 
 ## Full Disk Access
 
