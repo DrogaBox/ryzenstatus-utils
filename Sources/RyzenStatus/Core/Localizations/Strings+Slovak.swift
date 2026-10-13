@@ -337,6 +337,7 @@ extension Strings {
         urlCleanerCustomTitle: "Ďalšie názvy na odstránenie",
         urlCleanerCustomPlaceholder: "ref, source",
         urlCleanerCustomCaption: "Názvy parametrov oddeľte čiarkami. Odstránia sa z každého odkazu.",
+        urlCleanerCustomSaveButton: "Uložiť",
         switcherSearchPin: "Pripnúť hľadanie klávesom S",
         switcherSearchPinCaption: "S spustí hľadanie a pripne prepínač otvorený, takže písanie už nevytvára špeciálne znaky, keď vaša skratka používa ⌥, a hľadanie začínajúce na Q alebo W už omylom nezatvorí okno ani neukončí aplikáciu.",
         invertVerticalScroll: "Obrátiť zvislé rolovanie",

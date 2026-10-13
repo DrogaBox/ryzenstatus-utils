@@ -192,6 +192,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
 
     // Running state
     private var previousCPUTicks: CPUTickSample?
+    private var previousCPUTicksAt: TimeInterval?
     private var previousCoreTicks: [CPUTickSample] = []
     /// Wake observer token — see invalidateTickBaseline().
     private var wakeObserver: Any?
@@ -268,7 +269,11 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         gpuPowerHistory = MetricHistory(capacity: historyCapacity)
         cpuFreqHistory = MetricHistory(capacity: historyCapacity)
         ipsHistory = MetricHistory(capacity: historyCapacity)
-        installPowerSourceObserver()
+        // A desktop has no battery to watch: the power-source notification
+        // would only wake the monitor for nothing.
+        if PowerSampler.hasInternalBattery {
+            installPowerSourceObserver()
+        }
         // CPU utilisation is a delta between consecutive tick samples.
         // Across a suspend those bases are stale, so the first post-wake sample
         // is computed over the entire sleep interval and is meaningless.
@@ -287,6 +292,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     /// is skipped rather than computed across the sleep discontinuity.
     private func invalidateTickBaseline() {
         previousCPUTicks = nil
+        previousCPUTicksAt = nil
         previousCoreTicks = []
     }
 
@@ -566,6 +572,11 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         var needGPUTemperature = false
         var needBatteryTemperature = false
         var needAMDPower = false  // CPU/GPU power from AMD PM kext
+        /// The system draw pinned to the menu bar keeps the chosen interval;
+        /// battery charge and time alone stay on the slow power stride.
+        var needPowerDraw = false
+
+        var powerKind: MonitorSamplingKind { needPowerDraw ? .powerDraw : .power }
 
         var needSMC: Bool { needPower || needTemperature }
 
@@ -703,6 +714,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             plan.needDisk = true
         case .battery, .batteryTime, .batteryTemperature, .power:
             plan.needPower = true
+            plan.needPowerDraw = plan.needPowerDraw || metric == .power
             plan.needBatteryTemperature = plan.needBatteryTemperature || metric == .batteryTemperature
         case .peripheralBattery:
             plan.needPower = true
@@ -750,7 +762,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         if plan.needMemory { kinds.append(.memory) }
         if plan.needNetwork { kinds.append(.network) }
         if plan.needDisk { kinds.append(.disk) }
-        if plan.needPower { kinds.append(.power) }
+        if plan.needPower { kinds.append(plan.powerKind) }
         if plan.needPeripheralBattery { kinds.append(.peripheralBattery) }
         if plan.needGPUUsage { kinds.append(.gpuUsage) }
         if plan.needTemperature { kinds.append(.temperature) }
@@ -854,7 +866,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     self.cores = cores
                     self.ccdTemperatures = ccdTemps.map { Double($0) }
 
-                    if let load = self.readCPUUsage() {
+                    if let load = self.readCPUUsage(now: now) {
                         let cpu = load.busy
                         self.lastCPUUsage = cpu
                         self.lastCPUSystemUsage = load.system
@@ -984,7 +996,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             }
 
             if plan.needPower, let powerSampler = self.powerSampler {
-                if take(.power) {
+                if take(plan.powerKind) {
                     let power = powerSampler.sample()
                     self.lastPowerReading = power
                     next.power = power
@@ -1313,8 +1325,10 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     // MARK: - CPU usage
 
     /// Aggregated load from HOST_CPU_LOAD_INFO: the busy and system tick
-    /// shares since the previous refresh.
-    private func readCPUUsage() -> (busy: Double, system: Double)? {
+    /// shares since the previous refresh. After a gap (CPU was not needed for
+    /// a while) the old ticks only serve as a baseline: their average over the
+    /// whole gap is not a current reading and must not reach the history.
+    private func readCPUUsage(now: TimeInterval) -> (busy: Double, system: Double)? {
         var info = host_cpu_load_info()
         var count = mach_msg_type_number_t(MemoryLayout<host_cpu_load_info>.stride / MemoryLayout<integer_t>.stride)
         // mach_host_self() returns a send right the caller owns; release it or each
@@ -1332,8 +1346,13 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                                    system: UInt64(info.cpu_ticks.1),
                                    idle: UInt64(info.cpu_ticks.2),
                                    nice: UInt64(info.cpu_ticks.3))
-        defer { previousCPUTicks = sample }
+        let previousAt = previousCPUTicksAt
+        defer {
+            previousCPUTicks = sample
+            previousCPUTicksAt = now
+        }
         guard let previous = previousCPUTicks else { return nil }
+        if let previousAt, now - previousAt > 12.5 { return nil }
         return sample.load(since: previous)
     }
 

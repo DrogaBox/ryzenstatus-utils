@@ -337,6 +337,7 @@ extension Strings {
         urlCleanerCustomTitle: "Інші назви для видалення",
         urlCleanerCustomPlaceholder: "ref, source",
         urlCleanerCustomCaption: "Розділяйте назви параметрів комами. Вони видалятимуться з кожного посилання.",
+        urlCleanerCustomSaveButton: "Зберегти",
         switcherSearchPin: "Закріпити пошук клавішею S",
         switcherSearchPinCaption: "S запускає пошук і закріплює перемикач відкритим. Введення більше не дає спеціальні символи, якщо поєднання використовує ⌥, а пошук, що починається з Q або W, більше не закриває вікно та не завершує програму помилково.",
         invertVerticalScroll: "Інвертувати вертикальну прокрутку",

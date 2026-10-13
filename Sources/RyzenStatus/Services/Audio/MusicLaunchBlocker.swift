@@ -92,6 +92,7 @@ final class MusicLaunchBlocker: ObservableObject {
         if let mediaKeyTapSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), mediaKeyTapSource, .commonModes)
         }
+        CFMachPortInvalidate(tap)
         mediaKeyTapSource = nil
         mediaKeyTap = nil
     }

@@ -350,7 +350,7 @@ extension MonitorAlertFeatureStrings {
         cpuTitle: "높은 CPU 사용량",
         cpuBodyFormat: "CPU 사용량이 몇 초 동안 %d%%를 넘었습니다.",
         cpuTemperatureTitle: "CPU 과열",
-        cpuTemperatureBodyFormat: "CPU 온도가 %d °C에 도달했습니다.",
+        cpuTemperatureBodyFormat: "CPU 온도가 %@에 도달했습니다.",
         memoryTitle: "위험한 메모리",
         memoryBody: "메모리 압력이 위험 수준에 도달했습니다.",
         diskTitle: "부족한 디스크 공간",
@@ -358,11 +358,11 @@ extension MonitorAlertFeatureStrings {
         batteryTitle: "낮은 배터리",
         batteryBodyFormat: "배터리 잔량이 %d%%입니다.",
         gpuTemperatureTitle: "GPU 과열",
-        gpuTemperatureBodyFormat: "GPU 온도가 %d °C에 도달했습니다.",
+        gpuTemperatureBodyFormat: "GPU 온도가 %@에 도달했습니다.",
         gpuPowerTitle: "GPU 전력 높음",
         gpuPowerBodyFormat: "GPU 전력이 %.0f W에 도달했습니다.",
         thermalThrottleTitle: "열 조절",
-        thermalThrottleBodyFormat: "CPU 온도가 높은 부하 상태에서 %.0f °C로 >30초 지속"
+        thermalThrottleBodyFormat: "CPU 온도가 높은 부하 상태에서 %@로 >30초 지속"
     )
 }
 
@@ -2929,7 +2929,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "High CPU",
         cpuBodyFormat: "CPU stayed above %d%% for a few seconds.",
         cpuTemperatureTitle: "Hot CPU",
-        cpuTemperatureBodyFormat: "CPU reached %d °C.",
+        cpuTemperatureBodyFormat: "CPU reached %@.",
         memoryTitle: "Critical memory",
         memoryBody: "Memory pressure reached the critical level.",
         diskTitle: "Low disk space",
@@ -2937,11 +2937,11 @@ struct MonitorAlertFeatureStrings {
         batteryTitle: "Low battery",
         batteryBodyFormat: "Battery is at %d%%.",
         gpuTemperatureTitle: "Hot GPU",
-        gpuTemperatureBodyFormat: "GPU reached %d °C.",
+        gpuTemperatureBodyFormat: "GPU reached %@.",
         gpuPowerTitle: "High GPU power",
         gpuPowerBodyFormat: "GPU power reached %.0f W.",
         thermalThrottleTitle: "Thermal throttling",
-        thermalThrottleBodyFormat: "Sustained CPU temperature at %.0f °C under heavy load for >30 s"
+        thermalThrottleBodyFormat: "Sustained CPU temperature at %@ under heavy load for >30 s"
     )
 
     static let ptBR = MonitorAlertFeatureStrings(
@@ -2966,7 +2966,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "CPU alta",
         cpuBodyFormat: "A CPU ficou acima de %d%% por alguns segundos.",
         cpuTemperatureTitle: "CPU quente",
-        cpuTemperatureBodyFormat: "A CPU chegou a %d °C.",
+        cpuTemperatureBodyFormat: "A CPU chegou a %@.",
         memoryTitle: "Memória crítica",
         memoryBody: "A pressão de memória chegou ao nível crítico.",
         diskTitle: "Pouco espaço em disco",
@@ -2974,11 +2974,11 @@ struct MonitorAlertFeatureStrings {
         batteryTitle: "Bateria baixa",
         batteryBodyFormat: "A bateria está em %d%%.",
         gpuTemperatureTitle: "GPU quente",
-        gpuTemperatureBodyFormat: "GPU atingiu %d °C.",
+        gpuTemperatureBodyFormat: "GPU atingiu %@.",
         gpuPowerTitle: "Potência alta da GPU",
         gpuPowerBodyFormat: "Potência da GPU atingiu %.0f W.",
         thermalThrottleTitle: "Redução térmica",
-        thermalThrottleBodyFormat: "Temperatura sustentada da CPU em %.0f °C sob carga pesada por >30 s"
+        thermalThrottleBodyFormat: "Temperatura sustentada da CPU em %@ sob carga pesada por >30 s"
     )
 
     static let tr = MonitorAlertFeatureStrings(
@@ -3003,7 +3003,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "Yüksek CPU",
         cpuBodyFormat: "CPU birkaç saniye boyunca %d%% üzerinde kaldı.",
         cpuTemperatureTitle: "CPU sıcak",
-        cpuTemperatureBodyFormat: "CPU %d °C değerine ulaştı.",
+        cpuTemperatureBodyFormat: "CPU %@ değerine ulaştı.",
         memoryTitle: "Kritik bellek",
         memoryBody: "Bellek basıncı kritik seviyeye ulaştı.",
         diskTitle: "Düşük disk alanı",
@@ -3011,11 +3011,11 @@ struct MonitorAlertFeatureStrings {
         batteryTitle: "Düşük pil",
         batteryBodyFormat: "Pil %d%% seviyesinde.",
         gpuTemperatureTitle: "Sıcak GPU",
-        gpuTemperatureBodyFormat: "GPU %d °C değerine ulaştı.",
+        gpuTemperatureBodyFormat: "GPU %@ değerine ulaştı.",
         gpuPowerTitle: "Yüksek GPU gücü",
         gpuPowerBodyFormat: "GPU gücü %.0f W değerine ulaştı.",
         thermalThrottleTitle: "Termal kısıtlama",
-        thermalThrottleBodyFormat: "CPU sıcaklığı ağır yük altında >30 sn boyunca %.0f °C kaldı"
+        thermalThrottleBodyFormat: "CPU sıcaklığı ağır yük altında >30 sn boyunca %@ kaldı"
     )
 
     static let ru = MonitorAlertFeatureStrings(
@@ -3040,7 +3040,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "Высокая нагрузка CPU",
         cpuBodyFormat: "CPU держался выше %d%% несколько секунд.",
         cpuTemperatureTitle: "CPU перегрет",
-        cpuTemperatureBodyFormat: "CPU достиг %d °C.",
+        cpuTemperatureBodyFormat: "CPU достиг %@.",
         memoryTitle: "Критическая память",
         memoryBody: "Давление памяти достигло критического уровня.",
         diskTitle: "Мало места на диске",
@@ -3048,11 +3048,11 @@ struct MonitorAlertFeatureStrings {
         batteryTitle: "Низкий заряд батареи",
         batteryBodyFormat: "Заряд батареи: %d%%.",
         gpuTemperatureTitle: "Горячий GPU",
-        gpuTemperatureBodyFormat: "GPU достиг %d °C.",
+        gpuTemperatureBodyFormat: "GPU достиг %@.",
         gpuPowerTitle: "Высокая мощность GPU",
         gpuPowerBodyFormat: "Мощность GPU достигла %.0f Вт.",
         thermalThrottleTitle: "Троттлинг",
-        thermalThrottleBodyFormat: "Температура CPU %.0f °C под нагрузкой >30 с"
+        thermalThrottleBodyFormat: "Температура CPU %@ под нагрузкой >30 с"
     )
 
     static let es = MonitorAlertFeatureStrings(
@@ -3077,7 +3077,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "CPU alta",
         cpuBodyFormat: "La CPU estuvo por encima de %d%% durante unos segundos.",
         cpuTemperatureTitle: "CPU caliente",
-        cpuTemperatureBodyFormat: "La CPU llegó a %d °C.",
+        cpuTemperatureBodyFormat: "La CPU llegó a %@.",
         memoryTitle: "Memoria crítica",
         memoryBody: "La presión de memoria llegó al nivel crítico.",
         diskTitle: "Poco espacio en disco",
@@ -3085,11 +3085,11 @@ struct MonitorAlertFeatureStrings {
         batteryTitle: "Batería baja",
         batteryBodyFormat: "La batería está al %d%%.",
         gpuTemperatureTitle: "GPU caliente",
-        gpuTemperatureBodyFormat: "La GPU llegó a %d °C.",
+        gpuTemperatureBodyFormat: "La GPU llegó a %@.",
         gpuPowerTitle: "Potencia alta de GPU",
         gpuPowerBodyFormat: "Potencia de GPU llegó a %.0f W.",
         thermalThrottleTitle: "Reducción térmica",
-        thermalThrottleBodyFormat: "Temperatura sostenida de CPU en %.0f °C bajo carga pesada >30 s"
+        thermalThrottleBodyFormat: "Temperatura sostenida de CPU en %@ bajo carga pesada >30 s"
     )
 
     static let de = MonitorAlertFeatureStrings(
@@ -3114,7 +3114,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "Hohe CPU",
         cpuBodyFormat: "Die CPU lag einige Sekunden über %d%%.",
         cpuTemperatureTitle: "Heiße CPU",
-        cpuTemperatureBodyFormat: "Die CPU hat %d °C erreicht.",
+        cpuTemperatureBodyFormat: "Die CPU hat %@ erreicht.",
         memoryTitle: "Kritischer Speicher",
         memoryBody: "Der Speicherdruck hat den kritischen Wert erreicht.",
         diskTitle: "Wenig Speicherplatz",
@@ -3122,11 +3122,11 @@ struct MonitorAlertFeatureStrings {
         batteryTitle: "Niedriger Akkustand",
         batteryBodyFormat: "Der Akku ist bei %d%%.",
         gpuTemperatureTitle: "Heißer GPU",
-        gpuTemperatureBodyFormat: "GPU hat %d °C erreicht.",
+        gpuTemperatureBodyFormat: "GPU hat %@ erreicht.",
         gpuPowerTitle: "Hohe GPU-Leistung",
         gpuPowerBodyFormat: "GPU-Leistung hat %.0f W erreicht.",
         thermalThrottleTitle: "Drosselung",
-        thermalThrottleBodyFormat: "Dauerhafte CPU-Temperatur von %.0f °C unter hoher Last >30 s"
+        thermalThrottleBodyFormat: "Dauerhafte CPU-Temperatur von %@ unter hoher Last >30 s"
     )
 
     static let fr = MonitorAlertFeatureStrings(
@@ -3151,7 +3151,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "CPU élevé",
         cpuBodyFormat: "Le CPU est resté au-dessus de %d%% pendant quelques secondes.",
         cpuTemperatureTitle: "CPU chaud",
-        cpuTemperatureBodyFormat: "Le CPU a atteint %d °C.",
+        cpuTemperatureBodyFormat: "Le CPU a atteint %@.",
         memoryTitle: "Mémoire critique",
         memoryBody: "La pression mémoire a atteint le niveau critique.",
         diskTitle: "Espace disque faible",
@@ -3159,11 +3159,11 @@ struct MonitorAlertFeatureStrings {
         batteryTitle: "Batterie faible",
         batteryBodyFormat: "La batterie est à %d%%.",
         gpuTemperatureTitle: "GPU chaud",
-        gpuTemperatureBodyFormat: "Le GPU a atteint %d °C.",
+        gpuTemperatureBodyFormat: "Le GPU a atteint %@.",
         gpuPowerTitle: "Puissance GPU élevée",
         gpuPowerBodyFormat: "La puissance GPU a atteint %.0f W.",
         thermalThrottleTitle: "Limitation thermique",
-        thermalThrottleBodyFormat: "Température CPU soutenue à %.0f °C sous forte charge >30 s"
+        thermalThrottleBodyFormat: "Température CPU soutenue à %@ sous forte charge >30 s"
     )
 
     static let it = MonitorAlertFeatureStrings(
@@ -3188,7 +3188,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "CPU alta",
         cpuBodyFormat: "La CPU è rimasta sopra %d%% per alcuni secondi.",
         cpuTemperatureTitle: "CPU calda",
-        cpuTemperatureBodyFormat: "La CPU ha raggiunto %d °C.",
+        cpuTemperatureBodyFormat: "La CPU ha raggiunto %@.",
         memoryTitle: "Memoria critica",
         memoryBody: "La pressione della memoria ha raggiunto il livello critico.",
         diskTitle: "Poco spazio su disco",
@@ -3196,11 +3196,11 @@ struct MonitorAlertFeatureStrings {
         batteryTitle: "Batteria scarica",
         batteryBodyFormat: "La batteria è al %d%%.",
         gpuTemperatureTitle: "GPU calda",
-        gpuTemperatureBodyFormat: "GPU ha raggiunto %d °C.",
+        gpuTemperatureBodyFormat: "GPU ha raggiunto %@.",
         gpuPowerTitle: "Potenza GPU elevata",
         gpuPowerBodyFormat: "Potenza GPU ha raggiunto %.0f W.",
         thermalThrottleTitle: "Limitazione termica",
-        thermalThrottleBodyFormat: "Temperatura CPU sostenuta a %.0f °C sotto carico pesante >30 s"
+        thermalThrottleBodyFormat: "Temperatura CPU sostenuta a %@ sotto carico pesante >30 s"
     )
 
     static let ja = MonitorAlertFeatureStrings(
@@ -3225,7 +3225,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "CPU 高負荷",
         cpuBodyFormat: "CPU が数秒間 %d%% を超えました。",
         cpuTemperatureTitle: "CPU が高温",
-        cpuTemperatureBodyFormat: "CPU が %d °C に達しました。",
+        cpuTemperatureBodyFormat: "CPU が %@ に達しました。",
         memoryTitle: "メモリが深刻",
         memoryBody: "メモリ圧迫が深刻レベルに達しました。",
         diskTitle: "ディスク空き容量不足",
@@ -3233,11 +3233,11 @@ struct MonitorAlertFeatureStrings {
         batteryTitle: "バッテリー残量低下",
         batteryBodyFormat: "バッテリー残量は %d%% です。",
         gpuTemperatureTitle: "GPU 高温",
-        gpuTemperatureBodyFormat: "GPU が %d °C に達しました。",
+        gpuTemperatureBodyFormat: "GPU が %@ に達しました。",
         gpuPowerTitle: "GPU 消費電力大",
         gpuPowerBodyFormat: "GPU 消費電力が %.0f W に達しました。",
         thermalThrottleTitle: "サーマルスロットリング",
-        thermalThrottleBodyFormat: "CPU 温度 %.0f °C が高負荷で >30秒 継続"
+        thermalThrottleBodyFormat: "CPU 温度 %@ が高負荷で >30秒 継続"
     )
 
     static let zhHans = MonitorAlertFeatureStrings(
@@ -3262,7 +3262,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "CPU 过高",
         cpuBodyFormat: "CPU 已连续几秒高于 %d%%。",
         cpuTemperatureTitle: "CPU 过热",
-        cpuTemperatureBodyFormat: "CPU 已达到 %d °C。",
+        cpuTemperatureBodyFormat: "CPU 已达到 %@。",
         memoryTitle: "内存严重",
         memoryBody: "内存压力已达到严重级别。",
         diskTitle: "磁盘空间不足",
@@ -3270,11 +3270,11 @@ struct MonitorAlertFeatureStrings {
         batteryTitle: "电池电量低",
         batteryBodyFormat: "电池电量为 %d%%。",
         gpuTemperatureTitle: "GPU 温度高",
-        gpuTemperatureBodyFormat: "GPU 温度达到 %d °C。",
+        gpuTemperatureBodyFormat: "GPU 温度达到 %@。",
         gpuPowerTitle: "GPU 功耗高",
         gpuPowerBodyFormat: "GPU 功耗达到 %.0f W。",
         thermalThrottleTitle: "热节流",
-        thermalThrottleBodyFormat: "CPU 在重负载下持续 %.0f °C 超过 30 秒"
+        thermalThrottleBodyFormat: "CPU 在重负载下持续 %@ 超过 30 秒"
     )
 
     static let zhTW = MonitorAlertFeatureStrings(
@@ -3299,7 +3299,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "CPU 使用率過高",
         cpuBodyFormat: "CPU 已連續數秒高於 %d%%。",
         cpuTemperatureTitle: "CPU 過熱",
-        cpuTemperatureBodyFormat: "CPU 已達到 %d °C。",
+        cpuTemperatureBodyFormat: "CPU 已達到 %@。",
         memoryTitle: "記憶體壓力過高",
         memoryBody: "記憶體壓力已達到嚴重等級。",
         diskTitle: "磁碟空間不足",
@@ -3307,11 +3307,11 @@ struct MonitorAlertFeatureStrings {
         batteryTitle: "電池電量偏低",
         batteryBodyFormat: "電池電量為 %d%%。",
         gpuTemperatureTitle: "GPU 溫度高",
-        gpuTemperatureBodyFormat: "GPU 溫度達到 %d °C。",
+        gpuTemperatureBodyFormat: "GPU 溫度達到 %@。",
         gpuPowerTitle: "GPU 功耗高",
         gpuPowerBodyFormat: "GPU 功耗達到 %.0f W。",
         thermalThrottleTitle: "熱節流",
-        thermalThrottleBodyFormat: "CPU 在重負載下持續 %.0f °C 超過 30 秒"
+        thermalThrottleBodyFormat: "CPU 在重負載下持續 %@ 超過 30 秒"
     )
 
     static let zhHK = MonitorAlertFeatureStrings(
@@ -3336,7 +3336,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "CPU 使用率過高",
         cpuBodyFormat: "CPU 已連續數秒高於 %d%%。",
         cpuTemperatureTitle: "CPU 過熱",
-        cpuTemperatureBodyFormat: "CPU 已達到 %d °C。",
+        cpuTemperatureBodyFormat: "CPU 已達到 %@。",
         memoryTitle: "記憶體壓力過高",
         memoryBody: "記憶體壓力已達至嚴重水平。",
         diskTitle: "磁碟空間不足",
@@ -3344,11 +3344,11 @@ struct MonitorAlertFeatureStrings {
         batteryTitle: "電池電量偏低",
         batteryBodyFormat: "電池電量為 %d%%。",
         gpuTemperatureTitle: "GPU 溫度高",
-        gpuTemperatureBodyFormat: "GPU 溫度達到 %d °C。",
+        gpuTemperatureBodyFormat: "GPU 溫度達到 %@。",
         gpuPowerTitle: "GPU 功耗高",
         gpuPowerBodyFormat: "GPU 功耗達到 %.0f W。",
         thermalThrottleTitle: "熱節流",
-        thermalThrottleBodyFormat: "CPU 在重負載下持續 %.0f °C 超過 30 秒"
+        thermalThrottleBodyFormat: "CPU 在重負載下持續 %@ 超過 30 秒"
     )
 
     static let sk = MonitorAlertFeatureStrings(
@@ -3373,7 +3373,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "Vysoké využitie CPU",
         cpuBodyFormat: "CPU ostalo niekoľko sekúnd nad %d %%.",
         cpuTemperatureTitle: "Horúce CPU",
-        cpuTemperatureBodyFormat: "CPU dosiahlo %d °C.",
+        cpuTemperatureBodyFormat: "CPU dosiahlo %@.",
         memoryTitle: "Kritická pamäť",
         memoryBody: "Zaťaženie pamäte dosiahlo kritickú úroveň.",
         diskTitle: "Málo miesta na disku",
@@ -3381,11 +3381,11 @@ struct MonitorAlertFeatureStrings {
         batteryTitle: "Slabá batéria",
         batteryBodyFormat: "Batéria je na %d %%.",
         gpuTemperatureTitle: "Horúce GPU",
-        gpuTemperatureBodyFormat: "GPU dosiahlo %d °C.",
+        gpuTemperatureBodyFormat: "GPU dosiahlo %@.",
         gpuPowerTitle: "Vysoký príkon GPU",
         gpuPowerBodyFormat: "Príkon GPU dosiahol %.0f W.",
         thermalThrottleTitle: "Tepelné obmedzovanie",
-        thermalThrottleBodyFormat: "Trvalá teplota CPU %.0f °C pri vysokej záťaži dlhšie ako 30 s"
+        thermalThrottleBodyFormat: "Trvalá teplota CPU %@ pri vysokej záťaži dlhšie ako 30 s"
     )
 
     static let uk = MonitorAlertFeatureStrings(
@@ -3410,7 +3410,7 @@ struct MonitorAlertFeatureStrings {
         cpuTitle: "Високе навантаження CPU",
         cpuBodyFormat: "CPU кілька секунд утримувався вище %d%%.",
         cpuTemperatureTitle: "Гарячий CPU",
-        cpuTemperatureBodyFormat: "CPU досяг %d °C.",
+        cpuTemperatureBodyFormat: "CPU досяг %@.",
         memoryTitle: "Критичний стан пам’яті",
         memoryBody: "Тиск пам’яті досяг критичного рівня.",
         diskTitle: "Мало місця на диску",
@@ -3418,11 +3418,11 @@ struct MonitorAlertFeatureStrings {
         batteryTitle: "Низький заряд",
         batteryBodyFormat: "Заряд акумулятора: %d%%.",
         gpuTemperatureTitle: "Гарячий GPU",
-        gpuTemperatureBodyFormat: "GPU досяг %d °C.",
+        gpuTemperatureBodyFormat: "GPU досяг %@.",
         gpuPowerTitle: "Висока потужність GPU",
         gpuPowerBodyFormat: "Потужність GPU досягла %.0f Вт.",
         thermalThrottleTitle: "Теплове тротлінгування",
-        thermalThrottleBodyFormat: "Стійка температура CPU %.0f °C під великим навантаженням понад 30 с"
+        thermalThrottleBodyFormat: "Стійка температура CPU %@ під великим навантаженням понад 30 с"
     )
 }
 

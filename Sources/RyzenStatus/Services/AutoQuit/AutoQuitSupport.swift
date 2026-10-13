@@ -8,6 +8,7 @@ enum AutoQuitWindowEvent: Equatable {
     case windowDestroyed
     case appHidden
     case appDeactivated
+    case appActivated
     case mainWindowChanged
     case focusedWindowChanged
     case windowCreated
@@ -17,14 +18,17 @@ enum AutoQuitWindowEvent: Equatable {
 }
 
 enum AutoQuitSupport {
+    private static let hostBundleIdentifierKey = "CrBundleIdentifier"
+    /// Some guest-app windows run as generated helper apps outside their
+    /// container bundle. These identifiers are the only stable relationship
+    /// the host exposes between the helper and the app the user excepted.
+    private static let guestWindowHostBundleIdentifier = "com.parallels.desktop.console"
+    private static let guestWindowBundleIdentifierPrefix = "com.parallels.winapp."
+
     /// QWERTY position of the W key — only a fallback for when the event carries
     /// no typed character; the service matches the layout-resolved character
     /// first (key codes are positional: 13 types "z" on AZERTY).
     static let commandWKeyCode: Int64 = 13
-
-    /// Bundle metadata key some standalone apps use to declare which host
-    /// process they depend on (Chromium's "CrBundleIdentifier").
-    private static let hostBundleIdentifierKey = "CrBundleIdentifier"
 
     static func shouldScheduleWindowCheck(for event: AutoQuitWindowEvent,
                                           hasRecentCloseRequest: Bool) -> Bool {
@@ -34,6 +38,7 @@ enum AutoQuitSupport {
         case .appHidden:
             return hasRecentCloseRequest
         case .appDeactivated,
+             .appActivated,
              .mainWindowChanged,
              .focusedWindowChanged,
              .windowCreated,
@@ -47,10 +52,16 @@ enum AutoQuitSupport {
     /// Every found user window requires a registered destroy notification.
     /// Accessibility-listed windows set that count directly; window-server
     /// evidence when Accessibility lists none still requires one watch.
+    /// An app that has never yet shown any window also retries during its initial
+    /// watch window so apps creating windows asynchronously on launch are caught.
     static func needsWindowWatchRetry(registeredWindows: Int,
                                       listedWindows: Int,
-                                      foundUserWindow: Bool) -> Bool {
-        foundUserWindow && registeredWindows < max(listedWindows, 1)
+                                      foundUserWindow: Bool,
+                                      hadPriorWindows: Bool = false) -> Bool {
+        if foundUserWindow {
+            return registeredWindows < max(listedWindows, 1)
+        }
+        return !hadPriorWindows && registeredWindows == 0
     }
 
     /// Whether adding a window notification left the observer watching for it.
@@ -75,8 +86,31 @@ enum AutoQuitSupport {
         return !hasUserFacingWindow
     }
 
-    static func isCommandW(keyCode: Int64, command: Bool, control: Bool) -> Bool {
-        keyCode == commandWKeyCode && command && !control
+    /// An exception for an installed app also covers UI processes bundled
+    /// inside it. Some apps put their main windows in a nested application
+    /// with a different identifier, even though the user picked the outer app.
+    static func isExcepted(bundleIdentifier: String?,
+                           bundleURL: URL?,
+                           exceptions: [String]) -> Bool {
+        if let bundleIdentifier, exceptions.contains(bundleIdentifier) { return true }
+        if let bundleIdentifier,
+           bundleIdentifier.hasPrefix(guestWindowBundleIdentifierPrefix),
+           exceptions.contains(guestWindowHostBundleIdentifier) {
+            return true
+        }
+        guard var url = bundleURL?.standardizedFileURL.deletingLastPathComponent() else { return false }
+
+        while url.path != "/" {
+            if url.pathExtension.caseInsensitiveCompare("app") == .orderedSame,
+               let containingIdentifier = Bundle(url: url)?.bundleIdentifier,
+               exceptions.contains(containingIdentifier) {
+                return true
+            }
+            let parent = url.deletingLastPathComponent()
+            guard parent != url else { break }
+            url = parent
+        }
+        return false
     }
 
     /// Some standalone apps depend on a separate host process and declare that
@@ -89,5 +123,50 @@ enum AutoQuitSupport {
             Bundle(url: bundleURL)?.object(forInfoDictionaryKey: hostBundleIdentifierKey) as? String
                 == hostBundleIdentifier
         }
+    }
+
+    /// Menu bar and background apps (LSUIElement, LSBackgroundOnly) take a
+    /// Dock icon only while a window such as Settings is open. Closing that
+    /// window is not quitting the app (issue #1824).
+    static func isBackgroundApp(bundleURL: URL?) -> Bool {
+        guard let bundleURL, let bundle = Bundle(url: bundleURL) else { return false }
+        return ["LSUIElement", "LSBackgroundOnly"].contains { key in
+            (bundle.object(forInfoDictionaryKey: key) as? NSNumber)?.boolValue
+                ?? (bundle.object(forInfoDictionaryKey: key) as? NSString)?.boolValue
+                ?? false
+        }
+    }
+
+    static func isCommandW(keyCode: Int64, command: Bool, control: Bool) -> Bool {
+        keyCode == commandWKeyCode && command && !control
+    }
+
+    /// Phone is kept as a mandatory quit exception for Continuity calls, but on
+    /// macOS builds without Phone.app a locked row would show the raw bundle
+    /// id. Hide it from the settings list while leaving protection in place.
+    static func shouldDisplayException(bundleID: String, isInstalled: Bool) -> Bool {
+        if bundleID == Defaults.phoneBundleIdentifier { return isInstalled }
+        return true
+    }
+
+    static func visibleExceptions(_ bundleIDs: [String],
+                                  isInstalled: (String) -> Bool) -> [String] {
+        bundleIDs.filter { shouldDisplayException(bundleID: $0, isInstalled: isInstalled($0)) }
+    }
+
+    /// Whether a window the screen is not showing still counts as a window the
+    /// user has. A window parked on another Space is one swipe away, so it
+    /// keeps the app running; a window the app only hid sits on the Space that
+    /// is showing right now, and an app that hides its window instead of
+    /// destroying it should still quit on close. Accessibility cannot tell the
+    /// two apart (both leave the app with no windows at all), the window server
+    /// can. Without a Space answer the old rule stands: anything with a title
+    /// keeps the app alive.
+    static func offscreenWindowKeepsAppAlive(windowSpaces: [UInt64],
+                                             visibleSpaces: Set<UInt64>?,
+                                             hasTitle: Bool) -> Bool {
+        guard let visibleSpaces, !visibleSpaces.isEmpty, !windowSpaces.isEmpty else { return hasTitle }
+        return SpaceHopSupport.isParkedOnHiddenSpace(windowSpaces: windowSpaces,
+                                                     visibleSpaces: visibleSpaces)
     }
 }

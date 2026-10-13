@@ -18,57 +18,31 @@ enum NetworkProcessSupport {
         "-L", "1",
         "-s", "1",
     ]
+    static let externalNettopArguments = [
+        "-P", "-d", "-x",
+        "-t", "external",
+        "-J", "bytes_in,bytes_out",
+        "-L", "1",
+        "-s", "1",
+    ]
 
     static func currentActivitySamples(timeout: TimeInterval = 5.5) -> [NetworkProcessSample] {
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/nettop")
-        process.arguments = nettopArguments
-        process.standardOutput = pipe
-        process.standardError = pipe
+        currentActivitySamples(arguments: nettopArguments, timeout: timeout) ?? []
+    }
 
-        do {
-            try process.run()
-        } catch {
-            return []
-        }
+    /// Uses socket-flow counters instead of interface counters. This stays idle
+    /// unless NetworkSampler detects that macOS stopped reporting inbound bytes.
+    static func currentExternalActivitySamples(timeout: TimeInterval = 1) -> [NetworkProcessSample]? {
+        currentActivitySamples(arguments: externalNettopArguments, timeout: timeout)
+    }
 
-        // BUG-06 fix: The previous approach waited in a spin-loop until nettop exited,
-        // then read from the pipe. If nettop produced more than the kernel pipe buffer
-        // (~64 KB), nettop would block on write, the spin-loop would never see it exit,
-        // and the 5.5 s timeout would fire — returning truncated data every time.
-        //
-        // Fix: drain the pipe on a concurrent queue while the process runs.
-        // nettop can always write, so it never deadlocks. We synchronize with a barrier
-        // after the process exits to guarantee we have all bytes before parsing.
-        let drainQueue = DispatchQueue(label: "com.ryzenstatus.nettop.drain", qos: .utility)
-        var collectedData = Data()
-        drainQueue.async {
-            collectedData = pipe.fileHandleForReading.readDataToEndOfFile()
-        }
-
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.05)
-        }
-        if process.isRunning {
-            process.terminate()
-            let killDeadline = Date().addingTimeInterval(1.5)
-            while process.isRunning && Date() < killDeadline {
-                Thread.sleep(forTimeInterval: 0.05)
-            }
-            if process.isRunning {
-                kill(process.processIdentifier, SIGKILL)
-                process.waitUntilExit()
-            }
-        }
-
-        process.waitUntilExit()
-        // Barrier sync: blocks until the drain closure finishes writing collectedData.
-        drainQueue.sync {}
-
-        guard !collectedData.isEmpty,
-              let output = String(data: collectedData, encoding: .utf8) else { return [] }
+    private static func currentActivitySamples(arguments: [String],
+                                               timeout: TimeInterval) -> [NetworkProcessSample]? {
+        let result = BoundedProcessRunner.run("/usr/bin/nettop", arguments,
+                                              timeout: timeout,
+                                              maxOutputBytes: 4 * 1024 * 1024)
+        guard !result.timedOut, result.status == 0, !result.output.isEmpty else { return nil }
+        let output = String(decoding: result.output, as: UTF8.self)
         return parseNettopCSV(output)
     }
 

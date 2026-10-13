@@ -13,6 +13,34 @@ The Dynamic Island's companion grows with you: it has a name, a level and a stor
 - **Seasonal costumes**, on by default: a witch's hat the last week of October, a Santa hat around Christmas, a party hat at New Year and on the day it came out, a year on.
 - **Follows your AMD hardware**, on by default: the fan companion spins at your CPU fan's real speed from the kext, the chip's mark glows with package power against its PPT limit, and it puts on a headband and cheers when Gaming Mode starts.
 - **Its own notices**, on by default: a greeting for the time of day the first time you are around each day, a word when it reaches a new level (naming what it unlocked), and celebrations at a week, 30 days, 100 days and every year together. Switched off, it still plays the reaction without a notice.
+- **Local IP address** in the menu panel's Network card: each connected interface's IPv4 address with the system's name for it (Wi-Fi, Ethernet). It is read from the Mac's own interface list only while the card is on screen, and nothing leaves the machine. It can be hidden from the card's edit mode or from Settings › Monitor.
+
+### Changed
+
+- **Menu bar power keeps its interval**: with the system draw pinned to the menu bar, it is read at the chosen interval instead of on the slower stride battery charge and time use, so the watts no longer lag behind.
+- **Desktops without a battery** no longer listen for power source changes.
+- **Quit on close** catches apps that create their first window a moment after launching, retries an app that is still busy with short delays (0.15 s to 10 s instead of 5 s to 160 s), keeps menu bar and background apps running when their settings window closes, covers apps nested inside an excepted app and guest app windows of an excepted virtual machine host, and hides the built-in Phone exception on Macs without the Phone app.
+
+### Fixed
+
+- **GPU temperature and GPU power alerts never fired**: the timer that waits for a sustained reading was restarted on every sample. They now notify once the reading has held for 12 s.
+- **Alert temperatures use your unit**: CPU, GPU and sustained-load notifications showed Celsius even with Fahrenheit selected.
+- **CPU usage after a pause**: when the CPU reading was not needed for a while (nothing on screen asked for it), the first reading back averaged the whole pause. It is now discarded, like the first reading after sleep.
+- **Network**: a failed counter read no longer shows as a drop to zero and then a spike, the per-app list stops a stuck `nettop` after a bounded time, and the speed test checks the server's HTTP answers before measuring.
+- **Disk**: free space counts what macOS can purge, as Finder does, without asking mounted disk images (which filled the log with errors), `diskutil` runs with a time limit, and a corrupt SMART value can no longer crash the app.
+- **Battery time** can no longer overflow on a nonsensical estimate.
+- **Bluetooth battery scan**: a long `system_profiler` report could block until its timeout and come back cut off. It is now read while the command runs.
+- **Launch at login waiting for approval**: when System Settings still has the login item switched off, turning the option on says where to approve it instead of silently flipping back, and startup no longer registers over it.
+- **Settings next to the menu panel**: when Settings cannot open beside the panel without covering it, the panel closes instead of being covered.
+- **Cleaning Mode**: the overlay no longer flickers, Esc unlocking accepts a wider window and lets modifier keys reset it, a click that started before unlocking finishes before the overlay goes, mouse click debounce is paused with the rest, and switching to another user ends the session safely.
+- **Keyboard debounce** hands its event tap back when you switch users, and ignores keys the app itself types.
+- **Event taps** are invalidated when they are torn down, so their ports are released.
+- **App exception lists** accept apps picked from the running list, and executables only where the list supports them.
+- **Process names**: system processes in the GPU list showed as "pid 100" on recent macOS; their executable name is shown instead.
+- **Updates** stage the new copy under a hidden name, so Spotlight does not index a half-copied app.
+- **Uninstalling** also removes the app's caches and network storage, and reports whether normal sleep and the Space arrangement setting were restored.
+- **Clean URL** custom parameter field takes clicks across its whole row and has a Save button.
+- **Command Bar**: days until 29 February count to the next leap year.
 
 ## [1.40.0] — 2026-10-12 — kexts 3.34.17 (No kext changes)
 

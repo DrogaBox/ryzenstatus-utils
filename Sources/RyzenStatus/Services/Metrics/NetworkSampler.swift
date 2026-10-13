@@ -19,42 +19,86 @@ final class NetworkSampler {
     private var previous: (counters: NetworkCounters, time: TimeInterval)?
     private var totalDown: UInt64 = 0
     private var totalUp: UInt64 = 0
+    private var counterFallback = NetworkCounterFallback()
+    private var processDeltaTracker = NetworkProcessDeltaTracker(maxGap: 30)
+    private let counterReader: () -> NetworkCounters?
+    private let processReader: () -> [NetworkProcessSample]?
 
     /// After a gap longer than this (sampling was paused), the previous reading
     /// is treated as a fresh baseline instead of producing a misleading spike.
     private static let maxGap: TimeInterval = 10
 
+    init(counterReader: @escaping () -> NetworkCounters? = NetworkSampler.readCounters,
+         processReader: @escaping () -> [NetworkProcessSample]? = {
+             NetworkProcessSupport.currentExternalActivitySamples()
+         }) {
+        self.counterReader = counterReader
+        self.processReader = processReader
+    }
+
     func sample(now: TimeInterval) -> NetworkReading {
-        let counters = Self.readCounters()
+        guard let counters = counterReader() else {
+            return NetworkReading(downBytesPerSec: nil, upBytesPerSec: nil,
+                                  totalDown: totalDown, totalUp: totalUp)
+        }
         defer { previous = (counters, now) }
 
         guard let prev = previous, now > prev.time, now - prev.time <= Self.maxGap else {
+            counterFallback.reset()
+            processDeltaTracker.reset()
             return NetworkReading(downBytesPerSec: nil, upBytesPerSec: nil,
                                   totalDown: totalDown, totalUp: totalUp)
         }
 
         let elapsed = now - prev.time
-        let (down, up) = MetricFormat.netSpeed(previous: prev.counters,
-                                               current: counters,
-                                               elapsed: elapsed)
-        if counters.received >= prev.counters.received {
+        let interfaceSpeed = MetricFormat.netSpeed(previous: prev.counters,
+                                                   current: counters,
+                                                   elapsed: elapsed)
+        let fallback = counterFallback.observe(previous: prev.counters, current: counters)
+        var processDown: Double?
+        if fallback.sampleProcesses,
+           let samples = processReader() {
+            let hadBaseline = processDeltaTracker.hasBaseline(now: now)
+            let rates = processDeltaTracker.rates(from: samples, now: now)
+            if fallback.useProcessDownload, hadBaseline {
+                processDown = rates.reduce(0) { $0 + $1.bytesIn }
+            }
+        } else if !fallback.useProcessDownload {
+            processDeltaTracker.reset()
+        }
+
+        if let processDown {
+            accumulate(rate: processDown, elapsed: elapsed, into: &totalDown)
+        } else if counters.received >= prev.counters.received {
             totalDown += counters.received - prev.counters.received
         }
         if counters.sent >= prev.counters.sent {
             totalUp += counters.sent - prev.counters.sent
         }
-        return NetworkReading(downBytesPerSec: down, upBytesPerSec: up,
+        return NetworkReading(downBytesPerSec: processDown ?? interfaceSpeed.down,
+                              upBytesPerSec: interfaceSpeed.up,
                               totalDown: totalDown, totalUp: totalUp)
+    }
+
+    private func accumulate(rate: Double, elapsed: TimeInterval, into total: inout UInt64) {
+        let bytes = rate * elapsed
+        guard bytes.isFinite, bytes > 0 else { return }
+        guard bytes < Double(UInt64.max) else {
+            total = UInt64.max
+            return
+        }
+        let amount = UInt64(bytes.rounded(.down))
+        let addition = total.addingReportingOverflow(amount)
+        total = addition.overflow ? UInt64.max : addition.partialValue
     }
 
     /// Sums received/sent bytes across physical interfaces using the per-interface
     /// MIB, which returns the 64-bit `if_data64` counters on Sequoia.
-    static func readCounters() -> NetworkCounters {
-        if let counters = readCountersFromInterfaceMIB() {
-            return counters
-        }
-
-        return readCountersFromRouteList()
+    /// Falls back to the routing socket (`NET_RT_IFLIST2`), whose `if_data64`
+    /// counters are 64-bit too; nil when neither answers, so a failed read
+    /// never looks like a sudden drop to zero.
+    static func readCounters() -> NetworkCounters? {
+        readCountersFromInterfaceMIB() ?? readCountersFromRouteList()
     }
 
     private static func readCountersFromInterfaceMIB() -> NetworkCounters? {
@@ -88,16 +132,16 @@ final class NetworkSampler {
         return foundInterface ? result : nil
     }
 
-    private static func readCountersFromRouteList() -> NetworkCounters {
+    private static func readCountersFromRouteList() -> NetworkCounters? {
         var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0]
         var length = 0
         guard sysctl(&mib, 6, nil, &length, nil, 0) == 0, length > 0 else {
-            return NetworkCounters()
+            return nil
         }
 
         var buffer = [UInt8](repeating: 0, count: length)
         guard sysctl(&mib, 6, &buffer, &length, nil, 0) == 0 else {
-            return NetworkCounters()
+            return nil
         }
 
         var result = NetworkCounters()
