@@ -502,6 +502,7 @@ enum Defaults {
         DefaultsKey.notchMascotAccessory: "none",
         DefaultsKey.notchMascotName: "",
         DefaultsKey.notchMascotSeasonal: true,
+        DefaultsKey.notchMascotForm: "auto",
         DefaultsKey.notchMascotSpeech: true,
         DefaultsKey.notchMascotHardware: true,
         DefaultsKey.notchCommandBar: true,

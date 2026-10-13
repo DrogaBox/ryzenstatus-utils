@@ -62,6 +62,13 @@ final class NotchMascotRig: NSObject {
     private let decor = NotchMascotDecor()
     /// Hats, bows and glasses.
     private let wearables = NotchMascotWearables()
+    /// The aura of a transformation, behind and in front of the body.
+    private let aura = NotchMascotAura()
+    /// The body lit white for an instant, as a transformation bursts out.
+    private let bodyFlash = CAShapeLayer()
+    private var transformObserver: NSObjectProtocol?
+    /// The pointer rests on it: happy eyes and a sway until it leaves.
+    private(set) var isStroked = false
     /// The mood it keeps on its own as the Mac works, plays music or rests.
     private(set) var ambient = MascotMoodState()
     private var blinks = 0
@@ -80,14 +87,16 @@ final class NotchMascotRig: NSObject {
     override init() {
         super.init()
         root.addSublayer(hopper)
+        hopper.addSublayer(aura.back)
         hopper.addSublayer(squasher)
         squasher.addSublayer(tilter)
         tilter.addSublayer(decor.back)
-        for layer in [ears, antenna, bulb, fill, visor, shine] { tilter.addSublayer(layer) }
+        for layer in [ears, antenna, bulb, fill, visor, shine, bodyFlash] { tilter.addSublayer(layer) }
         tilter.addSublayer(decor.middle)
         tilter.addSublayer(attention)
         tilter.addSublayer(wearables.head)
         tilter.addSublayer(decor.props)
+        tilter.addSublayer(aura.front)
         attention.addSublayer(face)
         attention.addSublayer(wearables.face)
         face.addSublayer(leftEye)
@@ -99,6 +108,17 @@ final class NotchMascotRig: NSObject {
         }
         shine.fillColor = NotchMascotColor.shine.cgColor
         visor.fillColor = NotchMascotColor.visor.cgColor
+        bodyFlash.actions = Self.noActions
+        bodyFlash.fillColor = NSColor.white.cgColor
+        bodyFlash.opacity = 0
+        transformObserver = NotificationCenter.default.addObserver(forName: .notchMascotTransforms, object: nil,
+                                                                   queue: .main) { [weak self] _ in
+            self?.playTransformation()
+        }
+    }
+
+    deinit {
+        if let transformObserver { NotificationCenter.default.removeObserver(transformObserver) }
     }
 
     private static let noActions: [String: CAAction] = [
@@ -137,7 +157,7 @@ final class NotchMascotRig: NSObject {
         root.contentsScale = scale
         let robot = look.style == .robot
         let palette = look.palette
-        fill.colors = [palette.light.cgColor, palette.shade.cgColor]
+        fill.colors = bodyColors(for: look)
         fill.startPoint = CGPoint(x: 0.5, y: 0)
         fill.endPoint = CGPoint(x: 0.5, y: 1)
         if robot {
@@ -173,6 +193,10 @@ final class NotchMascotRig: NSObject {
         fill.opacity = look.style == .ghost ? (decor.sleeping ? 0.55 : 0.92) : 1
         for layer in [ears, antenna, bulb, visor] { layer.isHidden = !robot }
         wearables.configure(accessory: look.accessory, body: fillMask.path, face: look.face, size: size, scale: scale)
+        aura.configure(form: look.form, size: size, scale: scale, reduceMotion: reduceMotion)
+        bodyFlash.frame = box
+        bodyFlash.contentsScale = scale
+        bodyFlash.path = fillMask.path
         // A hat sits where the robot's antenna stands.
         if robot, NotchMascotWearables.coversHead(look.accessory) {
             antenna.isHidden = true
@@ -425,6 +449,169 @@ final class NotchMascotRig: NSObject {
             attention.removeAnimation(forKey: "attention")
         }
         CATransaction.commit()
+    }
+
+    /// Its own colours, or a transformation's.
+    private func bodyColors(for look: NotchMascotLook) -> [CGColor] {
+        if let form = look.form {
+            let palette = NotchMascotFormPalette(form)
+            return [palette.light.cgColor, palette.shade.cgColor]
+        }
+        return [look.palette.light.cgColor, look.palette.shade.cgColor]
+    }
+
+    // MARK: Transformation
+
+    /// The whole transformation into the form it shows: it crouches and
+    /// trembles as sparks snap around it, bursts out in a flash and a shock
+    /// wave with a leap, and lands with its aura blazing. Only companions
+    /// that live on screen play it, not the small samples in Settings.
+    func playTransformation() {
+        guard idles, size > 0, look.form != nil else { return }
+        let now = CACurrentMediaTime()
+        guard !reduceMotion else {
+            flashFace(.happy, duration: 1.2)
+            return
+        }
+        let length = NotchMascotAura.transformationLength
+        let burstTime = NotchMascotAura.burstAt
+        let burst = burstTime / length
+        aura.playTransformation(beginTime: now)
+
+        // Trembling while it gathers power.
+        let shake = CAKeyframeAnimation(keyPath: "transform.translation.x")
+        let jolt: CGFloat = size * 0.04
+        let jolts: [CGFloat] = (0..<22).map { $0 % 2 == 0 ? jolt : -jolt }
+        shake.values = [CGFloat(0)] + jolts + [CGFloat(0)]
+        shake.duration = burstTime
+        shake.isAdditive = true
+        tilter.add(shake, forKey: "transformShake")
+
+        // Down in a crouch, then springing up as it bursts out.
+        let crouch = CAKeyframeAnimation(keyPath: "transform")
+        crouch.values = [squashed(0), squashed(0.16), squashed(0.16), squashed(-0.22), squashed(0.07), squashed(0)]
+            .map { NSValue(caTransform3D: $0) }
+        crouch.keyTimes = [0, 0.1, NSNumber(value: burst), NSNumber(value: burst + 0.06), NSNumber(value: burst + 0.2), 1]
+        crouch.duration = length
+        squasher.add(crouch, forKey: "transformCrouch")
+
+        let leap = CAKeyframeAnimation(keyPath: "transform.translation.y")
+        leap.values = [0, 0, -size * 0.34, 0, 0]
+        leap.keyTimes = [0, NSNumber(value: burst), NSNumber(value: burst + 0.12), NSNumber(value: burst + 0.3), 1]
+        leap.timingFunctions = [CAMediaTimingFunction(name: .linear), CAMediaTimingFunction(name: .easeOut),
+                                CAMediaTimingFunction(name: .easeIn), CAMediaTimingFunction(name: .linear)]
+        leap.duration = length
+        leap.isAdditive = true
+        hopper.add(leap, forKey: "hop")
+
+        // Its own colours until the burst, the form's from then on.
+        let own = [look.palette.light.cgColor, look.palette.shade.cgColor]
+        let recolor = CAKeyframeAnimation(keyPath: "colors")
+        recolor.values = [own, own, bodyColors(for: look)]
+        recolor.keyTimes = [0, NSNumber(value: burst), NSNumber(value: burst + 0.05)]
+        recolor.duration = length
+        fill.add(recolor, forKey: "transformColors")
+
+        let flash = CAKeyframeAnimation(keyPath: "opacity")
+        flash.values = [0, 0.25, 0, 0.35, 0, 1, 0]
+        flash.keyTimes = [0, NSNumber(value: burst * 0.3), NSNumber(value: burst * 0.45), NSNumber(value: burst * 0.7),
+                          NSNumber(value: burst * 0.85), NSNumber(value: burst), NSNumber(value: burst + 0.12)]
+        flash.duration = length
+        bodyFlash.add(flash, forKey: "transformFlash")
+
+        flashFace(.determined, duration: burstTime + 0.1)
+        flashFace(.happy, duration: 1.1, beginTime: now + burstTime + 0.25, key: "transformJoy")
+        if NotchSupport.usesHapticFeedback() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + burstTime) {
+                NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+            }
+        }
+    }
+
+    // MARK: Pats
+
+    /// The pointer resting on it: eyes shut in a smile and a gentle sway,
+    /// so a pat in progress shows, until the pointer leaves.
+    func setStroked(_ stroked: Bool) {
+        guard stroked != isStroked, size > 0 else { return }
+        isStroked = stroked
+        let expression = (stroked ? NotchMascotMood.happy : mood).expression
+        for (layer, eye, right) in [(leftEye, expression.left, false), (rightEye, expression.right, true)] {
+            let to = eyePath(eye, right: right)
+            let ease = CABasicAnimation(keyPath: "path")
+            ease.fromValue = layer.presentation()?.path ?? layer.path
+            ease.toValue = to
+            ease.duration = reduceMotion ? 0 : 0.18
+            ease.fillMode = .forwards
+            ease.isRemovedOnCompletion = !stroked
+            layer.add(ease, forKey: "stroke")
+        }
+        if stroked {
+            guard !reduceMotion else { return }
+            let sway = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+            sway.values = [0, 0.09, 0, -0.09, 0]
+            sway.keyTimes = [0, 0.25, 0.5, 0.75, 1]
+            sway.duration = 1.1
+            sway.repeatCount = .infinity
+            sway.isAdditive = true
+            tilter.add(sway, forKey: "strokeSway")
+        } else {
+            tilter.removeAnimation(forKey: "strokeSway")
+        }
+    }
+
+    /// A pat that counted: hearts float up and, when it brought experience,
+    /// a "+2" rises above them, so you can tell it from a plain hover.
+    func showPetted(gained: Int) {
+        guard size > 0 else { return }
+        let now = CACurrentMediaTime()
+        let pink = NSColor(srgbRed: 1, green: 0.31, blue: 0.55, alpha: 1).cgColor
+        let heart = max(5, size * 0.3)
+        let offsets: [CGFloat] = [-0.32, 0, 0.32]
+        var floaters: [(CALayer, CGFloat, CFTimeInterval)] = offsets.enumerated().map { index, offset in
+            let layer = CAShapeLayer()
+            layer.actions = Self.noActions
+            let side = index == 1 ? heart * 1.25 : heart
+            layer.frame = CGRect(x: size / 2 + offset * size - side / 2, y: size * 0.05 - side / 2, width: side, height: side)
+            layer.path = NotchMascotPatShapes.heart(side: side)
+            layer.fillColor = pink
+            layer.contentsScale = root.contentsScale
+            return (layer, size * (index == 1 ? 0.75 : 0.55), Double(index == 1 ? 0 : 0.1 * Double(index)))
+        }
+        if gained > 0 {
+            let label = CAShapeLayer()
+            label.actions = Self.noActions
+            let text = NotchMascotPatShapes.text("+\(gained)", height: max(7, size * 0.42))
+            let bounds = text.boundingBoxOfPath
+            label.frame = CGRect(x: size / 2 - bounds.width / 2, y: -size * 0.45 - bounds.height, width: bounds.width,
+                                 height: bounds.height)
+            label.path = text
+            label.fillColor = NSColor.white.cgColor
+            label.strokeColor = pink
+            label.lineWidth = max(0.6, size * 0.03)
+            label.contentsScale = root.contentsScale
+            floaters.append((label, size * 0.5, 0.15))
+        }
+        for (layer, rise, delay) in floaters {
+            layer.opacity = 0
+            root.addSublayer(layer)
+            let up = CAKeyframeAnimation(keyPath: "transform.translation.y")
+            up.values = reduceMotion ? [0, 0] : [0, -rise]
+            let grow = CAKeyframeAnimation(keyPath: "transform.scale")
+            grow.values = reduceMotion ? [1, 1] : [0.4, 1.15, 1]
+            let fade = CAKeyframeAnimation(keyPath: "opacity")
+            fade.values = [0, 1, 1, 0]
+            fade.keyTimes = [0, 0.15, 0.7, 1]
+            let group = CAAnimationGroup()
+            group.animations = [up, grow, fade]
+            group.duration = 1.2
+            group.beginTime = now + delay
+            group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            layer.add(group, forKey: "pat")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            for (layer, _, _) in floaters { layer.removeFromSuperlayer() }
+        }
     }
 
     // MARK: Cues
@@ -1225,6 +1412,7 @@ final class NotchMascotHostView: NSView {
     override func mouseExited(with event: NSEvent) {
         guard followsPointer else { return }
         pettingWork?.cancel(); pettingWork = nil
+        mascot.setStroked(false)
         mascot.lookAhead(after: 0.25)
     }
 
@@ -1235,16 +1423,19 @@ final class NotchMascotHostView: NSView {
         let reach = mascot.size / 2 + 3
         guard abs(point.x - center.x) <= reach, abs(point.y - center.y) <= reach, !mascot.isVisiting else {
             pettingWork?.cancel(); pettingWork = nil
+            mascot.setStroked(false)
             return
         }
+        mascot.setStroked(true)
         guard pettingWork == nil,
-              CACurrentMediaTime() - lastPetting > NotchMascotReactionGate.repeatInterval else { return }
+              CACurrentMediaTime() - lastPetting > NotchMascotGrowth.petInterval else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pettingWork = nil
             self.lastPetting = CACurrentMediaTime()
             self.mascot.react(.love, lift: 0)
-            NotchMascotBondStore.shared.record(.petted)
+            let gained = NotchMascotBondStore.shared.record(.petted)
+            self.mascot.showPetted(gained: gained)
             // A soft tick under a finger on the trackpad, as the hearts come.
             if NotchSupport.usesHapticFeedback() {
                 NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)

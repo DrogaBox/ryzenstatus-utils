@@ -70,9 +70,13 @@ enum NotchMascotBondEvent: Equatable {
 /// How it grows. Pure, so every rule is tested.
 enum NotchMascotGrowth {
     /// Experience each level starts at. Level ten takes a couple of months of
-    /// daily company.
-    static let thresholds = [0, 20, 60, 120, 200, 320, 480, 700, 1000, 1400]
+    /// daily company; past it every level costs the same 400, so the last
+    /// transformation, at fifty, is more than a year away.
+    static let thresholds = [0, 20, 60, 120, 200, 320, 480, 700, 1000, 1400] + (1...40).map { 1400 + $0 * 400 }
     static var maxLevel: Int { thresholds.count }
+
+    /// How long after a pat that counted the next one can count.
+    static let petInterval: TimeInterval = 10
 
     static let dayExperience = 10
     static let petExperience = 2
@@ -191,6 +195,69 @@ enum NotchMascotWardrobe {
     }
 }
 
+// MARK: - Transformations
+
+/// What it turns into as it grows: from level twenty on, every ten levels.
+/// Each one recolours it and wraps it in an aura.
+enum NotchMascotForm: String, CaseIterable, Identifiable, Codable {
+    case golden, goldenLightning, goldenFury, divine
+
+    var id: String { rawValue }
+
+    var unlockLevel: Int {
+        switch self {
+        case .golden: return 20
+        case .goldenLightning: return 30
+        case .goldenFury: return 40
+        case .divine: return 50
+        }
+    }
+}
+
+/// What Settings keeps: the newest form unlocked, none, or one form.
+enum NotchMascotFormChoice: Equatable {
+    case automatic, off, form(NotchMascotForm)
+
+    init(rawValue: String?) {
+        switch rawValue {
+        case "none": self = .off
+        case let raw?: self = NotchMascotForm(rawValue: raw).map { .form($0) } ?? .automatic
+        case nil: self = .automatic
+        }
+    }
+
+    var rawValue: String {
+        switch self {
+        case .automatic: return "auto"
+        case .off: return "none"
+        case .form(let form): return form.rawValue
+        }
+    }
+}
+
+enum NotchMascotTransformation {
+    /// The form a level unlocks, if any.
+    static func unlocked(at level: Int) -> NotchMascotForm? {
+        NotchMascotForm.allCases.first { $0.unlockLevel == level }
+    }
+
+    /// The form to show at `level`: the newest one for automatic, the one
+    /// picked once it is unlocked, and none before level twenty.
+    static func effective(choice: NotchMascotFormChoice, level: Int) -> NotchMascotForm? {
+        let unlocked = NotchMascotForm.allCases.filter { $0.unlockLevel <= level }
+        switch choice {
+        case .off: return nil
+        case .automatic: return unlocked.last
+        case .form(let form): return unlocked.contains(form) ? form : unlocked.last
+        }
+    }
+}
+
+extension Notification.Name {
+    /// Plays the transformation on every companion on screen that has one.
+    static let notchMascotTransforms = Notification.Name("NotchMascotTransforms")
+}
+
 // MARK: - Greetings
 
 enum NotchMascotGreeting: Equatable {
@@ -231,12 +298,16 @@ final class NotchMascotBondStore: ObservableObject {
 
     var level: Int { NotchMascotGrowth.level(for: bond.experience) }
 
-    /// Counts `event` now, and announces a new level.
-    func record(_ event: NotchMascotBondEvent, now: Date = Date()) {
+    /// Counts `event` now, announces a new level, and answers the experience
+    /// it brought.
+    @discardableResult
+    func record(_ event: NotchMascotBondEvent, now: Date = Date()) -> Int {
         var next = bond
         let levels = NotchMascotGrowth.record(event, into: &next, day: NotchMascotGrowth.dayKey(now))
+        let gained = next.experience - bond.experience
         save(next)
         if levels.after > levels.before { announceLevel(levels.after) }
+        return gained
     }
 
     /// Once a day, the first time you are around: a greeting for the time of
@@ -294,6 +365,20 @@ final class NotchMascotBondStore: ObservableObject {
 
     private func announceLevel(_ level: Int) {
         let text = FeatureStrings.notchMascotLife(L10n.shared.language)
+        if let form = NotchMascotTransformation.unlocked(at: level) {
+            let forms = FeatureStrings.notchMascotForms(L10n.shared.language)
+            let choice = NotchMascotFormChoice(rawValue: defaults.string(forKey: DefaultsKey.notchMascotForm))
+            // A new form shows at once, unless transformations were turned off.
+            if choice != .off { defaults.set(NotchMascotFormChoice.automatic.rawValue, forKey: DefaultsKey.notchMascotForm) }
+            announce(title: text.levelReached(level), detail: forms.unlocked(forms.name(of: form)), reaction: .celebrate)
+            if choice != .off {
+                // Once the notice and its companion are on screen.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    NotificationCenter.default.post(name: .notchMascotTransforms, object: nil)
+                }
+            }
+            return
+        }
         let detail = NotchMascotWardrobe.unlocked(at: level).map { text.unlockedAccessory(text.name(of: $0)) } ?? ""
         announce(title: text.levelReached(level), detail: detail, reaction: .celebrate)
     }
@@ -308,6 +393,13 @@ final class NotchMascotBondStore: ObservableObject {
 }
 
 extension NotchMascotSupport {
+    /// The transformation to draw now, from plain preferences like the accessory.
+    static func form(in defaults: UserDefaults = .standard) -> NotchMascotForm? {
+        NotchMascotTransformation.effective(
+            choice: NotchMascotFormChoice(rawValue: defaults.string(forKey: DefaultsKey.notchMascotForm)),
+            level: max(1, defaults.integer(forKey: DefaultsKey.notchMascotLevel)))
+    }
+
     /// The accessory to draw now, cheap enough for every redraw: the level
     /// and the adoption day come from plain preferences.
     static func accessory(in defaults: UserDefaults = .standard, now: Date = Date()) -> NotchMascotAccessory {

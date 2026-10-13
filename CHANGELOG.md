@@ -5,6 +5,11 @@
 ### Added
 
 - **Up next from Apple Music in the Dynamic Island**: the queue page lists the next songs of the playlist or album Music is playing from (up to 25), and clicking one plays it. Music does not share its own Up Next list, so songs you add with Play Next or Play Later are not shown, and with shuffle on the page says the order is not shared. Other players still show the queue as unavailable.
+- **Companion transformations**: the companion now grows to level 50, and levels 20, 30, 40 and 50 unlock four transformations: golden aura, golden lightning, golden fury and divine aura. Each one recolours it and wraps it in its own aura of flames, lightning and sparks. When one unlocks it plays a full transformation: it crouches and trembles while sparks crackle, then bursts out in a flash and a shock wave. In Settings › Dynamic Island › Companion you can pick any unlocked form, turn them off, or watch the transformation again.
+
+### Changed
+
+- **Petting the companion shows**: while the pointer rests on it, it closes its eyes in a smile and sways. Each pat that counts sends up hearts and the experience it earned, and the wait between pats that count drops from 30 to 10 seconds.
 
 ## [1.42.0] — 2026-10-13 — kexts 3.34.17 (No kext changes)
 
