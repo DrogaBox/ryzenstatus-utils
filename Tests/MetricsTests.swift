@@ -10982,7 +10982,9 @@ struct MetricsTests {
             expect(growth.level(for: 1_000_000) == growth.maxLevel, "experience beyond the last level stays at the top")
             expect(growth.progress(for: 30).map { $0.done == 10 && $0.span == 40 } ?? false,
                    "progress counts experience into the current level")
-            expect(growth.progress(for: 1400) == nil, "the top level has no next one")
+            expect(growth.progress(for: growth.thresholds.last ?? 0) == nil, "the top level has no next one")
+            expect(growth.maxLevel == 50 && growth.level(for: 1400) == 10 && growth.level(for: 1800) == 11,
+                   "past level ten every level costs the same")
 
             var bond = NotchMascotBond(adopted: day(2026, 10, 1))
             growth.record(.dayTogether, into: &bond, day: "2026-10-01")
@@ -11022,9 +11024,25 @@ struct MetricsTests {
                    "an ordinary day has no costume")
 
             let wardrobe = NotchMascotWardrobe.self
-            expect(NotchMascotAccessory.crown.unlockLevel == growth.maxLevel
-                   && NotchMascotAccessory.wardrobe.count == growth.maxLevel,
-                   "one accessory unlocks at each level, the crown at the top")
+            expect(NotchMascotAccessory.crown.unlockLevel == 10 && NotchMascotAccessory.wardrobe.count == 10,
+                   "one accessory unlocks at each of the first ten levels, the crown last")
+            let forms = NotchMascotTransformation.self
+            expect(NotchMascotForm.allCases.map(\.unlockLevel) == [20, 30, 40, 50]
+                   && NotchMascotForm.allCases.allSatisfy { $0.unlockLevel <= growth.maxLevel },
+                   "a transformation unlocks every ten levels from twenty, all within reach")
+            expect(forms.unlocked(at: 30) == .goldenLightning && forms.unlocked(at: 31) == nil,
+                   "a level names the transformation it unlocks")
+            expect(forms.effective(choice: .automatic, level: 19) == nil
+                   && forms.effective(choice: .automatic, level: 35) == .goldenLightning,
+                   "automatic shows the newest transformation unlocked")
+            expect(forms.effective(choice: .off, level: 50) == nil, "transformations can be switched off")
+            expect(forms.effective(choice: .form(.golden), level: 45) == .golden
+                   && forms.effective(choice: .form(.divine), level: 25) == .golden,
+                   "a picked transformation shows once unlocked, the newest one before")
+            expect(NotchMascotFormChoice(rawValue: "none") == .off && NotchMascotFormChoice(rawValue: nil) == .automatic
+                   && NotchMascotFormChoice(rawValue: "divine") == .form(.divine)
+                   && NotchMascotFormChoice(rawValue: NotchMascotFormChoice.form(.goldenFury).rawValue) == .form(.goldenFury),
+                   "the transformation picked survives the preferences")
             expect(!NotchMascotAccessory.santaHat.isPickable && NotchMascotAccessory.bow.isPickable,
                    "costumes cannot be picked")
             expect(wardrobe.effective(chosen: .crown, level: 3, date: day(2026, 6, 15), adopted: nil,

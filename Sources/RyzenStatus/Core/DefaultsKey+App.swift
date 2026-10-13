@@ -637,6 +637,7 @@ extension DefaultsKey {
     static let notchMascotName = "notchMascotName"
     static let notchMascotAccessory = "notchMascotAccessory"   // NotchMascotAccessory raw value
     static let notchMascotSeasonal = "notchMascotSeasonal"     // Bool, seasonal costumes
+    static let notchMascotForm = "notchMascotForm"             // "auto", "none" or NotchMascotForm raw value
     static let notchMascotSpeech = "notchMascotSpeech"         // Bool, its own notices
     static let notchMascotHardware = "notchMascotHardware"     // Bool, follows the AMD hardware
     static let notchCommandBar = "notchCommandBar"

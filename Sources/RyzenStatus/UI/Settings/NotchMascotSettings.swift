@@ -37,6 +37,7 @@ struct NotchMascotSettings: View {
     @AppStorage(DefaultsKey.notchMascotAccessory) private var accessory = NotchMascotAccessory.none.rawValue
     @AppStorage(DefaultsKey.notchMascotName) private var petName = ""
     @AppStorage(DefaultsKey.notchMascotSeasonal) private var seasonal = true
+    @AppStorage(DefaultsKey.notchMascotForm) private var formChoice = NotchMascotFormChoice.automatic.rawValue
     @AppStorage(DefaultsKey.notchMascotSpeech) private var speech = true
     @AppStorage(DefaultsKey.notchMascotHardware) private var hardware = true
     @AppStorage(DefaultsKey.gamingModeActive) private var gaming = false
@@ -47,6 +48,9 @@ struct NotchMascotSettings: View {
     private var life: NotchMascotLifeStrings { FeatureStrings.notchMascotLife(l10n.language) }
     private var level: Int { bondStore.level }
     private var chosenAccessory: NotchMascotAccessory { NotchMascotAccessory(rawValue: accessory) ?? .none }
+    private var forms: NotchMascotFormStrings { FeatureStrings.notchMascotForms(l10n.language) }
+    private var choice: NotchMascotFormChoice { NotchMascotFormChoice(rawValue: formChoice) }
+    private var shownForm: NotchMascotForm? { NotchMascotTransformation.effective(choice: choice, level: level) }
 
     /// Its name, shared with the Features page.
     private var mascotTitle: String { FeatureStrings.hub(l10n.language).titleNotchMascot }
@@ -60,7 +64,8 @@ struct NotchMascotSettings: View {
                         palette: NotchMascotPalette(rawValue: palette) ?? .pearl,
                         accessory: NotchMascotWardrobe.effective(chosen: chosenAccessory, level: level, date: Date(),
                                                                  adopted: bondStore.bond.adopted, seasonal: seasonal,
-                                                                 gaming: gaming && hardware))
+                                                                 gaming: gaming && hardware),
+                        form: shownForm)
     }
 
     private var restingSide: NotchMascotSide { NotchMascotSide(rawValue: side) ?? .left }
@@ -93,6 +98,7 @@ struct NotchMascotSettings: View {
                 storyCard
                 appearance
                 wardrobeCard
+                transformationsCard
                 behavior
                 automaticCard
                 commandBarCard
@@ -324,6 +330,59 @@ struct NotchMascotSettings: View {
             switchRow("text.bubble", life.speech, caption: life.speechHint, isOn: $speech)
             switchRow("cpu", life.hardware, caption: life.hardwareHint, isOn: $hardware)
         }
+    }
+
+    // MARK: Transformations
+
+    private var transformationsCard: some View {
+        SettingsCard(title: forms.title) {
+            SettingsRow(symbol: "bolt.fill", title: forms.title, caption: forms.hint) {
+                Text(forms.name(of: shownForm)).foregroundStyle(.secondary)
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 84, maximum: 120), spacing: 10)],
+                      alignment: .leading, spacing: 10) {
+                NotchMascotChoiceTile(title: forms.none, selected: choice == .off) {
+                    formChoice = NotchMascotFormChoice.off.rawValue
+                } preview: {
+                    formPreview(nil, unlocked: true)
+                }
+                ForEach(NotchMascotForm.allCases) { item in
+                    let unlocked = item.unlockLevel <= level
+                    NotchMascotChoiceTile(title: unlocked ? forms.name(of: item) : life.locked(at: item.unlockLevel),
+                                          selected: choice != .off && shownForm == item) {
+                        if unlocked { formChoice = NotchMascotFormChoice.form(item).rawValue }
+                    } preview: {
+                        formPreview(item, unlocked: unlocked)
+                    }
+                    .disabled(!unlocked)
+                }
+            }
+            .padding(.leading, settingsRowTextInset)
+            if shownForm != nil {
+                HStack {
+                    Spacer()
+                    Button(forms.replay) {
+                        NotificationCenter.default.post(name: .notchMascotTransforms, object: nil)
+                    }
+                }
+            }
+        }
+    }
+
+    private func formPreview(_ form: NotchMascotForm?, unlocked: Bool) -> some View {
+        NotchMascotView(look: NotchMascotLook(style: look.style, shape: look.shape, palette: look.palette,
+                                              accessory: look.accessory, form: form),
+                        size: 30, idles: false)
+            .frame(width: 30, height: 30)
+            .frame(width: 64, height: 42)
+            .background(Color.black, in: Capsule())
+            .opacity(unlocked ? 1 : 0.35)
+            .overlay {
+                if !unlocked {
+                    Image(systemName: "lock.fill").font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+            }
     }
 
     // MARK: Behavior
