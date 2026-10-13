@@ -222,5 +222,6 @@ RyzenStatus is free and open source. If it earned its place in your menu bar, a 
 [GPL 3.0 or later](LICENSE), copyright 2026 RyzenStatus. The license covers the source code; the RyzenStatus name, logo and look are covered separately in [TRADEMARKS.md](TRADEMARKS.md).
 
 <p align="center">
-  <sub>Made by DrogaBox</sub>
+  <sub>Made by DrogaBox</sub><br>
+  <sub>RyzenStatus is a fork of <a href="https://github.com/vorssaint/vorssaint-utils">Vorssaint</a>, also released under the GPL 3.0 or later. Thanks to its authors for the foundation this app builds on.</sub>
 </p>
