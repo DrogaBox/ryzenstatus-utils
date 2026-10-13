@@ -528,6 +528,49 @@ final class NotchMascotRig: NSObject {
         }
     }
 
+    // MARK: Dancing
+
+    /// Bobbing to the music beside the visualizer: a steady beat until the
+    /// player's sound is read, then the bass itself.
+    func setGrooving(_ grooving: Bool) {
+        guard grooving, !reduceMotion, size > 0 else {
+            hopper.removeAnimation(forKey: "groove")
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            hopper.sublayerTransform = CATransform3DIdentity
+            CATransaction.commit()
+            return
+        }
+        guard hopper.animation(forKey: "groove") == nil else { return }
+        let beat = CAKeyframeAnimation(keyPath: "sublayerTransform")
+        beat.values = [grooveTransform(0), grooveTransform(1), grooveTransform(0.15), grooveTransform(0)]
+            .map { NSValue(caTransform3D: $0) }
+        beat.keyTimes = [0, 0.18, 0.6, 1]
+        beat.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeInEaseOut),
+                                CAMediaTimingFunction(name: .easeInEaseOut)]
+        // About 120 beats a minute.
+        beat.duration = 0.5
+        beat.repeatCount = .infinity
+        hopper.add(beat, forKey: "groove")
+    }
+
+    /// The bass from 0 to 1 sets how far it nods down and squashes.
+    func groove(bass: Double) {
+        guard !reduceMotion, size > 0 else { return }
+        hopper.removeAnimation(forKey: "groove")
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        hopper.sublayerTransform = grooveTransform(min(1, max(0, (bass - 0.35) / 0.6)))
+        CATransaction.commit()
+    }
+
+    /// A nod: down a little, wider and shorter. Layers here are y-down.
+    private func grooveTransform(_ amount: Double) -> CATransform3D {
+        let a = CGFloat(amount)
+        let down = CATransform3DMakeTranslation(0, size * 0.07 * a, 0)
+        return CATransform3DScale(down, 1 + 0.07 * a, 1 - 0.08 * a, 1)
+    }
+
     // MARK: Pats
 
     /// The pointer resting on it: eyes shut in a smile and a gentle sway,
@@ -1196,6 +1239,24 @@ final class NotchMascotHostView: NSView {
     /// Its lasting mood, as the Mac's state brings it or as a preview shows it.
     private var ambient = MascotMoodState()
     private var ambientSubscription: AnyCancellable?
+    private var grooveSubscription: AnyCancellable?
+    /// It dances to the music beside the island's visualizer.
+    var dances = false {
+        didSet {
+            guard dances != oldValue else { return }
+            grooveSubscription = dances
+                ? NotchAudioLevelService.shared.$spectrum.receive(on: DispatchQueue.main).sink { [weak self] spectrum in
+                    guard let self else { return }
+                    if let spectrum, !spectrum.isEmpty {
+                        self.mascot.groove(bass: NotchAudioLevelSupport.bass(spectrum))
+                    } else {
+                        self.mascot.setGrooving(true)
+                    }
+                }
+                : nil
+            if !dances { mascot.setGrooving(false) }
+        }
+    }
     /// Resting in the island, it keeps the mood automatic reactions publish.
     var followsAutomation = false {
         didSet {
@@ -1609,12 +1670,15 @@ struct NotchMascotView: NSViewRepresentable {
     var followsDrag = false
     /// A reaction it plays once, as it first shows: a notice's.
     var reaction: NotchMascotReaction? = nil
+    /// It bobs to the music, beside the island's visualizer.
+    var dances = false
 
     func makeNSView(context: Context) -> NotchMascotHostView {
         let view = NotchMascotHostView(frame: CGRect(x: 0, y: 0, width: size, height: size))
         view.followsDrag = followsDrag
         view.configure(look: look, size: size, mood: mood, idles: idles,
                        reduceMotion: context.environment.accessibilityReduceMotion, animated: false)
+        view.dances = dances
         if let reaction {
             // Small in a notice, it hops a little higher for its size to read.
             view.react(NotchMascotReactionEvent(id: UUID(), reaction: reaction, start: CACurrentMediaTime()),
@@ -1627,6 +1691,7 @@ struct NotchMascotView: NSViewRepresentable {
         view.configure(look: look, size: size, mood: mood, idles: idles,
                        reduceMotion: context.environment.accessibilityReduceMotion, animated: true)
         view.place(at: nil, visible: nil)
+        view.dances = dances
         if let cue { view.play(cue, id: cueID) }
     }
 

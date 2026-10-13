@@ -11049,6 +11049,42 @@ struct MetricsTests {
                    && NotchMascotFormChoice(rawValue: "divine") == .form(.divine)
                    && NotchMascotFormChoice(rawValue: NotchMascotFormChoice.form(.goldenFury).rawValue) == .form(.goldenFury),
                    "the transformation picked survives the preferences")
+
+            // The island's music visualizer.
+            let visualizer = NotchMusicVisualizerSupport.self
+            let spectrumBins = NotchAudioLevelSupport.bandRanges(sampleRate: 48_000, size: 1024,
+                                                                 edges: NotchAudioLevelSupport.spectrumEdgesHz)
+            expect(spectrumBins.count == NotchAudioLevelSupport.spectrumBandCount
+                   && zip(spectrumBins, spectrumBins.dropFirst()).allSatisfy { $0.upperBound <= $1.lowerBound },
+                   "every visualizer band reads spectrum bins of its own")
+            let mirrored = NotchAudioLevelSupport.mirrored([1, 0.5, 0], bars: 6)
+            expect(mirrored == mirrored.reversed() && mirrored[2] == 1 && mirrored[0] == 0,
+                   "the visualizer mirrors the bass into the middle and the treble to both ends")
+            expect(abs(NotchAudioLevelSupport.bass([0.8, 0.6, 0.1]) - 0.7) < 1e-9 && NotchAudioLevelSupport.bass(nil) == 0,
+                   "the bass is the spectrum's two lowest bands")
+            var peaks = NotchAudioLevelSupport.PeakHold()
+            _ = peaks.next([0.9], at: 0, step: 0.1)
+            let held = peaks.next([0.1], at: 0.2, step: 0.1)
+            let sinking = peaks.next([0.1], at: 1, step: 0.1)
+            expect(held == [0.9] && sinking[0] < 0.9 && sinking[0] >= 0.1,
+                   "a peak cap rests a moment, then sinks no lower than its bar")
+            expect(visualizer.shows(mode: .titleThenVisualizer, named: false, playing: true, reduceMotion: false)
+                   && !visualizer.shows(mode: .titleThenVisualizer, named: true, playing: true, reduceMotion: false)
+                   && !visualizer.shows(mode: .title, named: false, playing: true, reduceMotion: false)
+                   && !visualizer.shows(mode: .visualizer, named: false, playing: true, reduceMotion: true)
+                   && !visualizer.shows(mode: .visualizer, named: false, playing: false, reduceMotion: false),
+                   "the bars show only while a song plays unnamed, in a mode with them and with motion allowed")
+            expect(visualizer.namesPaused(mode: .visualizer, playing: false)
+                   && !visualizer.namesPaused(mode: .title, playing: false)
+                   && !visualizer.namesNewSong(.visualizer) && visualizer.namesNewSong(.titleThenVisualizer),
+                   "a paused song is named where the bars were, and only the visualizer skips a new song's name")
+            let visualizerDefaults = UserDefaults(suiteName: "visualizer-tests-\(UUID().uuidString)")!
+            visualizerDefaults.set(7, forKey: DefaultsKey.notchMusicTitleSeconds)
+            let fallbackSeconds = visualizer.titleSeconds(in: visualizerDefaults)
+            visualizerDefaults.set(10, forKey: DefaultsKey.notchMusicTitleSeconds)
+            expect(fallbackSeconds == 5 && visualizer.titleSeconds(in: visualizerDefaults) == 10
+                   && NotchMusicVisualizerMode.current(in: visualizerDefaults) == .titleThenVisualizer,
+                   "the name's time is one of the choices, and the name then the visualizer is the default")
             expect(!NotchMascotAccessory.santaHat.isPickable && NotchMascotAccessory.bow.isPickable,
                    "costumes cannot be picked")
             expect(wardrobe.effective(chosen: .crown, level: 3, date: day(2026, 6, 15), adopted: nil,

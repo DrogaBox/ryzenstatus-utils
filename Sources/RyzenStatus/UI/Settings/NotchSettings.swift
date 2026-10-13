@@ -29,6 +29,9 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchLyricsOnline) private var lyricsOnline = false
     @AppStorage(DefaultsKey.notchQueueEnabled) private var queueEnabled = true
     @AppStorage(DefaultsKey.notchLiveEqualizer) private var liveEqualizer = false
+    @AppStorage(DefaultsKey.notchMusicVisualizer) private var visualizerMode = NotchMusicVisualizerMode.titleThenVisualizer.rawValue
+    @AppStorage(DefaultsKey.notchMusicTitleSeconds) private var titleSeconds = NotchMusicVisualizerSupport.defaultTitleSeconds
+    @AppStorage(DefaultsKey.notchMascotDances) private var mascotDances = true
     @AppStorage(DefaultsKey.notchEnabled) private var enabled = false
     @AppStorage(DefaultsKey.notchMascotEnabled) private var mascotEnabled = false
     @AppStorage(DefaultsKey.notchMascotHidesWhenIdle) private var mascotHidesWhenIdle = true
@@ -126,7 +129,8 @@ struct NotchSettings: View {
          String(microphone), String(battery), String(clipboard), String(clipboardWindow),
          String(capture), String(trackChange), captureAction, String(showInCaptures),
          String(returnHome), homeModule, String(opensActivity), String(scratchpad),
-         String(agentsEnabled), String(watchEnabled), String(keepAwakeActivity)]
+         String(agentsEnabled), String(watchEnabled), String(keepAwakeActivity),
+         visualizerMode, String(titleSeconds), String(mascotDances)]
     }
 
     private var access: Binding<NotchQuickAccessConfiguration> {
@@ -214,6 +218,7 @@ struct NotchSettings: View {
 
     private func sync() {
         NotchService.shared.syncWithPreferences()
+        NotchService.shared.musicVisualizerChanged()
         if !NotchLyricsSupport.isEnabled() { NotchLyricsImporter.shared.cancel() }
         if AppFeature.brightness.isAvailable { BrightnessService.shared.syncWithPreferences() }
     }
@@ -447,6 +452,30 @@ struct NotchSettings: View {
             SettingsFeatureSwitchRow(symbol: "waveform", title: music.liveEqualizer,
                                      caption: NotchAudioLevelSupport.isSupported ? music.liveEqualizerHint : music.liveEqualizerUnavailable,
                                      isOn: $liveEqualizer, feature: .notchLiveEqualizer, enabled: NotchAudioLevelSupport.isSupported)
+            let visualizer = FeatureStrings.notchMusicVisualizer(l10n.language)
+            SettingsRow(symbol: "chart.bar.xaxis", title: visualizer.title, caption: visualizer.hint) {
+                Picker(visualizer.title, selection: $visualizerMode) {
+                    ForEach(NotchMusicVisualizerMode.allCases) { mode in
+                        Text(visualizer.name(of: mode)).tag(mode.rawValue)
+                    }
+                }
+                .labelsHidden()
+            }
+            if visualizerMode == NotchMusicVisualizerMode.titleThenVisualizer.rawValue {
+                SettingsRow(symbol: "timer", title: visualizer.titleSeconds) {
+                    Picker(visualizer.titleSeconds, selection: $titleSeconds) {
+                        ForEach(NotchMusicVisualizerSupport.titleSecondsChoices, id: \.self) { seconds in
+                            Text(visualizer.seconds(seconds)).tag(seconds)
+                        }
+                    }
+                    .labelsHidden()
+                }
+                .padding(.leading, settingsRowTextInset)
+            }
+            if visualizerMode != NotchMusicVisualizerMode.title.rawValue {
+                switchRow("pawprint.fill", visualizer.dances, caption: visualizer.dancesHint, isOn: $mascotDances)
+                    .padding(.leading, settingsRowTextInset)
+            }
         case .notifications:
             let notifications = FeatureStrings.notchNotifications(l10n.language)
             switchRow("bell.slash", notifications.hideSystemBanner, caption: notifications.hideSystemBannerHint,

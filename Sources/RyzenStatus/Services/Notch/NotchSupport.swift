@@ -914,10 +914,13 @@ enum NotchCapsuleLayout {
     /// A song being named takes the middle; otherwise `center` does, the
     /// reading the capsule centre preference shows. With neither, the strip
     /// is only its cover and bars.
-    static func musicSurface(title: String?, center: String? = nil, geometry: NotchGeometry) -> CGSize {
+    static func musicSurface(title: String?, center: String? = nil, visualizer: Bool = false,
+                             geometry: NotchGeometry) -> CGSize {
         let middle: CGFloat
         if let title {
             middle = endPadding + width(title, font: titleFont) + endPadding
+        } else if visualizer {
+            middle = endPadding + NotchMusicVisualizerSupport.width + endPadding
         } else if let center, !center.isEmpty {
             middle = endPadding + centerWidth(center) + endPadding
         } else {
@@ -926,7 +929,7 @@ enum NotchCapsuleLayout {
         }
         let content = artworkSide(geometry) + middle + barsWidth
         return surface(content: content, leading: artworkInset(geometry), maximum: Maximum.music,
-                       shrinks: title == nil && (center ?? "").isEmpty, geometry: geometry)
+                       shrinks: title == nil && !visualizer && (center ?? "").isEmpty, geometry: geometry)
     }
 
     /// The capsule at rest with a center reading, the companion resting at

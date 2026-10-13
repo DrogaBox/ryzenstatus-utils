@@ -529,6 +529,9 @@ enum Defaults {
         DefaultsKey.notchLyricsEnabled: true,
         DefaultsKey.notchLyricsOnline: false,
         DefaultsKey.notchLiveEqualizer: false,
+        DefaultsKey.notchMusicVisualizer: "titleThenVisualizer", // NotchMusicVisualizerMode.titleThenVisualizer
+        DefaultsKey.notchMusicTitleSeconds: 5,
+        DefaultsKey.notchMascotDances: true,
         DefaultsKey.notchQueueEnabled: true,
         DefaultsKey.notchDownloadsEnabled: true,
         DefaultsKey.notchWatchEnabled: true,
