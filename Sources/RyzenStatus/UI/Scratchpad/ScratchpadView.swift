@@ -4,33 +4,244 @@
 import AppKit
 import SwiftUI
 
-/// The scratchpad card: a slim header that drags the panel, the plain-text
-/// editor filling the middle, and a quiet footer with copy, export and clear.
+/// The scratchpad card: a slim header, named tabs, the plain-text editor and a
+/// quiet footer with an on-demand formatted preview and file actions.
 struct ScratchpadView: View {
     @ObservedObject private var service = ScratchpadService.shared
     @ObservedObject private var l10n = L10n.shared
+    @AppStorage(DefaultsKey.scratchpadBackgroundOpacity) private var backgroundOpacity = 0.0
+    @AppStorage(DefaultsKey.scratchpadTextSize) private var storedTextSize = ScratchpadSupport.defaultTextSize
     @State private var copied = false
+    @State private var dialog: ScratchpadDialog?
+    @State private var renameDraft = ""
+
+    @State private var hoveredPadID: UUID?
 
     private var text: ScratchpadFeatureStrings { FeatureStrings.scratchpad(l10n.language) }
     private var isEmpty: Bool { service.text.isEmpty }
+    private var textSize: CGFloat { CGFloat(ScratchpadSupport.sanitizedTextSize(storedTextSize)) }
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            tabBar
+            if service.saveFailed {
+                Label(text.saveFailed, systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+            }
             editor
+            if service.marksExpanded, !service.isPreviewing { formatBar }
             footer
         }
-        .background(
+        .frame(minWidth: 280, minHeight: 220)
+        .background {
             ZStack {
                 HUDBackdrop(cornerRadius: 14)
+                Color(nsColor: .windowBackgroundColor)
+                    .opacity(ScratchpadSupport.sanitizedBackgroundOpacity(backgroundOpacity))
                 ScratchpadResizeOverlay()
             }
-        )
+        }
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
         )
+        .overlay(ScratchpadResizeOverlay())
+        .alert(dialogTitle, isPresented: dialogIsPresented) {
+            switch dialog {
+            case .rename(let pad):
+                TextField(pad.name, text: $renameDraft)
+                Button(text.cancel, role: .cancel) { dismissDialog() }
+                Button(text.saveName) {
+                    service.renamePad(pad.id, to: renameDraft)
+                    dismissDialog()
+                }
+            case .close(let pad):
+                Button(text.cancel, role: .cancel) { dismissDialog() }
+                Button(text.closePad, role: .destructive) {
+                    _ = service.closePad(pad.id)
+                    dismissDialog()
+                }
+            case nil:
+                EmptyView()
+            }
+        } message: {
+            if case .close(let pad) = dialog {
+                Text(String(format: text.deletePadMessageFormat, pad.name))
+            }
+        }
+        .onChange(of: service.keyboardCloseSelectedPadSerial) { _, _ in
+            guard let selectedPad else { return }
+            requestClose(selectedPad)
+        }
+    }
+
+    private var tabBar: some View {
+        HStack(spacing: 6) {
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(service.pads) { pad in
+                            tabButton(pad)
+                                .id(pad.id)
+                        }
+                    }
+                    .padding(.vertical, 3)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .onAppear {
+                    guard let selected = service.selectedPadID else { return }
+                    proxy.scrollTo(selected, anchor: .center)
+                }
+                .onChange(of: service.selectedPadID) { _, selected in
+                    guard let selected else { return }
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        proxy.scrollTo(selected, anchor: .center)
+                    }
+                }
+            }
+
+            Button {
+                service.createPad(defaultName: text.pageTitle)
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!service.canCreatePad)
+            .help(service.canCreatePad
+                ? text.newPad
+                : String(format: text.padLimitFormat, ScratchpadDocument.maximumPadCount))
+            .accessibilityLabel(text.newPad)
+
+            Menu {
+                if let selectedPad {
+                    Button(text.renamePad) { presentRename(selectedPad) }
+                    Button(text.closePad, role: .destructive) { requestClose(selectedPad) }
+                        .disabled(!service.canClosePad)
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            // A borderless Menu takes every point its row can spare on macOS
+            // 15, which left the tab strip beside it stuck at its old width
+            // while the window grew and cut tab names for no reason (issue
+            // #569). Pinned to its label, the strip gets the rest of the row.
+            .fixedSize()
+            .help(text.padActions)
+            .accessibilityLabel(text.padActions)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 32)
+        .overlay(alignment: .bottom) {
+            Divider().opacity(0.45)
+        }
+    }
+
+    private func tabButton(_ pad: ScratchpadPad) -> some View {
+        let selected = service.selectedPadID == pad.id
+        let isHovered = hoveredPadID == pad.id
+        let showClose = service.canClosePad && (isHovered || selected)
+        return Button {
+            service.selectPad(pad.id)
+        } label: {
+            HStack(spacing: 4) {
+                Text(pad.name)
+                    .font(.system(size: 11, weight: selected ? .semibold : .regular))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if showClose {
+                    Button {
+                        requestClose(pad)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(Color.secondary)
+                            .frame(width: 14, height: 14)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(text.closePad)
+                    .accessibilityLabel(text.closePad)
+                }
+            }
+                .padding(.leading, 8)
+                .padding(.trailing, showClose ? 4 : 8)
+                .frame(minWidth: 46, maxWidth: 130)
+                .frame(height: 24)
+                .foregroundStyle(selected ? Color.primary : Color.secondary)
+                .background {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(selected ? Color.accentColor.opacity(0.16) : Color.clear)
+                }
+                .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            if hovering {
+                hoveredPadID = pad.id
+            } else if hoveredPadID == pad.id {
+                hoveredPadID = nil
+            }
+        }
+        .contextMenu {
+            Button(text.renamePad) { presentRename(pad) }
+            Button(text.closePad, role: .destructive) { requestClose(pad) }
+                .disabled(!service.canClosePad)
+        }
+        .accessibilityLabel(pad.name)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var selectedPad: ScratchpadPad? {
+        service.pads.first(where: { $0.id == service.selectedPadID })
+    }
+
+    private var dialogTitle: String {
+        switch dialog {
+        case .rename: return text.renamePad
+        case .close: return text.closePad
+        case nil: return ""
+        }
+    }
+
+    private var dialogIsPresented: Binding<Bool> {
+        Binding(
+            get: { dialog != nil },
+            set: { if !$0 { dismissDialog() } }
+        )
+    }
+
+    private func presentRename(_ pad: ScratchpadPad) {
+        renameDraft = pad.name
+        dialog = .rename(pad)
+        service.setModalInteractionActive(true)
+    }
+
+    private func requestClose(_ pad: ScratchpadPad) {
+        guard service.canClosePad else { return }
+        if !ScratchpadSupport.requiresCloseConfirmation(pad) {
+            _ = service.closePad(pad.id)
+        } else {
+            dialog = .close(pad)
+            service.setModalInteractionActive(true)
+        }
+    }
+
+    private func dismissDialog() {
+        dialog = nil
+        service.setModalInteractionActive(false)
     }
 
     private var header: some View {
@@ -38,21 +249,36 @@ struct ScratchpadView: View {
             Text(text.pageTitle)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
                 .overlay(ScratchpadDragHandle())
+            Button {
+                service.togglePin()
+            } label: {
+                Image(systemName: service.isPinned ? "pin.fill" : "pin")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(service.isPinned ? Color.accentColor : Color.secondary)
+            .help(service.isPinned ? text.closeOnClickOutside : text.keepOpen)
+            .accessibilityLabel(service.isPinned ? text.closeOnClickOutside : text.keepOpen)
             Button {
                 ScratchpadService.shared.hide()
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 14))
                     .foregroundStyle(.secondary)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help(l10n.s.menuClose)
             .accessibilityLabel(l10n.s.menuClose)
         }
-        .padding(.horizontal, 12)
+        .padding(.trailing, 12)
         .frame(height: 34)
     }
 
@@ -61,28 +287,61 @@ struct ScratchpadView: View {
     private static let editorInset = NSSize(width: 7, height: 2)
 
     private var editor: some View {
-        PlainTextEditor(text: $service.text,
-                        textColor: .labelColor,
-                        textContainerInset: Self.editorInset,
-                        onCreate: { ScratchpadService.shared.registerTextView($0) })
-            .overlay(alignment: .topLeading) {
-                if isEmpty {
-                    // NSTextView has no placeholder of its own; this sits at
-                    // the exact spot of the first line and never takes clicks.
-                    Text(text.placeholder)
-                        .font(.system(size: PlainTextEditor.fontSize))
-                        .foregroundStyle(.tertiary)
-                        .padding(.leading,
-                                 Self.editorInset.width + PlainTextEditor.lineFragmentPadding)
-                        .padding(.top, Self.editorInset.height)
-                        .allowsHitTesting(false)
+        ZStack {
+            PlainTextEditor(text: $service.text,
+                            fontSize: textSize,
+                            textColor: .labelColor,
+                            textContainerInset: Self.editorInset,
+                            usesFindBar: true,
+                            onCreate: { ScratchpadService.shared.registerTextView($0) })
+                .opacity(service.isPreviewing ? 0 : 1)
+                .allowsHitTesting(!service.isPreviewing)
+                .accessibilityHidden(service.isPreviewing)
+                .overlay(alignment: .topLeading) {
+                    if isEmpty, !service.isPreviewing {
+                        // NSTextView has no placeholder of its own; this sits at
+                        // the exact spot of the first line and never takes clicks.
+                        Text(text.placeholder)
+                            .font(.system(size: textSize))
+                            .foregroundStyle(.tertiary)
+                            .padding(.leading,
+                                     Self.editorInset.width + PlainTextEditor.lineFragmentPadding)
+                            .padding(.top, Self.editorInset.height)
+                            .allowsHitTesting(false)
+                    }
                 }
+
+            if service.isPreviewing {
+                MarkdownPreview(blocks: ScratchpadSupport.markdownPreview(service.text),
+                                baseSize: textSize)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+    }
+
+    private var formatBar: some View {
+        ScratchpadFormatBar(style: .pad)
+            .padding(.horizontal, 12)
+            .frame(height: 30)
     }
 
     private var footer: some View {
         HStack(spacing: 12) {
-            footerButton(copied ? "checkmark" : "doc.on.doc",
+            // Outside the disabled group below: an empty pad is exactly where
+            // someone reaches for a heading, and the chip is how they find one.
+            footerButton("textformat", text.formatMarks,
+                         tint: service.marksExpanded ? .accentColor : nil) {
+                withAnimation(.easeOut(duration: 0.15)) { service.toggleMarks() }
+            }
+            .disabled(service.isPreviewing)
+
+            Group {
+                footerButton(service.isPreviewing ? "pencil" : "eye",
+                             service.isPreviewing ? text.editText : text.previewFormatting,
+                             tint: service.isPreviewing ? .accentColor : nil) {
+                    service.togglePreview()
+                }
+                footerButton(copied ? "checkmark" : "doc.on.doc",
                          copied ? text.copied : text.copyAll,
                          tint: copied ? .green : nil) {
                 service.copyAll()
@@ -93,15 +352,16 @@ struct ScratchpadView: View {
             }
             footerButton("square.and.arrow.down", text.exportAction) {
                 service.exportText(suggestedName:
-                    ScratchpadSupport.exportFileName(title: text.pageTitle, date: Date()))
+                    ScratchpadSupport.exportFileName(title: service.selectedPadName, date: Date()))
             }
-            Spacer()
-            footerButton("trash", text.clearAction) {
-                service.clear()
+                Spacer()
+                footerButton("trash", text.clearAction) {
+                    service.clear()
+                }
             }
+            .disabled(isEmpty)
+            .opacity(isEmpty ? 0.5 : 1)
         }
-        .disabled(isEmpty)
-        .opacity(isEmpty ? 0.5 : 1)
         .padding(.horizontal, 12)
         .frame(height: 36)
     }
@@ -121,6 +381,11 @@ struct ScratchpadView: View {
         .help(label)
         .accessibilityLabel(label)
     }
+}
+
+private enum ScratchpadDialog {
+    case rename(ScratchpadPad)
+    case close(ScratchpadPad)
 }
 
 /// A transparent strip over the header that moves the whole panel when

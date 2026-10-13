@@ -27,6 +27,8 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -133,6 +135,22 @@ extension AppearanceStrings {
         system: "跟隨系統",
         light: "淺色",
         dark: "深色",
+        liquidGlass: "Liquid Glass"
+    )
+
+    static let sk = AppearanceStrings(
+        label: "Vzhľad",
+        system: "Systém",
+        light: "Svetlý",
+        dark: "Tmavý",
+        liquidGlass: "Liquid Glass"
+    )
+
+    static let uk = AppearanceStrings(
+        label: "Вигляд",
+        system: "Системний",
+        light: "Світлий",
+        dark: "Темний",
         liquidGlass: "Liquid Glass"
     )
 }

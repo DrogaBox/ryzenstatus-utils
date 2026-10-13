@@ -4,23 +4,30 @@
 import CoreGraphics
 import Foundation
 
-/// The mouse features that can be told to leave an app alone (issue #358).
+/// The mouse and keyboard features that can be told to leave an app alone
+/// (issues #358, #741).
 /// Each one keeps its OWN list, right under its switch in Settings: excepting
 /// an app from the wheel's glide must not also silence the side buttons there.
 enum MouseExceptionScope: String, CaseIterable {
     case smoothScroll
+    case linearScroll
     case scrollDirection
+    case focusFollowsMouse
     case navigation
     case buttonShortcuts
     case middleClick
+    case superKey
 
     var defaultsKey: String {
         switch self {
         case .smoothScroll: return DefaultsKey.smoothScrollExceptions
+        case .linearScroll: return DefaultsKey.linearScrollExceptions
         case .scrollDirection: return DefaultsKey.scrollInverterExceptions
+        case .focusFollowsMouse: return DefaultsKey.focusFollowsMouseExceptions
         case .navigation: return DefaultsKey.mouseNavigationExceptions
         case .buttonShortcuts: return DefaultsKey.mouseButtonExceptions
         case .middleClick: return DefaultsKey.middleClickExceptions
+        case .superKey: return DefaultsKey.superKeyExceptions
         }
     }
 
@@ -29,10 +36,13 @@ enum MouseExceptionScope: String, CaseIterable {
     var feature: AppFeature {
         switch self {
         case .smoothScroll: return .smoothScroll
+        case .linearScroll: return .linearScroll
         case .scrollDirection: return .scrollInverter
+        case .focusFollowsMouse: return .focusFollowsMouse
         case .navigation: return .mouseNavigation
         case .buttonShortcuts: return .mouseButtonShortcuts
         case .middleClick: return .middleClick
+        case .superKey: return .superKey
         }
     }
 }
@@ -53,6 +63,23 @@ enum MouseAppExceptionSupport {
             self.layer = layer
             self.alpha = alpha
             self.processID = processID
+        }
+    }
+
+    static func windows(from descriptions: [[String: Any]]) -> [Window] {
+        descriptions.compactMap { info in
+            guard let raw = info[kCGWindowBounds as String] as? [String: Any],
+                  let x = (raw["X"] as? NSNumber)?.doubleValue,
+                  let y = (raw["Y"] as? NSNumber)?.doubleValue,
+                  let width = (raw["Width"] as? NSNumber)?.doubleValue,
+                  let height = (raw["Height"] as? NSNumber)?.doubleValue,
+                  let layer = (info[kCGWindowLayer as String] as? NSNumber)?.intValue,
+                  let pid = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value
+            else { return nil }
+            return Window(frame: CGRect(x: x, y: y, width: width, height: height),
+                          layer: layer,
+                          alpha: (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1,
+                          processID: pid)
         }
     }
 
@@ -97,7 +124,15 @@ enum MouseAppExceptionSupport {
                            point: CGPoint,
                            now: TimeInterval) -> Bool {
         guard now >= resolvedAt, now - resolvedAt < resolveLifetime else { return false }
-        guard let region else { return point == resolvedPoint }
+        guard region != nil else { return point == resolvedPoint }
+        return cacheNamesWindow(region: region, point: point)
+    }
+
+    /// Whether an answer that aged out still names the window under the
+    /// pointer. The pointer thread serves that one instead of waiting for the
+    /// main thread; over any other window it has nothing to say yet.
+    static func cacheNamesWindow(region: CGRect?, point: CGPoint) -> Bool {
+        guard let region else { return false }
         return region.contains(point)
     }
 

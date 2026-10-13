@@ -39,6 +39,12 @@ extension DefaultsKey {
     static let menuBarUsageBarHighThreshold = "menuBarUsageBarHighThreshold" // percent
     static let menuBarHideIconWithMetrics = "menuBarHideIconWithMetrics" // glyph hides while metrics render in the main item
     static let menuBarGraphShowsValue = "menuBarGraphShowsValue" // render numeric text inside graph blocks
+    static let menuBarGraphThemeLight = "menuBarGraphThemeLight" // MenuBarGraphTheme raw value
+    static let menuBarGraphThemeDark = "menuBarGraphThemeDark"   // MenuBarGraphTheme raw value
+    static let menuBarGraphLightBackground = "menuBarGraphLightBackground" // filled | outline
+    static let menuBarGraphHistoryWidth = "menuBarGraphHistoryWidth" // narrow | standard | wide
+    static let menuBarGraphHistorySpaced = "menuBarGraphHistorySpaced" // one point gap between history columns
+    static let menuBarNetworkGraphLayout = "menuBarNetworkGraphLayout" // mirrored | split | rising
     static let menuBarMetricOrder = "menuBarMetricOrder" // comma-separated MenuBarMetric raw values
     static let menuBarCombineTemperatures = "menuBarCombineTemperatures" // usage/charge + temperature in one block when possible
     static let menuBarSeparateMetrics = "menuBarSeparateMetrics" // one status item per active metric
@@ -71,6 +77,7 @@ extension DefaultsKey {
     static let monitorSysMemory = "monitorSysMemory"
     static let monitorSysAlerts = "monitorSysAlerts"
     static let monitorSysUptime = "monitorSysUptime"
+    static let monitorSysConnectedDevices = "monitorSysConnectedDevices"
     static let monitorNetSpeed = "monitorNetSpeed"
     static let monitorNetApps = "monitorNetApps"
     static let monitorNetTotals = "monitorNetTotals"

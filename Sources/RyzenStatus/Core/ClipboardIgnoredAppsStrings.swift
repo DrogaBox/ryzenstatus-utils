@@ -26,6 +26,8 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -120,5 +122,19 @@ extension ClipboardIgnoredAppsStrings {
         addButton: "加入 App…",
         removeButton: "移除",
         caption: "在這些 App 裡複製的內容都不會存進歷史。"
+    )
+
+    static let sk = ClipboardIgnoredAppsStrings(
+        listTitle: "Vynechané aplikácie",
+        addButton: "Pridať aplikáciu…",
+        removeButton: "Odstrániť",
+        caption: "Nič, čo v týchto aplikáciách skopírujete, sa neuloží do histórie."
+    )
+
+    static let uk = ClipboardIgnoredAppsStrings(
+        listTitle: "Програми без запису",
+        addButton: "Додати програму…",
+        removeButton: "Видалити",
+        caption: "Ніщо скопійоване в цих програмах не потрапляє в історію."
     )
 }

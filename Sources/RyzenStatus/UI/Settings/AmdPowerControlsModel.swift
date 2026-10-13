@@ -26,7 +26,7 @@ final class AmdPowerControlsModel: ObservableObject {
     @Published var privilegeWarning: String?
     @Published var isLoading: Bool = false
 
-    // Rolling history for the AMD panel sparklines — 60 samples ≈ 3 min
+    // Rolling history for the AMD panel graphs — 60 samples ≈ 3 min
     // at the 3 s panel poll. Sampled inside syncFromKext, so no new timers.
     @Published private(set) var packagePowerHistory: [Double] = []
     @Published private(set) var packageTempHistory: [Double] = []
@@ -198,12 +198,12 @@ final class AmdPowerControlsModel: ObservableObject {
         isSyncingFromKext = true
         defer { isSyncingFromKext = false }
 
-        recordTelemetrySample()
-
-        let (kernelAnswered, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
+        let (kernelAnswered, telemetry, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
              smuVersion, activeScalar, ocCap, ocFreq, pmInfo) = await Task.detached(priority: .userInitiated) {
             // Thread-safe connection check to avoid data races
             let kernelAnswered = ProcessorModel.shared.isConnected
+            // Package power and temperature for the panel graphs.
+            let telemetry = kernelAnswered ? ProcessorModel.shared.getTelemetry() : nil
             let cpb = ProcessorModel.shared.getCPB()
             let cppcState: (active: Bool, epp: UInt8) = kernelAnswered
                 ? ProcessorModel.shared.getCPPCActiveMode()
@@ -225,9 +225,10 @@ final class AmdPowerControlsModel: ObservableObject {
             let ocFreq = kernelAnswered ? ProcessorModel.shared.getOcFreqCache() : nil
             // PM-table info (cache only, no SMU traffic).
             let pmInfo = kernelAnswered ? ProcessorModel.shared.getPMTableInfo() : nil
-            return (kernelAnswered, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
+            return (kernelAnswered, telemetry, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
                     smuVersion, activeScalar, ocCap, ocFreq, pmInfo)
         }.value
+        recordTelemetrySample(telemetry)
         let profile = await ProcessorModel.shared.cpuProfile
         // S8.2 fallback for the per-CCD row count when the kext's register
         // probe has not run (0): Vermeer packs 8 cores per CCD.
@@ -451,8 +452,8 @@ final class AmdPowerControlsModel: ObservableObject {
         into[slot] = window
     }
 
-    private func recordTelemetrySample() {
-        guard let packet = ProcessorModel.shared.getTelemetry() else { return }
+    private func recordTelemetrySample(_ packet: CPUSensorPacket?) {
+        guard let packet else { return }
         packagePowerHistory.append(Double(packet.packagePowerW))
         if packagePowerHistory.count > Self.historyCapacity {
             packagePowerHistory.removeFirst(packagePowerHistory.count - Self.historyCapacity)

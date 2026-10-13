@@ -3,6 +3,7 @@
 
 import AppKit
 import Foundation
+import IOKit
 
 /// Read-only service that reads the current NVRAM `boot-args` and exposes
 /// the AMD kext parameter state. To change parameters, use the "Copy AMD
@@ -28,15 +29,13 @@ final class CStateNvramService: ObservableObject {
     func refresh() {
         Task.detached(priority: .utility) {
             let args = Self.readBootArgs()
-            let c6 = args.contains("amdcstate=0")
-            let cppc = args.contains("-amdcppcactive")
-            let pnopchk = args.contains("-amdpnopchk")
+            let flags = Self.amdFlags(inBootArgs: args)
 
             await MainActor.run {
                 self.currentBootArgs = args
-                self.isC6Enabled = c6
-                self.isCppcActiveEnabled = cppc
-                self.isPnopchkEnabled = pnopchk
+                self.isC6Enabled = flags.c6Enabled
+                self.isCppcActiveEnabled = flags.cppcActive
+                self.isPnopchkEnabled = flags.pnopchk
             }
         }
     }
@@ -77,18 +76,51 @@ final class CStateNvramService: ObservableObject {
 
     // MARK: - Read Helpers
 
+    /// The AMD kext arguments in a boot-args string, matched as whole
+    /// arguments: `-amdpnopchkx` or `amdcstate=01` are not these flags.
+    nonisolated static func amdFlags(inBootArgs args: String)
+        -> (c6Enabled: Bool, cppcActive: Bool, pnopchk: Bool) {
+        let arguments = Set(args.split(whereSeparator: \.isWhitespace).map(String.init))
+        return (arguments.contains("amdcstate=0"),
+                arguments.contains("-amdcppcactive"),
+                arguments.contains("-amdpnopchk"))
+    }
+
+    /// boot-args from the NVRAM node of the I/O Registry, the same place
+    /// `nvram` reads, without starting a process. Falls back to `nvram` when
+    /// the node cannot be read.
     nonisolated static func readBootArgs() -> String {
+        let options = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/options")
+        guard options != 0 else { return readBootArgsWithTool() }
+        defer { IOObjectRelease(options) }
+        guard let value = IORegistryEntryCreateCFProperty(options, "boot-args" as CFString,
+                                                          kCFAllocatorDefault, 0)?.takeRetainedValue() else {
+            // The node is there but boot-args is not set.
+            return ""
+        }
+        if let data = value as? Data {
+            return String(decoding: data.prefix { $0 != 0 }, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let string = value as? String {
+            return string.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return ""
+    }
+
+    nonisolated private static func readBootArgsWithTool() -> String {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/sbin/nvram")
         task.arguments = ["boot-args"]
         let pipe = Pipe()
         task.standardOutput = pipe
-        task.standardError = Pipe()
+        task.standardError = FileHandle.nullDevice
 
         do {
             try task.run()
-            task.waitUntilExit()
+            // Read before waiting: a child blocked on a full pipe never exits.
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            task.waitUntilExit()
             guard let raw = String(data: data, encoding: .utf8) else { return "" }
             if let tabIndex = raw.firstIndex(of: "\t") {
                 return String(raw[raw.index(after: tabIndex)...]).trimmingCharacters(in: .whitespacesAndNewlines)

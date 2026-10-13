@@ -69,3 +69,16 @@ docs/superpowers/
 
 # Merge/diff backup artifacts (never commit)
 *.orig
+
+# Port working notes and personal agent material (local only, never pushed)
+.claude/
+.scratch/
+docs/agents/
+docs/port-tools/
+docs/CONTINUIDAD-*.md
+docs/RETOMAR.md
+docs/PORT-*.md
+docs/HANDOFF-*.md
+docs/NOWPLAYING-UNIFICATION.md
+docs/upstream-delta-*
+Tools/upstream-delta.sh

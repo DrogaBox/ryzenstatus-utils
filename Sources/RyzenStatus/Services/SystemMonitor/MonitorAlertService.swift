@@ -58,6 +58,10 @@ final class MonitorAlertService {
 
     private func stopSink() {
         cancellables.removeAll()
+        stopTimers()
+    }
+
+    private func stopTimers() {
         highCPUSince = nil
         highCPUTempSince = nil
         thermalThrottleSince = nil
@@ -68,7 +72,7 @@ final class MonitorAlertService {
     private func evaluate(_ snapshot: SystemSnapshot) {
         let defaults = UserDefaults.standard
         guard Self.anyEnabled(in: defaults) else {
-            highCPUSince = nil
+            stopTimers()
             return
         }
         let strings = FeatureStrings.monitorAlerts(L10n.shared.language)
@@ -85,27 +89,37 @@ final class MonitorAlertService {
             highCPUSince = nil
         }
 
-        if alertOn(DefaultsKey.monitorAlertCPUTemperature, .monitorCPU),
-           let temperature = highCPUTemperature(from: snapshot, defaults: defaults) {
-            send(.cpuTemperature,
-                 title: strings.cpuTemperatureTitle,
-                 body: String(format: strings.cpuTemperatureBodyFormat, temperature))
+        if alertOn(DefaultsKey.monitorAlertCPUTemperature, .monitorCPU) {
+            if let temperature = highCPUTemperature(from: snapshot, defaults: defaults) {
+                send(.cpuTemperature,
+                     title: strings.cpuTemperatureTitle,
+                     body: String(format: strings.cpuTemperatureBodyFormat,
+                                  Self.formattedTemperature(temperature, defaults: defaults)))
+            }
+        } else {
+            highCPUTempSince = nil
         }
 
-        if alertOn(DefaultsKey.monitorAlertGPUTemperature, .monitorGPU),
-           let gpuTemp = highGPUTemperature(from: snapshot, defaults: defaults) {
-            send(.gpuTemperature,
-                 title: strings.gpuTemperatureTitle,
-                 body: String(format: strings.gpuTemperatureBodyFormat, gpuTemp))
+        // The helpers own their timers: they start one on the first hot
+        // reading and return nil while it runs. Clearing it here on that nil
+        // restarted the wait on every sample, so these alerts never fired.
+        if alertOn(DefaultsKey.monitorAlertGPUTemperature, .monitorGPU) {
+            if let gpuTemp = highGPUTemperature(from: snapshot, defaults: defaults) {
+                send(.gpuTemperature,
+                     title: strings.gpuTemperatureTitle,
+                     body: String(format: strings.gpuTemperatureBodyFormat,
+                                  Self.formattedTemperature(gpuTemp, defaults: defaults)))
+            }
         } else {
             highGPUTempSince = nil
         }
 
-        if alertOn(DefaultsKey.monitorAlertGPUPower, .monitorGPU),
-           let gpuPower = highGPUPower(from: snapshot, defaults: defaults) {
-            send(.gpuPower,
-                 title: strings.gpuPowerTitle,
-                 body: String(format: strings.gpuPowerBodyFormat, gpuPower))
+        if alertOn(DefaultsKey.monitorAlertGPUPower, .monitorGPU) {
+            if let gpuPower = highGPUPower(from: snapshot, defaults: defaults) {
+                send(.gpuPower,
+                     title: strings.gpuPowerTitle,
+                     body: String(format: strings.gpuPowerBodyFormat, gpuPower))
+            }
         } else {
             highGPUPowerSince = nil
         }
@@ -140,10 +154,13 @@ final class MonitorAlertService {
             if thermalThrottleSince == nil {
                 thermalThrottleSince = now
             } else if let since = thermalThrottleSince, now.timeIntervalSince(since) >= 30 {
-                let ccdInfo = snapshot.ccd0Temperature.map { String(format: " (CCD0: %.0f°C)", $0) } ?? ""
+                let ccdInfo = snapshot.ccd0Temperature.map {
+                    " (CCD0: \(Self.formattedTemperature(Double($0), defaults: defaults)))"
+                } ?? ""
                 send(.thermalThrottle,
                      title: strings.thermalThrottleTitle,
-                     body: String(format: strings.thermalThrottleBodyFormat, temp) + ccdInfo)
+                     body: String(format: strings.thermalThrottleBodyFormat,
+                                  Self.formattedTemperature(temp, defaults: defaults)) + ccdInfo)
                 thermalThrottleSince = nil
             }
         } else {
@@ -187,7 +204,7 @@ final class MonitorAlertService {
     }
 
     private func highCPUTemperature(from snapshot: SystemSnapshot,
-                                    defaults: UserDefaults) -> Int? {
+                                    defaults: UserDefaults) -> Double? {
         let threshold = Defaults.sanitizedPercent(defaults.integer(forKey: DefaultsKey.monitorAlertCPUTemperatureThreshold),
                                                   fallback: 90,
                                                   range: 70...105)
@@ -202,11 +219,11 @@ final class MonitorAlertService {
             return nil
         }
         guard let since = highCPUTempSince, now.timeIntervalSince(since) >= 5 else { return nil }
-        return Int(temperature.rounded())
+        return temperature
     }
 
     private func highGPUTemperature(from snapshot: SystemSnapshot,
-                                     defaults: UserDefaults) -> Int? {
+                                     defaults: UserDefaults) -> Double? {
         let threshold = Defaults.sanitizedPercent(defaults.integer(forKey: DefaultsKey.monitorAlertGPUTemperatureThreshold),
                                                   fallback: 85,
                                                   range: 50...120)
@@ -220,7 +237,7 @@ final class MonitorAlertService {
             return nil
         }
         guard let since = highGPUTempSince, now.timeIntervalSince(since) >= 12 else { return nil }
-        return Int(temp.rounded())
+        return temp
     }
 
     private func highGPUPower(from snapshot: SystemSnapshot,
@@ -250,6 +267,12 @@ final class MonitorAlertService {
               let charge = power.chargePercent,
               charge <= threshold else { return nil }
         return charge
+    }
+
+    /// Alerts speak the unit the rest of the app shows, not always Celsius.
+    private static func formattedTemperature(_ celsius: Double, defaults: UserDefaults) -> String {
+        let unit = TemperatureUnit(rawValue: defaults.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
+        return MetricFormat.temperature(celsius, unit: unit)
     }
 
     private func send(_ kind: MonitorAlertKind, title: String, body: String) {

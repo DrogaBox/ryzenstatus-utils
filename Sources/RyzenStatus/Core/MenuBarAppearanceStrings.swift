@@ -39,6 +39,8 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -49,7 +51,7 @@ extension MenuBarAppearanceStrings {
         values: "Values",
         bars: "Bars",
         pie: "Donut Rings",
-        sparkline: "Line Graph",
+        sparkline: "History Graph",
         histogram: "Histogram",
         individualPerMetric: "Individual Per-Metric Style",
         popoverStyle: "Popover Style",
@@ -69,7 +71,7 @@ extension MenuBarAppearanceStrings {
         values: "Valores",
         bars: "Barras",
         pie: "Anéis Circular",
-        sparkline: "Gráfico de Linha",
+        sparkline: "Gráfico de Histórico",
         histogram: "Histograma",
         individualPerMetric: "Estilo Individual por Métrica",
         popoverStyle: "Estilo do Painel",
@@ -89,7 +91,7 @@ extension MenuBarAppearanceStrings {
         values: "Değerler",
         bars: "Çubuklar",
         pie: "Halka Çember",
-        sparkline: "Çizgi Grafiği",
+        sparkline: "Geçmiş Grafiği",
         histogram: "Histogram",
         individualPerMetric: "Metrik Başına Özel Stil",
         popoverStyle: "Açılır Panel Stili",
@@ -109,7 +111,7 @@ extension MenuBarAppearanceStrings {
         values: "Значения",
         bars: "Шкалы",
         pie: "Кольцевой",
-        sparkline: "Линейный график",
+        sparkline: "График истории",
         histogram: "Гистограмма",
         individualPerMetric: "Индивидуальный стиль метрик",
         popoverStyle: "Стиль панели",
@@ -129,7 +131,7 @@ extension MenuBarAppearanceStrings {
         values: "Valores",
         bars: "Barras",
         pie: "Anillo Circular",
-        sparkline: "Gráfico de Línea",
+        sparkline: "Gráfico de Historial",
         histogram: "Histograma",
         individualPerMetric: "Estilo Individual por Métrica",
         popoverStyle: "Estilo de Panel",
@@ -149,7 +151,7 @@ extension MenuBarAppearanceStrings {
         values: "Werte",
         bars: "Balken",
         pie: "Ringdiagramm",
-        sparkline: "Liniendiagramm",
+        sparkline: "Verlaufsdiagramm",
         histogram: "Histogramm",
         individualPerMetric: "Individueller Metrik-Stil",
         popoverStyle: "Popover-Stil",
@@ -169,7 +171,7 @@ extension MenuBarAppearanceStrings {
         values: "Valeurs",
         bars: "Barres",
         pie: "Anneau",
-        sparkline: "Graphique linéaire",
+        sparkline: "Graphique d’historique",
         histogram: "Histogramme",
         individualPerMetric: "Style individuel par métrique",
         popoverStyle: "Style du panneau",
@@ -189,7 +191,7 @@ extension MenuBarAppearanceStrings {
         values: "Valori",
         bars: "Barre",
         pie: "Anello",
-        sparkline: "Grafico a linee",
+        sparkline: "Grafico cronologia",
         histogram: "Istogramma",
         individualPerMetric: "Stile individuale per metrica",
         popoverStyle: "Stile pannello",
@@ -209,7 +211,7 @@ extension MenuBarAppearanceStrings {
         values: "数値",
         bars: "バー",
         pie: "ドーナツ型",
-        sparkline: "折れ線グラフ",
+        sparkline: "履歴グラフ",
         histogram: "ヒストグラム",
         individualPerMetric: "メトリクスごとの個別スタイル",
         popoverStyle: "ポップオーバースタイル",
@@ -229,7 +231,7 @@ extension MenuBarAppearanceStrings {
         values: "값",
         bars: "막대",
         pie: "도넛 링",
-        sparkline: "선 그래프",
+        sparkline: "기록 그래프",
         histogram: "히스토그램",
         individualPerMetric: "항목별 개별 스타일",
         popoverStyle: "팝오버 스타일",
@@ -249,7 +251,7 @@ extension MenuBarAppearanceStrings {
         values: "数值",
         bars: "条形",
         pie: "环形图",
-        sparkline: "折线图",
+        sparkline: "历史图表",
         histogram: "直方图",
         individualPerMetric: "各项单独样式",
         popoverStyle: "弹出面板样式",
@@ -269,7 +271,7 @@ extension MenuBarAppearanceStrings {
         values: "數值",
         bars: "長條",
         pie: "環形圖",
-        sparkline: "折線圖",
+        sparkline: "歷史圖表",
         histogram: "長條圖",
         individualPerMetric: "各項個別樣式",
         popoverStyle: "彈出面板樣式",
@@ -289,7 +291,7 @@ extension MenuBarAppearanceStrings {
         values: "數值",
         bars: "長條",
         pie: "環形圖",
-        sparkline: "折線圖",
+        sparkline: "歷史圖表",
         histogram: "長條圖",
         individualPerMetric: "各項個別樣式",
         popoverStyle: "彈出面板樣式",
@@ -302,5 +304,45 @@ extension MenuBarAppearanceStrings {
         highColor: "高負載顏色",
         mediumFrom: "中等起點",
         highFrom: "高負載起點"
+    )
+
+    static let sk = MenuBarAppearanceStrings(
+        label: "Zobrazenie využitia",
+        values: "Hodnoty",
+        bars: "Pruhy",
+        pie: "Prstence",
+        sparkline: "Graf histórie",
+        histogram: "Histogram",
+        individualPerMetric: "Vlastný štýl pre každú metriku",
+        popoverStyle: "Štýl panela",
+        classicCards: "Klasické karty",
+        iStatsWidgets: "Widgety iStats",
+        caption: "Štýly grafov sa týkajú využitia CPU, GPU, pamäte a disku. Ostatné údaje ostanú číselné.",
+        customize: "Farby a hranice pruhov",
+        normalColor: "Bežná farba",
+        mediumColor: "Stredná farba",
+        highColor: "Vysoká farba",
+        mediumFrom: "Stredná od",
+        highFrom: "Vysoká od"
+    )
+
+    static let uk = MenuBarAppearanceStrings(
+        label: "Відображення навантаження",
+        values: "Значення",
+        bars: "Смуги",
+        pie: "Кільця",
+        sparkline: "Графік історії",
+        histogram: "Гістограма",
+        individualPerMetric: "Окремий стиль для кожної метрики",
+        popoverStyle: "Стиль панелі",
+        classicCards: "Класичні картки",
+        iStatsWidgets: "Віджети iStats",
+        caption: "Стилі графіків застосовуються до навантаження CPU, GPU, пам’яті та диска. Інші показники залишаються числовими.",
+        customize: "Кольори та межі смуг",
+        normalColor: "Звичайний колір",
+        mediumColor: "Середній колір",
+        highColor: "Високий колір",
+        mediumFrom: "Середній від",
+        highFrom: "Високий від"
     )
 }

@@ -1,93 +1,37 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
-import Foundation
-
-/// How a sampled color lands on the clipboard.
-enum ColorCopyFormat: String, CaseIterable, Identifiable {
-    case hex
-    case rgb
-    case hsl
-    case swiftui
-
-    var id: String { rawValue }
-
-    /// Short technical label; intentionally not localized.
-    var label: String {
-        switch self {
-        case .hex: return "HEX"
-        case .rgb: return "RGB"
-        case .hsl: return "HSL"
-        case .swiftui: return "SwiftUI"
-        }
-    }
-
-    static func sanitized(_ raw: String) -> ColorCopyFormat {
-        ColorCopyFormat(rawValue: raw) ?? .hex
-    }
-}
+import AppKit
+import UniformTypeIdentifiers
 
 enum QuickToolsSupport {
-    /// Formats sRGB components (0...1) in the chosen copy format. Components
-    /// out of range are clamped so extended-gamut samples never produce
-    /// invalid strings. `bareHex` drops the leading # (issue #168: some design
-    /// tools reject pasted values that carry it); it only affects `.hex`.
-    static func colorString(red: Double,
-                            green: Double,
-                            blue: Double,
-                            format: ColorCopyFormat,
-                            bareHex: Bool = false) -> String {
-        let r = min(max(red, 0), 1)
-        let g = min(max(green, 0), 1)
-        let b = min(max(blue, 0), 1)
-        switch format {
-        case .hex:
-            return String(format: bareHex ? "%02X%02X%02X" : "#%02X%02X%02X",
-                          Int((r * 255).rounded()),
-                          Int((g * 255).rounded()),
-                          Int((b * 255).rounded()))
-        case .rgb:
-            return String(format: "rgb(%d, %d, %d)",
-                          Int((r * 255).rounded()),
-                          Int((g * 255).rounded()),
-                          Int((b * 255).rounded()))
-        case .hsl:
-            let (h, s, l) = hsl(red: r, green: g, blue: b)
-            return String(format: "hsl(%d, %d%%, %d%%)",
-                          Int(h.rounded()),
-                          Int((s * 100).rounded()),
-                          Int((l * 100).rounded()))
-        case .swiftui:
-            return String(format: "Color(red: %.3f, green: %.3f, blue: %.3f)", r, g, b)
-        }
-    }
-
-    static func hsl(red: Double, green: Double, blue: Double) -> (hue: Double, saturation: Double, lightness: Double) {
-        let maxComponent = max(red, green, blue)
-        let minComponent = min(red, green, blue)
-        let delta = maxComponent - minComponent
-        let lightness = (maxComponent + minComponent) / 2
-
-        guard delta > 0.000001 else { return (0, 0, lightness) }
-
-        let saturation = delta / (1 - abs(2 * lightness - 1))
-        var hue: Double
-        if maxComponent == red {
-            hue = ((green - blue) / delta).truncatingRemainder(dividingBy: 6)
-        } else if maxComponent == green {
-            hue = (blue - red) / delta + 2
-        } else {
-            hue = (red - green) / delta + 4
-        }
-        hue *= 60
-        if hue < 0 { hue += 360 }
-        return (hue, min(max(saturation, 0), 1), lightness)
+    static func sampledColor(in image: CGImage, x: Int, y: Int) -> NSColor? {
+        guard let pixel = image.cropping(to: CGRect(x: x, y: y, width: 1, height: 1))
+        else { return nil }
+        let bitmap = NSBitmapImageRep(cgImage: pixel)
+        guard let color = bitmap.colorAt(x: 0, y: 0) else { return nil }
+        // colorAt returns the pixel's components tagged as a generic color
+        // space. Preserve the bitmap's profile before converting to sRGB.
+        var components = [CGFloat](repeating: 0, count: color.numberOfComponents)
+        color.getComponents(&components)
+        guard components.count == bitmap.colorSpace.numberOfColorComponents + 1
+        else { return nil }
+        return NSColor(colorSpace: bitmap.colorSpace,
+                       components: components,
+                       count: components.count)
     }
 
     // MARK: - Quick launcher
 
     enum GridDirection {
         case up, down, left, right
+    }
+
+    /// Which way a grid fills: row by row with a fixed column count, or
+    /// column by column with a fixed row count, as a rail in the island does.
+    enum GridFlow: Equatable {
+        case rows(columns: Int)
+        case columns(rows: Int)
     }
 
     /// Keyboard navigation over a row-major grid: arrows move by one cell,
@@ -112,6 +56,23 @@ enum QuickToolsSupport {
         return candidate
     }
 
+    /// A column-major rail is the row-major walk with the axes swapped.
+    static func gridIndex(after index: Int, count: Int, flow: GridFlow, direction: GridDirection) -> Int {
+        switch flow {
+        case .rows(let columns):
+            return gridIndex(after: index, count: count, columns: columns, direction: direction)
+        case .columns(let rows):
+            let transposed: GridDirection
+            switch direction {
+            case .up: transposed = .left
+            case .down: transposed = .right
+            case .left: transposed = .up
+            case .right: transposed = .down
+            }
+            return gridIndex(after: index, count: count, columns: max(1, rows), direction: transposed)
+        }
+    }
+
     /// The launcher's hidden-item set travels as a comma-joined string.
     static func hiddenIDs(from raw: String) -> Set<String> {
         Set(raw.split(separator: ",").map(String.init).filter { !$0.isEmpty })
@@ -132,7 +93,7 @@ enum QuickToolsSupport {
     /// Joins recognized lines in natural reading order: top to bottom, left
     /// to right within the same visual row. Empty lines are dropped.
     static func joinedRecognizedText(_ lines: [RecognizedLine],
-                                     removingLineBreaks: Bool = false) -> String {
+                                     removingLineBreaks: Bool) -> String {
         let texts = lines
             .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .sorted {
@@ -199,6 +160,41 @@ enum QuickToolsSupport {
             }
             .map(\.payload)
             .joined(separator: "\n")
+    }
+
+    // MARK: - Paste as plain text
+
+    /// Whether a menu item is an app's own matching-style paste, judged by its
+    /// key equivalent instead of its localized title. The universal
+    /// convention is ⌥⇧⌘V; in the AX menu attributes that is command
+    /// character "V" with the shift (1) and option (2) bits set and nothing
+    /// else (0 alone means a plain ⌘ equivalent). ⇧⌘V and ⌃ variants are
+    /// deliberately out: in several apps those are different edit commands,
+    /// and pressing one would touch the document (issue #349).
+    static func isMatchStyleEquivalent(commandCharacter: String?,
+                                       modifierMask: UInt32?,
+                                       isEnabled: Bool) -> Bool {
+        let shiftAndOption: UInt32 = 1 | 2
+        return commandCharacter?.uppercased() == "V"
+            && modifierMask == shiftAndOption
+            && isEnabled
+    }
+
+    /// The text a picture or clip copied on its own carries beside it: nothing,
+    /// or one link or media file name, as a browser or a chat copies an image.
+    /// Anything else, a cell's "example.com" or "2.4GHz" included, is text
+    /// that came with a picture of itself and still pastes plain.
+    static func isMediaTextFallback(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+        guard !trimmed.contains(where: { $0.isWhitespace }) else { return false }
+        let lowercased = trimmed.lowercased()
+        if lowercased.hasPrefix("data:") || lowercased.hasPrefix("blob:")
+            || (trimmed.contains("://") && URL(string: trimmed)?.scheme != nil) { return true }
+        let name = trimmed as NSString
+        guard !name.deletingPathExtension.isEmpty, !name.pathExtension.isEmpty,
+              let type = UTType(filenameExtension: name.pathExtension.lowercased()) else { return false }
+        return type.conforms(to: .image) || type.conforms(to: .audiovisualContent) || type.conforms(to: .pdf)
     }
 
     /// The payload as a web link for the optional open action. Limited to

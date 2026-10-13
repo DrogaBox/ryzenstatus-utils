@@ -50,6 +50,8 @@ struct WhatsAppOrganizerStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -482,5 +484,71 @@ extension WhatsAppOrganizerStrings {
         notificationTitle: "WhatsApp 整理",
         notificationFormat: "已整理 %1$d 個檔案。處理咗 %2$d 個重複下載。%3$d 個失敗。",
         privacyNote: "為咗識別完全一樣嘅重複檔案，檔案位元組只會喺計算加密摘要時喺本地讀取。內容同對話永遠唔會儲存或上載。"
+    )
+
+    static let sk = WhatsAppOrganizerStrings(
+        title: "Automatické triedenie",
+        experimental: "Experimentálne",
+        description: "Presúva ustálené súbory stiahnuté z WhatsAppu do vyhradeného priečinka a rozpoznáva presne opakované stiahnutia.",
+        enabled: "Triediť automaticky",
+        enabledCaption: "WhatsApp môže presunutý súbor stiahnuť znova. RyzenStatus nedokáže zabrániť sťahovaniu zo siete, ale dokáže rozpoznať a zahodiť identickú nadbytočnú kópiu.",
+        destination: "Cieľový priečinok",
+        chooseFolder: "Vybrať…",
+        useDefault: "Použiť Stiahnuté/WhatsApp",
+        invalidDestination: "Vyberte iný priečinok, než sú samotné Stiahnuté súbory.",
+        organization: "Štruktúra priečinkov",
+        flat: "Bez podpriečinkov",
+        byType: "Podľa typu súboru",
+        byMonth: "Podľa roka a mesiaca",
+        delay: "Počkať pred presunutím",
+        minutesFormat: "%d min",
+        duplicateAction: "Keď sa ten istý súbor stiahne znova",
+        trashDuplicate: "Presunúť novú kópiu do Koša",
+        keepBoth: "Ponechať obe kópie",
+        replaceExisting: "Nahradiť roztriedenú kópiu",
+        duplicateCaption: "Duplikáty sa potvrdzujú súkromným odtlačkom SHA-256. Roztriedená kópia sa pred zahodením ďalšej kópie znova overí.",
+        organizeNow: "Roztriediť vhodné súbory teraz",
+        undo: "Vrátiť posledné triedenie",
+        waiting: "Sleduje sa priečinok Stiahnuté",
+        working: "Triedia sa súbory z WhatsAppu…",
+        resultFormat: "Presunuté: %1$d · duplikáty: %2$d · zlyhania: %3$d",
+        lastRunFormat: "Posledné triedenie %@: presunuté: %d · duplikáty: %d · zlyhania: %d",
+        neverRun: "Zatiaľ neprebehlo žiadne triedenie.",
+        notificationTitle: "Triedenie WhatsAppu",
+        notificationFormat: "Roztriedené súbory: %1$d. Spracované duplicitné stiahnutia: %2$d. Zlyhania: %3$d.",
+        privacyNote: "Na rozpoznanie presných duplikátov sa bajty súboru čítajú lokálne iba počas výpočtu kryptografického odtlačku. Obsah ani chaty sa nikdy neukladajú ani neodosielajú."
+    )
+
+    static let uk = WhatsAppOrganizerStrings(
+        title: "Автоматичне впорядкування",
+        experimental: "Експериментально",
+        description: "Переміщує завершені завантаження WhatsApp в окрему папку та виявляє точні повторні завантаження.",
+        enabled: "Впорядковувати автоматично",
+        enabledCaption: "WhatsApp може завантажити переміщений файл знову. RyzenStatus не може запобігти мережевому завантаженню, але може виявити й відкинути зайву ідентичну копію.",
+        destination: "Папка призначення",
+        chooseFolder: "Вибрати…",
+        useDefault: "Використовувати Завантаження/WhatsApp",
+        invalidDestination: "Виберіть папку, відмінну від самої папки «Завантаження».",
+        organization: "Структура папок",
+        flat: "Без підпапок",
+        byType: "За типом файлу",
+        byMonth: "За роком і місяцем",
+        delay: "Чекати перед переміщенням",
+        minutesFormat: "%d хв",
+        duplicateAction: "Коли той самий файл завантажено знову",
+        trashDuplicate: "Перемістити нову копію в Смітник",
+        keepBoth: "Зберегти обидві копії",
+        replaceExisting: "Замінити впорядковану копію",
+        duplicateCaption: "Дублікати підтверджуються приватним дайджестом SHA-256. Впорядкована копія перевіряється повторно, перш ніж відкинути іншу копію.",
+        organizeNow: "Упорядкувати придатні файли зараз",
+        undo: "Скасувати останнє впорядкування",
+        waiting: "Відстеження папки «Завантаження»",
+        working: "Впорядкування файлів WhatsApp…",
+        resultFormat: "Переміщено: %1$d · дублікатів: %2$d · збоїв: %3$d",
+        lastRunFormat: "Останнє впорядкування %@: переміщено: %d · дублікатів: %d · збоїв: %d",
+        neverRun: "Впорядкування ще не запускалося.",
+        notificationTitle: "Впорядкування WhatsApp",
+        notificationFormat: "Упорядковано файлів: %1$d. Оброблено повторних завантажень: %2$d. Збоїв: %3$d.",
+        privacyNote: "Щоб виявити точні дублікати, байти файлу читаються локально лише під час обчислення криптографічного дайджесту. Вміст і чати ніколи не зберігаються й не вивантажуються."
     )
 }

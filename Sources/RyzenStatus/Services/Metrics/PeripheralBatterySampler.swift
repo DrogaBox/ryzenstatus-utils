@@ -40,6 +40,13 @@ final class PeripheralBatterySampler {
 
     private func startBluetoothRefreshIfNeeded(now: TimeInterval) {
         lock.lock()
+        // With Bluetooth switched off, nothing asks it for batteries and
+        // devices read before stop showing.
+        guard BluetoothUsage.isAllowed() else {
+            cachedBluetoothDevices = []
+            lock.unlock()
+            return
+        }
         guard PeripheralBatteryRefreshPolicy.shouldStartBluetoothRefresh(
             now: now,
             lastStartedAt: bluetoothStartedAt,
@@ -79,12 +86,23 @@ final class PeripheralBatterySampler {
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/system_profiler")
         process.arguments = ["SPBluetoothDataType", "-json"]
         process.standardOutput = output
-        process.standardError = Pipe()
+        // An error stream nobody reads can fill up and stall the command.
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
 
         do {
             try process.run()
         } catch {
             return []
+        }
+
+        // Drain while it runs: a JSON report larger than the pipe buffer
+        // blocked the command until the timeout and came back truncated.
+        var data = Data()
+        let drained = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            data = output.fileHandleForReading.readDataToEndOfFile()
+            drained.signal()
         }
 
         let deadline = Date().addingTimeInterval(timeout)
@@ -94,9 +112,9 @@ final class PeripheralBatterySampler {
         if process.isRunning {
             process.terminate()
         }
-
-        let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        drained.wait()
+        guard process.terminationStatus == 0 else { return [] }
         return PeripheralBatterySupport.bluetoothDevices(fromSystemProfilerJSON: data)
     }
 

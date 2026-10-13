@@ -73,6 +73,8 @@ extension ValidationFeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -607,4 +609,90 @@ extension ValidationFeatureStrings {
     )
 
     static let zhHK = zhTW
+
+    static let sk = ValidationFeatureStrings(
+        sidebarTitle: "Overenie hardvéru",
+        header: "Cyklus overenia hardvéru",
+        footer: "Dôkazy pochádzajú z tejto aplikácie, nikdy nie z príkazového riadka: --sensors aj --selftest otvoria a zatvoria klienta kextu a zatvorenie klienta vráti všetky ventilátory pod kontrolu BIOS — čo potichu vynuluje stav, ktorý test meria. Testy spúšťajte v poradí a s bežiacou aplikáciou.",
+        gatesHeader: "Predpoklady",
+        gateKextVersion: "Revízia kextu",
+        gateKextTelemetry: "Telemetria kextu",
+        gatePrivilege: "Privilegovaný prístup",
+        gateFanTopology: "Kanály ventilátorov",
+        gateTachValidity: "Dôveryhodnosť otáčkomera",
+        gateSuperIOFamily: "Rodina Super I/O",
+        verdictPass: "PASS",
+        verdictFail: "FAIL",
+        verdictUnknown: "UNKNOWN",
+        hintKextVersion: "Načítajte revíziu kextu, ktorú uvádza runbook, a reštartujte: dva rôzne buildy môžu mať rovnaké číslo verzie, takže samotný kextstat ich nerozlíši.",
+        hintKextTelemetry: "Kext neodpovedá na selektor 100. Skontrolujte, či sú oba AMD kexty vložené a zapnuté v konfigurácii EFI.",
+        hintPrivilege: "Spustite aplikáciu ako root alebo pridajte -amdpnopchk do boot-args. Bez oprávnení sa krivka nikdy nenahrá a otáčky BIOS v nečinnosti (~15 %) vyzerajú presne ako spodná hranica, ktorú má test dokázať.",
+        hintFanTopology: "Nenašiel sa žiadny kanál bezpečný pre krivku. Konektory čerpadla nechajte pod kontrolou BIOS: obmedzenie čerpadla zvyšuje teplotu CPU pri záťaži.",
+        hintTachValidity: "Kanál hlási nedôveryhodný alebo zamrznutý otáčkomer. Zastavený rotor a nefunkčný senzor sa nedajú rozlíšiť, preto treba otáčky tohto kanála považovať za neznáme.",
+        hintSuperIOFamily: "Toto nie je referenčný Super I/O. Očakávané hodnoty v runbooku sú kalibrované pre ITE IT86XXE — pred posúdením zlyhania si prečítajte docs/SUPERIO.md.",
+        checkButton: "Skontrolovať predpoklady",
+        checkHint: "Spustí privilegovaný test mailboxu len na čítanie na vyhodnotenie oprávnení. Nič nezapisuje: žiadny ventilátor, žiadne napätie, žiadny limit.",
+        probesHeader: "Zoznam testov",
+        probesFooter: "Stavy a vzorky ostanú uložené, kým ich nevymažete, takže cyklus cez viac reštartov si zachová históriu. Vzorku zaznamenajte počas behu testu; správu skopírujte, keď je test vyhodnotený.",
+        statusPending: "Čaká sa",
+        statusPass: "Úspech",
+        statusFail: "Zlyhanie",
+        probeIdentity: "Identita ovládača (kextstat oproti pripnutej revízii)",
+        probeDeadMan: "Bezpečnostný spínač (manuálny ventilátor sa uvoľní pri páde aplikácie)",
+        probePwmFloor: "Spodná hranica PWM krivky (kotva 1 % v nečinnosti, kanál ventilátora)",
+        probeThermalGuard: "Núdzová ochrana (krivka podľa GPU, CPU na 85 °C alebo viac)",
+        probeSmuControls: "Rodina ovládacích prvkov SMU (limity PBO, brána OC, prepísanie frekvencie, cHTC)",
+        probeTelemetry: "Telemetria SMU (príkon puzdra, mriežka jadier, L3, tabuľka PM)",
+        probeSurfaces: "Rozhrania aplikácie (senzory, stránka pretaktovania, prehľad)",
+        samplesHeader: "Zaznamenané vzorky",
+        samplesEmpty: "Zatiaľ nie sú zaznamenané žiadne vzorky.",
+        sampleButton: "Zaznamenať vzorku",
+        clearButton: "Vymazať vzorky",
+        reportHeader: "Správa s dôkazmi",
+        copyButton: "Kopírovať správu o overení",
+        capturedFormat: "Zaznamenané: %@"
+    )
+
+    static let uk = ValidationFeatureStrings(
+        sidebarTitle: "Перевірка обладнання",
+        header: "Цикл перевірки обладнання",
+        footer: "Докази беруться з цієї програми, ніколи з командного рядка: --sensors і --selftest відкривають і закривають клієнт kext, а закриття клієнта повертає всі вентилятори під керування BIOS — це непомітно скидає стан, який вимірює тест. Запускайте тести по черзі, не закриваючи програму.",
+        gatesHeader: "Передумови",
+        gateKextVersion: "Ревізія kext",
+        gateKextTelemetry: "Телеметрія kext",
+        gatePrivilege: "Привілейований доступ",
+        gateFanTopology: "Канали вентиляторів",
+        gateTachValidity: "Достовірність тахометра",
+        gateSuperIOFamily: "Сімейство Super I/O",
+        verdictPass: "PASS",
+        verdictFail: "FAIL",
+        verdictUnknown: "UNKNOWN",
+        hintKextVersion: "Завантажте ревізію kext, указану в runbook, і перезавантажтеся: дві різні збірки можуть мати однаковий номер версії, тож сам kextstat їх не розрізнить.",
+        hintKextTelemetry: "Kext не відповідає на селектор 100. Перевірте, що обидва AMD kext впроваджено й увімкнено в конфігурації EFI.",
+        hintPrivilege: "Запустіть програму від root або додайте -amdpnopchk до boot-args. Без привілеїв крива ніколи не завантажується, а оберти BIOS у простої (~15 %) виглядають точнісінько як нижня межа, яку має довести тест.",
+        hintFanTopology: "Не знайдено жодного каналу, безпечного для кривої. Залиште роз’єми помпи під керуванням BIOS: обмеження помпи підвищує температуру CPU під навантаженням.",
+        hintTachValidity: "Канал повідомляє про недостовірний або завислий тахометр. Зупинений ротор і несправний датчик неможливо розрізнити, тому оберти цього каналу слід вважати невідомими.",
+        hintSuperIOFamily: "Це не еталонний Super I/O. Очікувані значення runbook відкалібровано для ITE IT86XXE — прочитайте docs/SUPERIO.md, перш ніж оцінювати збій.",
+        checkButton: "Перевірити передумови",
+        checkHint: "Запускає привілейований тест поштової скриньки лише для читання, щоб визначити стан привілеїв. Нічого не записує: ні вентилятори, ні напругу, ні ліміти.",
+        probesHeader: "Список тестів",
+        probesFooter: "Статуси та зразки зберігаються, доки ви їх не очистите, тож цикл, що триває кілька перезавантажень, зберігає історію. Записуйте зразок під час тесту; копіюйте звіт після оцінки.",
+        statusPending: "Очікує",
+        statusPass: "Пройдено",
+        statusFail: "Збій",
+        probeIdentity: "Ідентичність драйвера (kextstat проти закріпленої ревізії)",
+        probeDeadMan: "Аварійне скидання (ручний вентилятор звільняється при падінні програми)",
+        probePwmFloor: "Нижня межа PWM кривої (якір 1 % у простої, канал вентилятора)",
+        probeThermalGuard: "Аварійний захист (крива від GPU, CPU на 85 °C або вище)",
+        probeSmuControls: "Сімейство керування SMU (ліміти PBO, шлюз OC, перевизначення частоти, cHTC)",
+        probeTelemetry: "Телеметрія SMU (потужність пакета, сітка ядер, L3, таблиця PM)",
+        probeSurfaces: "Інтерфейси програми (датчики, сторінка розгону, панель приладів)",
+        samplesHeader: "Записані зразки",
+        samplesEmpty: "Зразків ще не записано.",
+        sampleButton: "Записати зразок",
+        clearButton: "Очистити зразки",
+        reportHeader: "Звіт із доказами",
+        copyButton: "Скопіювати звіт перевірки",
+        capturedFormat: "Записано: %@"
+    )
 }

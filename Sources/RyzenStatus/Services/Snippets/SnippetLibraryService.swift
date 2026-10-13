@@ -8,7 +8,7 @@ import SwiftUI
 /// The snippet library: a small floating panel, summoned by its own global
 /// shortcut, that shows the snippets marked for it grouped by folder. Typing
 /// filters, Enter (or a click) types the snippet into the app that was
-/// active, Esc closes. The panel never activates the app, so the target
+/// active, Esc closes. The panel never activates RyzenStatus, so the target
 /// app keeps focus the whole time. The hotkey only lives while the library
 /// toggle is on. Requires Accessibility (the synthesized typing).
 final class SnippetLibraryService: ObservableObject {
@@ -41,7 +41,8 @@ final class SnippetLibraryService: ObservableObject {
             && UserDefaults.standard.bool(forKey: DefaultsKey.snippetLibraryEnabled)
         let shortcut = GlobalShortcut.saved(for: DefaultsKey.snippetLibraryShortcut,
                                             fallback: .snippetLibraryDefault)
-        shortcutRegistrationFailed = !hotkey.sync(enabled: enabled, shortcut: shortcut)
+        shortcutRegistrationFailed = !hotkey.sync(enabled: enabled, shortcut: shortcut,
+                                                  storageKey: DefaultsKey.snippetLibraryShortcut)
         if !enabled { hide() }
         if isVisible {
             reloadSnippets()
@@ -216,7 +217,7 @@ final class SnippetLibraryService: ObservableObject {
 
     /// Borderless panels refuse key status by default, and the library needs
     /// it for the search field, arrows and Esc.
-    private final class KeyableLibraryPanel: NSPanel {
+    private final class KeyableLibraryPanel: OverlayPanel {
         override var canBecomeKey: Bool { true }
     }
 
@@ -234,20 +235,7 @@ final class SnippetLibraryService: ObservableObject {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
-        let host = NSHostingController(rootView: 
-            VStack(spacing: 12) {
-                Image(systemName: "text.book.closed")
-                    .font(.system(size: 32))
-                    .foregroundStyle(.tertiary)
-                Text(verbatim: "Snippet Library")
-                    .font(.title2.weight(.semibold))
-                Text(verbatim: "Open Text Snippets settings to add snippets")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(width: 280, height: 200)
-            .padding()
-        )
+        let host = NSHostingController(rootView: SnippetLibraryView())
         host.sizingOptions = .preferredContentSize
         panel.contentViewController = host
         self.panel = panel
@@ -335,7 +323,10 @@ final class SnippetLibraryService: ObservableObject {
         }
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: mouseEvents) { [weak self, weak panel] event in
             guard let self, let panel, panel.isVisible else { return }
-            if event.windowNumber != panel.windowNumber, !Self.mouseIsInside(panel) {
+            if event.windowNumber != panel.windowNumber, !Self.mouseIsInside(panel),
+               // Every key on the Accessibility Keyboard is a click outside this
+               // panel. Dismissing on those makes the panel impossible to type into.
+               !AssistiveKeyboard.ownsCocoaPoint(NSEvent.mouseLocation) {
                 self.hide()
             }
         }
@@ -346,7 +337,8 @@ final class SnippetLibraryService: ObservableObject {
         ) { [weak self] notification in
             guard let self,
                   let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-                  app.bundleIdentifier != Bundle.main.bundleIdentifier
+                  app.bundleIdentifier != Bundle.main.bundleIdentifier,
+                  app.bundleIdentifier != AssistiveKeyboard.bundleID
             else { return }
             self.hide()
         }

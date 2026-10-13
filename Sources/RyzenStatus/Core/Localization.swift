@@ -4,6 +4,19 @@
 import Combine
 import Foundation
 
+/// The way a language agrees a noun with the number in front of it.
+enum CountAgreement {
+    /// One form for exactly one, another for every other count.
+    case oneAndMany
+    /// Russian and Ukrainian: the number's last digits decide. 21 takes the
+    /// first form and 22 the middle one, while 11 through 14 fall back to the last.
+    case byLastDigits
+    /// Slovak: the whole number decides. Only one itself takes the first form
+    /// and only two through four the middle one, so 21 and 22 read
+    /// "21 súborov" and "22 súborov" the same way 25 does.
+    case byWholeNumber
+}
+
 /// Languages the interface can use. The first launch defaults to the system
 /// language; the onboarding and Settings let the user override it at any time.
 enum AppLanguage: String, CaseIterable, Identifiable {
@@ -20,8 +33,22 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     case zhHans = "zh-Hans"
     case zhTW = "zh-TW"
     case zhHK = "zh-HK"
+    case sk = "sk"
+    case uk = "uk"
 
     var id: String { rawValue }
+
+    /// How this language agrees a counted noun with the number in front of
+    /// it. Three of the fifteen put a distinct form between one and many, and
+    /// they disagree on which numbers take it, so the count itself is not
+    /// enough to pick a form without knowing the language's rule.
+    var countAgreement: CountAgreement {
+        switch self {
+        case .ru, .uk: return .byLastDigits
+        case .sk: return .byWholeNumber
+        default: return .oneAndMany
+        }
+    }
 
     /// The language's own name, shown in its own script, the way macOS lists them.
     var displayName: String {
@@ -39,7 +66,17 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         case .zhHans: return "简体中文"
         case .zhHK: return "繁體中文（香港）"
         case .zhTW: return "繁體中文（台灣）"
+        case .sk: return "Slovenčina"
+        case .uk: return "Українська"
         }
+    }
+
+    func formattingLocale(system: Locale = .autoupdatingCurrent) -> Locale {
+        var components = Locale.Components(identifier: rawValue)
+        components.region = system.region
+        components.hourCycle = system.hourCycle
+        components.firstDayOfWeek = system.firstDayOfWeek
+        return Locale(components: components)
     }
 
     static var systemDefault: AppLanguage {
@@ -57,6 +94,7 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         let matches: [(String, AppLanguage)] = [
             ("pt", .ptBR), ("tr", .tr), ("ru", .ru), ("es", .es), ("de", .de), ("fr", .fr),
             ("it", .it), ("ja", .ja), ("ko", .ko), ("zh", .zhHans),
+            ("sk", .sk), ("uk", .uk),
         ]
         for (prefix, language) in matches where preferred.hasPrefix(prefix) { return language }
         return .enUS
@@ -73,21 +111,7 @@ final class L10n: ObservableObject {
     }
 
     var s: Strings {
-        switch language {
-        case .enUS: return .enUS
-        case .ptBR: return .ptBR
-        case .tr: return .tr
-        case .ru: return .ru
-        case .es: return .es
-        case .de: return .de
-        case .fr: return .fr
-        case .it: return .it
-        case .ja: return .ja
-        case .ko: return .ko
-        case .zhHans: return .zhHans
-        case .zhHK: return .zhHK
-        case .zhTW: return .zhTW
-        }
+        Strings.localized(language)
     }
 
     private init() {
@@ -103,6 +127,26 @@ final class L10n: ObservableObject {
 /// Flat, compiler-checked catalog of UI strings. Adding a field here forces
 /// both translations to be provided.
 struct Strings {
+    static func localized(_ language: AppLanguage) -> Strings {
+        switch language {
+        case .enUS: return .enUS
+        case .ptBR: return .ptBR
+        case .tr: return .tr
+        case .ru: return .ru
+        case .es: return .es
+        case .de: return .de
+        case .fr: return .fr
+        case .it: return .it
+        case .ja: return .ja
+        case .ko: return .ko
+        case .zhHans: return .zhHans
+        case .zhHK: return .zhHK
+        case .zhTW: return .zhTW
+        case .sk: return .sk
+        case .uk: return .uk
+        }
+    }
+
     // MARK: Menu bar & context menu
     let statusIdleTooltip: String
     let statusActiveUntil: String      // + time
@@ -470,6 +514,7 @@ struct Strings {
     let urlCleanerCustomTitle: String
     let urlCleanerCustomPlaceholder: String
     let urlCleanerCustomCaption: String
+    let urlCleanerCustomSaveButton: String
     let switcherSearchPin: String
     let switcherSearchPinCaption: String
     let invertVerticalScroll: String
@@ -1085,6 +1130,213 @@ struct Strings {
     let highlightsConfigure: String
     let highlightsTry: String
     let highlightsSeeAll: String
+
+    // MARK: Catalog additions (3.4.1)
+    let actionClear: String
+    let actionRemove: String
+    let actionBack: String
+    let actionSearch: String
+    let actionMute: String
+    let actionUnmute: String
+    let actionPlay: String
+    let actionPause: String
+    let keepAwakeUntilLabel: String
+    let keepAwakeUntilStart: String
+    let minimalWindowPreviews: String
+    let minimalWindowPreviewsCaption: String
+    let advancedClearFailed: String
+    let advancedUninstallFailedTitle: String
+    let advancedUninstallFailedBody: String
+    let dimScreenOnLidCloseTitle: String
+    let dimScreenOnLidCloseCaption: String
+    let middleClickNoTrackpad: String
+    let micMutePartialHUD: String
+    let micUnmutePartialHUD: String
+    let switcherTakeOverSystemShortcuts: String
+    let switcherTakeOverSystemShortcutsCaption: String
+    let switcherInstantSelection: String
+    let switcherInstantSelectionCaption: String
+    let switcherOtherDesktop: String
+    let dockPreviewCurrentSpaceOnlyCaption: String
+    let dockPreviewBackgroundOpacityGlassCaption: String
+    let dockPreviewQuitAppOnClose: String
+    let dockPreviewQuitAppOnCloseCaption: String
+    let dockPreviewKeepDockVisible: String
+    let dockPreviewKeepDockVisibleCaption: String
+    let dockPreviewOrderByCreation: String
+    let dockPreviewOrderByCreationCaption: String
+    let cutPasteShowHUD: String
+    let cutPasteShowHUDCaption: String
+    let autoQuitOngoingWorkNote: String
+    let uninstallerConfirmationExpired: String
+    let uninstallerCommandBarBrowseTitle: String
+    let uninstallerCommandBarToggle: String
+    let uninstallerCommandBarCaption: String
+    let uninstallerCommandBarFinderTitle: String
+    let uninstallerSelectionUnavailable: String
+    let homebrewDependencies: String
+    let homebrewGroupDependencies: String
+    let homebrewOrphans: String
+    let homebrewOrphansNote: String
+    let homebrewDependencyUpdatesFormat: String
+    let mediaCompressionLowDescription: String
+    let mediaCompressionMediumDescription: String
+    let mediaCompressionHighDescription: String
+    let shelfDropZoneCaptionTopCenter: String
+    let shelfDockPlacement: String
+    let shelfDockMenuBar: String
+    let shelfDockTopCenter: String
+    let shelfDockIslandNote: String
+    let shelfTooltipItemsFormat: String
+    let shelfTooltipItemsFew: String
+    let shelfTooltipImageSingular: String
+    let shelfTooltipImageFew: String
+    let shelfTooltipImagePlural: String
+    let shelfTooltipFileSingular: String
+    let shelfTooltipFileFew: String
+    let shelfTooltipFilePlural: String
+    let shelfTooltipNoteSingular: String
+    let shelfTooltipNoteFew: String
+    let shelfTooltipNotePlural: String
+    let shelfTooltipLinkSingular: String
+    let shelfTooltipLinkFew: String
+    let shelfTooltipLinkPlural: String
+    let shelfActionShare: String
+    let shelfActionPin: String
+    let shelfActionUnpin: String
+    let mixerAirPlayChooseSpeaker: String
+    let preciseVolumeRollerEnable: String
+    let preciseVolumeRollerCaption: String
+    let preciseVolumeRollerTapFailed: String
+    let mixerVisibleApps: String
+    let mixerAllShown: String
+    let mixerHiddenCountLabel: String
+    let mixerHideFromList: String
+    let audioPrioritySection: String
+    let audioPriorityOutputEnable: String
+    let audioPriorityInputEnable: String
+    let audioPriorityOutputList: String
+    let audioPriorityInputList: String
+    let audioPriorityMoveUp: String
+    let audioPriorityMoveDown: String
+    let audioPriorityUnavailable: String
+    let audioPriorityCurrent: String
+    let audioPriorityCaption: String
+    let includeBetaUpdatesToggle: String
+    let includeBetaUpdatesCaption: String
+    let betaBadgeLabel: String
+    let secureInputTitle: String
+    let secureInputHeldFormat: String
+    let secureInputUnattributed: String
+    let secureInputUnidentified: String
+    let secureInputRevealFormat: String
+    let reviewHighlights: String
+    let networkIPAddresses: String
+    let networkLocalIP: String
+    let diskMenuBarStyleLabel: String
+    let diskMenuBarUsedPercentage: String
+    let diskMenuBarAvailableSpace: String
+    let diskMenuBarUsedSpace: String
+    let diskAvailable: String
+    let diskPurgeable: String
+    let disclosureExpanded: String
+    let disclosureCollapsed: String
+    let cleaningKeepScreenVisibleToggle: String
+    let cleaningKeepScreenVisibleCaption: String
+    let cleaningStartNow: String
+    let supportIntroStarMessage: String
+    let supportIntroStarHint: String
+    let discordIntroTitle: String
+    let discordIntroMessage: String
+    let discordIntroJoinButton: String
+    let menuBarIconDisallowedBody: String
+    let shortcutPressKeys: String
+    let shortcutEscapeHint: String
+    let shortcutDeleteHint: String
+    let shortcutNotCaptured: String
+    let shortcutTakeOverOffer: String
+    let shortcutTakeOverAction: String
+    let shortcutTakeOverCaption: String
+    let shortcutTakeOverDismiss: String
+    let musicBlockUnavailable: String
+    let musicBlockReplacementBlocked: String
+    let musicBlockPlayReplacement: String
+    let cleanerCatScreenshots: String
+    let cleanerScreenshotsCaptionFormat: String
+    let cleanerScreenshotsSettingCaption: String
+    let cleanerScreenshotsAfterFormat: String
+    let launchAtLoginNeedsApproval: String
+    let ocrRemoveLineBreaksToggle: String
+    let ocrRemoveLineBreaksCaption: String
+    let highlightsTitleClipboardRedesign: String
+    let highlightsTitleWindowLayout: String
+    let highlightsTitleQuitProtection: String
+    let highlightsTitleRecorderBlur: String
+    let highlightsCaptionSnippetLibrary: String
+    let highlightsCaptionCapturePalette: String
+    let highlightsCaptionClipboardRedesign: String
+    let highlightsCaptionWindowLayout: String
+    let highlightsCaptionQuitProtection: String
+    let highlightsCaptionRecorderBlur: String
+    let switcherCurrentSpaceOnly: String
+    let switcherCurrentSpaceOnlyCaption: String
+    let shelfFileMissing: String
+    let previewSizeSmall: String
+    let mixerSoundEffectsOutputTitle: String
+    let mixerSoundEffectsOutputTooltip: String
+    let monitorOpenActivityMonitor: String
+    let urlCleanerRulesTitle: String
+    let urlCleanerRulesCaption: String
+    let urlCleanerRulesCoverageCaption: String
+    let urlCleanerRulesAllSites: String
+    let urlCleanerRulesCountSingular: String
+    let urlCleanerRulesCountPluralFormat: String
+    let urlCleanerRulesAddSite: String
+    let urlCleanerRulesParameterPlaceholder: String
+    let urlCleanerRulesMatchCaption: String
+    let urlCleanerRulesAddButton: String
+    let urlCleanerRulesRemoveButton: String
+    let urlCleanerRulesRemoveSiteButton: String
+    let urlCleanerRulesRestoreSiteButton: String
+    let urlCleanerRemovedFormat: String
+    let scrollHorizontalName: String
+    let scrollHorizontalModifierLabel: String
+    let scrollHorizontalCommandKey: String
+    let scrollHorizontalCaption: String
+    let uninstallerHomebrewPackageFormat: String
+    let shelfEdgeToggle: String
+    let shelfEdgeCaption: String
+    let focusFollowsMouseName: String
+    let focusFollowsMouseCaption: String
+    let focusFollowsMouseDelay: String
+    let focusFollowsMouseRaise: String
+    let focusFollowsMouseWaitForStop: String
+    let switcherMinimizedPlacementLabel: String
+    let switcherTreatHiddenAppsLikeMinimized: String
+    let switcherMinimizedPlacementNormal: String
+    let switcherMinimizedPlacementEnd: String
+    let switcherMinimizedPlacementHidden: String
+    let switcherShowFullscreenWindows: String
+    let switcherScreenPlacementLabel: String
+    let switcherScreenPlacementPointer: String
+    let switcherScreenPlacementMenuBar: String
+    let switcherScreenPlacementActiveWindow: String
+    let switcherScreenPlacementCaption: String
+    let switcherCurrentDisplayOnly: String
+    let switcherCurrentDisplayOnlyCaption: String
+    let smoothScrollResponseLabel: String
+    let smoothScrollCoastLabel: String
+    let mouseAccelerationName: String
+    let mouseAccelerationCaption: String
+    let linearScrollName: String
+    let linearScrollCaption: String
+    let linearScrollLinesLabel: String
+    let shelfClearOnClose: String
+    let shelfClearOnCloseCaption: String
+    let shelfShortcutFinderSelection: String
+    let shelfShortcutFinderSelectionCaption: String
+    let spacesOrderName: String
+    let spacesOrderCaption: String
 }
 
 // MARK: - Português (Brasil)
@@ -1437,6 +1689,7 @@ extension Strings {
         urlCleanerCustomTitle: "Mais nomes para remover",
         urlCleanerCustomPlaceholder: "ref, origem",
         urlCleanerCustomCaption: "Separe os nomes dos parâmetros com vírgulas. Eles serão removidos de todos os links.",
+        urlCleanerCustomSaveButton: "Salvar",
         switcherSearchPin: "Fixar busca com S",
         switcherSearchPinCaption: "S inicia uma busca e fixa o alternador aberto, assim digitar não produz mais caracteres especiais quando o atalho usa ⌥, e uma busca que comece com Q ou W não fecha a janela nem encerra o app por engano.",
         invertVerticalScroll: "Inverter rolagem vertical",
@@ -2025,7 +2278,212 @@ extension Strings {
         highlightsCaptionScreenshot: "A captura de tela ganhou uma lupa de pixels e leitura de QR codes",
         highlightsConfigure: "Configurar",
         highlightsTry: "Experimentar",
-        highlightsSeeAll: "Ver todas as mudanças"
+        highlightsSeeAll: "Ver todas as mudanças",
+        actionClear: "Limpar",
+        actionRemove: "Remover",
+        actionBack: "Voltar",
+        actionSearch: "Buscar",
+        actionMute: "Silenciar",
+        actionUnmute: "Reativar som",
+        actionPlay: "Reproduzir",
+        actionPause: "Pausar",
+        keepAwakeUntilLabel: "Até",
+        keepAwakeUntilStart: "Iniciar",
+        minimalWindowPreviews: "Prévias minimalistas",
+        minimalWindowPreviewsCaption: "Oculta títulos, botões e detalhes decorativos nas prévias do Dock e do alternador. A seleção continua visível.",
+        advancedClearFailed: "Não foi possível remover algumas permissões ou a regra de tampa fechada. Tente de novo e permita o pedido de senha, se ele aparecer.",
+        advancedUninstallFailedTitle: "A desinstalação parou",
+        advancedUninstallFailedBody: "O RyzenStatus não conseguiu restaurar uma configuração do sistema que ele mudou: repouso, velocidade das ventoinhas, aceleração do mouse ou ordem dos Espaços. Nada foi removido. Tente de novo e permita o pedido de senha, se ele aparecer.",
+        dimScreenOnLidCloseTitle: "Escurecer a tela completamente",
+        dimScreenOnLidCloseCaption: "Escurece a tela quando a tampa fecha e restaura o brilho quando ela abre.",
+        middleClickNoTrackpad: "Não é possível ler os toques no trackpad. Conecte um trackpad compatível.",
+        micMutePartialHUD: "Alguns microfones não puderam ser silenciados",
+        micUnmutePartialHUD: "Alguns microfones continuam silenciados",
+        switcherTakeOverSystemShortcuts: "Substituir ⌘Tab e ⌘` do macOS",
+        switcherTakeOverSystemShortcutsCaption: "Desativa os atalhos correspondentes de apps e janelas do macOS somente enquanto o alternador do RyzenStatus estiver ativo. Todos os apps abertos continuam acessíveis.",
+        switcherInstantSelection: "Seleção instantânea",
+        switcherInstantSelectionCaption: "Move o destaque e a rolagem imediatamente ao navegar por apps e janelas.",
+        switcherOtherDesktop: "Outra Mesa",
+        dockPreviewCurrentSpaceOnlyCaption: "Quando desligado, mostra janelas de todas as mesas. Escolher uma janela em outra mesa leva você até ela.",
+        dockPreviewBackgroundOpacityGlassCaption: "Com o Liquid Glass ligado, a transparência do painel é definida em Ajustes do Sistema > Aparência.",
+        dockPreviewQuitAppOnClose: "Encerrar o app com o botão ×",
+        dockPreviewQuitAppOnCloseCaption: "No Dock Preview, × encerra o app inteiro em vez de fechar apenas aquela janela.",
+        dockPreviewKeepDockVisible: "Manter Dock visível (experimental)",
+        dockPreviewKeepDockVisibleCaption: "Suspende o ocultamento automático enquanto o preview está aberto e restaura ao sair. Pode reajustar janelas. Se o app for interrompido, reabra-o para restaurar o Dock.",
+        dockPreviewOrderByCreation: "Ordenar janelas por criação",
+        dockPreviewOrderByCreationCaption: "Mostra primeiro as janelas mais antigas em vez das usadas mais recentemente.",
+        cutPasteShowHUD: "Mostrar painel flutuante",
+        cutPasteShowHUDCaption: "Exibe um indicador com os arquivos recortados enquanto o Finder estiver ativo.",
+        autoQuitOngoingWorkNote: "Alguns apps fecham a última janela e continuam trabalhando, como um gravador de tela depois que a captura começa. Esses também são encerrados, a menos que estejam na lista de exceções.",
+        uninstallerConfirmationExpired: "Esta confirmação não é mais válida. Revise os itens atuais e confirme de novo.",
+        uninstallerCommandBarBrowseTitle: "Desinstalar aplicativo",
+        uninstallerCommandBarToggle: "Mostrar na Barra de Comandos",
+        uninstallerCommandBarCaption: "Permite escolher e desinstalar aplicativos pela Barra de Comandos.",
+        uninstallerCommandBarFinderTitle: "Desinstalar aplicativo selecionado no Finder",
+        uninstallerSelectionUnavailable: "Selecione um aplicativo que possa ser removido no Finder ou escolha outro na lista.",
+        homebrewDependencies: "Dependências",
+        homebrewGroupDependencies: "Agrupar dependências",
+        homebrewOrphans: "Não são mais necessárias",
+        homebrewOrphansNote: "Instaladas como dependências, mas nenhum pacote instalado precisa mais delas.",
+        homebrewDependencyUpdatesFormat: "Atualizações de dependências: %d",
+        mediaCompressionLowDescription: "Alta qualidade, arquivo grande",
+        mediaCompressionMediumDescription: "Equilíbrio entre qualidade e tamanho do arquivo",
+        mediaCompressionHighDescription: "Baixa qualidade, arquivo pequeno",
+        shelfDropZoneCaptionTopCenter: "Ao arrastar um arquivo, a área aparece como um selo no topo, no centro da tela. O que você soltar fica guardado ali, num selo que você abre com um clique e que some quando a área fica vazia.",
+        shelfDockPlacement: "Posição",
+        shelfDockMenuBar: "Embaixo do ícone da barra de menus",
+        shelfDockTopCenter: "No topo, no centro da tela",
+        shelfDockIslandNote: "Enquanto a Dynamic Island está ligada, o centro do topo é dela.",
+        shelfTooltipItemsFormat: "%d itens",
+        shelfTooltipItemsFew: "%d itens",
+        shelfTooltipImageSingular: "%d imagem",
+        shelfTooltipImageFew: "%d imagens",
+        shelfTooltipImagePlural: "%d imagens",
+        shelfTooltipFileSingular: "%d arquivo",
+        shelfTooltipFileFew: "%d arquivos",
+        shelfTooltipFilePlural: "%d arquivos",
+        shelfTooltipNoteSingular: "%d nota",
+        shelfTooltipNoteFew: "%d notas",
+        shelfTooltipNotePlural: "%d notas",
+        shelfTooltipLinkSingular: "%d link",
+        shelfTooltipLinkFew: "%d links",
+        shelfTooltipLinkPlural: "%d links",
+        shelfActionShare: "Compartilhar",
+        shelfActionPin: "Fixar",
+        shelfActionUnpin: "Desafixar",
+        mixerAirPlayChooseSpeaker: "Escolher alto-falante AirPlay…",
+        preciseVolumeRollerEnable: "Volume mais preciso no controle",
+        preciseVolumeRollerCaption: "Transforma roletes e teclas de volume em passos menores.",
+        preciseVolumeRollerTapFailed: "Não foi possível ouvir as teclas de volume.",
+        mixerVisibleApps: "Apps na lista",
+        mixerAllShown: "Todos",
+        mixerHiddenCountLabel: "Escondidos",
+        mixerHideFromList: "Esconder da lista",
+        audioPrioritySection: "Prioridade dos dispositivos de áudio",
+        audioPriorityOutputEnable: "Trocar automaticamente para a saída de áudio com maior prioridade",
+        audioPriorityInputEnable: "Trocar automaticamente para o microfone de maior prioridade",
+        audioPriorityOutputList: "Prioridade das saídas de áudio",
+        audioPriorityInputList: "Prioridade dos microfones",
+        audioPriorityMoveUp: "Mover para cima",
+        audioPriorityMoveDown: "Mover para baixo",
+        audioPriorityUnavailable: "Indisponível",
+        audioPriorityCurrent: "Em uso",
+        audioPriorityCaption: "Os dispositivos são selecionados por ordem de prioridade. Quando um dispositivo de maior prioridade é conectado, ele passa a ser usado. Quando o dispositivo ativo é desconectado, o próximo disponível é selecionado.",
+        includeBetaUpdatesToggle: "Receber atualizações beta",
+        includeBetaUpdatesCaption: "Versões beta incluem novidades em desenvolvimento e podem apresentar instabilidades ou comportamentos incompletos.",
+        betaBadgeLabel: "Beta",
+        secureInputTitle: "A entrada segura está ativa",
+        secureInputHeldFormat: "%@ está mantendo-a ativa, então o RyzenStatus não consegue digitar por você. Saia do campo de senha do app, ou encerre-o, para liberá-la.",
+        secureInputUnattributed: "Nenhum app em execução a reivindica. Encerre a sessão e entre novamente para limpá-la.",
+        secureInputUnidentified: "Não foi possível identificar o app que a está mantendo ativa, então o RyzenStatus não consegue digitar por você.",
+        secureInputRevealFormat: "Mostrar %@",
+        reviewHighlights: "Rever novidades",
+        networkIPAddresses: "Endereços IP",
+        networkLocalIP: "IPv4 local",
+        diskMenuBarStyleLabel: "Exibição do disco",
+        diskMenuBarUsedPercentage: "Porcentagem usada",
+        diskMenuBarAvailableSpace: "Espaço disponível",
+        diskMenuBarUsedSpace: "Espaço usado",
+        diskAvailable: "disponível",
+        diskPurgeable: "purgável",
+        disclosureExpanded: "Expandido",
+        disclosureCollapsed: "Recolhido",
+        cleaningKeepScreenVisibleToggle: "Manter a tela visível",
+        cleaningKeepScreenVisibleCaption: "Exibe um indicador discreto no canto da tela em vez de escurecer o conteúdo.",
+        cleaningStartNow: "Bloquear teclado agora",
+        supportIntroStarMessage: "Apoio financeiro nunca é esperado. Dar uma estrela no GitHub ajuda mais pessoas a encontrar o RyzenStatus e faz uma diferença enorme no desenvolvimento.",
+        supportIntroStarHint: "Uma estrela no GitHub também ajuda mais pessoas a conhecer o RyzenStatus e significa muito.",
+        discordIntroTitle: "A comunidade do RyzenStatus no Discord está começando",
+        discordIntroMessage: "A comunidade do RyzenStatus é nova e ainda está em desenvolvimento. Entre desde o começo para conhecer outros usuários e ajudar a construir um espaço acolhedor em torno do app.",
+        discordIntroJoinButton: "Entrar na comunidade no Discord",
+        menuBarIconDisallowedBody: "O macOS está impedindo o RyzenStatus de aparecer na barra de menus. Abra Ajustes do Sistema > Barra de Menus, encontre o RyzenStatus na lista de apps e ative “Permitir na Barra de Menus” (Allow in the Menu Bar). O ícone aparece assim que a opção é ligada.",
+        shortcutPressKeys: "Pressione",
+        shortcutEscapeHint: "Esc cancela.",
+        shortcutDeleteHint: "Delete remove.",
+        shortcutNotCaptured: "Nada foi capturado. O macOS ou outro app já usa essa combinação. Tente outra.",
+        shortcutTakeOverOffer: "O macOS usa %@ em um atalho próprio.",
+        shortcutTakeOverAction: "Assumir enquanto o RyzenStatus estiver aberto",
+        shortcutTakeOverCaption: "O macOS recupera a tecla sempre que o RyzenStatus não estiver aberto ou este recurso estiver desligado.",
+        shortcutTakeOverDismiss: "Não assumir",
+        musicBlockUnavailable: "Esta proteção está indisponível agora. Desligue e ligue a opção para tentar novamente.",
+        musicBlockReplacementBlocked: "O Música e o iTunes são os apps bloqueados, então não podem abrir no lugar. Escolha outro app.",
+        musicBlockPlayReplacement: "Reproduzir após abrir o app substituto",
+        cleanerCatScreenshots: "Capturas de tela esquecidas",
+        cleanerScreenshotsCaptionFormat: "Capturas de tela que você não abre há %d dias e que ainda têm o nome e a pasta que o macOS deu. As que você renomeou ou moveu nunca aparecem aqui.",
+        cleanerScreenshotsSettingCaption: "A varredura lista, desmarcadas e com o tamanho total, as capturas de tela que você não abre há esse tempo.",
+        cleanerScreenshotsAfterFormat: "Após %d dias",
+        launchAtLoginNeedsApproval: "O item de login está registrado, mas o macOS ainda precisa da sua aprovação. Nos Ajustes do Sistema, permita que o RyzenStatus abra no login e funcione em segundo plano.",
+        ocrRemoveLineBreaksToggle: "Remover quebras de linha",
+        ocrRemoveLineBreaksCaption: "Remove as quebras de linha para que o texto copiado seja colado como um único parágrafo.",
+        highlightsTitleClipboardRedesign: "Novo visual da área de transferência",
+        highlightsTitleWindowLayout: "Organização de janelas",
+        highlightsTitleQuitProtection: "Proteção de ⌘Q e ⌘W",
+        highlightsTitleRecorderBlur: "Desfoque no gravador de tela",
+        highlightsCaptionSnippetLibrary: "Um menu de snippets com busca digita qualquer snippet direto no cursor",
+        highlightsCaptionCapturePalette: "Um único atalho agora abre uma paleta flutuante para capturas, gravações, texto na tela e cores com ajustes por perto.",
+        highlightsCaptionClipboardRedesign: "O histórico agora abre como uma paleta compacta, com linhas limpas e prévia sob demanda para ler ou editar o item completo.",
+        highlightsCaptionWindowLayout: "Use o anel direcional com atalho e ponteiro para posicionar janelas, ou arraste até as bordas da tela para encaixar com margens personalizadas.",
+        highlightsCaptionQuitProtection: "Evite fechar aplicativos ou janelas por engano exigindo segurar a tecla, tocar duas vezes ou usar um atalho extra, ajustável por aplicativo.",
+        highlightsCaptionRecorderBlur: "Oculte dados confidenciais, senhas e informações privadas em qualquer trecho do seu vídeo gravado antes de salvar ou exportar.",
+        switcherCurrentSpaceOnly: "Mostrar só a Mesa atual",
+        switcherCurrentSpaceOnlyCaption: "Mostra no alternador apenas as janelas da Mesa em que você está. Escolher uma janela nunca leva você para outra Mesa.",
+        shelfFileMissing: "O arquivo não existe mais",
+        previewSizeSmall: "Pequeno",
+        mixerSoundEffectsOutputTitle: "Sons do sistema",
+        mixerSoundEffectsOutputTooltip: "Escolher onde alertas e efeitos sonoros tocam",
+        monitorOpenActivityMonitor: "Abrir o Monitor de Atividade",
+        urlCleanerRulesTitle: "Regras de limpeza",
+        urlCleanerRulesCaption: "Um site anexa estes parâmetros aos próprios links de compartilhamento para rastrear de onde o link veio. Ligado, o nome é removido ao limpar um link; desligado, ele permanece. Os nomes que você adicionar podem ser excluídos.",
+        urlCleanerRulesCoverageCaption: "A lista cobre os diferentes caminhos de compartilhamento de um site (a página, o app, uma sala ao vivo), por isso é longa; um link real costuma carregar apenas dois a quatro deles.",
+        urlCleanerRulesAllSites: "Todos os sites",
+        urlCleanerRulesCountSingular: "1 parâmetro",
+        urlCleanerRulesCountPluralFormat: "%d parâmetros",
+        urlCleanerRulesAddSite: "Adicionar site",
+        urlCleanerRulesParameterPlaceholder: "Nome do parâmetro",
+        urlCleanerRulesMatchCaption: "Escreva o nome à esquerda do = , como utm_source. Um nome que corresponde tira aquele parâmetro do link e deixa o resto como está.",
+        urlCleanerRulesAddButton: "Adicionar",
+        urlCleanerRulesRemoveButton: "Excluir nome",
+        urlCleanerRulesRemoveSiteButton: "Desativar todas as regras deste site",
+        urlCleanerRulesRestoreSiteButton: "Ativar todas as regras deste site",
+        urlCleanerRemovedFormat: "Removidos %@",
+        scrollHorizontalName: "Rolar na horizontal segurando uma tecla",
+        scrollHorizontalModifierLabel: "Tecla modificadora",
+        scrollHorizontalCommandKey: "Command",
+        scrollHorizontalCaption: "Mantenha apenas a tecla escolhida pressionada para rolar a roda vertical do mouse na horizontal. Outras combinações de teclas não são alteradas.",
+        uninstallerHomebrewPackageFormat: "%@ também será removido do Homebrew.",
+        shelfEdgeToggle: "Abrir perto de uma borda da tela",
+        shelfEdgeCaption: "Ao arrastar um arquivo para perto da borda da tela, a área espia para dentro. Solte ali, ou puxe de volta e ela recua.",
+        focusFollowsMouseName: "Foco ao passar o mouse",
+        focusFollowsMouseCaption: "Coloca em foco a janela sob o ponteiro.",
+        focusFollowsMouseDelay: "Atraso ao passar o mouse",
+        focusFollowsMouseRaise: "Trazer a janela para frente",
+        focusFollowsMouseWaitForStop: "Esperar o ponteiro parar",
+        switcherMinimizedPlacementLabel: "Janelas minimizadas",
+        switcherTreatHiddenAppsLikeMinimized: "Tratar apps ocultos como janelas minimizadas",
+        switcherMinimizedPlacementNormal: "Ordem normal",
+        switcherMinimizedPlacementEnd: "Colocar no final",
+        switcherMinimizedPlacementHidden: "Ocultar",
+        switcherShowFullscreenWindows: "Mostrar janelas em tela cheia",
+        switcherScreenPlacementLabel: "Mostrar em",
+        switcherScreenPlacementPointer: "Tela com o ponteiro",
+        switcherScreenPlacementMenuBar: "Tela com a barra de menus",
+        switcherScreenPlacementActiveWindow: "Tela com a janela ativa",
+        switcherScreenPlacementCaption: "Em qual tela o alternador abre quando há mais de uma conectada.",
+        switcherCurrentDisplayOnly: "Mostrar só a tela atual",
+        switcherCurrentDisplayOnlyCaption: "Mostra apenas as janelas da tela sob o cursor. Se essa tela não tiver janelas, o alternador não abre.",
+        smoothScrollResponseLabel: "Resposta",
+        smoothScrollCoastLabel: "Inércia",
+        mouseAccelerationName: "Desativar aceleração do mouse",
+        mouseAccelerationCaption: "Remove a aceleração do cursor para os mouses conectados. A configuração anterior volta ao desligar esta opção ou sair do RyzenStatus.",
+        linearScrollName: "Rolagem linear",
+        linearScrollCaption: "Cada passo da rodinha do mouse rola a mesma distância, não importa a velocidade do giro. O trackpad não muda.",
+        linearScrollLinesLabel: "Linhas por passo",
+        shelfClearOnClose: "Limpar ao fechar",
+        shelfClearOnCloseCaption: "Esvazia a área somente quando você clica no botão de fechar. Ocultar automaticamente e encolher preservam os itens.",
+        shelfShortcutFinderSelection: "Adicionar a seleção do Finder com o atalho",
+        shelfShortcutFinderSelectionCaption: "Com o Finder em primeiro plano, o atalho abre a área temporária já com os arquivos selecionados. Sem seleção, ela abre como sempre.",
+        spacesOrderName: "Manter os Espaços em ordem fixa",
+        spacesOrderCaption: "Impede que o macOS reorganize os Espaços pelo uso mais recente, para que fiquem na ordem que você definiu. A configuração anterior volta ao desligar esta opção. O Dock pode reiniciar uma vez para aplicar a mudança.",
     )
 }
 
@@ -2379,6 +2837,7 @@ extension Strings {
         urlCleanerCustomTitle: "More names to remove",
         urlCleanerCustomPlaceholder: "ref, source",
         urlCleanerCustomCaption: "Separate parameter names with commas. They are removed from every link.",
+        urlCleanerCustomSaveButton: "Save",
         switcherSearchPin: "Pin search with S",
         switcherSearchPinCaption: "S starts a search and pins the switcher open, so typing no longer produces special characters when your shortcut uses ⌥, and a search starting with Q or W no longer closes the window or quits the app by mistake.",
         invertVerticalScroll: "Invert vertical scrolling",
@@ -2968,6 +3427,211 @@ extension Strings {
         highlightsCaptionScreenshot: "The screenshot tool gained a pixel loupe and QR code reading",
         highlightsConfigure: "Set up",
         highlightsTry: "Try it",
-        highlightsSeeAll: "See all changes"
+        highlightsSeeAll: "See all changes",
+        actionClear: "Clear",
+        actionRemove: "Remove",
+        actionBack: "Back",
+        actionSearch: "Search",
+        actionMute: "Mute",
+        actionUnmute: "Unmute",
+        actionPlay: "Play",
+        actionPause: "Pause",
+        keepAwakeUntilLabel: "Until",
+        keepAwakeUntilStart: "Start",
+        minimalWindowPreviews: "Minimal previews",
+        minimalWindowPreviewsCaption: "Hide titles, buttons and decorative details in Dock and switcher previews. The selection stays visible.",
+        advancedClearFailed: "Some permissions or the closed-lid rule could not be removed. Try again and allow the password request if it appears.",
+        advancedUninstallFailedTitle: "Uninstall stopped",
+        advancedUninstallFailedBody: "RyzenStatus could not put back a system setting it changed: sleep, fan speed, mouse acceleration or Space order. Nothing was removed. Try again and allow the password request if it appears.",
+        dimScreenOnLidCloseTitle: "Dim the display to zero",
+        dimScreenOnLidCloseCaption: "Dims the display when the lid closes and brings the brightness back when it opens.",
+        middleClickNoTrackpad: "Can’t read trackpad touches. Connect a supported trackpad.",
+        micMutePartialHUD: "Some microphones could not be muted",
+        micUnmutePartialHUD: "Some microphones are still muted",
+        switcherTakeOverSystemShortcuts: "Replace macOS ⌘Tab and ⌘`",
+        switcherTakeOverSystemShortcutsCaption: "Disables the matching macOS app and window shortcuts only while RyzenStatus’s switcher is active. All running apps stay reachable.",
+        switcherInstantSelection: "Instant selection",
+        switcherInstantSelectionCaption: "Moves the highlight and scroll position immediately as you browse apps and windows.",
+        switcherOtherDesktop: "Other desktop",
+        dockPreviewCurrentSpaceOnlyCaption: "When off, shows windows from all desktops. Choosing a window on another desktop takes you there.",
+        dockPreviewBackgroundOpacityGlassCaption: "Liquid Glass is on, so the panel’s transparency is set in System Settings > Appearance.",
+        dockPreviewQuitAppOnClose: "Quit the app with the × button",
+        dockPreviewQuitAppOnCloseCaption: "In Dock Preview, × quits the whole app instead of closing only that window.",
+        dockPreviewKeepDockVisible: "Keep Dock visible (experimental)",
+        dockPreviewKeepDockVisibleCaption: "Pauses auto-hide while the preview is open and restores it when you leave. May resize windows. If the app is interrupted, reopen it to restore the Dock.",
+        dockPreviewOrderByCreation: "Order windows by creation time",
+        dockPreviewOrderByCreationCaption: "Show older windows first instead of the ones you used most recently.",
+        cutPasteShowHUD: "Show floating panel",
+        cutPasteShowHUDCaption: "Display a floating indicator with the cut files while Finder is active.",
+        autoQuitOngoingWorkNote: "Some apps close their last window while they keep working, such as a screen recorder once capture starts. Those are quit too, unless they are on the Exceptions list.",
+        uninstallerConfirmationExpired: "This confirmation is no longer valid. Review the current items and confirm again.",
+        uninstallerCommandBarBrowseTitle: "Uninstall Application",
+        uninstallerCommandBarToggle: "Show in Command Bar",
+        uninstallerCommandBarCaption: "Choose and uninstall apps in the Command Bar.",
+        uninstallerCommandBarFinderTitle: "Uninstall app selected in Finder",
+        uninstallerSelectionUnavailable: "Select an app that can be removed in Finder, or choose another from the list.",
+        homebrewDependencies: "Dependencies",
+        homebrewGroupDependencies: "Group dependencies",
+        homebrewOrphans: "No longer needed",
+        homebrewOrphansNote: "Installed as dependencies, but no installed package needs them any more.",
+        homebrewDependencyUpdatesFormat: "Dependency updates: %d",
+        mediaCompressionLowDescription: "High quality, large file size",
+        mediaCompressionMediumDescription: "Balanced quality and file size",
+        mediaCompressionHighDescription: "Low quality, small file size",
+        shelfDropZoneCaptionTopCenter: "While you drag a file, the shelf appears as a badge at the top center of the screen. Whatever you drop is kept right there, in a badge you open with a click that goes away once the shelf is empty.",
+        shelfDockPlacement: "Position",
+        shelfDockMenuBar: "Below the menu bar icon",
+        shelfDockTopCenter: "Top center of the screen",
+        shelfDockIslandNote: "The Dynamic Island keeps the top center while it is on.",
+        shelfTooltipItemsFormat: "%d items",
+        shelfTooltipItemsFew: "%d items",
+        shelfTooltipImageSingular: "%d image",
+        shelfTooltipImageFew: "%d images",
+        shelfTooltipImagePlural: "%d images",
+        shelfTooltipFileSingular: "%d file",
+        shelfTooltipFileFew: "%d files",
+        shelfTooltipFilePlural: "%d files",
+        shelfTooltipNoteSingular: "%d note",
+        shelfTooltipNoteFew: "%d notes",
+        shelfTooltipNotePlural: "%d notes",
+        shelfTooltipLinkSingular: "%d link",
+        shelfTooltipLinkFew: "%d links",
+        shelfTooltipLinkPlural: "%d links",
+        shelfActionShare: "Share",
+        shelfActionPin: "Pin",
+        shelfActionUnpin: "Unpin",
+        mixerAirPlayChooseSpeaker: "Choose AirPlay speaker…",
+        preciseVolumeRollerEnable: "Use finer volume steps",
+        preciseVolumeRollerCaption: "Turns volume wheels and keys into smaller system volume steps.",
+        preciseVolumeRollerTapFailed: "Could not listen for volume keys.",
+        mixerVisibleApps: "Apps in the list",
+        mixerAllShown: "All",
+        mixerHiddenCountLabel: "Hidden",
+        mixerHideFromList: "Hide from the list",
+        audioPrioritySection: "Audio priority",
+        audioPriorityOutputEnable: "Automatically switch to the highest-priority output",
+        audioPriorityInputEnable: "Automatically switch to the highest-priority microphone",
+        audioPriorityOutputList: "Output priority",
+        audioPriorityInputList: "Microphone priority",
+        audioPriorityMoveUp: "Move up",
+        audioPriorityMoveDown: "Move down",
+        audioPriorityUnavailable: "Unavailable",
+        audioPriorityCurrent: "Current",
+        audioPriorityCaption: "Devices are selected in priority order. When a higher-priority device connects, it becomes active. When the active one disconnects, the next available takes over.",
+        includeBetaUpdatesToggle: "Receive beta updates",
+        includeBetaUpdatesCaption: "Beta versions include features in development and may contain bugs or incomplete behavior.",
+        betaBadgeLabel: "Beta",
+        secureInputTitle: "Secure input is on",
+        secureInputHeldFormat: "%@ is holding it, so RyzenStatus cannot type for you. Dismiss its password field, or quit it, to release it.",
+        secureInputUnattributed: "No running app claims it. Log out and back in to clear it.",
+        secureInputUnidentified: "The app holding it could not be identified, so RyzenStatus cannot type for you.",
+        secureInputRevealFormat: "Show %@",
+        reviewHighlights: "Review highlights",
+        networkIPAddresses: "IP addresses",
+        networkLocalIP: "Local IPv4",
+        diskMenuBarStyleLabel: "Disk display",
+        diskMenuBarUsedPercentage: "Used percentage",
+        diskMenuBarAvailableSpace: "Available space",
+        diskMenuBarUsedSpace: "Used space",
+        diskAvailable: "available",
+        diskPurgeable: "purgeable",
+        disclosureExpanded: "Expanded",
+        disclosureCollapsed: "Collapsed",
+        cleaningKeepScreenVisibleToggle: "Keep screen visible",
+        cleaningKeepScreenVisibleCaption: "Shows a discreet indicator in the corner of the screen instead of blacking out content.",
+        cleaningStartNow: "Lock keyboard now",
+        supportIntroStarMessage: "Financial support is never expected. A star on GitHub helps more people discover RyzenStatus and makes a real difference to its development.",
+        supportIntroStarHint: "A star on GitHub also helps more people find RyzenStatus, and it means a lot.",
+        discordIntroTitle: "The RyzenStatus Discord community is just getting started",
+        discordIntroMessage: "The RyzenStatus community is new and still being built. Join early to meet other users and help build a welcoming space around the app.",
+        discordIntroJoinButton: "Join the Discord community",
+        menuBarIconDisallowedBody: "macOS is keeping RyzenStatus out of the menu bar. Open System Settings > Menu Bar, find RyzenStatus in the app list and turn on “Allow in the Menu Bar”. The icon appears as soon as the switch is on.",
+        shortcutPressKeys: "Press keys",
+        shortcutEscapeHint: "Escape cancels.",
+        shortcutDeleteHint: "Delete clears.",
+        shortcutNotCaptured: "Nothing was captured. macOS or another app already uses that combination. Try another one.",
+        shortcutTakeOverOffer: "macOS uses %@ for one of its own shortcuts.",
+        shortcutTakeOverAction: "Take over while RyzenStatus runs",
+        shortcutTakeOverCaption: "macOS gets the key back whenever RyzenStatus is not running or this feature is off.",
+        shortcutTakeOverDismiss: "Don’t take over",
+        musicBlockUnavailable: "This protection is unavailable right now. Turn it off and on to try again.",
+        musicBlockReplacementBlocked: "Music and iTunes are the apps being blocked, so they can’t open instead. Choose another app.",
+        musicBlockPlayReplacement: "Play after opening replacement",
+        cleanerCatScreenshots: "Forgotten screenshots",
+        cleanerScreenshotsCaptionFormat: "Screenshots you have not opened in %d days that still have the name and folder macOS gave them. Ones you renamed or moved never show up here.",
+        cleanerScreenshotsSettingCaption: "The scan lists the screenshots you have not opened for this long, unchecked, with their total size.",
+        cleanerScreenshotsAfterFormat: "After %d days",
+        launchAtLoginNeedsApproval: "The login item is registered, but macOS still needs your approval. In System Settings, allow RyzenStatus to open at login and to run in the background.",
+        ocrRemoveLineBreaksToggle: "Remove line breaks",
+        ocrRemoveLineBreaksCaption: "Removes line breaks so copied text pastes as one paragraph.",
+        highlightsTitleClipboardRedesign: "Redesigned clipboard",
+        highlightsTitleWindowLayout: "Window Layout",
+        highlightsTitleQuitProtection: "Quit and close protection",
+        highlightsTitleRecorderBlur: "Recording privacy blur",
+        highlightsCaptionSnippetLibrary: "A searchable snippet menu types any snippet right at your cursor",
+        highlightsCaptionCapturePalette: "One shortcut now opens a floating palette for screenshots, recordings, screen text and colors with nearby controls.",
+        highlightsCaptionClipboardRedesign: "Clipboard history now opens as a compact palette with uncluttered rows and an on-demand preview for reading or editing the full item.",
+        highlightsCaptionWindowLayout: "Position windows with the directional ring using a shortcut and pointer, or drag to screen edges to snap with custom gaps.",
+        highlightsCaptionQuitProtection: "Avoid quitting apps or closing windows by accident with a hold, a double press or an extra modifier, customizable per app.",
+        highlightsCaptionRecorderBlur: "Hide private details, passwords and sensitive areas anywhere across your recorded video before sharing or exporting.",
+        switcherCurrentSpaceOnly: "Show only the current desktop",
+        switcherCurrentSpaceOnlyCaption: "Lists only windows from the desktop you are on. Picking a window never moves you to another desktop.",
+        shelfFileMissing: "The file no longer exists",
+        previewSizeSmall: "Small",
+        mixerSoundEffectsOutputTitle: "System sounds",
+        mixerSoundEffectsOutputTooltip: "Choose where alerts and sound effects play",
+        monitorOpenActivityMonitor: "Open Activity Monitor",
+        urlCleanerRulesTitle: "Cleaning rules",
+        urlCleanerRulesCaption: "A site attaches these parameters to its own share links to track where the link came from. Switched on, a name is removed when a link is cleaned; switched off, it stays. Names you add can be deleted.",
+        urlCleanerRulesCoverageCaption: "The list covers a site’s different share paths (the web page, the app, a live room), which is why it is long; a real link usually carries only two to four of them.",
+        urlCleanerRulesAllSites: "All sites",
+        urlCleanerRulesCountSingular: "1 parameter",
+        urlCleanerRulesCountPluralFormat: "%d parameters",
+        urlCleanerRulesAddSite: "Add a site",
+        urlCleanerRulesParameterPlaceholder: "Parameter name",
+        urlCleanerRulesMatchCaption: "Write the name to the left of the = , like utm_source. A name that matches takes that one parameter out of the link and leaves the rest as it was.",
+        urlCleanerRulesAddButton: "Add",
+        urlCleanerRulesRemoveButton: "Delete name",
+        urlCleanerRulesRemoveSiteButton: "Turn off every rule for this site",
+        urlCleanerRulesRestoreSiteButton: "Turn on every rule for this site",
+        urlCleanerRemovedFormat: "Removed %@",
+        scrollHorizontalName: "Scroll sideways while holding a key",
+        scrollHorizontalModifierLabel: "Modifier key",
+        scrollHorizontalCommandKey: "Command",
+        scrollHorizontalCaption: "Hold only the selected modifier to scroll the vertical mouse wheel horizontally. Other key combinations are unchanged.",
+        uninstallerHomebrewPackageFormat: "%@ will also be removed from Homebrew.",
+        shelfEdgeToggle: "Open near a screen edge",
+        shelfEdgeCaption: "Drag a file toward the screen edge to peek the shelf in. Drop it there, or pull back and it retreats.",
+        focusFollowsMouseName: "Focus follows mouse",
+        focusFollowsMouseCaption: "Focuses the window under the pointer.",
+        focusFollowsMouseDelay: "Hover delay",
+        focusFollowsMouseRaise: "Bring the window to the front",
+        focusFollowsMouseWaitForStop: "Wait for the pointer to stop",
+        switcherMinimizedPlacementLabel: "Minimized windows",
+        switcherTreatHiddenAppsLikeMinimized: "Treat hidden apps like minimized windows",
+        switcherMinimizedPlacementNormal: "Normal ordering",
+        switcherMinimizedPlacementEnd: "Place at end",
+        switcherMinimizedPlacementHidden: "Hide",
+        switcherShowFullscreenWindows: "Show fullscreen windows",
+        switcherScreenPlacementLabel: "Show on",
+        switcherScreenPlacementPointer: "Display with the pointer",
+        switcherScreenPlacementMenuBar: "Display with the menu bar",
+        switcherScreenPlacementActiveWindow: "Display with the active window",
+        switcherScreenPlacementCaption: "Which display the switcher opens on when more than one is connected.",
+        switcherCurrentDisplayOnly: "Show only the current display",
+        switcherCurrentDisplayOnlyCaption: "Lists only windows on the display under the pointer. If that display has no windows, the switcher does not open.",
+        smoothScrollResponseLabel: "Response",
+        smoothScrollCoastLabel: "Coast",
+        mouseAccelerationName: "Disable mouse acceleration",
+        mouseAccelerationCaption: "Removes pointer acceleration for connected mice. Your previous setting returns when this is turned off or RyzenStatus quits.",
+        linearScrollName: "Linear scrolling",
+        linearScrollCaption: "Every notch of the mouse wheel scrolls the same distance, no matter how fast it spins. The trackpad is not affected.",
+        linearScrollLinesLabel: "Lines per step",
+        shelfClearOnClose: "Clear when closed",
+        shelfClearOnCloseCaption: "Empties the shelf only when you click its close button. Automatic hiding and collapsing keep the items.",
+        shelfShortcutFinderSelection: "Add the Finder selection with the shortcut",
+        shelfShortcutFinderSelectionCaption: "With Finder in front, the shortcut opens the shelf with the selected files already in it. With nothing selected, it opens as usual.",
+        spacesOrderName: "Keep Spaces in a fixed order",
+        spacesOrderCaption: "Stops macOS from rearranging Spaces by most recent use, so they stay in the order you set. Your previous setting returns when this is turned off. The Dock may restart once to apply the change.",
     )
 }

@@ -23,6 +23,63 @@ final class CleanerScheduler: ObservableObject {
 
     private init() {}
 
+    // MARK: - The decisions of one automatic pass
+
+    /// A run missed while the Mac was off or asleep does not fire the instant
+    /// the app comes up; it waits a couple of minutes so launch stays snappy.
+    static let missedRunDelay: TimeInterval = 120
+
+    /// The user is in the middle of a manual session: their review wins, and
+    /// the pass tries again later instead of losing the day.
+    static let busyRetryDelay: TimeInterval = 600
+
+    /// What an unattended pass takes out of the scan's pre-checked selection:
+    /// login items and root-owned items can raise an administrator prompt or
+    /// disappear without anyone having looked at them.
+    static let unattendedDeselectedCategories: [CleanerSupport.Category] = [.loginItems]
+
+    /// When the next pass fires: soon after a run the Mac missed, otherwise at
+    /// the next calendar moment. Nil when the schedule is off or the calendar
+    /// has no answer.
+    static func fireDate(now: Date,
+                         lastRun: Date?,
+                         frequency: CleanerSchedule.Frequency,
+                         hour: Int,
+                         minute: Int,
+                         weekday: Int,
+                         calendar: Calendar = .current) -> Date? {
+        guard frequency != .off else { return nil }
+        if CleanerSchedule.missedRun(now: now, lastRun: lastRun, frequency: frequency,
+                                     hour: hour, minute: minute, weekday: weekday,
+                                     calendar: calendar) {
+            return now.addingTimeInterval(missedRunDelay)
+        }
+        return CleanerSchedule.nextFireDate(after: now, frequency: frequency,
+                                            hour: hour, minute: minute,
+                                            weekday: weekday, calendar: calendar)
+    }
+
+    /// What the outcome notification says, or nil when the user asked not to be
+    /// told. A pass that moved nothing and left nothing still says so, so a
+    /// fresh schedule gives proof of life on its first run.
+    static func runSummary(freed: Int64,
+                           failed: Int,
+                           notify: Bool,
+                           strings: Strings,
+                           byteCount: (Int64) -> String) -> (title: String, body: String)? {
+        guard notify else { return nil }
+        var sentences: [String] = []
+        if freed > 0 {
+            sentences.append(String(format: strings.cleanerAutoNotificationFormat,
+                                    byteCount(freed)))
+        }
+        // An unattended pass never escalates, so what it left behind has to be
+        // said or a deferred find reads like one that was never there.
+        if failed > 0 { sentences.append(strings.uninstallerSomeFailed) }
+        if sentences.isEmpty { sentences.append(strings.cleanerNothingFound) }
+        return (strings.cleanerScheduleTitle, sentences.joined(separator: " "))
+    }
+
     func syncWithPreferences() {
         let frequency = CleanerSchedule.Frequency.sanitized(
             UserDefaults.standard.string(forKey: DefaultsKey.cleanerScheduleFrequency) ?? "off")
@@ -85,22 +142,10 @@ final class CleanerScheduler: ObservableObject {
         let lastRunStamp = defaults.double(forKey: DefaultsKey.cleanerLastAutoRun)
         let lastRun = lastRunStamp > 0 ? Date(timeIntervalSince1970: lastRunStamp) : nil
 
-        let fireDate: Date
-        if CleanerSchedule.missedRun(now: Date(), lastRun: lastRun,
-                                     frequency: current.frequency,
-                                     hour: current.hour, minute: current.minute,
-                                     weekday: current.weekday) {
-            // Missed while the Mac was off: run soon, not the instant the
-            // app comes up, so launch stays snappy.
-            fireDate = Date().addingTimeInterval(120)
-        } else if let next = CleanerSchedule.nextFireDate(after: Date(),
-                                                          frequency: current.frequency,
-                                                          hour: current.hour, minute: current.minute,
-                                                          weekday: current.weekday) {
-            fireDate = next
-        } else {
-            return
-        }
+        guard let fireDate = Self.fireDate(now: Date(), lastRun: lastRun,
+                                           frequency: current.frequency,
+                                           hour: current.hour, minute: current.minute,
+                                           weekday: current.weekday) else { return }
         schedule(at: fireDate)
     }
 
@@ -123,8 +168,8 @@ final class CleanerScheduler: ObservableObject {
         let cleaner = JunkCleaner.shared
         guard cleaner.phase == .idle, runObserver == nil else {
             // The user is in the middle of a manual session: their review
-            // wins. Try again in ten minutes instead of losing the day.
-            schedule(at: Date().addingTimeInterval(600))
+            // wins. Try again later instead of losing the day.
+            schedule(at: Date().addingTimeInterval(Self.busyRetryDelay))
             return
         }
 
@@ -140,7 +185,9 @@ final class CleanerScheduler: ObservableObject {
                 case .results:
                     // In automated unsupervised runs, unselect login items and root-owned items
                     // to avoid unexpected admin prompts and accidental removal without user review.
-                    cleaner.setInclude(false, forCategory: .loginItems)
+                    for category in Self.unattendedDeselectedCategories {
+                        cleaner.setInclude(false, forCategory: category)
+                    }
                     if cleaner.selectedCount > 0 {
                         cleaner.cleanSelected(escalate: false)
                     } else {
@@ -156,7 +203,7 @@ final class CleanerScheduler: ObservableObject {
                     break
                 }
             }
-        cleaner.scan()
+        cleaner.scan(attended: false)
     }
 
     private func finishRun(freed: Int64, failed: Int) {
@@ -165,6 +212,11 @@ final class CleanerScheduler: ObservableObject {
         let defaults = UserDefaults.standard
         defaults.set(Date().timeIntervalSince1970, forKey: DefaultsKey.cleanerLastAutoRun)
         defaults.set(freed, forKey: DefaultsKey.cleanerLastAutoFreed)
+        // A pass that freed nothing still reads as a quiet success unless what
+        // it had to leave behind is recorded: the panel and the schedule card
+        // say it beside the last run, which is the only visible trace an
+        // unattended pass leaves.
+        defaults.set(failed, forKey: DefaultsKey.cleanerLastAutoFailed)
         notifyIfWanted(freed: freed, failed: failed)
         scheduleNext()
     }
@@ -174,19 +226,12 @@ final class CleanerScheduler: ObservableObject {
     /// notifications are not allowed). Even a run that found nothing posts,
     /// so a fresh schedule gives proof of life on its first pass.
     private func notifyIfWanted(freed: Int64, failed: Int) {
-        guard UserDefaults.standard.bool(forKey: DefaultsKey.cleanerScheduleNotify) else { return }
-        let strings = L10n.shared.s
-        var sentences: [String] = []
-        if freed > 0 {
-            sentences.append(String(format: strings.cleanerAutoNotificationFormat,
-                                    ByteCountFormatter.string(fromByteCount: freed, countStyle: .file)))
-        }
-        // An unattended pass never escalates, so what it left behind has to
-        // be said or a deferred find reads like one that was never there.
-        if failed > 0 {
-            sentences.append(strings.uninstallerSomeFailed)
-        }
-        if sentences.isEmpty { sentences.append(strings.cleanerNothingFound) }
-        Notifier.post(title: strings.cleanerScheduleTitle, body: sentences.joined(separator: " "))
+        guard let summary = Self.runSummary(
+            freed: freed, failed: failed,
+            notify: UserDefaults.standard.bool(forKey: DefaultsKey.cleanerScheduleNotify),
+            strings: L10n.shared.s,
+            byteCount: { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+        ) else { return }
+        Notifier.post(title: summary.title, body: summary.body)
     }
 }

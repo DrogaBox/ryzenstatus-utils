@@ -5,13 +5,13 @@ import AppKit
 import SwiftUI
 
 enum MetricDetailKind: String, Equatable, Identifiable {
-    case cpu, gpu, memory, network, disk, battery, power
+    case cpu, gpu, memory, network, disk, battery, power, connectedDevices
 
     var id: String { rawValue }
 
     var panelSection: PanelSectionID {
         switch self {
-        case .cpu, .gpu, .memory, .battery:
+        case .cpu, .gpu, .memory, .battery, .connectedDevices:
             return .system
         case .network:
             return .network
@@ -31,6 +31,7 @@ enum MetricDetailKind: String, Equatable, Identifiable {
         case .disk: return "internaldrive"
         case .battery: return "battery.100"
         case .power: return "powerplug.fill"
+        case .connectedDevices: return "cable.connector"
         }
     }
 
@@ -53,6 +54,10 @@ enum MetricDetailKind: String, Equatable, Identifiable {
                                            batteryTemperature: true)
         case .power:
             return SystemMonitorPanelNeeds(power: true)
+        case .connectedDevices:
+            // The list has its own event-driven owner; the AMD monitor
+            // samples nothing extra for it.
+            return SystemMonitorPanelNeeds()
         }
     }
 
@@ -65,6 +70,7 @@ enum MetricDetailKind: String, Equatable, Identifiable {
         case .disk: return s.diskSection
         case .battery: return s.batteryLabel
         case .power: return s.powerSection
+        case .connectedDevices: return FeatureStrings.connectedDevices(L10n.shared.language).title
         }
     }
 
@@ -75,7 +81,7 @@ enum MetricDetailKind: String, Equatable, Identifiable {
         case .memory: return .memory
         case .power: return .energy
         case .network: return .network
-        case .disk, .battery: return nil
+        case .disk, .battery, .connectedDevices: return nil
         }
     }
 }
@@ -97,6 +103,8 @@ extension MenuBarMetric {
             return .battery
         case .batteryTime, .power:
             return .power
+        case .connectedDevices:
+            return .connectedDevices
         }
     }
 }
@@ -105,6 +113,7 @@ struct MetricDetailView: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var monitor = SystemMonitor.shared
     @ObservedObject private var speed = SpeedTest.shared
+    @ObservedObject private var connectedDevices = ConnectedDevicesMonitor.shared
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnit = TemperatureUnit.celsius.rawValue
     let kind: MetricDetailKind
@@ -130,6 +139,9 @@ struct MetricDetailView: View {
             if kind == .network {
                 startNetworkMonitoringIfNeeded()
             }
+            if kind == .connectedDevices {
+                connectedDevices.beginWatching()
+            }
             refreshProcessRows(force: true, delay: 0.2)
         }
         .onChange(of: kind) { oldKind, newKind in
@@ -137,6 +149,11 @@ struct MetricDetailView: View {
                 stopNetworkMonitoringIfNeeded()
             } else if oldKind != .network, newKind == .network {
                 startNetworkMonitoringIfNeeded()
+            }
+            if oldKind == .connectedDevices, newKind != .connectedDevices {
+                connectedDevices.endWatching()
+            } else if oldKind != .connectedDevices, newKind == .connectedDevices {
+                connectedDevices.beginWatching()
             }
             refreshProcessRows(force: true, delay: 0.2)
         }
@@ -146,6 +163,9 @@ struct MetricDetailView: View {
             processRows = []
             processRowsLoading = false
             stopNetworkMonitoringIfNeeded()
+            if kind == .connectedDevices {
+                connectedDevices.endWatching()
+            }
         }
     }
 
@@ -176,75 +196,93 @@ struct MetricDetailView: View {
     private var graph: some View {
         switch kind {
         case .cpu:
-            let freqHist = monitor.snapshot.cpuFreqHistory
-            let cpuHist = monitor.snapshot.cpuHistory
-            if freqHist.count >= 2 && cpuHist.count >= 2 {
-                let maxFreq = max(freqHist.max() ?? 1, 5.0)
-                ZStack {
-                    Sparkline(values: cpuHist, color: summaryColor, maxValue: 1.0, showsZeroBaseline: true)
-                    Sparkline(values: freqHist, color: Color.orange.opacity(0.8), maxValue: maxFreq, fillOpacity: 0.05)
-                }
-                .frame(height: 38)
-            } else {
-                historyGraph(cpuHist, color: summaryColor, maxValue: 1)
+            // System time shows in the second color behind user time.
+            let total = monitor.snapshot.cpuHistory
+            if total.count >= 2 {
+                ColumnHistoryGraph(layers: [total, MenuBarGraphGeometry.userShares(total: total,
+                                                                                   system: monitor.snapshot.cpuSystemHistory)],
+                                   inks: [.secondary, .primary])
+                    .frame(height: 38)
             }
+            frequencyGraph
         case .gpu:
-            historyGraph(monitor.snapshot.gpuHistory, color: summaryColor, maxValue: 1)
+            historyGraph(monitor.snapshot.gpuHistory)
         case .memory:
-            historyGraph(monitor.snapshot.memoryHistory, color: summaryColor, maxValue: 1)
+            // App memory in the main color, the rest of used memory above it.
+            let used = monitor.snapshot.memoryHistory
+            if used.count >= 2 {
+                ColumnHistoryGraph(layers: [used, monitor.snapshot.memoryAppHistory], inks: [.secondary, .primary])
+                    .frame(height: 38)
+            }
         case .network:
             networkGraph
         case .disk:
             diskGraph
         case .battery:
-            historyGraph(monitor.snapshot.batteryHistory, color: summaryColor, maxValue: 1)
+            historyGraph(monitor.snapshot.batteryHistory)
         case .power:
-            historyGraph(monitor.snapshot.systemPowerHistory, color: summaryColor)
+            let history = monitor.snapshot.systemPowerHistory
+            let ceiling = ColumnGraphGeometry.roundedCeiling(peak: history.filter(\.isFinite).max() ?? 0,
+                                                             step: 10, minimum: 10)
+            historyGraph(ColumnGraphGeometry.fractions(history, ceiling: ceiling))
+        case .connectedDevices:
+            EmptyView()
         }
     }
 
+    /// A history already in fractions of its full scale (0...1).
     @ViewBuilder
-    private func historyGraph(_ values: [Double], color: Color, maxValue: Double? = nil) -> some View {
-        if values.count >= 2 {
-            Sparkline(values: values,
-                      color: color,
-                      maxValue: maxValue,
-                      showsZeroBaseline: true)
+    private func historyGraph(_ fractions: [Double]) -> some View {
+        if fractions.count >= 2 {
+            ColumnHistoryGraph(layers: [fractions], inks: [.primary])
                 .frame(height: 38)
         }
     }
 
+    /// Average CPU clock under the load graph, on its own scale: the busiest sample,
+    /// rounded up to the next GHz and never below 5 GHz.
+    @ViewBuilder
+    private var frequencyGraph: some View {
+        let history = monitor.snapshot.cpuFreqHistory
+        if history.count >= 2 {
+            let ceiling = ColumnGraphGeometry.roundedCeiling(peak: history.filter(\.isFinite).max() ?? 0,
+                                                             step: 1, minimum: 5)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(l10n.s.amdAvgFrequency)
+                    Spacer(minLength: 4)
+                    if let latest = history.last, latest.isFinite, latest > 0 {
+                        Text(String(format: "%.2f GHz", latest)).monospacedDigit()
+                    }
+                }
+                .font(.system(size: 9.5, weight: .medium))
+                .foregroundStyle(.secondary)
+                ColumnHistoryGraph(layers: [ColumnGraphGeometry.fractions(history, ceiling: ceiling)],
+                                   inks: [.tertiary])
+                    .frame(height: 16)
+            }
+        }
+    }
+
+    /// Upload above, download below, each against its own busiest visible sample.
     @ViewBuilder
     private var networkGraph: some View {
         let down = monitor.snapshot.netDownHistory
         let up = monitor.snapshot.netUpHistory
         if down.count >= 2 || up.count >= 2 {
-            let peak = max(down.max() ?? 0, up.max() ?? 0, 1)
-            ZStack {
-                Sparkline(values: down, color: .accentColor, maxValue: peak, showsZeroBaseline: true)
-                Sparkline(values: up,
-                          color: PanelMetricColor.green(for: colorScheme),
-                          maxValue: peak,
-                          fillOpacity: 0.08)
-            }
-            .frame(height: 38)
+            DualColumnHistoryGraph(upper: up, lower: down)
+                .frame(height: 38)
         }
     }
 
+    /// Writes above, reads below, laid out like the network graph.
     @ViewBuilder
     private var diskGraph: some View {
         let read = monitor.snapshot.diskReadHistory
         let write = monitor.snapshot.diskWriteHistory
         if read.count >= 2 || write.count >= 2 {
-            let peak = max(read.max() ?? 0, write.max() ?? 0, 1)
-            ZStack {
-                Sparkline(values: read, color: summaryColor, maxValue: peak, showsZeroBaseline: true)
-                Sparkline(values: write,
-                          color: PanelMetricColor.pink(for: colorScheme),
-                          maxValue: peak,
-                          fillOpacity: 0.08)
-            }
-            .frame(height: 38)
+            DualColumnHistoryGraph(upper: write, lower: read)
+                .frame(height: 38)
         }
     }
 
@@ -402,6 +440,16 @@ struct MetricDetailView: View {
                                     ?? strings.calculating))
             }
             return rows
+        case .connectedDevices:
+            let strings = FeatureStrings.connectedDevices(l10n.language)
+            guard !connectedDevices.devices.isEmpty else {
+                return [row(connectedDevices.hasLoadedOnce ? strings.noDevices : l10n.s.networkMeasuring, "")]
+            }
+            return connectedDevices.devices.map { device in
+                row(id: device.id,
+                    device.name.isEmpty ? strings.unnamedDevice : device.name,
+                    device.vendorName ?? "")
+            }
         }
     }
 
@@ -416,13 +464,15 @@ struct MetricDetailView: View {
             guard let used = snapshot.memoryUsed, let total = snapshot.memoryTotal, total > 0 else { return "-" }
             return MetricFormat.percent(Double(used) / Double(total))
         case .network:
-            return snapshot.netDownBytesPerSec.map(MetricFormat.bytesPerSecCompact) ?? "-"
+            return snapshot.netDownBytesPerSec.map { MetricFormat.networkRateCompact($0) } ?? "-"
         case .disk:
             return primaryDisk(from: snapshot.disk).map { MetricFormat.percent($0.usedFraction) } ?? "-"
         case .battery:
             return snapshot.power?.chargePercent.map { "\($0)%" } ?? "-"
         case .power:
             return snapshot.power?.systemWatts.map(MetricFormat.wattsCompact) ?? "-"
+        case .connectedDevices:
+            return connectedDevices.hasLoadedOnce ? "\(connectedDevices.count)" : "-"
         }
     }
 
@@ -437,7 +487,7 @@ struct MetricDetailView: View {
             guard let used = snapshot.memoryUsed, let total = snapshot.memoryTotal else { return l10n.s.memoryPressure }
             return "\(formatMemory(used)) / \(formatMemory(total))"
         case .network:
-            return "\(l10n.s.networkUpload) \(snapshot.netUpBytesPerSec.map(MetricFormat.bytesPerSecCompact) ?? "-")"
+            return "\(l10n.s.networkUpload) \(snapshot.netUpBytesPerSec.map { MetricFormat.networkRateCompact($0) } ?? "-")"
         case .disk:
             guard let disk = primaryDisk(from: snapshot.disk) else { return l10n.s.diskNoDisks }
             return "\(MetricFormat.diskBytes(disk.freeBytes)) \(l10n.s.diskFree)"
@@ -445,6 +495,8 @@ struct MetricDetailView: View {
             return (snapshot.power?.isCharging ?? false) ? l10n.s.powerCharging : l10n.s.powerOnBattery
         case .power:
             return powerSubtitle(snapshot.power)
+        case .connectedDevices:
+            return FeatureStrings.connectedDevices(l10n.language).formattedCount(connectedDevices.count)
         }
     }
 
@@ -462,6 +514,8 @@ struct MetricDetailView: View {
             return PanelMetricColor.green(for: colorScheme)
         case .power:
             return PanelMetricColor.orange(for: colorScheme)
+        case .connectedDevices:
+            return PanelMetricColor.cyan(for: colorScheme)
         }
     }
 
@@ -516,11 +570,14 @@ struct MetricDetailView: View {
         }
     }
 
-    private func row(_ title: String,
+    /// `id` defaults to the title; rows that can share a title, such as two
+    /// identical USB devices, pass their own.
+    private func row(id: String? = nil,
+                     _ title: String,
                      _ value: String,
                      showsPressure: Bool = false,
                      wrapsValue: Bool = false) -> MetricDetailRow {
-        MetricDetailRow(id: title,
+        MetricDetailRow(id: id ?? title,
                         title: title,
                         value: value,
                         showsPressure: showsPressure,
@@ -589,7 +646,7 @@ struct MetricDetailView: View {
         case .network:
             let down = row.networkDownBytesPerSec ?? 0
             let up = row.networkUpBytesPerSec ?? 0
-            return "↓\(MetricFormat.bytesPerSecCompact(down)) ↑\(MetricFormat.bytesPerSecCompact(up))"
+            return "↓\(MetricFormat.networkRateCompact(down)) ↑\(MetricFormat.networkRateCompact(up))"
         default:
             return String(format: "%.1f%%", row.value)
         }

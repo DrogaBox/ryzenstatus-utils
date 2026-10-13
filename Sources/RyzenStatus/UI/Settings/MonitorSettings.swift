@@ -18,10 +18,11 @@ struct MonitorSettings: View {
     @AppStorage(DefaultsKey.menuBarMetricSpacing) private var metricSpacing = "standard"
     @AppStorage(DefaultsKey.menuBarMetricAppearance) private var metricAppearance = "values"
     @AppStorage(DefaultsKey.menuBarHideIconWithMetrics) private var hideIconWithMetrics = false
-    @AppStorage(DefaultsKey.menuBarGraphShowsValue) private var graphShowsValue = true
+    @AppStorage(DefaultsKey.menuBarGraphShowsValue) private var graphShowsValue = false
     @AppStorage(DefaultsKey.monitorInterval) private var interval = 1.0
     @AppStorage(DefaultsKey.processListRefreshInterval) private var processListInterval = 1.0
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnit = TemperatureUnit.celsius.rawValue
+    @AppStorage(DefaultsKey.networkSpeedUnit) private var networkSpeedUnit = NetworkSpeedUnit.bytes
 
     @AppStorage(DefaultsKey.monitorGraphCPU) private var graphCPU = true
     @AppStorage(DefaultsKey.monitorGraphGPU) private var graphGPU = true
@@ -38,140 +39,40 @@ struct MonitorSettings: View {
     @AppStorage("menuBarMetricAppearance_diskUsage") private var appDisk = "values"
 
     var body: some View {
-        Form {
-            Section(l10n.s.monitorMenuBarSection) {
-                let appearanceStrings = FeatureStrings.menuBarAppearance(l10n.language)
-                let appearance = MenuBarMetricAppearance(
-                    rawValue: Defaults.sanitizedMenuBarMetricAppearance(metricAppearance)
-                ) ?? .values
-                MenuBarMetricsPreview()
-                    .padding(.vertical, 4)
-                
-                Picker(MenuBarMetric.cpu.title(l10n.s), selection: $appCPU) {
-                    Text(appearanceStrings.values).tag("values")
-                    Text(appearanceStrings.bars).tag("bars")
-                    Text(appearanceStrings.pie).tag("pie")
-                    Text(appearanceStrings.sparkline).tag("sparkline")
-                    Text(appearanceStrings.histogram).tag("histogram")
-                    Text("Classic").tag("classic")
-                }
-                
-                Picker(MenuBarMetric.gpu.title(l10n.s), selection: $appGPU) {
-                    Text(appearanceStrings.values).tag("values")
-                    Text(appearanceStrings.bars).tag("bars")
-                    Text(appearanceStrings.pie).tag("pie")
-                    Text(appearanceStrings.sparkline).tag("sparkline")
-                    Text("Classic").tag("classic")
-                }
-                
-                Picker(MenuBarMetric.memory.title(l10n.s), selection: $appRAM) {
-                    Text(appearanceStrings.values).tag("values")
-                    Text(appearanceStrings.bars).tag("bars")
-                    Text(appearanceStrings.pie).tag("pie")
-                    Text(appearanceStrings.sparkline).tag("sparkline")
-                }
-                
-                Picker(MenuBarMetric.network.title(l10n.s), selection: $appNet) {
-                    Text(appearanceStrings.values).tag("values")
-                    Text(appearanceStrings.sparkline).tag("sparkline")
-                }
-                
-                Picker(MenuBarMetric.diskUsage.title(l10n.s), selection: $appDisk) {
-                    Text(appearanceStrings.values).tag("values")
-                    Text(appearanceStrings.bars).tag("bars")
-                }
-                
-                Picker(appearanceStrings.popoverStyle, selection: $panelViewStyle) {
-                    Text(appearanceStrings.classicCards).tag("cards")
-                    Text(appearanceStrings.iStatsWidgets).tag("istats")
-                }
-                .pickerStyle(.segmented)
-                Text(appearanceStrings.caption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                MenuBarUsageBarSettings(strings: appearanceStrings)
-                if appearance != .bars {
-                    Toggle(l10n.s.monitorCombineTemperatures, isOn: $combineTemperatures)
-                    Text(l10n.s.monitorCombineTemperaturesCaption)
-                        .font(.caption)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 20, pinnedViews: [.sectionHeaders]) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(l10n.s.tabMonitor).font(.title2.bold())
+                    Text(FeatureStrings.settingsPages(l10n.language).monitorDescription)
+                        .font(.callout)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Picker(l10n.s.menuBarSpacingLabel, selection: $metricSpacing) {
-                    Text(l10n.s.menuBarSpacingStandard).tag("standard")
-                    Text(l10n.s.menuBarSpacingCompact).tag("compact")
+                groupHeading(l10n.s.monitorMenuBarSection, symbol: "menubar.rectangle")
+                // Everything under this header changes what the header
+                // shows, so it stays in view until the section ends.
+                Section {
+                    menuBarCard
+                    menuBarStyleCard
+                    menuBarLayoutCard
+                } header: {
+                    MenuBarMetricsPreview()
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(nsColor: .windowBackgroundColor))
                 }
-                .pickerStyle(.segmented)
-                Toggle(l10n.s.menuBarHideIconToggle, isOn: $hideIconWithMetrics)
-                Text(l10n.s.menuBarHideIconCaption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Toggle(l10n.s.graphShowsNumericValue, isOn: $graphShowsValue)
-                Toggle(l10n.s.monitorSeparateMenuBarMetrics, isOn: $separateMetrics)
-                if appearance.allowsCombinedTemperatures {
-                    Text(l10n.s.monitorSeparateMenuBarMetricsCaption)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                MenuBarMetricOrderEditor()
-                Text(l10n.s.monitorMenuBarCaption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                groupHeading(l10n.s.monitorPanelSection, symbol: "macwindow")
+                panelCard
+                graphsCard
+                groupHeading(FeatureStrings.monitorLayout(l10n.language).shared, symbol: "slider.horizontal.3")
+                readingsCard
+                alertsCard
             }
-            Section {
-                Picker(l10n.s.monitorIntervalLabel, selection: $interval) {
-                    Text("0.5s").tag(0.5)
-                    Text("0.7s").tag(0.7)
-                    Text(l10n.s.monitorInterval1).tag(1.0)
-                    Text(l10n.s.monitorInterval2).tag(2.0)
-                    Text(l10n.s.monitorInterval5).tag(5.0)
-                }
-                Picker(l10n.s.processListRefreshIntervalLabel, selection: $processListInterval) {
-                    Text("1.0s").tag(1.0)
-                    Text("2.0s").tag(2.0)
-                    Text("3.0s").tag(3.0)
-                    Text("5.0s").tag(5.0)
-                }
-                Picker(l10n.s.temperatures, selection: $temperatureUnit) {
-                    Text("°C").tag(TemperatureUnit.celsius.rawValue)
-                    Text("°F").tag(TemperatureUnit.fahrenheit.rawValue)
-                }
-                .pickerStyle(.segmented)
-            }
-            monitorAlertsSection
-            Section(l10n.s.monitorPanelSection) {
-                PanelOrderEditor()
-                Divider()
-                MonitorPanelConfig()
-                Text(l10n.s.monitorPanelConfigHint)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Section(l10n.s.monitorGraphsSection) {
-                if AppFeature.monitorCPU.isAvailable {
-                    Toggle(l10n.s.monitorShowCPU, isOn: $graphCPU)
-                }
-                if AppFeature.monitorGPU.isAvailable {
-                    Toggle(l10n.s.monitorShowGPU, isOn: $graphGPU)
-                }
-                if AppFeature.monitorMemory.isAvailable {
-                    Toggle(l10n.s.monitorShowMemory, isOn: $graphMemory)
-                }
-                if AppFeature.monitorNetwork.isAvailable {
-                    Toggle(l10n.s.monitorShowNetwork, isOn: $graphNetwork)
-                }
-                if AppFeature.monitorDisk.isAvailable {
-                    Toggle(l10n.s.diskSection, isOn: $graphDisk)
-                }
-                if AppFeature.monitorPower.isAvailable {
-                    Toggle(l10n.s.monitorShowPowerLabel, isOn: $graphPower)
-                    Toggle(l10n.s.batteryLabel, isOn: $graphBattery)
-                }
-                Text(l10n.s.monitorGraphsCaption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            .frame(maxWidth: 760)
+            .frame(maxWidth: .infinity)
+            .padding(22)
         }
-        .formStyle(.grouped)
+        .toggleStyle(.switch)
         .onAppear {
             SystemMonitor.shared.panelDidAppear()
             interval = Defaults.sanitizedMonitorInterval(interval)
@@ -185,9 +86,246 @@ struct MonitorSettings: View {
         }
     }
 
-    private var monitorAlertsSection: some View {
-        let text = FeatureStrings.monitorAlerts(l10n.language)
-        return Section(text.section) {
+    /// Splits the page into what the menu bar shows, what the panel shows,
+    /// and what both share, so an option is never read as the other's.
+    private func groupHeading(_ title: String, symbol: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Divider()
+            Label(title, systemImage: symbol)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.primary)
+                .accessibilityAddTraits(.isHeader)
+        }
+        .padding(.top, 8)
+    }
+
+    private var appearanceStrings: MenuBarAppearanceStrings {
+        FeatureStrings.menuBarAppearance(l10n.language)
+    }
+
+    private var appearance: MenuBarMetricAppearance {
+        MenuBarMetricAppearance(rawValue: Defaults.sanitizedMenuBarMetricAppearance(metricAppearance)) ?? .values
+    }
+
+    /// What sits in the menu bar, in the order it appears there.
+    private var menuBarCard: some View {
+        SettingsCard {
+            Text(l10n.s.monitorMenuBarCaption)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            MenuBarMetricOrderEditor()
+        }
+    }
+
+    /// How each usage reading is drawn, and the palettes the graphs use.
+    private var menuBarStyleCard: some View {
+        SettingsCard(title: appearanceStrings.label) {
+            styleRow(MenuBarMetric.cpu.title(l10n.s), symbol: "cpu", selection: $appCPU,
+                     options: ["values", "bars", "pie", "sparkline", "histogram", "classic"])
+            styleRow(MenuBarMetric.gpu.title(l10n.s), symbol: "display", selection: $appGPU,
+                     options: ["values", "bars", "pie", "sparkline", "classic"])
+            styleRow(MenuBarMetric.memory.title(l10n.s), symbol: "memorychip", selection: $appRAM,
+                     options: ["values", "bars", "pie", "sparkline"])
+            styleRow(MenuBarMetric.network.title(l10n.s), symbol: "network", selection: $appNet,
+                     options: ["values", "sparkline"])
+            styleRow(MenuBarMetric.diskUsage.title(l10n.s), symbol: "internaldrive", selection: $appDisk,
+                     options: ["values", "bars"])
+            Text(appearanceStrings.caption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Divider()
+            MenuBarUsageBarSettings(strings: appearanceStrings)
+            MenuBarGraphThemeSettings(strings: FeatureStrings.menuBarGraphTheme(l10n.language))
+            SettingsRow(symbol: "number", title: l10n.s.graphShowsNumericValue) {
+                Toggle(l10n.s.graphShowsNumericValue, isOn: $graphShowsValue).labelsHidden()
+            }
+        }
+    }
+
+    /// How the readings share the menu bar with the icon and with each other.
+    private var menuBarLayoutCard: some View {
+        SettingsCard {
+            if appearance != .bars {
+                SettingsRow(symbol: "thermometer.medium", title: l10n.s.monitorCombineTemperatures,
+                            caption: l10n.s.monitorCombineTemperaturesCaption) {
+                    Toggle(l10n.s.monitorCombineTemperatures, isOn: $combineTemperatures).labelsHidden()
+                }
+            }
+            SettingsRow(symbol: "arrow.left.and.right", title: l10n.s.menuBarSpacingLabel) {
+                Picker(l10n.s.menuBarSpacingLabel, selection: $metricSpacing) {
+                    Text(l10n.s.menuBarSpacingStandard).tag("standard")
+                    Text(l10n.s.menuBarSpacingCompact).tag("compact")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+            SettingsRow(symbol: "eye.slash", title: l10n.s.menuBarHideIconToggle,
+                        caption: l10n.s.menuBarHideIconCaption) {
+                Toggle(l10n.s.menuBarHideIconToggle, isOn: $hideIconWithMetrics).labelsHidden()
+            }
+            SettingsRow(symbol: "rectangle.split.3x1", title: l10n.s.monitorSeparateMenuBarMetrics,
+                        caption: appearance.allowsCombinedTemperatures
+                            ? l10n.s.monitorSeparateMenuBarMetricsCaption : nil) {
+                Toggle(l10n.s.monitorSeparateMenuBarMetrics, isOn: $separateMetrics).labelsHidden()
+            }
+        }
+    }
+
+    private func styleRow(_ title: String, symbol: String, selection: Binding<String>,
+                          options: [String]) -> some View {
+        SettingsRow(symbol: symbol, title: title) {
+            Picker(title, selection: selection) {
+                ForEach(options, id: \.self) { option in
+                    Text(styleTitle(option)).tag(option)
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
+        }
+    }
+
+    private func styleTitle(_ option: String) -> String {
+        switch option {
+        case "bars": return appearanceStrings.bars
+        case "pie": return appearanceStrings.pie
+        case "sparkline": return appearanceStrings.sparkline
+        case "histogram": return appearanceStrings.histogram
+        case "classic": return Self.classicTitle(l10n.language)
+        default: return appearanceStrings.values
+        }
+    }
+
+    /// The classic menu bar style's name in each language.
+    private static func classicTitle(_ language: AppLanguage) -> String {
+        switch language {
+        case .enUS: return "Classic"
+        case .ptBR: return "Clássico"
+        case .tr: return "Klasik"
+        case .ru: return "Классика"
+        case .es: return "Clásico"
+        case .sk: return "Klasický"
+        case .de: return "Klassisch"
+        case .fr: return "Classique"
+        case .it: return "Classico"
+        case .ja: return "クラシック"
+        case .ko: return "클래식"
+        case .uk: return "Класика"
+        case .zhHans: return "经典"
+        case .zhTW, .zhHK: return "經典"
+        }
+    }
+
+    /// What the panel opens on, its style and what each block shows.
+    private var panelCard: some View {
+        SettingsCard {
+            SettingsRow(symbol: "rectangle.grid.2x2", title: appearanceStrings.popoverStyle) {
+                Picker(appearanceStrings.popoverStyle, selection: $panelViewStyle) {
+                    Text(appearanceStrings.classicCards).tag("cards")
+                    Text(appearanceStrings.iStatsWidgets).tag("istats")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+            Divider()
+            MonitorPanelConfig()
+            Text(l10n.s.monitorPanelConfigHint)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Which readings keep a history graph in the panel.
+    private var graphsCard: some View {
+        SettingsCard(title: l10n.s.monitorGraphsSection) {
+            if AppFeature.monitorCPU.isAvailable {
+                graphRow(l10n.s.monitorShowCPU, symbol: "cpu", isOn: $graphCPU)
+            }
+            if AppFeature.monitorGPU.isAvailable {
+                graphRow(l10n.s.monitorShowGPU, symbol: "display", isOn: $graphGPU)
+            }
+            if AppFeature.monitorMemory.isAvailable {
+                graphRow(l10n.s.monitorShowMemory, symbol: "memorychip", isOn: $graphMemory)
+            }
+            if AppFeature.monitorNetwork.isAvailable {
+                graphRow(l10n.s.monitorShowNetwork, symbol: "network", isOn: $graphNetwork)
+            }
+            if AppFeature.monitorDisk.isAvailable {
+                graphRow(l10n.s.diskSection, symbol: "internaldrive", isOn: $graphDisk)
+            }
+            if AppFeature.monitorPower.isAvailable {
+                graphRow(l10n.s.monitorShowPowerLabel, symbol: "bolt.fill", isOn: $graphPower)
+                if PowerSampler.hasInternalBattery {
+                    graphRow(l10n.s.batteryLabel, symbol: "battery.75percent", isOn: $graphBattery)
+                }
+            }
+            Text(l10n.s.monitorGraphsCaption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func graphRow(_ title: String, symbol: String, isOn: Binding<Bool>) -> some View {
+        SettingsRow(symbol: symbol, title: title) {
+            Toggle(title, isOn: isOn).labelsHidden()
+        }
+    }
+
+    /// Settings both surfaces read.
+    private var readingsCard: some View {
+        SettingsCard {
+            SettingsRow(symbol: "timer", title: l10n.s.monitorIntervalLabel) {
+                Picker(l10n.s.monitorIntervalLabel, selection: $interval) {
+                    Text("0.5s").tag(0.5)
+                    Text("0.7s").tag(0.7)
+                    Text(l10n.s.monitorInterval1).tag(1.0)
+                    Text(l10n.s.monitorInterval2).tag(2.0)
+                    Text(l10n.s.monitorInterval5).tag(5.0)
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            SettingsRow(symbol: "list.bullet.rectangle", title: l10n.s.processListRefreshIntervalLabel) {
+                Picker(l10n.s.processListRefreshIntervalLabel, selection: $processListInterval) {
+                    Text("1.0s").tag(1.0)
+                    Text("2.0s").tag(2.0)
+                    Text("3.0s").tag(3.0)
+                    Text("5.0s").tag(5.0)
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            SettingsRow(symbol: "thermometer.medium", title: l10n.s.temperatures) {
+                Picker(l10n.s.temperatures, selection: $temperatureUnit) {
+                    Text("°C").tag(TemperatureUnit.celsius.rawValue)
+                    Text("°F").tag(TemperatureUnit.fahrenheit.rawValue)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+            if AppFeature.monitorNetwork.isAvailable {
+                let title = FeatureStrings.monitorLayout(l10n.language).networkSpeedUnit
+                SettingsRow(symbol: "network", title: title) {
+                    Picker(title, selection: $networkSpeedUnit) {
+                        Text("MB/s").tag(NetworkSpeedUnit.bytes)
+                        Text("Mbps").tag(NetworkSpeedUnit.bits)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                }
+            }
+        }
+    }
+
+    private var alertsCard: some View {
+        SettingsCard(title: FeatureStrings.monitorAlerts(l10n.language).section) {
             MonitorAlertsControls(compact: false)
         }
     }
@@ -276,6 +414,96 @@ private struct MenuBarUsageBarSettings: View {
                                                            high: highThreshold)
         mediumThreshold = thresholds.medium
         highThreshold = thresholds.high
+    }
+}
+
+/// Theme and shape of the history, core, ring and network graphs. Light and
+/// dark menu bars choose separately; the live preview above shows the result.
+private struct MenuBarGraphThemeSettings: View {
+    let strings: MenuBarGraphThemeStrings
+
+    @AppStorage(DefaultsKey.menuBarGraphThemeLight) private var lightTheme = MenuBarGraphTheme.system.rawValue
+    @AppStorage(DefaultsKey.menuBarGraphThemeDark) private var darkTheme = MenuBarGraphTheme.system.rawValue
+    @AppStorage(DefaultsKey.menuBarGraphLightBackground) private var lightBackground = MenuBarGraphLightBackground.filled.rawValue
+    @AppStorage(DefaultsKey.menuBarGraphHistoryWidth) private var historyWidth = MenuBarGraphHistoryWidth.standard.rawValue
+    @AppStorage(DefaultsKey.menuBarGraphHistorySpaced) private var historySpaced = false
+    @AppStorage(DefaultsKey.menuBarNetworkGraphLayout) private var networkLayout = MenuBarNetworkGraphLayout.mirrored.rawValue
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(strings.title)
+                .font(.subheadline.weight(.semibold))
+
+            themePicker(strings.lightMode, selection: $lightTheme)
+            themePicker(strings.darkMode, selection: $darkTheme)
+            Picker(strings.lightBackground, selection: $lightBackground) {
+                Text(strings.backgroundFilled).tag(MenuBarGraphLightBackground.filled.rawValue)
+                Text(strings.backgroundOutline).tag(MenuBarGraphLightBackground.outline.rawValue)
+            }
+            .pickerStyle(.segmented)
+
+            Divider()
+
+            Picker(strings.historyWidth, selection: $historyWidth) {
+                Text(strings.widthNarrow).tag(MenuBarGraphHistoryWidth.narrow.rawValue)
+                Text(strings.widthStandard).tag(MenuBarGraphHistoryWidth.standard.rawValue)
+                Text(strings.widthWide).tag(MenuBarGraphHistoryWidth.wide.rawValue)
+            }
+            .pickerStyle(.segmented)
+            Toggle(strings.spacedColumns, isOn: $historySpaced)
+            Picker(strings.networkLayout, selection: $networkLayout) {
+                Text(strings.networkMirrored).tag(MenuBarNetworkGraphLayout.mirrored.rawValue)
+                Text(strings.networkSplit).tag(MenuBarNetworkGraphLayout.split.rawValue)
+                Text(strings.networkRising).tag(MenuBarNetworkGraphLayout.rising.rawValue)
+            }
+            Text(strings.caption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.leading, 12)
+        .onAppear(perform: sanitize)
+    }
+
+    private func themePicker(_ title: String, selection: Binding<String>) -> some View {
+        Picker(title, selection: selection) {
+            ForEach(MenuBarGraphTheme.allCases, id: \.self) { theme in
+                Label {
+                    Text(strings.name(of: theme))
+                } icon: {
+                    Image(nsImage: Self.swatch(for: theme))
+                }
+                .tag(theme.rawValue)
+            }
+        }
+    }
+
+    /// Three dots with the theme's colors, so the menu shows each pairing
+    /// before it is picked. Mono shows gray because its real tone depends
+    /// on the menu bar it lands on.
+    private static func swatch(for theme: MenuBarGraphTheme) -> NSImage {
+        let colors = MenuBarGraphPalette.colors(for: theme,
+                                                accent: MenuBarGraphPainter.accentRGB(),
+                                                mono: MenuBarUsageBarSupport.RGB(red: 0.55, green: 0.55, blue: 0.55))
+        let dots = [colors.primary, colors.secondary, colors.tertiary]
+        let diameter: CGFloat = 8
+        let image = NSImage(size: NSSize(width: diameter * 2.5, height: diameter), flipped: false) { _ in
+            for (index, rgb) in dots.enumerated().reversed() {
+                NSColor(srgbRed: CGFloat(rgb.red), green: CGFloat(rgb.green), blue: CGFloat(rgb.blue), alpha: 1).setFill()
+                NSBezierPath(ovalIn: NSRect(x: CGFloat(index) * diameter * 0.75, y: 0,
+                                            width: diameter, height: diameter)).fill()
+            }
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
+    private func sanitize() {
+        lightTheme = Defaults.sanitizedMenuBarGraphTheme(lightTheme)
+        darkTheme = Defaults.sanitizedMenuBarGraphTheme(darkTheme)
+        lightBackground = Defaults.sanitizedMenuBarGraphLightBackground(lightBackground)
+        historyWidth = Defaults.sanitizedMenuBarGraphHistoryWidth(historyWidth)
+        networkLayout = Defaults.sanitizedMenuBarNetworkGraphLayout(networkLayout)
     }
 }
 

@@ -40,7 +40,7 @@ struct BTopDashboardView: View {
                 // --- TOP ROW: CPU & SYSTEM OVERVIEW ---
                 suiteBox(title: Self.cpuBoxTitle, icon: "cpu", accentColor: cpuColor) {
                 HStack(spacing: 16) {
-                    // Left: Total Load gauge + Sparkline
+                    // Left: Total Load gauge + load history
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text("Total Utilization")
@@ -54,18 +54,11 @@ struct BTopDashboardView: View {
                                 .foregroundColor(cpuColor)
                         }
 
-                        // Load sparkline using TrendChart Canvas engine
+                        // Load history as columns
                         if monitor.snapshot.cpuHistory.isEmpty {
                             Rectangle().fill(Color.clear).frame(height: 32)
                         } else {
-                            let history = monitor.snapshot.cpuHistory
-                            let now = Date()
-                            let count = history.count
-                            let points = history.enumerated().map {
-                                TrendPoint(date: now.addingTimeInterval(Double($0.offset - count)), value: $0.element)
-                            }
-                            let series = TrendSeries(points: points, color: cpuColor, filled: true, lineWidth: 1.5)
-                            TrendChart(series: [series], showsYAxis: false)
+                            ColumnHistoryGraph(layers: [monitor.snapshot.cpuHistory], inks: [.fixed(cpuColor)])
                                 .frame(height: 32)
                         }
 
@@ -168,19 +161,12 @@ struct BTopDashboardView: View {
                             }
                         }
 
-                        // Dual traffic sparkline
-                        let rawDown = monitor.snapshot.netDownHistory
-                        let downPoints: [Double] = rawDown.count >= 24 ? Array(rawDown.suffix(24)) : Array(repeating: 0.0, count: 24 - rawDown.count) + rawDown
-                        let rawUp = monitor.snapshot.netUpHistory
-                        let upPoints: [Double] = rawUp.count >= 24 ? Array(rawUp.suffix(24)) : Array(repeating: 0.0, count: 24 - rawUp.count) + rawUp
-                        let peak = max(downPoints.max() ?? 0.0, upPoints.max() ?? 0.0)
-                        let maxPeak = max(1.0, peak * 1.15)
-
-                        ZStack {
-                            Sparkline(values: downPoints, color: cpuColor, maxValue: maxPeak, fillOpacity: 0.20, lineWidth: 1.5, showsZeroBaseline: true)
-                            Sparkline(values: upPoints, color: netColor, maxValue: maxPeak, fillOpacity: 0.0, lineWidth: 1.5)
-                        }
-                        .frame(height: 32)
+                        // Upload above, download below, each on its own scale.
+                        DualColumnHistoryGraph(upper: monitor.snapshot.netUpHistory,
+                                               lower: monitor.snapshot.netDownHistory,
+                                               upperInk: .fixed(netColor),
+                                               lowerInk: .fixed(cpuColor))
+                            .frame(height: 32)
                     }
                     .frame(height: 80)
                 }

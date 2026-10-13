@@ -98,10 +98,52 @@ extension AppFeature {
              .monitorInsights, .monitorAnalytics, .monitorEnergy, .monitorNetworkDetails:
             return .periodic
         case .pastePlain, .mixer, .soundOutputSwitcher, .micMute,
-             .musicBlock, .keepAwake, .brightness, .quickLauncher, .quickToggles, .colorPicker,
+             .musicBlock, .keepAwake, .quickLauncher, .quickToggles, .colorPicker,
              .screenOCR, .cleaningMode, .mediaTools, .cleaner, .uninstaller, .homebrew,
              .whatsAppDownloads, .screenshot, .screenRecorder,
-             .cameraPreview, .scratchpad:
+             .cameraPreview, .scratchpad, .killProcess, .commandBar,
+             .notch, .notchCalendar, .notchNotifications, .notchGestures, .notchTimer,
+             .notchAccessories, .notchLyrics, .notchLiveEqualizer, .notchQueue, .notchDownloads, .notchWatch, .notchMascot:
+            // The process table is only sampled while its page is open.
+            return .idle
+        case .notchAgents:
+            // The agents' history files are read again on an interval while
+            // the section is on.
+            return .periodic
+        case .brightness:
+            // Following the pointer, the overlay and a finer step answer the
+            // brightness keys from a tap; otherwise nothing runs until a
+            // slider moves.
+            let defaults = UserDefaults.standard
+            return defaults.bool(forKey: DefaultsKey.brightnessKeysEnabled)
+                || defaults.bool(forKey: DefaultsKey.brightnessOSDEnabled)
+                || BrightnessSupport.KeyStep.sanitized(
+                    defaults.string(forKey: DefaultsKey.brightnessKeyStep)) != .standard
+                ? .keyboard : .idle
+        // Port Manager runs `lsof` only while its page or panel is open.
+        // Connected Devices never polls here: it reads once and then follows
+        // IOKit plug and unplug events while its panel row is on screen.
+        case .portManager, .connectedDevices:
+            return .idle
+        // The tap only watches Command-Q and Command-W.
+        case .quitWindowProtection:
+            return .keyboard
+        // Wheel, pointer and click taps.
+        case .scrollHorizontal, .focusFollowsMouse, .linearScroll, .mouseClickDebounce:
+            return .mouse
+        // One system setting written when switched; nothing runs at rest.
+        case .mouseAcceleration, .spacesOrder:
+            return .idle
+        // The rename shortcut is answered by a keyboard tap.
+        case .finderRename:
+            return .keyboard
+        // Device priority follows CoreAudio notifications; Bluetooth on
+        // sleep only waits for the sleep and wake notifications.
+        case .audioPriority, .bluetoothSleep:
+            return .idle
+        // The installer answers each mounted image; the gallery acts only
+        // when a picture is chosen.
+        case .diskImageInstaller, .wallpaper:
             return .idle
         case .appUpdates:
             // The list is on demand; only a background schedule keeps a timer.

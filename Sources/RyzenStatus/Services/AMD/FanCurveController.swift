@@ -18,12 +18,14 @@ final class FanCurveController: ObservableObject {
         didSet {
             persistCurves()
             syncCurvesToKext()
+            updatePollTimer()
         }
     }
     @Published var fanMappings: [Int: Int] = [:] {
         didSet {
             persistMappings()
             syncMappingsToKext()
+            updatePollTimer()
         }
     }
     @Published var privilegeError: String? = nil
@@ -32,9 +34,16 @@ final class FanCurveController: ObservableObject {
 
     // MARK: - Internal Synchronization & Storage
 
-    private let stateLock = OSAllocatedUnfairLock(initialState: [Int: Int]())
     private var pollTimer: Timer?
-    private var readTask: Task<Void, Never>?
+    /// The full fan read (names included). Polls wait for it instead of
+    /// cancelling it, so a slow first read always lands.
+    private var refreshTask: Task<Void, Never>?
+    private var pollTask: Task<Void, Never>?
+    private var pollGeneration = 0
+    /// Views showing live fan state (Settings › Fans, the AMD Power panel's
+    /// fan row) while they are on screen.
+    private var viewPollingClients = 0
+    private var isSuspendedForSleep = false
     private var persistCurvesTask: Task<Void, Never>?
     private var persistMappingsTask: Task<Void, Never>?
     /// Coalescing upload tasks that keep kext IPC off the main actor.
@@ -42,18 +51,19 @@ final class FanCurveController: ObservableObject {
     private var mappingUploadTask: Task<Void, Never>?
     /// Sleep-side observer, previously absent entirely.
     private var sleepObserver: Any?
-    private var wasPollingBeforeSleep = false
     /// One-shot latch so the GPU-bridge diagnostic is logged once
-    /// per failure episode instead of on every 1.5 s poll tick.
+    /// per failure episode instead of on every poll tick.
     private var gpuBridgeWarned = false
     private var wakeObserver: Any?
+    private var reconnectObserver: Any?
     /// Rolling RPM window per fan, feeding the frozen-tachometer detector
     /// (S11-b). Reset whenever the fan list is rebuilt, since a rebuild means
     /// the channel set changed and the old windows describe other headers.
     private var rpmWindows: [Int: [UInt64]] = [:]
-    /// 12 polls at the 1.5 s cadence: eight identical non-zero readings is the
-    /// detector's threshold, and the extra four keep the judgement from being
-    /// made on a window that is all there is.
+    /// 12 polls (18 s at the 1.5 s view cadence, 36 s at the 3 s safety
+    /// cadence): eight identical non-zero readings is the detector's
+    /// threshold, and the extra four keep the judgement from being made on a
+    /// window that is all there is.
     private static let rpmWindowLength = 12
     private let logger = OSLog(subsystem: "com.ryzenstatus.fancurve", category: "Controller")
 
@@ -63,6 +73,18 @@ final class FanCurveController: ObservableObject {
         loadPersistedState()
         setupWakeObserver()
         refreshFansInitial()
+    }
+
+    /// Brings the controller up at launch when the user has fans on curves.
+    /// The app hands every fan back to the BIOS when it quits, so without
+    /// this the curves only came back once Settings › Fans was opened.
+    static func startIfConfigured(defaults: UserDefaults = .standard) {
+        let mappings = defaults.data(forKey: DefaultsKey.fanMappingsV2)
+            .flatMap { try? JSONDecoder().decode([Int: Int].self, from: $0) } ?? [:]
+        guard FanPollingPolicy.needsStartAtLaunch(
+            curvesEnabled: defaults.bool(forKey: DefaultsKey.fanCurvesEditorEnabled),
+            mappings: mappings) else { return }
+        _ = shared
     }
 
     deinit {
@@ -77,9 +99,13 @@ final class FanCurveController: ObservableObject {
         if let sleepObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(sleepObserver)
         }
+        if let reconnectObserver {
+            NotificationCenter.default.removeObserver(reconnectObserver)
+        }
         pollTimer?.invalidate()
         // These were previously leaked on teardown.
-        readTask?.cancel()
+        refreshTask?.cancel()
+        pollTask?.cancel()
         persistCurvesTask?.cancel()
         persistMappingsTask?.cancel()
         curveUploadTask?.cancel()
@@ -132,9 +158,6 @@ final class FanCurveController: ObservableObject {
         } else {
             self.fanMappings = [:]
         }
-
-        let initialMappings = self.fanMappings
-        stateLock.withLock { $0 = initialMappings }
     }
 
     private func setupWakeObserver() {
@@ -162,15 +185,26 @@ final class FanCurveController: ObservableObject {
                 self?.handleSleepNotification()
             }
         }
+
+        // The watchdog reopens the kext connection after a kext reload or a
+        // dead handle. Closing the old connection hands every fan back to the
+        // BIOS, so the fans are read again and the curves and mappings are
+        // uploaded anew (the full read forces both uploads).
+        reconnectObserver = NotificationCenter.default.addObserver(
+            forName: ProcessorModel.kextReconnectedNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshFansInitial()
+            }
+        }
     }
 
     private func handleSleepNotification() {
         os_log("System will sleep; suspending fan telemetry", log: logger, type: .info)
-        // Remember whether we were polling so wake restores exactly this state
-        // rather than starting a timer the UI never asked for (startPolling is
-        // driven by FansSettingsView's lifecycle).
-        wasPollingBeforeSleep = (pollTimer != nil)
-        stopPolling()
+        isSuspendedForSleep = true
+        updatePollTimer()
     }
 
     private func handleWakeNotification() {
@@ -181,10 +215,8 @@ final class FanCurveController: ObservableObject {
         // wake path no longer performs 4+N blocking kernel writes on main.
         syncCurvesToKext(force: true)
         syncMappingsToKext(force: true)
-        if wasPollingBeforeSleep {
-            wasPollingBeforeSleep = false
-            startPolling()
-        }
+        isSuspendedForSleep = false
+        updatePollTimer()
     }
 
     // MARK: - Persistence
@@ -203,7 +235,6 @@ final class FanCurveController: ObservableObject {
 
     private func persistMappings() {
         let mappingsToSave = fanMappings
-        stateLock.withLock { $0 = mappingsToSave }
         persistMappingsTask?.cancel()
         persistMappingsTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 150_000_000)
@@ -373,14 +404,21 @@ final class FanCurveController: ObservableObject {
         return outcome
     }
 
-    /// Injects GPU temperature (selector 103) if any active curve uses GPU temp as its source.
-    func pushGPUTempIfNeeded() {
-        let hasActiveGPUCurve = fanMappings.values.contains { idx in
+    /// True while some fan follows a curve that reads the GPU temperature,
+    /// which only the app can feed to the kext.
+    private var hasActiveGPUCurve: Bool {
+        fanMappings.values.contains { idx in
             idx >= 0 && idx < customCurves.count && customCurves[idx].sourceSensor == .gpu
         }
+    }
+
+    /// Injects GPU temperature (selector 103) if any active curve uses GPU temp as its source.
+    /// `freshKextTemp` is the kext's own reading taken by this poll; the
+    /// cached one is only refreshed while the system monitor samples.
+    func pushGPUTempIfNeeded(freshKextTemp: Double? = nil) {
         guard hasActiveGPUCurve else { return }
 
-        let kextGPUTemp = ProcessorModel.shared.lastKextGPUTemperature
+        let kextGPUTemp = freshKextTemp ?? ProcessorModel.shared.lastKextGPUTemperature
         let monitorGPUTemp = SystemMonitor.shared.snapshot.gpuTemperature ?? 0.0
         let tempToSend = kextGPUTemp > 0 ? kextGPUTemp : monitorGPUTemp
 
@@ -507,7 +545,7 @@ final class FanCurveController: ObservableObject {
             let effectivePWM = AMDFanSafety.effectiveManualPWM(userPWM: safePWM, currentTemp: currentCPUOrPackageTemp)
             let res = ProcessorModel.shared.setFanSpeed(pwm: Int(effectivePWM), fanIndex: fanId)
             if !res {
-                self.privilegeError = "Write permission denied for manual fan control."
+                self.privilegeError = ProcessorModel.privilegeHint(for: ProcessorModel.kIOReturnNotPrivilegedCode)
             }
             updateFanLocalState(fanId: fanId, mode: .manual, curveIdx: nil, manualPWM: safePWM)
         }
@@ -585,93 +623,126 @@ final class FanCurveController: ObservableObject {
         fans[idx].controlMode = mode
         fans[idx].mappedCurveIndex = curveIdx
         fans[idx].manualPWM = manualPWM
+        updatePollTimer()
     }
 
     /// Resets all fans to BIOS/Auto control synchronously and thread-safely.
     /// Preserves safety guarantee on quit, toggle disable, and window dismiss.
+    /// Every header slot is reset, including fans the list does not show.
     nonisolated func resetFansToAutoSync() {
-        let mappings = stateLock.withLock { $0 }
         for fanId in 0..<16 {
             _ = ProcessorModel.shared.mapKextFanToCurve(fanIndex: fanId, curveIndex: -1)
             _ = ProcessorModel.shared.setFanMode(auto: true, fanIndex: fanId)
         }
-        _ = mappings
+    }
+
+    /// Turning the curves off: every header back to the BIOS, the mappings
+    /// cleared and the fan list showing Auto right away.
+    func disableCurves() {
+        resetFansToAutoSync()
+        for fan in fans {
+            updateFanLocalState(fanId: fan.id, mode: .auto, curveIdx: nil, manualPWM: nil)
+        }
+        fanMappings = [:]
     }
 
     // MARK: - Telemetry & Hardware Polling
 
+    /// Reads every fan with its name and rebuilds the list, then uploads the
+    /// curves and mappings again: after a fan-count change or a kext reload
+    /// the kext's slots may be stale even when our state is identical.
     func refreshFansInitial() {
         isLoadingFans = true
-        readTask?.cancel()
-        readTask = Task.detached(priority: .userInitiated) {
-            // Thread-safe connection check to avoid data races
-            let kernelConnected = ProcessorModel.shared.isConnected
-            guard kernelConnected else {
-                await MainActor.run {
-                    self.kextMissing = true
-                    self.isLoadingFans = false
-                }
+        refreshTask?.cancel()
+        refreshTask = Task { [weak self] in
+            let snapshots: [FanSnapshot]? = await Task.detached(priority: .userInitiated) {
+                guard ProcessorModel.shared.isConnected else { return nil }
+                return ProcessorModel.shared.getFans(includeNames: true)
+            }.value
+            // A newer refresh replaced this one and owns the loading state.
+            guard let self, !Task.isCancelled else { return }
+            self.refreshTask = nil
+            self.isLoadingFans = false
+            guard let snapshots else {
+                // No kext, no fans: an empty list also keeps the poll from
+                // asking for a new full read on every tick.
+                self.kextMissing = true
+                self.rebuildFans(from: [])
                 return
             }
-
-            let initialSnapshots = ProcessorModel.shared.getFans(includeNames: true)
-            let savedHidden = Set((UserDefaults.standard.array(forKey: "HiddenFanIDs") as? [Int]) ?? [])
-
-            await MainActor.run {
-                guard !Task.isCancelled else { return }
-                self.kextMissing = false
-                self.isLoadingFans = false
-
-                var newFans: [FanState] = []
-                for snap in initialSnapshots {
-                    let customName = UserDefaults.standard.string(forKey: "FanName_\(snap.id)")
-                    let mappedIdx = self.fanMappings[snap.id]
-                    let mode: FanControlMode
-                    if let mappedIdx, mappedIdx >= 0 && mappedIdx < self.customCurves.count {
-                        mode = .curve
-                    } else if snap.isOverridden {
-                        mode = .manual
-                    } else {
-                        mode = .auto
-                    }
-
-                    newFans.append(FanState(
-                        id: snap.id,
-                        name: snap.name,
-                        rpm: snap.rpm,
-                        throttlePWM: snap.throttle,
-                        isKextAuto: !snap.isOverridden,
-                        controlMode: mode,
-                        mappedCurveIndex: (mode == .curve) ? mappedIdx : nil,
-                        manualPWM: (mode == .manual) ? snap.throttle : nil,
-                        isHidden: savedHidden.contains(snap.id),
-                        customName: customName,
-                        rpmValid: snap.rpmValid
-                    ))
-                }
-                self.fans = newFans
-                self.rpmWindows.removeAll()
-                // Force — after a fan-count change / kext reload the
-                // kext-side slots may be stale even when our state is identical.
-                self.syncCurvesToKext(force: true)
-                self.syncMappingsToKext(force: true)
-            }
+            self.kextMissing = false
+            self.rebuildFans(from: snapshots)
+            self.syncCurvesToKext(force: true)
+            self.syncMappingsToKext(force: true)
         }
     }
 
+    private func rebuildFans(from snapshots: [FanSnapshot]) {
+        let defaults = UserDefaults.standard
+        let savedHidden = Set((defaults.array(forKey: "HiddenFanIDs") as? [Int]) ?? [])
+        fans = snapshots.map { snap in
+            let mappedIdx = fanMappings[snap.id]
+            let mode: FanControlMode
+            if let mappedIdx, mappedIdx >= 0 && mappedIdx < customCurves.count {
+                mode = .curve
+            } else if snap.isOverridden {
+                mode = .manual
+            } else {
+                mode = .auto
+            }
+            return FanState(
+                id: snap.id,
+                name: snap.name,
+                rpm: snap.rpm,
+                throttlePWM: snap.throttle,
+                isKextAuto: !snap.isOverridden,
+                controlMode: mode,
+                mappedCurveIndex: (mode == .curve) ? mappedIdx : nil,
+                manualPWM: (mode == .manual) ? snap.throttle : nil,
+                isHidden: savedHidden.contains(snap.id),
+                customName: defaults.string(forKey: "FanName_\(snap.id)"),
+                rpmValid: snap.rpmValid
+            )
+        }
+        self.rpmWindows.removeAll()
+        updatePollTimer()
+    }
+
+    /// A view showing live fan state calls this when it appears, and
+    /// `stopPolling()` when it goes away.
     func startPolling() {
-        guard pollTimer == nil else { return }
-        //
-        // Schedule in `.common` mode, not `.default`.
-        //
-        // Timer.scheduledTimer installs into RunLoop.main in .default mode,
-        // which does NOT fire while a tracking run loop is up — an open menu bar
-        // menu, a slider drag, a tracking popover. This timer drives
-        // enforceManualThermalGuard(), so the manual-mode thermal guard silently
-        // stopped being applied exactly while the user was interacting with fan
-        // controls. SystemMonitor already gets this right.
-        //
-        let timer = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in
+        viewPollingClients += 1
+        updatePollTimer()
+    }
+
+    func stopPolling() {
+        viewPollingClients = max(0, viewPollingClients - 1)
+        updatePollTimer()
+    }
+
+    /// Runs the poll at the pace its clients need: quickly while a view
+    /// shows live fan state; slower, but with every window closed, while a
+    /// fan is in manual mode (the thermal guard) or follows a GPU-sourced
+    /// curve (the GPU temperature only the app can feed to the kext); not at
+    /// all otherwise, or during sleep.
+    private func updatePollTimer() {
+        let interval = isSuspendedForSleep ? nil : FanPollingPolicy.interval(
+            viewClients: viewPollingClients,
+            hasManualFan: fans.contains { $0.controlMode == .manual },
+            hasGPUCurve: hasActiveGPUCurve)
+        guard let interval else {
+            pollTimer?.invalidate()
+            pollTimer = nil
+            pollTask?.cancel()
+            pollTask = nil
+            return
+        }
+        if let pollTimer, pollTimer.isValid, pollTimer.timeInterval == interval { return }
+        pollTimer?.invalidate()
+        // `.common` mode, not `.default`: a timer in the default mode does not
+        // fire while a tracking run loop is up (an open menu, a slider drag),
+        // and this one drives the manual-mode thermal guard.
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.pollHardwareState()
             }
@@ -680,45 +751,52 @@ final class FanCurveController: ObservableObject {
         pollTimer = timer
     }
 
-    func stopPolling() {
-        pollTimer?.invalidate()
-        pollTimer = nil
-        readTask?.cancel()
-        readTask = nil
-    }
-
     private func pollHardwareState() {
-        readTask?.cancel()
-        readTask = Task.detached(priority: .utility) {
-            let currentSnapshots = ProcessorModel.shared.getFans(includeNames: false)
+        // A full read in flight answers the same question; a poll still in
+        // flight is not doubled up.
+        guard refreshTask == nil, pollTask == nil else { return }
+        pollGeneration &+= 1
+        let generation = pollGeneration
+        let wantsGPUTemp = hasActiveGPUCurve
+        let wantsCPUTemp = fans.contains { $0.controlMode == .manual }
+        pollTask = Task { [weak self] in
+            // Every kext read of the tick happens here, off the main actor.
+            let (snapshots, kextGPUTemp, packageTemp) = await Task.detached(priority: .utility) {
+                () -> ([FanSnapshot], Double?, Double?) in
+                let fans = ProcessorModel.shared.getFans(includeNames: false)
+                let packageTemp = wantsCPUTemp
+                    ? ProcessorModel.shared.getTelemetry().map { Double($0.packageTempC) }
+                    : nil
+                guard wantsGPUTemp, ProcessorModel.shared.getKextGPUCount() > 0 else {
+                    return (fans, nil, packageTemp)
+                }
+                return (fans, ProcessorModel.shared.getKextGPUTemperatures().first.map(Double.init), packageTemp)
+            }.value
+            guard let self else { return }
+            if self.pollGeneration == generation { self.pollTask = nil }
             guard !Task.isCancelled else { return }
-
-            await MainActor.run {
-                guard !Task.isCancelled else { return }
-                if self.fans.count != currentSnapshots.count {
-                    self.refreshFansInitial()
-                    return
-                }
-
-                for i in 0..<currentSnapshots.count {
-                    let snap = currentSnapshots[i]
-                    let frozen = self.recordRPM(snap.rpm, for: snap.id)
-                    self.fans[i].rpm = snap.rpm
-                    // The detector only ever REMOVES trust, never grants it: an
-                    // unconnected header (or a channel reading electrical
-                    // residue) reports the same plausible non-zero count
-                    // forever, and every RPM-based heuristic reads that as a
-                    // healthy rotor — including the kernel's rotor-start
-                    // floor, which then declines to help a genuinely stalled
-                    // fan. Untrusted readings render as "— RPM" rather than a
-                    // number that cannot be true.
-                    self.fans[i].rpmValid = snap.rpmValid && !frozen
-                    self.fans[i].throttlePWM = snap.throttle
-                    self.fans[i].isKextAuto = !snap.isOverridden
-                }
-                self.pushGPUTempIfNeeded()
-                self.enforceManualThermalGuard()
+            if self.fans.map(\.id) != snapshots.map(\.id) {
+                self.refreshFansInitial()
+                return
             }
+
+            for (i, snap) in snapshots.enumerated() {
+                let frozen = self.recordRPM(snap.rpm, for: snap.id)
+                self.fans[i].rpm = snap.rpm
+                // The detector only ever REMOVES trust, never grants it: an
+                // unconnected header (or a channel reading electrical
+                // residue) reports the same plausible non-zero count
+                // forever, and every RPM-based heuristic reads that as a
+                // healthy rotor — including the kernel's rotor-start
+                // floor, which then declines to help a genuinely stalled
+                // fan. Untrusted readings render as "— RPM" rather than a
+                // number that cannot be true.
+                self.fans[i].rpmValid = snap.rpmValid && !frozen
+                self.fans[i].throttlePWM = snap.throttle
+                self.fans[i].isKextAuto = !snap.isOverridden
+            }
+            self.pushGPUTempIfNeeded(freshKextTemp: kextGPUTemp)
+            self.enforceManualThermalGuard(packageTemp: packageTemp)
         }
     }
 
@@ -735,8 +813,11 @@ final class FanCurveController: ObservableObject {
         return AMDFanSafety.isTachometerStale(samples: window)
     }
 
-    private func enforceManualThermalGuard() {
-        let temp = currentCPUOrPackageTemp
+    /// `packageTemp` is the kext's reading taken by this poll; without one
+    /// the system monitor's CPU temperature stands in.
+    private func enforceManualThermalGuard(packageTemp: Double?) {
+        let temp = packageTemp.flatMap { $0 > 0 ? $0 : nil }
+            ?? SystemMonitor.shared.snapshot.cpuTemperature ?? 0
         for fan in fans {
             guard fan.controlMode == .manual, let userPWM = fan.manualPWM else { continue }
             // guardOnlyPWM, not effectiveManualPWM. `manualPWM` seeds

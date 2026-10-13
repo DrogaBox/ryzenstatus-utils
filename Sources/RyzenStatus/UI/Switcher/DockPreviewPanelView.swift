@@ -14,15 +14,26 @@ struct DockPreviewPanelView: View {
             selectedWindowID: service.selectedWindowID,
             currentAppName: service.currentAppName,
             isPinned: service.isPinned,
+            orientation: service.orientation,
             onPreview: service.preview,
             onEndPreview: service.endPreview,
             onCommit: service.commit,
             onCloseWindow: service.close,
+            onMiddleClick: service.closeWindow,
             onToggleMinimized: service.toggleMinimized,
             onTogglePinned: service.togglePinned,
             onClosePanel: service.closePreviewPanel,
-            onSelectPrevious: service.selectPreviousWindow,
-            onSelectNext: service.selectNextWindow
+            onSelectPrevious: {
+                service.selectPreviousWindow()
+                return service.selectedWindowID
+            },
+            onSelectNext: {
+                service.selectNextWindow()
+                return service.selectedWindowID
+            },
+            onBeginDrag: service.beginWindowDrag,
+            onUpdateDrag: service.updateWindowDrag,
+            onEndDrag: service.endWindowDrag
         )
     }
 }
@@ -37,15 +48,28 @@ struct DockPreviewPinnedPanelView: View {
             selectedWindowID: panel.selectedWindowID,
             currentAppName: panel.currentAppName,
             isPinned: true,
+            orientation: .bottom,
             onPreview: panel.preview,
             onEndPreview: panel.endPreview,
             onCommit: panel.commit,
             onCloseWindow: panel.close,
+            onMiddleClick: panel.closeWindow,
             onToggleMinimized: panel.toggleMinimized,
             onTogglePinned: panel.closePreviewPanel,
             onClosePanel: panel.closePreviewPanel,
-            onSelectPrevious: panel.selectPreviousWindow,
-            onSelectNext: panel.selectNextWindow
+            onSelectPrevious: {
+                panel.selectPreviousWindow()
+                return panel.selectedWindowID
+            },
+            onSelectNext: {
+                panel.selectNextWindow()
+                return panel.selectedWindowID
+            },
+            // A pinned panel is a detached copy with no session to end, so it
+            // carries the tap and button actions but not drag-to-place.
+            onBeginDrag: { _ in },
+            onUpdateDrag: {},
+            onEndDrag: { _ in }
         )
     }
 }
@@ -56,41 +80,78 @@ private struct DockPreviewPanelContent: View {
     let selectedWindowID: CGWindowID?
     let currentAppName: String?
     let isPinned: Bool
+    let orientation: DockPreviewOrientation
     let onPreview: (SwitcherItem) -> Void
     let onEndPreview: (SwitcherItem) -> Void
     let onCommit: (SwitcherItem) -> Void
     let onCloseWindow: (SwitcherItem) -> Void
+    let onMiddleClick: (SwitcherItem) -> Void
     let onToggleMinimized: (SwitcherItem) -> Void
     let onTogglePinned: () -> Void
     let onClosePanel: () -> Void
-    let onSelectPrevious: () -> Void
-    let onSelectNext: () -> Void
+    let onSelectPrevious: () -> CGWindowID?
+    let onSelectNext: () -> CGWindowID?
+    let onBeginDrag: (SwitcherItem) -> Void
+    let onUpdateDrag: () -> Void
+    let onEndDrag: (SwitcherItem) -> Void
 
     @ObservedObject private var l10n = L10n.shared
+    @State private var draggingWindowID: CGWindowID?
+    @AppStorage(DefaultsKey.minimalWindowPreviews) private var minimalPreviews = false
+    @AppStorage(DefaultsKey.dockPreviewBackgroundOpacity) private var backgroundOpacity = 1.0
+    @AppStorage(DefaultsKey.dockPreviewQuitAppOnClose) private var quitAppOnClose = false
+
+    private var closeActionTitle: String {
+        DockPreviewSupport.closeAction(quitAppOnClose: quitAppOnClose) == .quitApp
+            ? l10n.s.panelQuit
+            : l10n.s.dockPreviewCloseWindow
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            panelHeader
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: DockPreviewSupport.cardSpacing) {
+        ScrollViewReader { proxy in
+            VStack(spacing: 0) {
+                if DockPreviewSupport.showsPanelHeader(isPinned: isPinned) {
+                    panelHeader(proxy: proxy)
+                }
+                ScrollView(stacksVertically ? .vertical : .horizontal, showsIndicators: false) {
+                    cardRun {
                         ForEach(windows) { window in
                             DockPreviewCard(
                                 window: window,
                                 preview: window.previewWindowID.flatMap { previews[$0] },
                                 isSelected: selectedWindowID == window.windowID,
                                 isPanelPinned: isPinned,
+                                onTogglePinned: onTogglePinned,
+                                closeActionTitle: closeActionTitle,
                                 onCommit: {
                                     onCommit(window)
                                 },
                                 onClose: {
                                     onCloseWindow(window)
                                 },
+                                onMiddleClick: { onMiddleClick(window) },
                                 onToggleMinimized: {
                                     onToggleMinimized(window)
                                 }
                             )
                             .id(window.id)
+                            .gesture(
+                                DragGesture(minimumDistance: DockPreviewSupport.dragLiftDistance,
+                                            coordinateSpace: .global)
+                                    .onChanged { _ in
+                                        if draggingWindowID == nil {
+                                            draggingWindowID = window.windowID
+                                            onBeginDrag(window)
+                                        }
+                                        guard draggingWindowID == window.windowID else { return }
+                                        onUpdateDrag()
+                                    }
+                                    .onEnded { _ in
+                                        guard draggingWindowID == window.windowID else { return }
+                                        draggingWindowID = nil
+                                        onEndDrag(window)
+                                    }
+                            )
                             .onHover { hovering in
                                 if hovering {
                                     onPreview(window)
@@ -102,53 +163,91 @@ private struct DockPreviewPanelContent: View {
                     }
                     .padding(.horizontal, DockPreviewSupport.panelPadding)
                     .padding(.bottom, DockPreviewSupport.panelPadding)
+                    .padding(.top, showsHeader ? 0 : DockPreviewSupport.panelPadding)
                 }
-                .onChange(of: selectedWindowID) { _, selectedWindowID in
-                    guard let selectedWindowID,
-                          let selected = windows.first(where: { $0.windowID == selectedWindowID })
-                    else { return }
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        proxy.scrollTo(selected.id, anchor: .center)
-                    }
-                }
+                // A panel that already shows every window has nothing to
+                // scroll, and a scroll view that can move steals the drag that
+                // carries a window out of the panel.
+                .scrollDisabled(showsEveryWindow)
             }
         }
-        .frame(height: DockPreviewSupport.panelSize(itemCount: 1,
-                                                    screenVisibleFrame: CGRect(x: 0, y: 0, width: 500, height: 500)).height)
-        .background(HUDBackdrop(cornerRadius: 18, opacity: CGFloat(Defaults.dockPreviewBackgroundOpacity)))
+        .frame(width: stacksVertically ? DockPreviewSupport.cardWidth
+                   + DockPreviewSupport.panelPadding * 2 : nil,
+               height: stacksVertically ? nil : cardRunHeight)
+        .background(HUDBackdrop(cornerRadius: 18,
+                                opacity: DockPreviewSupport.sanitizedBackgroundOpacity(backgroundOpacity)))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                .strokeBorder(minimalPreviews ? Color.clear : Color.white.opacity(0.12), lineWidth: 1)
         )
     }
 
-    private var panelHeader: some View {
+    private var stacksVertically: Bool {
+        DockPreviewSupport.stacksVertically(orientation: orientation, isPinned: isPinned)
+    }
+
+    private var showsHeader: Bool {
+        DockPreviewSupport.showsPanelHeader(isPinned: isPinned)
+    }
+
+    /// The panel is sized by the service against the real screen; this only
+    /// keeps the content from collapsing before the first capture lands, so a
+    /// nominal screen is enough for it.
+    private var showsEveryWindow: Bool {
+        DockPreviewSupport.visibleCardCount(
+            itemCount: windows.count,
+            screenVisibleFrame: NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900),
+            orientation: orientation,
+            isPinned: isPinned
+        ) >= windows.count
+    }
+
+    private var cardRunHeight: CGFloat {
+        DockPreviewSupport.cardHeight + DockPreviewSupport.panelPadding * 2
+            + (showsHeader ? DockPreviewSupport.panelHeaderHeight : 0)
+    }
+
+    @ViewBuilder
+    private func cardRun<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        if stacksVertically {
+            VStack(spacing: DockPreviewSupport.cardSpacing) { content() }
+        } else {
+            HStack(spacing: DockPreviewSupport.cardSpacing) { content() }
+        }
+    }
+
+    private func panelHeader(proxy: ScrollViewProxy) -> some View {
         HStack(spacing: 7) {
             dragTitleArea
-            windowNavigationButtons
-            Button {
-                onTogglePinned()
-            } label: {
-                Image(systemName: isPinned ? "pin.slash.fill" : "pin.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 22, height: 20)
+            windowNavigationButtons(proxy: proxy)
+            // Both belong to the pinned panel alone. A hovered panel is
+            // dismissed by moving off it, and pinning one is a named item in
+            // any card's menu.
+            if isPinned {
+                Button {
+                    onTogglePinned()
+                } label: {
+                    Image(systemName: "pin.slash.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(width: 22, height: 20)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+                .help(l10n.s.dockPreviewUnpinPanel)
+                .accessibilityLabel(l10n.s.dockPreviewUnpinPanel)
+                Button {
+                    onClosePanel()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.secondary)
+                .help(l10n.s.dockPreviewClosePanel)
+                .accessibilityLabel(l10n.s.dockPreviewClosePanel)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(isPinned ? Color.accentColor : Color.secondary)
-            .help(isPinned ? l10n.s.dockPreviewUnpinPanel : l10n.s.dockPreviewPinPanel)
-            .accessibilityLabel(isPinned ? l10n.s.dockPreviewUnpinPanel : l10n.s.dockPreviewPinPanel)
-            Button {
-                onClosePanel()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
-                    .frame(width: 20, height: 20)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.secondary)
-            .help(l10n.s.dockPreviewClosePanel)
-            .accessibilityLabel(l10n.s.dockPreviewClosePanel)
         }
         .focusEffectDisabled()
         .padding(.horizontal, DockPreviewSupport.panelPadding)
@@ -163,15 +262,20 @@ private struct DockPreviewPanelContent: View {
             }
 
             HStack(spacing: 7) {
-                if let icon = windows.first?.appIcon {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .frame(width: 16, height: 16)
+                // A hovered panel sits above the Dock icon the pointer is
+                // resting on. A pinned panel outlives that pointer and has to
+                // name itself.
+                if isPinned {
+                    if let icon = windows.first?.appIcon {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .frame(width: 16, height: 16)
+                    }
+                    Text(currentAppName ?? "")
+                        .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
-                Text(currentAppName ?? "")
-                    .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
                 if let positionText = DockPreviewSupport.windowPositionText(
                     selectedWindowID: selectedWindowID,
                     windowIDs: windows.compactMap(\.windowID)
@@ -206,11 +310,11 @@ private struct DockPreviewPanelContent: View {
     }
 
     @ViewBuilder
-    private var windowNavigationButtons: some View {
+    private func windowNavigationButtons(proxy: ScrollViewProxy) -> some View {
         if windows.count > 1 {
             HStack(spacing: 1) {
                 Button {
-                    onSelectPrevious()
+                    revealSelection(onSelectPrevious(), proxy: proxy)
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 11, weight: .semibold))
@@ -220,7 +324,7 @@ private struct DockPreviewPanelContent: View {
                 .accessibilityLabel(l10n.s.dockPreviewPreviousWindow)
 
                 Button {
-                    onSelectNext()
+                    revealSelection(onSelectNext(), proxy: proxy)
                 } label: {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 11, weight: .semibold))
@@ -234,6 +338,16 @@ private struct DockPreviewPanelContent: View {
             .padding(.horizontal, 3)
             .padding(.vertical, 1)
             .background(Capsule().fill(Color.white.opacity(0.10)))
+        }
+    }
+
+    private func revealSelection(_ windowID: CGWindowID?, proxy: ScrollViewProxy) {
+        guard let windowID,
+              let selected = windows.first(where: { $0.windowID == windowID }) else { return }
+        // Hover only highlights. Recentering each card that crosses the pointer
+        // during a scroll feeds another jump into the gesture.
+        withAnimation(.easeOut(duration: 0.15)) {
+            proxy.scrollTo(selected.id, anchor: .center)
         }
     }
 }
@@ -266,92 +380,117 @@ private struct DockPreviewCard: View {
     let preview: CGImage?
     let isSelected: Bool
     let isPanelPinned: Bool
+    let onTogglePinned: () -> Void
+    let closeActionTitle: String
     let onCommit: () -> Void
     let onClose: () -> Void
+    let onMiddleClick: () -> Void
     let onToggleMinimized: () -> Void
 
     @ObservedObject private var l10n = L10n.shared
+    @AppStorage(DefaultsKey.minimalWindowPreviews) private var minimalPreviews = false
     @State private var isHovering = false
     @State private var isCloseHovering = false
     @State private var isMinimizeHovering = false
     @State private var suppressNextCommit = false
 
     private var showsPreviewControls: Bool {
-        isHovering || isSelected || isPanelPinned
+        !minimalPreviews && DockPreviewSupport.showsCardControls(isHovering: isHovering, isSelected: isSelected)
     }
 
     private var hasStatusBadges: Bool {
-        window.isMinimized || window.isFullscreen
+        window.isMinimized || window.isFullscreen || window.isOnHiddenSpace
+    }
+
+    private var showsAppBadge: Bool {
+        DockPreviewSupport.showsCardAppBadge(hasPreview: preview != nil)
     }
 
     var body: some View {
-        VStack(spacing: 7) {
+        VStack(spacing: DockPreviewSupport.cardTitleSpacing) {
             ZStack {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(Color.white.opacity(0.07))
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(minimalPreviews ? Color.clear : Color.white.opacity(0.06))
 
                 if let preview {
                     Image(decorative: preview, scale: 2)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                        .padding(4)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .padding(DockPreviewSupport.cardThumbnailInset)
                 } else if let icon = window.appIcon {
+                    // Drawn as a watermark, not as content. Every card in a
+                    // panel belongs to the app whose Dock icon opened it, and
+                    // that icon is already in the header, so this says nothing
+                    // new — it only fills the space until a capture lands. At
+                    // full strength the capture replacing it reads as a jump;
+                    // at this weight it reads as the space filling in, and it
+                    // costs no transition, so nothing takes longer.
                     Image(nsImage: icon)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(width: 52, height: 52)
+                        .frame(width: DockPreviewSupport.cardFallbackIconSize,
+                               height: DockPreviewSupport.cardFallbackIconSize)
+                        .opacity(0.35)
                 }
 
-                if preview != nil, let icon = window.appIcon {
-                    VStack {
-                        Spacer()
-                        HStack {
-                            Spacer()
-                            Image(nsImage: icon)
-                                .resizable()
-                                .frame(width: 24, height: 24)
-                                .shadow(radius: 2)
-                                .padding(6)
+                // One row along the bottom of the picture: the app on the
+                // left, the window's state on the right, sharing a baseline --
+                // the App Switcher's card, which shows the same two things
+                // about the same kind of thing.
+                if !minimalPreviews {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        HStack(alignment: .bottom, spacing: 8) {
+                            if let icon = window.appIcon {
+                                Image(nsImage: icon)
+                                    .resizable()
+                                    .frame(width: DockPreviewSupport.cardAppBadgeSize,
+                                           height: DockPreviewSupport.cardAppBadgeSize)
+                                    .shadow(radius: 3)
+                                    .padding(.leading, -DockPreviewSupport.cardAppBadgeArtworkInset)
+                                    .padding(.bottom, -DockPreviewSupport.cardAppBadgeArtworkInset)
+                                    .opacity(showsAppBadge ? 1 : 0)
+                                    .accessibilityHidden(true)
+                            }
+                            Spacer(minLength: 0)
+                            if hasStatusBadges {
+                                HStack(spacing: 5) {
+                                    statusBadges
+                                }
+                            }
                         }
+                        .padding(7)
                     }
                 }
-
-                if hasStatusBadges {
-                    VStack {
-                        Spacer()
-                        HStack(spacing: 4) {
-                            statusBadges
-                            Spacer()
-                        }
-                        .padding(6)
-                    }
-                }
-
-                previewTitleBar
             }
-            .frame(width: DockPreviewSupport.cardWidth - 18,
-                   height: DockPreviewSupport.cardHeight - 54)
+            .frame(width: DockPreviewSupport.cardThumbnailWidth,
+                   height: DockPreviewSupport.cardThumbnailHeight)
 
-            Text(window.displayTitle)
-                .font(.system(size: 12, weight: .semibold))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .foregroundStyle(.primary)
-                .frame(height: 24)
-                .frame(maxWidth: DockPreviewSupport.cardWidth - 22)
+            if !minimalPreviews { titleBand }
         }
-        .padding(9)
+        .padding(DockPreviewSupport.cardPadding)
         .frame(width: DockPreviewSupport.cardWidth, height: DockPreviewSupport.cardHeight)
+        // The selection animates on the two layers that draw it. Animating
+        // the card instead put every child in the transaction, so arriving on a
+        // card re-composited the shadowed app badge and it blinked once.
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? Color.white.opacity(0.15) : Color.clear)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(isSelected ? Color.white.opacity(0.14) : Color.clear)
+                .animation(.spring(response: 0.2, dampingFraction: 0.82), value: isSelected)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                .animation(.spring(response: 0.2, dampingFraction: 0.82), value: isSelected)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            if window.windowID != nil {
+                DockPreviewMiddleClick(onClose: onMiddleClick)
+                    .accessibilityHidden(true)
+            }
+        }
         .contextMenu {
             cardContextMenu
         }
@@ -360,9 +499,9 @@ private struct DockPreviewCard: View {
             onCommit()
         }
         .onHover { isHovering = $0 }
-        .animation(.spring(response: 0.2, dampingFraction: 0.82), value: isSelected)
-        .animation(.easeOut(duration: 0.12), value: showsPreviewControls)
-        .accessibilityLabel(window.accessibilityTitle)
+        .accessibilityLabel(window.spokenLabel(noOpenWindow: l10n.s.switcherNoOpenWindow,
+                                               hiddenApp: l10n.s.panelHiddenItem,
+                                               otherDesktop: l10n.s.switcherOtherDesktop))
     }
 
     @ViewBuilder
@@ -380,53 +519,56 @@ private struct DockPreviewCard: View {
                       systemImage: window.isMinimized ? "plus.rectangle" : "minus.rectangle")
             }
         }
+        Divider()
+        Button {
+            onTogglePinned()
+        } label: {
+            Label(isPanelPinned ? l10n.s.dockPreviewUnpinPanel : l10n.s.dockPreviewPinPanel,
+                  systemImage: isPanelPinned ? "pin.slash" : "pin")
+        }
+        Divider()
         Button(role: .destructive) {
             onClose()
         } label: {
-            Label(l10n.s.dockPreviewCloseWindow, systemImage: "xmark.circle")
+            Label(closeActionTitle, systemImage: "xmark.circle")
         }
     }
 
-    private var previewTitleBar: some View {
-        VStack {
-            HStack(spacing: 6) {
-                Text(window.displayTitle)
-                    .font(.system(size: 11, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .foregroundStyle(Color.white.opacity(0.92))
-                if isPanelPinned, isSelected {
-                    Text(l10n.s.dockPreviewPinned)
+    /// The title and the two window controls, side by side under the picture.
+    /// The controls used to float over the thumbnail in a capsule a third of
+    /// its height. The room they take here is held whether or not they are
+    /// drawn, so the title does not shift as the pointer arrives.
+    private var titleBand: some View {
+        HStack(alignment: .top, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
+                // Full strength whether or not the card is selected. The App
+                // Switcher dims an unselected name because a grid of them is
+                // read at a glance and the selection has to carry; a Dock
+                // preview holds the windows of one app, where the name is the
+                // only thing telling them apart.
+                ScrollingTitle(text: window.displayTitle,
+                               weight: isSelected ? .semibold : .regular,
+                               width: DockPreviewSupport.cardTitleTextWidth,
+                               alignment: .leading,
+                               scrolls: isHovering)
+                    .foregroundStyle(.primary)
+                if let subtitle = window.displaySubtitle {
+                    Text(subtitle)
+                        .font(.system(size: 10.5, weight: .medium))
                         .lineLimit(1)
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Color.white.opacity(0.70))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Capsule().fill(Color.white.opacity(0.12)))
+                        .truncationMode(.middle)
+                        .foregroundStyle(.secondary)
                 }
-                Spacer(minLength: 2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 4) {
                 closeButton
                 minimizeButton
             }
-            .padding(.leading, 9)
-            .padding(.trailing, 5)
-            .padding(.vertical, 5)
-            .frame(height: 30)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Color.black.opacity(0.44))
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
-                    )
-            )
-            .shadow(color: Color.black.opacity(0.18), radius: 6, y: 2)
-            .padding(.horizontal, 7)
-            .padding(.top, 7)
-            .opacity(showsPreviewControls ? 1 : 0)
-            .allowsHitTesting(showsPreviewControls)
-            Spacer()
         }
+        .frame(width: DockPreviewSupport.cardThumbnailWidth,
+               height: DockPreviewSupport.cardTitleHeight,
+               alignment: .top)
     }
 
     @ViewBuilder
@@ -436,6 +578,9 @@ private struct DockPreviewCard: View {
         }
         if window.isFullscreen {
             statusBadge(systemName: "arrow.up.left.and.arrow.down.right")
+        }
+        if window.isOnHiddenSpace {
+            statusBadge(systemName: "rectangle.stack")
         }
     }
 
@@ -460,19 +605,19 @@ private struct DockPreviewCard: View {
             }
         } label: {
             Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 18, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .symbolRenderingMode(.palette)
                 .foregroundStyle(Color.white.opacity(isCloseHovering ? 0.95 : 0.72),
                                  Color(red: 1.0, green: 0.38, blue: 0.33).opacity(isCloseHovering ? 1 : 0.92))
-                .frame(width: 24, height: 24)
+                .frame(width: 16, height: 16)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .opacity(showsPreviewControls ? 1 : 0)
         .allowsHitTesting(showsPreviewControls)
         .onHover { isCloseHovering = $0 }
-        .help(l10n.s.dockPreviewCloseWindow)
-        .accessibilityLabel(l10n.s.dockPreviewCloseWindow)
+        .help(closeActionTitle)
+        .accessibilityLabel(closeActionTitle)
     }
 
     private var minimizeButton: some View {
@@ -484,11 +629,11 @@ private struct DockPreviewCard: View {
             }
         } label: {
             Image(systemName: window.isMinimized ? "plus.circle.fill" : "minus.circle.fill")
-                .font(.system(size: 18, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .symbolRenderingMode(.palette)
                 .foregroundStyle(Color.white.opacity(isMinimizeHovering ? 0.95 : 0.72),
                                  Color.black.opacity(isMinimizeHovering ? 0.58 : 0.46))
-                .frame(width: 24, height: 24)
+                .frame(width: 16, height: 16)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -497,5 +642,40 @@ private struct DockPreviewCard: View {
         .onHover { isMinimizeHovering = $0 }
         .help(window.isMinimized ? l10n.s.dockPreviewRestoreWindow : l10n.s.dockPreviewMinimizeWindow)
         .accessibilityLabel(window.isMinimized ? l10n.s.dockPreviewRestoreWindow : l10n.s.dockPreviewMinimizeWindow)
+    }
+}
+
+/// Only middle clicks belong to this view; ordinary clicks and drags keep
+/// reaching the SwiftUI card underneath, including its context menu.
+private struct DockPreviewMiddleClick: NSViewRepresentable {
+    let onClose: () -> Void
+
+    func makeNSView(context: Context) -> ClickView { ClickView() }
+
+    func updateNSView(_ view: ClickView, context: Context) {
+        view.onClose = onClose
+    }
+
+    final class ClickView: NSView {
+        var onClose: (() -> Void)?
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard let event = NSApp.currentEvent,
+                  DockPreviewSupport.handlesMiddleClick(
+                    eventType: event.type, buttonNumber: event.buttonNumber,
+                    point: convert(point, from: superview), visibleRect: visibleRect,
+                    isHidden: isHiddenOrHasHiddenAncestor)
+            else { return nil }
+            return self
+        }
+
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func otherMouseDown(with event: NSEvent) {
+            guard event.buttonNumber == 2 else { return }
+            onClose?()
+        }
+
+        override func otherMouseUp(with event: NSEvent) {}
     }
 }

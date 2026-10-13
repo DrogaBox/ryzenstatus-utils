@@ -60,6 +60,8 @@ struct WhatsAppDownloadStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .sk: return .sk
+        case .uk: return .uk
         }
     }
 }
@@ -628,5 +630,91 @@ extension WhatsAppDownloadStrings {
         notificationFormat: "%1$d 個檔案（%2$@）已移至垃圾桶。%3$d 個失敗。",
         scanFailed: "無法掃描下載項目。請檢查系統設定中的「檔案與資料夾」。",
         manageButton: "管理…"
+    )
+
+    static let sk = WhatsAppDownloadStrings(
+        title: "Stiahnuté z WhatsAppu",
+        hubDescription: "Udržiava súbory z WhatsAppu v Stiahnutých súboroch pod kontrolou",
+        intro: "Nájde súbory, o ktorých macOS potvrdzuje, že pochádzajú z WhatsAppu. Obsah súborov ani chaty sa nikdy nečítajú.",
+        automatic: "Upratovať automaticky",
+        automaticCaption: "Raz denne skontroluje priečinok a zodpovedajúce súbory staršie ako váš limit presunie do Koša.",
+        folder: "Sledovaný priečinok",
+        accessReady: "Stiahnuté súbory sú prístupné",
+        accessDenied: "RyzenStatus nemá prístup k Stiahnutým súborom. Povoľte ho v časti Súbory a priečinky.",
+        fileTypes: "Typy súborov",
+        allTypes: "Všetky",
+        image: "Obrázky",
+        video: "Videá",
+        audio: "Zvuk a hlasové správy",
+        document: "Dokumenty",
+        archive: "Archívy",
+        other: "Ostatné",
+        retention: "Ponechať",
+        retentionCaption: "Nedávno upravené súbory čakajú znova celé obdobie.",
+        daysFormat: "%d d",
+        manualIntro: "Skenujte kedykoľvek. Počiatočný výber sa riadi vašimi typmi a vekovým limitom; každý potvrdený súbor si môžete prezrieť.",
+        noFiles: "V Stiahnutých súboroch sa nenašli žiadne potvrdené súbory z WhatsAppu.",
+        resultsFormat: "Potvrdené súbory: %1$d · %2$@",
+        selectRules: "Vybrať podľa mojich pravidiel",
+        cleanSelectedFormat: "Presunúť do Koša (%1$d) · %2$@",
+        keep: "Ponechať",
+        manageAgain: "Spravovať znova",
+        activity: "Aktivita",
+        neverRun: "Zatiaľ neprebehlo žiadne upratovanie.",
+        lastRunFormat: "Posledné upratovanie %@: súbory: %d · %@ · zlyhania: %d",
+        nextRunFormat: "Ďalšia automatická kontrola %@.",
+        firstTitle: "Čo s existujúcimi súbormi?",
+        firstMessageFormat: "Vašim pravidlám už zodpovedá existujúcich súborov: %d. Vyberte, či ich môže automatizácia spravovať, alebo iba budúce stiahnuté súbory.",
+        futureOnly: "Iba budúce stiahnuté súbory",
+        includeExisting: "Zahrnúť existujúce súbory",
+        trashNote: "Súbory sa presunú do Koša a dajú sa obnoviť, kým ho nevyprázdnite.",
+        localNote: "Kontrolujú sa iba miestne metadáta súborov. RyzenStatus nikdy nečíta chaty ani obsah súborov.",
+        notificationTitle: "Upratovanie WhatsAppu",
+        notificationFormat: "Do Koša presunuté súbory: %1$d (%2$@). Zlyhania: %3$d.",
+        scanFailed: "Stiahnuté súbory sa nepodarilo skenovať. Skontrolujte Súbory a priečinky v Systémových nastaveniach.",
+        manageButton: "Spravovať…"
+    )
+
+    static let uk = WhatsAppDownloadStrings(
+        title: "Завантаження WhatsApp",
+        hubDescription: "Тримає під контролем файли WhatsApp у папці «Завантаження»",
+        intro: "Знаходить файли, які, за підтвердженням macOS, надійшли з WhatsApp. Вміст файлів і чати ніколи не читаються.",
+        automatic: "Прибирати автоматично",
+        automaticCaption: "Перевіряє раз на день і переміщує відповідні файли, старші за ваш ліміт, у Смітник.",
+        folder: "Відстежувана папка",
+        accessReady: "Папка «Завантаження» доступна",
+        accessDenied: "RyzenStatus не має доступу до папки «Завантаження». Дозвольте його в розділі «Файли і папки».",
+        fileTypes: "Типи файлів",
+        allTypes: "Усі",
+        image: "Зображення",
+        video: "Відео",
+        audio: "Аудіо та голосові повідомлення",
+        document: "Документи",
+        archive: "Архіви",
+        other: "Інше",
+        retention: "Зберігати",
+        retentionCaption: "Нещодавно змінені файли знову чекають повний термін.",
+        daysFormat: "%d дн.",
+        manualIntro: "Скануйте будь-коли. Початковий вибір відповідає вашим типам і віковому ліміту; ви можете переглянути кожен підтверджений файл.",
+        noFiles: "У папці «Завантаження» не знайдено підтверджених файлів WhatsApp.",
+        resultsFormat: "Підтверджених файлів: %1$d · %2$@",
+        selectRules: "Вибрати за моїми правилами",
+        cleanSelectedFormat: "Перемістити в Смітник (%1$d) · %2$@",
+        keep: "Залишити",
+        manageAgain: "Керувати знову",
+        activity: "Активність",
+        neverRun: "Прибирання ще не запускалося.",
+        lastRunFormat: "Останнє прибирання %@: файлів: %d · %@ · збоїв: %d",
+        nextRunFormat: "Наступна автоматична перевірка %@.",
+        firstTitle: "А що з наявними файлами?",
+        firstMessageFormat: "Наявних файлів, що вже відповідають вашим правилам: %d. Виберіть, чи може автоматизація керувати ними, чи лише майбутніми завантаженнями.",
+        futureOnly: "Лише майбутні завантаження",
+        includeExisting: "Включити наявні файли",
+        trashNote: "Файли переміщуються в Смітник і їх можна відновити, доки ви його не очистите.",
+        localNote: "Перевіряються лише локальні метадані файлів. RyzenStatus ніколи не читає чати чи вміст файлів.",
+        notificationTitle: "Прибирання WhatsApp",
+        notificationFormat: "Переміщено в Смітник файлів: %1$d (%2$@). Збоїв: %3$d.",
+        scanFailed: "Не вдалося просканувати папку «Завантаження». Перевірте «Файли і папки» в Системних параметрах.",
+        manageButton: "Керувати…"
     )
 }

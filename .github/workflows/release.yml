@@ -17,7 +17,9 @@ jobs:
   release:
     name: Build & publish DMG
     runs-on: macos-26
-    timeout-minutes: 30
+    # The tests and the release build each compile the whole app; with the
+    # DMG on top they no longer fit in 30 minutes on a hosted runner.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
 
@@ -67,13 +69,33 @@ jobs:
 
       - name: Release notes from CHANGELOG
         id: notes
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           if ! grep -Fq "## [$VERSION]" CHANGELOG.md; then
             echo "CHANGELOG.md has no entry for $VERSION" >&2
             exit 1
           fi
-          NOTES="$(awk -v hdr="## [$VERSION]" 'index($0,hdr)==1{g=1;next} /^## \[/&&g{exit} g{print}' CHANGELOG.md)"
+          # The notes run from this version down to the last published
+          # release, so versions that never got a release of their own are
+          # not lost. The previous release is the published tag just below
+          # this one; with none, or no CHANGELOG entry for it, only this
+          # version's entry is used.
+          PREV_TAG="$(gh release list -R "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+                        --limit 200 --json tagName -q '.[].tagName' \
+                      | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+                      | { cat; echo "$GITHUB_REF_NAME"; } | sort -uV \
+                      | grep -B1 -xF "$GITHUB_REF_NAME" | head -n 1)"
+          PREV="${PREV_TAG#v}"
+          if [[ -n "$PREV" && "$PREV_TAG" != "$GITHUB_REF_NAME" ]] && grep -Fq "## [$PREV]" CHANGELOG.md; then
+            echo "Release notes cover $VERSION back to the last release, $PREV"
+            NOTES="$(awk -v hdr="## [$VERSION]" -v stop="## [$PREV]" \
+                       'index($0,hdr)==1{g=1;next} g&&index($0,stop)==1{exit} g{print}' CHANGELOG.md)"
+          else
+            echo "No earlier published release with a CHANGELOG entry; using $VERSION alone"
+            NOTES="$(awk -v hdr="## [$VERSION]" 'index($0,hdr)==1{g=1;next} /^## \[/&&g{exit} g{print}' CHANGELOG.md)"
+          fi
           if [[ -z "${NOTES//[[:space:]]/}" ]]; then
             echo "CHANGELOG.md entry for $VERSION is empty" >&2
             exit 1

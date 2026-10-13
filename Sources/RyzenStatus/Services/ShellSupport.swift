@@ -3,44 +3,24 @@
 
 import AppKit
 import CoreServices
+import Darwin
 
 enum Shell {
+    /// A command that stops answering must not keep a thread forever. Ten
+    /// seconds, not upstream's five: callers here (`ps`, `nettop`, `pmset`)
+    /// were tuned against that bound and pass no timeout of their own.
+    static let defaultTimeout: TimeInterval = 10
+
     @discardableResult
-    static func run(_ path: String, _ args: [String], timeout: TimeInterval = 10) -> (status: Int32, output: String) {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: path)
-        p.arguments = args
-        let pipe = Pipe()
-        p.standardOutput = pipe
-        p.standardError = pipe
-        do { try p.run() } catch { return (-1, "") }
-
-        // Add deadline + drain queue with SIGTERM->SIGKILL escalation
-        // so a hung subprocess (e.g. ps, nettop) cannot permanently stall process monitoring.
-        let group = DispatchGroup()
-        group.enter()
-
-        var data = Data()
-        let queue = DispatchQueue(label: "com.ryzenstatus.shell.reader", qos: .utility)
-        queue.async {
-            data = pipe.fileHandleForReading.readDataToEndOfFile()
-            group.leave()
-        }
-
-        let deadline = DispatchTime.now() + timeout
-        if group.wait(timeout: deadline) == .timedOut {
-            p.terminate()
-            let pid = p.processIdentifier
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1.0) {
-                if p.isRunning && pid > 0 {
-                    kill(pid, SIGKILL)
-                }
-            }
-            return (-1, "")
-        }
-
-        p.waitUntilExit()
-        return (p.terminationStatus, String(data: data, encoding: .utf8) ?? "")
+    static func run(_ path: String,
+                    _ args: [String],
+                    timeout: TimeInterval = defaultTimeout,
+                    maxOutputBytes: Int = 4 * 1024 * 1024)
+        -> (status: Int32, output: String) {
+        let result = BoundedProcessRunner.run(path, args,
+                                              timeout: timeout,
+                                              maxOutputBytes: maxOutputBytes)
+        return (result.status, String(decoding: result.output, as: UTF8.self))
     }
 }
 
@@ -60,7 +40,16 @@ enum AdminShell {
     private static let promptLock = NSLock()
     private static var prompting = false
 
+    private enum RequestOrigin {
+        case systemScript
+        case signedApp
+    }
+
     static func runSync(_ command: String, prompt: String) -> Bool {
+        runSync(command, prompt: prompt, origin: .systemScript)
+    }
+
+    private static func runSync(_ command: String, prompt: String, origin: RequestOrigin) -> Bool {
         promptLock.lock()
         if prompting {
             promptLock.unlock()
@@ -75,13 +64,34 @@ enum AdminShell {
         }
 
         bringAppToFront()
-        let source = "do shell script \(appleScriptString(command)) with administrator privileges with prompt \(appleScriptString(prompt))"
-        return Shell.run("/usr/bin/osascript", ["-e", source]).status == 0
+        let source = appleScriptSource(command: command, prompt: prompt)
+        switch origin {
+        case .systemScript:
+            // A person typing a password is not a stuck command. Keep the
+            // established bound without rushing a prompt that is being read.
+            return Shell.run("/usr/bin/osascript", ["-e", source], timeout: 600).status == 0
+        case .signedApp:
+            // NSAppleScript is main-thread-only. The updater's elevated shell
+            // detaches immediately after approval, so this wait covers only the
+            // system authorization interaction.
+            return DispatchQueue.main.sync {
+                AppleScriptRunner.run(source).ok
+            }
+        }
     }
 
     static func run(_ command: String, prompt: String, completion: @escaping (Bool) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             completion(runSync(command, prompt: prompt))
+        }
+    }
+
+    /// Runs the administrator request inside this signed process so system
+    /// policy can identify the app that initiated it. Reserved for the updater;
+    /// other administrative tools retain their bounded subprocess behavior.
+    static func runInProcess(_ command: String, prompt: String, completion: @escaping (Bool) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            completion(runSync(command, prompt: prompt, origin: .signedApp))
         }
     }
 
@@ -96,6 +106,10 @@ enum AdminShell {
             }
         }
         Thread.sleep(forTimeInterval: 0.12)
+    }
+
+    static func appleScriptSource(command: String, prompt: String) -> String {
+        "do shell script \(appleScriptString(command)) with administrator privileges with prompt \(appleScriptString(prompt))"
     }
 
     private static func appleScriptString(_ value: String) -> String {
@@ -120,12 +134,13 @@ enum Sudoers {
         "/etc/sudoers.d/ryzenstatus-utils-clamshell",
     ]
 
-    /// Serializes every touch of the SleepDisabled state. The probe below
-    /// re-applies the value it just read; racing it against a concurrent
-    /// disable (launch recovery, a session ending) could resurrect a stale
-    /// "1" after the flag was already cleared, leaving lid sleep off with
-    /// nothing left to repair it.
+    /// Serializes native writes and read/reapply probes. Authorization runs
+    /// separately with probes suspended, so a probe cannot resurrect a stale
+    /// "1" after a restore cleared it and leave lid sleep off without a marker.
     private static let sleepStateQueue = DispatchQueue(label: "com.ryzenstatus.utils.pmset-state")
+    // Authorization runs outside this queue so quitting never waits for a
+    // password prompt. Probes must not reapply a stale state during that off.
+    private static var sleepStateProbeSuspensions = 0
 
     /// Proves the passwordless path by running it: re-applying the current
     /// SleepDisabled state through `sudo -n` changes nothing on the system and
@@ -134,6 +149,7 @@ enum Sudoers {
     /// a password, which put every toggle behind a prompt (issue #269).
     static func isConfigured() -> Bool {
         sleepStateQueue.sync {
+            guard sleepStateProbeSuspensions == 0 else { return false }
             let report = Shell.run("/usr/bin/pmset", ["-g"])
             guard report.status == 0 else { return false }
             return pmsetDisableSleepOnQueue(SudoersSupport.sleepDisabled(inPmsetOutput: report.output))
@@ -176,6 +192,45 @@ enum Sudoers {
     @discardableResult
     static func pmsetDisableSleep(_ on: Bool) -> Bool {
         sleepStateQueue.sync { pmsetDisableSleepOnQueue(on) }
+    }
+
+    /// Queues asynchronous writes directly in request order. Completions
+    /// must not wait for the main thread or for administrator authorization.
+    static func pmsetDisableSleep(_ on: Bool, completion: @escaping (Bool) -> Void) {
+        sleepStateQueue.async {
+            completion(pmsetDisableSleepOnQueue(on))
+        }
+    }
+
+    /// Completes earlier probes before authorization can restore sleep and
+    /// suspends later probes until it finishes. The queue remains free for a
+    /// silent restore during quit; the main-thread guard cancels stale prompts.
+    static func restoreSleepWithAuthorization(prompt: String,
+                                              shouldProceed: @escaping () -> Bool,
+                                              completion: @escaping (Bool) -> Void) {
+        sleepStateQueue.async {
+            sleepStateProbeSuspensions += 1
+            let finish: (Bool) -> Void = { ok in
+                sleepStateQueue.async {
+                    sleepStateProbeSuspensions -= 1
+                    completion(ok)
+                }
+            }
+            // A failed enable may never have set the override. Once probes
+            // are suspended, a confirmed off needs no further authorization.
+            let report = Shell.run("/usr/bin/pmset", ["-g"])
+            if report.status == 0, !SudoersSupport.sleepDisabled(inPmsetOutput: report.output) {
+                finish(true)
+                return
+            }
+            DispatchQueue.main.async {
+                guard shouldProceed() else {
+                    finish(false)
+                    return
+                }
+                AdminShell.run("pmset disablesleep 0", prompt: prompt, completion: finish)
+            }
+        }
     }
 
     private static func pmsetDisableSleepOnQueue(_ on: Bool) -> Bool {

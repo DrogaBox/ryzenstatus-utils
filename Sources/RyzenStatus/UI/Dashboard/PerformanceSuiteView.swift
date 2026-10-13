@@ -285,18 +285,9 @@ struct PerformanceSuiteView: View {
                     .foregroundColor(.secondary)
             }
 
-            let now = Date()
-            let count = max(1, history.count)
-            let points = history.enumerated().map { (idx, val) in
-                TrendPoint(date: now.addingTimeInterval(Double(idx - count)), value: val)
-            }
-
-            TrendChart(
-                series: [TrendSeries(points: points, color: accentColor, filled: true, lineWidth: 1.5)],
-                yDomain: 0...maxDomain,
-                showsYAxis: false
-            )
-            .frame(height: 36)
+            ColumnHistoryGraph(layers: [ColumnGraphGeometry.fractions(history, ceiling: maxDomain)],
+                               inks: [.fixed(accentColor)])
+                .frame(height: 36)
         }
         .suiteCard(padding: 10)
     }
@@ -487,14 +478,9 @@ struct PerformanceSuiteView: View {
                 }
             }
             if history.count >= 2 {
-                TrendChart(
-                    series: [TrendSeries(points: history.enumerated().map { idx, val in
-                        TrendPoint(date: Date().addingTimeInterval(Double(idx - history.count)), value: val)
-                    }, color: accentColor, filled: true, lineWidth: 1.2)],
-                    yDomain: 0...maxDomain,
-                    showsYAxis: false
-                )
-                .frame(height: 26)
+                ColumnHistoryGraph(layers: [ColumnGraphGeometry.fractions(history, ceiling: maxDomain)],
+                                   inks: [.fixed(accentColor)])
+                    .frame(height: 26)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -784,25 +770,25 @@ struct PerformanceSuiteView: View {
                     .foregroundColor(.secondary)
                 Spacer()
                 let avg = data.isEmpty ? 0.0 : (data.reduce(0, +) / Double(data.count))
-                let avgText = isBytes ? (formatBytes(avg) + "/s") : String(format: "AVG: %.1f\(yUnit)", avg)
+                let avgText = isBytes ? (formatBytes(avg) + "/s") : String(format: "AVG: %.1f", avg) + yUnit
                 Text(avgText)
                     .font(.system(size: 10, weight: .semibold))
                     .monospacedDigit()
                     .foregroundColor(lineColor)
             }
 
-            let now = Date()
-            let count = max(1, data.count)
-            let points = data.enumerated().map { (idx, val) in
-                TrendPoint(date: now.addingTimeInterval(Double(idx - count)), value: val)
-            }
-
-            TrendChart(
-                series: [TrendSeries(points: points, color: lineColor, filled: true, lineWidth: 1.5)],
-                yDomain: 0...maxDomain,
-                showsTimeAxis: true
-            )
-            .frame(height: 130)
+            // Columns over faint quarter lines, the scale's top in the corner.
+            ColumnHistoryGraph(layers: [ColumnGraphGeometry.fractions(data, ceiling: maxDomain)],
+                               inks: [.fixed(lineColor)],
+                               gridFractions: [0.25, 0.5, 0.75, 1])
+                .overlay(alignment: .topLeading) {
+                    Text(isBytes ? formatBytes(maxDomain) + "/s" : String(format: "%.0f", maxDomain) + yUnit)
+                        .font(.system(size: 9, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundColor(.secondary)
+                        .padding(.top, 2)
+                }
+                .frame(height: 130)
         }
         .suiteCard(padding: 12)
     }

@@ -3,22 +3,37 @@
 
 import SwiftUI
 
-/// One place listing every global shortcut currently registered, so nobody
-/// has to remember which feature page holds which combo. Read-only on
-/// purpose: each shortcut keeps being configured where its feature lives.
+/// The central editor for every global shortcut belonging to an installed
+/// feature. It writes the same preferences as each feature page, so there is
+/// still one setting and one registration path for every action.
 struct ShortcutsSettings: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var features = FeatureRuntime.shared
+    @ObservedObject private var superKey = SuperKeyService.shared
+    @ObservedObject private var router = SettingsRouter.shared
+    @AppStorage(DefaultsKey.keyboardBrightnessShortcutsEnabled) private var keyboardBrightnessShortcutsEnabled = false
+    /// Keyed by group too: brightness has a row in two groups, and each opens on its own.
+    @State private var expandedFeatures: [FeatureGroup: Set<AppFeature>] = [.tools: [.screenshot]]
+    @State private var showsAppShortcuts = false
 
-    private var activeRoles: [GlobalShortcutRole] {
-        GlobalShortcutRole.activeRoles(isOn: { UserDefaults.standard.bool(forKey: $0) },
-                                       isAvailable: { $0.isAvailable })
+    private var text: ShortcutSettingsStrings { FeatureStrings.shortcuts(l10n.language) }
+    private var hub: FeatureHubStrings { FeatureStrings.hub(l10n.language) }
+
+    private var availableRoles: [GlobalShortcutRole] {
+        GlobalShortcutRole.availableRoles(isAvailable: { $0.isAvailable }).filter {
+            !$0.isKeyboardBrightness || BrightnessService.keyboardLightIsSupported
+        }
     }
 
-    private var layoutShortcuts: [WindowLayoutAction] {
-        guard AppFeature.windowLayout.isAvailable,
-              UserDefaults.standard.bool(forKey: DefaultsKey.windowLayoutShortcutsEnabled) else { return [] }
-        return WindowLayoutAction.shortcutActions.filter { $0.savedShortcut != nil }
+    private var captureRoles: [GlobalShortcutRole] {
+        GlobalShortcutRole.captureRoles(in: availableRoles)
+    }
+
+    private var visibleGroups: [FeatureGroup] {
+        FeatureGroup.allCases.filter { group in
+            availableRoles.contains { $0.group == group }
+                || (group == .windowsDock && AppFeature.windowLayout.isAvailable)
+        }
     }
 
     var body: some View {
@@ -28,38 +43,474 @@ struct ShortcutsSettings: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Section {
-                ForEach(activeRoles) { role in
-                    row(title: role.title(l10n.s), keys: role.savedShortcut.displayString)
-                }
-            }
-            if !layoutShortcuts.isEmpty {
-                Section(FeatureStrings.windowLayout(l10n.language).title) {
-                    ForEach(layoutShortcuts) { action in
-                        if let shortcut = action.savedShortcut {
-                            row(title: action.title(FeatureStrings.windowLayout(l10n.language)),
-                                keys: shortcut.displayString)
+
+            ForEach(visibleGroups, id: \.self) { group in
+                Section(groupTitle(group)) {
+                    ForEach(featuresWithShortcuts(in: group), id: \.self) { feature in
+                        if feature == .screenshot {
+                            captureGroupRows
+                        } else {
+                            featureRows(feature, in: group)
                         }
                     }
                 }
             }
+
+            if AppFeature.commandBar.isAvailable {
+                Section {
+                    Button {
+                        showsAppShortcuts = true
+                    } label: {
+                        Label(FeatureStrings.commandBar(l10n.language).appCenterTitle,
+                              systemImage: "app.badge")
+                    }
+                    Text(FeatureStrings.commandBar(l10n.language).appCenterCaption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .formStyle(.grouped)
+        .onAppear { revealKeyboardBrightnessShortcuts() }
+        .onChange(of: router.requestID) { _, _ in revealKeyboardBrightnessShortcuts() }
+        .sheet(isPresented: $showsAppShortcuts) {
+            CommandBarAppShortcutsView()
+        }
     }
 
-    private func row(title: String, keys: String) -> some View {
-        HStack {
-            Text(title)
+    private func featuresWithShortcuts(in group: FeatureGroup) -> [AppFeature] {
+        AppFeature.allCases.filter { feature in
+            // The screenshot slot anchors the combined capture group; the
+            // other capture tools render inside it instead of on their own.
+            if feature == .screenshot { return group == .tools && !captureRoles.isEmpty }
+            if GlobalShortcutRole.captureFeatures.contains(feature) { return false }
+            if feature == .windowLayout {
+                return group == .windowsDock && feature.isAvailable
+            }
+            return availableRoles.contains { $0.feature == feature && $0.group == group }
+        }
+    }
+
+    /// One group for every capture tool's shortcut. Rows keep each tool's own
+    /// icon; the group carries the shared page's name and symbol.
+    @ViewBuilder
+    private var captureGroupRows: some View {
+        let roles = captureRoles
+        disclosureHeader(
+            title: FeatureStrings.screenshot(l10n.language).screenCaptureTitle,
+            symbolName: AppFeature.screenshot.symbolName,
+            isActive: featureHasActiveShortcut(.screenshot, roles: roles),
+            count: roles.count,
+            isExpanded: expansionBinding(for: .screenshot, in: .tools))
+        if expandedFeatures[.tools, default: []].contains(.screenshot) {
+            ForEach(roles) { role in
+                roleRow(role, showsFeatureContext: false)
+                    .disclosureIndent()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func featureRows(_ feature: AppFeature, in group: FeatureGroup) -> some View {
+        let roles = availableRoles.filter { $0.feature == feature && $0.group == group }
+        let count = feature == .windowLayout
+            ? WindowLayoutAction.shortcutActions.count + roles.count
+            : roles.count
+        if feature == .radialMenu {
+            RadialMenuShortcutsRow(text: text)
+        } else if count > 1 {
+            featureHeader(feature, roles: roles, count: count, in: group)
+            if expandedFeatures[group, default: []].contains(feature) {
+                if feature == .windowLayout {
+                    ForEach(WindowLayoutAction.shortcutActions) { action in
+                        CentralWindowLayoutShortcutRow(
+                            action: action,
+                            shortcutsEnabled: UserDefaults.standard.bool(
+                                forKey: DefaultsKey.windowLayoutShortcutsEnabled),
+                            showsSuperKeyAlternative: superKey.isRunning,
+                            superKeyModifiers: superKey.modifiers,
+                            text: text
+                        )
+                        .disclosureIndent()
+                    }
+                    ForEach(roles) { role in
+                        roleRow(role, showsFeatureContext: false, reservesClearButtonSpace: true)
+                            .disclosureIndent()
+                    }
+                } else {
+                    if feature == .brightness, roles.allSatisfy(\.isKeyboardBrightness) {
+                        KeyboardBrightnessShortcutToggle(isEnabled: $keyboardBrightnessShortcutsEnabled)
+                            .disclosureIndent()
+                    }
+                    if feature == .brightness, !roles.contains(where: \.isKeyboardBrightness) {
+                        DisplayBrightnessShortcutControls(showsShortcutRows: false)
+                            .disclosureIndent()
+                    }
+                    ForEach(roles) { role in
+                        roleRow(role, showsFeatureContext: false)
+                            .disclosureIndent()
+                    }
+                }
+            }
+        } else if let role = roles.first {
+            roleRow(role)
+        }
+    }
+
+    @ViewBuilder
+    private func featureHeader(_ feature: AppFeature, roles: [GlobalShortcutRole],
+                               count: Int, in group: FeatureGroup) -> some View {
+        let header = disclosureHeader(
+            title: featureTitle(feature, roles: roles),
+            symbolName: featureSymbol(feature, roles: roles),
+            isActive: featureHasActiveShortcut(feature, roles: roles),
+            count: count,
+            isExpanded: expansionBinding(for: feature, in: group))
+        if feature == .brightness, roles.allSatisfy(\.isKeyboardBrightness) {
+            header.settingsSectionAnchor(.keyboardBrightnessShortcuts)
+        } else {
+            header
+        }
+    }
+
+    private func revealKeyboardBrightnessShortcuts() {
+        guard router.destination == FeatureSettingsDestination(
+            .shortcuts, sectionAnchor: .keyboardBrightnessShortcuts) else { return }
+        expandedFeatures[.mouseKeyboard, default: []].insert(.brightness)
+    }
+
+    private func featureTitle(_ feature: AppFeature, roles: [GlobalShortcutRole]) -> String {
+        if !roles.isEmpty, roles.allSatisfy(\.isKeyboardBrightness) {
+            return FeatureStrings.brightness(l10n.language).keyboardLight
+        }
+        return feature.hubTitle(l10n.s, hub: hub)
+    }
+
+    private func featureSymbol(_ feature: AppFeature, roles: [GlobalShortcutRole]) -> String {
+        !roles.isEmpty && roles.allSatisfy(\.isKeyboardBrightness)
+            ? "keyboard" : feature.symbolName
+    }
+
+    private func disclosureHeader(title: String,
+                                  symbolName: String,
+                                  isActive: Bool,
+                                  count: Int,
+                                  isExpanded: Binding<Bool>) -> some View {
+        DisclosureHeaderRow(isExpanded: isExpanded) {
+            ShortcutRowLabel(
+                title: title,
+                symbolName: symbolName,
+                contextLabel: nil,
+                statusText: isActive ? text.active : text.inactive,
+                statusIsActive: isActive
+            )
             Spacer()
-            Text(keys)
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
+            Text("\(count)")
+                .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.primary.opacity(0.06))
-                )
+                .padding(.vertical, 2)
+                .background(Capsule().fill(Color.primary.opacity(0.06)))
         }
+    }
+
+    private func roleRow(_ role: GlobalShortcutRole,
+                         showsFeatureContext: Bool = true,
+                         reservesClearButtonSpace: Bool = false) -> some View {
+        let title = role.title(l10n.s)
+        let featureTitle = role.feature.hubTitle(l10n.s, hub: hub)
+        let active = role.requiredEnableKeys.allSatisfy {
+            UserDefaults.standard.bool(forKey: $0)
+        }
+        return ShortcutPreferenceRow(
+            role: role,
+            isEnabled: !role.isKeyboardBrightness || keyboardBrightnessShortcutsEnabled,
+            label: title,
+            symbolName: role.isKeyboardBrightness ? "keyboard" : role.feature.symbolName,
+            contextLabel: showsFeatureContext && title != featureTitle ? featureTitle : nil,
+            statusText: active ? text.active : text.inactive,
+            statusIsActive: active,
+            showsSuperKeyAlternative: superKey.isRunning,
+            superKeyModifiers: superKey.modifiers,
+            includeInactiveConflicts: true,
+            reservesClearButtonSpace: reservesClearButtonSpace,
+            additionalConflict: { shortcut in
+                guard AppFeature.windowLayout.isAvailable else { return nil }
+                return WindowLayoutService.shared.shortcutConflictTitle(shortcut, excluding: nil)
+            },
+            onChange: {
+                FeatureRuntime.shared.sync(role.availabilityFeatures)
+            }
+        )
+    }
+
+    private func expansionBinding(for feature: AppFeature, in group: FeatureGroup) -> Binding<Bool> {
+        Binding {
+            expandedFeatures[group, default: []].contains(feature)
+        } set: { expanded in
+            if expanded {
+                expandedFeatures[group, default: []].insert(feature)
+            } else {
+                expandedFeatures[group, default: []].remove(feature)
+            }
+        }
+    }
+
+    private func featureHasActiveShortcut(_ feature: AppFeature,
+                                          roles: [GlobalShortcutRole]) -> Bool {
+        if feature == .windowLayout,
+           UserDefaults.standard.bool(forKey: DefaultsKey.windowLayoutShortcutsEnabled),
+           WindowLayoutAction.shortcutActions.contains(where: { $0.savedShortcut != nil }) {
+            return true
+        }
+        return roles.contains { role in
+            role.requiredEnableKeys.allSatisfy { UserDefaults.standard.bool(forKey: $0) }
+        }
+    }
+
+    private func groupTitle(_ group: FeatureGroup) -> String {
+        switch group {
+        case .windowsDock: return hub.groupWindowsDock
+        case .mouseKeyboard: return hub.groupMouseKeyboard
+        case .clipboardFiles: return hub.groupClipboardFiles
+        case .sound: return hub.groupSound
+        case .energyDisplay: return hub.groupEnergyDisplay
+        case .tools: return hub.groupTools
+        case .dynamicIsland: return FeatureStrings.notch(l10n.language).title
+        case .monitor: return hub.groupMonitor
+        }
+    }
+}
+
+private struct KeyboardBrightnessShortcutToggle: View {
+    @ObservedObject private var l10n = L10n.shared
+    @ObservedObject private var brightness = BrightnessService.shared
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        Toggle(FeatureStrings.brightness(l10n.language).keyboardBrightnessShortcuts,
+               isOn: $isEnabled)
+            .onChange(of: isEnabled) { _, _ in
+                brightness.syncWithPreferences()
+            }
+        if isEnabled, brightness.keyboardBrightnessShortcutRegistrationFailed {
+            Text(l10n.s.shortcutUnavailable)
+                .font(.caption)
+                .foregroundStyle(.orange)
+        }
+    }
+}
+
+/// Each wheel answers to the shortcut saved in its own profile, and the radial
+/// menu's role key only seeds the first wheel until one is saved. A recorder for
+/// that key would then show a combination no wheel uses and change nothing, so
+/// the row lists what the wheels answer to and leaves the change to the Radial
+/// menu page.
+private struct RadialMenuShortcutsRow: View {
+    @ObservedObject private var l10n = L10n.shared
+    let text: ShortcutSettingsStrings
+
+    var body: some View {
+        let role = GlobalShortcutRole.radialMenu
+        let shortcuts = RadialMenuSupport.profileShortcuts()
+        let active = !shortcuts.isEmpty
+            && role.requiredEnableKeys.allSatisfy { UserDefaults.standard.bool(forKey: $0) }
+        HStack(alignment: .top, spacing: 8) {
+            ShortcutRowLabel(title: role.title(l10n.s),
+                             symbolName: role.feature.symbolName,
+                             contextLabel: nil,
+                             statusText: active ? text.active : text.inactive,
+                             statusIsActive: active)
+            Spacer()
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(shortcuts.isEmpty
+                     ? l10n.s.shortcutNone
+                     : shortcuts.map(\.displayString).joined(separator: "\n"))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.trailing)
+                Button(FeatureStrings.radialMenu(l10n.language).manageButton) {
+                    SettingsRouter.shared.request(role.feature.settingsDestination,
+                                                  sidebarFeature: role.feature)
+                }
+            }
+        }
+    }
+}
+
+private struct CentralWindowLayoutShortcutRow: View {
+    @ObservedObject private var l10n = L10n.shared
+    @ObservedObject private var superKey = SuperKeyService.shared
+    let action: WindowLayoutAction
+    let shortcutsEnabled: Bool
+    let showsSuperKeyAlternative: Bool
+    let superKeyModifiers: GlobalShortcutModifiers
+    let text: ShortcutSettingsStrings
+    @AppStorage private var rawValue: String
+    @State private var errorText: String?
+    @State private var isRecording = false
+    @State private var pendingTakeOver: GlobalShortcut?
+
+    init(action: WindowLayoutAction,
+         shortcutsEnabled: Bool,
+         showsSuperKeyAlternative: Bool,
+         superKeyModifiers: GlobalShortcutModifiers,
+         text: ShortcutSettingsStrings) {
+        self.action = action
+        self.shortcutsEnabled = shortcutsEnabled
+        self.showsSuperKeyAlternative = showsSuperKeyAlternative
+        self.superKeyModifiers = superKeyModifiers
+        self.text = text
+        _rawValue = AppStorage(
+            wrappedValue: action.defaultShortcut?.storageValue
+                ?? WindowLayoutAction.clearedShortcutStorageValue,
+            action.shortcutKey
+        )
+    }
+
+    private var windowText: WindowLayoutFeatureStrings {
+        FeatureStrings.windowLayout(l10n.language)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .top, spacing: 8) {
+                ShortcutRowLabel(
+                    title: action.title(windowText),
+                    symbolName: AppFeature.windowLayout.symbolName,
+                    contextLabel: nil,
+                    statusText: isActive ? text.active : text.inactive,
+                    statusIsActive: isActive
+                )
+                Spacer()
+                VStack(alignment: .trailing, spacing: 4) {
+                    HStack(spacing: 8) {
+                        ShortcutRecorderButton(
+                            shortcut: pendingTakeOver ?? shortcut ?? action.defaultShortcut ?? .windowLayoutLeftDefault,
+                            isEnabled: true,
+                            waitingTitle: l10n.s.shortcutPressKeys,
+                            emptyTitle: pendingTakeOver == nil && shortcut == nil ? l10n.s.shortcutNone : nil,
+                            clearAction: clear,
+                            notCapturedAction: { errorText = l10n.s.shortcutNotCaptured },
+                            recordingChanged: { recording in
+                                isRecording = recording
+                                if recording {
+                                    errorText = nil
+                                    pendingTakeOver = nil
+                                }
+                            },
+                            invalidAction: { errorText = l10n.s.shortcutInvalid },
+                            captureAction: save
+                        )
+                        .frame(width: 108)
+                        Button {
+                            clear()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .symbolRenderingMode(.hierarchical)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(shortcut == nil)
+                        .help(l10n.s.shortcutClear)
+                        .accessibilityLabel(l10n.s.shortcutClear)
+                        Button(l10n.s.shortcutReset) {
+                            rawValue = action.defaultShortcut?.storageValue
+                                ?? WindowLayoutAction.clearedShortcutStorageValue
+                            errorText = nil
+                            pendingTakeOver = nil
+                            SystemShortcutTakeover.setTakeOver(action.shortcutKey, false)
+                            WindowLayoutService.shared.syncWithPreferences()
+                        }
+                        .disabled(shortcut == action.defaultShortcut)
+                    }
+                    if let alternative = superKeyAlternative {
+                        Text(String(format: text.superKeyAlternativeFormat, alternative))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel(alternative)
+                    }
+                }
+            }
+            if let errorText {
+                Text(errorText)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else if isRecording {
+                Text(ShortcutRecordingCaption.text(l10n.s, canClear: true))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let pendingTakeOver {
+                SystemShortcutTakeOverOffer(
+                    shortcut: pendingTakeOver,
+                    onAccept: {
+                        rawValue = pendingTakeOver.storageValue
+                        SystemShortcutTakeover.setTakeOver(action.shortcutKey, true)
+                        self.pendingTakeOver = nil
+                        WindowLayoutService.shared.syncWithPreferences()
+                    },
+                    onDismiss: {
+                        self.pendingTakeOver = nil
+                        errorText = String(format: l10n.s.shortcutConflictFormat, "macOS")
+                    }
+                )
+            }
+        }
+        .onChange(of: l10n.language) { _, _ in errorText = nil }
+    }
+
+    private var shortcut: GlobalShortcut? {
+        WindowLayoutAction.resolvedShortcut(storedValue: rawValue,
+                                            defaultShortcut: action.defaultShortcut)
+    }
+
+    private var isActive: Bool {
+        shortcutsEnabled && shortcut != nil
+    }
+
+    private var superKeyAlternative: String? {
+        guard showsSuperKeyAlternative, let shortcut else { return nil }
+        return shortcut.superKeyAlternative(
+            sourceLabel: FeatureStrings.superKey(l10n.language).sourceLabel(superKey.source),
+            superKeyModifiers: superKeyModifiers)
+    }
+
+    private func clear() {
+        rawValue = WindowLayoutAction.clearedShortcutStorageValue
+        errorText = nil
+        pendingTakeOver = nil
+        SystemShortcutTakeover.setTakeOver(action.shortcutKey, false)
+        WindowLayoutService.shared.syncWithPreferences()
+    }
+
+    private func save(_ shortcut: GlobalShortcut) {
+        if let conflict = GlobalShortcutRole.conflict(for: shortcut,
+                                                      excluding: nil,
+                                                      includeInactive: true) {
+            errorText = String(format: l10n.s.shortcutConflictFormat, conflict.title(l10n.s))
+            return
+        }
+        if let conflict = WindowLayoutService.shared.shortcutConflictTitle(shortcut,
+                                                                           excluding: action) {
+            errorText = String(format: l10n.s.shortcutConflictFormat, conflict)
+            return
+        }
+        // The offer is the last word on a combination: every other check has
+        // already passed, so accepting it writes exactly what a save writes.
+        switch SystemShortcutTakeoverSupport.recorderDecision(
+            shortcut: shortcut,
+            conflictsWithMacOS: SystemShortcutTakeover.conflictsWithMacOS(shortcut),
+            takenOver: SystemShortcutTakeover.isTakenOver(action.shortcutKey),
+            current: GlobalShortcut(storageValue: rawValue)) {
+        case .offer:
+            pendingTakeOver = shortcut
+            errorText = nil
+            return
+        case .save(let clearTakeOver):
+            rawValue = shortcut.storageValue
+            errorText = nil
+            if clearTakeOver { SystemShortcutTakeover.setTakeOver(action.shortcutKey, false) }
+        }
+        WindowLayoutService.shared.syncWithPreferences()
     }
 }

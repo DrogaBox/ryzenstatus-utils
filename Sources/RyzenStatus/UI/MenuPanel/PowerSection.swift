@@ -105,10 +105,20 @@ struct PowerSection: View {
                     label: l10n.s.powerSystem, value: MetricFormat.watts(watts),
                     visible: $pwrSystem, editing: editing)
                 if showGraph, monitor.snapshot.systemPowerHistory.count >= 2 {
-                    Sparkline(values: monitor.snapshot.systemPowerHistory,
-                              color: PanelMetricColor.orange(for: colorScheme),
-                              showsZeroBaseline: true)
+                    // Watts have no natural top: the busiest sample, rounded
+                    // up to 10 W, keeps the scale still between peaks.
+                    let history = monitor.snapshot.systemPowerHistory
+                    let ceiling = ColumnGraphGeometry.roundedCeiling(peak: history.filter(\.isFinite).max() ?? 0,
+                                                                     step: 10, minimum: 10)
+                    ColumnHistoryGraph(layers: [ColumnGraphGeometry.fractions(history, ceiling: ceiling)],
+                                       inks: [.primary])
                         .frame(height: 26)
+                        .overlay(alignment: .topLeading) {
+                            Text(MetricFormat.watts(ceiling))
+                                .font(.system(size: 8, weight: .medium))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
                 }
             } else if editing && !pwrSystem {
                 PanelHiddenItemRow(title: l10n.s.powerSystem,

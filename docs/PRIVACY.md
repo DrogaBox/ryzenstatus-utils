@@ -35,6 +35,10 @@ RyzenStatus opens only a few kinds of connection, and each one belongs to a visi
 
 6. **Release highlights showcase media, only when viewing the What's New panel.** When opening the release highlights window after an update, showcase preview media is downloaded from GitHub release assets at `github.com`.
 
+7. **Feedback, only when you send it.** Settings, the panel and the command bar can draft a bug report or a feature idea. The app sends nothing itself: it opens a prefilled "new issue" page of this project's public GitHub repository in your browser, with your text and, only if you tick the box, the version, macOS, Mac model, language and update channel shown in the window. You review it there, sign in with your own GitHub account and decide whether to submit it. Submitted issues are public.
+
+8. **AI agents in the Dynamic Island, only when you turn the section on.** It is off by default. While on, it reads the history files the Claude Code, Codex, OpenCode and GitHub Copilot tools already keep on this Mac (and the plan percentages the Claude app saves) to show tokens, limits and work in progress. Those files are read in place and never uploaded; the totals it keeps stay in the app's own local storage. With price updates on, it downloads the public price list from this project's GitHub repository at most once a day, with no usage or identifiers in the request; otherwise it uses the list built into the app. Reading Codex's banked resets, or using one, runs your own installed Codex tool, which talks to its maker with its own sign-in; RyzenStatus never reads those credentials, and a reset is used only after you confirm it.
+
 That is the entire list. There are no RyzenStatus servers, no hidden beacons and no background uploads.
 
 ## Changes to this document

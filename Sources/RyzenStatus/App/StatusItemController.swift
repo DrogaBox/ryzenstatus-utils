@@ -19,11 +19,21 @@ final class StatusItemController {
     var onLeftClick: (() -> Void)?
     var onRightClick: ((NSStatusItem) -> Void)?
     var onMetricClick: ((MenuBarMetric, NSStatusBarButton) -> Void)?
+    var onClipboardPreviewClick: (() -> Void)?
 
     private(set) var statusItem: NSStatusItem!
     private var metricStatusItems: [String: NSStatusItem] = [:]
     private var metricStatusItemFocus: [String: MenuBarMetric] = [:]
+    /// The optional "latest copy" item: independent, opt-in and separately
+    /// clickable like a metric item, but fed by ClipboardHistoryService.
+    private var clipboardPreviewStatusItem: NSStatusItem?
+    /// Referencing ClipboardHistoryService.shared loads the saved history and
+    /// scans its image folder, so the bindings wait until the feature exists.
+    private var clipboardBindingsInstalled = false
     private var cancellables = Set<AnyCancellable>()
+    /// Whether the pinned Connected Devices metric holds a watch on the
+    /// device list, so it is read only while the menu bar shows it.
+    private var watchesConnectedDevices = false
     private var titleTimer: Timer?
     private var defaultsObserver: NSObjectProtocol?
     /// Last combination applied by updateIconAppearance, so refresh ticks
@@ -34,8 +44,17 @@ final class StatusItemController {
     /// Gaming Mode override: keeps the main item hidden even when the regular
     /// appearance logic would show it.
     private(set) var forceHidden = false
+    /// Mirrors only the island's fullscreen presentation state. A notification
+    /// avoids loading NotchService when its feature was never installed.
+    private(set) var islandHiddenInFullscreen = false
+    /// True while the app itself keeps the main item out of the bar, for
+    /// Dynamic Island or for separate metrics, as opposed to macOS dropping
+    /// it. Recovery leaves such an item alone.
+    private(set) var mainItemHiddenByChoice = false
     private static let mainAutosaveName = "RyzenStatusMenuBarItem"
     private static let metricAutosavePrefix = "RyzenStatusMetric"
+    private static let clipboardPreviewAutosaveName = "RyzenStatusClipboardPreview"
+    private static let emptyStatusImage = NSImage()
     private static let maxPlacementGeneration = 10_000
 
     private struct MetricStatusGroup {
@@ -56,7 +75,10 @@ final class StatusItemController {
     var button: NSStatusBarButton? { statusItem.button }
 
     func containsStatusItem(at screenPoint: NSPoint) -> Bool {
-        let buttons = ([statusItem?.button] + metricStatusItems.values.map(\.button)).compactMap { $0 }
+        let items = [statusItem, clipboardPreviewStatusItem].compactMap { $0 } + Array(metricStatusItems.values)
+        // A hidden item keeps its last frame, which another app's item may
+        // occupy by now.
+        let buttons = items.filter(\.isVisible).compactMap(\.button)
         let screenFrames = NSScreen.screens.map(\.frame)
         return buttons.contains { button in
             guard let frame = button.window?.frame,
@@ -109,29 +131,26 @@ final class StatusItemController {
         updateIconAppearance()
     }
 
-    /// Tears the status item down and builds a fresh one. When recovery is explicit,
-    /// reset the saved placement too; otherwise macOS can restore the new item to
-    /// the same hidden/crowded position that made it unreachable.
+    /// Tears the status item down and builds a fresh one, dropping the hidden
+    /// state macOS remembered for it so the rebuilt one is not put straight
+    /// back out of sight, while keeping the spot the person arranged. Only an
+    /// explicit reset gives up that spot, under a brand new identity, and the
+    /// item then lands wherever macOS puts a first-time item. A fixed offset
+    /// used to be seeded here instead, which on many bars put the icon right
+    /// under the system battery item.
     func recreateStatusItem(resetPlacement: Bool = false) {
+        // The item goes away first: AppKit writes its placement and remembered
+        // visibility back under its own name as it is removed, which would put
+        // back whatever was cleared a moment earlier.
+        if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
         if resetPlacement {
             Self.bumpPlacementGeneration(in: .standard)
-            Self.seedProtectedPlacement(in: .standard)
+        } else {
+            let name = Self.mainAutosaveName(in: .standard)
+            UserDefaults.standard.removeObject(forKey: "NSStatusItem Visible \(name)")
+            UserDefaults.standard.removeObject(forKey: "NSStatusItem VisibleCC \(name)")
         }
-        if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
         installStatusItem()
-    }
-
-    /// Placed with no saved position, a new item lands at the LEFT end of the
-    /// status area, right by the notch, which is the first zone macOS hides
-    /// when the bar runs out of room. That made the recovery useless exactly
-    /// on the crowded bars that lose the icon (issue #167). Seeding a small
-    /// preferred position (distance from the screen's right edge) makes the
-    /// rebuilt item claim a spot beside the clock, the last zone to be hidden.
-    private static let protectedPlacementOffset: Double = 64
-
-    private static func seedProtectedPlacement(in defaults: UserDefaults) {
-        defaults.set(protectedPlacementOffset,
-                     forKey: "NSStatusItem Preferred Position \(mainAutosaveName(in: defaults))")
     }
 
     private static func placementGeneration(in defaults: UserDefaults) -> Int {
@@ -151,6 +170,8 @@ final class StatusItemController {
         let previousName = mainAutosaveName(in: defaults)
         defaults.removeObject(forKey: "NSStatusItem Preferred Position \(previousName)")
         defaults.removeObject(forKey: "NSStatusItem Visible \(previousName)")
+        // The spelling macOS actually uses for the remembered visibility.
+        defaults.removeObject(forKey: "NSStatusItem VisibleCC \(previousName)")
         defaults.set((placementGeneration(in: defaults) % maxPlacementGeneration) + 1,
                      forKey: DefaultsKey.statusItemPlacementGeneration)
     }
@@ -191,6 +212,28 @@ final class StatusItemController {
                 self?.refresh()
             }
             .store(in: &cancellables)
+
+        ConnectedDevicesMonitor.shared.$devices
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard self?.watchesConnectedDevices == true else { return }
+                self?.refresh()
+            }
+            .store(in: &cancellables)
+
+        // An island that steps aside in fullscreen gives the glyph back for
+        // as long as it is away, so the app stays reachable.
+        NotificationCenter.default.publisher(for: NotchService.fullscreenVisibilityDidChange)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                guard let self, let hidden = notification.userInfo?["hidden"] as? Bool,
+                      hidden != self.islandHiddenInFullscreen else { return }
+                self.islandHiddenInFullscreen = hidden
+                self.refresh()
+            }
+            .store(in: &cancellables)
+
+        bindClipboardPreviewIfAvailable()
 
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
                                                                   object: nil,
@@ -234,7 +277,24 @@ final class StatusItemController {
             self.syncMonitorMode()
             self.updateIconAppearance()
             self.refresh()
+            self.bindClipboardPreviewIfAvailable()
+            self.syncClipboardPreviewItem()
         }
+    }
+
+    /// Installed the first time the clipboard feature is available, at launch
+    /// or when a settings change (installing it from the hub) makes it so.
+    private func bindClipboardPreviewIfAvailable() {
+        guard !clipboardBindingsInstalled, AppFeature.clipboardHistory.isAvailable else { return }
+        clipboardBindingsInstalled = true
+        ClipboardHistoryService.shared.$latestPasteboardEntry
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.syncClipboardPreviewItem() }
+            .store(in: &cancellables)
+        ClipboardHistoryService.shared.$isRunning
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.syncClipboardPreviewItem() }
+            .store(in: &cancellables)
     }
 
     deinit {
@@ -249,6 +309,7 @@ final class StatusItemController {
         // The main status item must be removed too, or a teardown
         // path leaks the idle glyph in the menu bar.
         if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
+        if let clipboardPreviewStatusItem { NSStatusBar.system.removeStatusItem(clipboardPreviewStatusItem) }
         for item in metricStatusItems.values {
             NSStatusBar.system.removeStatusItem(item)
         }
@@ -285,7 +346,9 @@ final class StatusItemController {
         let optionEnabled = mode == "classic" ? false : defaults.bool(forKey: DefaultsKey.menuBarHideIconWithMetrics)
         let separateMetrics = defaults.bool(forKey: DefaultsKey.menuBarSeparateMetrics)
         let signal = updateAvailable || micBadgeActive
-        let hidden = MenuBarSpacingSupport.shouldHideStatusIcon(
+        let islandHides = Self.islandHidesStatusIcon(
+            in: defaults, hiddenInFullscreen: islandHiddenInFullscreen) && !signal
+        let hidden = islandHides || MenuBarSpacingSupport.shouldHideStatusIcon(
             optionEnabled: optionEnabled,
             separateMetrics: separateMetrics,
             metricsEnabled: MenuBarMetric.anyEnabled(in: defaults),
@@ -293,14 +356,24 @@ final class StatusItemController {
             mustShowForSignal: signal)
         // In the separate-items mode the metrics are their own clickable
         // items, so hiding means the whole main item steps aside instead of
-        // just its image (which is all that item has). Gaming Mode forces the
-        // item off entirely and the refresh tick keeps it that way.
-        let mainItemHidden = forceHidden || MenuBarSpacingSupport.shouldHideMainStatusItem(
-            optionEnabled: optionEnabled,
-            separateMetrics: separateMetrics,
-            metricItemsShown: metricStatusItems.count,
-            renderedTitleLength: button.attributedTitle.length,
-            mustShowForSignal: signal)
+        // just its image (which is all that item has). With Dynamic Island
+        // standing in, the item goes only when it has no text of its own and
+        // no metrics are on their way into it.
+        let hiddenByChoice = MenuBarSpacingSupport.islandHidesMainStatusItem(
+                islandHides: islandHides,
+                separateMetrics: separateMetrics,
+                metricsEnabled: MenuBarMetric.anyEnabled(in: defaults),
+                renderedTitleLength: button.attributedTitle.length)
+            || MenuBarSpacingSupport.shouldHideMainStatusItem(
+                optionEnabled: optionEnabled,
+                separateMetrics: separateMetrics,
+                metricItemsShown: metricStatusItems.count,
+                renderedTitleLength: button.attributedTitle.length,
+                mustShowForSignal: signal)
+        mainItemHiddenByChoice = hiddenByChoice
+        // Gaming Mode forces the item off entirely and the refresh tick keeps
+        // it that way.
+        let mainItemHidden = forceHidden || hiddenByChoice
         let keepAwakeActive = KeepAwakeManager.shared.isActive
 
         // refresh() runs on every monitor tick and lands here; re-rendering
@@ -326,7 +399,9 @@ final class StatusItemController {
         statusItem.isVisible = !mainItemHidden
 
         guard !hidden else {
-            button.image = nil
+            // A non-nil image lets macOS apply the inactive-display appearance
+            // to the title while keeping the glyph visually absent.
+            button.image = Self.emptyStatusImage
             return
         }
         let stateImage: NSImage?
@@ -356,6 +431,20 @@ final class StatusItemController {
         }
     }
 
+    /// Whether Dynamic Island takes the glyph's place (user request). The
+    /// island itself opens Settings and the panel, so the glyph may go for as
+    /// long as the island runs. If the island hides in fullscreen, the icon
+    /// returns for access to the app. Signals also bring it back, and text
+    /// the main item carries (metrics, a countdown) keeps the item.
+    /// Upstream keeps this in MenuBarSpacingSupport; it lives here because
+    /// that file is compiled into the `./build.sh --test` harness, which does
+    /// not carry NotchSupport.
+    static func islandHidesStatusIcon(in defaults: UserDefaults, hiddenInFullscreen: Bool = false) -> Bool {
+        defaults.bool(forKey: DefaultsKey.notchHidesMenuBarIcon)
+            && NotchSupport.isEnabled(in: defaults)
+            && !hiddenInFullscreen
+    }
+
     @objc private func clicked() {
         if NSApp.currentEvent?.type == .rightMouseUp {
             onRightClick?(statusItem)
@@ -365,6 +454,16 @@ final class StatusItemController {
     }
 
     /// Updates the countdown title and tooltip from the current session state.
+    private func syncConnectedDevicesWatch(_ wanted: Bool) {
+        guard wanted != watchesConnectedDevices else { return }
+        watchesConnectedDevices = wanted
+        if wanted {
+            ConnectedDevicesMonitor.shared.beginWatching()
+        } else {
+            ConnectedDevicesMonitor.shared.endWatching()
+        }
+    }
+
     func refresh() {
         guard !isRefreshing else {
             refreshRequestedWhileRunning = true
@@ -389,6 +488,7 @@ final class StatusItemController {
         let snapshot = SystemMonitor.shared.snapshot
         let metrics = MenuBarMetric.enabled(in: defaults)
         let separateMetrics = defaults.bool(forKey: DefaultsKey.menuBarSeparateMetrics)
+        syncConnectedDevicesWatch(metrics.contains(.connectedDevices))
 
         // Compose the title from the keep-awake countdown (when shown) followed by
         // the pinned live metrics. Built attributed so the memory pressure dot can
@@ -449,10 +549,10 @@ final class StatusItemController {
             }
         } else {
             // The leading space separates the glyph from the text; with the
-            // glyph hidden by the metrics-only option it would be pure dead
-            // padding on the item's left edge. Same decision inputs as
-            // updateIconAppearance, with a sentinel length: the title is
-            // known non-empty on this branch.
+            // glyph hidden by the metrics-only option or by Dynamic Island it
+            // would be pure dead padding on the item's left edge. Same
+            // decision inputs as updateIconAppearance, with a sentinel length:
+            // the title is known non-empty on this branch.
             let updateAvailable: Bool
             if case .available = UpdateService.shared.state {
                 updateAvailable = true
@@ -462,12 +562,15 @@ final class StatusItemController {
             let micBadgeActive = MicMuteService.shared.isMuted
                 && defaults.bool(forKey: DefaultsKey.micMuteMenuBarIndicator)
             let mode = defaults.string(forKey: DefaultsKey.menuBarLayoutMode) ?? "modern"
-            let glyphHidden = MenuBarSpacingSupport.shouldHideStatusIcon(
-                optionEnabled: mode == "classic" ? false : defaults.bool(forKey: DefaultsKey.menuBarHideIconWithMetrics),
-                separateMetrics: separateMetrics,
-                metricsEnabled: !metrics.isEmpty,
-                renderedTitleLength: 1,
-                mustShowForSignal: updateAvailable || micBadgeActive)
+            let signal = updateAvailable || micBadgeActive
+            let glyphHidden = (Self.islandHidesStatusIcon(
+                in: defaults, hiddenInFullscreen: islandHiddenInFullscreen) && !signal)
+                || MenuBarSpacingSupport.shouldHideStatusIcon(
+                    optionEnabled: mode == "classic" ? false : defaults.bool(forKey: DefaultsKey.menuBarHideIconWithMetrics),
+                    separateMetrics: separateMetrics,
+                    metricsEnabled: !metrics.isEmpty,
+                    renderedTitleLength: 1,
+                    mustShowForSignal: signal)
             let full = NSMutableAttributedString(string: glyphHidden ? "" : " ")
             full.append(title)
             let stacked = full.string.contains("\n")
@@ -569,7 +672,9 @@ final class StatusItemController {
                 button.font = font
                 button.attributedTitle = full
             }
-            if button.image != nil { button.image = nil }
+            // Empty rather than nil, so the title dims with the menu bar on
+            // an inactive display like every other item.
+            if button.image !== Self.emptyStatusImage { button.image = Self.emptyStatusImage }
             if button.imagePosition != .noImage { button.imagePosition = .noImage }
             if button.toolTip != group.title { button.toolTip = group.title }
         }
@@ -623,7 +728,8 @@ final class StatusItemController {
                                      primaryTitle: strings.batteryLabel)
             case .cpuPower, .cpuFrequency, .cpuTempPower,
                  .gpuPower, .gpuTempPower,
-                 .memory, .network, .diskUsage, .diskActivity, .batteryTime, .peripheralBattery, .power:
+                 .memory, .network, .diskUsage, .diskActivity, .batteryTime, .peripheralBattery, .power,
+                 .connectedDevices:
                 // Co-family metrics (power, frequency, temp+power)
                 // must be emitted as their own individual MetricStatusGroup rather
                 // than being silently swallowed by the component pairing logic.
@@ -697,6 +803,85 @@ final class StatusItemController {
         guard let item = metricStatusItems.removeValue(forKey: id) else { return }
         NSStatusBar.system.removeStatusItem(item)
     }
+
+    // MARK: - Clipboard preview
+
+    /// Shows the latest copy as its own menu bar item. The item stays alive
+    /// (hidden) while there is nothing to show, because macOS does not
+    /// reliably restore a dragged position for an item recreated later.
+    private func syncClipboardPreviewItem() {
+        let defaults = UserDefaults.standard
+        // Checked before touching ClipboardHistoryService.shared, which this
+        // runs past on every settings change, clipboard related or not.
+        guard AppFeature.clipboardHistory.isAvailable,
+              defaults.bool(forKey: DefaultsKey.clipboardHistoryEnabled),
+              defaults.bool(forKey: DefaultsKey.clipboardHistoryMenuBarPreview)
+        else {
+            removeClipboardPreviewStatusItem()
+            return
+        }
+        let history = ClipboardHistoryService.shared
+        guard history.isRunning else {
+            removeClipboardPreviewStatusItem()
+            return
+        }
+        // No fallback to the history: nil means the pasteboard was really
+        // cleared (auto clear included) or the copy was deliberately skipped.
+        let entry = history.latestPasteboardEntry
+        let maxCharacters = Defaults.sanitizedClipboardMenuBarPreviewLength(
+            defaults.integer(forKey: DefaultsKey.clipboardHistoryMenuBarPreviewLength))
+        let text = entry?.menuBarText(maxCharacters: maxCharacters) ?? ""
+
+        let item = clipboardPreviewStatusItem ?? installClipboardPreviewStatusItem()
+        if item.length != NSStatusItem.variableLength { item.length = NSStatusItem.variableLength }
+        if item.isVisible != (entry != nil) { item.isVisible = entry != nil }
+        guard let button = item.button else { return }
+        // A non-nil empty image so the title dims on an inactive display the
+        // same way the metric items do.
+        if button.image !== Self.emptyStatusImage { button.image = Self.emptyStatusImage }
+        if button.imagePosition != .noImage { button.imagePosition = .noImage }
+        let font = MenuBarRenderer.statusFont(stacked: false)
+        if button.font?.isEqual(font) != true { button.font = font }
+        if button.title != text { button.title = text }
+        // Bounded separately: a batch of files or a page of prose must not
+        // become an unbounded tooltip.
+        let tooltip = entry?.menuBarText(maxCharacters: ClipboardHistoryEditing.tooltipCharacters) ?? ""
+        if button.toolTip != tooltip { button.toolTip = tooltip }
+    }
+
+    private func installClipboardPreviewStatusItem() -> NSStatusItem {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.autosaveName = Self.clipboardPreviewAutosaveName
+        item.behavior = []
+        // Registered before it is shown: showing it writes and announces its
+        // remembered position while this call is still on the stack.
+        clipboardPreviewStatusItem = item
+        item.isVisible = true
+        if let button = item.button {
+            button.font = MenuBarRenderer.statusFont(stacked: false)
+            button.alignment = .left
+            button.cell?.lineBreakMode = .byClipping
+            button.cell?.usesSingleLineMode = true
+            button.target = self
+            button.action = #selector(clipboardPreviewClicked)
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        }
+        return item
+    }
+
+    @objc private func clipboardPreviewClicked() {
+        if NSApp.currentEvent?.type == .rightMouseUp, let item = clipboardPreviewStatusItem {
+            onRightClick?(item)
+            return
+        }
+        onClipboardPreviewClick?()
+    }
+
+    private func removeClipboardPreviewStatusItem() {
+        guard let item = clipboardPreviewStatusItem else { return }
+        clipboardPreviewStatusItem = nil
+        NSStatusBar.system.removeStatusItem(item)
+    }
 }
 
 /// The official mark, bundled as a template image so the idle state adapts to
@@ -724,7 +909,7 @@ enum BlackHoleGlyph {
 
     static func image(active: Bool) -> NSImage? {
         let tint = KeepAwakeIconTint.current
-        guard active else { return base ?? fallback(active: false) }
+        guard active else { return mark() ?? fallback(active: false) }
         return activeImage(style: .current, tint: tint)
     }
 
@@ -734,7 +919,7 @@ enum BlackHoleGlyph {
         if let symbolName = style.systemSymbolName {
             source = fixedSizeSymbol(named: symbolName)
         } else {
-            source = base
+            source = mark()
         }
         guard let source else { return fallback(active: tint != .none) }
         guard let color = color(for: tint) else {
@@ -742,6 +927,26 @@ enum BlackHoleGlyph {
             return source
         }
         return tintedImage(source, color: color) ?? fallback(active: true)
+    }
+
+    /// The symbol named in the menu bar settings, empty for the mark.
+    static var chosenSymbolName: String {
+        Defaults.sanitizedMenuBarIconSymbol(
+            UserDefaults.standard.string(forKey: DefaultsKey.menuBarIconSymbol))
+    }
+
+    /// What every state starts from: the chosen symbol, or the bundled mark
+    /// when none is chosen or this Mac has no symbol by that name.
+    static func mark(symbolName: String = BlackHoleGlyph.chosenSymbolName) -> NSImage? {
+        customMark(named: symbolName) ?? base
+    }
+
+    /// A system symbol on the canvas the active symbols use, or nil when
+    /// this Mac has no symbol by that name: a typo, or a name from a newer
+    /// macOS that came with a settings backup.
+    static func customMark(named name: String) -> NSImage? {
+        guard !name.isEmpty else { return nil }
+        return fixedSizeSymbol(named: name)
     }
 
     /// System symbols have different natural widths. Center them inside the
@@ -771,8 +976,8 @@ enum BlackHoleGlyph {
     /// A blue, full-strength glyph used to flag an available update. Non-template
     /// (a real color), drawn by masking blue into the glyph's shape.
     static func attentionImage() -> NSImage? {
-        guard let base else { return fallback(active: true) }
-        return tintedImage(base, color: .systemBlue) ?? fallback(active: true)
+        guard let glyph = mark() else { return fallback(active: true) }
+        return tintedImage(glyph, color: .systemBlue) ?? fallback(active: true)
     }
 
     /// The given state image with a red slashed microphone beside it, shown

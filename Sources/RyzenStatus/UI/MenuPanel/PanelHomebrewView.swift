@@ -5,8 +5,11 @@ import AppKit
 import SwiftUI
 
 struct PanelHomebrewView: View {
+    private static let packageListTopID = "panel-homebrew-package-list-top"
+
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var homebrew = HomebrewManager.shared
+    @Environment(\.notchPresentation) private var inNotch
     @State private var query = ""
     @State private var searchKind: HomebrewPackageKind = .cask
     @State private var mode: PanelHomebrewMode = .search
@@ -42,20 +45,20 @@ struct PanelHomebrewView: View {
             }
         }
         .onAppear {
-            keepPopoverOpen()
             if homebrew.installed.isEmpty {
                 homebrew.refreshInstalled()
             }
         }
-        .onChange(of: query) { _, _ in
-            keepPopoverOpen()
-            resetContextSelection()
-        }
+        .onChange(of: query) { _, _ in resetContextSelection() }
         .onChange(of: mode) { _, _ in resetContextSelection() }
         .onChange(of: filter) { _, _ in resetContextSelection() }
         .onChange(of: searchKind) { _, _ in resetContextSelection() }
         .onChange(of: homebrew.operationStatus?.targetID) { _, _ in
             showOperationDetails = false
+        }
+        .onDisappear { dismissConfirmation() }
+        .onDisappear {
+            PanelInteractionState.shared.isPresentingPopoverModal = false
         }
         .confirmationDialog(confirmationTitle,
                             isPresented: confirmationPresented,
@@ -66,7 +69,7 @@ struct PanelHomebrewView: View {
                 }
             }
             Button(l10n.s.uninstallerCancel, role: .cancel) {
-                pendingAction = nil
+                dismissConfirmation()
             }
         } message: {
             if let pendingAction {
@@ -185,7 +188,6 @@ struct PanelHomebrewView: View {
             HStack(spacing: 6) {
                 PanelHomebrewSearchField(text: $query,
                                          placeholder: l10n.s.homebrewSearchPlaceholder,
-                                         onFocus: keepPopoverOpen,
                                          onSubmit: search)
                     .frame(height: 24)
                 Button {
@@ -241,7 +243,7 @@ struct PanelHomebrewView: View {
                 .help(l10n.s.homebrewCheckPackages)
                 .disabled(homebrew.isBusy)
                 Button {
-                    pendingAction = HomebrewPendingAction(action: .updateHomebrew)
+                    presentConfirmation(HomebrewPendingAction(action: .updateHomebrew))
                     keepPopoverOpen()
                 } label: {
                     Label(l10n.s.homebrewUpdateHomebrew, systemImage: "arrow.triangle.2.circlepath")
@@ -284,7 +286,7 @@ struct PanelHomebrewView: View {
                     .foregroundStyle(.orange)
                 Spacer(minLength: 0)
                 Button {
-                    pendingAction = HomebrewPendingAction(action: .upgradeAll)
+                    presentConfirmation(HomebrewPendingAction(action: .upgradeAll))
                     keepPopoverOpen()
                 } label: {
                     Label(l10n.s.homebrewUpgradeAll, systemImage: "arrow.up.circle")
@@ -327,13 +329,23 @@ struct PanelHomebrewView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(height: 64)
             } else {
-                ScrollView(showsIndicators: false) {
-                    LazyVStack(alignment: .leading, spacing: 5) {
-                        ForEach(packages) { package in
-                            row(package)
+                ScrollViewReader { proxy in
+                    ScrollView(showsIndicators: false) {
+                        LazyVStack(alignment: .leading, spacing: 5) {
+                            Color.clear
+                                .frame(height: 0)
+                                .id(Self.packageListTopID)
+                            ForEach(packages) { package in
+                                row(package)
+                            }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .onChange(of: homebrew.operationStatus?.result) { _, result in
+                        guard result == .succeeded,
+                              homebrew.operationStatus?.action.clearsSelectionOnSuccess == true else { return }
+                        proxy.scrollTo(Self.packageListTopID, anchor: .top)
+                    }
                 }
                 .frame(height: 162)
             }
@@ -378,9 +390,11 @@ struct PanelHomebrewView: View {
                         popularityBadge(popularity)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .buttonStyle(.plain)
             if activeStatus(for: package) != nil {
                 ProgressView()
                     .controlSize(.mini)
@@ -390,6 +404,19 @@ struct PanelHomebrewView: View {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 10))
                     .foregroundStyle(.green)
+            } else {
+                Button {
+                    presentConfirmation(HomebrewPendingAction(action: .install, package: package))
+                } label: {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(width: 22, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(homebrew.isBusy)
+                .help(l10n.s.homebrewInstall)
+                .accessibilityLabel(l10n.s.homebrewInstall)
             }
         }
         .padding(.horizontal, 7)
@@ -407,7 +434,7 @@ struct PanelHomebrewView: View {
 
     private func updateButton(_ package: HomebrewPackage, update: HomebrewPackageUpdate) -> some View {
         Button {
-            pendingAction = HomebrewPendingAction(action: .upgrade, package: package)
+            presentConfirmation(HomebrewPendingAction(action: .upgrade, package: package))
             keepPopoverOpen()
         } label: {
             Image(systemName: "arrow.up.circle.fill")
@@ -427,13 +454,12 @@ struct PanelHomebrewView: View {
         let isBusy = homebrew.isBusy || activeStatus(for: package) != nil
         Button {
             homebrew.select(package)
-            keepPopoverOpen()
         } label: {
             Label(l10n.s.homebrewDetailsTitle, systemImage: "info.circle")
         }
         if package.update != nil {
             Button {
-                pendingAction = HomebrewPendingAction(action: .upgrade, package: package)
+                presentConfirmation(HomebrewPendingAction(action: .upgrade, package: package))
                 keepPopoverOpen()
             } label: {
                 Label(l10n.s.homebrewUpgrade, systemImage: "arrow.up.circle")
@@ -442,7 +468,7 @@ struct PanelHomebrewView: View {
         }
         if package.isInstalled {
             Button(role: .destructive) {
-                pendingAction = HomebrewPendingAction(action: .uninstall, package: package)
+                presentConfirmation(HomebrewPendingAction(action: .uninstall, package: package))
                 keepPopoverOpen()
             } label: {
                 Label(l10n.s.homebrewUninstall, systemImage: "trash")
@@ -450,7 +476,7 @@ struct PanelHomebrewView: View {
             .disabled(isBusy)
         } else {
             Button {
-                pendingAction = HomebrewPendingAction(action: .install, package: package)
+                presentConfirmation(HomebrewPendingAction(action: .install, package: package))
                 keepPopoverOpen()
             } label: {
                 Label(l10n.s.homebrewInstall, systemImage: "arrow.down.circle")
@@ -566,14 +592,14 @@ struct PanelHomebrewView: View {
             if package.update != nil {
                 VStack(alignment: .trailing, spacing: 6) {
                     Button {
-                        pendingAction = HomebrewPendingAction(action: .upgrade, package: package)
+                        presentConfirmation(HomebrewPendingAction(action: .upgrade, package: package))
                     } label: {
                         Label(l10n.s.homebrewUpgrade, systemImage: "arrow.up.circle")
                             .font(.system(size: 11, weight: .semibold))
                     }
                     .buttonStyle(.borderedProminent)
                     Button(role: .destructive) {
-                        pendingAction = HomebrewPendingAction(action: .uninstall, package: package)
+                        presentConfirmation(HomebrewPendingAction(action: .uninstall, package: package))
                     } label: {
                         Label(l10n.s.homebrewUninstall, systemImage: "trash")
                             .font(.system(size: 11, weight: .semibold))
@@ -582,7 +608,7 @@ struct PanelHomebrewView: View {
                 }
             } else {
                 Button(role: .destructive) {
-                    pendingAction = HomebrewPendingAction(action: .uninstall, package: package)
+                    presentConfirmation(HomebrewPendingAction(action: .uninstall, package: package))
                 } label: {
                     Label(l10n.s.homebrewUninstall, systemImage: "trash")
                         .font(.system(size: 11, weight: .semibold))
@@ -591,7 +617,7 @@ struct PanelHomebrewView: View {
             }
         } else {
             Button {
-                pendingAction = HomebrewPendingAction(action: .install, package: package)
+                presentConfirmation(HomebrewPendingAction(action: .install, package: package))
             } label: {
                 Label(l10n.s.homebrewInstall, systemImage: "arrow.down.circle")
                     .font(.system(size: 11, weight: .semibold))
@@ -668,13 +694,17 @@ struct PanelHomebrewView: View {
         Binding {
             pendingAction != nil
         } set: { isPresented in
-            if !isPresented { pendingAction = nil }
+            if !isPresented { dismissConfirmation() }
         }
     }
 
     private var confirmationTitle: String {
         guard let pendingAction else { return "" }
-        switch pendingAction.action {
+        return dialogTitle(for: pendingAction)
+    }
+
+    private func dialogTitle(for action: HomebrewPendingAction) -> String {
+        switch action.action {
         case .install:
             return l10n.s.homebrewConfirmInstallTitle
         case .uninstall:
@@ -723,7 +753,7 @@ struct PanelHomebrewView: View {
     }
 
     private func run(_ action: HomebrewPendingAction) {
-        pendingAction = nil
+        dismissConfirmation()
         switch action.action {
         case .install:
             if let package = action.package { homebrew.install(package) }
@@ -736,10 +766,10 @@ struct PanelHomebrewView: View {
         case .updateHomebrew:
             homebrew.updateHomebrew()
         }
+        dismissConfirmation()
     }
 
     private func search() {
-        keepPopoverOpen()
         resetContextSelection()
         mode = .search
         homebrew.search(query: query, kind: searchKind)
@@ -767,11 +797,35 @@ struct PanelHomebrewView: View {
     }
 
     private func keepPopoverOpen() {
-        PanelInteractionState.shared.keepsPopoverOpen = true
+        PanelInteractionState.shared.viewKeepsPopoverOpen = true
+    }
+
+    /// The confirmation dialog is up: protect the panel from a dismissal that
+    /// would close its parent window under AppKit's presented modal.
+    private func presentConfirmation(_ action: HomebrewPendingAction) {
+        // The dialog would hang from the island as a sheet; there it asks on its own.
+        guard !inNotch else {
+            DispatchQueue.main.async {
+                guard NSAlert.confirmAboveIsland(dialogTitle(for: action), message: confirmationBody(for: action),
+                                                 action: actionTitle(for: action), destructive: action.action == .uninstall,
+                                                 cancel: l10n.s.uninstallerCancel) else { return }
+                run(action)
+            }
+            return
+        }
+        PanelInteractionState.shared.isPresentingPopoverModal = true
+        pendingAction = action
+    }
+
+    /// The dialog is gone (answered, cancelled or dismissed): drop the
+    /// protection with it so the next click outside dismisses the panel again.
+    private func dismissConfirmation() {
+        pendingAction = nil
+        PanelInteractionState.shared.isPresentingPopoverModal = false
     }
 
     private func resetContextSelection() {
-        pendingAction = nil
+        dismissConfirmation()
         showOperationDetails = false
         homebrew.clearSelection()
     }
@@ -795,15 +849,14 @@ private enum PanelHomebrewFilter: String, CaseIterable, Identifiable {
 private struct PanelHomebrewSearchField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
-    let onFocus: () -> Void
     let onSubmit: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, onFocus: onFocus, onSubmit: onSubmit)
+        Coordinator(text: $text, onSubmit: onSubmit)
     }
 
-    func makeNSView(context: Context) -> SearchField {
-        let field = SearchField()
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
         field.delegate = context.coordinator
         field.target = context.coordinator
         field.action = #selector(Coordinator.submitFromSearchField(_:))
@@ -812,45 +865,33 @@ private struct PanelHomebrewSearchField: NSViewRepresentable {
         field.placeholderString = placeholder
         field.sendsSearchStringImmediately = false
         field.sendsWholeSearchString = true
-        field.onFocus = onFocus
-        field.onSubmit = onSubmit
         return field
     }
 
-    func updateNSView(_ field: SearchField, context: Context) {
+    func updateNSView(_ field: NSSearchField, context: Context) {
         field.placeholderString = placeholder
         field.target = context.coordinator
         field.action = #selector(Coordinator.submitFromSearchField(_:))
-        field.onFocus = onFocus
-        field.onSubmit = onSubmit
         if field.stringValue != text {
             field.stringValue = text
         }
-        context.coordinator.onFocus = onFocus
         context.coordinator.onSubmit = onSubmit
         context.coordinator.focusIfNeeded(field)
     }
 
     final class Coordinator: NSObject, NSSearchFieldDelegate {
         @Binding var text: String
-        var onFocus: () -> Void
         var onSubmit: () -> Void
         private var didFocus = false
 
-        init(text: Binding<String>, onFocus: @escaping () -> Void, onSubmit: @escaping () -> Void) {
+        init(text: Binding<String>, onSubmit: @escaping () -> Void) {
             _text = text
-            self.onFocus = onFocus
             self.onSubmit = onSubmit
-        }
-
-        func controlTextDidBeginEditing(_ notification: Notification) {
-            onFocus()
         }
 
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSSearchField else { return }
             text = field.stringValue
-            onFocus()
         }
 
         func control(_ control: NSControl,
@@ -870,7 +911,6 @@ private struct PanelHomebrewSearchField: NSViewRepresentable {
         }
 
         private func submit() {
-            onFocus()
             onSubmit()
         }
 
@@ -880,23 +920,7 @@ private struct PanelHomebrewSearchField: NSViewRepresentable {
                 guard let self, let field, let window = field.window else { return }
                 window.makeFirstResponder(field)
                 self.didFocus = true
-                self.onFocus()
             }
-        }
-    }
-
-    final class SearchField: NSSearchField {
-        var onFocus: (() -> Void)?
-        var onSubmit: (() -> Void)?
-
-        override func mouseDown(with event: NSEvent) {
-            onFocus?()
-            super.mouseDown(with: event)
-        }
-
-        override func keyDown(with event: NSEvent) {
-            onFocus?()
-            super.keyDown(with: event)
         }
     }
 }

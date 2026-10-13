@@ -17,33 +17,34 @@ enum IStatsCardKind: String, CaseIterable, Identifiable, PanelOrderItem {
 struct IStatsDonutMeter: View {
     let title: String
     let value: String
-    let fraction: Double
-    let color: Color
-    
+    /// Stacked from twelve o'clock, back to front, like the menu bar ring.
+    let values: [Double]
+    let inks: [GraphInk]
+
+    init(title: String, value: String, values: [Double], inks: [GraphInk]) {
+        self.title = title
+        self.value = value
+        self.values = values
+        self.inks = inks
+    }
+
+    init(title: String, value: String, fraction: Double, ink: GraphInk = .primary) {
+        self.init(title: title, value: value, values: [fraction], inks: [ink])
+    }
+
     var body: some View {
-        VStack(spacing: 3) {
-            ZStack {
-                Circle()
-                    .stroke(Color.primary.opacity(0.12), lineWidth: 4)
-                Circle()
-                    .trim(from: 0, to: CGFloat(max(0, min(1, fraction))))
-                    .stroke(
-                        color,
-                        style: StrokeStyle(lineWidth: 4, lineCap: .round)
-                    )
-                    .rotationEffect(.degrees(-90))
-                
-                VStack(spacing: 0) {
-                    Text(value)
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundColor(.primary)
-                    Text(title)
-                        .font(.system(size: 7, weight: .bold, design: .monospaced))
-                        .foregroundColor(.secondary)
-                }
+        ZStack {
+            GraphRing(values: values, inks: inks, lineWidth: 4)
+            VStack(spacing: 0) {
+                Text(value)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(.primary)
+                Text(title)
+                    .font(.system(size: 7, weight: .bold, design: .monospaced))
+                    .foregroundColor(.secondary)
             }
-            .frame(width: 44, height: 44)
         }
+        .frame(width: 44, height: 44)
     }
 }
 
@@ -182,49 +183,38 @@ struct IStatsPopoverWidgetsView: View {
                     }
                 }
                 
-                // Per-Core Histogram Bars
+                // History and one bar per thread, system time in the theme's
+                // second color behind user time in its main color.
+                let total = monitor.snapshot.cpuHistory
+                if total.count >= 2 {
+                    ColumnHistoryGraph(layers: [total, MenuBarGraphGeometry.userShares(total: total,
+                                                                                       system: monitor.snapshot.cpuSystemHistory)],
+                                       inks: [.secondary, .primary])
+                        .frame(height: 40)
+                }
                 let cores = monitor.snapshot.cores
                 if !cores.isEmpty {
-                    HStack(alignment: .bottom, spacing: 2) {
-                        ForEach(cores) { core in
-                            ZStack(alignment: .bottom) {
-                                RoundedRectangle(cornerRadius: 1.5)
-                                    .fill(Color.primary.opacity(0.08))
-                                    .frame(height: 40)
-                                
-                                let totalHeight = max(2, CGFloat(core.loadPct / 100.0) * 40)
-                                RoundedRectangle(cornerRadius: 1.5)
-                                    .fill(LinearGradient(
-                                        gradient: Gradient(colors: [Color.cyan, Color.blue]),
-                                        startPoint: .bottom,
-                                        endPoint: .top
-                                    ))
-                                    .frame(height: totalHeight)
-                            }
-                        }
-                    }
-                    .frame(height: 48)
-                    .padding(6)
-                    .background(Color.primary.opacity(0.06))
-                    .cornerRadius(6)
+                    CoreBarsGraph(layers: [cores.map { Double($0.loadPct) / 100 },
+                                           cores.map { Double(max(0, $0.loadPct - $0.systemPct)) / 100 }],
+                                  inks: [.secondary, .primary])
+                        .frame(height: 32)
                 }
-                
-                HStack {
-                    HStack(spacing: 4) {
-                        Circle().fill(Color.cyan).frame(width: 6, height: 6)
-                        Text(l10n.s.istatsUser).font(.caption2).foregroundColor(.secondary)
-                        Text(String(format: "%.0f%%", monitor.snapshot.cpuUsage.map { $0 * 100 } ?? 0))
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    }
-                    Spacer()
-                    HStack(spacing: 4) {
-                        Circle().fill(Color.blue).frame(width: 6, height: 6)
-                        Text("Cores").font(.caption2).foregroundColor(.secondary)
-                        Text("\(cores.count)")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+
+                let usage = monitor.snapshot.cpuUsage ?? 0
+                let system = min(usage, monitor.snapshot.cpuSystemUsage ?? 0)
+                GraphThemeReader { colors in
+                    HStack {
+                        legendItem(color: colors.primary, label: l10n.s.istatsUser,
+                                   value: String(format: "%.0f%%", max(0, usage - system) * 100))
+                        Spacer()
+                        legendItem(color: colors.secondary, label: l10n.s.istatsSystem,
+                                   value: String(format: "%.0f%%", system * 100))
+                        Spacer()
+                        legendItem(color: nil, label: l10n.s.istatsCores.localizedCapitalized,
+                                   value: "\(cores.count)")
                     }
                 }
-                
+
                 // Top CPU Processes (iStats-style)
                 if !cpuProcesses.isEmpty {
                     Divider().opacity(0.15)
@@ -247,7 +237,7 @@ struct IStatsPopoverWidgetsView: View {
             // 2. Core Grid/Histograms
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("CORES (\(monitor.snapshot.cores.count))")
+                    Text("\(l10n.s.istatsCores) (\(monitor.snapshot.cores.count))")
                         .font(.system(size: 13, weight: .bold, design: .monospaced))
                         .foregroundColor(.purple)
                     Spacer()
@@ -260,12 +250,12 @@ struct IStatsPopoverWidgetsView: View {
                 let cols = Array(repeating: GridItem(.flexible(), spacing: 6), count: 4)
                 LazyVGrid(columns: cols, spacing: 6) {
                     ForEach(cores) { core in
-                        let pct = Double(core.loadPct)
+                        let load = Double(core.loadPct) / 100
                         IStatsDonutMeter(
                             title: "C\(core.id)",
-                            value: String(format: "%.0f%%", pct),
-                            fraction: pct / 100.0,
-                            color: pct > 80 ? .orange : (pct > 50 ? .yellow : .purple)
+                            value: String(format: "%.0f%%", load * 100),
+                            values: [load, Double(max(0, core.loadPct - core.systemPct)) / 100],
+                            inks: [.secondary, .primary]
                         )
                     }
                 }
@@ -279,7 +269,7 @@ struct IStatsPopoverWidgetsView: View {
             // 3. Memory Pressure Donut & Storage Breakdown + Top RAM Processes
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("MEMORY")
+                    Text(l10n.s.memorySection.localizedUppercase)
                         .font(.system(size: 13, weight: .bold, design: .monospaced))
                         .foregroundColor(.cyan)
                     Spacer()
@@ -296,38 +286,35 @@ struct IStatsPopoverWidgetsView: View {
                 
                 let used = Double(monitor.snapshot.memoryUsed ?? 0)
                 let total = Double(max(1, monitor.snapshot.memoryTotal ?? 1))
+                let app = min(used, Double(monitor.snapshot.memoryAppUsed ?? 0))
+                let compressed = Double(monitor.snapshot.memoryCompressed ?? 0)
                 let ramFrac = min(1.0, max(0.0, used / total))
-                
+
                 HStack(spacing: 16) {
                     IStatsDonutMeter(
                         title: "RAM",
                         value: String(format: "%.0f%%", ramFrac * 100),
-                        fraction: ramFrac,
-                        color: .cyan
+                        values: [ramFrac, app / total],
+                        inks: [.secondary, .primary]
                     )
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("USED")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                .foregroundColor(.secondary)
-                            Spacer()
-                            Text(String(format: "%.1f GB", used / (1024 * 1024 * 1024)))
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .foregroundColor(.cyan)
-                        }
-                        HStack {
-                            Text("FREE")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                .foregroundColor(.secondary)
-                            Spacer()
-                            Text(String(format: "%.1f GB", max(0, total - used) / (1024 * 1024 * 1024)))
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .foregroundColor(.green)
+
+                    GraphThemeReader { colors in
+                        VStack(alignment: .leading, spacing: 4) {
+                            memoryRow(color: colors.primary, label: l10n.s.istatsAppMemory, bytes: app)
+                            memoryRow(color: colors.secondary, label: l10n.s.memoryMetricUsed, bytes: used)
+                            memoryRow(color: nil, label: l10n.s.istatsCompressedMemory, bytes: compressed)
+                            memoryRow(color: nil, label: l10n.s.istatsFreeMemory, bytes: max(0, total - used))
                         }
                     }
                 }
-                
+
+                let usedHistory = monitor.snapshot.memoryHistory
+                if usedHistory.count >= 2 {
+                    ColumnHistoryGraph(layers: [usedHistory, monitor.snapshot.memoryAppHistory],
+                                       inks: [.secondary, .primary])
+                        .frame(height: 32)
+                }
+
                 // Top Memory Processes
                 if !memProcesses.isEmpty {
                     Divider().opacity(0.15)
@@ -382,14 +369,19 @@ struct IStatsPopoverWidgetsView: View {
                 
                 HStack {
                     Spacer()
-                    IStatsDonutMeter(title: "GPU", value: String(format: "%.0f%%", gpuPct * 100), fraction: gpuPct, color: .cyan)
+                    IStatsDonutMeter(title: "GPU", value: String(format: "%.0f%%", gpuPct * 100), fraction: gpuPct, ink: .primary)
                     Spacer()
-                    IStatsDonutMeter(title: "MEM", value: memPct.map { String(format: "%.0f%%", $0 * 100) } ?? "--", fraction: memPct ?? 0, color: .purple)
+                    IStatsDonutMeter(title: "MEM", value: memPct.map { String(format: "%.0f%%", $0 * 100) } ?? "--", fraction: memPct ?? 0, ink: .secondary)
                     Spacer()
-                    IStatsDonutMeter(title: "TMP", value: gpuTemp > 0 ? String(format: "%.0f°", gpuTemp) : "--", fraction: min(1.0, gpuTemp / 100.0), color: .orange)
+                    IStatsDonutMeter(title: "TMP", value: gpuTemp > 0 ? String(format: "%.0f°", gpuTemp) : "--", fraction: min(1.0, gpuTemp / 100.0), ink: .tertiary)
                     Spacer()
-                    IStatsDonutMeter(title: "GHZ", value: gpuFreqGHz > 0 ? String(format: "%.1f", gpuFreqGHz) : "--", fraction: min(1.0, gpuFreqGHz / maxFreqGHz), color: .green)
+                    IStatsDonutMeter(title: "GHZ", value: gpuFreqGHz > 0 ? String(format: "%.1f", gpuFreqGHz) : "--", fraction: min(1.0, gpuFreqGHz / maxFreqGHz), ink: .primary)
                     Spacer()
+                }
+
+                if monitor.snapshot.gpuHistory.count >= 2 {
+                    ColumnHistoryGraph(layers: [monitor.snapshot.gpuHistory], inks: [.primary])
+                        .frame(height: 32)
                 }
                 
                 // Top GPU Processes (iStats-style)
@@ -409,6 +401,30 @@ struct IStatsPopoverWidgetsView: View {
             .background(Color.primary.opacity(showGPU ? 0.05 : 0.02))
             .cornerRadius(10)
             .opacity(showGPU ? 1.0 : 0.4)
+        }
+    }
+
+    /// A legend entry: the graph color's dot (none for a plain count), the
+    /// label and the value.
+    private func legendItem(color: Color?, label: String, value: String) -> some View {
+        HStack(spacing: 4) {
+            if let color {
+                Circle().fill(color).frame(width: 6, height: 6)
+            }
+            Text(label).font(.caption2).foregroundColor(.secondary)
+            Text(value).font(.system(size: 11, weight: .bold, design: .monospaced))
+        }
+    }
+
+    private func memoryRow(color: Color?, label: String, bytes: Double) -> some View {
+        HStack(spacing: 5) {
+            Circle().fill(color ?? Color.primary.opacity(0.15)).frame(width: 6, height: 6)
+            Text(label)
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(.secondary)
+            Spacer()
+            Text(String(format: "%.1f GB", bytes / (1024 * 1024 * 1024)))
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
         }
     }
 }

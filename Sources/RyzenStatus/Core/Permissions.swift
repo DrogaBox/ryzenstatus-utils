@@ -6,6 +6,7 @@ import ApplicationServices
 import AVFoundation
 import Combine
 import CoreGraphics
+import EventKit
 import UserNotifications
 
 /// Central place to check, request and watch the TCC permissions the app uses.
@@ -26,6 +27,16 @@ final class Permissions: ObservableObject {
     /// Camera access for the preview mirror. The status read is free, so it
     /// rides the same refresh() moments as the rest.
     @Published private(set) var camera: CameraPermissionState = .unknown
+    @Published private(set) var calendarAccess = EKEventStore.authorizationStatus(for: .event)
+    @Published private(set) var requestingCalendar = false
+    @Published private(set) var calendarRequestFailed = false
+    private var calendarPermissionResolution: TimeInterval?
+
+    var keepsCalendarPrompt: Bool {
+        NotchSupport.keepsPermissionSurface(requesting: requestingCalendar,
+                                            resolvedAt: calendarPermissionResolution,
+                                            now: ProcessInfo.processInfo.systemUptime)
+    }
     /// Optional microphone access, used only while a recording that asked for
     /// it is active.
     @Published private(set) var microphone: MicrophonePermissionState = .unknown
@@ -82,8 +93,10 @@ final class Permissions: ObservableObject {
         if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
     }
 
+    private var permissionSurfaceDemands = Set<UUID>()
+
     private var desiredPollInterval: TimeInterval {
-        if NSApp.isActive { return 2.5 }
+        if !permissionSurfaceDemands.isEmpty || NSApp.isActive { return 2.5 }
         if !accessibility || !screenRecording { return 2.5 }
         return 60
     }
@@ -101,6 +114,18 @@ final class Permissions: ObservableObject {
         activePermissionTimer = timer
     }
 
+    /// Visible permission UI owns a stable demand identifier so repeated
+    /// SwiftUI appearances cannot accidentally leave an unbalanced timer.
+    func setActivePermissionSurface(_ id: UUID, visible: Bool) {
+        if visible {
+            permissionSurfaceDemands.insert(id)
+            refreshActivePermissions()
+        } else {
+            permissionSurfaceDemands.remove(id)
+        }
+        scheduleActivePermissionPolling()
+    }
+
     /// Full refresh including Full Disk Access. Runs at launch and on activation.
     func refresh() {
         // The FDA probe lists up to six TCC-gated directories plus a
@@ -116,6 +141,7 @@ final class Permissions: ObservableObject {
         refreshActivePermissions()
         refreshNotificationPermission()
         refreshCameraPermission()
+        calendarAccess = EKEventStore.authorizationStatus(for: .event)
         refreshMicrophonePermission()
     }
 
@@ -215,6 +241,7 @@ final class Permissions: ObservableObject {
     func requestAccessibility() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
+        refreshActivePermissions()
         if !accessibility {
             PermissionGuideOverlay.shared.show(for: .accessibility)
         }
@@ -224,8 +251,34 @@ final class Permissions: ObservableObject {
     /// floats the guide card, like the Accessibility path.
     func requestScreenRecording() {
         CGRequestScreenCaptureAccess()
+        refreshActivePermissions()
         if !screenRecording {
             PermissionGuideOverlay.shared.show(for: .screenRecording)
+        }
+    }
+
+    /// Drops this app's entry from the list and asks again. The entry macOS
+    /// keeps is bound to the app's code signature, so a copy signed
+    /// differently (a local build, an update signed another way) finds the
+    /// switch on and the permission gone; nothing short of removing the entry
+    /// makes the system ask afresh. `tccutil` does that for the calling
+    /// user's own entries with no privilege, and is the command Apple
+    /// documents for the purpose.
+    func startOver(_ kind: PermissionKind) {
+        guard kind == .accessibility || kind == .screenRecording,
+              let bundleID = Bundle.main.bundleIdentifier else { return }
+        let service = kind == .accessibility ? "Accessibility" : "ScreenCapture"
+        // Off the main thread through the bounded runner, like
+        // `SelfUninstall.resetTCC`: a stuck tccutil must not hang the UI. The
+        // hop back also lets the button's click finish before the card that
+        // holds the button is rebuilt by the new request.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            _ = Shell.run("/usr/bin/tccutil", ["reset", service, bundleID])
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.refreshActivePermissions()
+                if kind == .accessibility { self.requestAccessibility() } else { self.requestScreenRecording() }
+            }
         }
     }
 
@@ -289,6 +342,28 @@ final class Permissions: ObservableObject {
                 completion?(granted)
             }
         }
+    }
+
+    /// Reading calendar events requires full access even though the app never writes them.
+    func requestCalendar() {
+        guard !requestingCalendar else { return }
+        requestingCalendar = true
+        calendarRequestFailed = false
+        let store = EKEventStore()
+        store.requestFullAccessToEvents { [weak self, store] _, error in
+            _ = store
+            DispatchQueue.main.async {
+                self?.calendarPermissionResolution = ProcessInfo.processInfo.systemUptime
+                self?.requestingCalendar = false
+                let status = EKEventStore.authorizationStatus(for: .event)
+                self?.calendarRequestFailed = NotchCalendarSupport.requestFailed(status: status, hasError: error != nil)
+                self?.calendarAccess = status
+            }
+        }
+    }
+
+    func openCalendarSettings() {
+        open(pane: "Privacy_Calendars")
     }
 
     func openCameraSettings() {

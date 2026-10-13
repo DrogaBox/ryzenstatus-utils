@@ -9,6 +9,7 @@ struct NetworkSection: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var monitor = SystemMonitor.shared
     @ObservedObject private var speed = SpeedTest.shared
+    @StateObject private var addresses = NetworkAddressService()
     @Environment(\.colorScheme) private var colorScheme
     var collapsible = true
     @AppStorage(DefaultsKey.monitorGraphNetwork) private var showGraph = true
@@ -16,6 +17,7 @@ struct NetworkSection: View {
     @AppStorage(DefaultsKey.monitorNetApps) private var netApps = true
     @AppStorage(DefaultsKey.monitorNetTotals) private var netTotals = true
     @AppStorage(DefaultsKey.monitorNetTest) private var netTest = true
+    @AppStorage(DefaultsKey.monitorNetAddresses) private var netAddresses = true
     @AppStorage(DefaultsKey.panelNetworkOrder) private var networkOrderRaw = ""
     @State private var draggingBlock: Block?
     @State private var appRows: [ProcessUsage] = []
@@ -76,7 +78,7 @@ struct NetworkSection: View {
         }
     }
 
-    private enum Block: String, PanelOrderItem { case speed, apps, totals, test }
+    private enum Block: String, PanelOrderItem { case speed, apps, totals, addresses, test }
 
     private var visibleBlocks: [Block] {
         orderedBlocks.filter(isVisible)
@@ -104,6 +106,7 @@ struct NetworkSection: View {
         case .speed: return netSpeed
         case .apps: return netApps
         case .totals: return netTotals
+        case .addresses: return netAddresses
         case .test: return netTest
         }
     }
@@ -114,6 +117,7 @@ struct NetworkSection: View {
         netSpeed = true
         netApps = true
         netTotals = true
+        netAddresses = true
         netTest = true
     }
 
@@ -123,6 +127,7 @@ struct NetworkSection: View {
         case .speed: speedBlock(editing: editing)
         case .apps: appUsageBlock(editing: editing)
         case .totals: totalsRow(editing: editing)
+        case .addresses: NetworkAddressBlock(service: addresses, isVisible: $netAddresses, editing: editing)
         case .test: speedTestRow(editing: editing)
         }
     }
@@ -173,16 +178,19 @@ struct NetworkSection: View {
                         PanelInlineHideButton(isVisible: $netSpeed)
                     }
                 }
-                HStack(spacing: 10) {
-                    rateColumn(icon: "arrow.down",
-                               label: l10n.s.networkDownload,
-                               value: monitor.snapshot.netDownBytesPerSec,
-                               color: .accentColor)
-                    Divider().frame(height: 28)
-                    rateColumn(icon: "arrow.up",
-                               label: l10n.s.networkUpload,
-                               value: monitor.snapshot.netUpBytesPerSec,
-                               color: PanelMetricColor.green(for: colorScheme))
+                // The arrows take the graph's colors, so they double as its legend.
+                GraphThemeReader { colors in
+                    HStack(spacing: 10) {
+                        rateColumn(icon: "arrow.down",
+                                   label: l10n.s.networkDownload,
+                                   value: monitor.snapshot.netDownBytesPerSec,
+                                   color: colors.primary)
+                        Divider().frame(height: 28)
+                        rateColumn(icon: "arrow.up",
+                                   label: l10n.s.networkUpload,
+                                   value: monitor.snapshot.netUpBytesPerSec,
+                                   color: colors.secondary)
+                    }
                 }
                 if showGraph, monitor.snapshot.netDownHistory.count >= 2 {
                     graph
@@ -197,7 +205,7 @@ struct NetworkSection: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(color)
             VStack(alignment: .leading, spacing: 1) {
-                Text(value.map { MetricFormat.bytesPerSec($0) } ?? l10n.s.networkMeasuring)
+                Text(value.map { MetricFormat.networkRate($0) } ?? l10n.s.networkMeasuring)
                     .font(.system(size: 13.5, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .contentTransition(.numericText())
@@ -210,19 +218,12 @@ struct NetworkSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Download (filled) and upload (line) share one scale so they compare fairly.
+    /// Upload above, download below, each against its own busiest visible
+    /// sample: a slow upload stays readable next to a fast download.
     private var graph: some View {
-        let down = monitor.snapshot.netDownHistory
-        let up = monitor.snapshot.netUpHistory
-        let peak = max(down.max() ?? 0, up.max() ?? 0, 1)
-        return ZStack {
-            Sparkline(values: down, color: .accentColor, maxValue: peak, showsZeroBaseline: true)
-            Sparkline(values: up,
-                      color: PanelMetricColor.green(for: colorScheme),
-                      maxValue: peak,
-                      fillOpacity: 0.08)
-        }
-        .frame(height: 30)
+        DualColumnHistoryGraph(upper: monitor.snapshot.netUpHistory,
+                               lower: monitor.snapshot.netDownHistory)
+            .frame(height: 30)
     }
 
     @ViewBuilder
@@ -360,6 +361,43 @@ struct NetworkSection: View {
     private func networkValue(_ row: ProcessUsage) -> String {
         let down = row.networkDownBytesPerSec ?? 0
         let up = row.networkUpBytesPerSec ?? 0
-        return "↓\(MetricFormat.bytesPerSecCompact(down)) ↑\(MetricFormat.bytesPerSecCompact(up))"
+        return "↓\(MetricFormat.networkRateCompact(down)) ↑\(MetricFormat.networkRateCompact(up))"
+    }
+}
+
+/// The local address block. Nothing here leaves the machine.
+private struct NetworkAddressBlock: View {
+    @ObservedObject var service: NetworkAddressService
+    @Binding var isVisible: Bool
+    var editing: Bool
+    @ObservedObject private var l10n = L10n.shared
+
+    var body: some View {
+        if !isVisible {
+            PanelHiddenItemRow(title: l10n.s.networkIPAddresses,
+                               systemImage: "network", isVisible: $isVisible)
+        } else {
+            HStack(alignment: .top, spacing: 6) {
+                Text(l10n.s.networkLocalIP)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                // Nothing connected: the value is left out, like the totals block.
+                if !service.localAddresses.isEmpty {
+                    Text(service.localAddresses.joined(separator: "\n"))
+                        .font(.system(size: 10.5, weight: .medium))
+                        .monospacedDigit()
+                        .multilineTextAlignment(.trailing)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                if editing { PanelInlineHideButton(isVisible: $isVisible) }
+            }
+            // The interfaces are read only while this line is on screen: a
+            // hidden block or a collapsed card costs nothing per snapshot.
+            .onAppear { service.refreshLocalAddresses() }
+            .onReceive(SystemMonitor.shared.$snapshot) { _ in service.refreshLocalAddresses() }
+            .onDisappear { service.cancel() }
+        }
     }
 }

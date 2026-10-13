@@ -20,11 +20,22 @@ struct CleanerView: View {
     @AppStorage(DefaultsKey.cleanerScheduleWeekday) private var scheduleWeekday = 2
     @AppStorage(DefaultsKey.cleanerLastAutoRun) private var lastAutoRun = 0.0
     @AppStorage(DefaultsKey.cleanerLastAutoFreed) private var lastAutoFreed = 0
+    @AppStorage(DefaultsKey.cleanerLastAutoFailed) private var lastAutoFailed = 0
     @AppStorage(DefaultsKey.cleanerScheduleNotify) private var scheduleNotify = true
+    @AppStorage(DefaultsKey.cleanerScreenshotAgeDays)
+    private var screenshotAgeDays = CleanerPolicy.defaultScreenshotAgeDays
     @ObservedObject private var scheduler = CleanerScheduler.shared
+    @ObservedObject private var whatsAppScheduler = WhatsAppDownloadScheduler.shared
+    @AppStorage(DefaultsKey.whatsAppDownloadsEnabled) private var whatsAppEnabled = false
+    @AppStorage(DefaultsKey.whatsAppDownloadsAutomaticEnabled) private var whatsAppAutomatic = false
+    @AppStorage(DefaultsKey.whatsAppDownloadsLastCleanup) private var whatsAppLastCleanup = 0.0
+    @AppStorage(DefaultsKey.whatsAppDownloadsLastCleanupCount) private var whatsAppLastCount = 0
+    @AppStorage(DefaultsKey.whatsAppDownloadsLastCleanupBytes) private var whatsAppLastBytes = 0
+    @AppStorage(DefaultsKey.whatsAppDownloadsLastCleanupFailed) private var whatsAppLastFailed = 0
     @State private var notificationsDenied = false
     /// The panel hosted card starts folded; the Settings page shows it open.
     @State private var scheduleExpanded = false
+    @State private var whatsAppExpanded = false
     /// Tightens paddings for the panel and launcher.
     var compact = false
 
@@ -92,14 +103,14 @@ struct CleanerView: View {
     /// judgment calls under optional, unchecked and collapsed.
     private enum DisplayGroup: Int, CaseIterable, Identifiable {
         case loginItems, safeCaches, logs, developer
-        case leftovers, otherCaches, deviceBackups, trash
+        case leftovers, otherCaches, deviceBackups, screenshots, trash
 
         var id: Int { rawValue }
 
         var isSafe: Bool {
             switch self {
             case .loginItems, .safeCaches, .logs, .developer: return true
-            case .leftovers, .otherCaches, .deviceBackups, .trash: return false
+            case .leftovers, .otherCaches, .deviceBackups, .screenshots, .trash: return false
             }
         }
 
@@ -111,6 +122,7 @@ struct CleanerView: View {
             case .developer: return [.developer]
             case .leftovers: return [.leftovers]
             case .deviceBackups: return [.deviceBackups]
+            case .screenshots: return [.screenshots]
             case .trash: return [.trash]
             }
         }
@@ -124,6 +136,7 @@ struct CleanerView: View {
             case .leftovers: return "puzzlepiece"
             case .otherCaches: return "internaldrive"
             case .deviceBackups: return "iphone"
+            case .screenshots: return "camera.viewfinder"
             case .trash: return "trash"
             }
         }
@@ -146,6 +159,7 @@ struct CleanerView: View {
         case .leftovers: return l10n.s.cleanerCatLeftovers
         case .otherCaches: return l10n.s.cleanerCatOtherCaches
         case .deviceBackups: return l10n.s.cleanerCatDeviceBackups
+        case .screenshots: return l10n.s.cleanerCatScreenshots
         case .trash: return l10n.s.cleanerCatTrash
         }
     }
@@ -159,6 +173,9 @@ struct CleanerView: View {
         case .leftovers: return l10n.s.cleanerLeftoversCaption
         case .otherCaches: return l10n.s.cleanerOtherCachesCaption
         case .deviceBackups: return l10n.s.cleanerDeviceBackupsCaption
+        case .screenshots:
+            return String(format: l10n.s.cleanerScreenshotsCaptionFormat,
+                          CleanerPolicy.sanitizedScreenshotAgeDays(screenshotAgeDays))
         case .trash: return l10n.s.cleanerTrashNote
         }
     }
@@ -177,10 +194,16 @@ struct CleanerView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 380)
-            Button(l10n.s.cleanerScan) { cleaner.scan() }
+            Button(l10n.s.cleanerScan) { cleaner.scan(attended: true) }
                 .controlSize(.large)
                 .buttonStyle(.borderedProminent)
             scheduleCard
+            screenshotsCard
+            if !compact, !whatsAppEnabled { whatsAppOptInCard }
+            // The Settings page has its own full tool for these downloads;
+            // the panel gets this one-line home so the feature is findable
+            // without opening Settings.
+            if compact, whatsAppEnabled { whatsAppCard }
             if !permissions.fullDiskAccess {
                 FullDiskAccessNote(compact: compact).frame(maxWidth: 380)
             }
@@ -188,6 +211,152 @@ struct CleanerView: View {
         }
         .padding(compact ? 14 : 28)
         .frame(maxWidth: .infinity)
+    }
+
+    // MARK: Forgotten screenshots
+
+    /// Off plus the offered ages, and the stored value when it came from
+    /// elsewhere (a restored backup) and is not one of them.
+    private var screenshotAgeChoices: [Int] {
+        var choices = CleanerPolicy.screenshotAgeChoices
+        let current = CleanerPolicy.sanitizedScreenshotAgeDays(screenshotAgeDays)
+        if current > 0, !choices.contains(current) {
+            choices.append(current)
+            choices.sort()
+        }
+        return [0] + choices
+    }
+
+    /// How old an untouched screenshot must be to be listed, or off. The
+    /// Settings page explains it; the panel keeps it to one line.
+    private var screenshotsCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "camera.viewfinder").foregroundStyle(.secondary)
+                Text(l10n.s.cleanerCatScreenshots)
+                    .font(.system(size: 12, weight: .medium))
+                Spacer()
+                Picker("", selection: $screenshotAgeDays) {
+                    ForEach(screenshotAgeChoices, id: \.self) { days in
+                        Text(days == 0
+                             ? l10n.s.cleanerScheduleOff
+                             : String(format: l10n.s.cleanerScreenshotsAfterFormat, days))
+                            .tag(days)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            if !compact {
+                Text(l10n.s.cleanerScreenshotsSettingCaption)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(11)
+        .frame(maxWidth: 380)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(0.05)))
+    }
+
+    // MARK: WhatsApp downloads (panel surface)
+
+    private var whatsAppStrings: WhatsAppDownloadStrings {
+        FeatureStrings.whatsAppDownloads(l10n.language)
+    }
+
+    private var whatsAppOptInCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(whatsAppStrings.title, isOn: $whatsAppEnabled)
+                .font(.system(size: 12, weight: .medium))
+            Text(whatsAppStrings.hubDescription)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(11)
+        .frame(maxWidth: 380, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(0.05)))
+    }
+
+    /// Collapsed summary: Off until the automation is armed, then the next
+    /// pass, so the row answers "is it working?" without being opened.
+    private var whatsAppSummary: String {
+        guard whatsAppAutomatic else { return l10n.s.cleanerScheduleOff }
+        if let next = whatsAppScheduler.nextFire {
+            return Self.nextRunFormatter.string(from: next)
+        }
+        return whatsAppStrings.automatic
+    }
+
+    /// The cleanup's one-line home in the panel: state at a glance, the last
+    /// and next pass when expanded, and a jump straight into its settings.
+    private var whatsAppCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    whatsAppExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: whatsAppExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 9)
+                    Image(systemName: "arrow.down.doc").foregroundStyle(.secondary)
+                    Text(whatsAppStrings.title)
+                        .font(.system(size: 12, weight: .medium))
+                    Spacer()
+                    Text(whatsAppSummary)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(11)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if whatsAppExpanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    if whatsAppLastCleanup > 0 {
+                        Text(String(format: whatsAppStrings.lastRunFormat,
+                                    Self.nextRunFormatter.string(
+                                        from: Date(timeIntervalSince1970: whatsAppLastCleanup)),
+                                    whatsAppLastCount,
+                                    Self.byteString(Int64(whatsAppLastBytes)),
+                                    whatsAppLastFailed))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text(whatsAppStrings.neverRun)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    if whatsAppAutomatic, let next = whatsAppScheduler.nextFire {
+                        Text(String(format: whatsAppStrings.nextRunFormat,
+                                    Self.nextRunFormatter.string(from: next)))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    Button(whatsAppStrings.manageButton) {
+                        // The full tool lives on its own Settings page; the
+                        // panel only needs a way to land on it.
+                        SettingsRouter.shared.page = .whatsAppDownloads
+                        appDelegate()?.openSettingsWindow()
+                    }
+                    .controlSize(.small)
+                }
+                .padding(.horizontal, 11)
+                .padding(.top, 5)
+                .padding(.bottom, 11)
+            }
+        }
+        .frame(maxWidth: 380)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(0.05)))
     }
 
     // MARK: Automatic cleanup
@@ -358,50 +527,23 @@ struct CleanerView: View {
     @ViewBuilder
     private var scheduleDetails: some View {
         if scheduleFrequency != .off {
-                HStack(spacing: 6) {
-                    if scheduleFrequency == .weekly {
-                        Picker("", selection: $scheduleWeekday) {
-                            ForEach(1...7, id: \.self) { day in
-                                Text(Calendar.current.standaloneWeekdaySymbols[day - 1].capitalized)
-                                    .tag(day)
-                            }
-                        }
-                        .labelsHidden()
-                        .fixedSize()
+                // The menu panel is too narrow for the weekday beside the time
+                // in most languages, and a row wider than the panel shifts all
+                // of its content past the left edge, so the weekday then takes
+                // its own row.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        weekdayPicker
+                        timePickers
+                        Spacer()
                     }
-                    if Self.uses12HourClock {
-                        Picker("", selection: scheduleHour12Binding) {
-                            ForEach(1...12, id: \.self) { hour in
-                                Text(String(hour)).tag(hour)
-                            }
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-                    } else {
-                        Picker("", selection: $scheduleHour) {
-                            ForEach(0..<24, id: \.self) { hour in
-                                Text(String(hour)).tag(hour)
-                            }
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-                    }
-                    Picker("", selection: $scheduleMinute) {
-                        ForEach(minuteChoices, id: \.self) { minute in
-                            Text(String(format: ":%02d", minute)).tag(minute)
+                    VStack(alignment: .leading, spacing: 6) {
+                        weekdayPicker
+                        HStack(spacing: 6) {
+                            timePickers
+                            Spacer()
                         }
                     }
-                    .labelsHidden()
-                    .fixedSize()
-                    if Self.uses12HourClock {
-                        Picker("", selection: schedulePMBinding) {
-                            Text(Self.dayPeriodSymbols.am).tag(false)
-                            Text(Self.dayPeriodSymbols.pm).tag(true)
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-                    }
-                    Spacer()
                 }
                 Toggle(l10n.s.cleanerScheduleNotifyToggle, isOn: $scheduleNotify)
                     .toggleStyle(.checkbox)
@@ -429,6 +571,57 @@ struct CleanerView: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
+        }
+    }
+
+    @ViewBuilder
+    private var weekdayPicker: some View {
+        if scheduleFrequency == .weekly {
+            Picker("", selection: $scheduleWeekday) {
+                ForEach(1...7, id: \.self) { day in
+                    Text(Calendar.current.standaloneWeekdaySymbols[day - 1].capitalized)
+                        .tag(day)
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
+        }
+    }
+
+    /// The hour, the minutes and, on a twelve hour clock, AM or PM.
+    @ViewBuilder
+    private var timePickers: some View {
+        if Self.uses12HourClock {
+            Picker("", selection: scheduleHour12Binding) {
+                ForEach(1...12, id: \.self) { hour in
+                    Text(String(hour)).tag(hour)
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
+        } else {
+            Picker("", selection: $scheduleHour) {
+                ForEach(0..<24, id: \.self) { hour in
+                    Text(String(hour)).tag(hour)
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
+        }
+        Picker("", selection: $scheduleMinute) {
+            ForEach(minuteChoices, id: \.self) { minute in
+                Text(String(format: ":%02d", minute)).tag(minute)
+            }
+        }
+        .labelsHidden()
+        .fixedSize()
+        if Self.uses12HourClock {
+            Picker("", selection: schedulePMBinding) {
+                Text(Self.dayPeriodSymbols.am).tag(false)
+                Text(Self.dayPeriodSymbols.pm).tag(true)
+            }
+            .labelsHidden()
+            .fixedSize()
         }
     }
 
@@ -464,11 +657,11 @@ struct CleanerView: View {
 
     private var lastRunLine: String {
         let ranAt = Self.nextRunFormatter.string(from: Date(timeIntervalSince1970: lastAutoRun))
-        if lastAutoFreed > 0 {
-            return String(format: l10n.s.cleanerScheduleLastFormat,
-                          Self.byteString(Int64(lastAutoFreed)))
-        }
-        return String(format: l10n.s.cleanerScheduleRanFormat, ranAt)
+        let line = lastAutoFreed > 0
+            ? String(format: l10n.s.cleanerScheduleLastFormat, Self.byteString(Int64(lastAutoFreed)))
+            : String(format: l10n.s.cleanerScheduleRanFormat, ranAt)
+        // A pass that moved nothing still reads as a normal run unless what it left is said.
+        return lastAutoFailed > 0 ? line + " " + l10n.s.uninstallerSomeFailed : line
     }
 
     /// Checked slightly delayed so a just fired authorization prompt has a
@@ -496,6 +689,10 @@ struct CleanerView: View {
             if let detail {
                 Text(detail).font(.caption).foregroundStyle(.tertiary)
             }
+            if cleaner.phase == .scanning {
+                Button(l10n.s.uninstallerCancel) { cleaner.reset() }
+                    .controlSize(compact ? .small : .large)
+            }
             Spacer(minLength: compact ? 24 : 0)
         }
         .frame(maxWidth: .infinity, minHeight: compact ? 0 : 320)
@@ -520,19 +717,27 @@ struct CleanerView: View {
                 }
                 .frame(maxWidth: .infinity)
             } else {
-                List {
-                    section(l10n.s.cleanerSafeSection, groups: DisplayGroup.allCases.filter(\.isSafe))
-                    section(l10n.s.cleanerOptionalSection, groups: DisplayGroup.allCases.filter { !$0.isSafe })
+                if compact {
+                    // The island, menu panel and launcher already scroll.
+                    // Keep the rows and Clean button in that same scroll area.
+                    VStack(alignment: .leading, spacing: 16) {
+                        resultsGroups
+                    }
+                    .padding(12)
+                } else {
+                    List { resultsGroups }
+                        .listStyle(.inset)
                 }
-                .listStyle(.inset)
-                // Inside the floating panel the list must not paint its own
-                // opaque backdrop over the panel's translucent material.
-                .scrollContentBackground(compact ? .hidden : .automatic)
-                .frame(minHeight: compact ? 280 : 0)
                 Divider()
                 resultsFooter
             }
         }
+    }
+
+    @ViewBuilder
+    private var resultsGroups: some View {
+        section(l10n.s.cleanerSafeSection, groups: DisplayGroup.allCases.filter(\.isSafe))
+        section(l10n.s.cleanerOptionalSection, groups: DisplayGroup.allCases.filter { !$0.isSafe })
     }
 
     private var resultsHeader: some View {
@@ -558,8 +763,19 @@ struct CleanerView: View {
     private func section(_ header: String, groups: [DisplayGroup]) -> some View {
         let visible = groups.filter { !items(for: $0).isEmpty }
         if !visible.isEmpty {
-            Section(header) {
-                ForEach(visible) { group in groupRow(group) }
+            if compact {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(header).font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(visible) { group in
+                        groupRow(group)
+                        Divider()
+                    }
+                }
+            } else {
+                Section(header) {
+                    ForEach(visible) { group in groupRow(group) }
+                }
             }
         }
     }
@@ -632,7 +848,7 @@ struct CleanerView: View {
             Button(l10n.s.uninstallerCancel) { cleaner.reset() }
             Button(String(format: l10n.s.cleanerCleanSizeFormat,
                           Self.byteString(cleaner.selectedSize))) {
-                cleaner.cleanSelected()
+                cleaner.cleanSelected(escalate: true)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
@@ -719,6 +935,10 @@ struct PanelCleanerView: View {
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
                 Button {
+                    // Closing means cancel: a scan left running would come
+                    // back on the next open. Cleaning in progress is left alone.
+                    let cleaner = JunkCleaner.shared
+                    if cleaner.phase == .scanning { cleaner.reset() }
                     onClose()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -731,7 +951,7 @@ struct PanelCleanerView: View {
             CleanerView(compact: true)
         }
         .padding(2)
-        .onAppear { PanelInteractionState.shared.keepsPopoverOpen = true }
-        .onDisappear { PanelInteractionState.shared.keepsPopoverOpen = false }
+        .onAppear { PanelInteractionState.shared.viewKeepsPopoverOpen = true }
+        .onDisappear { PanelInteractionState.shared.viewKeepsPopoverOpen = false }
     }
 }

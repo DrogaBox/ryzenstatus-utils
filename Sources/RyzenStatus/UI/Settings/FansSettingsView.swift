@@ -199,8 +199,7 @@ struct FansSettingsView: View {
                     }
                     .onChange(of: autoFanCurveEnabled) { _, enabled in
                         if !enabled {
-                            controller.resetFansToAutoSync()
-                            controller.fanMappings = [:]
+                            controller.disableCurves()
                         }
                     }
 

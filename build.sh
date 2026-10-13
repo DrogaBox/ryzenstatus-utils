@@ -87,119 +87,24 @@ fi
 # --test: compile and run the standalone unit tests (pure helpers only: metrics,
 # Homebrew parsing, defaults, localization contracts; no app, no UI, no IOKit),
 # then exit. Fast and deterministic; no XCTest needed.
+#
+# The list also carries the cleaner's automatic pass (CleanerScheduler plus the
+# cleaner type and the shell/notification helpers it drives), because its
+# decisions — when a missed run arms, what it leaves unchecked, what the
+# outcome says — are pinned by these tests. The panel's close policy joins it
+# for the same reason: which state keeps the popover open is a rule, not a
+# drawing. `InstalledApps` comes along for the uninstaller's selection gate,
+# which decides what a picker may offer. No second harness is involved.
 if (( TEST )); then
     echo "▸ Building & running unit tests against $(basename "$SDK")…"
-    rm -rf build
     mkdir -p build
-    swiftc -O -num-threads 8 -target "$TARGET" -sdk "$SDK" \
-        Sources/RyzenStatus/Services/Media/MediaSupport.swift \
-        Sources/RyzenStatus/Core/Defaults.swift \
-        Sources/RyzenStatus/Core/DefaultsKey+App.swift \
-        Sources/RyzenStatus/Core/DefaultsKey+Monitor.swift \
-        Sources/RyzenStatus/Services/NowPlaying/NowPlayingSupport.swift \
-        Sources/RyzenStatus/Services/NowPlaying/NowPlayingAutomation.swift \
-        Sources/RyzenStatus/Services/NowPlaying/NowPlayingLyricsSupport.swift \
-        Sources/RyzenStatus/Services/NowPlaying/NowPlayingTheme.swift \
-        Sources/RyzenStatus/Services/NowPlaying/NowPlayingAnimatedArtwork.swift \
-        Sources/RyzenStatus/Core/NowPlayingStrings.swift \
-        Sources/RyzenStatus/Core/FeatureCatalog.swift \
-        Sources/RyzenStatus/Core/FeaturePresets.swift \
-        Sources/RyzenStatus/Core/FeatureHubStrings.swift \
-        Sources/RyzenStatus/Core/SettingsBackupSupport.swift \
-        Sources/RyzenStatus/Core/BackupStrings.swift \
-        Sources/RyzenStatus/Core/SnippetStrings.swift \
-        Sources/RyzenStatus/Core/BrightnessStrings.swift \
-        Sources/RyzenStatus/Core/QuickToggleStrings.swift \
-        Sources/RyzenStatus/Core/ScreenshotStrings.swift \
-        Sources/RyzenStatus/Core/CameraPreviewStrings.swift \
-        Sources/RyzenStatus/Core/ScratchpadStrings.swift \
-        Sources/RyzenStatus/Core/RadialMenuStrings.swift \
-        Sources/RyzenStatus/Core/MenuBarAppearanceStrings.swift \
-        Sources/RyzenStatus/Core/AppearanceStrings.swift \
-        Sources/RyzenStatus/Core/BatteryTimeStrings.swift \
-        Sources/RyzenStatus/Core/AppAppearance.swift \
-        Sources/RyzenStatus/Core/KeepAwakeStrings.swift \
-        Sources/RyzenStatus/Core/PermissionGuideStrings.swift \
-        Sources/RyzenStatus/Services/Snippets/TextSnippetSupport.swift \
-        Sources/RyzenStatus/Services/RadialMenu/RadialMenuSupport.swift \
-        Sources/RyzenStatus/Services/QuickTools/ScratchpadSupport.swift \
-        Sources/RyzenStatus/Core/AppInfo.swift \
-        Sources/RyzenStatus/Core/GlobalShortcut.swift \
-        Sources/RyzenStatus/Core/Localization.swift \
-        Sources/RyzenStatus/Core/Localizations/Strings+*.swift \
-        Sources/RyzenStatus/Core/FeatureStrings.swift \
-        Sources/RyzenStatus/Core/SuperKeyStrings.swift \
-        Sources/RyzenStatus/Core/ReleaseNotes.swift \
-        Sources/RyzenStatus/Core/URLCleaning.swift \
-        Sources/RyzenStatus/Services/GeneralPasteboardAccess.swift \
-        Sources/RyzenStatus/Services/Audio/MixerRoutingSupport.swift \
-        Sources/RyzenStatus/Services/Audio/MusicLaunchSupport.swift \
-        Sources/RyzenStatus/Services/PrivateFileStore.swift \
-        Sources/RyzenStatus/Services/AMD/AMDPowerPresets.swift \
-        Sources/RyzenStatus/Services/AMD/FanCurveModels.swift \
-        Sources/RyzenStatus/Core/AMDKextSelectors.swift \
-        Sources/RyzenStatus/Core/FanControlStrings.swift \
-        Sources/RyzenStatus/Core/AmdPowerStrings.swift \
-        Sources/RyzenStatus/Services/AMD/AmdSettingsStore.swift \
-        Sources/RyzenStatus/Services/AMD/AMDCoreRanking.swift \
-        Sources/RyzenStatus/Services/AMD/CPUSensorPacket.swift \
-        Sources/RyzenStatus/Services/AMD/AMDFanCurvePresets.swift \
-        Sources/RyzenStatus/Services/AMD/AMDCpuGeneration.swift \
-        Sources/RyzenStatus/Services/AMD/C6Sampling.swift \
-        Sources/RyzenStatus/Services/AMD/CStateNvramService.swift \
-        Sources/RyzenStatus/Services/AMD/HardwareValidation.swift \
-        Sources/RyzenStatus/Core/ValidationStrings.swift \
-        Sources/RyzenStatus/Services/DockPreview/DockPreviewSupport.swift \
-        Sources/RyzenStatus/Services/Homebrew/HomebrewSupport.swift \
-        Sources/RyzenStatus/Services/AppUpdates/AppUpdatesSupport.swift \
-        Sources/RyzenStatus/Core/AppUpdateStrings.swift \
-        Sources/RyzenStatus/Core/WhatsAppDownloadStrings.swift \
-        Sources/RyzenStatus/Core/WhatsAppOrganizerStrings.swift \
-        Sources/RyzenStatus/Services/Clipboard/ClipboardHistorySupport.swift \
-        Sources/RyzenStatus/Services/AutoQuit/AutoQuitSupport.swift \
-        Sources/RyzenStatus/Services/Shelf/ShelfSupport.swift \
-        Sources/RyzenStatus/Services/Update/UpdateInstallerSupport.swift \
-        Sources/RyzenStatus/Services/LaunchAtLoginSupport.swift \
-        Sources/RyzenStatus/UI/Settings/SettingsSearchSupport.swift \
-        Sources/RyzenStatus/UI/Settings/FeatureVisibilitySupport.swift \
-        Sources/RyzenStatus/App/MenuBarSpacingSupport.swift \
-        Sources/RyzenStatus/App/StatusItemAnchorSupport.swift \
-        Sources/RyzenStatus/Services/DockClick/DockClickSupport.swift \
-        Sources/RyzenStatus/Services/Finder/CutPasteProgressSupport.swift \
-        Sources/RyzenStatus/Services/MiddleClick/MiddleClickSupport.swift \
-        Sources/RyzenStatus/Services/MouseNavigation/MouseNavigationSupport.swift \
-        Sources/RyzenStatus/Services/MouseExceptions/MouseAppExceptionSupport.swift \
-        Sources/RyzenStatus/Services/SuperKey/SuperKeySupport.swift \
-        Sources/RyzenStatus/Services/QuickTools/QuickToolsSupport.swift \
-        Sources/RyzenStatus/Services/QuickTools/QuickTogglesSupport.swift \
-        Sources/RyzenStatus/Services/QuickTools/ScreenshotSupport.swift \
-        Sources/RyzenStatus/Services/KeyboardDebounce/KeyboardDebounceSupport.swift \
-        Sources/RyzenStatus/Services/ScrollWheelSupport.swift \
-        Sources/RyzenStatus/Services/SmoothScrollSupport.swift \
-        Sources/RyzenStatus/Services/Switcher/SwitcherModels.swift \
-        Sources/RyzenStatus/Services/Switcher/SwitcherSupport.swift \
-        Sources/RyzenStatus/Services/Metrics/MetricFormat.swift \
-        Sources/RyzenStatus/Services/KeepAwakeAutomationSupport.swift \
-        Sources/RyzenStatus/Services/SudoersSupport.swift \
-        Sources/RyzenStatus/Services/Metrics/BatteryTimeSupport.swift \
-        Sources/RyzenStatus/Services/Metrics/NetworkProcessSupport.swift \
-        Sources/RyzenStatus/Services/Metrics/PeripheralBatterySupport.swift \
-        Sources/RyzenStatus/Services/Metrics/DiskSupport.swift \
-        Sources/RyzenStatus/Services/Metrics/MonitorSamplingPolicy.swift \
-        Sources/RyzenStatus/Services/Metrics/MaxCapacityProbe.swift \
-        Sources/RyzenStatus/Services/BoundedProcessRunner.swift \
-        Sources/RyzenStatus/Core/RecorderStrings.swift \
-        Sources/RyzenStatus/Services/Metrics/TemperatureSensorSelector.swift \
-        Sources/RyzenStatus/Services/Metrics/TemperatureAlertGate.swift \
-        Sources/RyzenStatus/Services/WindowLayout/WindowLayoutSupport.swift \
-        Sources/RyzenStatus/Services/WindowLayout/WindowGestureSupport.swift \
-        Sources/RyzenStatus/Services/CleaningMode/CleaningUnlockCounter.swift \
-        Sources/RyzenStatus/Services/Display/ExtraBrightnessSupport.swift \
-        Sources/RyzenStatus/Services/Display/BrightnessSupport.swift \
-        Sources/RyzenStatus/Services/Cleaner/CleanerSupport.swift \
-        Sources/RyzenStatus/Services/Cleaner/CleanerPolicy.swift \
-        Sources/RyzenStatus/Services/Cleaner/CleanerSchedule.swift \
-        Sources/RyzenStatus/Services/Uninstall/UninstallerSupport.swift \
+    # Tests must not destroy a staged app, QA logs or another runner's output.
+    rm -f build/metrics-tests
+    # The whole module (minus the app entry point) so the harness can never go
+    # stale when a helper gains a dependency. A hand-kept list drifted here.
+    swiftc -Onone -num-threads 4 -target "$TARGET" -sdk "$SDK" \
+        $(find Sources/RyzenStatus -name '*.swift' ! -name main.swift | sort) \
+        Tests/Ported/*.swift \
         Tests/MetricsTests.swift \
         -o build/metrics-tests
     ./build/metrics-tests
@@ -216,6 +121,18 @@ fi
 swiftc "${SWIFT_FLAGS[@]}" \
     Sources/RyzenStatus/**/*.swift \
     -o "build/$EXECUTABLE"
+
+if (( ! DEV )); then
+    # The local symbol table is more than half of the binary and nothing
+    # reads it at run time (every dlsym lookup is for a system symbol). It
+    # goes into a dSYM next to the build for symbolicating crash reports,
+    # and out of the shipped executable.
+    echo "▸ Stripping local symbols (dSYM kept in build/)…"
+    rm -rf "build/$EXECUTABLE.dSYM"
+    dsymutil "build/$EXECUTABLE" -o "build/$EXECUTABLE.dSYM" 2>/dev/null \
+        || echo "  dsymutil failed; continuing without a dSYM"
+    strip -x "build/$EXECUTABLE"
+fi
 
 echo "▸ Generating app icon…"
 swift Tools/MakeIcon.swift build/AppIcon.iconset

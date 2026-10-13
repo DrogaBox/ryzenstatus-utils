@@ -386,7 +386,8 @@ final class UpdateService: ObservableObject {
 
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/sh")
-        task.arguments = [scriptURL.path, appPath, dmgPath, "\(pid)", resultPath, "\(getuid())"]
+        task.arguments = [scriptURL.path, appPath, dmgPath, "\(pid)", resultPath, "\(getuid())",
+                          offered ?? ""]
         do {
             try task.run()
         } catch {
@@ -413,6 +414,7 @@ final class UpdateService: ObservableObject {
                                                                     pid: pid,
                                                                     resultPath: resultPath,
                                                                     uid: getuid(),
+                                                                    expectedVersion: offered ?? "",
                                                                     allowAdhoc: AppInfo.isDeveloperBuild)
         AdminShell.run(command, prompt: L10n.shared.s.adminPromptUpdate) { [weak self] granted in
             DispatchQueue.main.async {
@@ -542,7 +544,7 @@ final class UpdateService: ObservableObject {
     }
 }
 
-private final class BoundedUpdateDownloadDelegate: NSObject, URLSessionDataDelegate {
+final class BoundedUpdateDownloadDelegate: NSObject, URLSessionDataDelegate {
     private let byteLimit: Int64
     private let progress: (Int64, Int64?) -> Void
     private let completion: (URL?, URLResponse?, Error?) -> Void

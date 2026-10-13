@@ -1,5 +1,254 @@
 # Changelog
 
+## [1.42.0] — 2026-10-13 — kexts 3.34.17 (No kext changes)
+
+Settings get their new layout: a grouped sidebar with search suggestions, the General page in cards with the menu bar panel editor and a menu bar icon you can pick from the system symbols, the Monitor page reorganized around a live preview, and AMD Ryzen pages gathered in a section of their own. The Features page offers to tidy away features you never switched on, the image converter gains profiles, resizing, renaming and watermarks, the URL cleaner learns per-site rules, and the menu bar panel hands focus back to the app you were using when it closes.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.34.17. Only the application's validation version pin changes.
+
+### Added
+
+- **Menu bar icon**: pick any system symbol to stand in for the RyzenStatus mark, from a gallery or by name, in Settings › General › Menu bar panel. The keep-awake states draw on top of the symbol you chose.
+- **Menu bar panel editor**: a miniature of the panel next to its sections, dragged into order with a switch each, in Settings › General › Menu bar panel, with the accordion mode beside it.
+- **URL cleaner rules**: every rule is listed and can be switched off on its own, by site or everywhere, and you can add a parameter for one site only. The panel cleans as you type or paste, and every surface says which parameters it took out.
+- **Image converter**: saved profiles, exact or proportional resizing, fit and fill, background colour, renaming with tokens, text or logo watermarks, an output subfolder and keeping the original modification date.
+- **Scratchpad**: Markdown preview, text size, background opacity and find in the pad.
+- **Features page**: features installed but never switched on are offered for removal in one batch, with Undo, or kept for good. Removing the Dynamic Island asks whether its extensions go too, and the island's row is marked experimental.
+- **Network speed unit** in Settings › Monitor: bytes (MB/s) or bits (Mbps), used by the panel, the metric details and the menu bar.
+
+### Changed
+
+- **Settings sidebar**: tools sit in groups (Utilities, Sound, Energy and Display, Windows and Dock, Mouse and Keyboard, Files) with one row per tool, the AMD Ryzen pages (dashboard, fans, AMD Ryzen Power, overclocking, sensors and validation) have a section of their own under the essentials, and search suggests the exact setting, grouped by page, with the arrow keys.
+- **General** is laid out in cards: launch at login with approval guidance, language, appearance with previews of each mode, Liquid Glass, the Keep Awake shortcut, feedback and the Use Bluetooth switch.
+- **Monitor** is laid out in cards: the menu bar preview stays pinned at the top while you change what it shows, then the panel, its graphs, and the readings both share.
+- **Launch at login** is read and changed off the main thread, since Service Management can stall while answering.
+- **Music app blocking** only blocks a launch a media key explains: each key explains one launch, a click or key press after it takes precedence, and the replacement player starts playing when the key was Play.
+- **Updates** refuse a downloaded app whose version is not the release that was offered, and the What's New video download is bounded while it runs.
+
+### Fixed
+
+- **Closing the menu bar panel** with Esc or by clicking the icon again gives activation back to the app you were using, unless that would switch desktops. RyzenStatus used to stay the active app until something else was clicked.
+- **Show menu bar icon** keeps the spot you arranged and only starts the icon over under a new identity when keeping it does not work. It no longer places the icon 64 pt from the edge, right under the system battery item, and it waits for macOS to finish placing the icon before saying it is still hidden.
+- **After an update**, the first launch checks that the menu bar icon made it on screen and rebuilds it once, keeping its spot, if not.
+- **Panel on the right display**: with a menu bar on several displays (or Sidecar), the panel and Settings open on the display you clicked.
+- **Inactive menu bar**: metric items and a hidden icon now dim with the rest of the menu bar on an inactive display.
+- **Shelf placement** ignores the parked frame a hidden menu bar leaves behind, and clicks on hidden menu bar items no longer count as clicks on the icon.
+- **Calendar permission** shows its name and explanation in your language instead of English.
+- **Portuguese** donation texts were in Spanish.
+- **Settings backups** no longer carry folders chosen on one Mac (save folders, file scopes, bookmarks) or one Mac's history, such as the Command Bar's usage and the WhatsApp organizer's records.
+
+## [1.41.0] — 2026-10-13 — kexts 3.34.17 (No kext changes)
+
+The Dynamic Island's companion grows with you: it has a name, a level and a story, dresses up from a wardrobe that unlocks as it levels, wears costumes for the season, follows your AMD hardware and says a word of its own now and then.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.34.17.
+
+### Added
+
+- **Your story with the companion**: give it a name and watch it grow. Pats, every day you spend together and each moment it reacts to add up to ten levels, with daily caps so growth follows your time together rather than how often the pointer rests on it. Settings shows its level and progress, its age, pats, moments and days together, and can start over.
+- **Accessories**: a bow, glasses, a scarf, headphones, a beanie, a flower, a top hat, sunglasses and a crown, one unlocked at each level and picked in Settings. They ride on the head or sit on the face and move with it.
+- **Seasonal costumes**, on by default: a witch's hat the last week of October, a Santa hat around Christmas, a party hat at New Year and on the day it came out, a year on.
+- **Follows your AMD hardware**, on by default: the fan companion spins at your CPU fan's real speed from the kext, the chip's mark glows with package power against its PPT limit, and it puts on a headband and cheers when Gaming Mode starts.
+- **Its own notices**, on by default: a greeting for the time of day the first time you are around each day, a word when it reaches a new level (naming what it unlocked), and celebrations at a week, 30 days, 100 days and every year together. Switched off, it still plays the reaction without a notice.
+- **Local IP address** in the menu panel's Network card: each connected interface's IPv4 address with the system's name for it (Wi-Fi, Ethernet). It is read from the Mac's own interface list only while the card is on screen, and nothing leaves the machine. It can be hidden from the card's edit mode or from Settings › Monitor.
+
+### Changed
+
+- **Menu bar power keeps its interval**: with the system draw pinned to the menu bar, it is read at the chosen interval instead of on the slower stride battery charge and time use, so the watts no longer lag behind.
+- **Desktops without a battery** no longer listen for power source changes.
+- **Quit on close** catches apps that create their first window a moment after launching, retries an app that is still busy with short delays (0.15 s to 10 s instead of 5 s to 160 s), keeps menu bar and background apps running when their settings window closes, covers apps nested inside an excepted app and guest app windows of an excepted virtual machine host, and hides the built-in Phone exception on Macs without the Phone app.
+
+### Fixed
+
+- **GPU temperature and GPU power alerts never fired**: the timer that waits for a sustained reading was restarted on every sample. They now notify once the reading has held for 12 s.
+- **Alert temperatures use your unit**: CPU, GPU and sustained-load notifications showed Celsius even with Fahrenheit selected.
+- **CPU usage after a pause**: when the CPU reading was not needed for a while (nothing on screen asked for it), the first reading back averaged the whole pause. It is now discarded, like the first reading after sleep.
+- **Network**: a failed counter read no longer shows as a drop to zero and then a spike, the per-app list stops a stuck `nettop` after a bounded time, and the speed test checks the server's HTTP answers before measuring.
+- **Disk**: free space counts what macOS can purge, as Finder does, without asking mounted disk images (which filled the log with errors), `diskutil` runs with a time limit, and a corrupt SMART value can no longer crash the app.
+- **Battery time** can no longer overflow on a nonsensical estimate.
+- **Bluetooth battery scan**: a long `system_profiler` report could block until its timeout and come back cut off. It is now read while the command runs.
+- **Launch at login waiting for approval**: when System Settings still has the login item switched off, turning the option on says where to approve it instead of silently flipping back, and startup no longer registers over it.
+- **Settings next to the menu panel**: when Settings cannot open beside the panel without covering it, the panel closes instead of being covered.
+- **Cleaning Mode**: the overlay no longer flickers, Esc unlocking accepts a wider window and lets modifier keys reset it, a click that started before unlocking finishes before the overlay goes, mouse click debounce is paused with the rest, and switching to another user ends the session safely.
+- **Keyboard debounce** hands its event tap back when you switch users, and ignores keys the app itself types.
+- **Event taps** are invalidated when they are torn down, so their ports are released.
+- **App exception lists** accept apps picked from the running list, and executables only where the list supports them.
+- **Process names**: system processes in the GPU list showed as "pid 100" on recent macOS; their executable name is shown instead.
+- **Updates** stage the new copy under a hidden name, so Spotlight does not index a half-copied app.
+- **Uninstalling** also removes the app's caches and network storage, and reports whether normal sleep and the Space arrangement setting were restored.
+- **Clean URL** custom parameter field takes clicks across its whole row and has a Save button.
+- **Command Bar**: days until 29 February count to the next leap year.
+
+## [1.40.0] — 2026-10-12 — kexts 3.34.17 (No kext changes)
+
+The graphs outside the menu bar now match it: the menu panel, the iStats widgets, the metric details, the Dynamic Island and both dashboards draw their history as columns, newest on the right, in the graph theme picked for their appearance, and the AMD Ryzen Power graphs get steady scales. Fan curves now come back at launch, and the manual-fan thermal guard and GPU-sourced curves keep working with Settings closed.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.34.17. Only the application's validation version pin changes.
+
+### Changed
+
+- **AMD Ryzen Power graphs**: package power is drawn against the PPT limit when the PM table reports it (otherwise against its busiest sample rounded up to 25 W, at least 50 W), and package temperature against 0–100 °C, stretching in 10 °C steps above that. Each graph shows its latest value and the top of its scale. They used to rescale to their own busiest sample, so a steady reading always sat at the top, and the smoothed line could overshoot the frame. The per-core clock and temperature graphs are one-point columns.
+- **Menu panel graphs**: CPU shows system time behind user time. Network and disk put upload or writes above and download or reads below, laid out like the menu bar network graph, each direction scaled to its own busiest visible sample, so a slow upload stays readable next to a fast download; the arrows next to the rates take the graph's colors. System power shows the top of its scale.
+- **Metric details** (menu panel and Dynamic Island): CPU stacks system and user time and adds the average clock below it on its own scale, memory shows app memory in front of the rest of used memory, and network and disk use the two-direction graph.
+- **iStats widgets**: the CPU card adds a load history, and its per-core bars show system time behind user time. Its legend's User figure is now user time (it showed the total load), next to System and the core count. Core and memory rings, histories and legends use the graph theme. Memory lists app, used, compressed and free memory and adds a history, and the GPU card adds a history. Card titles that were fixed in English are translated.
+- **Dynamic Island**: the CPU, GPU and memory cards show a small history instead of a level bar once two samples are in, orange while the reading is high.
+- **Dashboards**: Performance Suite and the btop-style dashboard draw columns in each metric's own color, and the analytics charts get quarter guide lines and a scale label. The btop network graph covers the whole history instead of the last 24 samples, each direction on its own scale.
+- **Smaller app**: the release build no longer ships its debugging symbol table, which was more than half of the executable. The installed app drops from 85 MB to 37 MB and the download from 24.8 MB to 18.5 MB, with no change in behavior.
+
+### Fixed
+
+- **Fan curves after a relaunch**: the app hands every fan back to the BIOS when it quits, and on the next launch it only put fans back on their curves once Settings › Fans was opened. They go back on their curves at launch now.
+- **Manual fans and GPU-sourced curves with Settings closed**: the emergency guard that raises a manual fan at 85 °C, and the GPU temperature that GPU-sourced curves follow, were only updated while Settings › Fans was open. They now run every 3 s in the background whenever a fan is in manual mode or follows a GPU-sourced curve, and the GPU temperature is read from the kext on each pass instead of from a cache that only refreshed while the system monitor was sampling.
+- **After the kext connection is reopened** (the kext reloaded, or a connection that stopped answering after sleep), the fans are read again and the curves and mappings uploaded anew. Closing the old connection used to leave every fan on BIOS control until the next wake.
+- **Fan speed in the AMD Ryzen Power panel**: it was read once when the panel opened, usually before the fan list had loaded, so it showed 0 RPM, and again only when another fan was picked. It now updates live while the fan row is expanded, shows a dash for a tachometer that cannot be trusted, uses the names given in Settings and leaves hidden fans out.
+- **Clearing a fan's name** kept showing the old one until the fan list was reloaded, and the hardware validation report fingerprinted the Super I/O chip from the names you gave the fans instead of the hardware labels.
+- Turning fan curves off shows every fan on Auto right away, and a slow first fan read can no longer be cancelled by the next poll and leave the Fans page loading.
+- **Auto EPP** could leave a preset's EPP in place after being turned back on, because it skipped writing a target it had already written before. It also steps up to more performance at once but waits three polls (4.5 s) before stepping down, so load hovering around a threshold no longer flips the EPP every 1.5 s, and its target names are translated.
+- **Gaming Mode turned off right after launch** now waits for the Extreme preset it is still re-applying, so the previous preset is restored reliably.
+- **Boot-args** are read from NVRAM without starting a process, and the AMD flags are matched as whole arguments: a longer argument that merely contains `-amdpnopchk` no longer counts as it.
+- The average above the CPU, GPU and memory analytics charts in Performance Suite lost its percent sign.
+
+## [1.39.0] — 2026-10-12 — kexts 3.34.17 (No kext changes)
+
+Themed menu bar graphs: history, network and memory graphs are redrawn as one-point columns, the cores graph as one bar per core and the donut as a ring, each in a box that adapts to light and dark menu bars, with palettes chosen per appearance.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.34.17. Only the application's validation version pin changes.
+
+> **First published build since 1.36.1**: 1.37.0 and 1.38.0 were never released on their own, so this download also brings everything in their notes below: Dynamic Island, Command Bar, Kill Process, MacPorts support, the capsule center and the rest.
+
+### Bluetooth on a Hackintosh
+
+Three features in this release talk to Bluetooth: the Dynamic Island's accessory notices, the Bluetooth battery scan and Bluetooth sleep. On a Mac whose Bluetooth service answers slowly, which can happen on a Hackintosh, test builds of this release could keep RyzenStatus's menu bar icons from appearing for more than 20 seconds at launch, because the list of paired devices was read on the app's main thread. The release reads that list in the background, so launch no longer waits for it. What to do depends on your Mac:
+
+- **No Bluetooth controller at all**: nothing. The app detects it, never asks the system about Bluetooth, and the switch below does not appear.
+- **A Bluetooth controller that answers slowly or does not work**: turn off **Use Bluetooth** in Settings › General. The app then stops its own Bluetooth queries until you turn it back on: Dynamic Island connection notices, the Bluetooth battery scan (headphones and other devices macOS lists only under Bluetooth) and Bluetooth sleep. Mice, keyboards and trackpads whose battery macOS already reports keep showing it, with their low-battery notices. If an earlier sleep left Bluetooth off, the app still turns it back on once.
+- **Working Bluetooth**: leave the switch on, which is the default. Nothing changes.
+
+This is an app setting only. No kext is involved and nothing has to change in your EFI.
+
+### Added
+
+- **Graph themes** in Settings › Monitor: follow the system accent or pick one of ten palettes, six soft variants or monochrome, separately for light and dark menu bars. On a light menu bar graphs sit on a dark pill by default, or on an outline. History width, column spacing and the network layout (mirrored, top and bottom, both rising) are configurable. The bar colors and limits keep applying to the Bars style.
+
+### Changed
+
+- **Menu bar graphs redrawn**: history graphs are one-point columns with the newest sample on the right instead of a stretched line, network fills its box with one column per sample (the whole history width instead of the last 12 samples), upload and download each still scaled to their own busiest visible sample, cores get one bar per core in a box sized to the core count (with the kext loaded, SMT threads fold into their core), and the donut is a clean ring. CPU history, ring and cores stack system time over user time in the theme's second color. Memory now draws its history and ring too: app memory in the theme's main color, with the rest of used memory above it in the second color. No more artificial 8 % floor: idle reads as idle, any activity keeps one point.
+- Graphs no longer print their value over the plot by default. Settings › Monitor › Show numeric value inside graph brings it back; anyone who already set that switch keeps their choice.
+
+### Fixed
+
+- **Possible crash after about 248 days awake**: per-core CPU load read the kernel's tick counters as signed 32-bit numbers, so a counter past 2^31 made the conversion trap. They are now read as the unsigned values the kernel keeps, and a reading whose busy or system counters went backwards is discarded instead of being trusted.
+
+## [1.38.0] — 2026-10-12 — kexts 3.34.17 (No kext changes)
+
+Package-manager coexistence for Intel, safer clipboard controls, a corrected floating Dynamic Island, and most of the upstream port (shared foundations, everyday tools, windows, captures, mouse and the Dynamic Island's AI section). This release is a continuation of the upstream port, not a claim that every remaining block is complete: AMD-aware metric views, the Settings redesign, the remaining upstream test suites and native translation review are still pending.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.34.17. Only the application's validation version pin changes.
+
+### Added
+
+- **MacPorts support** in the existing package-manager Settings page, menu panel and quick launcher. Automatic selection prefers MacPorts on Intel; Homebrew remains available for existing packages and casks. No automatic migration or installation.
+- Read-only MacPorts inventory, outdated packages and package search with bounded background processes. Install, upgrade, uninstall and self-update are explicitly confirmed and handed to Terminal for administrator authorization. Opening Terminal is not reported as completed installation.
+- **Opt-in system clipboard clearing** after a delay, on sleep, display sleep or screen lock, independently of recording history. Saved and pinned entries are never deleted by these triggers.
+- **Keep Awake until a chosen time**, with Calendar-based resolution of the next local occurrence, including daylight-saving transitions.
+- Regression checks for package-name injection/pseudo-ports, clipboard configuration invalidation, state-specific island geometry and mascot priorities/cooldowns/non-finite readings.
+- **AI agents in the Dynamic Island** (off by default): tokens, plan limits, API value and work in progress for Claude Code, Codex, OpenCode and GitHub Copilot, read from the history files those tools already keep on this Mac. Live strip beside the camera, lock-screen line, notices and a page of cards. Prices ship inside the app; optional daily updates come from this project's repository. Codex banked resets can be read and used, only after confirmation.
+- **Feedback**: report a bug or suggest a feature from Settings › General, the panel header or the Command Bar. The app opens a prefilled GitHub issue in your browser; nothing is sent until you submit it there.
+- **Connected devices in the menu bar and the island**: an optional USB device count next to the menu bar icon, its own detail page and a card in the island's System page.
+- **Capsule center** for Macs without a camera: while a song plays, the middle of the capsule or floating island can show the song, a live metric (CPU or GPU temperature, CPU usage, memory or network download), both in turns, or the clock. It also works at rest: with the island resting with the companion, the capsule shows the reading beside it. With Nothing, the capsule shrinks to the cover and the bars instead of keeping an empty black block. Settings › Dynamic Island, under the shape.
+- **Companion in the menu bar while the floating island is open**: instead of disappearing, it stays up in the bar where it rests, follows the pointer with its eyes, walks a little after it, hops when you click in the island and glances around when you change page. With Reduce Motion it only moves its eyes. Settings › Companion › Watch from the menu bar, on by default.
+- **Use Bluetooth** switch in Settings › General (only on Macs with a Bluetooth controller): turn it off and the app stops its own Bluetooth queries, so Dynamic Island connection notices, the Bluetooth battery scan and Bluetooth sleep stop. Useful on Hackintoshes whose Bluetooth answers slowly or does not work; see *Bluetooth on a Hackintosh* under 1.39.0.
+- **Input source notices** in the island when the keyboard layout changes, and a headphones symbol on the volume notice when they are the output.
+- **Super Key safety guard**: a small helper takes the key mapping back out if the app is killed, so Caps Lock never stays remapped.
+- Clipboard: automatic cleanup, text preview, history window with saved size, OCR in previews, image editing, optional menu bar preview item.
+- Keep Awake: pause on lock, keep awake while chosen apps run, lid dimming, last-pick shortcut, battery protection.
+- Displays: lid-close dimming, keyboard backlight control, brightness shortcuts for display and keyboard.
+- Windows, switcher, captures and recorder from upstream: window layout gestures and exclusions, unified capture with watermark and tool picker, recorder blur, image overlay and export speed.
+- Mixer: AirPlay routes and the precise volume roller.
+- Radial menu: per-profile shortcuts, visual editor, Now Playing read from the app's single Now Playing engine.
+- Mouse and scrolling: one Mouse page, Spaces gesture, Back/Forward side buttons in Settings, time-based smooth scrolling with response and coast, linear scrolling.
+
+### Changed
+
+- The package-manager feature keeps its existing storage identity and Homebrew ownership safeguards, so current installations and preferences survive the new provider selector.
+- Homebrew commands inherit only supported proxy and `HOMEBREW_*` exports from a bounded login-shell session. Environment resolution stays off the main thread.
+- Launch synchronizes the island once for its installed modules and plans the monitor once for its metrics instead of repeatedly initializing the same services.
+- Memory in use follows upstream's definition (app + wired + compressed + tagged storage) and is read with a pure Swift decoder that understands macOS 26's newer statistics layout.
+- Decimal numbers in the monitor follow your region's separator.
+- Temporary-link sharing for captures and recordings stays hidden until a sharing server is configured; there is no default server.
+- Synthetic input events carry RyzenStatus's own marker, so they are never confused with another app's.
+
+### Fixed
+
+- **Floating island on displays without a notch**: compact activities and the transparent resting companion stay in the menu bar; expanded panels move below it without covering menu items.
+- Clearing recent clipboard history in Settings or the menu panel requires confirmation.
+- Invalid temperature, CPU or battery values no longer drive automatic mascot warnings or animations.
+- The Dynamic Island again shows volume notices and macOS notifications; both had stopped being connected during the port.
+- **Slow launch on Macs with an unresponsive Bluetooth service** (test builds only): the island's accessory notices asked for the paired Bluetooth devices on the app's main thread, which could keep RyzenStatus's menu bar icons from appearing for more than 20 seconds while the system answered. The list is now read in the background.
+- **Screen Recording permission after installing a new build**: macOS keeps the permission bound to the copy of the app that received it, so a newer copy found the switch on and the permission gone, and macOS never asked again. The panel's Grant Access button now closes the panel and opens System Settings, so the guide card is no longer hidden behind it. When the permission does not arrive, the card explains why and offers Start Over, which removes the old entry and asks again; once granted, it offers Relaunch, since Screen Recording applies only to a new launch.
+- **Screen Recording row in the panel**: it showed Grant Access even with the permission granted, the button did nothing, the row no longer started a recording and its Recent Captures button was missing. The permission button now appears only while the permission is missing, and the row and Recent Captures work again.
+- Panel dismissal accounts for the AirPlay picker, and the panel remembers which display its status item is on.
+
+## [1.37.0] — 2026-10-11 — kexts 3.34.17 (No kext changes)
+
+Dynamic Island, Command Bar and Kill Process arrive, the Uninstaller recognizes apps installed with Homebrew, the Cleaner finds forgotten screenshots and reports what an automatic cleanup left behind, and the app now speaks Slovak and Ukrainian.
+
+> **Kext Note**: This release introduces no changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext` (both remain on version 3.34.17 from the S11 drop). All changes are strictly within the macOS application layer. **No kext updates in EFI or driver reinstalls are required.**
+
+### Added
+
+- **Dynamic Island**: An optional island at the top of the screen that brings music, controls and everyday tools together. Off by default; with it off, the separate panels work as before. Choose where it appears (automatic, built-in display, main display, follow the pointer, or all displays) and which modules it shows:
+  - Now Playing with artwork, scrubber, live equalizer and optional synced lyrics from LRCLIB.
+  - Brightness and volume sliders, quick controls and a per-app volume mixer.
+  - Live CPU, GPU, memory, disk and network readings.
+  - File shelf with drag and drop, scratchpad notes, clipboard history and screenshot previews.
+  - Quick launcher tools, calendar, notifications, timer and Pomodoro, camera mirror and download progress.
+  - **Watch**: turn any part of any window into a live activity, with an alert when it changes, finishes, shows the text you are waiting for or reaches a number.
+  - Optionally, music and activities on the Lock Screen.
+
+  The island uses the app's built-in Now Playing support: it never turns the menu bar Now Playing item back on, and it stops checking for media when nothing needs it.
+- **Command Bar**: One field that finds and runs everything the app does. Open it with a global shortcut (⌥Space by default, off until you turn it on in Settings) or from the Dynamic Island, then type to:
+  - calculate, convert units, dates, time zones and color formats;
+  - search emoji and files;
+  - open apps (also by the names Spotlight knows them by), windows, System Settings panes and every RyzenStatus Settings page;
+  - run the app's tools and actions, including Kill Process.
+
+  Add aliases, pins, your own links and keyboard shortcuts for individual rows; a shortcut macOS already uses is rejected with a conflict notice. Optional compact mode, and an option to switch to an ASCII keyboard layout while the bar is open. Text snippets do not expand while you type in the bar.
+- **Kill Process**: A new Settings page to search running processes (sorted by CPU, with related processes grouped) and force quit, restart or end whole process trees. Also available from the Command Bar. RyzenStatus itself and vital system processes such as `kernel_task`, `launchd`, `WindowServer` and `loginwindow` are protected.
+- **Homebrew-aware uninstall**: The Uninstaller recognizes apps installed by a Homebrew cask, when exactly one installed cask matches the app's location. After you confirm, the app is removed through Homebrew and the other items you selected are removed as usual. A confirmation that no longer matches the current selection is refused, so you can review and confirm again.
+- **Uninstaller in the Command Bar** (opt-in): *Show in Command Bar* lets you pick and uninstall apps, including the one selected in Finder, from the Command Bar. When an app is uninstalled, its Command Bar aliases, pins, hidden rows and row shortcuts go with it, unless another copy is still installed.
+- **Forgotten screenshots in the Cleaner**: A new category lists screenshots you have not opened for a set time (7, 14, 30, 60 or 90 days; 30 by default; or off) that still have the name and folder macOS gave them. Screenshots you renamed or moved never appear, and finds are always offered unchecked, with their total size.
+- **WhatsApp downloads card in the Cleaner**: With WhatsApp downloads enabled, the Cleaner panel shows a collapsible card with its status and its last and next automatic cleanup, plus a button to its Settings page. With it off, the Cleaner's Settings page offers a card to turn it on.
+- **Slovak and Ukrainian**: Two new interface languages, for 15 in total. Every page, including the AMD power, fan control and hardware validation pages, is translated.
+- **Wallpaper gallery**: Browse and apply wallpapers from the menu bar panel, on one display or on all of them. Off until you install it from Features.
+- **Quit & close protection**: Guard ⌘Q and ⌘W behind a second press or a hold, per app or everywhere, with exceptions and an on-screen hint. Also applies to the Switcher's Q and W keys.
+- **Disk image installer**: Opening a downloaded `.dmg` offers to install the app it contains, optionally into `~/Applications`, then can reveal the app and move the download to the Trash. Off until you install it from Features.
+- **Port Manager**: See which apps are listening on which network ports, and stop them, from Settings or a panel tile. RyzenStatus itself and system processes are protected.
+- **Connected devices**: The System section of the panel lists connected USB devices.
+- **Mouse extras**: Focus follows mouse, turning off mouse acceleration, linear scrolling, horizontal scrolling with a modifier key, and a click debounce filter for worn mouse buttons. All off by default.
+- **Spaces order**: Keep your Spaces in a fixed order, so macOS stops rearranging them by recent use.
+- **Finder rename**: A keyboard shortcut to rename the selected file in Finder.
+- **Audio priority**: Rank your output and input devices so the best one connected is used automatically.
+- **Bluetooth sleep**: Turn Bluetooth off when the Mac sleeps and back on when it wakes.
+- **Snippet Library**: Text Snippets settings can now turn on the snippet library and set its shortcut, with a warning when the shortcut can't be registered. Snippets gain a folder, case-insensitive triggers and a "show in quick menu" option, and an optional sound when a snippet expands.
+
+### Changed
+
+- **Multi-line snippets paste instead of typing**: A snippet with several lines is pasted in one go. Your clipboard is saved first and restored half a second later, unless you copied something else in the meantime. The library panel no longer closes when you click the Accessibility Keyboard.
+- **The menu bar panel stays open while work is running**: A Cleaner, Uninstaller or Homebrew operation in progress now keeps the panel open, even after you switch to another section. Clicking outside, opening Settings or switching apps no longer closes it mid-operation; clicking the menu bar icon or pressing Escape still does.
+- **Uninstaller app selection**: The app picker lists only apps that can be removed, with each app's location. The picker, drag and drop and the Finder selection all pass the same checks: a verified bundle ID, no symbolic links, the same app that was scanned, and never a system app or RyzenStatus itself. Starting a new scan cancels the previous one, scans can be cancelled, and the buttons are locked while Homebrew is removing an app. An item counts as removed only once it is confirmed gone from disk.
+- **Automatic cleanup runs unattended**: It skips the forgotten screenshot search, which reads your own folders and may ask for access, so that search only runs when you scan yourself. Orphaned startup items stay unchecked in automatic passes, as before.
+- **Cleaner layout**: The schedule row wraps onto two lines when the panel is narrow, results scroll with the panel in compact mode, and the cards are ordered schedule, forgotten screenshots, WhatsApp downloads, then the Full Disk Access notice.
+- **Settings**: The sidebar and the Command Bar read from one list of Settings pages, and the Super Key page icon now follows the key you chose.
+
+### Fixed
+
+- **Automatic cleanup failures are no longer silent**: A pass that could not move some items used to read like a quiet success. The last-run line in the Cleaner now adds "Some items couldn't be moved to the Trash." when that happens.
+- **Closing the Cleaner mid-scan cancels the scan**, so it no longer comes back the next time you open the Cleaner.
+- **Leftover attribution**: A file such as `com.vendor.Service.plist` is credited to `com.vendor.Service` instead of `com.vendor`, because only one file extension is stripped. Entries with a developer team prefix (`ABCDE12345.com.vendor.editor`) are credited to the app instead of the developer account.
+- **No duplicate rows across categories**: A path already listed under *Leftovers from uninstalled apps* no longer reappears under *Caches* or *Logs* in the same scan.
+- **Panel behind confirmation dialogs**: The panel no longer closes underneath a Homebrew or Uninstaller confirmation dialog, which could leave the next panel unresponsive.
+
 ## [1.36.1] — 2026-09-16 — kexts 3.34.17 (No kext changes)
 
 Bug fix for the hardware validation kext revision gate resolution.

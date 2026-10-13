@@ -5,7 +5,7 @@ import AppKit
 
 /// A live reading the user can pin next to the menu bar icon.
 enum MenuBarMetric: String, CaseIterable, Identifiable {
-    case cpu, gpu, memory, cpuTemperature, gpuTemperature, cpuPower, gpuPower, cpuFrequency, cpuTempPower, gpuTempPower, batteryTemperature, network, diskUsage, diskActivity, battery, batteryTime, peripheralBattery, power
+    case cpu, gpu, memory, cpuTemperature, gpuTemperature, cpuPower, gpuPower, cpuFrequency, cpuTempPower, gpuTempPower, batteryTemperature, network, diskUsage, diskActivity, battery, batteryTime, peripheralBattery, power, connectedDevices
 
     var id: String { rawValue }
 
@@ -29,6 +29,7 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
         case .batteryTime: return DefaultsKey.menuBarBatteryTime
         case .peripheralBattery: return DefaultsKey.menuBarPeripheralBattery
         case .power: return DefaultsKey.menuBarPower
+        case .connectedDevices: return DefaultsKey.menuBarConnectedDevices
         }
     }
 
@@ -52,6 +53,7 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
         case .batteryTime: return "clock"
         case .peripheralBattery: return "keyboard"
         case .power: return "powerplug.fill"
+        case .connectedDevices: return "cable.connector"
         }
     }
 
@@ -75,6 +77,7 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
         case .batteryTime: return FeatureStrings.batteryTime(L10n.shared.language).title
         case .peripheralBattery: return strings.monitorShowPeripheralBattery
         case .power: return strings.monitorShowPowerLabel
+        case .connectedDevices: return FeatureStrings.connectedDevices(L10n.shared.language).title
         }
     }
 
@@ -83,7 +86,7 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
         .gpu, .gpuTemperature, .gpuPower, .gpuTempPower,
         .memory,
         .battery, .batteryTime, .batteryTemperature, .peripheralBattery,
-        .network, .diskUsage, .diskActivity, .power,
+        .network, .diskUsage, .diskActivity, .connectedDevices, .power,
     ]
 
     static func order(in defaults: UserDefaults) -> [MenuBarMetric] {
@@ -107,6 +110,7 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
         case .network: return .monitorNetwork
         case .diskUsage, .diskActivity: return .monitorDisk
         case .battery, .batteryTime, .batteryTemperature, .peripheralBattery, .power: return .monitorPower
+        case .connectedDevices: return .connectedDevices
         }
     }
 
@@ -394,7 +398,7 @@ enum MenuBarRenderer {
         var renderedGPU = false
         var renderedBattery = false
 
-        let showsGraphValue = UserDefaults.standard.object(forKey: DefaultsKey.menuBarGraphShowsValue) as? Bool ?? true
+        let showsGraphValue = UserDefaults.standard.object(forKey: DefaultsKey.menuBarGraphShowsValue) as? Bool ?? false
         for metric in metrics {
             let appearance = MenuBarMetricAppearance.appearance(for: metric.rawValue)
             let usesBars = appearance == .bars
@@ -442,12 +446,17 @@ enum MenuBarRenderer {
                         let img = coreHistogramBlockImage(cores: snapshot.cores, valueText: valStr, style: style)
                         groups.append([.customImage(img)])
                     } else if appearance == .pie {
-                        let img = pieBlockImage(label: "CPU", fraction: usage, valueText: valStr, style: style, pressure: nil)
+                        let userShare = max(0, usage - (snapshot.cpuSystemUsage ?? 0))
+                        let img = ringBlockImage(label: "CPU", values: [usage, userShare], valueText: valStr, style: style)
                         groups.append([.customImage(img)])
                     } else if appearance == .sparkline {
-                        let cpuLevel = MenuBarUsageBarSupport.currentLevel(for: usage)
-                        let cpuColorHex = MenuBarUsageBarSupport.currentColorHex(for: cpuLevel)
-                        let img = sparklineBlockImage(label: "CPU", history: snapshot.cpuHistory, colorHex: cpuColorHex, valueText: valStr, style: style)
+                        // System time stacks over user time, as in the cores graph.
+                        let userHistory = MenuBarGraphGeometry.userShares(total: snapshot.cpuHistory,
+                                                                          system: snapshot.cpuSystemHistory)
+                        let img = historyBlockImage(label: "CPU",
+                                                    series: [snapshot.cpuHistory, userHistory],
+                                                    valueText: valStr,
+                                                    style: style)
                         groups.append([.customImage(img)])
                     } else if usesBars {
                         groups.append([.usageBarBlock(label: "CPU",
@@ -500,12 +509,10 @@ enum MenuBarRenderer {
                 if let usage = snapshot.gpuUsage {
                     let valStr = showsGraphValue ? percent(usage) : nil
                     if appearance == .pie {
-                        let img = pieBlockImage(label: "GPU", fraction: usage, valueText: valStr, style: style, pressure: nil)
+                        let img = ringBlockImage(label: "GPU", values: [usage], valueText: valStr, style: style)
                         groups.append([.customImage(img)])
                     } else if appearance == .sparkline || appearance == .histogram {
-                        let gpuLevel = MenuBarUsageBarSupport.currentLevel(for: usage)
-                        let gpuColorHex = MenuBarUsageBarSupport.currentColorHex(for: gpuLevel)
-                        let img = sparklineBlockImage(label: "GPU", history: snapshot.gpuHistory, colorHex: gpuColorHex, valueText: valStr, style: style)
+                        let img = historyBlockImage(label: "GPU", series: [snapshot.gpuHistory], valueText: valStr, style: style)
                         groups.append([.customImage(img)])
                     } else if usesBars {
                         groups.append([.usageBarBlock(label: "GPU",
@@ -566,7 +573,29 @@ enum MenuBarRenderer {
             case .memory:
                 let memoryStyle = MemoryMenuBarStyle.current
                 let memoryValue = MonitorMemoryMetric.current.value(in: snapshot)
-                if usesBars {
+                let usedFraction = MenuBarUsageBarSupport.memoryFraction(used: snapshot.memoryUsed,
+                                                                         total: snapshot.memoryTotal)
+                let appFraction = MenuBarUsageBarSupport.memoryFraction(used: snapshot.memoryAppUsed,
+                                                                        total: snapshot.memoryTotal)
+                let memoryGraphValue = showsGraphValue
+                    ? MetricFormat.menuBarMemoryPercent(used: memoryValue, total: snapshot.memoryTotal)
+                    : nil
+                // Used memory is the whole and app memory the part, so the
+                // graphs show app memory in the theme's main color under the
+                // rest of what is in use.
+                if appearance == .sparkline || appearance == .histogram, !snapshot.memoryHistory.isEmpty {
+                    let img = historyBlockImage(label: "RAM",
+                                                series: [snapshot.memoryHistory, snapshot.memoryAppHistory],
+                                                valueText: memoryGraphValue,
+                                                style: style)
+                    groups.append([.customImage(img)])
+                } else if appearance == .pie, let usedFraction {
+                    let img = ringBlockImage(label: "RAM",
+                                             values: [usedFraction] + (appFraction.map { [$0] } ?? []),
+                                             valueText: memoryGraphValue,
+                                             style: style)
+                    groups.append([.customImage(img)])
+                } else if usesBars {
                     groups.append([.usageBarBlock(label: "RAM",
                                                   fraction: MenuBarUsageBarSupport.memoryFraction(used: memoryValue,
                                                                                                   total: snapshot.memoryTotal),
@@ -590,8 +619,8 @@ enum MenuBarRenderer {
                                                              style: style)
                         groups.append([.customImage(img)])
                     } else {
-                        groups.append([.networkBlock(down: MetricFormat.bytesPerSecCompact(down),
-                                                     up: MetricFormat.bytesPerSecCompact(up),
+                        groups.append([.networkBlock(down: MetricFormat.networkRateCompact(down),
+                                                     up: MetricFormat.networkRateCompact(up),
                                                      style: style)])
                     }
                 }
@@ -694,6 +723,18 @@ enum MenuBarRenderer {
                                                 style: style,
                                                 pressure: nil)])
                 }
+            case .connectedDevices:
+                // The list has its own event-driven owner rather than a field
+                // in the AMD monitor's snapshot; nothing shows until it has
+                // been read once.
+                let devices = ConnectedDevicesMonitor.shared
+                if devices.hasLoadedOnce {
+                    groups.append([.metricBlock(label: FeatureStrings.connectedDevices(L10n.shared.language).menuBarLabel,
+                                                value: "\(devices.count)",
+                                                minimumValue: "99",
+                                                style: style,
+                                                pressure: nil)])
+                }
 
             }
         }
@@ -774,6 +815,8 @@ enum MenuBarRenderer {
             return 13      // symbol + " BAT 100%" / " PWR 105W"
         case (_, .batteryTime):
             return 12      // clock symbol + "99h 59m"
+        case (_, .connectedDevices):
+            return 6       // symbol + " 99"
         }
     }
 
@@ -1339,82 +1382,64 @@ enum MenuBarRenderer {
         return snapshot
     }
 
-    private static func networkDualGraphBlockImage(downHistory: [Double],
-                                                   upHistory: [Double],
-                                                   style: MenuBarBlockStyle) -> NSImage {
-        let downKey = downHistory.suffix(12).map { String(format: "%.0f", $0) }.joined(separator: ",")
-        let upKey = upHistory.suffix(12).map { String(format: "%.0f", $0) }.joined(separator: ",")
-        let cacheKey = "netDual|\(downKey)|\(upKey)|\(style)|\(appearanceSuffix)" as NSString
+    /// The frame every graph block shares: the stacked three letter label on
+    /// the left, then the graph box with one point free above and below.
+    private struct GraphBlockLayout {
+        let height: CGFloat
+        let labelWidth: CGFloat
+        let box: NSRect
+
+        var imageSize: NSSize { NSSize(width: box.maxX, height: height) }
+        var plotHeight: CGFloat { box.height - MenuBarGraphGeometry.plotInset * 2 }
+        var plotWidth: CGFloat { box.width - MenuBarGraphGeometry.plotInset * 2 }
+
+        init(style: MenuBarBlockStyle, boxWidth: CGFloat) {
+            height = style == .readable ? 22 : 20
+            labelWidth = style == .readable ? 6.5 : 6
+            // A whole point origin keeps one point columns on pixel boundaries.
+            box = NSRect(x: ceil(labelWidth + 3), y: 1, width: boxWidth, height: height - 2)
+        }
+
+        init(squareFor style: MenuBarBlockStyle) {
+            self.init(style: style, boxWidth: (style == .readable ? 22 : 20) - 2)
+        }
+    }
+
+    private static func drawStackedLabel(_ label: String, layout: GraphBlockLayout, style: MenuBarBlockStyle) {
+        let labelFont = NSFont.systemFont(ofSize: style == .readable ? 6.5 : 6.1, weight: .bold)
+        let labelAttrs = dynamicTextAttributes(font: labelFont)
+        let rowHeight = (layout.height - 2) / 3
+        for (index, character) in label.prefix(3).map(String.init).enumerated() {
+            let characterSize = (character as NSString).size(withAttributes: labelAttrs)
+            let x = (layout.labelWidth - characterSize.width) / 2
+            let y = layout.height - 1 - rowHeight * CGFloat(index + 1) + (rowHeight - characterSize.height) / 2
+            (character as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: labelAttrs)
+        }
+    }
+
+    /// Fractions snapped to half point steps of the plot. The image is drawn
+    /// from the snapped values, so a cache hit is pixel identical to a fresh
+    /// render; anything above zero keeps at least one step, like the columns.
+    private static func snapped(_ values: [Double], plotHeight: CGFloat) -> [Double] {
+        let steps = Double(max(1, plotHeight * 2))
+        return values.map { value in
+            guard value.isFinite, value > 0 else { return 0 }
+            return max(1, (min(1, value) * steps).rounded()) / steps
+        }
+    }
+
+    private static func sampleKey(_ values: [Double]) -> String {
+        values.map { String(Int(($0 * 1000).rounded())) }.joined(separator: ",")
+    }
+
+    private static func graphImage(cacheKey: NSString,
+                                   size: NSSize,
+                                   draw: @escaping (MenuBarGraphPainter.Style) -> Void) -> NSImage {
         if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
-
-        let height: CGFloat = style == .readable ? 22 : 20
-        let graphWidth: CGFloat = style == .readable ? 38 : 34
-        let labelWidth: CGFloat = style == .readable ? 6.5 : 6.0
-        let labelGap: CGFloat = 3.0
-        let imageSize = NSSize(width: labelWidth + labelGap + graphWidth, height: height)
-
-        let image = NSImage(size: imageSize, flipped: false) { rect in
+        let image = NSImage(size: size, flipped: false) { rect in
             NSColor.clear.setFill()
             rect.fill()
-
-            // 1. Draw Vertical "NET" Stacked Characters on the Left
-            let labelFont = NSFont.systemFont(ofSize: style == .readable ? 6.5 : 6.1, weight: .bold)
-            let labelAttrs = dynamicTextAttributes(font: labelFont)
-            let characters = Array("NET".prefix(3)).map(String.init)
-            let rowHeight = (height - 2) / 3
-            for (index, character) in characters.enumerated() {
-                let characterSize = (character as NSString).size(withAttributes: labelAttrs)
-                let x = (labelWidth - characterSize.width) / 2
-                let y = height - 1 - rowHeight * CGFloat(index + 1) + (rowHeight - characterSize.height) / 2
-                (character as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: labelAttrs)
-            }
-
-            // 2. Draw Dual Graph Box on the Right
-            let startX = labelWidth + labelGap
-            let graphRect = NSRect(x: startX + 0.5, y: 2, width: graphWidth - 1, height: height - 4)
-            let boxPath = NSBezierPath(roundedRect: graphRect, xRadius: 3, yRadius: 3)
-            NSColor.labelColor.withAlphaComponent(0.35).setStroke()
-            boxPath.lineWidth = 1.2
-            boxPath.stroke()
-
-            let midY = graphRect.midY
-            
-            let centerPath = NSBezierPath()
-            centerPath.move(to: NSPoint(x: graphRect.minX + 2, y: midY))
-            centerPath.line(to: NSPoint(x: graphRect.maxX - 2, y: midY))
-            NSColor.labelColor.withAlphaComponent(0.25).setStroke()
-            centerPath.lineWidth = 0.8
-            centerPath.stroke()
-
-            let downs = Array(downHistory.suffix(12))
-            let ups = Array(upHistory.suffix(12))
-            let maxDown = max(1000.0, downs.max() ?? 1000.0)
-            let maxUp = max(1000.0, ups.max() ?? 1000.0)
-
-            let innerRect = graphRect.insetBy(dx: 2.0, dy: 1.5)
-            let halfHeight = (innerRect.height / 2.0) - 1.0
-            let count = max(1, max(downs.count, ups.count))
-            let barGap: CGFloat = 1.0
-            let singleBarWidth = max(1.2, (innerRect.width - CGFloat(count - 1) * barGap) / CGFloat(count))
-
-            for (i, val) in ups.enumerated() {
-                let norm = max(0.08, min(1.0, val / maxUp))
-                let bx = innerRect.minX + CGFloat(i) * (singleBarWidth + barGap)
-                let bh = halfHeight * CGFloat(norm)
-                let barRect = NSRect(x: bx, y: midY + 0.5, width: singleBarWidth, height: bh)
-                NSColor(srgbRed: 0.75, green: 0.45, blue: 0.95, alpha: 0.95).setFill()
-                NSBezierPath(roundedRect: barRect, xRadius: 0.5, yRadius: 0.5).fill()
-            }
-
-            for (i, val) in downs.enumerated() {
-                let norm = max(0.08, min(1.0, val / maxDown))
-                let bx = innerRect.minX + CGFloat(i) * (singleBarWidth + barGap)
-                let bh = halfHeight * CGFloat(norm)
-                let barRect = NSRect(x: bx, y: midY - 0.5 - bh, width: singleBarWidth, height: bh)
-                NSColor(srgbRed: 0.25, green: 0.82, blue: 0.98, alpha: 0.95).setFill()
-                NSBezierPath(roundedRect: barRect, xRadius: 0.5, yRadius: 0.5).fill()
-            }
-
+            draw(MenuBarGraphPainter.currentStyle())
             return true
         }
         image.isTemplate = false
@@ -1422,18 +1447,53 @@ enum MenuBarRenderer {
         return image
     }
 
-    private static func drawGraphValueOverlay(valueText: String, in rect: NSRect, style: MenuBarBlockStyle, fontScale: CGFloat = 1.0) {
+    private static func networkDualGraphBlockImage(downHistory: [Double],
+                                                   upHistory: [Double],
+                                                   style: MenuBarBlockStyle) -> NSImage {
+        let layout = GraphBlockLayout(style: style, boxWidth: MenuBarGraphHistoryWidth.current().points)
+        let spaced = UserDefaults.standard.bool(forKey: DefaultsKey.menuBarGraphHistorySpaced)
+        let graphLayout = MenuBarNetworkGraphLayout.current()
+        let count = MenuBarGraphGeometry.historySampleCount(plotWidth: layout.plotWidth, spaced: spaced)
+        let downs = Array(downHistory.suffix(count))
+        let ups = Array(upHistory.suffix(count))
+        let half = (layout.plotHeight - 1) / 2
+        let downScale = MenuBarGraphGeometry.dualScale(downs)
+        let upScale = MenuBarGraphGeometry.dualScale(ups)
+        let downFractions = snapped(downs.map { $0 / downScale }, plotHeight: half)
+        let upFractions = snapped(ups.map { $0 / upScale }, plotHeight: half)
+        let cacheKey = ["netDual", sampleKey(downFractions), sampleKey(upFractions), "\(style)",
+                        "\(layout.box.width)", "\(spaced)", graphLayout.rawValue,
+                        MenuBarGraphPainter.cacheToken(), appearanceSuffix].joined(separator: "|") as NSString
+        return graphImage(cacheKey: cacheKey, size: layout.imageSize) { graphStyle in
+            drawStackedLabel("NET", layout: layout, style: style)
+            MenuBarGraphPainter.drawBox(layout.box, style: graphStyle)
+            MenuBarGraphPainter.drawDualHistory(upload: upFractions,
+                                                download: downFractions,
+                                                layout: graphLayout,
+                                                uploadColor: graphStyle.secondary,
+                                                downloadColor: graphStyle.primary,
+                                                in: layout.box,
+                                                spaced: spaced)
+        }
+    }
+
+    private static func drawGraphValueOverlay(valueText: String,
+                                              in rect: NSRect,
+                                              style: MenuBarBlockStyle,
+                                              graphStyle: MenuBarGraphPainter.Style,
+                                              fontScale: CGFloat = 1.0) {
         guard !valueText.isEmpty else { return }
         let fontSize: CGFloat = (style == .readable ? 8.5 : 7.8) * fontScale
         let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .heavy)
+        let onDark = graphStyle.overlaysOnDarkSurface
         let shadow = NSShadow()
-        shadow.shadowColor = NSColor.windowBackgroundColor.withAlphaComponent(0.85)
+        shadow.shadowColor = (onDark ? NSColor.black : NSColor.white).withAlphaComponent(0.85)
         shadow.shadowOffset = .zero
         shadow.shadowBlurRadius = 1.0
-        
+
         let mainAttrs: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: onDark ? NSColor.white : NSColor.black,
             .shadow: shadow
         ]
         let valSize = (valueText as NSString).size(withAttributes: mainAttrs)
@@ -1445,205 +1505,75 @@ enum MenuBarRenderer {
     private static func coreHistogramBlockImage(cores: [CoreSnapshot],
                                                 valueText: String? = nil,
                                                 style: MenuBarBlockStyle) -> NSImage {
-        let sampleKey = cores.map { String(format: "%.0f", $0.loadPct) }.joined(separator: ",")
-        let valKey = valueText ?? ""
-        let cacheKey = "coreHisto|\(sampleKey)|\(valKey)|\(style)|\(appearanceSuffix)" as NSString
-        if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
-
-        let height: CGFloat = style == .readable ? 22 : 20
-        let graphWidth: CGFloat = style == .readable ? 50 : 44
-        let labelFont = NSFont.systemFont(ofSize: style == .readable ? 6.5 : 6.1, weight: .bold)
-        let labelAttrs = dynamicTextAttributes(font: labelFont)
-        let labelWidth: CGFloat = style == .readable ? 6.5 : 6
-        let gap: CGFloat = 3.0
-        let imageSize = NSSize(width: labelWidth + gap + graphWidth, height: height)
-
-        let image = NSImage(size: imageSize, flipped: false) { rect in
-            NSColor.clear.setFill()
-            rect.fill()
-
-            let label = "CPU"
-            let characters = Array(label.prefix(3)).map(String.init)
-            let rowHeight = (height - 2) / 3
-            for (index, character) in characters.enumerated() {
-                let characterSize = (character as NSString).size(withAttributes: labelAttrs)
-                let x = (labelWidth - characterSize.width) / 2
-                let y = height - 1 - rowHeight * CGFloat(index + 1) + (rowHeight - characterSize.height) / 2
-                (character as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: labelAttrs)
+        let totals = MenuBarGraphGeometry.physicalCoreLoads(cores)
+        let systems = MenuBarGraphGeometry.physicalCoreLoads(cores, percent: { $0.systemPct })
+        let layout = GraphBlockLayout(style: style,
+                                      boxWidth: MenuBarGraphGeometry.coreBoxWidth(coreCount: totals.count))
+        let loads = snapped(totals, plotHeight: layout.plotHeight)
+        let userLoads = snapped(MenuBarGraphGeometry.userShares(total: totals, system: systems),
+                                plotHeight: layout.plotHeight)
+        let cacheKey = ["cores", sampleKey(loads), sampleKey(userLoads), valueText ?? "", "\(style)",
+                        MenuBarGraphPainter.cacheToken(), appearanceSuffix].joined(separator: "|") as NSString
+        return graphImage(cacheKey: cacheKey, size: layout.imageSize) { graphStyle in
+            drawStackedLabel("CPU", layout: layout, style: style)
+            MenuBarGraphPainter.drawBox(layout.box, style: graphStyle)
+            MenuBarGraphPainter.drawCoreBars(series: [loads, userLoads],
+                                             colors: [graphStyle.secondary, graphStyle.primary],
+                                             in: layout.box)
+            if let valueText {
+                drawGraphValueOverlay(valueText: valueText, in: layout.box, style: style, graphStyle: graphStyle)
             }
-
-            let graphRect = NSRect(x: labelWidth + gap + 0.5, y: 2, width: graphWidth - 1, height: height - 4)
-            let boxPath = NSBezierPath(roundedRect: graphRect, xRadius: 2, yRadius: 2)
-            NSColor.labelColor.withAlphaComponent(0.25).setStroke()
-            boxPath.lineWidth = 1.0
-            boxPath.stroke()
-
-            let innerRect = graphRect.insetBy(dx: 1.5, dy: 1.5)
-            let n = max(1, cores.count)
-            let totalGap = CGFloat(n - 1) * 0.5
-            let singleBarWidth = max(0.5, (innerRect.width - totalGap) / CGFloat(n))
-            let barGap = (innerRect.width - singleBarWidth * CGFloat(n)) / CGFloat(max(1, n - 1))
-
-            for (i, core) in cores.enumerated() {
-                let norm = max(0.08, min(1.0, core.loadPct / 100.0))
-                let bx = innerRect.minX + CGFloat(i) * (singleBarWidth + barGap)
-                let bh = innerRect.height * CGFloat(norm)
-                let barRect = NSRect(x: bx, y: innerRect.minY, width: singleBarWidth, height: bh)
-                NSColor.labelColor.withAlphaComponent(0.95).setFill()
-                NSBezierPath(roundedRect: barRect, xRadius: 0.8, yRadius: 0.8).fill()
-            }
-
-            if let valueText, !valueText.isEmpty {
-                drawGraphValueOverlay(valueText: valueText, in: graphRect, style: style)
-            }
-            return true
         }
-        image.isTemplate = false
-        blockImageCache.setObject(image, forKey: cacheKey, cost: blockImageCost(image))
-        return image
     }
 
-    private static func pieBlockImage(label: String,
-                                      fraction: Double?,
-                                      valueText: String? = nil,
-                                      style: MenuBarBlockStyle,
-                                      pressure: MemoryPressure?) -> NSImage {
-        let frac = fraction ?? 0
-        let level = MenuBarUsageBarSupport.currentLevel(for: frac)
-        let fillColorHex = MenuBarUsageBarSupport.currentColorHex(for: level)
-        let valKey = valueText ?? ""
-        let cacheKey = "pie|\(label)|\(Int(frac * 100))|\(fillColorHex)|\(valKey)|\(style)|\(appearanceSuffix)" as NSString
-        if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
-
-        let height: CGFloat = style == .readable ? 22 : 20
-        let diameter: CGFloat = style == .readable ? 15 : 13.5
-        let labelFont = NSFont.systemFont(ofSize: style == .readable ? 6.5 : 6.1, weight: .bold)
-        let labelAttrs = dynamicTextAttributes(font: labelFont)
-        let labelWidth: CGFloat = style == .readable ? 6.5 : 6
-        let gap: CGFloat = 3.0
-        let imageSize = NSSize(width: labelWidth + gap + diameter, height: height)
-
-        let image = NSImage(size: imageSize, flipped: false) { rect in
-            NSColor.clear.setFill()
-            rect.fill()
-
-            let characters = Array(label.prefix(3)).map(String.init)
-            let rowHeight = (height - 2) / 3
-            for (index, character) in characters.enumerated() {
-                let characterSize = (character as NSString).size(withAttributes: labelAttrs)
-                let x = (labelWidth - characterSize.width) / 2
-                let y = height - 1 - rowHeight * CGFloat(index + 1) + (rowHeight - characterSize.height) / 2
-                (character as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: labelAttrs)
-            }
-
-            let circleRect = NSRect(x: labelWidth + gap + 0.5, y: (height - diameter) / 2, width: diameter - 1, height: diameter - 1)
-            let center = NSPoint(x: circleRect.midX, y: circleRect.midY)
-            let radius = circleRect.width / 2
-
-            let bgPath = NSBezierPath(ovalIn: circleRect)
-            NSColor.labelColor.withAlphaComponent(0.2).setStroke()
-            bgPath.lineWidth = 2.0
-            bgPath.stroke()
-
-            if frac > 0 {
-                let startAngle: CGFloat = 90.0
-                let endAngle: CGFloat = 90.0 - CGFloat(frac * 360.0)
-                let arcPath = NSBezierPath()
-                arcPath.appendArc(withCenter: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: true)
-                usageBarColor(hex: fillColorHex).setStroke()
-                arcPath.lineWidth = 2.4
-                arcPath.lineCapStyle = .round
-                arcPath.stroke()
-            }
-
-            if let valueText, !valueText.isEmpty {
-                drawGraphValueOverlay(valueText: valueText, in: circleRect, style: style, fontScale: 0.72)
-            }
-            return true
+    /// `values` are cumulative fractions like the history series: with two,
+    /// the first (the whole) takes the secondary color and the second (the
+    /// part) the theme's main color.
+    private static func ringBlockImage(label: String,
+                                       values: [Double],
+                                       valueText: String? = nil,
+                                       style: MenuBarBlockStyle) -> NSImage {
+        let layout = GraphBlockLayout(squareFor: style)
+        let angles = values.map { value -> Double in
+            guard value.isFinite, value > 0 else { return 0 }
+            return max(1, (min(1, value) * 360).rounded()) / 360
         }
-        image.isTemplate = false
-        blockImageCache.setObject(image, forKey: cacheKey, cost: blockImageCost(image))
-        return image
+        let cacheKey = ["ring", label, sampleKey(angles), valueText ?? "", "\(style)",
+                        MenuBarGraphPainter.cacheToken(), appearanceSuffix].joined(separator: "|") as NSString
+        return graphImage(cacheKey: cacheKey, size: layout.imageSize) { graphStyle in
+            drawStackedLabel(label, layout: layout, style: style)
+            MenuBarGraphPainter.drawBox(layout.box, style: graphStyle, circular: true)
+            let colors = angles.count > 1 ? [graphStyle.secondary, graphStyle.primary] : [graphStyle.primary]
+            MenuBarGraphPainter.drawRing(values: angles, colors: colors, in: layout.box)
+            if let valueText {
+                drawGraphValueOverlay(valueText: valueText, in: layout.box, style: style,
+                                      graphStyle: graphStyle, fontScale: 0.72)
+            }
+        }
     }
 
-    private static func sparklineBlockImage(label: String,
-                                            history: [Double],
-                                            colorHex: String = "#64D2FF",
-                                            valueText: String? = nil,
-                                            style: MenuBarBlockStyle) -> NSImage {
-        let sampleKey = history.suffix(15).map { String(format: "%.0f", $0 * 100.0) }.joined(separator: ",")
-        let valKey = valueText ?? ""
-        let cacheKey = "sparkline|\(label)|\(sampleKey)|\(valKey)|\(colorHex)|\(style)|\(appearanceSuffix)" as NSString
-        if let cached = blockImageCache.object(forKey: cacheKey) { return cached }
-
-        let height: CGFloat = style == .readable ? 22 : 20
-        let graphWidth: CGFloat = style == .readable ? 34 : 30
-        let labelFont = NSFont.systemFont(ofSize: style == .readable ? 6.5 : 6.1, weight: .bold)
-        let labelAttrs = dynamicTextAttributes(font: labelFont)
-        let labelWidth: CGFloat = style == .readable ? 6.5 : 6
-        let gap: CGFloat = 3.0
-        let imageSize = NSSize(width: labelWidth + gap + graphWidth, height: height)
-
-        let image = NSImage(size: imageSize, flipped: false) { rect in
-            NSColor.clear.setFill()
-            rect.fill()
-
-            let characters = Array(label.prefix(3)).map(String.init)
-            let rowHeight = (height - 2) / 3
-            for (index, character) in characters.enumerated() {
-                let characterSize = (character as NSString).size(withAttributes: labelAttrs)
-                let x = (labelWidth - characterSize.width) / 2
-                let y = height - 1 - rowHeight * CGFloat(index + 1) + (rowHeight - characterSize.height) / 2
-                (character as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: labelAttrs)
+    /// `series` are cumulative fractions (see `MenuBarGraphPainter.drawHistory`);
+    /// with two, the part takes the theme's main color over the secondary whole.
+    private static func historyBlockImage(label: String,
+                                          series: [[Double]],
+                                          valueText: String? = nil,
+                                          style: MenuBarBlockStyle) -> NSImage {
+        let layout = GraphBlockLayout(style: style, boxWidth: MenuBarGraphHistoryWidth.current().points)
+        let spaced = UserDefaults.standard.bool(forKey: DefaultsKey.menuBarGraphHistorySpaced)
+        let count = MenuBarGraphGeometry.historySampleCount(plotWidth: layout.plotWidth, spaced: spaced)
+        let visible = series.map { snapped(Array($0.suffix(count)), plotHeight: layout.plotHeight) }
+        let cacheKey = ["history", label, visible.map(sampleKey).joined(separator: "/"), valueText ?? "",
+                        "\(style)", "\(layout.box.width)", "\(spaced)",
+                        MenuBarGraphPainter.cacheToken(), appearanceSuffix].joined(separator: "|") as NSString
+        return graphImage(cacheKey: cacheKey, size: layout.imageSize) { graphStyle in
+            drawStackedLabel(label, layout: layout, style: style)
+            MenuBarGraphPainter.drawBox(layout.box, style: graphStyle)
+            let colors = visible.count > 1 ? [graphStyle.secondary, graphStyle.primary] : [graphStyle.primary]
+            MenuBarGraphPainter.drawHistory(series: visible, colors: colors, in: layout.box, spaced: spaced)
+            if let valueText {
+                drawGraphValueOverlay(valueText: valueText, in: layout.box, style: style, graphStyle: graphStyle)
             }
-
-            let graphRect = NSRect(x: labelWidth + gap + 0.5, y: 2, width: graphWidth - 1, height: height - 4)
-            let points = history.suffix(15)
-            let maxVal = max(1.0, points.max() ?? 1.0)
-
-            let boxPath = NSBezierPath(roundedRect: graphRect, xRadius: 2, yRadius: 2)
-            NSColor.labelColor.withAlphaComponent(0.25).setStroke()
-            boxPath.lineWidth = 1.0
-            boxPath.stroke()
-
-            let innerRect = graphRect.insetBy(dx: 1.5, dy: 1.5)
-            if !points.isEmpty {
-                let path = NSBezierPath()
-                let stepX = innerRect.width / CGFloat(max(1, points.count - 1))
-                
-                let pts = Array(points)
-                for (i, val) in pts.enumerated() {
-                    let norm = max(0, min(1, val / maxVal))
-                    let px = innerRect.minX + CGFloat(i) * stepX
-                    let py = innerRect.minY + CGFloat(norm) * innerRect.height
-                    if i == 0 { path.move(to: NSPoint(x: px, y: py)) }
-                    else { path.line(to: NSPoint(x: px, y: py)) }
-                }
-
-                if let copy = path.copy() as? NSBezierPath {
-                    let lastPt = NSPoint(x: innerRect.minX + CGFloat(pts.count - 1) * stepX, y: innerRect.minY)
-                    let firstPt = NSPoint(x: innerRect.minX, y: innerRect.minY)
-                    copy.line(to: lastPt)
-                    copy.line(to: firstPt)
-                    copy.close()
-                    usageBarColor(hex: colorHex).withAlphaComponent(0.25).setFill()
-                    copy.fill()
-                }
-
-                usageBarColor(hex: colorHex).setStroke()
-                path.lineWidth = 1.3
-                path.stroke()
-            }
-
-            if let valueText, !valueText.isEmpty {
-                drawGraphValueOverlay(valueText: valueText, in: graphRect, style: style)
-            }
-
-            return true
         }
-        image.isTemplate = false
-        blockImageCache.setObject(image, forKey: cacheKey, cost: blockImageCost(image))
-        return image
     }
 
     private static func primaryDisk(from reading: DiskReading?) -> DiskDeviceReading? {

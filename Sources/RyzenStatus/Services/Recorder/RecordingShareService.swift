@@ -35,6 +35,15 @@ final class RecordingShareService: ObservableObject {
         configuration.timeoutIntervalForResource = 300
         configuration.waitsForConnectivity = false
         session = URLSession(configuration: configuration)
+        // An expiry that came due during sleep never triggers its timer: the
+        // deadline below is armed on a clock that stops with the Mac, so a link
+        // that ran out overnight stays listed as live for as long as the Mac
+        // slept. Waking up recomputes and catches the miss.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.refresh() }
+        }
         refresh()
     }
 
@@ -48,6 +57,8 @@ final class RecordingShareService: ObservableObject {
             bundleIdentifier: Bundle.main.bundleIdentifier,
             developerOverride: override)
     }
+
+    var isSharingConfigured: Bool { endpoint != nil }
 
     func refresh(now: Date = Date()) {
         guard let stored = try? loadRecords() else {
@@ -160,6 +171,7 @@ final class RecordingShareService: ObservableObject {
     func copy(_ url: URL) -> Bool {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
+        pasteboard.declareRyzenStatusSource()
         return pasteboard.setString(url.absoluteString, forType: .string)
     }
 

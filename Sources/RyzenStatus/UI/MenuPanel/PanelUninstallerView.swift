@@ -9,8 +9,12 @@ struct PanelUninstallerView: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var permissions = Permissions.shared
     @ObservedObject private var uninstaller = AppUninstaller.shared
+    @ObservedObject private var homebrew = HomebrewManager.shared
     @State private var dropTargeted = false
     @State private var showingAppPicker = false
+    @State private var pendingHomebrewRemoval: AppUninstaller.HomebrewRemovalConfirmation?
+    @State private var showHomebrewDetails = false
+    @Environment(\.notchPresentation) private var inNotch
 
     var onClose: () -> Void
 
@@ -26,8 +30,24 @@ struct PanelUninstallerView: View {
             }
             return selected
         } isTargeted: { dropTargeted = $0 }
-        .onAppear { PanelInteractionState.shared.keepsPopoverOpen = true }
-        .onDisappear { PanelInteractionState.shared.keepsPopoverOpen = false }
+        .onAppear { PanelInteractionState.shared.viewKeepsPopoverOpen = true }
+        .onDisappear {
+            PanelInteractionState.shared.viewKeepsPopoverOpen = false
+            dismissHomebrewRemovalConfirmation()
+        }
+        .alert(l10n.s.homebrewConfirmUninstallTitle,
+               isPresented: Binding(get: { pendingHomebrewRemoval != nil },
+                                    set: { if !$0 { dismissHomebrewRemovalConfirmation() } }),
+               presenting: pendingHomebrewRemoval) { confirmation in
+            Button(l10n.s.uninstallerCancel, role: .cancel) { dismissHomebrewRemovalConfirmation() }
+            Button(l10n.s.homebrewUninstall, role: .destructive) {
+                dismissHomebrewRemovalConfirmation()
+                uninstaller.removeSelectedWithHomebrew(confirmation: confirmation)
+            }
+        } message: { confirmation in
+            Text(String(format: l10n.s.homebrewConfirmUninstallBodyFormat,
+                        confirmation.package.displayName))
+        }
     }
 
     @ViewBuilder
@@ -92,9 +112,8 @@ struct PanelUninstallerView: View {
         AppPickerView(compact: true) {
             showingAppPicker = false
         } onSelect: { url in
-            showingAppPicker = false
-            uninstaller.select(appURL: url)
-        }
+            _ = selectApp(url)
+        } loadApps: { UninstallerSupport.offeredApplications() }
         .panelCard()
     }
 
@@ -141,6 +160,10 @@ struct PanelUninstallerView: View {
                         .lineLimit(1)
                 }
             }
+            if uninstaller.phase == .scanning {
+                Button(l10n.s.uninstallerCancel) { uninstaller.reset() }
+                    .controlSize(.small)
+            }
         }
         .frame(maxWidth: .infinity)
         .frame(height: 118)
@@ -153,6 +176,7 @@ struct PanelUninstallerView: View {
             Divider()
             leftoverList
             Divider()
+            homebrewStatus
             footer
         }
         .panelCard()
@@ -190,6 +214,7 @@ struct PanelUninstallerView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .disabled(uninstaller.isRemovingWithHomebrew)
             .help(l10n.s.menuClose)
         }
     }
@@ -278,19 +303,63 @@ struct PanelUninstallerView: View {
                     uninstaller.reset()
                 }
                 .controlSize(.small)
+                .disabled(uninstaller.isRemovingWithHomebrew)
                 Spacer()
                 Button {
-                    uninstaller.removeSelected()
+                    if let confirmation = uninstaller.homebrewRemovalConfirmation {
+                        requestHomebrewRemovalConfirmation(confirmation)
+                    } else {
+                        uninstaller.removeSelected()
+                    }
                 } label: {
-                    Label(l10n.s.uninstallerRemove, systemImage: "trash")
+                    Label(removeButtonTitle, systemImage: "trash")
                         .font(.system(size: 11, weight: .semibold))
                         .lineLimit(1)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .tint(.red)
-                .disabled(!uninstaller.items.contains(where: \.include))
+                .disabled(!uninstaller.items.contains(where: \.include)
+                          || (uninstaller.selectedHomebrewPackage != nil && homebrew.isBusy))
             }
+        }
+    }
+
+    private var removeButtonTitle: String {
+        uninstaller.selectedHomebrewPackage == nil ? l10n.s.uninstallerRemove : l10n.s.homebrewUninstall
+    }
+
+    @ViewBuilder
+    private var homebrewStatus: some View {
+        if let package = uninstaller.selectedHomebrewPackage {
+            if let status = homebrew.operationStatus,
+               status.action == .uninstall,
+               status.package?.id == package.id {
+                HomebrewOperationStatusView(status: status,
+                                            log: homebrew.log,
+                                            terminalFallbackCommand: homebrew.terminalFallbackCommand,
+                                            compact: true,
+                                            showDetails: $showHomebrewDetails,
+                                            onCancel: homebrew.cancelOperation,
+                                            onClear: homebrew.clearLog,
+                                            onOpenTerminal: homebrew.openTerminalFallback)
+                if let tap = homebrew.untrustedTap {
+                    HomebrewTrustCard(tap: tap, compact: true)
+                }
+                if let error = homebrew.errorMessage, !error.isEmpty {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                Label(String(format: l10n.s.uninstallerHomebrewPackageFormat, package.displayName),
+                      systemImage: "shippingbox")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Divider()
         }
     }
 
@@ -328,12 +397,48 @@ struct PanelUninstallerView: View {
         guard let app = urls.first(where: { $0.pathExtension == "app" }) ?? urls.first else {
             return false
         }
-        uninstaller.select(appURL: app)
+        return selectApp(app)
+    }
+
+    @discardableResult
+    private func selectApp(_ url: URL) -> Bool {
+        guard uninstaller.select(appURL: url) else {
+            QuickToolHUD.show(icon: "exclamationmark.circle",
+                              message: l10n.s.uninstallerSelectionUnavailable)
+            return false
+        }
+        showingAppPicker = false
         return true
     }
 
     private func choose() {
         showingAppPicker = true
+    }
+
+    /// The confirmation alert is up: protect the panel from a dismissal that
+    /// would close its parent window under AppKit's presented modal.
+    private func requestHomebrewRemovalConfirmation(_ confirmation: AppUninstaller.HomebrewRemovalConfirmation) {
+        // The alert would hang from the island as a sheet; there it asks on its own.
+        guard !inNotch else {
+            DispatchQueue.main.async {
+                guard NSAlert.confirmAboveIsland(l10n.s.homebrewConfirmUninstallTitle,
+                                                 message: String(format: l10n.s.homebrewConfirmUninstallBodyFormat,
+                                                                 confirmation.package.displayName),
+                                                 action: l10n.s.homebrewUninstall, destructive: true,
+                                                 cancel: l10n.s.uninstallerCancel) else { return }
+                uninstaller.removeSelectedWithHomebrew(confirmation: confirmation)
+            }
+            return
+        }
+        PanelInteractionState.shared.isPresentingPopoverModal = true
+        pendingHomebrewRemoval = confirmation
+    }
+
+    /// The alert is gone (answered, cancelled or dismissed): drop the
+    /// protection with it so the next click outside dismisses the panel again.
+    private func dismissHomebrewRemovalConfirmation() {
+        pendingHomebrewRemoval = nil
+        PanelInteractionState.shared.isPresentingPopoverModal = false
     }
 
     private func prettyPath(_ url: URL) -> String {

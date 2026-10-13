@@ -506,12 +506,12 @@ private struct OptionalFeaturesStep: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Toggle(l10n.s.launchAtLogin, isOn: $launchAtLogin)
                         .onChange(of: launchAtLogin) { _, enabled in
-                            do {
-                                try LaunchAtLogin.setEnabled(enabled)
-                                loginError = nil
-                            } catch {
-                                loginError = error.localizedDescription
-                                launchAtLogin = LaunchAtLogin.isEnabled
+                            // Service Management can stall, so the change runs off the main
+                            // thread and the toggle follows what the system actually kept.
+                            LaunchAtLogin.setEnabled(enabled) { registration, error in
+                                loginError = error?.localizedDescription
+                                let isOn = registration == .enabled
+                                if launchAtLogin != isOn, error != nil { launchAtLogin = isOn }
                             }
                         }
                     if let loginError {

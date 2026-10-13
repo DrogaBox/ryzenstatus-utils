@@ -12,6 +12,7 @@ protocol PanelOrderItem: RawRepresentable, CaseIterable, Hashable where RawValue
 enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
     case keepAwake, nowPlaying, brightness, mixer, system, network, disk, power, amdPower, utilities, controls,
          toggles
+    case wallpaper
 
     var id: String { rawValue }
 
@@ -30,6 +31,7 @@ enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
         case .utilities: return s.utilitiesSection
         case .controls: return s.quickControlsSection
         case .toggles: return FeatureStrings.quickToggles(L10n.shared.language).pageTitle
+        case .wallpaper: return FeatureStrings.wallpaper(L10n.shared.language).pageTitle
         }
     }
 
@@ -38,7 +40,7 @@ enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
         case .keepAwake: return "moon.zzz.fill"
         case .nowPlaying: return "music.note"
         case .brightness: return "display.2"
-        case .mixer: return "slider.horizontal.3"
+        case .mixer: return "speaker.wave.2"
         case .system: return "cpu"
         case .network: return "network"
         case .disk: return "internaldrive"
@@ -47,6 +49,7 @@ enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
         case .utilities: return "wrench.and.screwdriver.fill"
         case .controls: return "switch.2"
         case .toggles: return "togglepower"
+        case .wallpaper: return "photo.on.rectangle"
         }
     }
 
@@ -67,6 +70,7 @@ enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
         case .utilities: return DefaultsKey.panelShowUtilities
         case .controls: return DefaultsKey.panelShowControls
         case .toggles: return DefaultsKey.panelShowToggles
+        case .wallpaper: return DefaultsKey.panelShowWallpaper
         }
     }
 
@@ -81,8 +85,8 @@ enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
         case .keepAwake: return [.keepAwake]
         case .nowPlaying: return [.nowPlaying]
         case .brightness: return [.brightness]
-        case .mixer: return [.mixer]
-        case .system: return [.monitorCPU, .monitorGPU, .monitorMemory]
+        case .mixer: return [.mixer, .audioPriority]
+        case .system: return [.monitorCPU, .monitorGPU, .monitorMemory, .connectedDevices]
         case .network: return [.monitorNetwork]
         case .disk: return [.monitorDisk]
         case .power: return [.monitorPower]
@@ -90,12 +94,14 @@ enum PanelSectionID: String, CaseIterable, Identifiable, Hashable {
         case .utilities: return [.quickLauncher, .cleaner, .homebrew, .appUpdates, .mediaTools,
                                  .clipboardHistory,
                                  .windowLayout, .uninstaller, .urlCleaner, .cleaningMode, .screenOCR,
-                                 .colorPicker, .micMute, .screenshot, .cameraPreview, .scratchpad]
+                                 .colorPicker, .micMute, .screenshot, .cameraPreview, .scratchpad,
+                                 .commandBar, .portManager]
         case .controls: return [.scrollInverter, .mouseNavigation, .mouseButtonShortcuts, .switcher,
                                 .finderCutPaste, .autoQuit,
-                                .shelf, .windowMaximizer, .dockPreview, .keyboardDebounce, .dockClick,
-                                .middleClick, .textSnippets, .superKey, .radialMenu]
-        case .toggles: return [.quickToggles]
+                                .shelf, .windowMaximizer, .dockPreview, .keyboardDebounce, .dockClick, .spacesOrder,
+                                .middleClick, .textSnippets, .superKey, .radialMenu, .mouseClickDebounce, .notch]
+        case .toggles: return [.quickToggles, .micMute]
+        case .wallpaper: return [.wallpaper]
         }
     }
 
@@ -155,6 +161,16 @@ enum PanelLayout {
 
     static func isShown(_ id: PanelSectionID) -> Bool {
         defaults.object(forKey: id.visibilityKey) as? Bool ?? id.shownByDefault
+    }
+
+    /// Whether a section shows in the panel: installed, switched on, and for
+    /// the displays section, with display controls enabled. A section the hub
+    /// uninstalled stays out even when its switch is on, so it comes back
+    /// from Settings rather than from an empty panel screen. The one rule the
+    /// live panel and its preview in Settings both read.
+    static func isVisibleInPanel(_ id: PanelSectionID) -> Bool {
+        guard id.isAvailable, isShown(id) else { return false }
+        return id != .brightness || defaults.bool(forKey: DefaultsKey.brightnessControlEnabled)
     }
 
     static func setShown(_ shown: Bool, for id: PanelSectionID) {
@@ -349,23 +365,43 @@ struct PanelDragHandle: View {
 struct PanelReorderableItem<Item: PanelOrderItem, Content: View>: View {
     let item: Item
     var isEnabled = true
+    /// Rows inside a `PanelRowGroup` have no card of their own, so the one
+    /// being dragged gets a card for its preview and stays readable over
+    /// whatever sits under the pointer.
+    var previewsAsCard = false
     @Binding var order: [Item]
     @Binding var dragging: Item?
     let content: () -> Content
 
     var body: some View {
         if isEnabled {
-            content()
-                .onDrag {
-                    dragging = item
-                    return NSItemProvider(object: item.rawValue as NSString)
-                }
+            draggableContent
                 .onDrop(of: [UTType.text], delegate: PanelItemDropDelegate(item: item,
                                                                            order: $order,
                                                                            dragging: $dragging))
         } else {
             content()
         }
+    }
+
+    @ViewBuilder
+    private var draggableContent: some View {
+        if previewsAsCard {
+            content()
+                .onDrag(itemProvider) {
+                    content()
+                        .frame(minWidth: 220, alignment: .leading)
+                        .panelCard(interactive: false, padded: false)
+                }
+        } else {
+            content()
+                .onDrag(itemProvider)
+        }
+    }
+
+    private func itemProvider() -> NSItemProvider {
+        dragging = item
+        return NSItemProvider(object: item.rawValue as NSString)
     }
 }
 

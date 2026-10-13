@@ -69,8 +69,9 @@ final class ScreenshotPinController {
 }
 
 /// One pinned capture.
-private final class ScreenshotPinWindow: NSPanel {
+private final class ScreenshotPinWindow: OverlayPanel {
     private let image: CGImage
+    private let scale: CGFloat
     private unowned let controller: ScreenshotPinController
     private var strings: ScreenshotFeatureStrings {
         FeatureStrings.screenshot(L10n.shared.language)
@@ -78,6 +79,7 @@ private final class ScreenshotPinWindow: NSPanel {
 
     init(image: CGImage, scale: CGFloat, controller: ScreenshotPinController) {
         self.image = image
+        self.scale = scale
         self.controller = controller
 
         let screen = NSScreen.pointerVisibleFrame
@@ -117,7 +119,8 @@ private final class ScreenshotPinWindow: NSPanel {
 
     func copyImage() {
         guard ScreenshotEditorController.copyImage(
-            image, fileNamePrefix: strings.fileNamePrefix) else {
+            ScreenshotRenderer.Export(image: image, scale: scale),
+            fileNamePrefix: strings.fileNamePrefix) else {
             NSSound.beep()
             return
         }
@@ -132,7 +135,7 @@ private final class ScreenshotPinWindow: NSPanel {
         NSApp.activate(ignoringOtherApps: true)
         panel.begin { [weak self] response in
             guard let self, response == .OK, let url = panel.url,
-                  let data = ScreenshotRenderer.pngData(from: self.image)
+                  let data = ScreenshotRenderer.pngData(from: self.image, scale: self.scale)
             else { return }
             do {
                 try data.write(to: url, options: .atomic)
@@ -184,7 +187,10 @@ private final class ScreenshotPinWindow: NSPanel {
     // MARK: Content
 
     private final class PinContentView: NSView {
-        private unowned let pinWindow: ScreenshotPinWindow
+        /// Weak for the same reason the capture surface is: closing a pin
+        /// releases its window from inside this view's own event handling,
+        /// so a menu item or a second click can arrive with the window gone.
+        private weak var pinWindow: ScreenshotPinWindow?
 
         init(image: CGImage, window: ScreenshotPinWindow) {
             pinWindow = window
@@ -206,6 +212,7 @@ private final class ScreenshotPinWindow: NSPanel {
         }
 
         override func mouseDown(with event: NSEvent) {
+            guard let pinWindow else { return }
             if event.clickCount == 2 {
                 pinWindow.closePin()
                 return
@@ -215,6 +222,7 @@ private final class ScreenshotPinWindow: NSPanel {
         }
 
         override func menu(for event: NSEvent) -> NSMenu? {
+            guard let pinWindow else { return nil }
             let menu = NSMenu()
             menu.addItem(withTitle: strings.copyButton,
                          action: #selector(menuCopy), keyEquivalent: "").target = self
@@ -251,17 +259,18 @@ private final class ScreenshotPinWindow: NSPanel {
             return menu
         }
 
-        @objc private func menuCopy() { pinWindow.copyImage() }
-        @objc private func menuSave() { pinWindow.saveImage() }
-        @objc private func menuClose() { pinWindow.closePin() }
+        @objc private func menuCopy() { pinWindow?.copyImage() }
+        @objc private func menuSave() { pinWindow?.saveImage() }
+        @objc private func menuClose() { pinWindow?.closePin() }
         @objc private func menuCloseAll() { ScreenshotPinController.shared.closeAll() }
 
         @objc private func menuOpacity(_ sender: NSMenuItem) {
-            guard let percent = sender.representedObject as? Int else { return }
+            guard let pinWindow, let percent = sender.representedObject as? Int else { return }
             pinWindow.setOpacity(CGFloat(percent) / 100)
         }
 
         @objc private func menuClickThrough() {
+            guard let pinWindow else { return }
             pinWindow.setClickThrough(!pinWindow.ignoresMouseEvents)
         }
     }

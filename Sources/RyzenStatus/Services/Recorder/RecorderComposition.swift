@@ -62,6 +62,7 @@ enum RecorderComposition {
     struct Result {
         let asset: AVMutableComposition
         let audioTrackIDs: [RecorderAudioSource: CMPersistentTrackID]
+        let duration: CMTime
     }
 
     static func audioMix(trackIDs: [RecorderAudioSource: CMPersistentTrackID],
@@ -91,13 +92,15 @@ enum RecorderComposition {
 
     static func build(from asset: AVAsset,
                       ranges: [ClosedRange<Double>],
-                      includesAudio: Bool) async -> Result? {
+                      includesAudio: Bool,
+                      playbackSpeed: Double = 1) async -> Result? {
         guard !ranges.isEmpty else { return nil }
         let composition = AVMutableComposition()
         guard let sourceVideo = try? await asset.loadTracks(withMediaType: .video).first,
               let video = composition.addMutableTrack(withMediaType: .video,
                                                       preferredTrackID: kCMPersistentTrackID_Invalid)
         else { return nil }
+        video.preferredTransform = (try? await sourceVideo.load(.preferredTransform)) ?? .identity
 
         let sourceAudio = includesAudio ? await RecorderAudioSource.tracks(in: asset) : [:]
         var audio: [(source: RecorderAudioSource, from: AVAssetTrack,
@@ -138,10 +141,23 @@ enum RecorderComposition {
             cursor = CMTimeAdd(cursor, duration)
         }
         guard cursor.seconds > 0 else { return nil }
+        let timing = RecorderExportTiming(speed: playbackSpeed)
+        if timing.speed != 1 {
+            // Scale the whole edited timeline once, including audio gaps and
+            // offsets. Retiming only video timestamps would leave PCM audio
+            // at its old duration. The default preview path stays untouched.
+            let outputDuration = CMTime(
+                seconds: timing.outputTime(forSourceTime: cursor.seconds),
+                preferredTimescale: 60_000)
+            composition.scaleTimeRange(CMTimeRange(start: .zero, duration: cursor),
+                                       toDuration: outputDuration)
+            cursor = outputDuration
+        }
         return Result(asset: composition,
                       audioTrackIDs: Dictionary(uniqueKeysWithValues: audio.map {
                           ($0.source, $0.to.trackID)
-                      }))
+                      }),
+                      duration: cursor)
     }
 }
 

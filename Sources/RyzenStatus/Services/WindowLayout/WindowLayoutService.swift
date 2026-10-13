@@ -6,6 +6,7 @@ import ApplicationServices
 import Carbon.HIToolbox
 import Combine
 import CoreGraphics
+import QuartzCore
 
 enum WindowLayoutError: Equatable {
     case missingAccessibility
@@ -20,45 +21,155 @@ enum WindowLayoutResult: Equatable {
 }
 
 /// Window placement through explicit panel actions, global shortcuts and an
-/// optional pointer gesture. The event tap only performs Accessibility work
-/// after the user presses an exact shown chord over a compatible window.
+/// optional pointer gesture. The active taps only perform Accessibility work
+/// after a deliberate gesture. Edge snapping changes an event only after the
+/// same window has visibly followed the pointer to the top of a screen.
 final class WindowLayoutService: ObservableObject {
     static let shared = WindowLayoutService()
 
     @Published private(set) var lastResult: WindowLayoutResult?
+    /// Bumped on every published result, so a late settle failure can tell
+    /// whether it still owns the feedback slot.
+    private var resultGeneration = 0
     @Published private(set) var failedShortcutActions: Set<WindowLayoutAction> = []
+    @Published private(set) var directionalShortcutRegistrationFailed = false
     @Published private(set) var isGestureRunning = false
 
-    private var previousFrames: [CGWindowID: WindowLayoutFrame] = [:]
-    private var lastActions: [CGWindowID: WindowLayoutAction] = [:]
+    private var frameHistory = WindowLayoutHistory()
+    private var lastActions: [WindowLayoutWindowKey: WindowLayoutAction] = [:]
+    // Where each window's last placement left it, as requested and as read
+    // back, minimum sizes included: the side size cycle only advances from there.
+    private var settledFrames: [WindowLayoutWindowKey: WindowLayoutSettledFrame] = [:]
     private var hotKeyRefs: [WindowLayoutAction: EventHotKeyRef] = [:]
     private var eventHandler: EventHandlerRef?
     private var registeredShortcuts: [WindowLayoutAction: GlobalShortcut] = [:]
+    private var directionalHotKeyRef: EventHotKeyRef?
+    private var registeredDirectionalTrigger: WindowDirectionalTrigger?
+    private var directionalModifierHold: WindowDirectionalModifierHold?
+    private var directionalModifierButtons = WindowDirectionalModifierButtons()
+    private var directionalSession: WindowDirectionalSession?
+    private var directionalTimer: Timer?
+    private var directionalIndicatorPanel: NSPanel?
+    private var directionalModifierTap: CFMachPort?
+    private var directionalModifierTapSource: CFRunLoopSource?
+    private var directionalTap: CFMachPort?
+    private var directionalTapSource: CFRunLoopSource?
     private var gestureTap: CFMachPort?
     private var gestureRunLoopSource: CFRunLoopSource?
+    private var edgeSnapTap: CFMachPort?
+    private var edgeSnapRunLoopSource: CFRunLoopSource?
     private var activeGesture: WindowPointerGesture?
-    private let frameTolerance: CGFloat = 8
+    private var pendingGesture: PendingWindowGesture?
+    private var edgeSnapPressOrigin: CGPoint?
+    private var edgeSnapPressCandidate: WindowServerWindowCandidate?
+    private var edgeSnapSequenceSuppressed = false
+    private var edgeSnapResolveAttempts = 0
+    private var edgeSnapLastResolveAt: TimeInterval = 0
+    private var edgeSnapDrag: WindowEdgeSnapDrag?
+    private var edgeSnapSequenceGeneration = 0
+    private var edgeSnapResolving = false
+    private var edgeSnapLastPointer: CGPoint?
+    private var edgeSnapTrail = WindowEdgeSnapPointerTrail()
+    /// The pending look once the pointer stops, since a stop sends no event.
+    /// Only one waits at a time, and a reset moves the generation on, which
+    /// drops it.
+    private var edgeSnapStillCheckGeneration = 0
+    private var edgeSnapStillCheckPending = false
+    private let edgeSnapResolveQueue = DispatchQueue(label: "com.ryzenstatus.edge-snap-resolve",
+                                                     qos: .userInitiated)
+    private var edgeSnapPreviewPanel: NSPanel?
+    private var edgeSnapPreviewGeneration = 0
+    private var assistiveModeSuspensions: [CGWindowID: EnhancedUserInterfaceSuspension] = [:]
+    private var settleTimers: [CGWindowID: Timer] = [:]
+    private var gestureAssistiveMode: EnhancedUserInterfaceSuspension?
+    private var ignoredAppsActivationObserver: NSObjectProtocol?
+    /// Stamped on the press this service gives back to the system so none of
+    /// our own taps mistake it for a fresh one.
+    private static let syntheticEventMarker: Int64 = 0x52595253
+    /// Read on every pointer event, so it is resolved once instead of per
+    /// click.
+    private static let ownProcessID = Int64(getpid())
+    private let frameTolerance = WindowLayoutGeometry.frameTolerance
     private let anchorTolerance: CGFloat = 36
     private let moveGestureUpdateInterval: TimeInterval = 1.0 / 120.0
     // AX frame mutations are not atomic. Complex windows can visibly render
     // the intermediate size and position when they receive resize writes at
     // pointer-reporting speed, so resize is deliberately coalesced to 60 Hz.
     private let resizeGestureUpdateInterval: TimeInterval = 1.0 / 60.0
+    private let edgeSnapSampleInterval: TimeInterval = 1.0 / 30.0
 
-    private init() {}
+    private init() {
+        SessionActivity.shared.onChange { [weak self] _ in self?.syncWithPreferences() }
+    }
 
     func syncWithPreferences() {
+        WindowLayoutIgnoredApps.shared.reload()
         let available = AppFeature.windowLayout.isAvailable
-        let trusted = AXIsProcessTrusted()
-        let wantsShortcuts = available
+        let trusted = SessionActivitySupport.tapShouldRun(
+            featureWanted: available,
+            accessibilityGranted: AXIsProcessTrusted(),
+            sessionIsActive: SessionActivity.shared.isActive)
+        let shortcutsEnabled = available
             && UserDefaults.standard.bool(forKey: DefaultsKey.windowLayoutShortcutsEnabled)
             && trusted
-        wantsShortcuts ? registerHotkeys() : unregisterHotkeys()
-
-        let wantsGesture = available
+        let directionalEnabled = available
+            && UserDefaults.standard.bool(forKey: DefaultsKey.windowDirectionalEnabled)
+            && trusted
+        let gestureEnabled = available
             && UserDefaults.standard.bool(forKey: DefaultsKey.windowGestureEnabled)
             && trusted
+        let edgeSnapEnabled = available
+            && UserDefaults.standard.bool(forKey: DefaultsKey.windowEdgeSnapEnabled)
+            && !enabledEdgeSnapZones.isEmpty
+            && !WindowEdgeSnapSupport.isSystemTilingEnabled
+            && trusted
+        // The pointer shortcut needs no Accessibility, so it counts on its own.
+        let pointerEnabled = available
+            && UserDefaults.standard.bool(forKey: DefaultsKey.pointerDisplayEnabled)
+        syncIgnoredAppsActivationObserver(inputsEnabled: shortcutsEnabled || directionalEnabled
+                                          || gestureEnabled || edgeSnapEnabled || pointerEnabled)
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        let inputAllowed = !WindowLayoutIgnoredApps.shared.contains(
+            bundleID: frontmost?.bundleIdentifier,
+            executablePath: frontmost?.executableURL?.path)
+        let wantsShortcuts = shortcutsEnabled && inputAllowed && !ShortcutCapture.isCapturing
+        wantsShortcuts ? registerHotkeys() : unregisterHotkeys()
+
+        let hadGestureTap = gestureTap != nil
+        let hadEdgeSnapTap = edgeSnapTap != nil
+        let wantsGesture = gestureEnabled && inputAllowed
         wantsGesture ? startGestureTap() : stopGestureTap()
+
+        let wantsEdgeSnap = edgeSnapEnabled && inputAllowed
+        wantsEdgeSnap ? startEdgeSnapTap() : stopEdgeSnapTap()
+
+        // Keep passive chord observation ahead of our pointer taps, including
+        // when a move/resize tap is enabled after the chord was registered.
+        let addedPointerTap = (!hadGestureTap && gestureTap != nil)
+            || (!hadEdgeSnapTap && edgeSnapTap != nil)
+        if addedPointerTap, directionalModifierTap != nil { unregisterDirectionalHotkey() }
+        let wantsDirectional = directionalEnabled && inputAllowed && !ShortcutCapture.isCapturing
+        wantsDirectional ? registerDirectionalHotkey() : unregisterDirectionalHotkey()
+
+        // Its key pauses for a listed app like the ones above.
+        PointerDisplayService.shared.syncWithPreferences()
+    }
+
+    private func syncIgnoredAppsActivationObserver(inputsEnabled: Bool) {
+        let shouldObserve = inputsEnabled && !WindowLayoutIgnoredApps.shared.apps.isEmpty
+        if shouldObserve {
+            guard ignoredAppsActivationObserver == nil else { return }
+            ignoredAppsActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didActivateApplicationNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.syncWithPreferences()
+            }
+        } else if let ignoredAppsActivationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(ignoredAppsActivationObserver)
+            self.ignoredAppsActivationObserver = nil
+        }
     }
 
     /// Stops every Window Layout input hook before Accessibility is revoked or
@@ -66,18 +177,53 @@ final class WindowLayoutService: ObservableObject {
     /// call it freely.
     func suspend() {
         unregisterHotkeys()
+        unregisterDirectionalHotkey()
         stopGestureTap()
+        stopEdgeSnapTap()
+        if let ignoredAppsActivationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(ignoredAppsActivationObserver)
+            self.ignoredAppsActivationObserver = nil
+        }
+        for timer in settleTimers.values { timer.invalidate() }
+        settleTimers.removeAll()
+        let suspensions = assistiveModeSuspensions.values
+        assistiveModeSuspensions.removeAll()
+        // With the grant already revoked there is no safe way to touch the
+        // apps again; the flag comes back when the assistive client sets it.
+        guard AXIsProcessTrusted() else { return }
+        for suspension in suspensions { suspension.resume() }
     }
 
     func shortcutConflictTitle(_ shortcut: GlobalShortcut) -> String? {
         shortcutConflictTitle(shortcut, excluding: nil)
     }
 
-    func shortcutConflictTitle(_ shortcut: GlobalShortcut, excluding excluded: WindowLayoutAction?) -> String? {
-        let text = FeatureStrings.windowLayout(L10n.shared.language)
-        return WindowLayoutAction.shortcutActions.first {
-            $0 != excluded && $0.savedShortcut == shortcut
-        }?.title(text)
+    func shortcutConflictTitle(_ shortcut: GlobalShortcut, excluding excluded: WindowLayoutAction?,
+                               includingDirectional: Bool = true) -> String? {
+        guard AppFeature.windowLayout.isAvailable else { return nil }
+        let actionsEnabled = UserDefaults.standard.bool(forKey: DefaultsKey.windowLayoutShortcutsEnabled)
+        let directional = includingDirectional
+            && UserDefaults.standard.bool(forKey: DefaultsKey.windowDirectionalEnabled)
+            ? UserDefaults.standard.string(forKey: DefaultsKey.windowDirectionalShortcut)
+                .flatMap(GlobalShortcut.init(storageValue:)) : nil
+        guard actionsEnabled || directional != nil else { return nil }
+        switch WindowLayoutShortcutConflict.find(shortcut, directional: directional,
+                                                 excluding: excluded,
+                                                 actionShortcut: { actionsEnabled ? $0.savedShortcut : nil }) {
+        case .directional:
+            return WindowDirectionalStrings.localized(L10n.shared.language).title
+        case .action(let action):
+            return action.title(FeatureStrings.windowLayout(L10n.shared.language))
+        case nil:
+            return nil
+        }
+    }
+
+    func directionalShortcutConflictTitle(_ shortcut: GlobalShortcut) -> String? {
+        if let role = GlobalShortcutRole.conflict(for: shortcut, excluding: nil) {
+            return role.title(L10n.shared.s)
+        }
+        return shortcutConflictTitle(shortcut, excluding: nil, includingDirectional: false)
     }
 
     @discardableResult
@@ -85,108 +231,297 @@ final class WindowLayoutService: ObservableObject {
         guard AXIsProcessTrusted() else {
             return finish(.failure(.missingAccessibility))
         }
-        guard let target = focusedTarget() else {
+        guard let target = focusedTarget(for: action) else {
             return finish(.failure(.noWindow))
         }
+        pruneWindowState(keeping: target.key)
 
         if action == .restore {
-            guard let previous = previousFrames[target.windowID] else {
+            guard let previous = frameHistory.popPrevious(for: target.key,
+                                                          current: target.frame) else {
                 return finish(.failure(.noRestore))
             }
-            return setFrame(previous, on: target.window)
-                ? finish(.success(restored: true))
-                : finish(.failure(.failed))
+            if setFrame(previous, on: target.window, windowKey: target.key) {
+                lastActions.removeValue(forKey: target.key)
+                return finish(.success(restored: true))
+            }
+            frameHistory.record(previous, for: target.key)
+            return finish(.failure(.failed))
         }
 
-        guard let screen = bestScreen(for: target.frame) else {
+        if action == .fullScreen {
+            // A placement still settling must never write its old frame over
+            // the native full-screen transition that replaces it.
+            cancelSettle(for: target.windowID)
+            assistiveModeSuspensions.removeValue(forKey: target.windowID)?.resume()
+            // The native full screen the green button gives, toggled through
+            // the same attribute the button writes. The system owns the frame
+            // from here, so nothing is remembered for restore.
+            var raw: CFTypeRef?
+            AXUIElementCopyAttributeValue(target.window, "AXFullScreen" as CFString, &raw)
+            let isFullScreen = (raw as? NSNumber)?.boolValue ?? false
+            let flipped = (isFullScreen ? kCFBooleanFalse : kCFBooleanTrue) as CFTypeRef
+            let applied = AXUIElementSetAttributeValue(target.window,
+                                                       "AXFullScreen" as CFString,
+                                                       flipped) == .success
+            // Remembered like any other placement, or the "same half twice
+            // means maximize" rule would still be looking at whatever the
+            // window did before it went full screen.
+            if applied {
+                if isFullScreen {
+                    lastActions.removeValue(forKey: target.key)
+                } else {
+                    lastActions[target.key] = .fullScreen
+                }
+            }
+            return applied ? finish(.success(restored: false)) : finish(.failure(.failed))
+        }
+        let screens = NSScreen.screens
+        guard let screen = bestScreen(for: target.frame, screens: screens) else {
             return finish(.failure(.failed))
         }
         let currentRect = appKitFrame(fromAX: target.frame)
-        if action == .nextDisplay {
-            guard let destination = nextScreen(after: screen) else {
+        if action == .previousDisplay || action == .nextDisplay {
+            guard let destination = adjacentScreen(to: screen,
+                                                   screens: screens,
+                                                   movingForward: action == .nextDisplay) else {
                 return finish(.failure(.failed))
             }
-            let rect = WindowLayoutGeometry.rectForNextDisplay(current: currentRect,
-                                                               sourceVisibleFrame: screen.visibleFrame,
-                                                               destinationVisibleFrame: destination.visibleFrame)
-            previousFrames[target.windowID] = target.frame
+            let rect = WindowLayoutGeometry.rectForDisplay(current: currentRect,
+                                                           sourceVisibleFrame: screen.visibleFrame,
+                                                           destinationVisibleFrame: destination.visibleFrame)
+            frameHistory.record(target.frame, for: target.key)
             if setFrame(axFrame(fromAppKit: rect),
                         targetRect: rect,
                         screenVisibleFrame: destination.visibleFrame,
-                        action: .nextDisplay,
-                        on: target.window) {
-                lastActions[target.windowID] = .nextDisplay
+                        action: action,
+                        on: target.window,
+                        windowKey: target.key) {
+                lastActions[target.key] = action
                 return finish(.success(restored: false))
             }
-            previousFrames.removeValue(forKey: target.windowID)
+            frameHistory.discardLatest(for: target.key)
             return finish(.failure(.failed))
         }
-        let previousAction = lastActions[target.windowID]
-        let effectiveAction = WindowLayoutGeometry.effectiveAction(for: action,
-                                                                   current: currentRect,
-                                                                   visibleFrame: screen.visibleFrame,
-                                                                   previousAction: previousAction)
-        let placement = placement(for: effectiveAction,
-                                  current: target.frame,
-                                  visibleFrame: screen.visibleFrame)
-        previousFrames[target.windowID] = target.frame
-        if setFrame(placement.frame,
-                    targetRect: placement.rect,
-                    screenVisibleFrame: screen.visibleFrame,
-                    action: effectiveAction,
-                    on: target.window) {
-            lastActions[target.windowID] = effectiveAction
-            return finish(.success(restored: false))
+        let sideRepeatCyclesThirds = WindowLayoutSideRepeat.cyclesThirds
+        if let crossing = WindowLayoutGeometry.displayCrossing(for: action,
+                                                               previousAction: lastActions[target.key],
+                                                               sideRepeatCyclesThirds: sideRepeatCyclesThirds),
+           accepted(actual: target.frame,
+                    targetRect: placement(for: action,
+                                          current: target.frame,
+                                          visibleFrame: screen.visibleFrame).rect,
+                    action: action),
+           let destination = neighbourScreen(to: screen,
+                                             screens: screens,
+                                             direction: crossing.direction) {
+            // The window is already parked on that half, so the same shortcut
+            // keeps pushing in the same direction. Without a display there,
+            // the placement below keeps its normal repeated-action behavior.
+            return applyPlacement(crossing.action,
+                                  to: target,
+                                  visibleFrame: destination.visibleFrame,
+                                  cyclesRepeatedAction: false)
         }
-        previousFrames.removeValue(forKey: target.windowID)
-        return finish(.failure(.failed))
+        return applyPlacement(action,
+                              to: target,
+                              visibleFrame: screen.visibleFrame,
+                              sideRepeatCyclesThirds: sideRepeatCyclesThirds)
     }
 
+    /// Applies a pointer-selected snap target to one exact external window.
+    /// Dock Preview resolves the target from the drop location; the frame still
+    /// goes through the same settling and recovery path as every Window Layout
+    /// placement instead of maintaining a second AX mutation algorithm.
+    @discardableResult
     private func finish(_ result: WindowLayoutResult) -> WindowLayoutResult {
+        resultGeneration += 1
         lastResult = result
         return result
     }
 
-    private func focusedTarget() -> WindowLayoutTarget? {
+    private func applyPlacement(_ action: WindowLayoutAction,
+                                to target: WindowLayoutTarget,
+                                visibleFrame: NSRect,
+                                historyFrame: WindowLayoutFrame? = nil,
+                                cyclesRepeatedAction: Bool = true,
+                                sideRepeatCyclesThirds: Bool = false) -> WindowLayoutResult {
+        let currentRect = appKitFrame(fromAX: target.frame)
+        let previousAction = cyclesRepeatedAction ? lastActions[target.key] : nil
+        let cyclePress = WindowLayoutGeometry.sideCyclePress(for: action,
+                                                             cyclesThirds: sideRepeatCyclesThirds)
+        // The size cycle only advances when the previous placement came from
+        // the same side key and the window still sits where that step left
+        // it: another shortcut, or a window dragged or resized by hand in
+        // between, starts over at the half.
+        let cyclesSides = cyclePress != nil
+            && previousAction != nil
+            && WindowLayoutGeometry.sideCycleResumes(pressing: action,
+                                                     settled: settledFrames[target.key])
+            && WindowLayoutGeometry.sideCycleContinues(current: target.frame,
+                                                       settled: settledFrames[target.key],
+                                                       tolerance: frameTolerance)
+        let effectiveAction = WindowLayoutGeometry.effectiveAction(for: action,
+                                                                   current: currentRect,
+                                                                   visibleFrame: visibleFrame,
+                                                                   previousAction: previousAction,
+                                                                   sideRepeatCyclesThirds: cyclesSides)
+        let placement = placement(for: effectiveAction,
+                                  current: target.frame,
+                                  visibleFrame: visibleFrame)
+        if placement.frame == target.frame {
+            lastActions[target.key] = effectiveAction
+            if let cyclePress {
+                settledFrames[target.key] = WindowLayoutSettledFrame(requested: target.frame,
+                                                                     actual: target.frame,
+                                                                     pressedAction: cyclePress)
+            } else {
+                settledFrames.removeValue(forKey: target.key)
+            }
+            return finish(.success(restored: false))
+        }
+        frameHistory.record(historyFrame ?? target.frame, for: target.key)
+        if setFrame(placement.frame,
+                    targetRect: placement.rect,
+                    screenVisibleFrame: visibleFrame,
+                    action: effectiveAction,
+                    on: target.window,
+                    windowKey: target.key,
+                    cyclePress: cyclePress) {
+            lastActions[target.key] = effectiveAction
+            return finish(.success(restored: false))
+        }
+        frameHistory.discardLatest(for: target.key)
+        return finish(.failure(.failed))
+    }
+
+    private func focusedTarget(for action: WindowLayoutAction) -> WindowLayoutTarget? {
         let ownBundleID = Bundle.main.bundleIdentifier
-        let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        let pids = ([frontmost].compactMap { $0 } + AppActivationTracker.shared.mru).reduce(into: [pid_t]()) { result, pid in
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        let ownKeyWindow = NSApp.keyWindow
+        let hasFocusedResizableOwnWindow = NSApp.isActive
+            && ownKeyWindow?.styleMask.contains(.resizable) == true
+            && !(ownKeyWindow is NSPanel)
+        let frontmost = hasFocusedResizableOwnWindow
+            ? ownPID
+            : NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let pids = ([frontmost].compactMap { $0 } + WindowUseTracker.shared.apps).reduce(into: [pid_t]()) { result, pid in
             if !result.contains(pid) { result.append(pid) }
         }
 
+        guard let onScreenWindowIDs = onScreenWindowIDs() else { return nil }
         for pid in pids {
-            guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.processIdentifier == pid }),
-                  app.activationPolicy == .regular,
-                  app.bundleIdentifier != ownBundleID
+            let isFocusedOwnApp = pid == ownPID && hasFocusedResizableOwnWindow
+            // One lookup by pid, not a fresh bridge of every running app on
+            // each turn of a list that can hold dozens of them. The edge-snap
+            // drag in this same file already resolves its app this way.
+            // isTerminated is explicit because runningApplications drops a dead
+            // pid on its own and NSRunningApplication(processIdentifier:) does
+            // not: it answers with a terminated instance.
+            guard let app = NSRunningApplication(processIdentifier: pid),
+                  !app.isTerminated,
+                  isFocusedOwnApp
+                    || (app.activationPolicy == .regular && !app.isHidden
+                        && app.bundleIdentifier != ownBundleID)
             else { continue }
             let axApp = AXUIElementCreateApplication(pid)
             // Bounded AX: a hung app in the MRU list must not stall the main
-            // thread (and every event tap) for the 6 second default timeout.
+            // thread (and every event tap) for the default timeout.
             AXUIElementSetMessagingTimeout(axApp, 0.35)
             for attribute in [kAXFocusedWindowAttribute, kAXMainWindowAttribute] {
                 if let window = windowAttribute(axApp, attribute as String),
-                   let target = target(from: window) {
+                   let target = target(from: window,
+                                       app: app,
+                                       onScreenWindowIDs: onScreenWindowIDs,
+                                       capability: action.targetCapability) {
                     return target
                 }
             }
             if let windows = windowsAttribute(axApp),
-               let first = windows.compactMap(target(from:)).first {
+               let first = windows.compactMap({ target(from: $0,
+                                                        app: app,
+                                                        onScreenWindowIDs: onScreenWindowIDs,
+                                                        capability: action.targetCapability) }).first {
                 return first
             }
         }
         return nil
     }
 
-    private func target(from window: AXUIElement) -> WindowLayoutTarget? {
+    private func target(from window: AXUIElement,
+                        app: NSRunningApplication,
+                        onScreenWindowIDs: Set<CGWindowID>,
+                        capability: WindowLayoutTargetCapability) -> WindowLayoutTarget? {
         guard role(of: window) == (kAXWindowRole as String),
-              !boolAttribute(window, "AXFullScreen"),
-              canSetFrame(on: window),
+              !boolAttribute(window, kAXMinimizedAttribute as String),
+              stringAttribute(window, kAXSubroleAttribute as String) != "AXFloatingWindow",
               let windowID = AXWindowResolver.windowID(for: window),
+              onScreenWindowIDs.contains(windowID),
               let frame = frame(of: window),
               frame.size.width > 80,
               frame.size.height > 80
         else { return nil }
-        return WindowLayoutTarget(window: window, windowID: windowID, frame: frame)
+        let isFullScreen = boolAttribute(window, "AXFullScreen")
+        guard capability == .fullScreen || !isFullScreen else { return nil }
+        let hasRequiredCapability: Bool
+        switch capability {
+        case .position:
+            hasRequiredCapability = canSetPosition(on: window)
+        case .frame:
+            hasRequiredCapability = canSetFrame(on: window)
+        case .fullScreen:
+            hasRequiredCapability = canSetFullScreen(on: window)
+        }
+        guard hasRequiredCapability else { return nil }
+        let key = WindowLayoutWindowKey(
+            processID: app.processIdentifier,
+            processLaunchTime: app.launchDate?.timeIntervalSinceReferenceDate ?? 0,
+            windowID: windowID
+        )
+        return WindowLayoutTarget(window: window, key: key, frame: frame)
+    }
+
+    private func onScreenWindowIDs() -> Set<CGWindowID>? {
+        guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                       kCGNullWindowID) as? [[String: Any]]
+        else { return nil }
+        return Set(windows.compactMap {
+            ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value
+        })
+    }
+
+    /// Removes histories whose process or window no longer exists. This runs
+    /// only for an explicit layout action, never from a timer or input tap.
+    private func pruneWindowState(keeping current: WindowLayoutWindowKey) {
+        guard var activeWindows = activeWindowKeys() else { return }
+        activeWindows.insert(current)
+        frameHistory.removeStaleWindows(keeping: activeWindows)
+        lastActions = lastActions.filter { activeWindows.contains($0.key) }
+        settledFrames = settledFrames.filter { activeWindows.contains($0.key) }
+    }
+
+    private func activeWindowKeys() -> Set<WindowLayoutWindowKey>? {
+        guard let windows = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements],
+                                                       kCGNullWindowID) as? [[String: Any]]
+        else { return nil }
+        var launchTimes: [pid_t: TimeInterval] = [:]
+        var keys = Set<WindowLayoutWindowKey>()
+        for window in windows {
+            guard (window[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+                  let pid = (window[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+                  let windowID = (window[kCGWindowNumber as String] as? NSNumber)?.uint32Value
+            else { continue }
+            if launchTimes[pid] == nil {
+                guard let app = NSRunningApplication(processIdentifier: pid),
+                      app.activationPolicy == .regular else { continue }
+                launchTimes[pid] = app.launchDate?.timeIntervalSinceReferenceDate ?? 0
+            }
+            guard let launchTime = launchTimes[pid] else { continue }
+            keys.insert(WindowLayoutWindowKey(processID: pid,
+                                              processLaunchTime: launchTime,
+                                              windowID: windowID))
+        }
+        return keys.isEmpty ? nil : keys
     }
 
     private func placement(for action: WindowLayoutAction,
@@ -194,44 +529,199 @@ final class WindowLayoutService: ObservableObject {
                            visibleFrame: NSRect) -> WindowLayoutPlacement {
         let rect = WindowLayoutGeometry.rect(for: action,
                                              current: appKitFrame(fromAX: current),
-                                             visibleFrame: visibleFrame)
+                                             visibleFrame: visibleFrame,
+                                             windowGap: WindowLayoutGaps.windowGap,
+                                             screenGap: WindowLayoutGaps.screenGap,
+                                             marginPercent: WindowLayoutMargin.percent)
         let integral = rect.integral
         return WindowLayoutPlacement(frame: axFrame(fromAppKit: integral), rect: integral)
     }
 
-    private func setFrame(_ frame: WindowLayoutFrame, on window: AXUIElement) -> Bool {
+    private func setFrame(_ frame: WindowLayoutFrame,
+                          on window: AXUIElement,
+                          windowKey: WindowLayoutWindowKey) -> Bool {
         setFrame(frame,
                  targetRect: appKitFrame(fromAX: frame),
                  screenVisibleFrame: appKitFrame(fromAX: frame),
                  action: .restore,
-                 on: window)
+                 on: window,
+                 windowKey: windowKey)
     }
 
     private func setFrame(_ frame: WindowLayoutFrame,
                           targetRect: NSRect,
                           screenVisibleFrame: NSRect,
                           action: WindowLayoutAction,
-                          on window: AXUIElement) -> Bool {
+                          on window: AXUIElement,
+                          windowKey: WindowLayoutWindowKey,
+                          cyclePress: WindowLayoutAction? = nil) -> Bool {
+        let windowID = windowKey.windowID
+        cancelSettle(for: windowID)
+        assistiveModeSuspensions.removeValue(forKey: windowID)?.resume()
+        assistiveModeSuspensions[windowID] = EnhancedUserInterfaceSuspension.suspend(forAppOf: window)
+
         let original = self.frame(of: window)
+        settledFrames.removeValue(forKey: windowKey)
         if attempt(frame, targetRect: targetRect, action: action, on: window) {
+            assistiveModeSuspensions.removeValue(forKey: windowID)?.resume()
+            // Only the side size cycle uses the settled frame, so the read-back
+            // and its later refresh run only for a press that may cycle.
+            if let cyclePress {
+                let actual = self.frame(of: window) ?? frame
+                settledFrames[windowKey] = WindowLayoutSettledFrame(requested: frame,
+                                                                    actual: actual,
+                                                                    pressedAction: cyclePress)
+                if !actual.isClose(to: frame, tolerance: frameTolerance) {
+                    // The lenient acceptance may have read a frame the app has
+                    // not committed yet (issue #334); look again once it has,
+                    // so a late, clamped resize still counts as the settled frame.
+                    scheduleSettledFrameRefresh(for: window,
+                                                windowKey: windowKey,
+                                                targetRect: targetRect,
+                                                action: action)
+                }
+            }
             return true
         }
 
-        if let original, shouldUseMaximizeFallback(for: action) {
+        // Some apps commit Accessibility size changes with a short delay, so
+        // the reads above can still see the old frame. Judging failure now and
+        // restoring the original is what used to leave windows moved but never
+        // resized (issue #334): let the window settle before deciding.
+        scheduleSettle(SettleContext(window: window,
+                                     windowID: windowID,
+                                     frame: frame,
+                                     targetRect: targetRect,
+                                     screenVisibleFrame: screenVisibleFrame,
+                                     action: action,
+                                     original: original,
+                                     previousAction: lastActions[windowKey],
+                                     cyclePress: cyclePress,
+                                     windowKey: windowKey,
+                                     resultGeneration: resultGeneration + 1),
+                       attempt: 0)
+        return true
+    }
+
+    /// Observation only: re-reads the frame once the app has had time to
+    /// commit a late resize and records it as the settled frame. Nothing is
+    /// re-applied or restored, unlike the settle path, and the next placement
+    /// cancels it through cancelSettle like any settle timer.
+    private func scheduleSettledFrameRefresh(for window: AXUIElement,
+                                             windowKey: WindowLayoutWindowKey,
+                                             targetRect: NSRect,
+                                             action: WindowLayoutAction) {
+        let windowID = windowKey.windowID
+        let timer = Timer(timeInterval: 0.3, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.settleTimers[windowID] = nil
+            // The user may have resized or dragged the window by hand in
+            // the meantime; the lenient acceptance alone would record that
+            // as settled and let the next side action cycle from it. Only a
+            // frame that moved toward the request counts as the late commit.
+            guard let settled = self.settledFrames[windowKey],
+                  let actual = self.frame(of: window),
+                  WindowLayoutGeometry.settledFrameRefreshAccepts(actual: actual,
+                                                                  settled: settled,
+                                                                  tolerance: self.frameTolerance),
+                  actual.isClose(to: settled.requested, tolerance: self.frameTolerance)
+                    || self.accepted(actual: actual, targetRect: targetRect, action: action)
+            else { return }
+            self.settledFrames[windowKey] = WindowLayoutSettledFrame(requested: settled.requested,
+                                                                     actual: actual,
+                                                                     pressedAction: settled.pressedAction)
+        }
+        settleTimers[windowID] = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func scheduleSettle(_ context: SettleContext, attempt: Int) {
+        let timer = Timer(timeInterval: 0.15, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.settleTimers[context.windowID] = nil
+            self.continueSettle(context, attempt: attempt)
+        }
+        settleTimers[context.windowID] = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func continueSettle(_ context: SettleContext, attempt: Int) {
+        if verified(context) {
+            concludeSettle(context, success: true)
+            return
+        }
+        if self.attempt(context.frame,
+                        targetRect: context.targetRect,
+                        action: context.action,
+                        on: context.window) {
+            concludeSettle(context, success: true)
+            return
+        }
+        if attempt == 0 {
+            scheduleSettle(context, attempt: 1)
+            return
+        }
+        if let original = context.original, shouldUseMaximizeFallback(for: context.action) {
+            // An ungapped scratch frame that coaxes a stubborn window into
+            // resizing; the gapped target is re-applied right after.
             let currentRect = appKitFrame(fromAX: original)
             let maxFrame = axFrame(fromAppKit: WindowLayoutGeometry.rect(for: .maximize,
                                                                          current: currentRect,
-                                                                         visibleFrame: screenVisibleFrame))
-            applyFrame(maxFrame, on: window)
-            if attempt(frame, targetRect: targetRect, action: action, on: window) {
-                return true
+                                                                         visibleFrame: context.screenVisibleFrame))
+            applyFrame(maxFrame, on: context.window)
+            if self.attempt(context.frame,
+                            targetRect: context.targetRect,
+                            action: context.action,
+                            on: context.window) {
+                concludeSettle(context, success: true)
+                return
             }
         }
+        concludeSettle(context, success: false)
+    }
 
-        if let original {
-            applyFrame(original, on: window)
+    private func verified(_ context: SettleContext) -> Bool {
+        guard let actual = frame(of: context.window) else { return false }
+        return actual.isClose(to: context.frame, tolerance: frameTolerance)
+            || accepted(actual: actual, targetRect: context.targetRect, action: context.action)
+    }
+
+    // The action already reported success while the window was settling, so a
+    // refusal this late restores the window, undoes the bookkeeping and
+    // republishes the result the panel feedback listens to.
+    private func concludeSettle(_ context: SettleContext, success: Bool) {
+        assistiveModeSuspensions.removeValue(forKey: context.windowID)?.resume()
+        if success {
+            if let cyclePress = context.cyclePress {
+                settledFrames[context.windowKey] = WindowLayoutSettledFrame(requested: context.frame,
+                                                                            actual: frame(of: context.window) ?? context.frame,
+                                                                            pressedAction: cyclePress)
+            }
+            return
         }
-        return false
+        settledFrames.removeValue(forKey: context.windowKey)
+        if let original = context.original {
+            applyFrame(original, on: context.window)
+        }
+        if context.action == .restore {
+            frameHistory.record(context.frame, for: context.windowKey)
+        } else {
+            frameHistory.discardLatest(for: context.windowKey)
+        }
+        if let previousAction = context.previousAction {
+            lastActions[context.windowKey] = previousAction
+        } else {
+            lastActions.removeValue(forKey: context.windowKey)
+        }
+        // A second action already published a fresh result; this stale
+        // failure must not overwrite the feedback the person is reading.
+        if context.resultGeneration == resultGeneration {
+            lastResult = .failure(.failed)
+        }
+    }
+
+    private func cancelSettle(for windowID: CGWindowID) {
+        settleTimers.removeValue(forKey: windowID)?.invalidate()
     }
 
     private func attempt(_ frame: WindowLayoutFrame,
@@ -256,11 +746,14 @@ final class WindowLayoutService: ObservableObject {
 
     private func shouldUseMaximizeFallback(for action: WindowLayoutAction) -> Bool {
         switch action {
-        case .leftHalf, .rightHalf, .topHalf, .bottomHalf,
-                .leftThird, .centerThird, .rightThird, .leftTwoThirds, .rightTwoThirds,
+        case .leftHalf, .rightHalf, .topHalf, .bottomHalf, .centerHalf,
+                .leftThird, .centerThird, .rightThird, .leftTwoThirds, .rightTwoThirds, .centerTwoThirds,
+                .topThird, .middleThird, .bottomThird, .topTwoThirds, .bottomTwoThirds,
+                .topQuarter, .upperMiddleQuarter, .lowerMiddleQuarter, .bottomQuarter,
+                .leftQuarter, .leftMiddleQuarter, .rightMiddleQuarter, .rightQuarter,
                 .topLeftSixth, .topCenterSixth, .topRightSixth,
                 .bottomLeftSixth, .bottomCenterSixth, .bottomRightSixth,
-                .topLeft, .topRight, .bottomLeft, .bottomRight:
+                .topLeft, .topRight, .bottomLeft, .bottomRight, .marginMaximize:
             return true
         default:
             return false
@@ -323,26 +816,7 @@ final class WindowLayoutService: ObservableObject {
         if !hotKeyRefs.isEmpty, shortcuts == registeredShortcuts { return }
         unregisterHotkeys()
 
-        if eventHandler == nil {
-            var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
-                                     eventKind: UInt32(kEventHotKeyPressed))
-            InstallEventHandler(GetEventDispatcherTarget(), { _, event, userData -> OSStatus in
-                guard let userData else { return OSStatus(eventNotHandledErr) }
-                var id = EventHotKeyID()
-                if let event {
-                    GetEventParameter(event, EventParamName(kEventParamDirectObject),
-                                      EventParamType(typeEventHotKeyID), nil,
-                                      MemoryLayout<EventHotKeyID>.size, nil, &id)
-                }
-                guard id.signature == 0x5655_574C,
-                      let action = WindowLayoutAction(shortcutID: id.id) else {
-                    return OSStatus(eventNotHandledErr)
-                }
-                let service = Unmanaged<WindowLayoutService>.fromOpaque(userData).takeUnretainedValue()
-                DispatchQueue.main.async { service.apply(action) }
-                return noErr
-            }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), &eventHandler)
-        }
+        ensureHotKeyEventHandler()
 
         var failures = Set<WindowLayoutAction>()
         for action in WindowLayoutAction.shortcutActions {
@@ -357,6 +831,7 @@ final class WindowLayoutService: ObservableObject {
                                              &ref)
             if status == noErr, let ref {
                 hotKeyRefs[action] = ref
+                SystemShortcutTakeover.claim(action.shortcutKey, shortcut: shortcut)
             } else {
                 failures.insert(action)
             }
@@ -365,23 +840,1179 @@ final class WindowLayoutService: ObservableObject {
         failedShortcutActions = failures
     }
 
-    func suspendShortcuts() { unregisterHotkeys() }
+    private func ensureHotKeyEventHandler() {
+        if eventHandler == nil {
+            var specs = [
+                EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+                EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
+            ]
+            InstallEventHandler(GetEventDispatcherTarget(), { _, event, userData -> OSStatus in
+                guard let userData else { return OSStatus(eventNotHandledErr) }
+                var id = EventHotKeyID()
+                if let event {
+                    GetEventParameter(event, EventParamName(kEventParamDirectObject),
+                                      EventParamType(typeEventHotKeyID), nil,
+                                      MemoryLayout<EventHotKeyID>.size, nil, &id)
+                }
+                let service = Unmanaged<WindowLayoutService>.fromOpaque(userData).takeUnretainedValue()
+                let kind = event.map(GetEventKind) ?? 0
+                if id.signature == 0x5655_5744 { // 'VUWD'
+                    DispatchQueue.main.async {
+                        guard service.directionalHotKeyRef != nil, !ShortcutCapture.isCapturing else { return }
+                        kind == UInt32(kEventHotKeyPressed)
+                            ? service.beginDirectionalGesture()
+                            : service.finishDirectionalGesture()
+                    }
+                    return noErr
+                }
+                guard id.signature == 0x5655_574C,
+                      kind == UInt32(kEventHotKeyPressed),
+                      let action = WindowLayoutAction(shortcutID: id.id) else {
+                    return OSStatus(eventNotHandledErr)
+                }
+                DispatchQueue.main.async { service.apply(action) }
+                return noErr
+            }, specs.count, &specs, Unmanaged.passUnretained(self).toOpaque(), &eventHandler)
+        }
+    }
+
+    /// Lets go of the layout keys while a shortcut field is listening, so the
+    /// user can record a combination the layout actions already use. The
+    /// gesture tap is left alone: it watches the mouse, not the keyboard. The
+    /// next `syncWithPreferences` takes the keys back.
+    func suspendShortcuts() {
+        unregisterHotkeys()
+        unregisterDirectionalHotkey()
+    }
 
     private func unregisterHotkeys() {
-        for ref in hotKeyRefs.values {
+        for (action, ref) in hotKeyRefs {
             UnregisterEventHotKey(ref)
+            SystemShortcutTakeover.release(action.shortcutKey)
         }
-        if let eventHandler {
-            RemoveEventHandler(eventHandler)
-        }
-        eventHandler = nil
         hotKeyRefs.removeAll()
         registeredShortcuts.removeAll()
         failedShortcutActions.removeAll()
     }
 
-    deinit {
-        suspend()
+    private func registerDirectionalHotkey() {
+        guard let trigger = UserDefaults.standard.string(forKey: DefaultsKey.windowDirectionalShortcut)
+            .flatMap(WindowDirectionalTrigger.init(storageValue:)) else {
+            unregisterDirectionalHotkey()
+            directionalShortcutRegistrationFailed = true
+            return
+        }
+        if registeredDirectionalTrigger == trigger {
+            switch trigger {
+            case .key where directionalHotKeyRef != nil: return
+            case .modifiers where directionalModifierTap != nil: return
+            default: break
+            }
+        }
+        unregisterDirectionalHotkey()
+        registeredDirectionalTrigger = trigger
+        if case .modifiers(let modifiers) = trigger {
+            directionalModifierButtons = .current()
+            directionalModifierHold = WindowDirectionalModifierHold(
+                expected: modifiers,
+                initiallyHeld: GlobalShortcutModifiers(cgFlags: CGEventSource.flagsState(.combinedSessionState)))
+            directionalShortcutRegistrationFailed = !startDirectionalModifierTap()
+            return
+        }
+        guard case .key(let shortcut) = trigger else { return }
+        ensureHotKeyEventHandler()
+        var ref: EventHotKeyRef?
+        let id = EventHotKeyID(signature: 0x5655_5744, id: 56)
+        let status = RegisterEventHotKey(shortcut.carbonKeyCode, shortcut.carbonModifiers, id,
+                                         GetEventDispatcherTarget(), 0, &ref)
+        if status == noErr, let ref {
+            directionalHotKeyRef = ref
+            directionalShortcutRegistrationFailed = false
+            SystemShortcutTakeover.claim(DefaultsKey.windowDirectionalShortcut, shortcut: shortcut)
+        } else {
+            directionalShortcutRegistrationFailed = true
+        }
+    }
+
+    private func unregisterDirectionalHotkey() {
+        if let directionalHotKeyRef {
+            UnregisterEventHotKey(directionalHotKeyRef)
+            SystemShortcutTakeover.release(DefaultsKey.windowDirectionalShortcut)
+        }
+        directionalHotKeyRef = nil
+        registeredDirectionalTrigger = nil
+        directionalShortcutRegistrationFailed = false
+        stopDirectionalModifierTap()
+        cancelDirectionalGesture()
+        directionalModifierHold = nil
+    }
+
+    private func beginDirectionalGesture(
+        pointerSnapshot: WindowDirectionalModifierPointerSnapshot? = nil,
+        modifierOwnership: WindowDirectionalModifierOwnership? = nil
+    ) {
+        guard directionalSession == nil, registeredDirectionalTrigger != nil,
+              !ShortcutCapture.isCapturing, SessionActivity.shared.isActive, AXIsProcessTrusted()
+        else { return }
+        let hasModifierTrigger = directionalModifierHold != nil
+        let target: WindowLayoutTarget
+        let screen: NSScreen
+        if hasModifierTrigger {
+            guard let modifierOwnership,
+                  directionalModifierHold?.ownership == modifierOwnership else { return }
+            let outcome = WindowDirectionalModifierStartupGuard.resolve(
+                armedAt: pointerSnapshot,
+                currentSnapshot: WindowDirectionalModifierPointerSnapshot.current,
+                mouseButtonPressed: { [weak self] in self?.isAnyMouseButtonPressed() ?? true },
+                startObserving: { [weak self] in self?.directionalModifierTap != nil },
+                isCurrent: { [weak self] in self?.directionalModifierHold?.ownership == modifierOwnership },
+                lookupTarget: { [weak self] () -> (WindowLayoutTarget, NSScreen)? in
+                    guard let self,
+                          let target = self.focusedTarget(for: .leftHalf),
+                          let screen = self.bestScreen(for: target.frame) else { return nil }
+                    return (target, screen)
+                })
+            // Accessibility can enter a nested run loop. Its callbacks may
+            // have ended this hold or replaced its registration during lookup.
+            guard directionalModifierHold?.ownership == modifierOwnership else { return }
+            switch outcome {
+            case .ready(let resolved):
+                (target, screen) = resolved
+            case .observationFailed:
+                directionalShortcutRegistrationFailed = true
+                cancelDirectionalGesture()
+                return
+            case .cancelled:
+                cancelDirectionalGesture()
+                return
+            case .targetUnavailable:
+                cancelDirectionalGesture(modifierCancellation: .preserveHold)
+                return
+            }
+        } else {
+            guard let resolvedTarget = focusedTarget(for: .leftHalf),
+                  let resolvedScreen = bestScreen(for: resolvedTarget.frame) else { return }
+            target = resolvedTarget
+            screen = resolvedScreen
+            guard startDirectionalTap() else {
+                directionalShortcutRegistrationFailed = true
+                return
+            }
+        }
+        directionalShortcutRegistrationFailed = false
+        if let modifierOwnership,
+           directionalModifierHold?.ownership != modifierOwnership { return }
+        directionalSession = WindowDirectionalSession(
+            target: target,
+            visibleFrame: screen.visibleFrame,
+            pointerOrigin: NSEvent.mouseLocation,
+            action: nil,
+            manualOverride: nil,
+            modifierOwnership: modifierOwnership)
+        showDirectionalIndicator(at: NSEvent.mouseLocation, action: nil)
+        directionalTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) {
+            [weak self] _ in self?.updateDirectionalGesture()
+        }
+    }
+
+    /// The idle observer can never delay input. It passively watches chords
+    /// and their cancelling input, cannot alter them, and defers all UI and
+    /// Accessibility work until after its callback has returned.
+    @discardableResult
+    private func startDirectionalModifierTap() -> Bool {
+        guard directionalModifierTap == nil else { return true }
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: WindowDirectionalModifierTapSupport.options,
+            eventsOfInterest: WindowDirectionalModifierTapSupport.eventMask,
+            callback: { _, type, event, userInfo in
+                guard let userInfo else { return Unmanaged.passUnretained(event) }
+                let service = Unmanaged<WindowLayoutService>.fromOpaque(userInfo).takeUnretainedValue()
+                return service.observeDirectionalModifierEvent(type: type, event: event)
+            },
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) else { return false }
+
+        directionalModifierTap = tap
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        directionalModifierTapSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        return true
+    }
+
+    private func stopDirectionalModifierTap() {
+        if let directionalModifierTapSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), directionalModifierTapSource, .commonModes)
+        }
+        directionalModifierTapSource = nil
+        if let directionalModifierTap {
+            CGEvent.tapEnable(tap: directionalModifierTap, enable: false)
+            CFMachPortInvalidate(directionalModifierTap)
+        }
+        directionalModifierTap = nil
+    }
+
+    private func observeDirectionalModifierEvent(type: CGEventType,
+                                                  event: CGEvent) -> Unmanaged<CGEvent>? {
+        guard var hold = directionalModifierHold else { return Unmanaged.passUnretained(event) }
+        let previousOwnership = hold.ownership
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            let sessionOwnership = directionalSession?.modifierOwnership
+            hold.cancel()
+            _ = hold.update(GlobalShortcutModifiers(cgFlags: CGEventSource.flagsState(.combinedSessionState)))
+            directionalModifierHold = hold
+            WindowDirectionalModifierTapSupport.afterCallback { [weak self] in
+                guard let self,
+                      self.directionalModifierHold?.ownership.registrationID == previousOwnership.registrationID
+                else { return }
+                if let sessionOwnership, self.directionalSession?.modifierOwnership == sessionOwnership {
+                    self.cancelDirectionalGesture(modifierCancellation: .preserveHold)
+                }
+                if SessionActivity.shared.isActive, AXIsProcessTrusted(), !ShortcutCapture.isCapturing,
+                   let directionalModifierTap = self.directionalModifierTap {
+                    self.directionalModifierButtons = .current()
+                    _ = self.directionalModifierHold?.update(GlobalShortcutModifiers(
+                        cgFlags: CGEventSource.flagsState(.combinedSessionState)))
+                    CGEvent.tapEnable(tap: directionalModifierTap, enable: true)
+                } else {
+                    self.unregisterDirectionalHotkey()
+                }
+            }
+            return Unmanaged.passUnretained(event)
+        }
+
+        directionalModifierButtons.observe(type,
+            buttonNumber: event.getIntegerValueField(.mouseEventButtonNumber))
+        if WindowDirectionalModifierInputPolicy.cancelsAndPassesThrough(type) {
+            guard hold.cancelForInput() else { return Unmanaged.passUnretained(event) }
+            directionalModifierHold = hold
+            WindowDirectionalModifierTapSupport.afterCallback { [weak self] in
+                guard let self,
+                      self.directionalSession?.modifierOwnership == previousOwnership else { return }
+                self.cancelDirectionalGesture(modifierCancellation: .preserveHold)
+            }
+            return Unmanaged.passUnretained(event)
+        }
+
+        guard type == .flagsChanged else { return Unmanaged.passUnretained(event) }
+        var decision = hold.update(GlobalShortcutModifiers(cgFlags: event.flags))
+        if case .begin = decision, directionalModifierButtons.isPressed {
+            hold.cancel()
+            decision = .cancel
+        }
+        let ownership = hold.ownership
+        let pointerSnapshot: WindowDirectionalModifierPointerSnapshot? = decision == .begin
+            ? .current() : nil
+        let releaseLocation = event.location
+        directionalModifierHold = hold
+        if case .none = decision { return Unmanaged.passUnretained(event) }
+        WindowDirectionalModifierTapSupport.afterCallback { [weak self] in
+            guard let self,
+                  self.directionalModifierHold?.ownership.registrationID == ownership.registrationID
+            else { return }
+            guard !ShortcutCapture.isCapturing, SessionActivity.shared.isActive,
+                  AXIsProcessTrusted() else {
+                self.unregisterDirectionalHotkey()
+                return
+            }
+            switch decision {
+            case .begin:
+                guard self.directionalModifierHold?.ownership == ownership else { return }
+                self.beginDirectionalGesture(pointerSnapshot: pointerSnapshot,
+                                             modifierOwnership: ownership)
+            case .finish:
+                guard self.directionalSession?.modifierOwnership == previousOwnership else { return }
+                guard self.directionalModifierHold?.ownership == ownership else {
+                    self.cancelDirectionalGesture(modifierCancellation: .preserveHold)
+                    return
+                }
+                self.updateDirectionalGesture(at: WindowDirectionalGestureSupport.appKitPoint(
+                    fromQuartz: releaseLocation, menuBarScreenTopY: self.menuBarScreenTopY))
+                self.finishDirectionalGesture()
+            case .cancel:
+                guard self.directionalSession?.modifierOwnership == previousOwnership else { return }
+                self.cancelDirectionalGesture(modifierCancellation: .preserveHold)
+            case .none: break
+            }
+        }
+        return Unmanaged.passUnretained(event)
+    }
+
+    @discardableResult
+    private func startDirectionalTap() -> Bool {
+        guard directionalTap == nil else { return true }
+        let mask = CGEventMask(1 << CGEventType.scrollWheel.rawValue)
+            | CGEventMask(1 << CGEventType.leftMouseDown.rawValue)
+            | CGEventMask(1 << CGEventType.rightMouseDown.rawValue)
+            | CGEventMask(1 << CGEventType.otherMouseDown.rawValue)
+            | CGEventMask(1 << CGEventType.keyDown.rawValue)
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: mask,
+            callback: { _, type, event, userInfo in
+                guard let userInfo else { return Unmanaged.passUnretained(event) }
+                let service = Unmanaged<WindowLayoutService>.fromOpaque(userInfo).takeUnretainedValue()
+                return service.observeDirectionalEvent(type: type, event: event)
+            },
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) else { return false }
+
+        directionalTap = tap
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        directionalTapSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        return true
+    }
+
+    private func observeDirectionalEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            let cancellation: WindowDirectionalModifierCancellation = directionalModifierHold == nil
+                ? .cancelHold : .preserveHold
+            cancelDirectionalGesture(modifierCancellation: cancellation)
+            if !SessionActivity.shared.isActive || !AXIsProcessTrusted() || ShortcutCapture.isCapturing {
+                unregisterDirectionalHotkey()
+            }
+            return Unmanaged.passUnretained(event)
+        }
+        guard !ShortcutCapture.isCapturing, SessionActivity.shared.isActive, AXIsProcessTrusted() else {
+            unregisterDirectionalHotkey()
+            return Unmanaged.passUnretained(event)
+        }
+
+        if directionalModifierHold != nil,
+           WindowDirectionalModifierInputPolicy.cancelsAndPassesThrough(type) {
+            // Modifier-only triggers prefix native clicks, scrolls and keys.
+            // Let the input reach its app and abandon this layout.
+            cancelDirectionalGesture()
+            return Unmanaged.passUnretained(event)
+        }
+        guard var session = directionalSession else { return Unmanaged.passUnretained(event) }
+
+        if type == .scrollWheel {
+            let deltaY = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)
+            let fixedDeltaY = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+            let scrollY = deltaY != 0 ? deltaY : Double(fixedDeltaY)
+
+            if scrollY > 0.5 {
+                session.manualOverride = .maximize
+                directionalSession = session
+                updateDirectionalIndicator(action: .maximize)
+                let preview = placement(for: .maximize, current: session.target.frame,
+                                        visibleFrame: session.visibleFrame).rect
+                showEdgeSnapPreview(frame: preview)
+            } else if scrollY < -0.5 {
+                session.manualOverride = .minimize
+                directionalSession = session
+                updateDirectionalIndicator(action: .minimize)
+                hideEdgeSnapPreview(immediately: true)
+            }
+            return nil
+        }
+
+        if type == .leftMouseDown {
+            session.manualOverride = .maximize
+            directionalSession = session
+            updateDirectionalIndicator(action: .maximize)
+            let preview = placement(for: .maximize, current: session.target.frame,
+                                    visibleFrame: session.visibleFrame).rect
+            showEdgeSnapPreview(frame: preview)
+            return nil
+        }
+
+        if type == .rightMouseDown {
+            session.manualOverride = .minimize
+            directionalSession = session
+            updateDirectionalIndicator(action: .minimize)
+            hideEdgeSnapPreview(immediately: true)
+            return nil
+        }
+
+        if type == .keyDown {
+            let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+            let isAutorepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+            let allowManual = WindowDirectionalGestureSupport.shouldApplyKeyboardManualOverride(
+                isAutorepeat: isAutorepeat)
+            if keyCode == 49 || keyCode == 36 || keyCode == 126 { // Space, Return, Up
+                if allowManual {
+                    session.manualOverride = .maximize
+                    directionalSession = session
+                    updateDirectionalIndicator(action: .maximize)
+                    let preview = placement(for: .maximize, current: session.target.frame,
+                                            visibleFrame: session.visibleFrame).rect
+                    showEdgeSnapPreview(frame: preview)
+                }
+                return nil
+            } else if keyCode == 46 || keyCode == 125 { // M, Down
+                if allowManual {
+                    session.manualOverride = .minimize
+                    directionalSession = session
+                    updateDirectionalIndicator(action: .minimize)
+                    hideEdgeSnapPreview(immediately: true)
+                }
+                return nil
+            } else if keyCode == 53 { // Escape
+                cancelDirectionalGesture()
+                return nil
+            }
+        }
+
+        return Unmanaged.passUnretained(event)
+    }
+
+    private func isAnyMouseButtonPressed() -> Bool {
+        (0..<32).contains { index in
+            guard let button = CGMouseButton(rawValue: UInt32(index)) else { return false }
+            return CGEventSource.buttonState(.combinedSessionState, button: button)
+        }
+    }
+
+    private func updateDirectionalGesture(at pointer: CGPoint? = nil) {
+        guard var session = directionalSession else { return }
+        let currentMouse = pointer ?? NSEvent.mouseLocation
+        let distance = hypot(currentMouse.x - session.pointerOrigin.x,
+                             currentMouse.y - session.pointerOrigin.y)
+
+        let directionalAction = WindowDirectionalGestureSupport.action(
+            from: session.pointerOrigin,
+            to: currentMouse
+        )
+
+        if distance >= WindowDirectionalGestureSupport.activationDistance {
+            session.manualOverride = nil
+        }
+
+        let action = session.manualOverride ?? directionalAction
+        guard action != session.action else { return }
+
+        session.action = action
+        directionalSession = session
+        updateDirectionalIndicator(action: action)
+
+        guard let action else {
+            hideEdgeSnapPreview(immediately: false)
+            return
+        }
+
+        if let layoutAction = action.layoutAction {
+            let preview = placement(for: layoutAction, current: session.target.frame,
+                                    visibleFrame: session.visibleFrame).rect
+            showEdgeSnapPreview(frame: preview)
+        } else {
+            hideEdgeSnapPreview(immediately: true)
+        }
+    }
+
+    private func finishDirectionalGesture() {
+        stopDirectionalTap()
+        guard let session = directionalSession else { return }
+        directionalTimer?.invalidate()
+        directionalTimer = nil
+        directionalSession = nil
+        hideEdgeSnapPreview(immediately: true)
+        hideDirectionalIndicator()
+
+        guard let action = session.action else { return }
+        if let layoutAction = action.layoutAction {
+            _ = applyPlacement(layoutAction, to: session.target, visibleFrame: session.visibleFrame,
+                               cyclesRepeatedAction: false)
+        } else if action == .minimize {
+            _ = minimize(target: session.target)
+        }
+    }
+
+    private func cancelDirectionalGesture(
+        modifierCancellation: WindowDirectionalModifierCancellation = .cancelHold
+    ) {
+        if let hold = directionalModifierHold {
+            directionalModifierHold = modifierCancellation.applied(to: hold)
+        }
+        stopDirectionalTap()
+        directionalTimer?.invalidate()
+        directionalTimer = nil
+        directionalSession = nil
+        hideEdgeSnapPreview(immediately: true)
+        hideDirectionalIndicator()
+    }
+
+    private func stopDirectionalTap() {
+        if let directionalTapSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), directionalTapSource, .commonModes)
+        }
+        directionalTapSource = nil
+        if let directionalTap {
+            CGEvent.tapEnable(tap: directionalTap, enable: false)
+            CFMachPortInvalidate(directionalTap)
+        }
+        directionalTap = nil
+    }
+
+    @discardableResult
+    private func minimize(target: WindowLayoutTarget) -> Bool {
+        guard AXIsProcessTrusted() else { return false }
+        let status = AXUIElementSetAttributeValue(target.window,
+                                                  kAXMinimizedAttribute as CFString,
+                                                  kCFBooleanTrue)
+        return status == .success
+    }
+
+    private func showDirectionalIndicator(at pointer: CGPoint, action: WindowDirectionalAction?) {
+        let size = CGSize(width: 180, height: 180)
+        let screenFrame = NSScreen.screens.first(where: { NSMouseInRect(pointer, $0.frame, false) })?.visibleFrame
+            ?? NSScreen.main?.visibleFrame ?? .zero
+        var origin = CGPoint(x: pointer.x - size.width / 2, y: pointer.y - size.height / 2)
+        origin.x = min(max(origin.x, screenFrame.minX + 8), screenFrame.maxX - size.width - 8)
+        origin.y = min(max(origin.y, screenFrame.minY + 8), screenFrame.maxY - size.height - 8)
+        let panel: NSPanel
+        if let directionalIndicatorPanel {
+            panel = directionalIndicatorPanel
+        } else {
+            panel = OverlayPanel(contentRect: .zero,
+                                 styleMask: [.borderless, .nonactivatingPanel],
+                                 backing: .buffered,
+                                 defer: false)
+            panel.backgroundColor = .clear
+            panel.isOpaque = false
+            panel.hasShadow = true
+            panel.ignoresMouseEvents = true
+            panel.hidesOnDeactivate = false
+            panel.isReleasedWhenClosed = false
+            panel.level = .statusBar
+            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary,
+                                        .transient, .ignoresCycle]
+            panel.animationBehavior = .none
+            panel.contentView = WindowDirectionalIndicatorView(frame: CGRect(origin: .zero, size: size))
+            directionalIndicatorPanel = panel
+        }
+        panel.setFrame(CGRect(origin: origin, size: size), display: true)
+        updateDirectionalIndicator(action: action)
+        panel.alphaValue = 0
+        panel.orderFrontRegardless()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.08
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().alphaValue = 1
+        }
+    }
+
+    private func updateDirectionalIndicator(action: WindowDirectionalAction?) {
+        guard let view = directionalIndicatorPanel?.contentView as? WindowDirectionalIndicatorView else { return }
+        view.action = action
+    }
+
+    private func hideDirectionalIndicator() {
+        directionalIndicatorPanel?.orderOut(nil)
+    }
+
+    // MARK: - Drag to screen edge
+
+    /// The callback copies scalar values and gets out of the input path before
+    /// any Accessibility or UI work. It only adjusts the exact top coordinate
+    /// after a window move has already been confirmed on the main queue.
+    private func startEdgeSnapTap() {
+        guard edgeSnapTap == nil else { return }
+        let mask = CGEventMask(1 << CGEventType.leftMouseDown.rawValue)
+            | CGEventMask(1 << CGEventType.leftMouseDragged.rawValue)
+            | CGEventMask(1 << CGEventType.leftMouseUp.rawValue)
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: mask,
+            callback: { _, type, event, userInfo in
+                guard let userInfo else { return Unmanaged.passUnretained(event) }
+                let service = Unmanaged<WindowLayoutService>.fromOpaque(userInfo).takeUnretainedValue()
+                return service.observeEdgeSnapEvent(type: type, event: event)
+            },
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) else { return }
+
+        edgeSnapTap = tap
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        edgeSnapRunLoopSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+    }
+
+    private func stopEdgeSnapTap() {
+        edgeSnapSequenceGeneration += 1
+        // A resolve still in flight answers against the old generation and is
+        // dropped, so the flag it holds has to be released here or the next
+        // drag would never start one.
+        edgeSnapResolving = false
+        edgeSnapPressOrigin = nil
+        edgeSnapPressCandidate = nil
+        edgeSnapLastPointer = nil
+        resetEdgeSnapTrail()
+        edgeSnapSequenceSuppressed = false
+        edgeSnapResolveAttempts = 0
+        edgeSnapDrag = nil
+        hideEdgeSnapPreview(immediately: true)
+        if let edgeSnapRunLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), edgeSnapRunLoopSource, .commonModes)
+        }
+        if let edgeSnapTap {
+            CGEvent.tapEnable(tap: edgeSnapTap, enable: false)
+            CFMachPortInvalidate(edgeSnapTap)
+        }
+        edgeSnapTap = nil
+        edgeSnapRunLoopSource = nil
+        edgeSnapPreviewPanel = nil
+    }
+
+    private func observeEdgeSnapEvent(type: CGEventType,
+                                      event: CGEvent) -> Unmanaged<CGEvent>? {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if SessionActivity.shared.isActive, AXIsProcessTrusted(), let edgeSnapTap {
+                CGEvent.tapEnable(tap: edgeSnapTap, enable: true)
+            } else {
+                DispatchQueue.main.async { [weak self] in self?.syncWithPreferences() }
+            }
+            DispatchQueue.main.async { [weak self] in self?.cancelEdgeSnapTracking() }
+            return Unmanaged.passUnretained(event)
+        }
+        guard event.getIntegerValueField(.eventSourceUserData) != Self.syntheticEventMarker,
+              event.getIntegerValueField(.eventSourceUnixProcessID) != Self.ownProcessID
+        else { return Unmanaged.passUnretained(event) }
+
+        if type == .leftMouseDown {
+            edgeSnapSequenceSuppressed = WindowEdgeSnapSupport.isSystemTilingEnabled
+        } else if edgeSnapSequenceSuppressed {
+            if type == .leftMouseUp { edgeSnapSequenceSuppressed = false }
+            return Unmanaged.passUnretained(event)
+        }
+        guard !edgeSnapSequenceSuppressed else { return Unmanaged.passUnretained(event) }
+
+        let input: WindowEdgeSnapPointerInput
+        switch type {
+        case .leftMouseDown:
+            input = .down(location: event.location, flags: event.flags)
+        case .leftMouseDragged:
+            let originalLocation = event.location
+            input = .dragged(location: originalLocation, time: Self.seconds(of: event))
+            if let drag = edgeSnapDrag,
+               drag.isMoving,
+               drag.protectsSystemTopEdge {
+                event.location = WindowEdgeSnapSupport.locationAvoidingSystemTopDrag(
+                    originalLocation,
+                    screenFrames: drag.quartzScreenFrames,
+                    enabledZones: drag.enabledZones
+                )
+            }
+        case .leftMouseUp:
+            input = .up(location: event.location, time: Self.seconds(of: event))
+        default:
+            return Unmanaged.passUnretained(event)
+        }
+        DispatchQueue.main.async { [weak self] in self?.handleEdgeSnapInput(input) }
+        return Unmanaged.passUnretained(event)
+    }
+
+    /// Seconds of uptime, on the clock event timestamps use, so speed is read
+    /// from when the pointer moved rather than when the main thread got to it.
+    private static func seconds(of event: CGEvent) -> TimeInterval {
+        // Some software posts events with no timestamp. Read as zero, every
+        // event of a drag would land on one instant: the trail would never
+        // age and every reading would be fast, so the clock stands in.
+        guard event.timestamp != 0 else { return uptimeSeconds }
+        return TimeInterval(EventTimestamp.nanoseconds(of: event)) / 1_000_000_000
+    }
+
+    private static var uptimeSeconds: TimeInterval {
+        TimeInterval(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1_000_000_000
+    }
+
+    private func handleEdgeSnapInput(_ input: WindowEdgeSnapPointerInput) {
+        switch input {
+        case .down(let location, let flags):
+            cancelEdgeSnapTracking()
+            edgeSnapSequenceSuppressed = false
+            guard AppFeature.windowLayout.isAvailable,
+                  UserDefaults.standard.bool(forKey: DefaultsKey.windowEdgeSnapEnabled),
+                  !enabledEdgeSnapZones.isEmpty,
+                  !WindowEdgeSnapSupport.isSystemTilingEnabled,
+                  AXIsProcessTrusted(),
+                  !edgeSnapConflictsWithWindowGesture(flags: flags)
+            else {
+                edgeSnapSequenceSuppressed = true
+                return
+            }
+            guard let candidate = WindowServerWindowHitTest.candidate(at: location, pidIsEligible: {
+                guard let app = NSRunningApplication(processIdentifier: $0) else { return false }
+                return !app.isTerminated && app.activationPolicy == .regular
+            }),
+            !WindowEdgeSnapSupport.startsAtResizeHandle(location, frame: candidate.frame)
+            else {
+                edgeSnapSequenceSuppressed = true
+                return
+            }
+            edgeSnapPressOrigin = location
+            edgeSnapPressCandidate = candidate
+            edgeSnapResolveAttempts = 0
+            edgeSnapLastResolveAt = 0
+
+        case .dragged(let location, let time):
+            guard let pressOrigin = edgeSnapPressOrigin,
+                  let pressCandidate = edgeSnapPressCandidate,
+                  activeGesture == nil, pendingGesture == nil
+            else {
+                cancelEdgeSnapTracking()
+                return
+            }
+            edgeSnapLastPointer = location
+            edgeSnapTrail.append(location, at: time)
+            if edgeSnapDrag == nil,
+               WindowGestureSupport.exceedsDragSlop(from: pressOrigin, to: location) {
+                let now = ProcessInfo.processInfo.systemUptime
+                if !edgeSnapResolving, edgeSnapResolveAttempts < 4,
+                   now - edgeSnapLastResolveAt >= 0.08 {
+                    edgeSnapResolveAttempts += 1
+                    edgeSnapLastResolveAt = now
+                    beginEdgeSnapResolve(pointerStart: pressOrigin,
+                                         pressCandidate: pressCandidate)
+                }
+            }
+            updateEdgeSnapDrag(at: location, forceSample: false, now: time)
+            scheduleEdgeSnapStillCheck()
+
+        case .up(let location, let time):
+            let pressOrigin = edgeSnapPressOrigin
+            let pressCandidate = edgeSnapPressCandidate
+            let velocity = edgeSnapTrail.velocity(at: time)
+            // Looking the window up here waits on its app from the run loop
+            // that serves the taps. It happens only for a release over a snap
+            // zone, once the window server shows the window followed the
+            // pointer, so the release of a drag inside an app never asks that
+            // app.
+            let releasedOverZone = pressOrigin.map {
+                WindowGestureSupport.exceedsDragSlop(from: $0, to: location)
+                    && edgeSnapTarget(atQuartzPoint: location, velocity: velocity) != nil
+            } ?? false
+            var lookedUpAtRelease = false
+            if edgeSnapDrag == nil, releasedOverZone,
+               let pressOrigin, let pressCandidate,
+               edgeSnapWindowFollowed(pressCandidate, from: pressOrigin, to: location) {
+                lookedUpAtRelease = true
+                edgeSnapDrag = makeEdgeSnapDrag(pointerStart: pressOrigin,
+                                                pressCandidate: pressCandidate)
+            }
+            updateEdgeSnapDrag(at: location, forceSample: true, now: time)
+            let completed = edgeSnapDrag
+            edgeSnapPressOrigin = nil
+            edgeSnapPressCandidate = nil
+            edgeSnapLastPointer = nil
+            resetEdgeSnapTrail()
+            edgeSnapResolveAttempts = 0
+            edgeSnapDrag = nil
+            hideEdgeSnapPreview(immediately: false)
+            let generation = edgeSnapSequenceGeneration
+            guard let completed else {
+                // A window whose lookup already came back empty at release is
+                // not asked a second time.
+                guard releasedOverZone, !lookedUpAtRelease,
+                      let pressOrigin, let pressCandidate
+                else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
+                    guard let self, generation == self.edgeSnapSequenceGeneration,
+                          self.edgeSnapWindowFollowed(pressCandidate, from: pressOrigin, to: location),
+                          let delayed = self.makeEdgeSnapDrag(pointerStart: pressOrigin,
+                                                              pressCandidate: pressCandidate)
+                    else { return }
+                    self.applyDelayedEdgeSnapIfMoved(delayed, releaseLocation: location, velocity: velocity)
+                }
+                return
+            }
+            if !completed.isMoving {
+                guard let pressOrigin,
+                      WindowGestureSupport.exceedsDragSlop(from: pressOrigin, to: location)
+                else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
+                    guard let self, generation == self.edgeSnapSequenceGeneration else { return }
+                    self.applyDelayedEdgeSnapIfMoved(completed, releaseLocation: location, velocity: velocity)
+                }
+                return
+            }
+            guard let target = completed.target else { return }
+            // The callback has already forwarded this mouse-up. One
+            // more main-loop turn lets the target app finish its own drag
+            // before the placement writes the final frame.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, generation == self.edgeSnapSequenceGeneration else { return }
+                self.applyEdgeSnap(completed, target: target)
+            }
+        }
+    }
+
+    /// The check 40 ms after a release that left the drag undecided, which
+    /// covers nearly every drag inside an app. The frame comes from the window
+    /// server like every sample before it, and only a window that moved goes on
+    /// to the placement, the one step that has to ask its app.
+    private func applyDelayedEdgeSnapIfMoved(_ drag: WindowEdgeSnapDrag,
+                                             releaseLocation: CGPoint,
+                                             velocity: CGVector) {
+        guard let current = WindowServerSupport.frame(ofWindowID: drag.key.windowID),
+              WindowEdgeSnapSupport.classify(
+                initialFrame: drag.initialFrame,
+                currentFrame: current,
+                pointerStart: drag.pointerStart,
+                pointerNow: releaseLocation
+              ) == .moving,
+              let target = edgeSnapTarget(atQuartzPoint: releaseLocation, velocity: velocity)
+        else { return }
+        applyEdgeSnap(drag, target: target)
+    }
+
+    /// Whether the pressed window followed the pointer, as the window server
+    /// sees it right now. It decides whether the release may ask the window's
+    /// app at all.
+    private func edgeSnapWindowFollowed(_ candidate: WindowServerWindowCandidate,
+                                        from pointerStart: CGPoint,
+                                        to pointer: CGPoint) -> Bool {
+        guard let current = WindowServerSupport.frame(ofWindowID: candidate.windowID) else { return false }
+        return WindowEdgeSnapSupport.classify(initialFrame: candidate.frame,
+                                              currentFrame: current,
+                                              pointerStart: pointerStart,
+                                              pointerNow: pointer) == .moving
+    }
+
+    private func edgeSnapConflictsWithWindowGesture(flags: CGEventFlags) -> Bool {
+        guard UserDefaults.standard.bool(forKey: DefaultsKey.windowGestureEnabled) else { return false }
+        let move = WindowGestureSupport.modifiers(
+            from: UserDefaults.standard.string(forKey: DefaultsKey.windowGestureModifiers)
+        )
+        return WindowGestureSupport.modifiersMatch(eventFlags: flags, expected: move)
+            || WindowGestureSupport.modifiersMatch(
+                eventFlags: flags,
+                expected: WindowGestureSupport.resizeModifiers(from: move)
+            )
+    }
+
+    /// Resolves the dragged window without the drag ever waiting for it.
+    ///
+    /// Finding the Accessibility element means asking the application for its
+    /// window list and then asking each window for its identifier, and both are
+    /// cross-process calls answered by that application's main thread. Measured
+    /// on a real drag, that search was most of what the main thread still spent
+    /// blocked, which showed up as a stall at every press.
+    ///
+    /// Nothing during a drag needs that element: the rectangle comes from the
+    /// window server and the snap target is pure geometry. It is needed only to
+    /// move the window once the drag ends, so it is resolved in the background
+    /// and adopted when it arrives. A drag that ends before the answer still
+    /// snaps, because the release path looks the window up itself. That lookup
+    /// runs on the run loop the taps share, so it is kept for a window the
+    /// window server saw follow the pointer.
+    private func beginEdgeSnapResolve(pointerStart: CGPoint,
+                                      pressCandidate: WindowServerWindowCandidate) {
+        edgeSnapResolving = true
+        let generation = edgeSnapSequenceGeneration
+        // NSScreen is main-thread only, so the geometry is captured before leaving.
+        let screenFrames = edgeSnapQuartzScreenFrames()
+        let zones = enabledEdgeSnapZones
+        let protectsTop = WindowEdgeSnapSupport.isSystemTopWindowOverviewDragEnabled
+        let onScreen = onScreenWindowIDs()
+        edgeSnapResolveQueue.async { [weak self] in
+            let resolved = self?.resolveEdgeSnapWindow(pressCandidate: pressCandidate,
+                                                       onScreenWindowIDs: onScreen)
+            DispatchQueue.main.async {
+                guard let self, self.edgeSnapSequenceGeneration == generation else { return }
+                self.edgeSnapResolving = false
+                guard let resolved, self.edgeSnapDrag == nil,
+                      self.edgeSnapPressCandidate != nil else { return }
+                self.edgeSnapDrag = WindowEdgeSnapDrag(window: resolved.window,
+                                                       key: resolved.key,
+                                                       initialFrame: pressCandidate.frame,
+                                                       pointerStart: pointerStart,
+                                                       protectsSystemTopEdge: protectsTop,
+                                                       quartzScreenFrames: screenFrames,
+                                                       enabledZones: zones,
+                                                       lastSampleAt: 0,
+                                                       mismatchCount: 0,
+                                                       isMoving: false,
+                                                       target: nil)
+                // The pointer may already rest at an edge, and no further drag
+                // event would come to show the preview or to protect the top
+                // edge until it moves again.
+                if let pointer = self.edgeSnapLastPointer {
+                    self.updateEdgeSnapDrag(at: pointer, forceSample: true, now: Self.uptimeSeconds)
+                }
+            }
+        }
+    }
+
+    /// The Accessibility half, off the main thread. Touches no service state.
+    private func resolveEdgeSnapWindow(pressCandidate: WindowServerWindowCandidate,
+                                       onScreenWindowIDs: Set<CGWindowID>?)
+        -> (window: AXUIElement, key: WindowLayoutWindowKey)? {
+        guard let app = NSRunningApplication(processIdentifier: pressCandidate.pid),
+              !app.isTerminated, app.activationPolicy == .regular else { return nil }
+        let axApp = AXUIElementCreateApplication(pressCandidate.pid)
+        AXUIElementSetMessagingTimeout(axApp, 0.25)
+        guard let window = windowsAttribute(axApp)?.first(where: {
+                  AXWindowResolver.windowID(for: $0) == pressCandidate.windowID
+              }) else { return nil }
+        AXUIElementSetMessagingTimeout(window, 0.25)
+        guard let onScreenWindowIDs,
+              let target = target(from: window,
+                                  app: app,
+                                  onScreenWindowIDs: onScreenWindowIDs,
+                                  capability: .frame) else { return nil }
+        return (target.window, target.key)
+    }
+
+    /// The same lookup as the background path, run inline. Only the release
+    /// path uses it, for a window the window server saw follow the pointer,
+    /// since the taps wait on this run loop while it asks the window's app.
+    private func makeEdgeSnapDrag(pointerStart: CGPoint,
+                                  pressCandidate: WindowServerWindowCandidate) -> WindowEdgeSnapDrag? {
+        guard let resolved = resolveEdgeSnapWindow(pressCandidate: pressCandidate,
+                                                   onScreenWindowIDs: onScreenWindowIDs())
+        else { return nil }
+        return WindowEdgeSnapDrag(window: resolved.window,
+                                  key: resolved.key,
+                                  initialFrame: pressCandidate.frame,
+                                  pointerStart: pointerStart,
+                                  protectsSystemTopEdge: WindowEdgeSnapSupport.isSystemTopWindowOverviewDragEnabled,
+                                  quartzScreenFrames: edgeSnapQuartzScreenFrames(),
+                                  enabledZones: enabledEdgeSnapZones,
+                                  lastSampleAt: 0,
+                                  mismatchCount: 0,
+                                  isMoving: false,
+                                  target: nil)
+    }
+
+    /// `now` is the moment the reading is for: the event's own time, or the
+    /// clock when no event brought it.
+    private func updateEdgeSnapDrag(at location: CGPoint, forceSample: Bool, now: TimeInterval) {
+        guard var drag = edgeSnapDrag else { return }
+        if !drag.isMoving {
+            let sampledAt = ProcessInfo.processInfo.systemUptime
+            guard forceSample || sampledAt - drag.lastSampleAt >= edgeSnapSampleInterval else { return }
+            drag.lastSampleAt = sampledAt
+            // Sampled up to thirty times a second for the length of a drag, so
+            // it must not wait on anybody. Accessibility would ask the dragged
+            // application, whose main thread is the one redrawing that drag;
+            // the window server already holds the rectangle and answers without
+            // stalling. The press frame comes from the same source, so both
+            // sides of the comparison stay in one coordinate space.
+            guard let currentFrame = WindowServerSupport.frame(ofWindowID: drag.key.windowID) else {
+                cancelEdgeSnapTracking()
+                return
+            }
+            switch WindowEdgeSnapSupport.classify(initialFrame: drag.initialFrame,
+                                                  currentFrame: currentFrame,
+                                                  pointerStart: drag.pointerStart,
+                                                  pointerNow: location) {
+            case .waiting:
+                edgeSnapDrag = drag
+                return
+            case .moving:
+                drag.isMoving = true
+                drag.mismatchCount = 0
+            case .resizing:
+                cancelEdgeSnapTracking()
+                return
+            case .unrelated:
+                drag.mismatchCount += 1
+                if drag.mismatchCount >= 3 {
+                    cancelEdgeSnapTracking()
+                } else {
+                    edgeSnapDrag = drag
+                }
+                return
+            }
+        }
+
+        let target = edgeSnapTarget(atQuartzPoint: location, velocity: edgeSnapTrail.velocity(at: now))
+        if target != drag.target {
+            drag.target = target
+            if let target {
+                showEdgeSnapPreview(frame: target.frame)
+            } else {
+                hideEdgeSnapPreview(immediately: false)
+            }
+        }
+        edgeSnapDrag = drag
+    }
+
+    /// `velocity` is in Quartz points per second, like the point.
+    private func edgeSnapTarget(atQuartzPoint point: CGPoint, velocity: CGVector) -> WindowEdgeSnapTarget? {
+        let appKitPoint = CGPoint(x: point.x, y: menuBarScreenTopY - point.y)
+        let screens = NSScreen.screens.map {
+            WindowEdgeSnapScreen(frame: $0.frame, visibleFrame: $0.visibleFrame)
+        }
+        return WindowEdgeSnapSupport.target(at: appKitPoint,
+                                            screens: screens,
+                                            velocity: CGVector(dx: velocity.dx, dy: -velocity.dy),
+                                            enabledZones: enabledEdgeSnapZones,
+                                            layout: edgeSnapLayout)
+    }
+
+    /// A pointer that stops at a seam after moving fast sends no further
+    /// event, so the last reading would stay fast. One look after it has been
+    /// still for long enough reads it as stopped. A mouse can report a
+    /// thousand times a second through any drag, text selection included, so
+    /// one look waits at a time and moves itself on while events keep coming.
+    private func scheduleEdgeSnapStillCheck() {
+        guard !edgeSnapStillCheckPending else { return }
+        edgeSnapStillCheckPending = true
+        armEdgeSnapStillCheck(after: WindowEdgeSnapPointerTrail.stillAfter)
+    }
+
+    private func armEdgeSnapStillCheck(after delay: TimeInterval) {
+        let check = edgeSnapStillCheckGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            // Every cancel resets the trail, which moves this generation on too.
+            guard let self, check == self.edgeSnapStillCheckGeneration else { return }
+            let now = Self.uptimeSeconds
+            let stillAfter = WindowEdgeSnapPointerTrail.stillAfter
+            if let last = self.edgeSnapTrail.lastTime, now - last < stillAfter {
+                // The pointer moved since this look was set, so it waits out
+                // the rest of the pause from the last event, and never longer
+                // than a whole pause for an event stamped ahead of the clock.
+                self.armEdgeSnapStillCheck(after: min(stillAfter - (now - last), stillAfter))
+                return
+            }
+            self.edgeSnapStillCheckPending = false
+            guard let pointer = self.edgeSnapLastPointer else { return }
+            self.updateEdgeSnapDrag(at: pointer, forceSample: true, now: now)
+        }
+    }
+
+    private func resetEdgeSnapTrail() {
+        edgeSnapTrail.reset()
+        edgeSnapStillCheckGeneration += 1
+        edgeSnapStillCheckPending = false
+    }
+
+    private func edgeSnapQuartzScreenFrames() -> [CGRect] {
+        let top = menuBarScreenTopY
+        return NSScreen.screens.map {
+            CGRect(x: $0.frame.minX,
+                   y: top - $0.frame.maxY,
+                   width: $0.frame.width,
+                   height: $0.frame.height)
+        }
+    }
+
+    private func applyEdgeSnap(_ drag: WindowEdgeSnapDrag,
+                               target: WindowEdgeSnapTarget) {
+        guard AppFeature.windowLayout.isAvailable,
+              UserDefaults.standard.bool(forKey: DefaultsKey.windowEdgeSnapEnabled),
+              enabledEdgeSnapZones.contains(target.zone),
+              !WindowEdgeSnapSupport.isSystemTilingEnabled,
+              AXIsProcessTrusted(),
+              canSetFrame(on: drag.window),
+              AXWindowResolver.windowID(for: drag.window) == drag.key.windowID,
+              let currentFrame = frame(of: drag.window)
+        else { return }
+        var processID = pid_t(0)
+        guard AXUIElementGetPid(drag.window, &processID) == .success,
+              processID == drag.key.processID else { return }
+
+        let layoutTarget = WindowLayoutTarget(window: drag.window,
+                                              key: drag.key,
+                                              frame: currentFrame)
+        pruneWindowState(keeping: drag.key)
+        let history = WindowLayoutFrame(origin: drag.initialFrame.origin,
+                                        size: drag.initialFrame.size)
+        _ = applyPlacement(target.action,
+                           to: layoutTarget,
+                           visibleFrame: target.visibleFrame,
+                           historyFrame: history,
+                           cyclesRepeatedAction: false)
+    }
+
+    private func cancelEdgeSnapTracking() {
+        edgeSnapSequenceGeneration += 1
+        // A resolve still in flight answers against the old generation and is
+        // dropped, so the flag it holds has to be released here or the next
+        // drag would never start one.
+        edgeSnapResolving = false
+        edgeSnapPressOrigin = nil
+        edgeSnapPressCandidate = nil
+        edgeSnapLastPointer = nil
+        resetEdgeSnapTrail()
+        edgeSnapSequenceSuppressed = true
+        edgeSnapResolveAttempts = 0
+        edgeSnapDrag = nil
+        hideEdgeSnapPreview(immediately: false)
+    }
+
+    private var enabledEdgeSnapZones: Set<WindowEdgeSnapZone> {
+        WindowEdgeSnapZone.enabledZones(
+            from: UserDefaults.standard.string(forKey: DefaultsKey.windowEdgeSnapDisabledZones)
+        )
+    }
+
+    private var edgeSnapLayout: WindowEdgeSnapLayout {
+        WindowEdgeSnapLayout(
+            storageValue: UserDefaults.standard.string(forKey: DefaultsKey.windowEdgeSnapZoneActions)
+        )
+    }
+
+    private func showEdgeSnapPreview(frame: CGRect) {
+        edgeSnapPreviewGeneration += 1
+        let panel: NSPanel
+        if let existing = edgeSnapPreviewPanel {
+            panel = existing
+        } else {
+            panel = makeEdgeSnapPreviewPanel()
+            edgeSnapPreviewPanel = panel
+        }
+        panel.setFrame(frame, display: true)
+        if !panel.isVisible {
+            panel.alphaValue = 0
+            panel.orderFrontRegardless()
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.09
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().alphaValue = 1
+        }
+    }
+
+    private func hideEdgeSnapPreview(immediately: Bool) {
+        guard let panel = edgeSnapPreviewPanel, panel.isVisible else { return }
+        edgeSnapPreviewGeneration += 1
+        let generation = edgeSnapPreviewGeneration
+        if immediately {
+            panel.alphaValue = 0
+            panel.orderOut(nil)
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.08
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().alphaValue = 0
+        } completionHandler: { [weak self, weak panel] in
+            guard let self, let panel,
+                  generation == self.edgeSnapPreviewGeneration else { return }
+            panel.orderOut(nil)
+        }
+    }
+
+    private func makeEdgeSnapPreviewPanel() -> NSPanel {
+        let panel = OverlayPanel(contentRect: .zero,
+                                 styleMask: [.borderless, .nonactivatingPanel],
+                                 backing: .buffered,
+                                 defer: false)
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.level = .statusBar
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary,
+                                    .transient, .ignoresCycle]
+        panel.animationBehavior = .none
+        panel.contentView = WindowEdgeSnapPreviewView(frame: .zero)
+        return panel
     }
 
     // MARK: - Move and resize gesture
@@ -402,10 +2033,10 @@ final class WindowLayoutService: ObservableObject {
             place: .headInsertEventTap,
             options: .defaultTap,
             eventsOfInterest: mask,
-            callback: { _, type, event, userInfo in
+            callback: { proxy, type, event, userInfo in
                 guard let userInfo else { return Unmanaged.passUnretained(event) }
                 let service = Unmanaged<WindowLayoutService>.fromOpaque(userInfo).takeUnretainedValue()
-                return service.handleGestureEvent(type: type, event: event)
+                return service.handleGestureEvent(proxy: proxy, type: type, event: event)
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
@@ -422,92 +2053,228 @@ final class WindowLayoutService: ObservableObject {
     }
 
     private func stopGestureTap() {
-        if let gestureTap {
-            CGEvent.tapEnable(tap: gestureTap, enable: false)
-        }
+        // A press still under custody has to go back to the app before the
+        // tap that is holding it disappears, or that click is simply lost.
+        flushPending(proxy: nil, at: nil)
         if let gestureRunLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), gestureRunLoopSource, .commonModes)
+        }
+        if let gestureTap {
+            CGEvent.tapEnable(tap: gestureTap, enable: false)
+            CFMachPortInvalidate(gestureTap)
         }
         gestureTap = nil
         gestureRunLoopSource = nil
         activeGesture = nil
+        pendingGesture = nil
+        endGestureAssistiveMode()
         isGestureRunning = false
     }
 
-    private func handleGestureEvent(type: CGEventType,
+    private var gestureState: WindowGestureState {
+        if activeGesture != nil { return .active }
+        if pendingGesture != nil { return .pending }
+        return .idle
+    }
+
+    private var trackedGestureButton: WindowPointerGesture.Button? {
+        activeGesture?.button ?? pendingGesture?.button
+    }
+
+    /// Whether the button that started the press is still down. Only worth
+    /// asking when the tap was switched off, because that is the one moment
+    /// the release can reach the app without passing through here.
+    private func isTrackedButtonDown() -> Bool {
+        guard let button = trackedGestureButton else { return false }
+        return CGEventSource.buttonState(.combinedSessionState,
+                                         button: button == .primary ? .left : .right)
+    }
+
+    /// A press that carries the chord is held back, not taken: the app only
+    /// loses it once the pointer moves far enough to mean a window gesture.
+    /// A press that ends where it started is handed straight back, so an
+    /// ordinary modifier click keeps working in every app.
+    private func handleGestureEvent(proxy: CGEventTapProxy?,
+                                    type: CGEventType,
                                     event: CGEvent) -> Unmanaged<CGEvent>? {
-        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            activeGesture = nil
-            if let gestureTap { CGEvent.tapEnable(tap: gestureTap, enable: true) }
+        // The press this service gave back to the system. Looking at it again
+        // would take it right back and never let go.
+        if event.getIntegerValueField(.eventSourceUserData) == Self.syntheticEventMarker
+            || event.getIntegerValueField(.eventSourceUnixProcessID) == Self.ownProcessID {
             return Unmanaged.passUnretained(event)
         }
 
-        // Never enter Accessibility from a live tap after the grant is
-        // revoked. A blocked AX call here would stall system input.
-        guard AXIsProcessTrusted() else {
-            activeGesture = nil
-            return Unmanaged.passUnretained(event)
-        }
-
-        if var gesture = activeGesture {
-            switch (gesture.button, type) {
-            case (.primary, .leftMouseDragged), (.secondary, .rightMouseDragged):
-                let now = ProcessInfo.processInfo.systemUptime
-                let updateInterval: TimeInterval
-                switch gesture.kind {
-                case .move:
-                    updateInterval = moveGestureUpdateInterval
-                case .resize:
-                    updateInterval = resizeGestureUpdateInterval
-                }
-                if now - gesture.lastAppliedAt >= updateInterval {
-                    apply(gesture, pointer: event.location)
-                    gesture.lastAppliedAt = now
-                    activeGesture = gesture
-                }
-                return nil
-            case (.primary, .leftMouseUp), (.secondary, .rightMouseUp):
-                apply(gesture, pointer: event.location)
-                activeGesture = nil
-                return nil
-            default:
-                return Unmanaged.passUnretained(event)
+        let tapDisabled = type == .tapDisabledByTimeout || type == .tapDisabledByUserInput
+        if tapDisabled, let gestureTap {
+            if SessionActivity.shared.isActive, AXIsProcessTrusted() {
+                CGEvent.tapEnable(tap: gestureTap, enable: true)
+            } else {
+                DispatchQueue.main.async { [weak self] in self?.syncWithPreferences() }
             }
         }
 
-        guard type == .leftMouseDown || type == .rightMouseDown else {
+        var chord: (button: WindowPointerGesture.Button, wantsResize: Bool)?
+        let input: WindowGestureInput
+        if tapDisabled {
+            input = .tapDisabled(buttonStillDown: isTrackedButtonDown())
+        } else if !AXIsProcessTrusted() {
+            // Never enter Accessibility from a live tap after the grant is
+            // revoked. A blocked AX call here would stall system input.
+            input = .accessibilityLost
+        } else {
+            switch type {
+            case .leftMouseDown, .rightMouseDown:
+                let button: WindowPointerGesture.Button =
+                    type == .leftMouseDown ? .primary : .secondary
+                chord = gestureChord(type: type, flags: event.flags)
+                input = .buttonDown(sameButton: button == trackedGestureButton,
+                                    chordMatched: chord != nil)
+            case .leftMouseDragged, .rightMouseDragged:
+                let button: WindowPointerGesture.Button =
+                    type == .leftMouseDragged ? .primary : .secondary
+                let pastSlop = pendingGesture.map {
+                    WindowGestureSupport.exceedsDragSlop(from: $0.origin, to: event.location)
+                } ?? false
+                input = .buttonDragged(tracked: button == trackedGestureButton, pastSlop: pastSlop)
+            case .leftMouseUp, .rightMouseUp:
+                let button: WindowPointerGesture.Button =
+                    type == .leftMouseUp ? .primary : .secondary
+                input = .buttonUp(tracked: button == trackedGestureButton)
+            default:
+                input = .otherEvent
+            }
+        }
+
+        var decision = WindowGestureSupport.decide(state: gestureState, input: input)
+        switch decision {
+        case .restartAsIdle:
+            pendingGesture = nil
+            decision = WindowGestureSupport.decide(state: .idle, input: input)
+        case .flushThenRestart:
+            flushPending(proxy: proxy, at: event.location)
+            decision = WindowGestureSupport.decide(state: .idle, input: input)
+        default:
+            break
+        }
+
+        switch decision {
+        case .passThrough, .restartAsIdle, .flushThenRestart:
+            return Unmanaged.passUnretained(event)
+
+        case .hold:
+            return nil
+
+        case .arm:
+            guard let chord else { return Unmanaged.passUnretained(event) }
+            return arm(chord: chord, event: event)
+
+        case .promote:
+            guard let pending = pendingGesture else { return nil }
+            promote(pending, pointer: event.location)
+            return nil
+
+        case .applyMove:
+            guard var gesture = activeGesture else { return nil }
+            let now = ProcessInfo.processInfo.systemUptime
+            let updateInterval: TimeInterval
+            switch gesture.kind {
+            case .move:
+                updateInterval = moveGestureUpdateInterval
+            case .resize:
+                updateInterval = resizeGestureUpdateInterval
+            }
+            if now - gesture.lastAppliedAt >= updateInterval {
+                enqueueGestureApply(gesture, pointer: event.location)
+                gesture.lastAppliedAt = now
+                activeGesture = gesture
+            }
+            return nil
+
+        case .applyFinish:
+            if let gesture = activeGesture {
+                enqueueGestureApply(gesture, pointer: event.location)
+            }
+            activeGesture = nil
+            endGestureAssistiveMode()
+            return nil
+
+        case .replayThenPass:
+            // The held press goes back first and this release closes the pair,
+            // so the app sees one ordinary click and never half of one.
+            flushPending(proxy: proxy, at: event.location)
+            return Unmanaged.passUnretained(event)
+
+        case .flushThenPass:
+            // A disabled tap carries no position, and its proxy is no longer a
+            // dependable way back into the stream.
+            flushPending(proxy: tapDisabled ? nil : proxy,
+                         at: tapDisabled ? nil : event.location)
+            return Unmanaged.passUnretained(event)
+
+        case .dropState:
+            activeGesture = nil
+            pendingGesture = nil
+            endGestureAssistiveMode()
             return Unmanaged.passUnretained(event)
         }
+    }
+
+    /// Lets every queued frame write land before the caller continues.
+    ///
+    /// Gesture ends are the only place this is paid, never the per-event path,
+    /// and at most one write per window is ever outstanding because they
+    /// coalesce. It is what keeps two separate things in order: a gesture's
+    /// last write going out before the flag it suspended is restored, and that
+    /// whole sequence finishing before the next gesture suspends the flag
+    /// again. Without it a second gesture can read the flag while the first
+    /// gesture's restore is still queued, and then drive its own writes with
+    /// the flag back on, which is the case the suspension exists to prevent.
+    private func flushGestureApplies() {
+        gestureApplyQueue.sync {}
+    }
+
+    private func endGestureAssistiveMode() {
+        flushGestureApplies()
+        let suspension = gestureAssistiveMode
+        gestureAssistiveMode = nil
+        // With the grant revoked there is no safe way to touch the app again;
+        // the flag comes back when the assistive client sets it.
+        guard AXIsProcessTrusted() else { return }
+        suspension?.resume()
+    }
+
+    private func gestureChord(type: CGEventType,
+                              flags: CGEventFlags) -> (button: WindowPointerGesture.Button,
+                                                       wantsResize: Bool)? {
         let moveModifiers = WindowGestureSupport.modifiers(
             from: UserDefaults.standard.string(forKey: DefaultsKey.windowGestureModifiers)
         )
         let resizeModifiers = WindowGestureSupport.resizeModifiers(from: moveModifiers)
-        let wantsResize: Bool
-        let button: WindowPointerGesture.Button
         if type == .leftMouseDown,
-           WindowGestureSupport.modifiersMatch(eventFlags: event.flags, expected: moveModifiers) {
-            wantsResize = false
-            button = .primary
-        } else if type == .leftMouseDown,
-                  WindowGestureSupport.modifiersMatch(eventFlags: event.flags,
-                                                      expected: resizeModifiers) {
-            wantsResize = true
-            button = .primary
-        } else if type == .rightMouseDown,
-                  WindowGestureSupport.modifiersMatch(eventFlags: event.flags,
-                                                      expected: moveModifiers) {
-            wantsResize = true
-            button = .secondary
-        } else {
-            return Unmanaged.passUnretained(event)
+           WindowGestureSupport.modifiersMatch(eventFlags: flags, expected: moveModifiers) {
+            return (.primary, false)
         }
+        if type == .leftMouseDown,
+           WindowGestureSupport.modifiersMatch(eventFlags: flags, expected: resizeModifiers) {
+            return (.primary, true)
+        }
+        if type == .rightMouseDown,
+           WindowGestureSupport.modifiersMatch(eventFlags: flags, expected: moveModifiers) {
+            return (.secondary, true)
+        }
+        return nil
+    }
 
+    /// Takes custody of a press that matches the chord over a window this
+    /// service can actually move. Anything it cannot move keeps its click.
+    private func arm(chord: (button: WindowPointerGesture.Button, wantsResize: Bool),
+                     event: CGEvent) -> Unmanaged<CGEvent>? {
         guard let target = gestureTarget(at: event.location,
-                                         requiresResize: wantsResize)
+                                         requiresResize: chord.wantsResize)
         else { return Unmanaged.passUnretained(event) }
 
         let resolvedKind: WindowPointerGesture.Kind
-        if wantsResize {
+        if chord.wantsResize {
             let frame = CGRect(origin: target.frame.origin, size: target.frame.size)
             let edges = WindowGestureSupport.resizeEdges(at: event.location, in: frame)
             guard !edges.isEmpty else { return Unmanaged.passUnretained(event) }
@@ -516,18 +2283,103 @@ final class WindowLayoutService: ObservableObject {
             resolvedKind = .move
         }
 
-        if UserDefaults.standard.bool(forKey: DefaultsKey.windowGestureRaiseWindow) {
-            _ = target.app.activate(options: [])
-            AXUIElementPerformAction(target.window, kAXRaiseAction as CFString)
-        }
-        activeGesture = WindowPointerGesture(window: target.window,
-                                             kind: resolvedKind,
-                                             button: button,
-                                             originalFrame: CGRect(origin: target.frame.origin,
-                                                                   size: target.frame.size),
-                                             pointerStart: event.location,
-                                             lastAppliedAt: ProcessInfo.processInfo.systemUptime)
+        // Without a copy there is nothing to give back, and keeping a press
+        // that can never be returned is worse than not holding it at all.
+        guard let down = event.copy() else { return Unmanaged.passUnretained(event) }
+        pendingGesture = PendingWindowGesture(down: down,
+                                              button: chord.button,
+                                              kind: resolvedKind,
+                                              window: target.window,
+                                              app: target.app,
+                                              originalFrame: CGRect(origin: target.frame.origin,
+                                                                    size: target.frame.size),
+                                              origin: event.location)
         return nil
+    }
+
+    /// The press became a gesture. Raising happens here and not at the press,
+    /// so a plain modifier click never activates or reorders a window.
+    private func promote(_ pending: PendingWindowGesture, pointer: CGPoint) {
+        pendingGesture = nil
+        // Suspended for the whole gesture, not per frame write: the writes come
+        // at pointer speed and the flag only needs to move twice.
+        gestureAssistiveMode?.resume()
+        gestureAssistiveMode = EnhancedUserInterfaceSuspension.suspend(forAppOf: pending.window)
+        if UserDefaults.standard.bool(forKey: DefaultsKey.windowGestureRaiseWindow) {
+            _ = pending.app.activate(options: [])
+            AXUIElementPerformAction(pending.window, kAXRaiseAction as CFString)
+        }
+        // The press point stays the anchor: measuring from where the slop was
+        // crossed would leave the window trailing the pointer for good.
+        var gesture = WindowPointerGesture(window: pending.window,
+                                           kind: pending.kind,
+                                           button: pending.button,
+                                           originalFrame: pending.originalFrame,
+                                           pointerStart: pending.origin,
+                                           lastAppliedAt: ProcessInfo.processInfo.systemUptime)
+        enqueueGestureApply(gesture, pointer: pointer)
+        gesture.lastAppliedAt = ProcessInfo.processInfo.systemUptime
+        activeGesture = gesture
+    }
+
+    /// Puts a held press back into the stream. It carries the release point
+    /// and the current time so the app reads the pair as one short click on
+    /// one element, however long the button was held.
+    private func flushPending(proxy: CGEventTapProxy?, at point: CGPoint?) {
+        guard let pending = pendingGesture else { return }
+        pendingGesture = nil
+        let down = pending.down
+        down.location = point ?? pending.origin
+        down.timestamp = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        down.setIntegerValueField(.eventSourceUserData, value: Self.syntheticEventMarker)
+        if let proxy {
+            // Posted through the tap it is leaving, which places it ahead of
+            // the event this callback is about to return.
+            down.tapPostEvent(proxy)
+        } else {
+            down.post(tap: .cgSessionEventTap)
+        }
+    }
+
+    /// Window frames are written here, never on the thread that answers the
+    /// event tap.
+    ///
+    /// `setPosition` and `setSize` are messages to the window's own
+    /// application, answered by that application's main thread — the one busy
+    /// redrawing the window being dragged. Waiting for that answer inside the
+    /// tap callback made every drag in every app wait with it. Nothing reads
+    /// the result: every call site already discards it.
+    ///
+    /// Serial, because a move that lands out of order puts the window back
+    /// where the pointer no longer is. Coalescing, because a slow write must
+    /// not build a backlog the window then animates through after the drag has
+    /// finished: only the newest position is ever pending.
+    private let gestureApplyQueue = DispatchQueue(label: "com.ryzenstatus.window-gesture-apply",
+                                                  qos: .userInteractive)
+    private let gestureApplyLock = NSLock()
+    private var pendingGestureApply: (gesture: WindowPointerGesture, pointer: CGPoint)?
+    private var gestureApplyDraining = false
+
+    private func enqueueGestureApply(_ gesture: WindowPointerGesture, pointer: CGPoint) {
+        gestureApplyLock.lock()
+        pendingGestureApply = (gesture, pointer)
+        let alreadyDraining = gestureApplyDraining
+        gestureApplyDraining = true
+        gestureApplyLock.unlock()
+        guard !alreadyDraining else { return }
+        gestureApplyQueue.async { [weak self] in self?.drainGestureApplies() }
+    }
+
+    private func drainGestureApplies() {
+        while true {
+            gestureApplyLock.lock()
+            let next = pendingGestureApply
+            pendingGestureApply = nil
+            if next == nil { gestureApplyDraining = false }
+            gestureApplyLock.unlock()
+            guard let next else { return }
+            apply(next.gesture, pointer: next.pointer)
+        }
     }
 
     private func apply(_ gesture: WindowPointerGesture, pointer: CGPoint) {
@@ -572,7 +2424,8 @@ final class WindowLayoutService: ObservableObject {
     private func gestureTarget(at point: CGPoint,
                                requiresResize: Bool) -> WindowGestureTarget? {
         let system = AXUIElementCreateSystemWide()
-        AXUIElementSetMessagingTimeout(system, 0.25)
+        // No cap here: on the system-wide element a timeout is the default for
+        // every question this process asks, whoever asks it (#938).
         var rawElement: AXUIElement?
         guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &rawElement) == .success,
               let element = rawElement
@@ -626,6 +2479,14 @@ final class WindowLayoutService: ObservableObject {
             && sizeSettable.boolValue
     }
 
+    private func canSetFullScreen(on window: AXUIElement) -> Bool {
+        var fullScreenSettable = DarwinBoolean(false)
+        return AXUIElementIsAttributeSettable(window,
+                                              "AXFullScreen" as CFString,
+                                              &fullScreenSettable) == .success
+            && fullScreenSettable.boolValue
+    }
+
     private func setPosition(_ point: CGPoint, on element: AXUIElement) -> Bool {
         var point = point
         guard let value = AXValueCreate(.cgPoint, &point) else { return false }
@@ -647,24 +2508,38 @@ final class WindowLayoutService: ObservableObject {
         return WindowLayoutFrame(origin: origin, size: size)
     }
 
-    private func bestScreen(for frame: WindowLayoutFrame) -> NSScreen? {
+    private func bestScreen(for frame: WindowLayoutFrame,
+                            screens: [NSScreen] = NSScreen.screens) -> NSScreen? {
         let appKitFrame = appKitFrame(fromAX: frame)
-        return NSScreen.screens.max { lhs, rhs in
+        return screens.max { lhs, rhs in
             lhs.frame.intersection(appKitFrame).area < rhs.frame.intersection(appKitFrame).area
-        } ?? NSScreen.main ?? NSScreen.screens.first
+        } ?? NSScreen.main ?? screens.first
     }
 
-    private func nextScreen(after current: NSScreen) -> NSScreen? {
-        let screens = NSScreen.screens.sorted {
-            if abs($0.frame.minX - $1.frame.minX) > 0.5 {
-                return $0.frame.minX < $1.frame.minX
-            }
-            return $0.frame.minY < $1.frame.minY
-        }
-        guard screens.count > 1,
-              let index = screens.firstIndex(where: { $0 === current })
+    private func adjacentScreen(to current: NSScreen,
+                                screens: [NSScreen],
+                                movingForward: Bool) -> NSScreen? {
+        guard let currentIndex = screens.firstIndex(where: { $0 === current }),
+              let destinationIndex = WindowLayoutGeometry.adjacentDisplayIndex(
+                currentIndex: currentIndex,
+                frames: screens.map(\.frame),
+                movingForward: movingForward
+              )
         else { return nil }
-        return screens[(index + 1) % screens.count]
+        return screens[destinationIndex]
+    }
+
+    private func neighbourScreen(to current: NSScreen,
+                                 screens: [NSScreen],
+                                 direction: WindowLayoutGeometry.DisplayDirection) -> NSScreen? {
+        guard let currentIndex = screens.firstIndex(where: { $0 === current }),
+              let destinationIndex = WindowLayoutGeometry.neighbourIndex(
+                currentIndex: currentIndex,
+                frames: screens.map(\.frame),
+                direction: direction
+              )
+        else { return nil }
+        return screens[destinationIndex]
     }
 
     private func axFrame(fromAppKit rect: NSRect) -> WindowLayoutFrame {
@@ -699,6 +2574,13 @@ final class WindowLayoutService: ObservableObject {
               let value
         else { return false }
         return (value as? Bool) ?? false
+    }
+
+    private func stringAttribute(_ element: AXUIElement, _ attribute: String) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success
+        else { return nil }
+        return value as? String
     }
 
     private func windowAttribute(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
@@ -747,8 +2629,350 @@ final class WindowLayoutService: ObservableObject {
 
 private struct WindowLayoutTarget {
     let window: AXUIElement
+    let key: WindowLayoutWindowKey
+    let frame: WindowLayoutFrame
+
+    var windowID: CGWindowID { key.windowID }
+}
+
+private struct WindowDirectionalSession {
+    let target: WindowLayoutTarget
+    let visibleFrame: NSRect
+    let pointerOrigin: CGPoint
+    var action: WindowDirectionalAction?
+    var manualOverride: WindowDirectionalAction?
+    let modifierOwnership: WindowDirectionalModifierOwnership?
+}
+
+/// Native glass-ring container; no upstream artwork or media is bundled.
+private final class WindowDirectionalIndicatorView: NSView {
+    private let canvas: WindowDirectionalIndicatorCanvasView
+
+    var action: WindowDirectionalAction? {
+        didSet { canvas.action = action }
+    }
+
+    override var isOpaque: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        let effect = NSVisualEffectView(frame: CGRect(origin: .zero, size: frameRect.size))
+        effect.material = .hudWindow
+        effect.blendingMode = .behindWindow
+        effect.state = .active
+        effect.autoresizingMask = [.width, .height]
+        canvas = WindowDirectionalIndicatorCanvasView(
+            frame: CGRect(origin: .zero, size: frameRect.size))
+        canvas.autoresizingMask = [.width, .height]
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = frameRect.width / 2
+        layer?.cornerCurve = .continuous
+        layer?.masksToBounds = true
+        layer?.borderWidth = 0.5
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
+        addSubview(effect)
+        addSubview(canvas, positioned: .above, relativeTo: effect)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+}
+
+/// The canvas stays separate from `NSVisualEffectView`: AppKit may composite
+/// the material after a visual-effect subclass draws, hiding custom artwork.
+private final class WindowDirectionalIndicatorCanvasView: NSView {
+    var action: WindowDirectionalAction? { didSet { needsDisplay = true } }
+
+    override var isOpaque: Bool { false }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+
+        let center = CGPoint(x: self.bounds.midX, y: self.bounds.midY)
+        let outerRadius: CGFloat = 84
+        let innerRadius: CGFloat = 46
+        let track = annulus(center: center, outer: outerRadius, inner: innerRadius)
+
+        // 1. Subtle frosted track background
+        context.saveGState()
+        context.addPath(track)
+        context.setFillColor(NSColor(white: 0.10, alpha: 0.35).cgColor)
+        context.fillPath(using: .evenOdd)
+        context.restoreGState()
+
+        // 2. Soft borders for track
+        context.saveGState()
+        context.addPath(track)
+        context.setStrokeColor(NSColor.white.withAlphaComponent(0.12).cgColor)
+        context.setLineWidth(0.75)
+        context.strokePath()
+        context.restoreGState()
+
+        // 3. Highlight active sector if one of the 8 directions is active
+        if let direction = Direction(action: action) {
+            let highlight = sector(center: center,
+                                   outer: outerRadius - 1.5,
+                                   inner: innerRadius + 1.5,
+                                   centerAngle: direction.angle)
+            context.saveGState()
+            context.addPath(highlight)
+            context.clip()
+
+            let accent = NSColor.controlAccentColor
+            let lighterAccent = accent.blended(withFraction: 0.30, of: .white) ?? accent
+            let colors = [
+                lighterAccent.withAlphaComponent(0.85).cgColor,
+                accent.withAlphaComponent(0.75).cgColor,
+            ] as CFArray
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                         colors: colors,
+                                         locations: [0, 1]) {
+                let rad = direction.angle * .pi / 180
+                let startPoint = CGPoint(x: center.x + cos(rad) * innerRadius,
+                                         y: center.y + sin(rad) * innerRadius)
+                let endPoint = CGPoint(x: center.x + cos(rad) * outerRadius,
+                                       y: center.y + sin(rad) * outerRadius)
+                context.drawLinearGradient(gradient, start: startPoint, end: endPoint, options: [])
+            }
+            context.restoreGState()
+        }
+
+        // 4. Subtle dividers between the 8 sectors
+        drawDividers(center: center, inner: innerRadius + 4, outer: outerRadius - 4, context: context)
+
+        // 5. Directional pips on the outer ring
+        drawDirectionPips(center: center, radius: (innerRadius + outerRadius) / 2, activeDirection: Direction(action: action), context: context)
+
+        // 6. Center Hub & Glyph
+        drawCenterHub(center: center, action: action, context: context)
+    }
+
+    private func annulus(center: CGPoint, outer: CGFloat, inner: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        path.addEllipse(in: CGRect(x: center.x - outer, y: center.y - outer,
+                                   width: outer * 2, height: outer * 2))
+        path.addEllipse(in: CGRect(x: center.x - inner, y: center.y - inner,
+                                   width: inner * 2, height: inner * 2))
+        return path
+    }
+
+    private func sector(center: CGPoint, outer: CGFloat, inner: CGFloat,
+                        centerAngle: CGFloat) -> CGPath {
+        let start = (centerAngle - 22.5) * .pi / 180
+        let end = (centerAngle + 22.5) * .pi / 180
+        let path = CGMutablePath()
+        path.addArc(center: center, radius: outer, startAngle: start,
+                    endAngle: end, clockwise: false)
+        path.addArc(center: center, radius: inner, startAngle: end,
+                    endAngle: start, clockwise: true)
+        path.closeSubpath()
+        return path
+    }
+
+    private func drawDividers(center: CGPoint, inner: CGFloat, outer: CGFloat,
+                              context: CGContext) {
+        context.saveGState()
+        context.setStrokeColor(NSColor.white.withAlphaComponent(0.12).cgColor)
+        context.setLineWidth(0.6)
+        for angle in stride(from: CGFloat(22.5), to: 360, by: 45) {
+            let radians = angle * .pi / 180
+            context.move(to: CGPoint(x: center.x + cos(radians) * inner,
+                                     y: center.y + sin(radians) * inner))
+            context.addLine(to: CGPoint(x: center.x + cos(radians) * outer,
+                                        y: center.y + sin(radians) * outer))
+        }
+        context.strokePath()
+        context.restoreGState()
+    }
+
+    private func drawDirectionPips(center: CGPoint, radius: CGFloat,
+                                   activeDirection: Direction?, context: CGContext) {
+        for direction in Direction.allCases {
+            let isActive = direction == activeDirection
+            let rad = direction.angle * .pi / 180
+            let pipCenter = CGPoint(x: center.x + cos(rad) * radius,
+                                    y: center.y + sin(rad) * radius)
+            let pipRadius: CGFloat = isActive ? 3.5 : 2.0
+            let pipRect = CGRect(x: pipCenter.x - pipRadius,
+                                 y: pipCenter.y - pipRadius,
+                                 width: pipRadius * 2,
+                                 height: pipRadius * 2)
+            context.saveGState()
+            if isActive {
+                context.setShadow(offset: .zero, blur: 8,
+                                  color: NSColor.white.withAlphaComponent(0.8).cgColor)
+                context.setFillColor(NSColor.white.cgColor)
+            } else {
+                context.setFillColor(NSColor.white.withAlphaComponent(0.35).cgColor)
+            }
+            context.fillEllipse(in: pipRect)
+            context.restoreGState()
+        }
+    }
+
+    private func drawCenterHub(center: CGPoint, action: WindowDirectionalAction?, context: CGContext) {
+        let radius: CGFloat = 38
+        let hub = CGRect(x: center.x - radius, y: center.y - radius,
+                         width: radius * 2, height: radius * 2)
+
+        context.saveGState()
+        context.setShadow(offset: CGSize(width: 0, height: -2), blur: 10,
+                          color: NSColor.black.withAlphaComponent(0.25).cgColor)
+
+        if action == .maximize {
+            let accent = NSColor.controlAccentColor
+            context.setFillColor(accent.withAlphaComponent(0.30).cgColor)
+            context.fillEllipse(in: hub)
+            context.restoreGState()
+
+            context.setStrokeColor(accent.withAlphaComponent(0.80).cgColor)
+            context.setLineWidth(1.5)
+            context.strokeEllipse(in: hub.insetBy(dx: 0.5, dy: 0.5))
+        } else if action == .minimize {
+            context.setFillColor(NSColor.systemYellow.withAlphaComponent(0.22).cgColor)
+            context.fillEllipse(in: hub)
+            context.restoreGState()
+
+            context.setStrokeColor(NSColor.systemYellow.withAlphaComponent(0.85).cgColor)
+            context.setLineWidth(1.5)
+            context.strokeEllipse(in: hub.insetBy(dx: 0.5, dy: 0.5))
+        } else {
+            context.setFillColor(NSColor(white: 0.14, alpha: 0.80).cgColor)
+            context.fillEllipse(in: hub)
+            context.restoreGState()
+
+            context.setStrokeColor(NSColor.white.withAlphaComponent(0.18).cgColor)
+            context.setLineWidth(1)
+            context.strokeEllipse(in: hub.insetBy(dx: 0.5, dy: 0.5))
+        }
+
+        // Miniature macOS window frame
+        let window = CGRect(x: center.x - 16, y: center.y - 12, width: 32, height: 24)
+        let outline = CGPath(roundedRect: window, cornerWidth: 4.5, cornerHeight: 4.5, transform: nil)
+
+        context.saveGState()
+        context.addPath(outline)
+        if action == .maximize {
+            context.setStrokeColor(NSColor.white.withAlphaComponent(0.95).cgColor)
+        } else if action == .minimize {
+            context.setStrokeColor(NSColor.systemYellow.withAlphaComponent(0.90).cgColor)
+        } else if action != nil {
+            context.setStrokeColor(NSColor.white.withAlphaComponent(0.85).cgColor)
+        } else {
+            context.setStrokeColor(NSColor.white.withAlphaComponent(0.50).cgColor)
+        }
+        context.setLineWidth(1.4)
+        context.strokePath()
+        context.restoreGState()
+
+        // Content area inside window
+        if action == .minimize {
+            let arrowPath = CGMutablePath()
+            arrowPath.move(to: CGPoint(x: center.x, y: center.y + 4.5))
+            arrowPath.addLine(to: CGPoint(x: center.x, y: center.y - 3.5))
+            arrowPath.move(to: CGPoint(x: center.x - 4, y: center.y - 0.5))
+            arrowPath.addLine(to: CGPoint(x: center.x, y: center.y - 4.5))
+            arrowPath.addLine(to: CGPoint(x: center.x + 4, y: center.y - 0.5))
+
+            context.saveGState()
+            context.addPath(arrowPath)
+            context.setStrokeColor(NSColor.systemYellow.withAlphaComponent(0.95).cgColor)
+            context.setLineWidth(1.8)
+            context.setLineCap(.round)
+            context.setLineJoin(.round)
+            context.strokePath()
+            context.restoreGState()
+        } else if action == .maximize {
+            let inner = window.insetBy(dx: 2.5, dy: 2.5)
+            context.saveGState()
+            let fillPath = CGPath(roundedRect: inner, cornerWidth: 2.5, cornerHeight: 2.5, transform: nil)
+            context.addPath(fillPath)
+            context.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.95).cgColor)
+            context.fillPath()
+            context.restoreGState()
+        } else if let action, let region = glyphRegion(for: action, in: window.insetBy(dx: 2.5, dy: 2.5)) {
+            context.saveGState()
+            let fillPath = CGPath(roundedRect: region, cornerWidth: 2, cornerHeight: 2, transform: nil)
+            context.addPath(fillPath)
+            context.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.95).cgColor)
+            context.fillPath()
+            context.restoreGState()
+        }
+    }
+
+    private func glyphRegion(for action: WindowDirectionalAction, in rect: CGRect) -> CGRect? {
+        switch action {
+        case .leftHalf: return CGRect(x: rect.minX, y: rect.minY, width: rect.width / 2, height: rect.height)
+        case .rightHalf: return CGRect(x: rect.midX, y: rect.minY, width: rect.width / 2, height: rect.height)
+        case .topHalf: return CGRect(x: rect.minX, y: rect.midY, width: rect.width, height: rect.height / 2)
+        case .bottomHalf: return CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height / 2)
+        case .topLeft: return CGRect(x: rect.minX, y: rect.midY, width: rect.width / 2, height: rect.height / 2)
+        case .topRight: return CGRect(x: rect.midX, y: rect.midY, width: rect.width / 2, height: rect.height / 2)
+        case .bottomLeft: return CGRect(x: rect.minX, y: rect.minY, width: rect.width / 2, height: rect.height / 2)
+        case .bottomRight: return CGRect(x: rect.midX, y: rect.midY, width: rect.width / 2, height: rect.height / 2)
+        case .maximize: return rect
+        case .minimize: return nil
+        }
+    }
+
+    private enum Direction: CaseIterable {
+        case right, topRight, top, topLeft, left, bottomLeft, bottom, bottomRight
+
+        var angle: CGFloat {
+            switch self {
+            case .right: return 0
+            case .topRight: return 45
+            case .top: return 90
+            case .topLeft: return 135
+            case .left: return 180
+            case .bottomLeft: return 225
+            case .bottom: return 270
+            case .bottomRight: return 315
+            }
+        }
+
+        var action: WindowDirectionalAction {
+            switch self {
+            case .right: return .rightHalf
+            case .topRight: return .topRight
+            case .top: return .topHalf
+            case .topLeft: return .topLeft
+            case .left: return .leftHalf
+            case .bottomLeft: return .bottomLeft
+            case .bottom: return .bottomHalf
+            case .bottomRight: return .bottomRight
+            }
+        }
+
+        init?(action: WindowDirectionalAction?) {
+            guard let action, let value = Self.allCases.first(where: { $0.action == action }) else {
+                return nil
+            }
+            self = value
+        }
+    }
+}
+
+/// Everything the deferred settle verification needs to finish judging a
+/// discrete layout action after the grace period.
+private struct SettleContext {
+    let window: AXUIElement
     let windowID: CGWindowID
     let frame: WindowLayoutFrame
+    let targetRect: NSRect
+    let screenVisibleFrame: NSRect
+    let action: WindowLayoutAction
+    let original: WindowLayoutFrame?
+    let previousAction: WindowLayoutAction?
+    /// The side key recorded for the size cycle, nil when the placement
+    /// cannot cycle and so needs no read-back once it settles.
+    let cyclePress: WindowLayoutAction?
+    let windowKey: WindowLayoutWindowKey
+    /// Which published result this settle belongs to; a late failure only
+    /// speaks when no newer action has published since.
+    let resultGeneration: Int
 }
 
 private struct WindowLayoutPlacement {
@@ -760,6 +2984,40 @@ private struct WindowGestureTarget {
     let window: AXUIElement
     let app: NSRunningApplication
     let frame: WindowLayoutFrame
+}
+
+private enum WindowEdgeSnapPointerInput {
+    case down(location: CGPoint, flags: CGEventFlags)
+    /// `time` is the event's own timestamp, in seconds of uptime.
+    case dragged(location: CGPoint, time: TimeInterval)
+    case up(location: CGPoint, time: TimeInterval)
+}
+
+private struct WindowEdgeSnapDrag {
+    let window: AXUIElement
+    let key: WindowLayoutWindowKey
+    let initialFrame: CGRect
+    let pointerStart: CGPoint
+    let protectsSystemTopEdge: Bool
+    let quartzScreenFrames: [CGRect]
+    let enabledZones: Set<WindowEdgeSnapZone>
+    var lastSampleAt: TimeInterval
+    var mismatchCount: Int
+    var isMoving: Bool
+    var target: WindowEdgeSnapTarget?
+}
+
+/// A press the tap is holding while it is still undecided. It keeps the
+/// original event so the click can be handed back untouched, with its
+/// modifiers and its click count intact.
+private struct PendingWindowGesture {
+    let down: CGEvent
+    let button: WindowPointerGesture.Button
+    let kind: WindowPointerGesture.Kind
+    let window: AXUIElement
+    let app: NSRunningApplication
+    let originalFrame: CGRect
+    let origin: CGPoint
 }
 
 private struct WindowPointerGesture {
@@ -781,15 +3039,34 @@ private struct WindowPointerGesture {
     var lastAppliedAt: TimeInterval
 }
 
-private struct WindowLayoutFrame: Equatable {
-    var origin: CGPoint
-    var size: CGSize
+private final class WindowEdgeSnapPreviewView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        updateAppearance()
+        setAccessibilityElement(false)
+    }
 
-    func isClose(to other: WindowLayoutFrame, tolerance: CGFloat) -> Bool {
-        abs(origin.x - other.origin.x) <= tolerance
-            && abs(origin.y - other.origin.y) <= tolerance
-            && abs(size.width - other.size.width) <= tolerance
-            && abs(size.height - other.size.height) <= tolerance
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+        updateAppearance()
+        setAccessibilityElement(false)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateAppearance()
+    }
+
+    private func updateAppearance() {
+        guard let layer else { return }
+        let accent = NSColor.controlAccentColor
+        layer.cornerRadius = 14
+        layer.cornerCurve = .continuous
+        layer.backgroundColor = accent.withAlphaComponent(0.16).cgColor
+        layer.borderColor = accent.withAlphaComponent(0.88).cgColor
+        layer.borderWidth = 2
     }
 }
 

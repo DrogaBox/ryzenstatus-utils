@@ -82,18 +82,11 @@ enum QuickToolHUD {
             DispatchQueue.main.async { showCountdown(value) }
             return
         }
-        let content = ZStack {
-            Circle()
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
-            Circle()
-                .trim(from: 0.04, to: 0.96)
-                .stroke(Color.accentColor,
-                        style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .padding(6)
-            Text("\(value)")
-                .font(.system(size: 32, weight: .bold, design: .rounded))
-                .monospacedDigit()
+        let startedAt = Date()
+        let content = TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+            let progress = ScreenshotSupport.countdownRingProgress(
+                elapsed: context.date.timeIntervalSince(startedAt))
+            QuickToolCountdownView(value: value, progress: progress)
         }
         .frame(width: 82, height: 82)
         .background(.regularMaterial, in: Circle())
@@ -125,13 +118,17 @@ enum QuickToolHUD {
         let content = ScrollingCaptureHUDView(model: model,
                                               finishTitle: finishTitle,
                                               cancelTitle: cancelTitle,
-                                              onFinish: onFinish,
+                                              onFinish: {
+                                                  guard !model.isFinishing else { return }
+                                                  model.isFinishing = true
+                                                  onFinish()
+                                              },
                                               onCancel: onCancel)
-        let host = NSHostingController(rootView: AnyView(content))
-        host.view.layoutSubtreeIfNeeded()
-        let size = host.view.fittingSize
+        let host = ScrollingCaptureHostingView(rootView: AnyView(content))
+        host.layoutSubtreeIfNeeded()
+        let size = host.fittingSize
         let panel = ensureScrollingPanel()
-        panel.contentViewController = host
+        panel.contentView = host
         let frame = NSScreen.pointerVisibleFrame
         panel.setFrame(NSRect(x: frame.midX - size.width / 2,
                               y: frame.maxY - size.height - 24,
@@ -150,12 +147,17 @@ enum QuickToolHUD {
         scrollingModel?.height = height
     }
 
+    static func markScrollingCaptureFinishing() {
+        scrollingModel?.isFinishing = true
+    }
+
     static func dismissScrollingCapture() {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { dismissScrollingCapture() }
             return
         }
         scrollingPanel?.orderOut(nil)
+        scrollingPanel?.contentView = nil
         scrollingModel = nil
     }
 
@@ -199,6 +201,8 @@ enum QuickToolHUD {
         }, completionHandler: {
             guard generation == dismissed else { return }
             panel.orderOut(nil)
+            panel.contentViewController = nil
+            dismissWork = nil
         })
     }
 
@@ -222,10 +226,10 @@ enum QuickToolHUD {
     }
 
     private static func makePanel() -> NSPanel {
-        let panel = NSPanel(contentRect: .zero,
-                            styleMask: [.borderless, .nonactivatingPanel],
-                            backing: .buffered,
-                            defer: false)
+        let panel = OverlayPanel(contentRect: .zero,
+                                 styleMask: [.borderless, .nonactivatingPanel],
+                                 backing: .buffered,
+                                 defer: false)
         configure(panel)
         return panel
     }
@@ -242,15 +246,41 @@ enum QuickToolHUD {
     }
 }
 
+private struct QuickToolCountdownView: View {
+    let value: Int
+    let progress: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+            Circle()
+                .trim(from: 0.04, to: 0.04 + progress * 0.92)
+                .stroke(Color.accentColor,
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .padding(6)
+            Text("\(value)")
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .monospacedDigit()
+        }
+    }
+}
+
 /// A non-activating panel that can still own Return and Escape while the
 /// underlying window continues receiving pointer and scrolling events.
-private final class ScrollingCapturePanel: NSPanel {
+private final class ScrollingCapturePanel: OverlayPanel {
     override var canBecomeKey: Bool { true }
+}
+
+private final class ScrollingCaptureHostingView: NSHostingView<AnyView> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 private final class ScrollingCaptureHUDModel: ObservableObject {
     let message: String
     @Published var height = 0
+    @Published var isFinishing = false
 
     init(message: String) {
         self.message = message
@@ -266,9 +296,16 @@ private struct ScrollingCaptureHUDView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "rectangle.stack.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+            ZStack {
+                if model.isFinishing {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "rectangle.stack.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+            .frame(width: 16, height: 16)
             VStack(alignment: .leading, spacing: 1) {
                 Text(model.message)
                     .font(.system(size: 12, weight: .semibold))
@@ -287,6 +324,7 @@ private struct ScrollingCaptureHUDView: View {
                 .controlSize(.small)
                 .keyboardShortcut(.cancelAction)
             Button(finishTitle, action: onFinish)
+                .disabled(model.isFinishing)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .keyboardShortcut(.defaultAction)

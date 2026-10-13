@@ -26,6 +26,8 @@ public struct CoreSnapshot: Identifiable, Equatable {
     public let id: Int
     public let freqMHz: Float
     public let loadPct: Float
+    /// The kernel's share of `loadPct`, so graphs can stack system time over user time.
+    public let systemPct: Float
     public let isLogical: Bool
     
     // CPPC / Core Ranking (optional, for Ryzen 3000/5000+ support)
@@ -40,11 +42,13 @@ public struct CoreSnapshot: Identifiable, Equatable {
         isLogical: Bool,
         cppcScore: UInt8? = nil,
         cppcScoreEstimated: Bool = false,
-        coreRank: Int? = nil
+        coreRank: Int? = nil,
+        systemPct: Float = 0
     ) {
         self.id = id
         self.freqMHz = freqMHz
         self.loadPct = loadPct
+        self.systemPct = systemPct
         self.isLogical = isLogical
         self.cppcScore = cppcScore
         self.cppcScoreEstimated = cppcScoreEstimated

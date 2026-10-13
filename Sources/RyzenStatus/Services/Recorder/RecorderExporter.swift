@@ -64,32 +64,49 @@ final class RecorderExporter {
         let duration = CMTimeGetSeconds(durationTime)
         let trim = document.trim(duration: duration)
         guard trim.duration > 0 else { return .noVideo }
-        let sourceSize = (try? await videoTrack.load(.naturalSize)) ?? .zero
+        let naturalSize = (try? await videoTrack.load(.naturalSize)) ?? .zero
+        let preferredTransform = (try? await videoTrack.load(.preferredTransform)) ?? .identity
+        let sourceSize = RecorderSupport.videoGeometry(
+            naturalSize: naturalSize,
+            preferredTransform: preferredTransform).size
         guard sourceSize.width > 0, sourceSize.height > 0 else { return .noVideo }
         let frameRate = Int(((try? await videoTrack.load(.nominalFrameRate)) ?? 60).rounded())
 
-        try? FileManager.default.removeItem(at: destination)
-
+        // The file is written beside the destination and only takes its place
+        // once it is whole. Save as can be pointed at a recording that already
+        // exists, and a cancel or a failure halfway through must leave that
+        // recording where it is instead of taking it down with the attempt.
+        let staged = RecorderSupport.stagingURL(for: destination)
+        defer { try? FileManager.default.removeItem(at: staged) }
+        let failure: Failure?
         switch output {
         case .video:
-            return await exportVideo(asset: asset,
-                                     videoTrack: videoTrack,
-                                     pointerURL: take.pointerURL,
-                                     document: document,
-                                     trim: trim,
-                                     sourceSize: sourceSize,
-                                     frameRate: RecorderSupport.sanitizedFrameRate(frameRate),
-                                     to: destination,
-                                     progress: progress)
+            failure = await exportVideo(asset: asset,
+                                        videoTrack: videoTrack,
+                                        pointerURL: take.pointerURL,
+                                        document: document,
+                                        trim: trim,
+                                        sourceSize: sourceSize,
+                                        frameRate: RecorderSupport.sanitizedFrameRate(frameRate),
+                                        to: staged,
+                                        progress: progress)
         case .gif:
-            return await exportGIF(asset: asset,
-                                   videoTrack: videoTrack,
-                                   pointerURL: take.pointerURL,
-                                   document: document,
-                                   sourceSize: sourceSize,
-                                   to: destination,
-                                   progress: progress)
+            failure = await exportGIF(asset: asset,
+                                      videoTrack: videoTrack,
+                                      pointerURL: take.pointerURL,
+                                      document: document,
+                                      sourceSize: sourceSize,
+                                      to: staged,
+                                      progress: progress)
         }
+        if let failure { return failure }
+        // Finalizing the video or GIF can finish after a cancellation arrives.
+        // The destination must still be kept until that last chance to cancel.
+        guard !cancelled.isCancelled else { return .cancelled }
+        guard RecorderSupport.commitExport(from: staged, to: destination) else {
+            return .writeFailed
+        }
+        return nil
     }
 
     /// Produces the only artifact the sharing service accepts. There is no
@@ -110,7 +127,11 @@ final class RecorderExporter {
         let duration = CMTimeGetSeconds(durationTime)
         let trim = document.trim(duration: duration)
         guard trim.duration > 0 else { return (nil, .noVideo) }
-        let sourceSize = (try? await videoTrack.load(.naturalSize)) ?? .zero
+        let naturalSize = (try? await videoTrack.load(.naturalSize)) ?? .zero
+        let preferredTransform = (try? await videoTrack.load(.preferredTransform)) ?? .identity
+        let sourceSize = RecorderSupport.videoGeometry(
+            naturalSize: naturalSize,
+            preferredTransform: preferredTransform).size
         guard sourceSize.width > 0, sourceSize.height > 0 else {
             return (nil, .noVideo)
         }
@@ -177,7 +198,8 @@ final class RecorderExporter {
         let keepsAnyAudio = document.keepsSystemAudio || document.keepsMicrophone
         guard let result = await RecorderComposition.build(from: asset,
                                                            ranges: ranges,
-                                                           includesAudio: keepsAnyAudio),
+                                                           includesAudio: keepsAnyAudio,
+                                                           playbackSpeed: document.exportTiming.speed),
               let timelineVideo = try? await result.asset.loadTracks(withMediaType: .video).first
         else { return .readFailed }
         let timeline = result.asset
@@ -188,7 +210,8 @@ final class RecorderExporter {
         let padding = style.kind == .none ? 0 : style.padding * 0.18
         let fullCanvas = RecorderSupport.canvasSize(source: sourceSize,
                                                     padding: padding,
-                                                    aspect: document.resolvedAspect)
+                                                    aspect: document.resolvedAspect,
+                                                    cropsToAspect: style.kind == .none)
         let regularSize = RecorderSupport.evenSize(CGSize(
             width: fullCanvas.width * document.resolvedQuality.outputScale,
             height: fullCanvas.height * document.resolvedQuality.outputScale))
@@ -224,14 +247,16 @@ final class RecorderExporter {
             ?? sharingPlan?.size
             ?? RecorderSupport.outputSize(source: RecorderSupport.evenSize(sourceSize),
                                           quality: document.resolvedQuality)
-        let composition = await RecorderComposer.videoComposition(
+        guard let composition = await RecorderComposer.videoComposition(
             track: timelineVideo,
             asset: timeline,
             duration: timelineDuration,
             frameRate: outputFrameRate,
             composer: composer,
             sourceSize: sourceSize,
-            outputSize: outputSize)
+            outputSize: outputSize,
+            playbackSpeed: document.exportTiming.speed)
+        else { return .readFailed }
 
         guard let reader = try? AVAssetReader(asset: timeline),
               let writer = try? AVAssetWriter(outputURL: destination, fileType: .mp4)
@@ -259,6 +284,11 @@ final class RecorderExporter {
                 ])
             output.audioMix = RecorderComposition.audioMix(trackIDs: result.audioTrackIDs,
                                                            document: document)
+            if document.exportTiming.speed != 1 {
+                // Decode scaled audio edits at their new duration while
+                // preserving speech pitch, rather than relabeling PCM times.
+                output.audioTimePitchAlgorithm = .spectral
+            }
             output.alwaysCopiesSampleData = false
             if reader.canAdd(output) {
                 reader.add(output)
@@ -535,7 +565,8 @@ final class RecorderExporter {
         let ranges = document.keptRanges(duration: duration)
         guard let result = await RecorderComposition.build(from: asset,
                                                            ranges: ranges,
-                                                           includesAudio: false),
+                                                           includesAudio: false,
+                                                           playbackSpeed: document.exportTiming.speed),
               let timelineVideo = try? await result.asset.loadTracks(withMediaType: .video).first
         else { return .readFailed }
         let timeline = result.asset
@@ -565,20 +596,29 @@ final class RecorderExporter {
         generator.requestedTimeToleranceAfter = .zero
         generator.maximumSize = size
         if let composer {
-            generator.videoComposition = await RecorderComposer.videoComposition(
+            guard let composition = await RecorderComposer.videoComposition(
                 track: timelineVideo,
                 asset: timeline,
                 duration: (try? await timeline.load(.duration)) ?? .zero,
                 frameRate: RecorderSupport.sanitizedFrameRate(frameRate),
                 composer: composer,
                 sourceSize: sourceSize,
-                outputSize: canvas)
+                outputSize: canvas,
+                playbackSpeed: document.exportTiming.speed)
+            else { return .readFailed }
+            generator.videoComposition = composition
         }
 
-        guard let sink = CGImageDestinationCreateWithURL(destination as CFURL,
-                                                         UTType.gif.identifier as CFString,
-                                                         frameCount,
-                                                         nil)
+        // Encoded in memory and written out only once it is whole. Given a
+        // URL, ImageIO writes through a hidden file of its own beside it, and
+        // a cancel before the end leaves that file behind in the person's
+        // folder. The frames are held until the end either way, and the
+        // finished GIF is much smaller than they are.
+        let encoded = NSMutableData()
+        guard let sink = CGImageDestinationCreateWithData(encoded as CFMutableData,
+                                                          UTType.gif.identifier as CFString,
+                                                          frameCount,
+                                                          nil)
         else { return .writeFailed }
         CGImageDestinationSetProperties(sink, [
             kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0],
@@ -596,10 +636,7 @@ final class RecorderExporter {
         ] as CFDictionary
 
         for index in 0..<frameCount {
-            if cancelled.isCancelled {
-                try? FileManager.default.removeItem(at: destination)
-                return .cancelled
-            }
+            if cancelled.isCancelled { return .cancelled }
             let seconds = min(outputDuration, Double(index) / Double(fps))
             let time = CMTime(seconds: seconds, preferredTimescale: 600)
             guard let frame = try? await generator.image(at: time).image else { continue }
@@ -607,7 +644,12 @@ final class RecorderExporter {
             progress(min(0.99, Double(index + 1) / Double(frameCount)))
         }
 
-        guard CGImageDestinationFinalize(sink) else {
+        guard CGImageDestinationFinalize(sink) else { return .writeFailed }
+        // A cancel that arrived while the GIF was finalized writes nothing.
+        if cancelled.isCancelled { return .cancelled }
+        do {
+            try encoded.write(to: destination)
+        } catch {
             try? FileManager.default.removeItem(at: destination)
             return .writeFailed
         }

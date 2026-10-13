@@ -68,9 +68,79 @@ enum DockClickSupport {
     /// animation to finish so the sweep sees the settled state.
     static let minimizeSweepDelay: TimeInterval = 0.9
 
+    /// How long after a successful Minimize All menu press the per-window
+    /// check runs for apps that report success but leave their windows
+    /// untouched. Short enough to feel immediate, long enough for an honest
+    /// app's batch to have flipped every window's AX state.
+    static let minimizeMenuVerifyDelay: TimeInterval = 0.35
+
     /// Delay before re-asserting a restore on windows whose minimize was still
     /// in flight when the restore clicked in.
     static let restoreSweepDelay: TimeInterval = 0.6
+
+    /// The order a restore should walk a batch of minimized windows: indices
+    /// into `ids`, first restored to last, with duplicate windows dropped.
+    ///
+    /// `frontToBack` is the app's real window order captured from the
+    /// WindowServer while the windows were still up, so the window that was
+    /// frontmost — the one the user was working in — comes LAST. Restoring it
+    /// last lets it animate in over the others and land on top on its own,
+    /// which is the whole point: raising it afterwards to fix the stacking is
+    /// exactly the flick the user sees (issue #357). The AX windows array
+    /// order is deliberately not used to decide this; it does not reliably
+    /// report the focused window first.
+    ///
+    /// `preferredFront` covers batches with no captured order (the app was
+    /// minimized by other means): the caller's best guess at the front window
+    /// is moved to the end and everything else keeps its given order.
+    static func restoreSequence(ids: [CGWindowID?],
+                                frontToBack: [CGWindowID],
+                                preferredFront: CGWindowID? = nil) -> [Int] {
+        var seen = Set<CGWindowID>()
+        var candidates: [Int] = []
+        for (index, id) in ids.enumerated() {
+            if let id {
+                guard !seen.contains(id) else { continue }
+                seen.insert(id)
+            }
+            candidates.append(index)
+        }
+
+        guard !frontToBack.isEmpty else {
+            guard let preferredFront,
+                  let frontSlot = candidates.firstIndex(where: { ids[$0] == preferredFront })
+            else { return candidates }
+            candidates.append(candidates.remove(at: frontSlot))
+            return candidates
+        }
+
+        // Windows missing from the captured order count as rearmost, so the
+        // captured stacking always decides the top of the pile.
+        func depth(_ index: Int) -> Int {
+            guard let id = ids[index], let depth = frontToBack.firstIndex(of: id)
+            else { return frontToBack.count }
+            return depth
+        }
+        return candidates.sorted { first, second in
+            let firstDepth = depth(first), secondDepth = depth(second)
+            if firstDepth != secondDepth { return firstDepth > secondDepth }
+            return first < second
+        }
+    }
+
+    /// Whether a captured minimize still speaks for the app's current state.
+    ///
+    /// The capture is written when this feature minimizes an app and consumed
+    /// when it restores one, so anything that brings those windows back some
+    /// other way — the App Switcher, the window menu, the app itself — leaves
+    /// it behind. Acting on a leftover later would claim a minimize this
+    /// feature never performed, which is exactly what `ownsMinimize` exists to
+    /// prevent. The capture holds only while at least one window it named is
+    /// still down.
+    static func capturedMinimizeStillHolds(captured: [CGWindowID],
+                                           stillMinimized: Set<CGWindowID>) -> Bool {
+        captured.contains { stillMinimized.contains($0) }
+    }
 
     static func repeatDecision(lastAction: DockClickAction?,
                                elapsed: TimeInterval?) -> DockClickRepeatDecision {
@@ -86,9 +156,14 @@ enum DockClickSupport {
 
     /// Dock click actions for the active app. Hide works at app level, while
     /// minimize acts on visible windows and restores them on the next click.
-    /// Restore when everything the app has is minimized
-    /// (the Dock's native click would activate without unminimizing — Finder
-    /// would even open a brand-new window). Modifier clicks always keep the
+    ///
+    /// Restore only reclaims what this feature itself put away — `ownsMinimize`.
+    /// The toggle it advertises is that pair and nothing else, so a window the
+    /// user minimized some other way (⌘M, the window's own button, the app)
+    /// keeps the Dock's native restore. Taking those over bought nothing: the
+    /// stacking this batch is rebuilt from was never captured for them, which
+    /// the restore walk itself has to paper over by guessing at a front window.
+    /// Modifier clicks always keep the
     /// Dock's native behaviors (⌘ reveals in Finder, ⌥ hides the previous
     /// app, ⌃ opens the menu). Fullscreen windows can't minimize, and restoring
     /// siblings from inside a fullscreen Space would yank the user to another
@@ -106,6 +181,30 @@ enum DockClickSupport {
         unminimizedCount > 0 || (minimizedCount == 0 && windowServerSeesWindows)
     }
 
+    /// Which of the app's windows a cycling click can rotate through, as
+    /// indices into `windowIDs`, front to back.
+    ///
+    /// `windowIDs` are the app's unminimized windows in Accessibility order
+    /// (nil where the id could not be resolved); `onScreenFrontToBack` is the
+    /// window server's on-screen list, which holds only the Space the user is
+    /// looking at. A window parked on another Space therefore has no place in
+    /// the result and can never be raised.
+    ///
+    /// This is the single list behind both halves of the feature: `action`
+    /// only promises `.cycleWindows` when it holds more than one window, and
+    /// the raise takes its last element. Deciding from one set of windows and
+    /// raising from another is what made a Dock click either loop over two
+    /// windows forever or jump to a different desktop (issue #1204).
+    static func cycleCandidateIndices(windowIDs: [CGWindowID?],
+                                      onScreenFrontToBack: [CGWindowID]) -> [Int] {
+        var depths: [(index: Int, depth: Int)] = []
+        for (index, id) in windowIDs.enumerated() {
+            guard let id, let depth = onScreenFrontToBack.firstIndex(of: id) else { continue }
+            depths.append((index, depth))
+        }
+        return depths.sorted { $0.depth < $1.depth }.map(\.index)
+    }
+
     static func action(appIsFrontmost: Bool,
                        hasUnminimizedWindows: Bool,
                        hasMinimizedWindows: Bool,
@@ -114,13 +213,18 @@ enum DockClickSupport {
                        minimizeEnabled: Bool = true,
                        hideEnabled: Bool = false,
                        cycleWindowsEnabled: Bool = false,
-                       unminimizedWindowCount: Int = 0,
-                       ownsMinimize: Bool = true) -> DockClickAction {
+                       cycleCandidateCount: Int = 0,
+                       ownsMinimize: Bool = false) -> DockClickAction {
         guard !hasModifiers else { return .passThrough }
-        if cycleWindowsEnabled, appIsFrontmost, !hasFullscreenWindows, unminimizedWindowCount > 1 {
+        // Counted on the current Space only: a click must not advertise a
+        // rotation the raise cannot perform without changing desktops.
+        if cycleWindowsEnabled, appIsFrontmost, !hasFullscreenWindows, cycleCandidateCount > 1 {
             return .cycleWindows
         }
-        if hideEnabled, appIsFrontmost { return .hide }
+        // A frontmost app with no windows at all (Finder after a desktop
+        // click) has nothing to hide: the click belongs to the Dock, which
+        // opens a new window. Hiding it would make that take a second click.
+        if hideEnabled, appIsFrontmost, hasUnminimizedWindows || hasMinimizedWindows { return .hide }
         guard !hasFullscreenWindows else { return .passThrough }
         if minimizeEnabled, appIsFrontmost, hasUnminimizedWindows { return .minimize }
         if minimizeEnabled, ownsMinimize, !hasUnminimizedWindows, hasMinimizedWindows { return .restore }
@@ -159,5 +263,31 @@ enum DockClickSupport {
         return point.y >= screenFrame.maxY - fallbackMargin
             || point.x <= screenFrame.minX + fallbackMargin
             || point.x >= screenFrame.maxX - fallbackMargin
+    }
+
+    /// A visible Dock strip must contain the point. Windows above it may be
+    /// overlays that pass input through, so only Accessibility can settle
+    /// whether a covering window actually keeps the pointer from the Dock.
+    /// The fallback is lazy and never runs for a hidden or unobstructed Dock.
+    static func dockOwnsPoint(_ point: CGPoint,
+                              windows: [MouseAppExceptionSupport.Window],
+                              dockProcessID: pid_t,
+                              dockLayer: Int,
+                              ownProcessID: pid_t,
+                              accessibilityHitProcessID: () -> pid_t?) -> Bool {
+        var isCovered = false
+        for window in windows where window.alpha > 0 {
+            let isDockStrip = window.processID == dockProcessID && window.layer == dockLayer
+            let contains = isDockStrip
+                ? window.frame.insetBy(dx: -8, dy: -8).contains(point)
+                : window.frame.contains(point)
+            guard contains else { continue }
+            if window.processID == ownProcessID { continue }
+            if isDockStrip {
+                return !isCovered || accessibilityHitProcessID() == dockProcessID
+            }
+            isCovered = true
+        }
+        return false
     }
 }
