@@ -60,6 +60,8 @@ final class NotchMascotRig: NSObject {
     private let rightEye = CAShapeLayer()
     /// Pins, blades, ears and tails, and the props of a lasting mood.
     private let decor = NotchMascotDecor()
+    /// Hats, bows and glasses.
+    private let wearables = NotchMascotWearables()
     /// The mood it keeps on its own as the Mac works, plays music or rests.
     private(set) var ambient = MascotMoodState()
     private var blinks = 0
@@ -84,8 +86,10 @@ final class NotchMascotRig: NSObject {
         for layer in [ears, antenna, bulb, fill, visor, shine] { tilter.addSublayer(layer) }
         tilter.addSublayer(decor.middle)
         tilter.addSublayer(attention)
+        tilter.addSublayer(wearables.head)
         tilter.addSublayer(decor.props)
         attention.addSublayer(face)
+        attention.addSublayer(wearables.face)
         face.addSublayer(leftEye)
         face.addSublayer(rightEye)
         fill.mask = fillMask
@@ -168,6 +172,12 @@ final class NotchMascotRig: NSObject {
         // A ghost is a little see-through, and fainter still asleep.
         fill.opacity = look.style == .ghost ? (decor.sleeping ? 0.55 : 0.92) : 1
         for layer in [ears, antenna, bulb, visor] { layer.isHidden = !robot }
+        wearables.configure(accessory: look.accessory, body: fillMask.path, face: look.face, size: size, scale: scale)
+        // A hat sits where the robot's antenna stands.
+        if robot, NotchMascotWearables.coversHead(look.accessory) {
+            antenna.isHidden = true
+            bulb.isHidden = true
+        }
         shine.path = NotchMascotGeometry.shine(look.face, size: size)
         shine.isHidden = robot
         let face = look.face
@@ -1234,6 +1244,7 @@ final class NotchMascotHostView: NSView {
             self.pettingWork = nil
             self.lastPetting = CACurrentMediaTime()
             self.mascot.react(.love, lift: 0)
+            NotchMascotBondStore.shared.record(.petted)
             // A soft tick under a finger on the trackpad, as the hearts come.
             if NotchSupport.usesHapticFeedback() {
                 NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)

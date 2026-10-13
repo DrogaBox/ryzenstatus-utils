@@ -10781,6 +10781,138 @@ struct MetricsTests {
                    "invalid battery data cannot trigger a warning")
         }
 
+        // MARK: Companion — bond, growth, wardrobe, seasons and hardware
+        do {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(identifier: "UTC")!
+            func day(_ y: Int, _ m: Int, _ d: Int, _ h: Int = 12) -> Date {
+                calendar.date(from: DateComponents(year: y, month: m, day: d, hour: h))!
+            }
+            let growth = NotchMascotGrowth.self
+            expect(growth.level(for: 0) == 1 && growth.level(for: 19) == 1 && growth.level(for: 20) == 2,
+                   "levels start at the thresholds")
+            expect(growth.level(for: 1_000_000) == growth.maxLevel, "experience beyond the last level stays at the top")
+            expect(growth.progress(for: 30).map { $0.done == 10 && $0.span == 40 } ?? false,
+                   "progress counts experience into the current level")
+            expect(growth.progress(for: 1400) == nil, "the top level has no next one")
+
+            var bond = NotchMascotBond(adopted: day(2026, 10, 1))
+            growth.record(.dayTogether, into: &bond, day: "2026-10-01")
+            growth.record(.dayTogether, into: &bond, day: "2026-10-01")
+            expect(bond.daysTogether == 1 && bond.experience == growth.dayExperience,
+                   "a day together counts once")
+            for _ in 0..<40 { growth.record(.petted, into: &bond, day: "2026-10-01") }
+            expect(bond.pets == 40 && bond.experience == growth.dayExperience + growth.dailyPetCap,
+                   "pats keep counting but their experience is capped each day")
+            let levels = growth.record(.petted, into: &bond, day: "2026-10-02")
+            expect(bond.daysTogether == 2 && bond.petExperienceToday == growth.petExperience,
+                   "the first pat of a new day counts the day and resets the cap")
+            expect(levels.after >= levels.before, "experience never lowers the level")
+            for _ in 0..<30 { growth.record(.moment, into: &bond, day: "2026-10-02") }
+            expect(bond.moments == 30 && bond.momentExperienceToday == growth.dailyMomentCap,
+                   "moments are capped each day too")
+
+            expect(growth.age(of: NotchMascotBond(adopted: day(2026, 10, 1, 23)), at: day(2026, 10, 2, 1),
+                              calendar: calendar) == 1,
+                   "age counts calendar days, not hours")
+            expect(growth.isMilestone(age: 7) && growth.isMilestone(age: 100) && growth.isMilestone(age: 730),
+                   "a week, a hundred days and every year are milestones")
+            expect(!growth.isMilestone(age: 0) && !growth.isMilestone(age: 8), "other ages are not")
+
+            let season = NotchMascotSeason.self
+            expect(season.accessory(on: day(2026, 10, 31), adopted: nil, calendar: calendar) == .witchHat,
+                   "Halloween brings the witch's hat")
+            expect(season.accessory(on: day(2026, 12, 24), adopted: nil, calendar: calendar) == .santaHat,
+                   "Christmas brings the Santa hat")
+            expect(season.accessory(on: day(2027, 1, 1), adopted: nil, calendar: calendar) == .partyHat,
+                   "New Year brings the party hat")
+            expect(season.accessory(on: day(2027, 3, 5), adopted: day(2026, 3, 5), calendar: calendar) == .partyHat,
+                   "its anniversary brings the party hat")
+            expect(season.accessory(on: day(2026, 3, 5), adopted: day(2026, 3, 5), calendar: calendar) == nil,
+                   "the day it came out is not yet an anniversary")
+            expect(season.accessory(on: day(2026, 6, 15), adopted: nil, calendar: calendar) == nil,
+                   "an ordinary day has no costume")
+
+            let wardrobe = NotchMascotWardrobe.self
+            expect(NotchMascotAccessory.crown.unlockLevel == growth.maxLevel
+                   && NotchMascotAccessory.wardrobe.count == growth.maxLevel,
+                   "one accessory unlocks at each level, the crown at the top")
+            expect(!NotchMascotAccessory.santaHat.isPickable && NotchMascotAccessory.bow.isPickable,
+                   "costumes cannot be picked")
+            expect(wardrobe.effective(chosen: .crown, level: 3, date: day(2026, 6, 15), adopted: nil,
+                                      seasonal: true, gaming: false, calendar: calendar) == .none,
+                   "a locked accessory is not worn")
+            expect(wardrobe.effective(chosen: .glasses, level: 3, date: day(2026, 6, 15), adopted: nil,
+                                      seasonal: true, gaming: false, calendar: calendar) == .glasses,
+                   "an unlocked accessory is worn")
+            expect(wardrobe.effective(chosen: .glasses, level: 3, date: day(2026, 12, 24), adopted: nil,
+                                      seasonal: true, gaming: false, calendar: calendar) == .santaHat,
+                   "a costume wins over the accessory picked")
+            expect(wardrobe.effective(chosen: .glasses, level: 3, date: day(2026, 12, 24), adopted: nil,
+                                      seasonal: false, gaming: false, calendar: calendar) == .glasses,
+                   "costumes switched off leave the accessory picked")
+            expect(wardrobe.effective(chosen: .glasses, level: 3, date: day(2026, 12, 24), adopted: nil,
+                                      seasonal: true, gaming: true, calendar: calendar) == .headband,
+                   "Gaming Mode's headband wins over everything")
+            expect(wardrobe.unlocked(at: 2) == .bow && wardrobe.unlocked(at: 1) == nil,
+                   "a level names what it unlocks")
+
+            expect(NotchMascotGreeting.at(hour: 8) == .morning && NotchMascotGreeting.at(hour: 15) == .afternoon
+                   && NotchMascotGreeting.at(hour: 21) == .evening && NotchMascotGreeting.at(hour: 2) == .night,
+                   "greetings follow the hour")
+
+            func fan(_ id: Int, _ name: String, _ rpm: UInt64, valid: Bool = true) -> FanSnapshot {
+                FanSnapshot(id: id, name: name, rpm: rpm, rpmValid: valid, throttle: 0, isOverridden: false)
+            }
+            let hardware = NotchMascotHardware.self
+            expect(hardware.cpuFanRPM([fan(0, "Chassis", 1500), fan(1, "CPU Fan", 900)]) == 900,
+                   "the header named CPU is the CPU fan")
+            expect(hardware.cpuFanRPM([fan(0, "Fan 1", 800), fan(1, "Fan 2", 1200), fan(2, "CPU", 5000, valid: false)])
+                   == 1200, "without a trusted CPU header the fastest trusted fan stands in")
+            expect(hardware.cpuFanRPM([fan(0, "CPU", 0)]) == nil, "a stopped fan gives no reading")
+            expect(hardware.fanShare(4800) == 1 && hardware.fanShare(1200) == 0.5, "fan share tops out at a fast fan")
+            expect(hardware.powerShare(watts: 44, limit: nil) == 0.5, "without a limit the default package limit is used")
+            expect(hardware.powerShare(watts: 0, limit: 100) == nil && hardware.powerShare(watts: .nan, limit: 100) == nil,
+                   "no power, no glow")
+
+            var engine = MascotMoodEngine()
+            _ = engine.update(MascotSignals(cpuLoad: 0.1, fanShare: 0.9, powerShare: 0.6), now: 0)
+            expect(engine.state.effort == 1 && engine.state.glow == 0.5,
+                   "a real fan speed spins the fan and package power lights the chip")
+            _ = engine.update(MascotSignals(cpuLoad: 0.5), now: 30)
+            expect(engine.state.effort == 0.5 && engine.state.glow == 0, "without the kext the CPU load spins the fan")
+
+            let frame = NotchMascotWearableFrame(outline: CGRect(x: 2, y: 4, width: 16, height: 14), size: 20,
+                                                 leftEye: CGPoint(x: 7, y: 11), rightEye: CGPoint(x: 13, y: 11))
+            for item in NotchMascotAccessory.allCases where item != .none {
+                let parts = NotchMascotWearableShapes.parts(for: item, in: frame)
+                expect(!parts.isEmpty && parts.allSatisfy { !$0.path.isEmpty },
+                       "\(item.rawValue) has something to draw")
+                let bounds = parts.reduce(CGRect.null) { $0.union($1.path.boundingBoxOfPath) }
+                expect(bounds.minX > -10 && bounds.maxX < 30 && bounds.minY > -14 && bounds.maxY < 24,
+                       "\(item.rawValue) stays close to the companion")
+            }
+            expect(NotchMascotWearableShapes.parts(for: .none, in: frame).isEmpty, "no accessory draws nothing")
+            expect(NotchEvent.companion.preferenceKey == DefaultsKey.notchMascotSpeech,
+                   "its notices follow their own switch")
+            for key in [DefaultsKey.notchMascotSeasonal, DefaultsKey.notchMascotSpeech, DefaultsKey.notchMascotHardware] {
+                expect(Defaults.registeredDefaults[key] as? Bool == true, "\(key) is on by default")
+            }
+
+            for language in AppLanguage.allCases {
+                let text = FeatureStrings.notchMascotLife(language)
+                expect(text.level(3).contains("3") && text.levelReached(4).contains("4")
+                       && text.daysTogether(30).contains("30") && text.dayTogether(5).contains("5")
+                       && text.days(12).contains("12") && text.locked(at: 7).contains("7")
+                       && text.progress(3, of: 9).contains("3") && text.progress(3, of: 9).contains("9")
+                       && text.unlockedAccessory("X").contains("X"),
+                       "companion formats fill their numbers in \(language.rawValue)")
+                expect(NotchMascotAccessory.allCases.allSatisfy { !text.name(of: $0).isEmpty }
+                       && !text.bondTitle.isEmpty && !text.gamingOn.isEmpty && !text.hardwareHint.isEmpty,
+                       "companion strings are present in \(language.rawValue)")
+            }
+        }
+
         // MARK: Capsule center
         do {
             let domain = "ryzenstatus-capsule-center-\(UUID().uuidString)"

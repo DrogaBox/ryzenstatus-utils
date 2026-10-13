@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.41.0] — Unreleased — kexts 3.34.17 (No kext changes)
+
+The Dynamic Island's companion grows with you: it has a name, a level and a story, dresses up from a wardrobe that unlocks as it levels, wears costumes for the season, follows your AMD hardware and says a word of its own now and then.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.34.17.
+
+### Added
+
+- **Your story with the companion**: give it a name and watch it grow. Pats, every day you spend together and each moment it reacts to add up to ten levels, with daily caps so growth follows your time together rather than how often the pointer rests on it. Settings shows its level and progress, its age, pats, moments and days together, and can start over.
+- **Accessories**: a bow, glasses, a scarf, headphones, a beanie, a flower, a top hat, sunglasses and a crown, one unlocked at each level and picked in Settings. They ride on the head or sit on the face and move with it.
+- **Seasonal costumes**, on by default: a witch's hat the last week of October, a Santa hat around Christmas, a party hat at New Year and on the day it came out, a year on.
+- **Follows your AMD hardware**, on by default: the fan companion spins at your CPU fan's real speed from the kext, the chip's mark glows with package power against its PPT limit, and it puts on a headband and cheers when Gaming Mode starts.
+- **Its own notices**, on by default: a greeting for the time of day the first time you are around each day, a word when it reaches a new level (naming what it unlocked), and celebrations at a week, 30 days, 100 days and every year together. Switched off, it still plays the reaction without a notice.
+
 ## [1.40.0] — 2026-10-12 — kexts 3.34.17 (No kext changes)
 
 The graphs outside the menu bar now match it: the menu panel, the iStats widgets, the metric details, the Dynamic Island and both dashboards draw their history as columns, newest on the right, in the graph theme picked for their appearance, and the AMD Ryzen Power graphs get steady scales. Fan curves now come back at launch, and the manual-fan thermal guard and GPU-sourced curves keep working with Settings closed.

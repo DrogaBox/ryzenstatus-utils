@@ -631,6 +631,14 @@ extension DefaultsKey {
     static let notchMascotAutoNetwork = "notchMascotAutoNetwork"
     static let notchMascotAutoEvents = "notchMascotAutoEvents"
     static let notchMascotAutoAntics = "notchMascotAutoAntics"
+    /// The companion's life: its bond (JSON), level, name and wardrobe.
+    static let notchMascotBond = "notchMascotBond"
+    static let notchMascotLevel = "notchMascotLevel"
+    static let notchMascotName = "notchMascotName"
+    static let notchMascotAccessory = "notchMascotAccessory"   // NotchMascotAccessory raw value
+    static let notchMascotSeasonal = "notchMascotSeasonal"     // Bool, seasonal costumes
+    static let notchMascotSpeech = "notchMascotSpeech"         // Bool, its own notices
+    static let notchMascotHardware = "notchMascotHardware"     // Bool, follows the AMD hardware
     static let notchCommandBar = "notchCommandBar"
     static let notchCommandBarStyle = "notchCommandBarStyle"
     static let notchLockScreen = "notchLockScreen"

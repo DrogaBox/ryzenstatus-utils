@@ -54,6 +54,11 @@ struct MascotSignals: Equatable {
     var batteryLevel: Double?
     /// Running on the battery, not on power.
     var onBattery = false
+    /// The CPU fan's speed as a share of a fast one, 0 to 1, read from the
+    /// AMD kext when the companion follows the hardware.
+    var fanShare: Double?
+    /// The package's power as a share of its limit, 0 to 1.
+    var powerShare: Double?
 }
 
 /// The mood it keeps for as long as what brought it lasts.
@@ -91,6 +96,9 @@ struct MascotMoodState: Equatable {
     var effort: Double = 0
     /// How lively the music is, in quarters from 0 to 1, while it dances.
     var energy: Double = 0
+    /// How brightly a chip's mark glows, in quarters of the package's power
+    /// limit. Zero without a reading.
+    var glow: Double = 0
 }
 
 /// A short reaction it plays on its own.
@@ -172,9 +180,11 @@ struct MascotMoodEngine {
         let previous = state.ambient
         let ambient = Self.ambient(signals, busy: busy, hot: hot, downloading: downloading,
                                    lowBattery: lowBattery, categories: categories)
+        // A real fan's speed, when the kext reports one, spins the fan.
         state = MascotMoodState(ambient: ambient,
-                                effort: categories.load ? Self.quarter(signals.cpuLoad ?? 0) : 0,
-                                energy: ambient == .dancing ? Self.quarter(signals.musicLevel ?? 0.5) : 0)
+                                effort: categories.load ? Self.quarter(signals.fanShare ?? signals.cpuLoad ?? 0) : 0,
+                                energy: ambient == .dancing ? Self.quarter(signals.musicLevel ?? 0.5) : 0,
+                                glow: categories.load ? Self.quarter(signals.powerShare ?? 0) : 0)
         for impulse in Self.candidates(from: previous, to: ambient, signals: signals,
                                        categories: categories, random: random) {
             if admits(impulse, at: now) { return impulse }

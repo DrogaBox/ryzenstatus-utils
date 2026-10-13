@@ -320,6 +320,32 @@ final class NotchMascotDecor {
         }
         CATransaction.commit()
         setSpin(look.style == .fan && motion && !sleeping ? Self.spinRate(effort: ambient.effort, mood: mood) : 0)
+        applyGlow(sleeping ? 0 : ambient.glow)
+    }
+
+    /// The chip's pin-one mark lights up with the package's power: dark at
+    /// idle, a warm glow near its limit, pulsing only when motion is welcome.
+    private func applyGlow(_ glow: Double) {
+        chipMark.removeAnimation(forKey: "glow")
+        guard look.style == .chip, glow > 0 else {
+            chipMark.shadowOpacity = 0
+            chipMark.fillColor = look.palette.shade.cgColor
+            return
+        }
+        let warm = NotchMascotWearableShapes.rgb(glow >= 0.75 ? 0xFF6A3D : 0xFFC940)
+        chipMark.fillColor = warm
+        chipMark.shadowColor = warm
+        chipMark.shadowOffset = .zero
+        chipMark.shadowRadius = max(0.8, size * 0.08)
+        chipMark.shadowOpacity = Float(0.4 + glow * 0.6)
+        guard motion else { return }
+        let pulse = CABasicAnimation(keyPath: "shadowOpacity")
+        pulse.fromValue = Float(0.25 + glow * 0.3)
+        pulse.toValue = Float(0.5 + glow * 0.5)
+        pulse.duration = 1.6 - glow * 0.8
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        chipMark.add(pulse, forKey: "glow")
     }
 
     /// Turns a second for a fan with the CPU at `effort`: still when idle,

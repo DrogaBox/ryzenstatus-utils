@@ -34,7 +34,19 @@ struct NotchMascotSettings: View {
     @AppStorage(DefaultsKey.notchMascotAutoNetwork) private var autoNetwork = true
     @AppStorage(DefaultsKey.notchMascotAutoEvents) private var autoEvents = true
     @AppStorage(DefaultsKey.notchMascotAutoAntics) private var autoAntics = true
+    @AppStorage(DefaultsKey.notchMascotAccessory) private var accessory = NotchMascotAccessory.none.rawValue
+    @AppStorage(DefaultsKey.notchMascotName) private var petName = ""
+    @AppStorage(DefaultsKey.notchMascotSeasonal) private var seasonal = true
+    @AppStorage(DefaultsKey.notchMascotSpeech) private var speech = true
+    @AppStorage(DefaultsKey.notchMascotHardware) private var hardware = true
+    @AppStorage(DefaultsKey.gamingModeActive) private var gaming = false
+    @ObservedObject private var bondStore = NotchMascotBondStore.shared
+    @State private var confirmingReset = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var life: NotchMascotLifeStrings { FeatureStrings.notchMascotLife(l10n.language) }
+    private var level: Int { bondStore.level }
+    private var chosenAccessory: NotchMascotAccessory { NotchMascotAccessory(rawValue: accessory) ?? .none }
 
     /// Its name, shared with the Features page.
     private var mascotTitle: String { FeatureStrings.hub(l10n.language).titleNotchMascot }
@@ -45,7 +57,10 @@ struct NotchMascotSettings: View {
     private var look: NotchMascotLook {
         NotchMascotLook(style: NotchMascotStyle(rawValue: style) ?? .minimal,
                         shape: NotchMascotShape(rawValue: shape) ?? .ball,
-                        palette: NotchMascotPalette(rawValue: palette) ?? .pearl)
+                        palette: NotchMascotPalette(rawValue: palette) ?? .pearl,
+                        accessory: NotchMascotWardrobe.effective(chosen: chosenAccessory, level: level, date: Date(),
+                                                                 adopted: bondStore.bond.adopted, seasonal: seasonal,
+                                                                 gaming: gaming && hardware))
     }
 
     private var restingSide: NotchMascotSide { NotchMascotSide(rawValue: side) ?? .left }
@@ -75,7 +90,9 @@ struct NotchMascotSettings: View {
                 NotchMascotStageCard(look: look, side: restingSide, awake: enabled, canGreet: enabled && islandOn,
                                      visits: visits, reactions: reactions, hides: hidesWhenIdle, text: text,
                                      language: l10n.language)
+                storyCard
                 appearance
+                wardrobeCard
                 behavior
                 automaticCard
                 commandBarCard
@@ -212,6 +229,101 @@ struct NotchMascotSettings: View {
             }
         }
         .padding(.leading, settingsRowTextInset)
+    }
+
+    // MARK: Story
+
+    private var storyCard: some View {
+        let bond = bondStore.bond
+        let progress = NotchMascotGrowth.progress(for: bond.experience)
+        return SettingsCard(title: life.bondTitle) {
+            Text(life.bondHint).font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            SettingsRow(symbol: "pencil", title: life.name) {
+                TextField(life.namePlaceholder, text: $petName)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 180)
+                    .onChange(of: petName) { _, name in
+                        if name.count > 24 { petName = String(name.prefix(24)) }
+                    }
+            }
+            SettingsRow(symbol: "star.fill", title: life.level(level)) {
+                Text(progress.map { life.progress($0.done, of: $0.span) } ?? life.maxLevel)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            ProgressView(value: Double(progress?.done ?? 1), total: Double(max(1, progress?.span ?? 1)))
+                .tint(.pink)
+                .padding(.leading, settingsRowTextInset)
+            HStack(spacing: 10) {
+                statTile("calendar", life.age,
+                         life.days(NotchMascotGrowth.age(of: bond, at: Date())))
+                statTile("hand.raised.fill", life.pets, "\(bond.pets)")
+                statTile("sparkles", life.moments, "\(bond.moments)")
+                statTile("sun.max.fill", life.daysTogetherLabel, "\(bond.daysTogether)")
+            }
+            .padding(.leading, settingsRowTextInset)
+            HStack {
+                Spacer()
+                Button(life.reset, role: .destructive) { confirmingReset = true }
+                    .confirmationDialog(life.reset, isPresented: $confirmingReset) {
+                        Button(life.reset, role: .destructive) { bondStore.reset() }
+                    } message: {
+                        Text(life.resetConfirm)
+                    }
+            }
+        }
+    }
+
+    private func statTile(_ symbol: String, _ title: String, _ value: String) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: symbol).font(.system(size: 12, weight: .semibold)).foregroundStyle(.pink)
+            Text(value).font(.system(size: 15, weight: .semibold, design: .rounded)).monospacedDigit()
+            Text(title).font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: Wardrobe
+
+    private var wardrobeCard: some View {
+        SettingsCard(title: life.accessories) {
+            SettingsRow(symbol: "tshirt", title: life.accessories, caption: life.accessoriesHint) {
+                Text(life.name(of: look.accessory)).foregroundStyle(.secondary)
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 84, maximum: 120), spacing: 10)],
+                      alignment: .leading, spacing: 10) {
+                ForEach(NotchMascotAccessory.wardrobe) { item in
+                    let unlocked = item.unlockLevel <= level
+                    NotchMascotChoiceTile(title: unlocked ? life.name(of: item) : life.locked(at: item.unlockLevel),
+                                          selected: chosenAccessory == item) {
+                        if unlocked { accessory = item.rawValue }
+                    } preview: {
+                        NotchMascotView(look: NotchMascotLook(style: look.style, shape: look.shape,
+                                                              palette: look.palette, accessory: item),
+                                        size: 30, idles: false)
+                            .frame(width: 30, height: 30)
+                            .frame(width: 64, height: 42)
+                            .background(Color.black, in: Capsule())
+                            .opacity(unlocked ? 1 : 0.35)
+                            .overlay {
+                                if !unlocked {
+                                    Image(systemName: "lock.fill").font(.system(size: 12, weight: .bold))
+                                        .foregroundStyle(.white)
+                                }
+                            }
+                    }
+                    .disabled(!unlocked)
+                }
+            }
+            .padding(.leading, settingsRowTextInset)
+            switchRow("leaf", life.seasonal, caption: life.seasonalHint, isOn: $seasonal)
+            switchRow("text.bubble", life.speech, caption: life.speechHint, isOn: $speech)
+            switchRow("cpu", life.hardware, caption: life.hardwareHint, isOn: $hardware)
+        }
     }
 
     // MARK: Behavior

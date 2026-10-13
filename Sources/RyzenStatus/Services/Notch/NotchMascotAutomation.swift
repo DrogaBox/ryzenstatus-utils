@@ -39,6 +39,12 @@ final class NotchMascotAutomation: ObservableObject {
     private var musicPlaying = false
     private var musicLevel: Double?
     private var cleanerWasRunning = false
+    /// Read from the AMD kext on the slow check, when it follows the hardware.
+    private var fanShare: Double?
+    private var powerShare: Double?
+    private var hardwareRead: Task<Void, Never>?
+    private var wasGaming = false
+    private var startedAt: CFTimeInterval = 0
 
     private init() {}
 
@@ -114,10 +120,16 @@ final class NotchMascotAutomation: ObservableObject {
             .store(in: &cancellables)
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in self?.evaluate() }
-        let timer = Timer(timeInterval: Self.checkInterval, repeats: true) { [weak self] _ in self?.evaluate() }
+        let timer = Timer(timeInterval: Self.checkInterval, repeats: true) { [weak self] _ in
+            self?.readHardware()
+            self?.evaluate()
+        }
         timer.tolerance = Self.checkInterval / 3
         RunLoop.main.add(timer, forMode: .common)
         checkTimer = timer
+        startedAt = CACurrentMediaTime()
+        wasGaming = UserDefaults.standard.bool(forKey: DefaultsKey.gamingModeActive)
+        readHardware()
         evaluate()
     }
 
@@ -130,6 +142,8 @@ final class NotchMascotAutomation: ObservableObject {
         engine.reset()
         cpuLoad = nil; cpuTemperature = nil; downloadRate = nil; power = nil
         musicPlaying = false; musicLevel = nil
+        hardwareRead?.cancel(); hardwareRead = nil
+        fanShare = nil; powerShare = nil
         if state != MascotMoodState() { state = MascotMoodState() }
     }
 
@@ -165,11 +179,57 @@ final class NotchMascotAutomation: ObservableObject {
                              idleSeconds: idle,
                              hour: Calendar.current.component(.hour, from: Date()),
                              batteryLevel: battery.flatMap { $0.chargePercent }.map { Double($0) / 100 },
-                             onBattery: battery.map { !$0.externalConnected } ?? false)
+                             onBattery: battery.map { !$0.externalConnected } ?? false,
+                             fanShare: fanShare,
+                             powerShare: powerShare)
+    }
+
+    /// The CPU fan's speed and the package's power, from the kext, off the
+    /// main thread. Nothing is read with the hardware option off or without
+    /// the kext.
+    private func readHardware() {
+        guard UserDefaults.standard.bool(forKey: DefaultsKey.notchMascotHardware),
+              ProcessorModel.shared.isConnected else {
+            fanShare = nil; powerShare = nil
+            return
+        }
+        guard hardwareRead == nil else { return }
+        // Back on the main thread, where everything else here runs.
+        hardwareRead = Task { @MainActor [weak self] in
+            let (rpm, watts, limit) = await Task.detached(priority: .utility) { () -> (UInt64?, Double, Double?) in
+                let model = ProcessorModel.shared
+                let rpm = NotchMascotHardware.cpuFanRPM(model.getFans(includeNames: true))
+                let limit = model.pmTableBox.decoded.map { Double($0.summary.pptLimitW) }
+                return (rpm, model.lastCPUPowerWatts, limit)
+            }.value
+            guard let self else { return }
+            self.hardwareRead = nil
+            self.fanShare = rpm.map(NotchMascotHardware.fanShare)
+            self.powerShare = NotchMascotHardware.powerShare(watts: watts, limit: limit)
+            self.evaluate()
+        }
+    }
+
+    /// You are around: the day counts as one together, the first time each
+    /// day it says hello, and it cheers when Gaming Mode starts.
+    private func noteCompany(idle: TimeInterval) {
+        let defaults = UserDefaults.standard
+        let gaming = defaults.bool(forKey: DefaultsKey.gamingModeActive)
+        defer { wasGaming = gaming }
+        let store = NotchMascotBondStore.shared
+        if gaming, !wasGaming, defaults.bool(forKey: DefaultsKey.notchMascotHardware) { store.cheerGaming() }
+        guard idle < 60 else { return }
+        store.record(.dayTogether)
+        // Not in the first seconds after launch, when the island settles.
+        if defaults.bool(forKey: DefaultsKey.notchMascotSpeech), CACurrentMediaTime() - startedAt > 20 {
+            store.greetIfDue()
+        }
     }
 
     private func evaluate() {
         guard running else { return }
+        let signals = self.signals
+        noteCompany(idle: signals.idleSeconds)
         let impulse = engine.update(signals, categories: Self.categories(), now: CACurrentMediaTime(),
                                     random: Double.random(in: 0..<1))
         if engine.state != state { state = engine.state }
@@ -180,6 +240,32 @@ final class NotchMascotAutomation: ObservableObject {
     /// for it, or plays it where it rests.
     private func play(_ impulse: MascotImpulse) {
         NotchService.shared.reactMascot(impulse.reaction)
+    }
+}
+
+/// Turning what the AMD kext reports into the companion's readings.
+enum NotchMascotHardware {
+    /// A fan at this speed counts as flat out.
+    static let fastFanRPM = 2400.0
+    /// The package limit assumed when the PM table does not report one.
+    static let defaultPowerLimit = 88.0
+
+    /// The CPU fan's speed: the header named CPU when there is one, else
+    /// the fastest fan with a reading that can be trusted.
+    static func cpuFanRPM(_ fans: [FanSnapshot]) -> UInt64? {
+        let spinning = fans.filter { $0.rpmValid && $0.rpm > 0 }
+        if let cpu = spinning.first(where: { $0.name.localizedCaseInsensitiveContains("cpu") }) { return cpu.rpm }
+        return spinning.map(\.rpm).max()
+    }
+
+    static func fanShare(_ rpm: UInt64) -> Double {
+        min(1, Double(rpm) / fastFanRPM)
+    }
+
+    static func powerShare(watts: Double, limit: Double?) -> Double? {
+        guard watts.isFinite, watts > 0 else { return nil }
+        let cap = limit.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? defaultPowerLimit
+        return min(1, watts / cap)
     }
 }
 

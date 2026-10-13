@@ -91,6 +91,9 @@ struct NotchMascotLook: Equatable {
     var style: NotchMascotStyle
     var shape: NotchMascotShape
     var palette: NotchMascotPalette
+    /// What it wears, already resolved: costumes and the Gaming Mode
+    /// headband win over the accessory picked.
+    var accessory: NotchMascotAccessory = .none
 
     static let standard = NotchMascotLook(style: .minimal, shape: .ball, palette: .pearl)
 }
@@ -1339,7 +1342,8 @@ enum NotchMascotSupport {
         NotchMascotLook(
             style: NotchMascotStyle(rawValue: defaults.string(forKey: DefaultsKey.notchMascotStyle) ?? "") ?? .minimal,
             shape: NotchMascotShape(rawValue: defaults.string(forKey: DefaultsKey.notchMascotShape) ?? "") ?? .ball,
-            palette: NotchMascotPalette(rawValue: defaults.string(forKey: DefaultsKey.notchMascotPalette) ?? "") ?? .pearl)
+            palette: NotchMascotPalette(rawValue: defaults.string(forKey: DefaultsKey.notchMascotPalette) ?? "") ?? .pearl,
+            accessory: accessory(in: defaults))
     }
 
     /// How the Command Bar comes out of the island, or nil when it opens in

@@ -4821,8 +4821,10 @@ extension NotchService {
     /// `delay` holds it back a moment, so a reaction asked for right after
     /// takes its place, as a command's own does the Command Bar's cheer.
     func reactMascot(_ reaction: NotchMascotReaction, patience: TimeInterval = NotchMascotReactionGate.patience,
-                     after delay: TimeInterval = 0) {
+                     after delay: TimeInterval = 0, countsAsMoment: Bool = true) {
         guard NotchMascotSupport.reacts() else { return }
+        // Something it reacted to is a moment shared; its own celebrations are not.
+        if countsAsMoment { NotchMascotBondStore.shared.record(.moment) }
         // A notice on screen that shows the companion plays it there already.
         if notice?.mascot == reaction, noticeCanPresent {
             _ = mascotReactionGate.admits(reaction, at: CACurrentMediaTime())
