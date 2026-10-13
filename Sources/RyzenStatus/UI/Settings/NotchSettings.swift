@@ -89,6 +89,10 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchCapsuleFitHeight) private var capsuleFitHeight = 0.0
     @AppStorage(DefaultsKey.notchCapsuleFitDrop) private var capsuleFitDrop = 0.0
     @AppStorage(DefaultsKey.notchHapticFeedback) private var hapticFeedback = true
+    @AppStorage(DefaultsKey.notchProgressiveBlur) private var progressiveBlur = false
+    @AppStorage(DefaultsKey.notchLeaveAlert) private var leaveAlert = false
+    @AppStorage(DefaultsKey.notchLeaveTransport) private var leaveTransport = NotchLeaveTransport.automobile.rawValue
+    @AppStorage(DefaultsKey.notchFocusEnabled) private var focusEnabled = false
     @AppStorage(DefaultsKey.notchTranslucentBackground) private var translucentBackground = false
     @AppStorage(DefaultsKey.notchLiquidGlassEnabled) private var liquidGlass = false
     @AppStorage(DefaultsKey.notchShelf) private var shelfWindow = true
@@ -112,6 +116,7 @@ struct NotchSettings: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     private var text: NotchStrings { FeatureStrings.notch(l10n.language) }
     private var editor: NotchEditorStrings { FeatureStrings.notchEditor(l10n.language) }
+    private var extras: NotchIslandExtrasStrings { FeatureStrings.notchIslandExtras(l10n.language) }
 
     private var configuration: [String] {
         [String(enabled), String(calendarEnabled), String(calendarCountdown), String(calendarTimeLeft),
@@ -130,7 +135,8 @@ struct NotchSettings: View {
          String(capture), String(trackChange), captureAction, String(showInCaptures),
          String(returnHome), homeModule, String(opensActivity), String(scratchpad),
          String(agentsEnabled), String(watchEnabled), String(keepAwakeActivity),
-         visualizerMode, String(titleSeconds), String(mascotDances)]
+         visualizerMode, String(titleSeconds), String(mascotDances),
+         String(progressiveBlur), String(leaveAlert), leaveTransport, String(focusEnabled)]
     }
 
     private var access: Binding<NotchQuickAccessConfiguration> {
@@ -283,6 +289,8 @@ struct NotchSettings: View {
             }
             SettingsCard {
                 switchRow("capsule", text.showOutline, isOn: $outlineEnabled)
+                switchRow("aqi.medium", extras.progressiveBlur, caption: extras.progressiveBlurHint,
+                          isOn: $progressiveBlur)
             }
             // Only a physical camera has an outline to match.
             if NotchSupport.hasNotchedDisplay {
@@ -498,6 +506,18 @@ struct NotchSettings: View {
                       isOn: $calendarCountdown)
             switchRow("hourglass", calendar.timeLeft, caption: calendar.timeLeftHint, isOn: $calendarTimeLeft)
             switchRow("number", calendar.weekNumbers, isOn: $calendarWeekNumbers)
+            switchRow("figure.walk.departure", extras.leaveAlert, caption: extras.leaveAlertHint, isOn: $leaveAlert)
+            if leaveAlert {
+                SettingsRow(symbol: "map", title: extras.transport) {
+                    Picker(extras.transport, selection: $leaveTransport) {
+                        Text(extras.car).tag(NotchLeaveTransport.automobile.rawValue)
+                        Text(extras.walking).tag(NotchLeaveTransport.walking.rawValue)
+                        Text(extras.transit).tag(NotchLeaveTransport.transit.rawValue)
+                    }
+                    .labelsHidden()
+                }
+                .padding(.leading, settingsRowTextInset)
+            }
             if permissions.calendarAccess == .fullAccess { NotchCalendarSelection() }
         case .timer:
             let activities = FeatureStrings.notchActivities(l10n.language)
@@ -630,6 +650,8 @@ struct NotchSettings: View {
                     // A layout change is read straight from the system, so
                     // this card never waits on another feature.
                     toggleCard(text.inputSource, symbol: "keyboard", value: $inputSource,
+                               available: true, reservesReason: reserves)
+                    toggleCard(extras.focus, symbol: "moon.fill", value: $focusEnabled,
                                available: true, reservesReason: reserves)
                 }
                 if accessoriesEnabled { Text(FeatureStrings.notchActivities(l10n.language).accessoryDescription).font(.caption).foregroundStyle(.secondary) }

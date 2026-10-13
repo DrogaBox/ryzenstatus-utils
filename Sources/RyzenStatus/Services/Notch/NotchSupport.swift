@@ -1445,6 +1445,10 @@ enum NotchEvent: String, CaseIterable {
     case volume, brightness, battery, clipboard, capture, systemNotification, keyboardLight, timer, accessory, download, agents, track, microphone, watch, inputSource
     /// The companion's own word: a daily greeting, a new level, an anniversary.
     case companion
+    /// The moment to set off for an event somewhere else.
+    case leave
+    /// A Focus turning on or off.
+    case focus
 
     var preferenceKey: String {
         switch self {
@@ -1464,14 +1468,16 @@ enum NotchEvent: String, CaseIterable {
         case .clipboard: return DefaultsKey.notchClipboard
         case .capture: return DefaultsKey.notchCapture
         case .companion: return DefaultsKey.notchMascotSpeech
+        case .leave: return DefaultsKey.notchLeaveAlert
+        case .focus: return DefaultsKey.notchFocusEnabled
         }
     }
 
     var priority: Int {
         switch self {
         case .volume, .brightness, .keyboardLight, .microphone, .inputSource: return 3
-        case .capture, .timer, .watch: return 2
-        case .battery, .systemNotification, .accessory, .agents: return 1
+        case .capture, .timer, .watch, .leave: return 2
+        case .battery, .systemNotification, .accessory, .agents, .focus: return 1
         case .clipboard, .download, .track, .companion: return 0
         }
     }
@@ -1486,6 +1492,8 @@ enum NotchEvent: String, CaseIterable {
         case .clipboard: return 2.5
         case .capture: return 12
         case .companion: return 3.5
+        case .leave: return 8
+        case .focus: return 2.5
         }
     }
 }
@@ -1814,6 +1822,8 @@ enum NotchSupport {
         // A layout notice needs no feature of its own, only its own toggle.
         case .inputSource: return true
         case .companion: return NotchMascotSupport.isEnabled(in: defaults)
+        case .leave: return NotchCalendarSupport.isEnabled(in: defaults)
+        case .focus: return true
         }
     }
 

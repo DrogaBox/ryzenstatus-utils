@@ -68,6 +68,7 @@ final class NotchService: ObservableObject {
     private var windowHost: NotchWindowHost?
     /// The companion in the menu bar while a floating island is open below it.
     private let mascotPerch = NotchMascotPerch()
+    private let blurBackdrop = NotchBlurBackdrop()
     private var panel: NotchPanel? { windowHost?.panel }
     private var captureControlsCancel: (() -> Void)?
     private var captureControlsSubscription: AnyCancellable?
@@ -1058,6 +1059,8 @@ final class NotchService: ObservableObject {
         refreshModules()
         NotchDownloadService.shared.syncWithPreferences()
         NotchCalendarService.shared.syncWithPreferences()
+        NotchLeaveService.shared.syncWithPreferences()
+        NotchFocusService.shared.syncWithPreferences()
         NotchNotificationService.shared.syncWithPreferences()
         NotchAudioLevelService.shared.syncWithPreferences()
         AgentUsageService.shared.syncWithPreferences()
@@ -1192,7 +1195,10 @@ final class NotchService: ObservableObject {
         NotchAccessoryService.shared.suspend()
         NotchDownloadService.shared.stop()
         NotchCalendarService.shared.stop()
+        NotchLeaveService.shared.stop()
+        NotchFocusService.shared.stop()
         NotchNotificationService.shared.stop()
+        blurBackdrop.hide()
         AgentUsageService.shared.pause()
         settingsSignature = ""
         expanded = false
@@ -1231,6 +1237,7 @@ final class NotchService: ObservableObject {
         capsuleCenterText = nil
         mascotPerch.hide(animated: false)
         closeMirrors()
+        blurBackdrop.hide()
         windowHost?.close()
         windowHost = nil
         // Shown again, an island that follows the pointer starts on its display.
@@ -2184,7 +2191,7 @@ final class NotchService: ObservableObject {
              : selectedNotice.event == .accessory ? .system : selectedNotice.event == .systemNotification ? .notifications
              : selectedNotice.event == .clipboard ? .clipboard : selectedNotice.event == .agents ? .agents
              : selectedNotice.event == .track ? .music : selectedNotice.event == .microphone ? .mixer
-             : selectedNotice.event == .watch ? .watch : .controls)
+             : selectedNotice.event == .watch ? .watch : selectedNotice.event == .leave ? .calendar : .controls)
     }
 
     /// Skipping through songs, or a title that lands before its artist, shows
@@ -2472,6 +2479,7 @@ final class NotchService: ObservableObject {
             syncMirrors()
             flushMascotReaction()
             mascotRestedInView = mascotRestsInView && !expanded
+            syncBlurBackdrop()
         }
         if hiddenUntilHover || (captureControls != nil && captureSelectionInProgress) {
             finishMusicDeparture()
@@ -3739,6 +3747,14 @@ final class NotchService: ObservableObject {
             provideHapticFeedback()
         }
         return true
+    }
+
+    /// The shade behind the open island, while it is open on screen.
+    private func syncBlurBackdrop() {
+        let visible = running && !suspended && expanded && !fullscreenCompact && !hiddenUntilHover
+            && panel?.isVisible == true && NotchBlurBackdrop.isEnabled()
+        let bottom = expandedGeometry.forPresentation(expanded: true).floatingDrop + surfaceSize.height
+        blurBackdrop.update(visible: visible, screen: geometry.screen, islandBottom: bottom, above: panel)
     }
 
     /// The next or previous closed activity, wrapping at either end.

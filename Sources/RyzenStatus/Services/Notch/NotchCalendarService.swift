@@ -23,12 +23,14 @@ private actor NotchCalendarReader {
             let recurring = event.hasRecurrenceRules || event.isDetached
             let countdownKey = NotchCalendarSupport.countdownKey(
                 identifier: identifier, occurrence: recurring ? event.occurrenceDate ?? start : nil)
+            let place = event.structuredLocation?.geoLocation?.coordinate
             return NotchCalendarEvent(id: identifier + ":" + String(start.timeIntervalSinceReferenceDate),
                                       title: event.title ?? "", calendar: event.calendar.title,
                                       start: start, end: end, allDay: event.isAllDay,
                                       location: event.location ?? "", color: Self.tint(event.calendar),
                                       calendarItemIdentifier: event.calendarItemIdentifier,
-                                      recurring: recurring, countdownKey: countdownKey)
+                                      recurring: recurring, countdownKey: countdownKey,
+                                      latitude: place?.latitude, longitude: place?.longitude)
         }
     }
 

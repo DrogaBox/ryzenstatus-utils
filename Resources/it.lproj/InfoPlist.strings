@@ -9,3 +9,7 @@
 
 /* macOS Microphone permission prompt. */
 "NSMicrophoneUsageDescription" = "RyzenStatus utilizza il microfono per includere la tua voce nelle registrazioni dello schermo e monitorare i livelli audio quando abilitato.";
+
+/* macOS Location permission prompt. */
+"NSLocationUsageDescription" = "RyzenStatus usa la tua posizione solo per calcolare il tempo di viaggio verso un prossimo evento, così il Dynamic Island può dirti quando partire. La posizione non viene salvata.";
+"NSLocationWhenInUseUsageDescription" = "RyzenStatus usa la tua posizione solo per calcolare il tempo di viaggio verso un prossimo evento, così il Dynamic Island può dirti quando partire. La posizione non viene salvata.";
