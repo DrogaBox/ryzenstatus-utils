@@ -11039,6 +11039,12 @@ struct MetricsTests {
             expect(forms.effective(choice: .form(.golden), level: 45) == .golden
                    && forms.effective(choice: .form(.divine), level: 25) == .golden,
                    "a picked transformation shows once unlocked, the newest one before")
+            expect(growth.unlocksEverything(name: " DrogaBox ") && !growth.unlocksEverything(name: "drogabox")
+                   && !growth.unlocksEverything(name: "") && !growth.unlocksEverything(name: nil),
+                   "only that exact name unlocks everything")
+            expect(growth.shownLevel(earned: 3, name: "DrogaBox") == growth.maxLevel
+                   && growth.shownLevel(earned: 3, name: "Droga") == 3,
+                   "the name lifts the level shown, and another name brings the earned one back")
             expect(NotchMascotFormChoice(rawValue: "none") == .off && NotchMascotFormChoice(rawValue: nil) == .automatic
                    && NotchMascotFormChoice(rawValue: "divine") == .form(.divine)
                    && NotchMascotFormChoice(rawValue: NotchMascotFormChoice.form(.goldenFury).rawValue) == .form(.goldenFury),
