@@ -489,6 +489,85 @@ enum NowPlayingAutomation {
         return raw.isEmpty ? nil : raw
     }
 
+    /// The songs after the current one in the playlist or album Music is
+    /// playing from. Music's Up Next is not scriptable, but its current
+    /// playlist is, so this is the queue as far as that playlist goes. With
+    /// shuffle on the playlist order is not the play order, so only that is
+    /// reported. Nil when Music is not running or will not say what it plays
+    /// from (a radio station, for instance).
+    static func fetchMusicUpcoming(limit: Int) -> NowPlayingQueue? {
+        guard isRunning(bundleID: musicBundleID), limit > 0 else { return nil }
+        let src = """
+        tell application "Music"
+            if (player state as string) is "stopped" then return {"none"}
+            try
+                if shuffle enabled then return {"shuffled"}
+            end try
+            try
+                set pl to current playlist
+                set cid to database ID of current track
+                set n to count of tracks of pl
+                set i to 0
+                try
+                    set i to index of current track
+                    if i < 1 or i > n then
+                        set i to 0
+                    else if (database ID of track i of pl) is not cid then
+                        set i to 0
+                    end if
+                end try
+                if i is 0 then set i to index of (first track of pl whose database ID is cid)
+                if i ≥ n then return {"ok"}
+                set j to i + \(limit)
+                if j > n then set j to n
+                return {"ok", database ID of tracks (i + 1) thru j of pl, name of tracks (i + 1) thru j of pl, ¬
+                    artist of tracks (i + 1) thru j of pl, duration of tracks (i + 1) thru j of pl}
+            on error
+                return {"none"}
+            end try
+        end tell
+        """
+        guard let script = NSAppleScript(source: src) else { return nil }
+        var error: NSDictionary?
+        let desc = script.executeAndReturnError(&error)
+        guard error == nil else { return nil }
+        switch desc.atIndex(1)?.stringValue {
+        case "shuffled": return NowPlayingQueue(items: [], canPlay: false, isShuffled: true)
+        case "ok": break
+        default: return nil
+        }
+        guard desc.numberOfItems >= 5, let ids = desc.atIndex(2), let names = desc.atIndex(3),
+              let artists = desc.atIndex(4), let durations = desc.atIndex(5) else {
+            return NowPlayingQueue(items: [], canPlay: true)
+        }
+        let count = min(ids.numberOfItems, names.numberOfItems, artists.numberOfItems, durations.numberOfItems)
+        guard count > 0 else { return NowPlayingQueue(items: [], canPlay: true) }
+        let items = (1...count).compactMap { index -> NowPlayingQueueItem? in
+            guard let id = ids.atIndex(index)?.stringValue, !id.isEmpty,
+                  let title = names.atIndex(index)?.stringValue, !title.isEmpty else { return nil }
+            return NowPlayingQueueItem(id: id, offset: index, title: title,
+                                       artist: artists.atIndex(index)?.stringValue ?? "",
+                                       duration: durations.atIndex(index)?.doubleValue ?? 0)
+        }
+        return NowPlayingQueue(items: items, canPlay: true)
+    }
+
+    /// Jumps to one of the songs `fetchMusicUpcoming` listed, by its database
+    /// ID, inside the playlist Music is already playing from.
+    @discardableResult
+    static func playMusicUpcoming(databaseID: Int) -> Bool {
+        guard isRunning(bundleID: musicBundleID), databaseID > 0 else { return false }
+        let src = """
+        tell application "Music"
+            play (first track of current playlist whose database ID is \(databaseID))
+        end tell
+        """
+        guard let script = NSAppleScript(source: src) else { return false }
+        var error: NSDictionary?
+        script.executeAndReturnError(&error)
+        return error == nil
+    }
+
     /// Searches the Music library and plays the results, PlayStatus-style.
     /// Runs off the main thread: AppleScript blocks until the app answers.
     static func searchMusicLibrary(query: String) {

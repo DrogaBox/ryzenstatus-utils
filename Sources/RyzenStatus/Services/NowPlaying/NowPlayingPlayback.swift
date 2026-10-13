@@ -185,10 +185,12 @@ struct NowPlayingQueueItem: Equatable, Identifiable {
     let duration: Double
 }
 
-/// The player's upcoming songs. No provider exposes its queue to this app
-/// yet (Music's Up Next and Spotify's queue are not scriptable), so the
-/// service reports none and the island says the queue is unavailable.
+/// The player's upcoming songs. Only Music shares them, as the rest of the
+/// playlist it plays from (its Up Next and Spotify's queue are not
+/// scriptable); every other player reports none and the island says so.
 struct NowPlayingQueue: Equatable {
     let items: [NowPlayingQueueItem]
     let canPlay: Bool
+    /// Shuffle is on, so the playlist order says nothing about what plays next.
+    var isShuffled = false
 }
