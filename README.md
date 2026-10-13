@@ -29,111 +29,107 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License GPL 3.0 or later"></a>
 </p>
 
-<p align="center">
-  <img src="docs/assets/readme/panel-mixer.png" width="196" alt="Volume mixer with per app sliders, one app boosted past 100 percent">
-  <img src="docs/assets/readme/panel-system.png" width="196" alt="System tab with temperatures, usage graphs and memory pressure">
-  <img src="docs/assets/readme/panel-controls.png" width="196" alt="Window controls with the app switcher and Dock features">
-  <img src="docs/assets/readme/panel-utilities.png" width="196" alt="Utilities with cleaner, Homebrew, media tools and clipboard">
-</p>
-
-Per app volume, a real system monitor, a better app switcher, window snapping, Dock previews, clipboard history, text snippets, a file shelf, an uninstaller. The utilities Mac users usually buy one by one, together behind a single menu bar icon, with no account, no telemetry and no subscription.
+Per app volume, a real system monitor with AMD Ryzen telemetry and fan curves, a Dynamic Island with a companion that follows your hardware, a Command Bar, a better app switcher, window snapping, Dock previews, clipboard history, text snippets, a file shelf, an uninstaller. The utilities Mac users usually buy one by one, together behind a single menu bar icon, with no account, no telemetry and no subscription.
 
 ## Install only what you use
 
-Nobody needs all of it, and RyzenStatus is built around that. The Features page installs and uninstalls whole features: what you uninstall disappears from the entire app and stops loading, so it spends no CPU, memory or energy. Nothing is deleted, and installing again brings your old settings back.
+Nobody needs all of it, and RyzenStatus is built around that. The Features page installs and uninstalls whole features: what you uninstall disappears from the entire app and stops loading, so it spends no CPU, memory or energy. Nothing is deleted, and installing again brings your old settings back. Features you installed but never switched on are offered for removal in one batch, with Undo.
 
 Three one click bundles, Essentials, Windows, and Battery and quiet, shape the whole app in one move, and onboarding ends by asking which one you want. Every feature also wears an honest energy badge saying what it keeps alive while on.
 
-<p align="center">
-  <img src="docs/assets/readme/features-hub.png" width="720" alt="The Features hub in Settings, installing and uninstalling whole features">
-</p>
-
-The rest bends the same way: panel sections reorder and hide, the compact layout trades sections for tabs, settings export to a file and import on a new Mac, and the whole app speaks thirteen languages: English (US), Português (Brasil), Español, Deutsch, Français, Italiano, 日本語, 한국어, Русский, Türkçe, 简体中文, 繁體中文 (香港), and 繁體中文 (台灣).
+The rest bends the same way: Settings is grouped by tool and searchable down to the exact setting, the menu bar panel has an editor with a live miniature to reorder and hide its sections, settings export to a file and import on a new Mac, and the whole app speaks fifteen languages: English (US), Português (Brasil), Español, Deutsch, Français, Italiano, 日本語, 한국어, Русский, Türkçe, Slovenčina, Українська, 简体中文, 繁體中文 (香港), and 繁體中文 (台灣).
 
 ## Everything it does
+
+### Know what your Mac is doing
+
+- **Menu bar monitor.** Keep the readings you care about in the bar itself: values, usage bars or history graphs drawn as one-point columns with the newest sample on the right. Network and disk put upload or writes above and download or reads below.
+- **Graph themes.** Follow the system accent or pick one of ten palettes, soft variants or monochrome, separately for light and dark menu bars. The same columns are used in the panel, the metric details, the dashboards and the Dynamic Island.
+- **Your own menu bar icon.** Pick any system symbol to stand in for the RyzenStatus mark, from a gallery or by name.
+- **System monitor.** CPU (user and system time, average clock), GPU, memory pressure and app memory, temperatures, disk and power, with history graphs, metric detail pages, iStats widgets and a btop-style dashboard.
+- **Network.** Live rates in MB/s or Mbps, session totals, the per app list, each interface's local IP address and a built in speed test.
+- **Alerts.** Optional notifications for sustained CPU load, CPU and GPU temperature, GPU power, memory pressure, low disk space and low battery, in your temperature unit.
+
+### AMD Processors & Power Management
+
+All AMD pages live together in their own **AMD Ryzen** section of Settings: dashboard, fans, power, overclocking, sensors and hardware validation.
+
+- **AMD Telemetry:** Real-time monitoring of AMD CPU package/core temperatures, power draw against the PPT limit, and frequencies per core.
+- **Kernel-Native Dynamic Fan Curves:** Hardware fan control evaluated directly inside `AMDRyzenCPUPowerManagement.kext` at a 500 ms cadence with 256-point LUT interpolation, exponential moving average smoothing ($\alpha = 0.2$), hardware hysteresis, ramp rate limiting, and an emergency thermal guard ($\ge 85$ °C $\to$ PWM $\ge 200$), eliminating userspace polling overhead. Curves are put back at launch and after the kext reconnects, and the fan safety checks keep running with Settings closed.
+- **GPU Temperature Bridge:** Native discrete GPU temperature forwarding (selector 103) allowing fan curves driven directly by GPU thermal loads.
+- **Interactive Staged Curve Editor:** Curve editor featuring 256-point visual preview, live sensor tracking markers, 4-curve slot management, 1% minimum duty cycle floor, and explicit Apply / Revert actions to prevent unintended fan spin-ups while editing.
+- **SuperIO Hardware Read-Back:** Accurate fan speed (RPM) and duty cycle (PWM %) derived directly from physical SuperIO chips (Nuvoton NCT668X / NCT67XX, ITE IT86XXE).
+- **Gaming Mode:** A one-click toggle to apply the Extreme power preset (EPP 0) and prevent display sleep during intense workloads.
+- **EPP & C-State Management:** Manage Energy Performance Preference (EPP) with an optional Auto EPP that steps up fast and down slowly, CPPC Active Mode, and Deep C-States (C6) directly from settings for latency and power optimization.
+
+### Dynamic Island and companion
+
+- **Dynamic Island.** An optional island at the top of the screen that brings music, controls and everyday tools together: Now Playing with lyrics, queue and a live equalizer, timers, downloads, notifications, upcoming calendar events, gestures, accessory and input source notices, and live CPU, GPU and memory cards. Off by default.
+- **No notch needed.** On displays without a notch, compact activities and the resting companion stay in the menu bar and expanded panels open below it. The middle of the capsule can show the song, a live metric or the time.
+- **Watch any window.** Turn any part of any window into a live activity, with an alert when it changes, finishes or shows what you are waiting for.
+- **A companion that grows.** Give it a name and watch it reach ten levels with pats and time together, unlocking accessories (glasses, scarf, headphones, a crown and more), with seasonal costumes and its own greetings. It follows your AMD hardware: the fan companion spins at your CPU fan's real speed and the chip glows with package power.
+- **AI agents, opt in.** Tokens, plan limits and work in progress for Claude Code, Codex, OpenCode and GitHub Copilot, read from their local history files. Off by default.
 
 ### Sound, Media & Now Playing
 
 - **Volume mixer.** Slide any single app up or down while the rest of the Mac stays put, and push a quiet one past 100 percent when a video is just too low. No audio driver, no setup.
 - **Per app output.** Send your music to the speakers and a call to your headset at the same time.
-- **Output switcher.** Cycle between chosen outputs with one shortcut, and drop the volume automatically when headphones disconnect.
+- **Output switcher and audio priority.** Cycle between chosen outputs with one shortcut, rank your devices so the best one connected is used automatically, and drop the volume when headphones disconnect.
 - **Microphone tools.** Pin your favorite input so the Mac stops guessing, and mute the mic everywhere with a click or shortcut.
-- **Music app blocker.** Stops the Music app from bursting in when headphones connect.
+- **Music app blocker.** Stops the Music app from bursting in when a media key or headphones launch it, opens the player you prefer instead, and can start playback in it.
 - **Now Playing floating player.** A detachable floating desktop widget with compact Mini Card and regular view modes, right-click quick resize, pin-on-top, and adaptive background theming (6 palette styles) extracted live from album artwork.
 - **Live animated artwork.** Streams Apple Music motion album covers in real time with seamless crossfades between video and static cover art.
 - **Synced lyrics & song credits.** Synchronized LRC line-by-line scrolling lyrics, plain lyrics view, detailed track credits (composer, release year, genre, bitrate), and manual provider search.
-- **Universal transport controls.** Seamless Play/Pause, Next/Previous, Shuffle, Repeat state toggles, seekable progress bar, and configurable global media hotkeys with smart single dispatch for Apple Music, Spotify, and browser media sessions.
-- **Now Playing menu bar item.** Dedicated menu bar status item displaying the track title, artist, and compact progress bar with configurable display modes.
-
-### Know what your Mac is doing
-
-- **System monitor.** CPU, GPU, memory pressure and temperatures with history graphs, plus battery health, time remaining, cycle count, power draw and which apps are burning energy right now.
-- **Menu bar readouts.** Keep the readings you care about in the bar itself, with values or compact usage bars, including optional battery time remaining, combined or as separate items.
-- **Network.** Live rates, session totals and a built in speed test.
-- **Alerts.** Optional notifications for sustained CPU load, high temperature, memory pressure, low disk space and low battery.
-
-### AMD Processors & Power Management
-
-- **AMD Telemetry:** Real-time monitoring of AMD CPU package/core temperatures, power draw, and frequencies per core.
-- **Kernel-Native Dynamic Fan Curves:** Hardware fan control evaluated directly inside `AMDRyzenCPUPowerManagement.kext` at a 500 ms cadence with 256-point LUT interpolation, exponential moving average smoothing ($\alpha = 0.2$), hardware hysteresis, ramp rate limiting, and an emergency thermal guard ($\ge 85$ °C $\to$ PWM $\ge 200$), eliminating userspace polling overhead.
-- **GPU Temperature Bridge:** Native discrete GPU temperature forwarding (selector 103) allowing fan curves driven directly by GPU thermal loads.
-- **Interactive Staged Curve Editor:** Curve editor featuring 256-point visual preview, live sensor tracking markers, 4-curve slot management, 1% minimum duty cycle floor, and explicit Apply / Revert actions to prevent unintended fan spin-ups while editing.
-- **SuperIO Hardware Read-Back:** Accurate fan speed (RPM) and duty cycle (PWM %) derived directly from physical SuperIO chips (Nuvoton NCT668X / NCT67XX, ITE IT86XXE).
-- **Gaming Mode:** A one-click toggle to apply the Extreme power preset (EPP 0) and prevent display sleep during intense workloads.
-- **EPP & C-State Management:** Manage Energy Performance Preference (EPP), CPPC Active Mode, and toggle Deep C-States (C6) directly from settings for latency and power optimization.
+- **Universal transport controls.** Play/Pause, Next/Previous, Shuffle, Repeat, a seekable progress bar, and configurable global media hotkeys with smart single dispatch for Apple Music, Spotify, and browser media sessions.
+- **Now Playing menu bar item.** Track title, artist and a compact progress bar right in the menu bar, with configurable display modes.
 
 ### Windows and the Dock
 
 - **App switcher.** A richer take on pressing ⌘Tab, with live window thumbnails, minimized windows included, and more than one window per app.
-- **Window layout.** Snap the active window to halves, thirds, sixths, corners, center or another display, each with its own optional shortcut. On a trackpad or mouse, hold chosen modifiers and drag anywhere to move a window, then add Shift to resize it. A mouse can also resize with the right button.
+- **Window layout.** Snap the active window to halves, thirds, sixths, corners, center or another display, each with its own optional shortcut. On a trackpad or mouse, hold chosen modifiers and drag anywhere to move a window, then add Shift to resize it.
 - **Dock Preview.** Hover a Dock icon to peek at that app's windows and jump straight into the right one.
 - **Dock clicks.** Click the Dock icon of the active app to minimize its windows, or cycle through them one by one.
 - **Maximize windows.** The green button fills the screen without creating another Space, and puts the window back on the next click.
 - **Quit on close.** Apps you choose quit when their last window closes.
-
-<p align="center">
-  <img src="docs/assets/readme/window-switcher.gif" width="540" alt="The window switcher showing live thumbnails of open windows">
-</p>
+- **Quit & close protection.** Guard ⌘Q and ⌘W behind a second press or a hold, per app or everywhere.
+- **Spaces order.** Keep your Spaces in a fixed order, so macOS stops rearranging them by recent use.
 
 ### Keyboard and mouse
 
-- **Text snippets.** Type a short trigger anywhere and it becomes your text, expanded instantly or after a space, with date, time and clipboard variables.
-- **Smooth scrolling.** Gives a mouse wheel the glide of a trackpad.
-- **Scroll direction.** Invert the wheel without touching the trackpad's natural scrolling.
-- **Side buttons.** The mouse Back and Forward buttons start meaning it, in Finder, browsers and compatible apps.
-- **Middle click.** A three finger press becomes a real middle click.
+- **Command Bar.** One field that finds and runs everything the app does, from a global shortcut.
+- **Text snippets.** Type a short trigger anywhere and it becomes your text, with date, time and clipboard variables, a snippet library and multi-line snippets pasted in one go.
+- **Super Key.** Turn Caps Lock into an extra modifier, with a safety helper that hands the key back if the app is killed.
+- **Mouse extras.** Smooth scrolling, independent scroll direction, Back and Forward side buttons, three finger middle click, focus follows mouse, acceleration off, linear and horizontal scrolling, and a click debounce for worn mice.
 - **Key debounce.** Filters the double letters a worn keyboard invents.
 
 ### Clipboard, files and links
 
-- **Clipboard history.** Local history of text, images and files with pinned favorites, search, skipped apps list, in-sidebar text editing, and quick paste shortcuts.
+- **Clipboard history.** Local history of text, images and files with pinned favorites, search, skipped apps, in-sidebar editing, quick paste shortcuts and optional clearing after a delay, on sleep or on screen lock.
 - **Paste as plain text.** One shortcut pastes without fonts, colors or links, and the original stays on the clipboard.
 - **Shelf.** Park files, text and links near your cursor mid drag, then drop them where they belong later.
-- **Finder cut and paste.** ⌘X and ⌘V move files the way you always expected them to.
-- **Clean URL.** Strips tracking and custom parameters from copied links, on demand or automatically.
+- **Finder cut and paste, and rename.** ⌘X and ⌘V move files the way you always expected them to, and a shortcut renames the selected file.
+- **Clean URL.** Strips tracking parameters from copied links, with every rule listed and switchable by site, your own per-site parameters, and a note of what was removed.
+- **Disk image installer.** Opening a downloaded `.dmg` offers to install the app inside and tidy the download away.
 
 ### Everyday tools
 
-- **Quick panel.** ⌃⌘V opens a small floating palette with your favorite tools one key away.
-- **Quick toggles.** One-click system actions in their own panel tab: switch light and dark mode, empty the Trash, eject every disk, show hidden files, hide desktop icons, lock the screen and more.
-- **Radial menu.** Hold a shortcut, or a spare side mouse button, and a wheel of your favorite actions opens around the pointer: apps, files, links, key combos, media controls and RyzenStatus tools, with submenus for more. Point and release to run one.
-- **Screen Recorder.** Record the screen, a single window, or a custom area with optional microphone audio input, dynamic play/pause controls, and a built-in video editor featuring text annotations, trimming, undo/redo with localized shortcut tooltips, HUD overlays, and instant export or clipboard copy.
-- **Screenshot & Annotation Suite.** Capture an area, a window or the whole screen on a frozen picture. Quick preview or direct-to-editor mode with stickers, arrows, annotations, precise crop, redaction/blur, background styling, and pinned captures. Built-in QR code detection shows decoded text to copy or open directly.
-- **Copy text from screen.** Select any area and its text is recognized offline via Apple's Vision framework, straight onto the clipboard. When the area holds a QR code, its content is shown so you can copy it or open the link.
-- **Camera preview.** A floating mirror to check how you look before joining a call, one click or shortcut away. Pick the camera when several are connected; it closes as soon as you click away.
-- **Scratchpad.** A floating pad for short-lived text: meeting notes, numbers, fragments on their way somewhere else. It saves as you type, floats over your work, and can copy everything, export to a file or clear itself after a quiet period.
-- **Color picker.** Grab any pixel with the system loupe as HEX, RGB, HSL or SwiftUI code.
-- **Cleaner.** Sweeps app leftovers, caches and logs, by hand or on a schedule.
-- **Uninstaller.** Drop an app in and take its caches, preferences and logs to the Trash with it.
-- **Media tools.** Compress videos and images, make GIFs and extract text, all locally.
-- **Homebrew manager.** Search, install, update and remove formulae and casks without opening a terminal, with visual loading states.
-- **Cleaning Mode.** Locks the keyboard and blacks out every display while you clean.
+- **Quick panel and toggles.** ⌃⌘V opens a floating palette with your favorite tools, and one-click system actions sit in their own panel tab: dark mode, empty the Trash, eject every disk, hidden files, lock the screen and more.
+- **Radial menu.** Hold a shortcut, or a spare mouse button, and a wheel of your favorite actions opens around the pointer.
+- **Screen Recorder.** Record the screen, a window or an area with optional microphone audio, then trim, annotate and export in the built-in editor.
+- **Screenshot & Annotation Suite.** Capture on a frozen picture, then annotate, crop, redact, style the background and pin captures. QR codes are detected and decoded.
+- **Copy text from screen.** Select any area and its text is recognized offline via Apple's Vision framework, straight onto the clipboard.
+- **Image converter.** Saved profiles, exact or proportional resizing, renaming with tokens, text or logo watermarks, and video compression and GIFs, all locally.
+- **Scratchpad.** A floating pad for short-lived text with Markdown preview, find, text size and background opacity. It saves as you type.
+- **Cleaner and uninstaller.** Sweep app leftovers, caches, logs and forgotten screenshots by hand or on a schedule, and remove apps with all their files, including Homebrew casks.
+- **Homebrew and MacPorts.** Search, install, update and remove packages without opening a terminal, and find updates for the apps you have.
+- **Kill Process and Port Manager.** Search running processes and end whole process trees, and see which apps listen on which network ports.
+- **Camera preview, color picker, wallpaper gallery and Cleaning Mode**, which locks the keyboard and blacks out every display while you clean.
 
 ### Energy and display
 
-- **Keep awake.** Keep the Mac up for a timer, until you say stop or automatically with an external display or power connection, including with the lid closed, choose the active menu bar icon and color, and see the remaining time beside it.
-- **Displays.** Adjust brightness or turn individual displays on and off from the menu bar panel. External screens use their own control channel when available and fall back to dimming the picture, while the keyboard brightness keys can follow the pointer and show the brightness percentage.
-- **Extra brightness.** Pushes the XDR panel of a MacBook Pro past its regular maximum using the display's HDR headroom.
+- **Keep awake.** Keep the Mac up for a timer, until a chosen time, until you say stop, or automatically with an external display or power connection, with the remaining time beside the icon.
+- **Displays.** Adjust brightness or turn individual displays on and off from the menu bar panel, with hardware control on external screens when available.
+- **Bluetooth.** Turn Bluetooth off when the Mac sleeps and back on when it wakes. On a Hackintosh with a slow or missing Bluetooth controller, one switch stops the app's own Bluetooth queries.
 
 ## Install
 
@@ -149,13 +145,10 @@ To remove RyzenStatus completely, including its settings and permissions:
 
 ## Private by default
 
-RyzenStatus has no backend, no account, no analytics and no tracking. The network is touched only by things you can see: update checks, the speed test, Now Playing lyrics/animated artwork streams, and Homebrew searches and installs you start. The full story is in the [privacy notes](docs/PRIVACY.md).
+RyzenStatus has no backend, no account, no analytics and no tracking. The network is touched only by things you can see: update checks, the speed test, Now Playing lyrics/animated artwork streams, Homebrew and MacPorts searches and installs you start, and feedback you choose to send through GitHub. The AI agents section and calendar events only read files and data already on your Mac. The full story is in the [privacy notes](docs/PRIVACY.md).
 
 Permissions get the same treatment. Every one is optional, the app explains each in plain words, shows which features actually use it, and even tells you when a permission you granted is no longer needed by anything, with a shortcut to revoke it.
 
-<p align="center">
-  <img src="docs/assets/readme/permissions.png" width="720" alt="The Permissions page showing what each permission does, which features use it, and an unused permission warning">
-</p>
 
 | Permission | Used by | Without it |
 |---|---|---|
@@ -165,6 +158,8 @@ Permissions get the same treatment. Every one is optional, the app explains each
 | Microphone, optional | Screen recordings with microphone audio | Recordings are video only without voice |
 | Camera, optional | Camera preview mirror | The preview window stays off |
 | Notifications | Keep awake, battery, monitor and update alerts | The app stays silent |
+| Calendars, optional | Upcoming events in the Dynamic Island | The island shows no events |
+| Bluetooth, optional | Accessory notices in the Dynamic Island and Bluetooth sleep | Those features stay off |
 | Full Disk Access, optional | Deeper cleaner and uninstaller scans | Only reachable places are scanned |
 | Administrator, once, optional | Password free closed lid toggling | A password prompt per toggle |
 
