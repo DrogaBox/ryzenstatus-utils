@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.41.0] — Unreleased — kexts 3.34.17 (No kext changes)
+## [1.41.0] — 2026-10-13 — kexts 3.34.17 (No kext changes)
 
 The Dynamic Island's companion grows with you: it has a name, a level and a story, dresses up from a wardrobe that unlocks as it levels, wears costumes for the season, follows your AMD hardware and says a word of its own now and then.
 
