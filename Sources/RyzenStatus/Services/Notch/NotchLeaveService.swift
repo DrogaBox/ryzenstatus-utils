@@ -222,7 +222,10 @@ final class NotchLeaveService: NSObject, CLLocationManagerDelegate {
     }
 
     private static func mapItem(at location: CLLocation) -> MKMapItem {
+        // The macOS 26 initializer exists only in its SDK; the fallback build uses Xcode 16.
+        #if compiler(>=6.2)
         if #available(macOS 26, *) { return MKMapItem(location: location, address: nil) }
+        #endif
         return MKMapItem(placemark: MKPlacemark(coordinate: location.coordinate))
     }
 }
