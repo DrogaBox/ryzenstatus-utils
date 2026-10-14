@@ -508,8 +508,10 @@ final class ProcessUsageService {
         defer { windowServerLock.unlock() }
         // WindowServer restarts on logout/login; a cached PID must be
         // re-validated before reuse or GPU time is billed to a dead/reused PID forever.
+        // WindowServer runs as _windowserver, so a live one answers EPERM, not 0;
+        // only ESRCH means it is gone. Treating EPERM as dead ran pgrep every tick.
         if let cached = _windowServerPID {
-            if kill(cached, 0) == 0 { return cached }
+            if kill(cached, 0) == 0 || errno == EPERM { return cached }
             _windowServerPID = nil
         }
         for app in NSWorkspace.shared.runningApplications {
@@ -608,8 +610,9 @@ final class ProcessUsageService {
         memoryLoading = false
         if let rows {
             memoryCache = cachedRows(from: rows)
-            updateFootprintHistory(rows: rows)
+            let historyToAnalyze = updateFootprintHistory(rows: rows)
             cacheLock.unlock()
+            if let historyToAnalyze { updateLeakingPIDs(from: historyToAnalyze) }
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .processUsageDidUpdate, object: nil)
             }
@@ -619,8 +622,9 @@ final class ProcessUsageService {
         return limitedRows(memoryCache, limit: limit, now: ProcessInfo.processInfo.systemUptime, maxAge: staleCacheSeconds) ?? []
     }
 
-    private func updateFootprintHistory(rows: [ProcessUsage]) {
-        // This method is always called while cacheLock is held (from finishMemory).
+    /// Called with cacheLock held (from finishMemory). Returns a snapshot of the
+    /// history when a leak analysis is due; the caller runs it after unlocking.
+    private func updateFootprintHistory(rows: [ProcessUsage]) -> [pid_t: [(Date, UInt64)]]? {
         let now = Date()
         let activePIDs = Set(rows.map(\.pid))
         let cutoff = now.addingTimeInterval(-1800)
@@ -634,23 +638,23 @@ final class ProcessUsageService {
         footprintHistory = footprintHistory.filter { activePIDs.contains($0.key) }
 
         let uptime = ProcessInfo.processInfo.systemUptime
-        guard uptime - lastLeakAnalysisTime >= 30 else { return }
+        guard uptime - lastLeakAnalysisTime >= 30 else { return nil }
         lastLeakAnalysisTime = uptime
+        return footprintHistory
+    }
 
-        // BUG-05 fix: LeakDetector.analyze runs a linear regression over thousands of points.
-        // Running it while holding cacheLock blocks topCPU/topGPU/topMemory callers.
-        // Capture the history snapshot under lock, then analyze on a background queue.
-        let historyCopy = footprintHistory
-        cacheLock.unlock()  // temporarily release while doing heavy computation
+    /// LeakDetector.analyze runs a linear regression over thousands of points, so
+    /// it runs outside cacheLock or it would block topCPU/topGPU/topMemory callers.
+    private func updateLeakingPIDs(from history: [pid_t: [(Date, UInt64)]]) {
         var newLeaking = Set<pid_t>()
-        for (pid, series) in historyCopy {
+        for (pid, series) in history {
             if LeakDetector.analyze(series: series) != nil {
                 newLeaking.insert(pid)
             }
         }
-        cacheLock.lock()  // re-acquire to safely update leakingPIDs
-        // BUG-08 fix: update through the private backing store, which is always accessed under cacheLock.
+        cacheLock.lock()
         _leakingPIDs = newLeaking
+        cacheLock.unlock()
     }
 
     private func finishGPU(_ rows: [ProcessUsage]?, limit: Int) -> [ProcessUsage] {
@@ -692,6 +696,10 @@ final class ProcessUsageService {
             "AMDRadeonX6000_AMDAcceleratedVKDriver",
             "AMDGPUAccelerator"
         ]
+        // IOServiceMatching also matches subclasses, so one accelerator answers to
+        // several of these names (a Navi 21 is both IOAccelerator and
+        // IOGraphicsAccelerator2). Walk each one once or its time is counted twice.
+        var visitedAccelerators = Set<UInt64>()
 
         for className in classes {
             var accelIterator = io_iterator_t()
@@ -706,6 +714,10 @@ final class ProcessUsageService {
                     IOObjectRelease(accelerator)
                     accelerator = IOIteratorNext(accelIterator)
                 }
+
+                var entryID: UInt64 = 0
+                if IORegistryEntryGetRegistryEntryID(accelerator, &entryID) == kIOReturnSuccess,
+                   !visitedAccelerators.insert(entryID).inserted { continue }
 
                 var clients = io_iterator_t()
                 guard IORegistryEntryGetChildIterator(accelerator, kIOServicePlane, &clients) == kIOReturnSuccess

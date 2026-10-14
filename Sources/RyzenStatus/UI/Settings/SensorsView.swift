@@ -129,7 +129,7 @@ struct SensorsView: View {
                         Divider()
                             .padding(.vertical, 4)
                         
-                        Text("Per-Core Temperatures (\(cpuSensors.count) Cores/Sensors)")
+                        Text("CCD Temperatures (\(cpuSensors.count))")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .padding(.bottom, 2)
@@ -439,17 +439,12 @@ struct SensorsView: View {
     }
     
     private func sensorDisplayName(for key: String) -> String {
-        // Decode TC<Hex>C and TC<Hex>c into Core 0, Core 1, ..., Core 15
+        // TC<Hex>C and TC<Hex>c are one CCD each (TC0C = CCD 1), not one core.
         if key.hasPrefix("TC") && key.count == 4 {
             let idx = key.index(key.startIndex, offsetBy: 2)
-            let hexChar = String(key[idx])
             let lastChar = key.last!
-            if let coreNum = Int(hexChar, radix: 16) {
-                if lastChar == "C" {
-                    return "Core \(coreNum) Temp"
-                } else if lastChar == "c" {
-                    return "Core \(coreNum) Temp"
-                }
+            if lastChar == "C" || lastChar == "c", let ccd = Int(String(key[idx]), radix: 16) {
+                return "CCD \(ccd + 1) Temp"
             }
         }
         
@@ -515,40 +510,23 @@ struct SensorsView: View {
         try? csv.write(to: url, atomically: true, encoding: .utf8)
     }
     
+    /// The kext publishes TCxC/TCxc once per CCD (Zen has no per-core
+    /// temperature sensor), so this lists the CCDs it actually reports and
+    /// never fills in rows for keys that do not exist.
     private func buildCPUSensors(from filteredReadings: [SMCSensorReading]) -> [SMCSensorReading] {
-        let ccd2Val = filteredReadings.first(where: { $0.key == "TCCD2" })?.value
-            ?? filteredReadings.first(where: { $0.key == "TCCD1" || $0.key == "TCCD" })?.value
-            ?? monitor.snapshot.cpuTemperature
-            ?? 50.0
-        
-        var existingPerCoreMap: [Int: SMCSensorReading] = [:]
+        var perCCD: [Int: SMCSensorReading] = [:]
         for sensor in filteredReadings {
             let key = sensor.key
             if key.hasPrefix("TC") && key.count == 4 {
                 let idx = key.index(key.startIndex, offsetBy: 2)
                 let lastChar = key.last!
-                if (lastChar == "C" || lastChar == "c"), let coreNum = Int(String(key[idx]), radix: 16) {
-                    existingPerCoreMap[coreNum] = sensor
+                if (lastChar == "C" || lastChar == "c"), let ccd = Int(String(key[idx]), radix: 16),
+                   perCCD[ccd] == nil || lastChar == "C" {
+                    perCCD[ccd] = sensor
                 }
             }
         }
-        
-        let detectedCores = Int(monitor.snapshot.numPhysicalCores)
-        let maxExistingCore = existingPerCoreMap.keys.max().map { $0 + 1 } ?? 0
-        let targetCoreCount = detectedCores > 0 ? detectedCores : (maxExistingCore > 0 ? maxExistingCore : 8)
-        
-        var result: [SMCSensorReading] = []
-        for i in 0..<targetCoreCount {
-            if let existing = existingPerCoreMap[i] {
-                result.append(existing)
-            } else {
-                let hexChar = String(i, radix: 16).uppercased()
-                let synthKey = "TC\(hexChar)C"
-                let synthVal = (i >= 8) ? ccd2Val : (monitor.snapshot.cpuTemperature ?? ccd2Val)
-                result.append(SMCSensorReading(key: synthKey, value: synthVal, type: "sp78", category: "Temperature"))
-            }
-        }
-        return result
+        return perCCD.keys.sorted().compactMap { perCCD[$0] }
     }
 }
 

@@ -420,7 +420,10 @@ final class FanCurveController: ObservableObject {
 
         let kextGPUTemp = freshKextTemp ?? ProcessorModel.shared.lastKextGPUTemperature
         let monitorGPUTemp = SystemMonitor.shared.snapshot.gpuTemperature ?? 0.0
-        let tempToSend = kextGPUTemp > 0 ? kextGPUTemp : monitorGPUTemp
+        // SMU7 GPUs report 255 for an invalid sample; fall back to the monitor
+        // then instead of dropping the update.
+        let kextUsable = kextGPUTemp > 0 && kextGPUTemp <= 120.0
+        let tempToSend = kextUsable ? kextGPUTemp : monitorGPUTemp
 
         guard tempToSend > 0, tempToSend <= 120.0, tempToSend.isFinite else {
             // No trustworthy GPU reading. Say so once instead of
