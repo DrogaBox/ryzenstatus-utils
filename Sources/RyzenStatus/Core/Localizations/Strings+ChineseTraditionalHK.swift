@@ -82,6 +82,8 @@ extension Strings {
         memorySwapUsed: "已用交換空間",
         memoryCompressed: "已壓縮",
         memoryCachedFiles: "已快取的檔案",
+        memoryPageIns: "分頁換入",
+        memoryPageOuts: "分頁換出",
         pressureNormal: "正常",
         pressureWarning: "注意",
         pressureCritical: "嚴重",
@@ -776,6 +778,8 @@ extension Strings {
         memoryStyleBoth: "兩者",
 
         systemUptime: "已運作",
+        systemLoadAverage: "負載",
+        historyLive: "即時",
         batteryCharge: "電量",
         powerHealth: "電池健康度",
         powerCycles: "次循環",

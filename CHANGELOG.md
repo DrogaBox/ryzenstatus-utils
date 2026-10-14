@@ -6,6 +6,12 @@ A full review of both kexts against the Linux drivers and the reference SMU tool
 
 > **Kext Note**: `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` move to 3.35.0. Replace both in `EFI/OC/Kexts/` (and keep Lilu and VirtualSMC up to date), then reboot.
 
+### Added
+
+- **Load average**: the uptime row shows the 1, 5 and 15 minute load averages.
+- **Long history**: each detail view (CPU, GPU, memory, network, disk and power) has a range menu next to its value. Besides the live graph, it shows the last 10 minutes up to 30 days, always as 120 averaged columns; hovering a column shows its value and time. Only what RyzenStatus already measures is kept, nothing is sampled in the background for it, and the month is saved on this Mac so it survives a restart.
+- **Page ins and page outs**: the memory section and its detail view show how much memory has been read in from and written out to disk since boot.
+
 ### Changed
 
 - **Core rings in the panel**: the per-core view draws each core as a small ring that fills clockwise with its load, clock, temperature or power, with the value in the middle. Rows divide the core count evenly where they can (12, 10, 9 or 7 per row) and otherwise hold 8, so a 16-core Ryzen shows two rows of eight.

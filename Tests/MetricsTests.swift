@@ -1277,6 +1277,8 @@ struct MetricsTests {
         vmPrefix.compressor_page_count = 4
         vmPrefix.external_page_count = 5
         vmPrefix.internal_page_count = 6
+        vmPrefix.pageins = 8
+        vmPrefix.pageouts = 9
         vmPayload.prefix = vmPrefix
         vmPayload.tagStoragePages = 7
         expect(VMStatisticsDecoder.payloadByteCount == 248
@@ -1292,8 +1294,51 @@ struct MetricsTests {
                                         compressorPages: 4,
                                         externalPages: 5,
                                         internalPages: 6,
-                                        tagStoragePages: 0),
+                                        tagStoragePages: 0,
+                                        pageIns: 8,
+                                        pageOuts: 9),
                "VM statistics decodes the typed legacy prefix")
+        if let loads = SystemInfo.loadAverages() {
+            expect(loads.count == 3 && loads.allSatisfy { $0.isFinite && $0 >= 0 },
+                   "load averages are three finite, non-negative values")
+        } else {
+            expect(false, "load averages read on this Mac")
+        }
+
+        var historyTier = LongHistoryTier(step: 60, capacity: 10)
+        historyTier.record(1, at: 0)
+        historyTier.record(3, at: 30)
+        historyTier.record(5, at: 120)
+        let historyBuckets = historyTier.averages(end: 180, duration: 180, buckets: 3)
+        expect(historyBuckets.count == 3 && historyBuckets[0] == 2 && historyBuckets[1].isNaN && historyBuckets[2] == 5,
+               "long history averages each slot and leaves an empty bucket as a gap")
+        historyTier.record(7, at: 15 * 60)
+        expect(historyTier.mean(slot: 0) == nil && historyTier.mean(slot: 15) == 7,
+               "long history drops slots that left the ring")
+        historyTier.record(.nan, at: 15 * 60)
+        expect(historyTier.mean(slot: 15) == 7, "long history ignores invalid readings")
+
+        var savedTier = LongHistoryTier(step: LongHistoryStore.coarseStep, capacity: LongHistoryStore.coarseCapacity)
+        savedTier.record(42, at: 600)
+        let emptyTier = LongHistoryTier(step: LongHistoryStore.coarseStep, capacity: LongHistoryStore.coarseCapacity)
+        var restoredTiers = [emptyTier, emptyTier]
+        LongHistoryStore.decode(LongHistoryStore.encode([savedTier, emptyTier]), into: &restoredTiers)
+        expect(restoredTiers[0].mean(slot: 10) == 42 && restoredTiers[0].newestSlot == 10
+                && restoredTiers[1].newestSlot == nil,
+               "long history survives a save and a reload")
+        var untouchedTiers = [emptyTier]
+        LongHistoryStore.decode(Data([1, 2, 3]), into: &untouchedTiers)
+        expect(untouchedTiers[0].newestSlot == nil, "long history ignores a damaged file")
+
+        let historyStore = LongHistoryStore(fileURL: nil, now: 0)
+        historyStore.record(.cpu, 0.5, at: 1_000)
+        expect(historyStore.averages(.cpu, range: .tenMinutes, end: 1_005).last == 0.5
+                && historyStore.averages(.cpu, range: .tenMinutes, end: 1_005).count == LongHistoryStore.bucketCount,
+               "long history serves short ranges from the five-second ring")
+        expect(historyStore.averages(.cpu, range: .oneDay, end: 1_060).last == 0.5,
+               "long history serves long ranges from the minute ring")
+        expect(LongHistoryRange.allCases.allSatisfy { !$0.label(.enUS).isEmpty && !$0.label(.ja).isEmpty },
+               "long history ranges have labels")
         expect(VMStatisticsDecoder.decode(vmPayload,
                                           returnedCount: VMStatisticsDecoder.rev2Count)?.tagStoragePages == 0,
                "VM statistics does not read tagged storage from a rev2 payload")

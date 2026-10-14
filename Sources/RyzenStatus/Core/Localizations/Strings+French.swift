@@ -82,6 +82,8 @@ extension Strings {
         memorySwapUsed: "Swap utilisé",
         memoryCompressed: "Compressée",
         memoryCachedFiles: "Fichiers en cache",
+        memoryPageIns: "Pages entrantes",
+        memoryPageOuts: "Pages sortantes",
         pressureNormal: "Normale",
         pressureWarning: "Attention",
         pressureCritical: "Critique",
@@ -775,6 +777,8 @@ extension Strings {
         memoryStyleBoth: "Les deux",
 
         systemUptime: "Actif depuis",
+        systemLoadAverage: "Charge",
+        historyLive: "En direct",
         batteryCharge: "Charge",
         powerHealth: "État de la batterie",
         powerCycles: "Cycles",

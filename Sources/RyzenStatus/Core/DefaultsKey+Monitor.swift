@@ -10,6 +10,9 @@ extension DefaultsKey {
     /// classic fill), "clock" / "temp" / "power" (SMU PM-table per-core
     /// values when the table decodes; falls back to load otherwise).
     static let panelCoreGridMetric = "panelCoreGridMetric"
+    /// Range of the graph in a metric's detail view: 0 for the live graph,
+    /// otherwise a `LongHistoryRange` in seconds.
+    static let metricDetailHistoryRange = "metricDetailHistoryRange"
     static let menuBarCPU = "menuBarCPU"
     static let menuBarGPU = "menuBarGPU"
     static let menuBarCPUPower = "menuBarCPUPower"

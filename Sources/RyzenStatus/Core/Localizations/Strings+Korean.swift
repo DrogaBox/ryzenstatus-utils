@@ -82,6 +82,8 @@ extension Strings {
         memorySwapUsed: "사용 중인 스왑",
         memoryCompressed: "압축됨",
         memoryCachedFiles: "캐시된 파일",
+        memoryPageIns: "페이지 인",
+        memoryPageOuts: "페이지 아웃",
         pressureNormal: "정상",
         pressureWarning: "주의",
         pressureCritical: "위험",
@@ -776,6 +778,8 @@ extension Strings {
         memoryStyleBoth: "둘 다",
 
         systemUptime: "가동 시간",
+        systemLoadAverage: "부하",
+        historyLive: "실시간",
         batteryCharge: "충전량",
         powerHealth: "배터리 상태",
         powerCycles: "충전 횟수",

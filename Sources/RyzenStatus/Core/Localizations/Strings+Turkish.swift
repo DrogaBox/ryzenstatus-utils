@@ -82,6 +82,8 @@ extension Strings {
         memorySwapUsed: "Kullanılan takas",
         memoryCompressed: "Sıkıştırılmış",
         memoryCachedFiles: "Önbellekteki dosyalar",
+        memoryPageIns: "Sayfa girişleri",
+        memoryPageOuts: "Sayfa çıkışları",
         pressureNormal: "Normal",
         pressureWarning: "Dikkat",
         pressureCritical: "Kritik",
@@ -775,6 +777,8 @@ extension Strings {
         memoryStyleBoth: "İkisi de",
 
         systemUptime: "Çalışma süresi",
+        systemLoadAverage: "Yük",
+        historyLive: "Canlı",
         batteryCharge: "Şarj",
         powerHealth: "Pil sağlığı",
         powerCycles: "döngü",

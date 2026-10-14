@@ -82,6 +82,8 @@ extension Strings {
         memorySwapUsed: "使用中のスワップ",
         memoryCompressed: "圧縮",
         memoryCachedFiles: "キャッシュ済み",
+        memoryPageIns: "ページイン",
+        memoryPageOuts: "ページアウト",
         pressureNormal: "標準",
         pressureWarning: "注意",
         pressureCritical: "危険",
@@ -775,6 +777,8 @@ extension Strings {
         memoryStyleBoth: "両方",
 
         systemUptime: "稼働時間",
+        systemLoadAverage: "負荷",
+        historyLive: "ライブ",
         batteryCharge: "充電量",
         powerHealth: "バッテリーの状態",
         powerCycles: "充放電回数",

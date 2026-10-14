@@ -42,6 +42,9 @@ struct SystemSnapshot {
     var memoryCompressed: UInt64?
     var memoryCached: UInt64?
     var memorySwapUsed: UInt64?
+    /// Bytes paged in from and out to backing store since boot.
+    var memoryPageIns: UInt64?
+    var memoryPageOuts: UInt64?
     var memoryPressure: MemoryPressure = .unknown
 
     // GPU VRAM
@@ -599,6 +602,8 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         var compressed: UInt64
         var cached: UInt64
         var swapUsed: UInt64?
+        var pageIns: UInt64
+        var pageOuts: UInt64
         var pressure: MemoryPressure
         var updatedAt: TimeInterval
         var missedSamples: Int
@@ -872,6 +877,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                         self.lastCPUSystemUsage = load.system
                         self.missedCPUUsageSamples = 0
                         self.cpuHistory.push(cpu)
+                        LongHistoryStore.shared.record(.cpu, cpu)
                         self.cpuSystemHistory.push(load.system)
 
                         let freqs = self.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
@@ -889,6 +895,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                         self.lastCPUSystemUsage = avgSystemPct / 100.0
                         self.missedCPUUsageSamples = 0
                         self.cpuHistory.push(cpuLoad)
+                        LongHistoryStore.shared.record(.cpu, cpuLoad)
                         self.cpuSystemHistory.push(avgSystemPct / 100.0)
 
                         let freqs = self.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
@@ -919,11 +926,14 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                         next.memoryCompressed = memory.compressed
                         next.memoryCached = memory.cached
                         next.memorySwapUsed = memory.swapUsed
+                        next.memoryPageIns = memory.pageIns
+                        next.memoryPageOuts = memory.pageOuts
                         next.memoryPressure = memory.pressure
                         if isFresh, memory.total > 0 {
                             let fraction = Double(memory.used) / Double(memory.total)
                             let appFraction = Double(memory.appUsed) / Double(memory.total)
                             self.memoryHistory.push(fraction)
+                            LongHistoryStore.shared.record(.memory, fraction)
                             self.memoryAppHistory.push(appFraction)
                         }
                     }
@@ -934,6 +944,8 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     next.memoryCompressed = cached.compressed
                     next.memoryCached = cached.cached
                     next.memorySwapUsed = cached.swapUsed
+                    next.memoryPageIns = cached.pageIns
+                    next.memoryPageOuts = cached.pageOuts
                     next.memoryPressure = cached.pressure
                 }
             }
@@ -966,8 +978,14 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     next.netUpBytesPerSec = network.upBytesPerSec
                     next.netTotalDown = network.totalDown
                     next.netTotalUp = network.totalUp
-                    if let down = network.downBytesPerSec { self.netDownHistory.push(down) }
-                    if let up = network.upBytesPerSec { self.netUpHistory.push(up) }
+                    if let down = network.downBytesPerSec {
+                        self.netDownHistory.push(down)
+                        LongHistoryStore.shared.record(.networkDown, down)
+                    }
+                    if let up = network.upBytesPerSec {
+                        self.netUpHistory.push(up)
+                        LongHistoryStore.shared.record(.networkUp, up)
+                    }
                 } else if let network = self.lastNetworkReading {
                     next.netDownBytesPerSec = network.downBytesPerSec
                     next.netUpBytesPerSec = network.upBytesPerSec
@@ -986,9 +1004,11 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     let writeValues = ioDevices.compactMap(\.writeBytesPerSec)
                     if !readValues.isEmpty {
                         self.diskReadHistory.push(readValues.reduce(0, +))
+                        LongHistoryStore.shared.record(.diskRead, readValues.reduce(0, +))
                     }
                     if !writeValues.isEmpty {
                         self.diskWriteHistory.push(writeValues.reduce(0, +))
+                        LongHistoryStore.shared.record(.diskWrite, writeValues.reduce(0, +))
                     }
                 } else {
                     next.disk = self.lastDiskReading
@@ -1000,7 +1020,10 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     let power = powerSampler.sample()
                     self.lastPowerReading = power
                     next.power = power
-                    if let watts = power.systemWatts { self.systemPowerHistory.push(watts) }
+                    if let watts = power.systemWatts {
+                        self.systemPowerHistory.push(watts)
+                        LongHistoryStore.shared.record(.systemPower, watts)
+                    }
                     if let charge = power.chargePercent { self.batteryHistory.push(Double(charge) / 100.0) }
                 } else {
                     next.power = self.lastPowerReading
@@ -1029,7 +1052,10 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                                 self.lastGPUUsage = MetricFormat.stabilizedGPUUsage(previous: self.lastGPUUsage,
                                                                                     current: rawGPU)
                                 self.missedGPUUsageSamples = 0
-                                if let gpu = self.lastGPUUsage { self.gpuHistory.push(gpu) }
+                                if let gpu = self.lastGPUUsage {
+                                    self.gpuHistory.push(gpu)
+                                    LongHistoryStore.shared.record(.gpu, gpu)
+                                }
                             } else if self.missedGPUUsageSamples < 3 {
                                 self.missedGPUUsageSamples += 1
                             } else {
@@ -1154,8 +1180,14 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 if amd.gpuFreq > 0 { next.gpuFreq = Double(amd.gpuFreq) }
                 if amd.gpuFan > 0 { next.gpuFan = Double(amd.gpuFan) }
             }
-            if let temp = next.cpuTemperature { self.cpuTempHistory.push(temp) }
-            if let temp = next.gpuTemperature { self.gpuTempHistory.push(temp) }
+            if let temp = next.cpuTemperature {
+                self.cpuTempHistory.push(temp)
+                LongHistoryStore.shared.record(.cpuTemperature, temp)
+            }
+            if let temp = next.gpuTemperature {
+                self.gpuTempHistory.push(temp)
+                LongHistoryStore.shared.record(.gpuTemperature, temp)
+            }
             if let pwr = next.cpuPower { self.cpuPowerHistory.push(pwr) }
             if let pwr = next.gpuPower { self.gpuPowerHistory.push(pwr) }
             let freqs = next.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
@@ -1231,6 +1263,8 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                                               compressed: memory.compressed,
                                               cached: memory.cached,
                                               swapUsed: swapUsed,
+                                              pageIns: memory.pageIns,
+                                              pageOuts: memory.pageOuts,
                                               pressure: stablePressure,
                                               updatedAt: now,
                                               missedSamples: 0)

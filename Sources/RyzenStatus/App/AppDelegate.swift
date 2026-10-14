@@ -271,6 +271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         AutoEppService.shared.stop()
         C6ResidencyService.shared.stop()
         FanCurveController.shared.resetFansToAutoSync()
+        LongHistoryStore.shared.save(synchronously: true)
         ExtraBrightnessService.shared.stop()
         ProcessUsageService.shared.stopNetworkMonitoring(force: true)
         URLCleanerService.shared.stop()

@@ -857,6 +857,8 @@ enum Defaults {
         // Classic core grid renders load (the classic fill) until the
         // user switches the card to an SMU metric.
         DefaultsKey.panelCoreGridMetric: "load",
+        // Detail views open on the live graph; long ranges are picked there.
+        DefaultsKey.metricDetailHistoryRange: 0,
         // Gaming Mode — off by default; hiding the icon is the default behavior.
         DefaultsKey.gamingModeActive: false,
         DefaultsKey.gamingModeHideMenuBar: true,

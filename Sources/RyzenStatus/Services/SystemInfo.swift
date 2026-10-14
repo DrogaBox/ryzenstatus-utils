@@ -52,7 +52,19 @@ enum SystemInfo {
                            isOnExternalPower: state == "AC Power")
     }
 
-    static func memoryUsage() -> (used: UInt64, appUsed: UInt64, total: UInt64, compressed: UInt64, cached: UInt64, swapUsed: UInt64?)? {
+    /// The 1, 5 and 15 minute load averages, or nil when the kernel does not
+    /// return all three.
+    static func loadAverages() -> [Double]? {
+        var values = [Double](repeating: 0, count: 3)
+        guard getloadavg(&values, 3) == 3 else { return nil }
+        return values
+    }
+
+    /// Memory in bytes. Page ins and outs count since boot.
+    typealias MemoryUsage = (used: UInt64, appUsed: UInt64, total: UInt64, compressed: UInt64, cached: UInt64,
+                             swapUsed: UInt64?, pageIns: UInt64, pageOuts: UInt64)
+
+    static func memoryUsage() -> MemoryUsage? {
         guard let stats = VMStatisticsDecoder.read() else { return nil }
         let total = ProcessInfo.processInfo.physicalMemory
         let pageSize = UInt64(vm_kernel_page_size)
@@ -81,7 +93,8 @@ enum SystemInfo {
         let swapUsed = sysctlbyname("vm.swapusage", &swap, &swapSize, nil, 0) == 0
             ? swap.xsu_used
             : nil
-        return (used, appUsed, total, compressed, cached, swapUsed)
+        return (used, appUsed, total, compressed, cached, swapUsed,
+                stats.pageIns &* pageSize, stats.pageOuts &* pageSize)
     }
 }
 

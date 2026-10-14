@@ -706,6 +706,13 @@ struct SystemSection: View {
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(.secondary)
                 Spacer()
+                if let load = Self.loadAverageString() {
+                    Text("\(l10n.s.systemLoadAverage) \(load)")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 if editing {
                     PanelInlineHideButton(isVisible: $sysUptime)
                 }
@@ -716,6 +723,11 @@ struct SystemSection: View {
     static func uptimeString() -> String {
         let total = SystemInfo.wallClockUptimeSeconds() ?? Int(ProcessInfo.processInfo.systemUptime)
         return MetricFormat.uptime(total)
+    }
+
+    /// The 1, 5 and 15 minute load averages, as `uptime` prints them.
+    static func loadAverageString() -> String? {
+        SystemInfo.loadAverages().map { $0.map { String(format: "%.2f", $0) }.joined(separator: " ") }
     }
 
     private static let memoryFormatter: ByteCountFormatter = {
@@ -803,6 +815,8 @@ struct SystemSection: View {
                 memorySecondaryRow(l10n.s.memoryCompressed, monitor.snapshot.memoryCompressed)
                 memorySecondaryRow(l10n.s.memoryCachedFiles, monitor.snapshot.memoryCached)
                 memorySecondaryRow(l10n.s.memorySwapUsed, monitor.snapshot.memorySwapUsed)
+                memorySecondaryRow(l10n.s.memoryPageIns, monitor.snapshot.memoryPageIns)
+                memorySecondaryRow(l10n.s.memoryPageOuts, monitor.snapshot.memoryPageOuts)
 
                 if let gpuUsed = monitor.snapshot.gpuMemoryUsed, let gpuTotal = monitor.snapshot.gpuMemoryTotal {
                     HStack(spacing: 8) {

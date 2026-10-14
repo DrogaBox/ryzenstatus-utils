@@ -231,6 +231,8 @@ struct Strings {
     let memorySwapUsed: String
     let memoryCompressed: String
     let memoryCachedFiles: String
+    let memoryPageIns: String
+    let memoryPageOuts: String
     let pressureNormal: String
     let pressureWarning: String
     let pressureCritical: String
@@ -956,6 +958,9 @@ struct Strings {
 
     // MARK: System uptime, battery health, speed test
     let systemUptime: String
+    let systemLoadAverage: String
+    /// The live graph's entry in a detail view's range menu.
+    let historyLive: String
     let batteryCharge: String
     let powerHealth: String
     let powerCycles: String
@@ -1419,6 +1424,8 @@ extension Strings {
         memorySwapUsed: "Swap em uso",
         memoryCompressed: "Comprimida",
         memoryCachedFiles: "Arquivos em cache",
+        memoryPageIns: "Entradas de página",
+        memoryPageOuts: "Saídas de página",
         pressureNormal: "Normal",
         pressureWarning: "Atenção",
         pressureCritical: "Crítico",
@@ -2114,6 +2121,8 @@ extension Strings {
         memoryStyleBoth: "Ambos",
 
         systemUptime: "Ativo há",
+        systemLoadAverage: "Carga",
+        historyLive: "Ao vivo",
         batteryCharge: "Carga",
         powerHealth: "Saúde da bateria",
         powerCycles: "Ciclos",
@@ -2567,6 +2576,8 @@ extension Strings {
         memorySwapUsed: "Swap used",
         memoryCompressed: "Compressed",
         memoryCachedFiles: "Cached files",
+        memoryPageIns: "Page ins",
+        memoryPageOuts: "Page outs",
         pressureNormal: "Normal",
         pressureWarning: "Caution",
         pressureCritical: "Critical",
@@ -3263,6 +3274,8 @@ extension Strings {
         memoryStyleBoth: "Both",
 
         systemUptime: "Up for",
+        systemLoadAverage: "Load",
+        historyLive: "Live",
         batteryCharge: "Charge",
         powerHealth: "Battery health",
         powerCycles: "Cycles",

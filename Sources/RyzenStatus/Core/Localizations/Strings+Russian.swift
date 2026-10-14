@@ -82,6 +82,8 @@ extension Strings {
         memorySwapUsed: "Подкачка",
         memoryCompressed: "Сжатая",
         memoryCachedFiles: "Кэшированные файлы",
+        memoryPageIns: "Загрузки страниц",
+        memoryPageOuts: "Выгрузки страниц",
         pressureNormal: "Норма",
         pressureWarning: "Предупреждение",
         pressureCritical: "Критично",
@@ -776,6 +778,8 @@ extension Strings {
         memoryStyleBoth: "Оба",
 
         systemUptime: "Время работы",
+        systemLoadAverage: "Нагрузка",
+        historyLive: "Сейчас",
         batteryCharge: "Заряд",
         powerHealth: "Состояние батареи",
         powerCycles: "Циклы",

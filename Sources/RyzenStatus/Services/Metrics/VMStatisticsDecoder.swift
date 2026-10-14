@@ -10,6 +10,9 @@ struct VMStatisticsSnapshot: Equatable {
     let externalPages: UInt64
     let internalPages: UInt64
     let tagStoragePages: UInt64
+    /// Pages read in from and written out to backing store since boot.
+    let pageIns: UInt64
+    let pageOuts: UInt64
 }
 
 /// Reads HOST_VM_INFO64 without a C shim. Older SDKs stop before the fields
@@ -86,7 +89,9 @@ enum VMStatisticsDecoder {
             compressorPages: UInt64(raw.compressor_page_count),
             externalPages: UInt64(raw.external_page_count),
             internalPages: UInt64(raw.internal_page_count),
-            tagStoragePages: returnedCount >= rev3Count ? payload.tagStoragePages : 0)
+            tagStoragePages: returnedCount >= rev3Count ? payload.tagStoragePages : 0,
+            pageIns: UInt64(raw.pageins),
+            pageOuts: UInt64(raw.pageouts))
     }
 
     static func validatedTagStoragePages(_ pages: UInt64,
