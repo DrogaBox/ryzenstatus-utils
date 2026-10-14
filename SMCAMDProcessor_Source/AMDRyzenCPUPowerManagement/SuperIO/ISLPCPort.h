@@ -30,8 +30,7 @@ public:
     }
     
     static uint16_t readWord(int portSelect, uint8_t reg){
-        uint16_t w = (readByte(portSelect, reg) << 8) | readByte(portSelect, reg + 1);
-        return w;
+        return static_cast<uint16_t>((readByte(portSelect, reg) << 8) | readByte(portSelect, static_cast<uint8_t>(reg + 1)));
     }
     
     static void writeByte(int portSelect, uint8_t reg, uint8_t val){

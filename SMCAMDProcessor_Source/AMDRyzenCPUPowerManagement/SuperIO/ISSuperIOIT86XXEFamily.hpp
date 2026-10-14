@@ -45,10 +45,13 @@ class ISSuperIOIT86XXEFamily : public ISSuperIOSMCFamily
 
     ISSuperIOIT86XXEFamily(int psel, uint16_t addr, uint16_t chipIntel, uint16_t gpioAddr);
 
-    int fanRPMs[IT86XXE_MAX_NUMFAN];
-    int fanControlMode[IT86XXE_MAX_NUMFAN];
+    int fanRPMs[IT86XXE_MAX_NUMFAN]{};
+    int fanControlMode[IT86XXE_MAX_NUMFAN]{};
     int fanThrottles[IT86XXE_MAX_NUMFAN]{};
     uint16_t fanPeakRPMs[IT86XXE_MAX_NUMFAN]{};
+    /// False while the latest tach sample was implausible (> 10500 RPM); the
+    /// previous good RPM stays published meanwhile.
+    bool fanRPMValid[IT86XXE_MAX_NUMFAN]{};
 
     int activeFansOnSystem = 0;
 
@@ -56,6 +59,7 @@ class ISSuperIOIT86XXEFamily : public ISSuperIOSMCFamily
     const char* getReadableStringForFan(int fan) override;
 
     uint32_t getRPMForFan(int fan) override;
+    bool getFanRPMValid(int fan) override;
     bool getFanAutoControlMode(int fan) override;
     uint8_t getFanThrottle(int fan) override;
 
@@ -110,13 +114,12 @@ class ISSuperIOIT86XXEFamily : public ISSuperIOSMCFamily
 
     uint16_t chipAddr = 0;
     uint16_t gpioAddr = 0;
-    uint8_t fanDefaultControlMode[IT86XXE_MAX_NUMFAN];
-    uint8_t fanDefaultExtControlMode[IT86XXE_MAX_NUMFAN];
+    uint8_t fanDefaultControlMode[IT86XXE_MAX_NUMFAN]{};
+    uint8_t fanDefaultExtControlMode[IT86XXE_MAX_NUMFAN]{};
 
     uint8_t readByte(uint16_t addr);
-    uint16_t readWord(uint16_t addr);
 
     void writeByte(uint16_t addr, uint8_t val);
 };
 
-#endif /* ISSuperIOIT86XXE_hpp */
+#endif /* ISSuperIOIT86XXEFamily_hpp */

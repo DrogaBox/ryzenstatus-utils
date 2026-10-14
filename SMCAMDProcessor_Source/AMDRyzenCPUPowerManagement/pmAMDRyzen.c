@@ -9,8 +9,6 @@
 
 #include <pexpert/pexpert.h>
 
-
-
 x86_lcpu_t *pmRyzen_cpunum_to_lcpu[XNU_MAX_CPU];
 
 void *pmRyzen_io_service_handle;
@@ -32,11 +30,6 @@ uint32_t pmRyzen_hpcpus = 0;
 volatile uint32_t pmRyzen_pstatelimit;
 
 void(*pmRyzen_pmUnRegister)(pmDispatch_t*) = 0;
-void(*pmRyzen_cpu_NMI)(int) = 0;
-void(*pmRyzen_NMI_enabled)(boolean_t) = 0;
-void(*pmRyzen_cpu_IPI)(int) = 0;
-
-
 
 pmDispatch_t pmRyzen_cpuFuncs = {
     .pmCPUStateInit = 0,
@@ -101,10 +94,10 @@ void pmRyzen_init_PState(void){
     pmRyzen_wrmsr_safe(pmRyzen_io_service_handle, MSR_PSTATE_0 + 1, (p1 & ~0xFFULL) | p1fid | (1ULL << 63));
 }
 
-inline void set_PState(pmProcessor_t *cpu, uint8_t state){
+static inline void set_PState(pmProcessor_t *cpu, uint8_t state){
     if(pmRyzen_pstatelimit == 0) return;
     if (state >= 8) state = 7;
-    state = min((uint8_t)pmRyzen_pstatelimit, state);
+    if (state > pmRyzen_pstatelimit) state = (uint8_t)pmRyzen_pstatelimit;
     if(cpu->PState == state) return;
 
     boolean_t from_hpstate = !cpu->PState;
@@ -120,7 +113,7 @@ inline void set_PState(pmProcessor_t *cpu, uint8_t state){
 }
 
 void pmRyzen_doPState_reset(void *arg){
-    uint32_t cn = cpu_number();
+    uint32_t cn = (uint32_t)cpu_number();
     // This rendezvous runs on EVERY CPU. Every other entry point
     // guards cn against XNU_MAX_CPU; on >64-logical-CPU systems the unguarded
     // index wrote past pmRyzen_cpus[] with interrupts disabled.
@@ -152,15 +145,7 @@ void pmRyzen_init(void *handle, int allowDispatch){
 
     void **kernelDisp = pmRyzen_symtable._pmDispatch;
     pmRyzen_pmUnRegister = (void(*)(pmDispatch_t*))pmRyzen_symtable._pmUnRegister;
-    pmRyzen_cpu_NMI = pmRyzen_symtable._cpu_NMI_interrupt
-        ? (void(*)(int))pmRyzen_symtable._cpu_NMI_interrupt : NULL;
-    pmRyzen_NMI_enabled = pmRyzen_symtable._NMIPI_enable
-        ? (void(*)(boolean_t))pmRyzen_symtable._NMIPI_enable : NULL;
-    pmRyzen_cpu_IPI = pmRyzen_symtable._i386_cpu_IPI
-        ? (void(*)(int))pmRyzen_symtable._i386_cpu_IPI : NULL;
     pmRyzen_tsc_freq = *((uint64_t*)pmRyzen_symtable._tscFreq);
-
-
 
     pmCallBacks_t cb;
     if (allowDispatch) {
@@ -171,7 +156,6 @@ void pmRyzen_init(void *handle, int allowDispatch){
     }
 
     x86_pkg_t * pkg = cb.GetPkgRoot();
-    int pkgCount = 0;
 
     pmRyzen_num_phys = 0;
     pmRyzen_num_logi = 0;
@@ -179,7 +163,6 @@ void pmRyzen_init(void *handle, int allowDispatch){
     pmRyzen_pstatelimit = PSTATE_LIMIT;
 
     while(pkg){
-        pkgCount++;
         x86_core_t *core = pkg->cores;
 
         while (core) {
@@ -214,8 +197,6 @@ void pmRyzen_init(void *handle, int allowDispatch){
 
         pkg = pkg->next;
     }
-    // Removed: package count debug log not needed in production
-
 
     pmRyzen_effective_timetsc = ((double)pmRyzen_tsc_freq * EFF_INTERVAL);
     pmRyzen_p_sdtsc = (uint64_t)((double)pmRyzen_effective_timetsc * PSTATE_STEPDOWN_THRE);
@@ -237,7 +218,7 @@ void pmRyzen_stop(void){
 
     // Make sure all managed cores exited idle thread.
     // With the SIMPLE (sti;hlt) strategy, exit is immediate — just set arm_flag.
-    for (int i = 0; i < pmRyzen_num_logi && i < XNU_MAX_CPU; i++) {
+    for (uint32_t i = 0; i < pmRyzen_num_logi && i < XNU_MAX_CPU; i++) {
         if (!pmRyzen_cpunum_to_lcpu[i]) continue;
         pmRyzen_cpus[i].arm_flag = 1;
     }
@@ -270,12 +251,11 @@ float pmRyzen_avgload_pcpu(uint32_t cpu){
 
 
 volatile uint32_t pmRyzen_last_woken_cpu=0;
-//uint32_t pmRyzen_last_idle_cpu=0;
 uint64_t pmRyzen_machine_idle(uint64_t maxDur){
 
     __asm__ volatile("cli;");
 
-    uint32_t cn = cpu_number();
+    uint32_t cn = (uint32_t)cpu_number();
     if (cn >= XNU_MAX_CPU) {
         __asm__ volatile("sti;hlt;");
         return 0;
@@ -289,11 +269,8 @@ uint64_t pmRyzen_machine_idle(uint64_t maxDur){
     uint64_t tscnow = rdtsc64();
 
     self->last_idle_tsc = tscnow;
-    // Removed: last_running_time calculation replaced by eff_timeacc tracking
 
-    // Only idle strategy: sti; hlt — safe on all AMD CPUs.
-    // Intel-style MONITOR/MWAIT was removed (unsafe on AMD).
-    // AMD MONITORX/MWAITX may be added as a future enhancement.
+    // sti; hlt is the only idle strategy (see pmRyzen_idle_strategy_t).
     __asm__ volatile("sti;hlt;");
 
 
@@ -309,10 +286,10 @@ uint64_t pmRyzen_machine_idle(uint64_t maxDur){
     self->eff_idleacc += tscela;
 
     if(self->eff_timeacc > pmRyzen_effective_timetsc){
-        // Removed: float-based eff_load replaced by integer threshold comparison (avoids FPU in kernel)
+        // Busy time in TSC ticks against integer thresholds: no floating
+        // point here, the idle path must not touch the FPU/XMM state.
         uint64_t rt = self->eff_timeacc - self->eff_idleacc;
 
-        //Avoid using xmm registers shared within same core.
         if(rt > pmRyzen_p_sutsc){
             set_PState(self, 0);
             self->ll_count = 0;
@@ -328,10 +305,6 @@ uint64_t pmRyzen_machine_idle(uint64_t maxDur){
         self->eff_timeaccd = self->eff_timeacc;
         self->eff_timeacc = 0;
         self->eff_idleacc = 0;
-
-
-        // Removed: float-based eff_load P-state stepping replaced by integer threshold comparison above.
-
     }
 
     self->last_start_tsc = tscnow;
@@ -343,16 +316,21 @@ uint64_t pmRyzen_machine_idle(uint64_t maxDur){
 
 #pragma mark - CPU Selection
 
+// pmChooseCPU contract (osfmk/i386/pmCPU.c): pick a CPU in [startCPU, endCPU]
+// of the processor set being scheduled, or return preferredCPU unchanged.
+// Prefer an awake CPU so a wakeup does not have to leave hlt.
 int pmRyzen_choose_cpu(int startCPU, int endCPU, int preferredCPU){
     if (preferredCPU >= 0 && preferredCPU < XNU_MAX_CPU
         && pmRyzen_cpunum_to_lcpu[preferredCPU]
         && pmRyzen_cpus[preferredCPU].cpu_awake)
         return preferredCPU;
 
-    if (pmRyzen_last_woken_cpu < XNU_MAX_CPU
-        && pmRyzen_cpunum_to_lcpu[pmRyzen_last_woken_cpu]
-        && pmRyzen_cpus[pmRyzen_last_woken_cpu].cpu_awake)
-        return pmRyzen_last_woken_cpu;
+    const int lastWoken = (int)pmRyzen_last_woken_cpu;
+    if (lastWoken >= startCPU && lastWoken <= endCPU
+        && lastWoken < XNU_MAX_CPU
+        && pmRyzen_cpunum_to_lcpu[lastWoken]
+        && pmRyzen_cpus[lastWoken].cpu_awake)
+        return lastWoken;
 
     return preferredCPU;
 }

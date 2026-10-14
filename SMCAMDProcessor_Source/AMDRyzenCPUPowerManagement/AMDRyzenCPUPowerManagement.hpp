@@ -21,7 +21,6 @@
 #include <Headers/kern_time.hpp>
 
 
-//#include <Headers/kern_api.hpp>
 #define LILU_CUSTOM_KMOD_INIT
 #define LILU_CUSTOM_IOKIT_INIT
 #include <Headers/plugin_start.hpp>
@@ -60,7 +59,6 @@ void mp_rendezvous(void (*setup_func)(void *),
                   void *arg);
 
 void i386_deactivate_cpu(void);
-//    int wrmsr_carefully(uint32_t msr, uint64_t val);
 
 
 void pmRyzen_wrmsr_safe(void *, uint32_t, uint64_t);
@@ -211,8 +209,6 @@ public:
     static constexpr uint32_t kMSR_AMD_CPPC_REQ = 0xC00102B3;
     static constexpr uint32_t kMSR_AMD_CPPC_STATUS = 0xC00102B4;
 
-//    static constexpr uint32_t EF = 0x88;
-
     static constexpr uint32_t kEFI_VARIABLE_NON_VOLATILE = 0x00000001;
     static constexpr uint32_t kEFI_VARIABLE_BOOTSERVICE_ACCESS = 0x00000002;
     static constexpr uint32_t kEFI_VARIABLE_RUNTIME_ACCESS = 0x00000004;
@@ -280,8 +276,8 @@ public:
     uint32_t getHPcpus();
     int setCurveOptimizer(uint8_t core, int8_t offset);
 
-    uint32_t totalNumberOfPhysicalCores;
-    uint32_t totalNumberOfLogicalCores;
+    uint32_t totalNumberOfPhysicalCores {0};
+    uint32_t totalNumberOfLogicalCores {0};
 
     bool cppcSupported {false};
     bool cppcActiveMode {false};
@@ -292,9 +288,9 @@ public:
     uint64_t cstateAddrConfig {0};
     uint64_t packageC6Residency {0};
 
-    uint8_t cpuFamily;
-    uint8_t cpuModel;
-    uint8_t cpuSupportedByCurrentVersion;
+    uint8_t cpuFamily {0};
+    uint8_t cpuModel {0};
+    uint8_t cpuSupportedByCurrentVersion {0};
 
     uint32_t ccdOffset = kZEN_CCD_OFFSET_LEGACY;
     uint8_t  ccdCount = 0;
@@ -302,7 +298,7 @@ public:
     char     cpuArchName[16] {};
     pmRyzen_idle_strategy_t cpuIdleStrategy{PMRYZEN_IDLE_STRATEGY_SIMPLE};
 
-    // Curve Optimizer (Phase 13)
+    // Curve Optimizer offsets last acknowledged by the SMU (selector 110)
     int8_t curveOptimizerOffsets[CPUInfo::MaxCpus] {};
 
     // Precision Boost Overdrive limits (Vermeer-only SMU commands).
@@ -344,18 +340,18 @@ public:
 
     // One-shot read of the Vermeer ProcessorParameters bitfield (SMU 0x6F:
     // bit 0 IsOverclockable, bit 1 PBO support). Returns the raw word on OK,
-    // Else 0. Timer command gate only — never from user threads.
+    // else 0. Timer command gate only — never from user threads.
     uint32_t pollProcessorParameters();
 
     // One-shot read of the SMU firmware version (global TestMessage-family
     // command 0x02, works on every mailbox). Returns the raw byte-packed
-    // Version word on OK, else 0. Timer command gate only.
+    // version word on OK, else 0. Timer command gate only.
     uint32_t pollSmuVersion();
 
     // Read of the SMU's active PBO scalar (Vermeer RSMU 0x6C — response
     // is an IEEE-754 float, unlike the 0x58 write encoding). Returns the raw
     // word on OK, else 0. Rides the boost-telemetry throttle window; timer
-    // Command gate only.
+    // command gate only.
     uint32_t pollSmuPBOScalar();
 
     // Enable/disable Vermeer OC mode (RSMU 0x5A EnableOcMode / 0x5B
@@ -369,21 +365,21 @@ public:
 
     // SMU PM-table plumbing (0x08 version → per-version size → 0x05
     // transfer → 0x06 base → read-only map → snapshot copy). Called from the
-    // Main timer command gate only, throttled to one 0x05 + re-map
+    // main timer command gate only, throttled to one 0x05 + re-map
     // check per second. All state is diagnostic: user space reads the
     // SNAPSHOT, never the live mapping, and nothing in this path writes to
     // SMU-controlled memory. Read-only map is unmapped on sleep/shutdown
     // (kext stop path) like every other ioremap in this kext.
     void pollPMTable();
     // Immediate capture (selector 57 op 2). Returns 0 on success,
-    // Else the mapped negative table from the PM-table helpers. Runs under
-    // RendezvousLock (UserClient) or on the timer command gate —
+    // else the mapped negative table from the PM-table helpers. Runs under
+    // rendezvousLock (UserClient) or on the timer command gate —
     // the same policy as every other privileged SMU write path (CO/cHTC/PBO).
     int forcePMTableCapture();
 
     // Program a frequency override via the Vermeer RSMU OC commands —
     // all-core (0x5C, one call) or per-CCD (0x5D, one round trip per CCD;
-    // Vermeer mask = (ccd << 28) | freq, see S_SERIES_ROADMAP.md §1.1).
+    // Vermeer mask = (ccd << 28) | freq).
     // Hard-gated: refuses with -3 unless THIS driver enabled OC mode via
     // 0x5A earlier this boot (we only send frequency writes after observing
     // the gate open ourselves — another tool's enable does not count).
@@ -392,19 +388,19 @@ public:
     // a mid-sequence failure returns the mapped error and the cache keeps
     // only the CCDs that acknowledged OK.
     //   allCores: mhz in 400..8000 (doc MAX), perCcd must be null.
-    //   perCcd:   window of ccdCount entries starting at CCD `startCcd`,
+    //   perCcd:   window of windowLen entries starting at CCD `startCcd`,
     //             each an absolute MHz in 400..8000. ccd index of entry i
     //             = startCcd + i.
     // Returns 0 on success; negative maps: -1 unsupported, -2 bad args,
     // -3 OC mode not enabled by this driver, -4 hot, -5 SMU error,
     // -10 timeout, -11 invalid cmd, -12 invalid args, -13 busy.
     int setOverclockFreqAllCores(uint32_t mhz);
-    int setOverclockFreqPerCcd(const uint32_t *mhzByCcd, uint8_t ccdCount, uint8_t startCcd);
+    int setOverclockFreqPerCcd(const uint32_t *mhzByCcd, uint8_t windowLen, uint8_t startCcd);
 
     //Cache size in KB
-    uint32_t cpuCacheL1_perCore;
-    uint32_t cpuCacheL2_perCore;
-    uint32_t cpuCacheL3;
+    uint32_t cpuCacheL1_perCore {0};
+    uint32_t cpuCacheL2_perCore {0};
+    uint32_t cpuCacheL3 {0};
 
     char boardVendor[BASEBOARD_STRING_MAX]{};
     char boardName[BASEBOARD_STRING_MAX]{};
@@ -433,14 +429,13 @@ public:
     uint8_t PStateCtl = 0;
     uint64_t PStateDef_perCore[8] {};
     uint8_t PStateEnabledLen = 0;
-    float PStateDefClock_perCore[8];
-    bool cpbSupported;
+    float PStateDefClock_perCore[8] {};
+    bool cpbSupported {false};
 
+    uint64_t lastUpdateTime {0};
+    uint64_t lastUpdateEnergyValue {0};
 
-    uint64_t lastUpdateTime;
-    uint64_t lastUpdateEnergyValue;
-
-    double uniPackagePowerW;   // Average package power in watts (energy delta / time delta)
+    double uniPackagePowerW {0};   // Average package power in watts (energy delta / time delta)
 
 #pragma pack(push, 1)
     struct CPUSensorPacket {
@@ -566,16 +561,16 @@ public:
     IOLock *controlLock{nullptr};   // Serializes provider state writes (PStateCtl, CPPC) from concurrent UserClients
 
     static constexpr size_t kMAX_FANS = 16;
-    FanCurveConfig fanCurves[MAX_FAN_CURVES];
-    int8_t fanToCurveMap[kMAX_FANS]; // Maps each physical fan index to a curve index (-1 = Auto)
-    uint8_t lastAppliedPWM[kMAX_FANS];
-    uint64_t lastPWMUpdateTime[kMAX_FANS];
+    FanCurveConfig fanCurves[MAX_FAN_CURVES] {};
+    int8_t fanToCurveMap[kMAX_FANS] {}; // Maps each physical fan index to a curve index (-1 = Auto; set in start())
+    uint8_t lastAppliedPWM[kMAX_FANS] {};
+    uint64_t lastPWMUpdateTime[kMAX_FANS] {};
 
     static_assert(sizeof(fanToCurveMap) / sizeof(fanToCurveMap[0]) == kMAX_FANS, "fan array size mismatch");
     static_assert(sizeof(lastAppliedPWM) / sizeof(lastAppliedPWM[0]) == kMAX_FANS, "fan array size mismatch");
     static_assert(sizeof(lastPWMUpdateTime) / sizeof(lastPWMUpdateTime[0]) == kMAX_FANS, "fan array size mismatch");
-    float gpuTempC;
-    float curveSmoothedTemp[MAX_FAN_CURVES];
+    float gpuTempC {0};
+    float curveSmoothedTemp[MAX_FAN_CURVES] {};
     bool curveSmoothedSeeded[MAX_FAN_CURVES] {};
     // Per-curve trust flag for the smoothed temperature, plus the
     // unsmoothed sample the emergency guard must be evaluated against.
@@ -584,18 +579,18 @@ public:
     bool curveSmoothedValid[MAX_FAN_CURVES] {};
     float curveRawSourceTemp[MAX_FAN_CURVES] {};
     // Per-curve anchor temperature for downward hysteresis
-    float lastAppliedTemp[MAX_FAN_CURVES];
+    float lastAppliedTemp[MAX_FAN_CURVES] {};
     bool lastAppliedTempSeeded[MAX_FAN_CURVES] {};
 
-    // GPU monitoring (added)
+    // GPU monitoring
     AMDGPUDevice *gpuDevices[16] {};
     uint32_t gpuCount {0};
     UInt16 gpuTemperatures[16] {};
     float gpuPowers[16] {};
 
+    // Readings are the gpuTemperatures[]/gpuPowers[] the work loop refreshes;
+    // nothing outside it touches GPU registers.
     uint32_t getGPUCount() { return gpuCount; }
-    IOReturn getGPUTemperature(uint32_t index, UInt16 *data);
-    IOReturn getGPUPower(uint32_t index, float *data);
     bool gpuSupportsPower(uint32_t index);
 
     // Cached boost telemetry (Vermeer RSMU read commands 0x6E/0x59).
@@ -647,6 +642,10 @@ public:
     uint32_t ocFreqMHzAllCores {0};
     uint32_t ocFreqMHzPerCcd[kS8MaxCcds] {0};
 
+    /// Clears the caches above (and the CO/PBO/cHTC ones) when the system
+    /// sleeps; see the definition for why.
+    void forgetSMUSettingsForSleep();
+
     // SMU PM-table plumbing (Vermeer RSMU 0x05/0x06/0x08 — the same
     // table ryzen_smu/HWiNFO feed from). The table lives at a SMU-provided
     // physical address in DRAM; the kext maps it read-only and snapshots it
@@ -695,9 +694,9 @@ public:
     bool runMailboxDiagnostics(SMUDiagnosticReport &out);
 
 private:
-    IOWorkLoop *workLoop;
-    IOTimerEventSource *timerEvent_main;
-    IOTimerEventSource *timerEvent_tempe;
+    IOWorkLoop *workLoop {nullptr};
+    IOTimerEventSource *timerEvent_main {nullptr};
+    IOTimerEventSource *timerEvent_tempe {nullptr};
 
     bool serviceInitialized = false;
 
@@ -708,7 +707,7 @@ private:
     uint64_t timeOfLastMissedRequest = 0;
 
     int tempNextSample = 0;
-    float tempSamples[HF_TEMP_SAMPLE_LEN];
+    float tempSamples[HF_TEMP_SAMPLE_LEN] {};
     float tempOffset = 0;
     double pwrTimeUnit = 0;
     double pwrEnergyUnit = 0;
@@ -717,12 +716,8 @@ private:
     uint64_t xnuTSCFreq = 1;
     int (*wrmsr_carefully)(uint32_t, uint32_t, uint32_t) {nullptr};
 
-    CPUInfo::CpuTopology cpuTopology {};
-
     IOPCIDevice *fIOPCIDevice{nullptr};
     IOSimpleLock *pciConfigLock{nullptr};
-
-    KernelPatcher *liluKernelPatcher;
 
     bool getPCIService();
     void enumerateGPUs();
@@ -733,6 +728,7 @@ private:
 
     uint32_t smnRead32(uint32_t addr);
     void smnWrite32(uint32_t addr, uint32_t val);
+    bool smuMailboxIdle(uint32_t rspReg);
     int smuSendCmd(uint32_t cmd, uint32_t arg);
     int smuSendCmd(uint32_t cmd, uint32_t arg, uint32_t &outArg0, uint32_t *outElapsedUs = nullptr);
     // Two-argument variant returning both arg-window words after OK —

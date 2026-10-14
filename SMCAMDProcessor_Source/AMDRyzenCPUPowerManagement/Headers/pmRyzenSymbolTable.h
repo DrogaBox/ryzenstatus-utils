@@ -1,5 +1,5 @@
 //
-//  pmRyzenSymbolTable.c
+//  pmRyzenSymbolTable.h
 //  AMDRyzenCPUPowerManagement
 //
 //  Created by trulyspinach, modified by Droga (2026) on 9/2/20.
@@ -16,9 +16,6 @@ typedef struct pmRyzen_symtable {
     void* _tscFreq;
     void* _pmDispatch;
     void* _pmUnRegister;
-    void* _cpu_NMI_interrupt;
-    void* _NMIPI_enable;
-    void* _i386_cpu_IPI;
 } pmRyzen_symtable_t;
 
 #endif

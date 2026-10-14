@@ -1,12 +1,12 @@
 //
-//  ISSuperIODevice.hpp
+//  ISSuperIONCT67XXFamily.hpp
 //  AMDRyzenCPUPowerManagement
 //
 //  Created by trulyspinach, modified by Droga (2026) on 5/14/20.
 //
 
-#ifndef ISSuperIODevice_hpp
-#define ISSuperIODevice_hpp
+#ifndef ISSuperIONCT67XXFamily_hpp
+#define ISSuperIONCT67XXFamily_hpp
 
 #include <IOKit/IOLib.h>
 
@@ -63,9 +63,9 @@ public:
 
     ISSuperIONCT67XXFamily(int psel, uint16_t addr, uint16_t chipIntel);
 
-    int fanRPMs[NCT67XX_MAX_NUMFAN];
-    uint8_t fanThrottles[NCT67XX_MAX_NUMFAN];
-    uint8_t fanControlMode[NCT67XX_MAX_NUMFAN];
+    int fanRPMs[NCT67XX_MAX_NUMFAN]{};
+    uint8_t fanThrottles[NCT67XX_MAX_NUMFAN]{};
+    uint8_t fanControlMode[NCT67XX_MAX_NUMFAN]{};
     uint16_t fanPeakRPMs[NCT67XX_MAX_NUMFAN]{};
     // Per-fan trust flag for the last tachometer read. False means
     // the last word was implausible (0xFFFF / torn / out of range) and
@@ -102,7 +102,7 @@ private:
     int lpcPortSel = 0;
 
     uint16_t chipAddr = 0;
-    uint8_t fanDefaultControlMode[NCT67XX_MAX_NUMFAN];
+    uint8_t fanDefaultControlMode[NCT67XX_MAX_NUMFAN]{};
 
     uint8_t readByte(uint16_t addr);
     uint16_t readWord(uint16_t addr);
@@ -110,4 +110,4 @@ private:
     void writeByte(uint16_t addr, uint8_t val);
 };
 
-#endif /* ISSuperIODevice_hpp */
+#endif /* ISSuperIONCT67XXFamily_hpp */

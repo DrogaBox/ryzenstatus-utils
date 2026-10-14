@@ -1,17 +1,14 @@
+//
+//  SMCAMDProcessor.cpp
+//  SMCAMDProcessor
+//
+
 #include "SMCAMDProcessor.hpp"
-
-
 #include "KeyImplementations.hpp"
 
 OSDefineMetaClassAndStructors(SMCAMDProcessor, IOService);
 
-
-
-
 bool SMCAMDProcessor::setupKeysVsmc(){
-    
-    vsmcNotifier = VirtualSMCAPI::registerHandler(vsmcNotificationHandler, this);
-    
     bool suc = true;
     size_t keyCount = 0;
     
@@ -73,11 +70,16 @@ bool SMCAMDProcessor::setupKeysVsmc(){
     }
     
     if(!suc){
-        IOLog("SMCAMDProcessor::setupKeysVsmc: VirtualSMCAPI::addKey returned false (registered %zu/%zu keys). \n", keyCount, keyCount);
+        IOLog("SMCAMDProcessor::setupKeysVsmc: at least one of %zu keys failed to register\n", keyCount);
     } else {
-        IOLog("SMCAMDProcessor::setupKeysVsmc: registered %zu VirtualSMC keys successfully. \n", keyCount);
+        IOLog("SMCAMDProcessor::setupKeysVsmc: registered %zu VirtualSMC keys\n", keyCount);
     }
-    
+
+    // Only now ask for VirtualSMC: when it is already published the handler
+    // runs inside this call and submits vsmcPlugin as it stands, so the keys
+    // have to be in it first (acidanthera's own plugins use the same order).
+    vsmcNotifier = VirtualSMCAPI::registerHandler(vsmcNotificationHandler, this);
+
     return suc;
 }
 

@@ -78,9 +78,6 @@ bool AMDRyzenCPUPowerManagement::init(OSDictionary *dictionary){
     pmRyzen_symtable._tscFreq = lookup_symbol("_tscFreq");
     pmRyzen_symtable._pmDispatch = lookup_symbol("_pmDispatch");
     pmRyzen_symtable._pmUnRegister = lookup_symbol("_pmUnRegister");
-    pmRyzen_symtable._cpu_NMI_interrupt = lookup_symbol("_cpu_NMI_interrupt");
-    pmRyzen_symtable._NMIPI_enable = lookup_symbol("_NMIPI_enable");
-    pmRyzen_symtable._i386_cpu_IPI = lookup_symbol("_i386_cpu_IPI");
     pmRyzen_symtable_ready = 1;
     IOLog("AMDRyzenCPUPowerManagement::enter link finished.\n");
     return IOService::init(dictionary);
@@ -131,15 +128,25 @@ bool AMDRyzenCPUPowerManagement::getPCIService(){
         return false;
     }
 
+    // The SMN index/data pair (config 0x60/0x64) belongs to the root complex
+    // at 00:00.0, which is where Linux amd_smn sends it too. Writing 0x60 on
+    // any other AMD function (USB, SATA, a GPP bridge) would hit an unrelated
+    // config register, so 00:00.0 is taken whenever it is found; the first
+    // AMD function is only a fallback for an unexpected topology.
+    IOPCIDevice *firstAMD = nullptr;
     while (OSObject *obj = service_iter->getNextObject()) {
         IOPCIDevice *dev = OSDynamicCast(IOPCIDevice, obj);
-        if (dev) {
-            uint16_t vendor = dev->configRead16(kIOPCIConfigVendorID);
-            if (vendor == 0x1022) { // AMD Host Bridge Vendor ID
-                service = dev;
-                break;
-            }
+        if (!dev || dev->configRead16(kIOPCIConfigVendorID) != kAMD_HOST_BRIDGE_VENDOR) continue;
+        if (dev->getBusNumber() == 0 && dev->getDeviceNumber() == 0 && dev->getFunctionNumber() == 0) {
+            service = dev;
+            break;
         }
+        if (!firstAMD) firstAMD = dev;
+    }
+    if (!service && firstAMD) {
+        IOLog("AMDRyzenCPUPowerManagement::getPCIService: AMD root complex 00:00.0 not found, using %u:%u.%u\n",
+              firstAMD->getBusNumber(), firstAMD->getDeviceNumber(), firstAMD->getFunctionNumber());
+        service = firstAMD;
     }
     service_iter->release();
 
@@ -218,14 +225,14 @@ void AMDRyzenCPUPowerManagement::enumerateGPUs() {
 
 #pragma mark - Work Loop Management
 void AMDRyzenCPUPowerManagement::initWorkLoop() {
-    IOLog("AMDRyzenCPUPowerManagement::startWorkLoop setting up timer");
+    IOLog("AMDRyzenCPUPowerManagement::startWorkLoop setting up timer\n");
     timerEvent_main = IOTimerEventSource::timerEventSource(this, [](OSObject *object, IOTimerEventSource *sender) {
         AMDRyzenCPUPowerManagement *provider = OSDynamicCast(AMDRyzenCPUPowerManagement, object);
         if (!provider) return;
 
         //Run initialization
         if(!provider->serviceInitialized){
-            IOLog("AMDRyzenCPUPowerManagement::startWorkLoop initialize service");
+            IOLog("AMDRyzenCPUPowerManagement::startWorkLoop initialize service\n");
 
             //Disable interrupts and sync all processor cores.
             IOLockLock(provider->rendezvousLock);
@@ -360,20 +367,18 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
 
         uint64_t now = getCurrentTimeNs() / 1000000; //ms
         uint64_t deltaMissed = (now >= provider->timeOfLastMissedRequest) ? (now - provider->timeOfLastMissedRequest) : 0;
-        uint64_t newInt = max(deltaMissed, provider->estimatedRequestTimeInterval);
+        uint64_t newInt = deltaMissed > provider->estimatedRequestTimeInterval
+            ? deltaMissed : provider->estimatedRequestTimeInterval;
 
         uint64_t deltaLast = (now >= provider->timeOfLastUpdate) ? (now - provider->timeOfLastUpdate) : 1;
-        provider->actualUpdateTimeInterval = (uint32_t)min((uint64_t)UINT32_MAX, deltaLast);
+        provider->actualUpdateTimeInterval = deltaLast > UINT32_MAX ? UINT32_MAX : (uint32_t)deltaLast;
         provider->timeOfLastUpdate = now;
-        provider->updateTimeInterval = (uint32_t)min((uint64_t)1200, max((uint64_t)50, newInt));
+        // Poll between 50 ms and 1.2 s, following how often user space asks.
+        provider->updateTimeInterval = (uint32_t)(newInt < 50 ? 50 : (newInt > 1200 ? 1200 : newInt));
 
         provider->timerEvent_main->setTimeoutMS(provider->updateTimeInterval);
-
-//        IOLog("fpp %d %d %.4f.\n", HF_TEMP_SAMPLE_FREQ, HF_TEMP_SAMPLE_PERIOD, (float)HF_TEMP_SAMPLE_REP);
-
     });
 
-//    tempSamplePeriod = (int)((1.0f / (float)HF_TEMP_SAMPLE_FREQ) * 1000);
     // Seed the ring buffer only with a trustworthy value; the
     // sentinel must never enter tempSamples[], whose average becomes
     // PACKAGE_TEMPERATURE_perPackage[0] (selector 95 guard + SMC keys).
@@ -400,15 +405,7 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
             provider->ccdTemperatures[i] = provider->getCCDTemp(i);
         }
 
-        // Update gpuTempC for fan curve source sensor from first GPU
-        if (provider->gpuCount > 0) {
-            // Convert UInt16 temperature (degrees C) to float
-            provider->gpuTempC = (float)provider->gpuTemperatures[0];
-        }
-
-        provider->evaluateFanCurves();
-
-        // GPU temperature and power update
+        // GPU temperature and power update, before the fan curves read them.
         for (uint32_t i = 0; i < provider->gpuCount; i++) {
             if (provider->gpuDevices[i]) {
                 provider->gpuDevices[i]->getTemperature(&provider->gpuTemperatures[i]);
@@ -418,10 +415,32 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
             }
         }
 
+        // Feed the fan curves' GPU source from the first GPU, but only with a
+        // real reading: SMU7 reports 255 for an invalid sample and a failed
+        // read leaves 0, and either would replace the value the app last sent
+        // through selector 103.
+        if (provider->gpuCount > 0) {
+            float gpuT = (float)provider->gpuTemperatures[0];
+            if (gpuT > 0.0f && isTempValid(gpuT)) {
+                provider->gpuTempC = gpuT;
+            }
+        }
+
+        provider->evaluateFanCurves();
+
         sender->setTimeoutMS(HF_TEMP_SAMPLE_PERIOD);
     });
 
     registerService();
+
+    if (!timerEvent_main || !timerEvent_tempe) {
+        // The service still publishes (user clients get static data), but
+        // nothing would ever sample: say so instead of dereferencing null.
+        IOLog("AMDRyzenCPUPowerManagement::initWorkLoop: timer allocation failed, telemetry disabled\n");
+        OSSafeReleaseNULL(timerEvent_main);
+        OSSafeReleaseNULL(timerEvent_tempe);
+        return;
+    }
 
     lastUpdateTime = getCurrentTimeNs();
     pwrLastTSC = rdtsc64();
@@ -461,7 +480,7 @@ bool AMDRyzenCPUPowerManagement::start(IOService *provider){
 
     bool success = IOService::start(provider);
     if(!success){
-        IOLog("AMDRyzenCPUPowerManagement::start failed to start. :(\n");
+        IOLog("AMDRyzenCPUPowerManagement::start: IOService::start failed\n");
         return false;
     }
 
@@ -688,6 +707,14 @@ bool AMDRyzenCPUPowerManagement::start(IOService *provider){
         xnuTSCFreq = 1000000000u; // Fallback default 1GHz calibration
     }
 
+    // Created before the PM dispatch takeover so a failure leaves the kernel's
+    // own power management untouched.
+    workLoop = IOWorkLoop::workLoop();
+    if (!workLoop) {
+        IOLog("AMDRyzenCPUPowerManagement::start failed to create work loop\n");
+        return false;
+    }
+
     pmRyzen_init(this, pmDispatchAllowed ? 1 : 0);
 
     // Populate per-family SMU mailbox descriptor.
@@ -765,9 +792,7 @@ bool AMDRyzenCPUPowerManagement::start(IOService *provider){
     }
     gpuTempC = 0.0f;
 
-    workLoop = IOWorkLoop::workLoop();
     initWorkLoop();
-
 
     PMinit();
     provider->joinPMtree(this);
@@ -776,9 +801,9 @@ bool AMDRyzenCPUPowerManagement::start(IOService *provider){
     return success;
 }
 
-void AMDRyzenCPUPowerManagement::stop(IOService *provider){
-
 #pragma mark - stop() — Cleanup
+
+void AMDRyzenCPUPowerManagement::stop(IOService *provider){
     IOLog("AMDRyzenCPUPowerManagement stopping...\n");
 
     // 1. Cancel all timerEventSource (cancelTimeout)
@@ -857,14 +882,36 @@ void AMDRyzenCPUPowerManagement::stop(IOService *provider){
     IOService::stop(provider);
 }
 
+#pragma mark - Power State Management
+
+// S3 powers the SMU down; on resume the firmware starts again from the BIOS
+// values, so every "last programmed this boot" cache would describe settings
+// that are no longer in effect, and smuOcModeState == 1 would keep the
+// frequency-override gate open while OC mode is actually off. Back to 0 =
+// "unknown / never set", which is what the app and the gates already handle.
+// Nothing is re-applied here: re-programming an overclock on wake is the
+// user's call, made from the app.
+void AMDRyzenCPUPowerManagement::forgetSMUSettingsForSleep() {
+    if (controlLock) IOLockLock(controlLock);
+    memset(curveOptimizerOffsets, 0, sizeof(curveOptimizerOffsets));
+    pboPPTMilliwatts = 0;
+    pboTDCMilliamps = 0;
+    pboEDCMilliamps = 0;
+    pboScalarPercentX100 = 0;
+    smuCHTCLimitCelsius = 0;
+    smuOcModeState = 0;
+    ocFreqMHzAllCores = 0;
+    memset(ocFreqMHzPerCcd, 0, sizeof(ocFreqMHzPerCcd));
+    if (controlLock) IOLockUnlock(controlLock);
+}
+
 IOReturn AMDRyzenCPUPowerManagement::setPowerState(unsigned long powerStateOrdinal, IOService* provider) {
     if (0 == powerStateOrdinal) {
-
-#pragma mark - Power State Management
         // Going to sleep
         IOLog("AMDRyzenCPUPowerManagement::setPowerState preparing for sleep\n");
         wentToSleep = true;
         stopWorkLoop();
+        forgetSMUSettingsForSleep();
     } else if (1 == powerStateOrdinal && wentToSleep) {
         // Waking up
         IOLog("AMDRyzenCPUPowerManagement::setPowerState preparing for wakeup\n");
@@ -880,14 +927,12 @@ IOReturn AMDRyzenCPUPowerManagement::setPowerState(unsigned long powerStateOrdin
 void AMDRyzenCPUPowerManagement::fetchOEMBaseBoardInfo(){
     if (boardInfoValid) return;
 
-#pragma mark - MSR Access (read_msr, write_msr)
     strlcpy(boardVendor, "Unknown Vendor", BASEBOARD_STRING_MAX);
     strlcpy(boardName, "Unknown Platform", BASEBOARD_STRING_MAX);
 
-    auto efiRT = EfiRuntimeServices::get();
-    // Lilu's ownership contract makes the caller release this
-    // instance; fetchOEMBaseBoardInfo is retried from selector 16 whenever
-    // boardInfoValid is false, so the missing release leaked per retry.
+    // Locked access, released with put() below: EFI runtime calls are not
+    // reentrant and other Lilu users (NVRAM, VirtualSMC) share them.
+    auto efiRT = EfiRuntimeServices::get(true);
     if (!efiRT) return;
     uint32_t att = 0;
     uint64_t sizee = BASEBOARD_STRING_MAX;
@@ -899,6 +944,7 @@ void AMDRyzenCPUPowerManagement::fetchOEMBaseBoardInfo(){
     sizee = BASEBOARD_STRING_MAX;
     uint64_t efistat2 = efiRT->getVariable(OC_OEM_BOARD_VARIABLE_NAME, &EfiRuntimeServices::LiluVendorGuid,
                                   &att, &sizee, boardName);
+    efiRT->put();
 
     if (efistat == EFI_SUCCESS && efistat2 == EFI_SUCCESS) {
         boardInfoValid = true;
@@ -947,10 +993,10 @@ void AMDRyzenCPUPowerManagement::fetchOEMBaseBoardInfo(){
     IOLog("MB: %s %s (Valid: %d)\n", boardName, boardVendor, boardInfoValid);
 }
 
+#pragma mark - MSR Access (read_msr, write_msr)
+
 bool AMDRyzenCPUPowerManagement::read_msr(uint32_t addr, uint64_t *value){
     if (cpuFamily >= 0x19) {
-
-#pragma mark - Frequency & Clock Management
         // Zen 3+ MSR Bounds Checking — block Intel-exclusive MSRs that #GP on AMD.
         // Whitelist: 0xE7 (MPERF), 0xE8 (APERF) — used by this kext for effective freq.
         if (addr == 0xCE                          // IA32_ARCH_CAPABILITIES
@@ -1006,11 +1052,12 @@ void AMDRyzenCPUPowerManagement::registerRequest(){
     timeOfLastMissedRequest = now;
 }
 
+#pragma mark - Frequency & Clock Management
+
 void AMDRyzenCPUPowerManagement::updateClockSpeed(uint8_t physical){
     // Guard physical core index on >64 core systems
     if (physical >= CPUInfo::MaxCpus) return;
 
-#pragma mark - Power & EPP Control
     uint64_t msr_value_buf = 0;
     bool err = !read_msr(kMSR_HARDWARE_PSTATE_STATUS, &msr_value_buf);
     if (err) {
@@ -1047,10 +1094,7 @@ void AMDRyzenCPUPowerManagement::updateClockSpeed(uint8_t physical){
         }
     }
 
-//    PStateCur_perCore[physical] = curHwPstate;
     effFreq_perCore[physical] = clock;
-
-    //    IOLog("AMDRyzenCPUPowerManagement::updateClockSpeed: %u\n", curHwPstate);
 }
 
 void AMDRyzenCPUPowerManagement::calculateEffectiveFrequency(uint8_t physical){
@@ -1072,7 +1116,6 @@ void AMDRyzenCPUPowerManagement::calculateEffectiveFrequency(uint8_t physical){
     //If an overflow of either the MPERF or APERF register occurs between read of last MPERF and
     //read of last APERF, the effective frequency calculated in is invalid.
     if(APERF <= lastAPERF || MPERF <= lastMPERF) {
-//        IOLog("AMDRyzenCPUPowerManagement::calculateEffectiveFrequency: frequency is invalid!!!");
         return;
     }
 
@@ -1086,8 +1129,6 @@ void AMDRyzenCPUPowerManagement::calculateEffectiveFrequency(uint8_t physical){
     float effFreq = ((float)deltaAPERF / (float)(MPERF - lastMPERF)) * freqP0;
 
     effFreq_perCore[physical] = effFreq;
-
-
 }
 
 void AMDRyzenCPUPowerManagement::updateInstructionDelta(uint8_t cpu_num){
@@ -1100,31 +1141,17 @@ void AMDRyzenCPUPowerManagement::updateInstructionDelta(uint8_t cpu_num){
         return;
     }
 
-
-    //Skip if overflowed
+    // Skip the sample in which the counter wrapped.
     if(lastInstructionDelta_perCore[cpu_num] > insCount) return;
 
-//    uint64_t delta = insCount - lastInstructionDelta_perCore[cpu_num];
     instructionDelta_perCore[cpu_num] = insCount - lastInstructionDelta_perCore[cpu_num];
-
     lastInstructionDelta_perCore[cpu_num] = insCount;
-
-    //write_msr(kMSR_PERF_IRPC, 0);
-
-
-    //Calculate load index
-//    float estimatedInstRet = (effFreq_perCore[cpu_num] * 1000000);
-//    estimatedInstRet = estimatedInstRet * (actualUpdateTimeInterval * 0.001);
-//    float index = (float)delta / estimatedInstRet;
-//
-//    float growth = 3200;
-//    loadIndex_PerCore[cpu_num] = log10f(min(index,1) * growth) / log10f(growth);
 }
+
+#pragma mark - Power & EPP Control
 
 void AMDRyzenCPUPowerManagement::applyPowerControl(){
     // Legacy P-state writes are controlled per CPU profile.
-
-#pragma mark - SMU Mailbox Commands
     // Enabled on Zen 1/2 (full PM dispatch), disabled on Zen 3+ (telemetry-only).
     if (!legacyPstateAllowed) {
         if (cppcActiveMode) {
@@ -1161,9 +1188,9 @@ void AMDRyzenCPUPowerManagement::setCPBState(bool enabled){
     }
 
     if(enabled){
-        hwConfig &= ~(1 << 25);
+        hwConfig &= ~(1ULL << 25);
     } else {
-        hwConfig |= (1 << 25);
+        hwConfig |= (1ULL << 25);
     }
 
     struct CPBArgs {
@@ -1188,6 +1215,8 @@ bool AMDRyzenCPUPowerManagement::getCPBState(){
 
     return !((hwConfig >> 25) & 0x1);
 }
+
+#pragma mark - Thermal & Energy Monitoring
 
 // Returns kTEMP_INVALID (not 0.0f) when the reading cannot be
 // trusted. 0.0f was ambiguous with a genuine 0 C, and 0 C is the single most
@@ -1257,10 +1286,11 @@ float AMDRyzenCPUPowerManagement::getCCDTemp(uint8_t ccd) {
     return temp;
 }
 
+#pragma mark - SMN Access (smnRead32, smnWrite32)
+
 uint32_t AMDRyzenCPUPowerManagement::smnRead32(uint32_t addr) {
     if (!fIOPCIDevice || !pciConfigLock) return 0;
 
-#pragma mark - SMN Access (smnRead32, smnWrite32)
     IOPCIAddressSpace space;
     space.bits = 0x00;
 
@@ -1282,9 +1312,26 @@ void AMDRyzenCPUPowerManagement::smnWrite32(uint32_t addr, uint32_t val) {
     IOSimpleLockUnlock(pciConfigLock);
 }
 
+#pragma mark - SMU Mailbox Commands
+
 int AMDRyzenCPUPowerManagement::smuSendCmd(uint32_t cmd, uint32_t arg) {
     uint32_t unused = 0;
     return smuSendCmd(cmd, arg, unused);
+}
+
+// A zero response register means a command is still in flight (ours from a
+// timed-out call, or firmware's). Writing ARG/MSG then would corrupt that
+// command, so wait up to 2 ms for it to finish and otherwise give up with
+// SMU_RSP_BUSY — the behaviour of ryzen_smu (SMU_Return_CommandTimeout) and
+// ZenStates-Core (SmuWaitDone). Caller holds smuCmdLock.
+bool AMDRyzenCPUPowerManagement::smuMailboxIdle(uint32_t rspReg) {
+    for (uint32_t waited = 0; waited < 2000; waited += 10) {
+        if (smnRead32(rspReg) != 0) return true;
+        IODelay(10);
+    }
+    if (smnRead32(rspReg) != 0) return true;
+    IOLog("AMDRyzenCPUPowerManagement: SMU mailbox busy, command not sent\n");
+    return false;
 }
 
 // Full-mailbox variant — after SMU_RSP_OK the read command's result word
@@ -1294,26 +1341,22 @@ int AMDRyzenCPUPowerManagement::smuSendCmd(uint32_t cmd, uint32_t arg, uint32_t 
     if (outElapsedUs) *outElapsedUs = 0;
     if (!smuMailbox.supported) return SMU_RSP_INVALID_CMD;
 
-#pragma mark - Thermal & Energy Monitoring
     uint32_t msgReg = smuMailbox.msgReg;
     uint32_t argReg = smuMailbox.argReg;
     uint32_t rspReg = smuMailbox.rspReg;
 
     // Serialize the full SMU mailbox sequence (clear → arg → msg → poll).
     // Individual smnRead/Write use pciConfigLock, but that alone does not protect
-    // The multi-step protocol against concurrent UserClient callers.
+    // the multi-step protocol against concurrent UserClient callers.
     if (smuCmdLock) {
         IOLockLock(smuCmdLock);
     }
 
     // Step 1: Pre-flight probe — wait until RSP register is non-zero (mailbox ready)
-    uint32_t preRsp = 0;
-    uint32_t preElapsed = 0;
-    while (preElapsed < 2000) {
-        preRsp = smnRead32(rspReg);
-        if (preRsp != 0) break;
-        IODelay(10);
-        preElapsed += 10;
+    if (!smuMailboxIdle(rspReg)) {
+        if (smuCmdLock) IOLockUnlock(smuCmdLock);
+        outArg0 = arg;
+        return SMU_RSP_BUSY;
     }
 
     uint32_t argRes = arg;
@@ -1392,13 +1435,9 @@ int AMDRyzenCPUPowerManagement::smuSendCmd2(uint32_t cmd, uint32_t arg0, uint32_
     }
 
     // Step 1: Pre-flight probe
-    uint32_t preRsp = 0;
-    uint32_t preElapsed = 0;
-    while (preElapsed < 2000) {
-        preRsp = smnRead32(rspReg);
-        if (preRsp != 0) break;
-        IODelay(10);
-        preElapsed += 10;
+    if (!smuMailboxIdle(rspReg)) {
+        if (smuCmdLock) IOLockUnlock(smuCmdLock);
+        return SMU_RSP_BUSY;
     }
 
     // Step 2: Clear response register first
@@ -1506,7 +1545,7 @@ uint32_t AMDRyzenCPUPowerManagement::pollSmuVersion() {
 // One-shot SMU PBO scalar read (Vermeer RSMU 0x6C, per ryzen_smu
 // monitor_cpu.c: response is an IEEE-754 float in the 1.0–10.0 range —
 // different encoding than the 0x58 write). Complements the 0x58 write cache
-// With the SMU's actual active scalar. Timer command gate only.
+// with the SMU's actual active scalar. Timer command gate only.
 uint32_t AMDRyzenCPUPowerManagement::pollSmuPBOScalar() {
     if (!smuMailbox.supported) return 0;
 
@@ -1709,7 +1748,7 @@ void AMDRyzenCPUPowerManagement::pollPMTable() {
 // One-shot ProcessorParameters read (Vermeer RSMU 0x6F, per ryzen_smu
 // rsmu_commands.md — Res0 bitfield, no input arg). Static silicon config:
 // on the first SMU_RSP_OK the result is cached and the command is never
-// Re-issued this boot. Runs on the timer command gate only.
+// re-issued this boot. Runs on the timer command gate only.
 uint32_t AMDRyzenCPUPowerManagement::pollProcessorParameters() {
     if (!smuMailbox.supported) return 0;
     if (smuProcParamsPolled) return smuProcessorParametersRaw;
@@ -1881,15 +1920,15 @@ int AMDRyzenCPUPowerManagement::setOverclockFreqAllCores(uint32_t mhz) {
     return -5;
 }
 
-int AMDRyzenCPUPowerManagement::setOverclockFreqPerCcd(const uint32_t *mhzByCcd, uint8_t ccdCount, uint8_t startCcd) {
+int AMDRyzenCPUPowerManagement::setOverclockFreqPerCcd(const uint32_t *mhzByCcd, uint8_t windowLen, uint8_t startCcd) {
     if (!pboLimitsSupported()) return -1;
 
-    if (!mhzByCcd || ccdCount == 0 || ccdCount > kS8MaxCcds || startCcd >= kS8MaxCcds ||
-        startCcd + ccdCount > kS8MaxCcds) {
-        IOLog("AMDRyzenCPUPowerManagement: Invalid per-CCD freq request (%u CCDs from %u, array %p).\n", ccdCount, startCcd, mhzByCcd);
+    if (!mhzByCcd || windowLen == 0 || windowLen > kS8MaxCcds || startCcd >= kS8MaxCcds ||
+        startCcd + windowLen > kS8MaxCcds) {
+        IOLog("AMDRyzenCPUPowerManagement: Invalid per-CCD freq request (%u CCDs from %u).\n", windowLen, startCcd);
         return -2;
     }
-    for (uint8_t i = 0; i < ccdCount; i++) {
+    for (uint8_t i = 0; i < windowLen; i++) {
         if (mhzByCcd[i] < 400 || mhzByCcd[i] > 8000) {
             IOLog("AMDRyzenCPUPowerManagement: CCD%u freq %u MHz outside the 400..8000 envelope. Blocking.\n", startCcd + i, mhzByCcd[i]);
             return -2;
@@ -1913,7 +1952,7 @@ int AMDRyzenCPUPowerManagement::setOverclockFreqPerCcd(const uint32_t *mhzByCcd,
     // One mailbox round trip per CCD. All-or-nothing per CCD: a mid-sequence
     // failure returns the mapped error and the cache keeps only the CCDs
     // that acknowledged OK — the UI reads the cache, so it shows the truth.
-    for (uint8_t i = 0; i < ccdCount; i++) {
+    for (uint8_t i = 0; i < windowLen; i++) {
         uint32_t mhz = mhzByCcd[i];
         uint8_t ccd = startCcd + i;
         // Vermeer: (ccd << 28) | ((core % 8) << 20) | freq with core = ccd*8
@@ -2064,8 +2103,6 @@ int AMDRyzenCPUPowerManagement::setPBOLimit(uint32_t smuCmd, uint32_t arg, uint3
 
 void AMDRyzenCPUPowerManagement::updatePackageTemp(){
     float sum = 0;
-
-#pragma mark - Curve Optimizer
     for (int i = 0; i < HF_TEMP_SAMPLE_LEN; i++) sum += tempSamples[i];
     float currentTemp = sum * HF_TEMP_SAMPLE_LENREP;
     PACKAGE_TEMPERATURE_perPackage[0] = currentTemp;
@@ -2108,15 +2145,13 @@ void AMDRyzenCPUPowerManagement::updatePackageEnergy(){
     uniPackagePowerW = e;
     __sync_synchronize();
 
-
     lastUpdateEnergyValue = energyValue;
     pwrLastTSC = ctsc;  // Use the timestamp captured at the start of this function to avoid drift
 }
 
-void AMDRyzenCPUPowerManagement::dumpPstate(){
-
-
 #pragma mark - P-State & Debug
+
+void AMDRyzenCPUPowerManagement::dumpPstate(){
     uint8_t len = 0;
     for (uint32_t i = 0; i < kMSR_PSTATE_LEN; i++) {
         uint64_t msr_value_buf = 0;
@@ -2155,7 +2190,6 @@ void AMDRyzenCPUPowerManagement::dumpPstate(){
         PStateDefClock_perCore[i] = clock;
 
         if(msr_value_buf & ((uint64_t)1 << 63)) len++;
-        //        IOLog("a: %llu", msr_value_buf);
     }
 
     PStateEnabledLen = (len <= kMSR_PSTATE_LEN) ? len : (uint8_t)kMSR_PSTATE_LEN;
@@ -2239,20 +2273,18 @@ void AMDRyzenCPUPowerManagement::writePstate(const uint64_t *buf){
 
     PStateEnabledLen = 0;
 
-    //A bit hacky but at least works for now.
-    void* args[] = {this, (void*)buf};
-
+    struct WritePstateArgs {
+        AMDRyzenCPUPowerManagement *provider;
+        const uint64_t *defs;   // kMSR_PSTATE_LEN entries
+    } args{this, buf};
 
     IOLockLock(rendezvousLock);
     mp_rendezvous(nullptr, [](void *obj) {
-        auto v = static_cast<uint64_t*>(((uint64_t**)obj)[1]);
-        auto provider = static_cast<AMDRyzenCPUPowerManagement*>(*((AMDRyzenCPUPowerManagement**)obj));
+        auto a = static_cast<WritePstateArgs*>(obj);
+        auto provider = a->provider;
 
-        for (uint32_t i = 0; i < provider->kMSR_PSTATE_LEN; i++) {
-            if (i >= 8) {
-                break;
-            }
-            uint64_t def = v[i];
+        for (uint32_t i = 0; i < kMSR_PSTATE_LEN; i++) {
+            uint64_t def = a->defs[i];
 
             if (provider->cpuFamily >= 0x1A) {
                 uint64_t curCpuFid = (def & 0xfff);
@@ -2269,23 +2301,20 @@ void AMDRyzenCPUPowerManagement::writePstate(const uint64_t *buf){
                 }
             }
 
-            provider->write_msr(provider->kMSR_PSTATE_0 + i, def);
-
+            provider->write_msr(kMSR_PSTATE_0 + i, def);
         }
 
-
-        if(!pmRyzen_cpu_is_master(cpu_number())) return;
+        if(!pmRyzen_cpu_is_master((uint32_t)cpu_number())) return;
         provider->dumpPstate();
-
-    }, nullptr, args);
+    }, nullptr, &args);
     IOLockUnlock(rendezvousLock);
-
 }
+
+#pragma mark - Super IO & Fan Control
 
 bool AMDRyzenCPUPowerManagement::initSuperIO(uint16_t *chipIntel, bool allowUnlock){
     if (!superIOLock) return false;
 
-#pragma mark - Super IO & Fan Control
     IOLockLock(superIOLock);
     if (superIO) { delete superIO; superIO = nullptr; }
     // Pass allowUnlock to NCT668X to prevent unprivileged firmware unlock
@@ -2319,7 +2348,7 @@ uint32_t AMDRyzenCPUPowerManagement::getPMPStateLimit(){
 }
 
 void AMDRyzenCPUPowerManagement::setPMPStateLimit(uint32_t state){
-    uint32_t safeState = min(2U, state);
+    uint32_t safeState = state < 2 ? state : 2;
     pmRyzen_pstatelimit = safeState;
     if (safeState > 0) {
         if (rendezvousLock) IOLockLock(rendezvousLock);
@@ -2390,7 +2419,8 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
         curveRawSourceTemp[c] = rawSourceTemp;
     }
 
-    for (int fanIdx = 0; fanIdx < superIO->getNumberOfFans(); fanIdx++) {
+    const int fanCount = superIO->getNumberOfFans();
+    for (int fanIdx = 0; fanIdx < fanCount && fanIdx < (int)kMAX_FANS; fanIdx++) {
         int8_t curveIdx = fanToCurveMap[fanIdx];
         if (curveIdx < 0 || curveIdx >= MAX_FAN_CURVES) {
             continue; // Default BIOS Auto control
@@ -2506,20 +2536,6 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
 
 
 #pragma mark - GPU Public Accessors
-
-IOReturn AMDRyzenCPUPowerManagement::getGPUTemperature(uint32_t index, UInt16 *data) {
-    if (index >= gpuCount || !gpuDevices[index]) {
-        return kIOReturnNoDevice;
-    }
-    return gpuDevices[index]->getTemperature(data);
-}
-
-IOReturn AMDRyzenCPUPowerManagement::getGPUPower(uint32_t index, float *data) {
-    if (index >= gpuCount || !gpuDevices[index]) {
-        return kIOReturnNoDevice;
-    }
-    return gpuDevices[index]->getPower(data);
-}
 
 bool AMDRyzenCPUPowerManagement::gpuSupportsPower(uint32_t index) {
     if (index >= gpuCount || !gpuDevices[index]) {

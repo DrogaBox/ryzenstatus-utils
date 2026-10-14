@@ -22,7 +22,11 @@ SMC_RESULT TempCore::readAccess() {
     if (!provider) return SmcError;
     __sync_synchronize();
     uint16_t *ptr = reinterpret_cast<uint16_t *>(data);
-    double temp = (double)provider->getCCDTemp(static_cast<uint8_t>(core));
+    // Cached, like RGPUTempValue below: getCCDTemp() does PCI config I/O under
+    // pciConfigLock on the thread of whichever process reads the key, racing
+    // the SMU mailbox. The provider's timer refreshes ccdTemperatures[] every
+    // HF_TEMP_SAMPLE_PERIOD.
+    double temp = (core < provider->ccdCount) ? (double)provider->ccdTemperatures[core] : 0.0;
     if (temp <= 0.0) {
         temp = (double)provider->PACKAGE_TEMPERATURE_perPackage[0];
     }
@@ -44,12 +48,9 @@ SMC_RESULT EnergyPackage::readAccess(){
 
 SMC_RESULT RGPUTempValue::readAccess() {
     if (!provider) return SmcError;
-    // Read the provider's cached value instead of issuing live
-    // MMIO/SMU-mailbox traffic here. The old path called getGPUTemperature(),
-    // whose SMU busy-wait (up to AMDGPU_SMU_TIMEOUT_US = 100 ms) executed on the
-    // thread of ANY process reading this SMC key, stalling it while holding
-    // gpuLock. The provider's command-gate timer refreshes gpuTemperatures[]
-    // every HF_TEMP_SAMPLE_PERIOD, which is fresher than any SMC consumer needs.
+    // Cached value only: a live register read would run on the thread of
+    // whichever process reads this key. The provider's work loop refreshes
+    // gpuTemperatures[] every HF_TEMP_SAMPLE_PERIOD.
     if (package >= provider->gpuCount) return SmcError;
 
     __sync_synchronize();
