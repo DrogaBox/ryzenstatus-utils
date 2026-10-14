@@ -778,7 +778,7 @@ extension Strings {
         memoryStyleBoth: "兩者",
 
         systemUptime: "已運作",
-        systemLoadAverage: "負載",
+        systemLoadAverage: "平均負載 (1/5/15 分鐘)",
         historyLive: "即時",
         batteryCharge: "電池電量",
         powerHealth: "電池健康度",

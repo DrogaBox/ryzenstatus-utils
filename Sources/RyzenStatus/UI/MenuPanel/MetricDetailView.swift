@@ -454,6 +454,8 @@ struct MetricDetailView: View {
             return [
                 row(l10n.s.usageSection, snapshot.cpuUsage.map(MetricFormat.percent) ?? l10n.s.networkMeasuring),
                 row(l10n.s.temperatures, snapshot.cpuTemperature.map(formatTemperature) ?? l10n.s.monitorUnavailable),
+                row(l10n.s.systemLoadAverage, l10n.s.monitorUnavailable,
+                    loadPercents: SystemSection.loadAveragePercents()),
                 row(l10n.s.systemUptime, SystemSection.uptimeString()),
             ]
         case .gpu:
@@ -654,6 +656,18 @@ struct MetricDetailView: View {
                 Spacer(minLength: 0)
                 if row.showsPressure, case .memory = kind {
                     PressureIndicator(pressure: monitor.snapshot.memoryPressure)
+                } else if let percents = row.loadPercents {
+                    HStack(spacing: 4) {
+                        ForEach(Array(percents.enumerated()), id: \.offset) { index, percent in
+                            if index > 0 {
+                                Text("·").foregroundStyle(.secondary)
+                            }
+                            Text("\(percent)%").foregroundStyle(loadColor(percent))
+                        }
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
+                    .lineLimit(1)
                 } else {
                     Text(row.value)
                         .font(.system(size: 11, weight: .medium))
@@ -672,12 +686,25 @@ struct MetricDetailView: View {
                      _ title: String,
                      _ value: String,
                      showsPressure: Bool = false,
-                     wrapsValue: Bool = false) -> MetricDetailRow {
+                     wrapsValue: Bool = false,
+                     loadPercents: [Int]? = nil) -> MetricDetailRow {
         MetricDetailRow(id: id ?? title,
                         title: title,
                         value: value,
                         showsPressure: showsPressure,
-                        wrapsValue: wrapsValue)
+                        wrapsValue: wrapsValue,
+                        loadPercents: loadPercents)
+    }
+
+    /// A load average's share of the threads: green with room to spare,
+    /// yellow past half, orange near every thread busy, red once work waits.
+    private func loadColor(_ percent: Int) -> Color {
+        switch MetricFormat.loadLevel(percent: percent) {
+        case 0: return PanelMetricColor.green(for: colorScheme)
+        case 1: return PanelMetricColor.yellow(for: colorScheme)
+        case 2: return PanelMetricColor.orange(for: colorScheme)
+        default: return PanelMetricColor.red(for: colorScheme)
+        }
     }
 
     private func refreshProcessRows(force: Bool, delay: TimeInterval = 0) {
@@ -827,4 +854,7 @@ private struct MetricDetailRow: Identifiable {
     let value: String
     var showsPressure = false
     var wrapsValue = false
+    /// The 1, 5 and 15 minute load averages, drawn each in its level's color
+    /// in place of `value`, which stands in when they are unavailable.
+    var loadPercents: [Int]?
 }

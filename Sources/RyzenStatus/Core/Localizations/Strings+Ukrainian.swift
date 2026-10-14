@@ -748,7 +748,7 @@ extension Strings {
         memoryStylePercent: "%",
         memoryStyleBoth: "Обидва",
         systemUptime: "Працює",
-        systemLoadAverage: "Навантаження",
+        systemLoadAverage: "Середнє навантаження (1, 5, 15 хв)",
         historyLive: "Зараз",
         batteryCharge: "Заряд",
         powerHealth: "Стан акумулятора",

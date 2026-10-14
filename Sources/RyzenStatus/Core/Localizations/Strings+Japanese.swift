@@ -777,7 +777,7 @@ extension Strings {
         memoryStyleBoth: "両方",
 
         systemUptime: "稼働時間",
-        systemLoadAverage: "負荷",
+        systemLoadAverage: "平均負荷 (1・5・15分)",
         historyLive: "ライブ",
         batteryCharge: "充電量",
         powerHealth: "バッテリーの状態",

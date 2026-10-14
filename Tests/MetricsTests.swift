@@ -1304,6 +1304,10 @@ struct MetricsTests {
         } else {
             expect(false, "load averages read on this Mac")
         }
+        expect([0, 49, 50, 79, 80, 100, 101].map(MetricFormat.loadLevel(percent:)) == [0, 0, 1, 1, 2, 2, 3],
+               "load average levels step at half, 80% and every thread busy")
+        expect(SystemSection.loadAveragePercents(threads: 0) == nil,
+               "load average needs a thread count")
 
         var historyTier = LongHistoryTier(step: 60, capacity: 10)
         historyTier.record(1, at: 0)

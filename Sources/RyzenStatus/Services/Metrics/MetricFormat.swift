@@ -361,6 +361,17 @@ enum MetricFormat {
         return -batteryWatts
     }
 
+    /// How busy a load average is, as a share of the threads: 0 under half,
+    /// 1 up to 80%, 2 up to every thread busy, 3 once work waits.
+    static func loadLevel(percent: Int) -> Int {
+        switch percent {
+        case ..<50: return 0
+        case ..<80: return 1
+        case ...100: return 2
+        default: return 3
+        }
+    }
+
     /// A 0...1 fraction as a rounded percentage, e.g. "12%".
     static func percent(_ fraction: Double) -> String {
         "\(Int((max(0, min(1, fraction)) * 100).rounded()))%"

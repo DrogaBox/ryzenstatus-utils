@@ -778,7 +778,7 @@ extension Strings {
         memoryStyleBoth: "Оба",
 
         systemUptime: "Время работы",
-        systemLoadAverage: "Нагрузка",
+        systemLoadAverage: "Средняя нагрузка (1, 5, 15 мин)",
         historyLive: "Сейчас",
         batteryCharge: "Заряд",
         powerHealth: "Состояние батареи",

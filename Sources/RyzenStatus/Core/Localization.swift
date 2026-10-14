@@ -2121,7 +2121,7 @@ extension Strings {
         memoryStyleBoth: "Ambos",
 
         systemUptime: "Ativo há",
-        systemLoadAverage: "Carga",
+        systemLoadAverage: "Carga média (1, 5, 15 min)",
         historyLive: "Ao vivo",
         batteryCharge: "Carga",
         powerHealth: "Saúde da bateria",
@@ -3274,7 +3274,7 @@ extension Strings {
         memoryStyleBoth: "Both",
 
         systemUptime: "Up for",
-        systemLoadAverage: "Load",
+        systemLoadAverage: "Load average (1, 5, 15 min)",
         historyLive: "Live",
         batteryCharge: "Charge",
         powerHealth: "Battery health",

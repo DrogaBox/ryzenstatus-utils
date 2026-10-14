@@ -8,7 +8,7 @@ A full review of both kexts against the Linux drivers and the reference SMU tool
 
 ### Added
 
-- **Load average**: the uptime row shows the 1, 5 and 15 minute load averages.
+- **Load average**: the CPU detail view shows the 1, 5 and 15 minute load averages as a share of the CPU's threads (100% means every thread had work; more means work was waiting), each colored green, yellow, orange or red by level.
 - **Long history**: each detail view (CPU, GPU, memory, network, disk and power) has a range menu next to its value. Besides the live graph, it shows the last 10 minutes up to 30 days, always as 120 averaged columns; hovering a column shows its value and time. Only what RyzenStatus already measures is kept, nothing is sampled in the background for it, and the month is saved on this Mac so it survives a restart.
 - **Page ins and page outs**: the memory section and its detail view show how much memory has been read in from and written out to disk since boot.
 

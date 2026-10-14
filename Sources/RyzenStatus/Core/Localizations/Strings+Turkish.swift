@@ -777,7 +777,7 @@ extension Strings {
         memoryStyleBoth: "İkisi de",
 
         systemUptime: "Çalışma süresi",
-        systemLoadAverage: "Yük",
+        systemLoadAverage: "Ortalama yük (1, 5, 15 dk)",
         historyLive: "Canlı",
         batteryCharge: "Şarj",
         powerHealth: "Pil sağlığı",

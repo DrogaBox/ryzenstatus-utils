@@ -748,7 +748,7 @@ extension Strings {
         memoryStylePercent: "%",
         memoryStyleBoth: "Oboje",
         systemUptime: "Beží",
-        systemLoadAverage: "Záťaž",
+        systemLoadAverage: "Priemerná záťaž (1, 5, 15 min)",
         historyLive: "Živé",
         batteryCharge: "Nabitie",
         powerHealth: "Kondícia batérie",

@@ -777,7 +777,7 @@ extension Strings {
         memoryStyleBoth: "Entrambi",
 
         systemUptime: "Attivo da",
-        systemLoadAverage: "Carico",
+        systemLoadAverage: "Carico medio (1, 5, 15 min)",
         historyLive: "In tempo reale",
         batteryCharge: "Carica",
         powerHealth: "Stato batteria",
