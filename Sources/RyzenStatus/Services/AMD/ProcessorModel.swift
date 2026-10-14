@@ -216,7 +216,7 @@ actor ProcessorModel {
 
     /// Queries the kernel for the true marketing bundle version of AMDRyzenCPUPowerManagement.
     /// Kext selector 8 historically returns MODULE_VERSION (internal module ABI = "6"),
-    /// whereas KextManager retrieves the true CFBundleVersion / CFBundleShortVersionString ("3.34.17").
+    /// whereas KextManager retrieves the true CFBundleVersion / CFBundleShortVersionString ("3.35.0").
     static func queryLoadedKextVersion() -> String? {
         let bundleIDs = ["wtf.spinach.AMDRyzenCPUPowerManagement"] as CFArray
         guard let dict = KextManagerCopyLoadedKextInfo(bundleIDs, nil)?.takeRetainedValue() as? [String: [String: Any]],
