@@ -248,8 +248,7 @@ struct AmdPowerSettingsView: View {
                             Button {
                                 Task { await controls.runMailboxDiagnostics() }
                                 let bundle = controls.buildDiagnosticsBundle()
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(bundle, forType: .string)
+                                GeneralPasteboardAccess.shared.copyString(bundle, ownCopy: false)
                                 pmStatusMessage = l10n.amdPower.diagBundleCopied
                                 pmStatusIsError = false
                             } label: {

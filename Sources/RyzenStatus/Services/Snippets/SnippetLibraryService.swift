@@ -166,18 +166,25 @@ final class SnippetLibraryService: ObservableObject {
             }
             return
         }
-        let clipboard = TextSnippetSupport.needsClipboard(snippet.replacement)
-            ? NSPasteboard.general.string(forType: .string)
-            : nil
-        let text = TextSnippetSupport.expand(snippet.replacement,
-                                             date: Date(),
-                                             clipboard: clipboard)
-        // A beat for the panel to leave the screen; the target app kept focus
-        // (the panel never activates), so the caret is exactly where the user
-        // left it.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            self?.postWhenModifiersReleased(text: text, attempt: 0)
+        let date = Date()
+        let type: (String?) -> Void = { [weak self] clipboard in
+            let text = TextSnippetSupport.expand(snippet.replacement,
+                                                 date: date,
+                                                 clipboard: clipboard)
+            // A beat for the panel to leave the screen; the target app kept
+            // focus (the panel never activates), so the caret is exactly where
+            // the user left it.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.postWhenModifiersReleased(text: text, attempt: 0)
+            }
         }
+        guard TextSnippetSupport.needsClipboard(snippet.replacement) else { return type(nil) }
+        // Through the shared lane, like TextSnippetService: a direct read on
+        // the main thread hangs the app on a promised flavour nobody renders
+        // any more (issue #887).
+        GeneralPasteboardAccess.shared.async({
+            NSPasteboard.general.string(forType: .string)
+        }, then: type)
     }
 
     /// Typing while ⌘ (or any modifier of ⌘1/Enter) is still physically down

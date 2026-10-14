@@ -136,9 +136,6 @@ final class ScreenTextService: ObservableObject {
     }
 
     static func copyToPasteboard(_ value: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.declareRyzenStatusSource()
-        pasteboard.setString(value, forType: .string)
+        GeneralPasteboardAccess.shared.copyString(value, ownCopy: true)
     }
 }

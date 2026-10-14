@@ -333,9 +333,7 @@ struct AmdValidationSettingsView: View {
     }
 
     private func copyReport() {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(currentReport, forType: .string)
+        GeneralPasteboardAccess.shared.copyString(currentReport, ownCopy: false)
         withAnimation { showCopiedToast = true }
         Task {
             try? await Task.sleep(nanoseconds: 1_800_000_000)

@@ -358,8 +358,7 @@ struct UpdateSupportIntroView: View {
     }
 
     private func copy(_ command: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(command, forType: .string)
+        GeneralPasteboardAccess.shared.copyString(command, ownCopy: false)
         copiedCommand = command
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
             if copiedCommand == command { copiedCommand = nil }
