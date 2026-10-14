@@ -9823,6 +9823,13 @@ struct MetricsTests {
 
         let pmDecoded = AMDSmuPMTable.decode(version: 0x380805, data: pmData)
         expect(pmDecoded != nil, "decode must accept a full live 0x380805 capture")
+        // Core rings: rows divide the count evenly where they can, else 8 per row.
+        for (count, perRow, diameter) in [(16, 8, 24.0), (32, 8, 24.0), (12, 12, 14.0), (24, 12, 14.0),
+                                         (20, 10, 18.0), (18, 9, 22.0), (14, 7, 24.0), (6, 8, 24.0)] {
+            let layout = CoreRingLayout(count: count)
+            expect(layout.perRow == perRow && Double(layout.diameter) == diameter,
+                   "\(count) cores must lay out \(perRow) per row at \(diameter) pt, got \(layout.perRow) at \(layout.diameter)")
+        }
         if let d = pmDecoded {
             func near(_ a: Float, _ b: Float, _ eps: Float) -> Bool { abs(a - b) < eps }
             let s = d.summary
@@ -9839,7 +9846,10 @@ struct MetricsTests {
             expect(near(s.fclkMHz, 1667, 2), "FCLK must decode ~1667 MHz, got \(s.fclkMHz)")
             expect(near(s.uclkMHz, 1667, 2), "UCLK must decode ~1667 MHz, got \(s.uclkMHz)")
             expect(near(s.memclkMHz, 1667, 2), "MEMCLK must decode ~1667 MHz, got \(s.memclkMHz)")
+            expect(near(s.thmValueC, 43.1, 0.2), "THM value must decode ~43.1 C idle, got \(s.thmValueC)")
             expect(near(s.peakTempC, 65, 0.5), "peak temp must decode 65 C, got \(s.peakTempC)")
+            expect(s.thmValueC < s.peakTempC && d.cores.allSatisfy { $0.tempC < s.peakTempC },
+                   "PEAK_TEMP reads above every live sensor, so it must not be the package temperature")
             expect(s.pc6Percent == 0, "PC6 must be 0 while the kext keeps deep C6 disabled")
 
             expect(d.cores.count == 16, "0x380805 exposes 16 core slots, got \(d.cores.count)")
@@ -9868,6 +9878,7 @@ struct MetricsTests {
                 expect(abs(s2.tdcLimitA - 75) < 0.5, "light-load TDC limit must decode 75 A, got \(s2.tdcLimitA)")
                 expect(abs(s2.edcLimitA - 110) < 0.5, "light-load EDC limit must decode 110 A, got \(s2.edcLimitA)")
                 expect(abs(s2.thmLimitC - 80) < 0.5, "light-load THM limit must decode 80 C, got \(s2.thmLimitC)")
+                expect(abs(s2.thmValueC - 50.1) < 0.2, "light-load THM value must decode ~50.1 C, got \(s2.thmValueC)")
                 expect(s2.pptValueW > 40 && s2.pptValueW < 115,
                        "light-load PPT value must stay plausible, got \(s2.pptValueW)")
                 expect(d2.cores.count == 16, "light-load capture must expose 16 core slots, got \(d2.cores.count)")

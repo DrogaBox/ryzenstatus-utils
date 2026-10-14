@@ -443,7 +443,9 @@ enum AMDSmuPMTable {
         let cc6Percent: Float
 
         /// AMD/Ryzen Master sleeping threshold: a core that spent < 6% of
-        /// the sample window in C0 is considered parked.
+        /// the sample window in C0 is considered parked. Only its effective
+        /// clock is meaningless then; temperature, power and voltage stay
+        /// valid and are shown, as ryzen_monitor does.
         var isSleeping: Bool { c0Percent < 6.0 }
 
         /// A disabled (fused-off) slot decodes as all-zero on real silicon.
@@ -461,6 +463,9 @@ enum AMDSmuPMTable {
         let edcLimitA: Float
         let edcValueA: Float
         let thmLimitC: Float
+        /// THM_VALUE — the package temperature the SMU regulates against
+        /// THM_LIMIT, °C. This is the package reading to show.
+        let thmValueC: Float
         /// VID_VALUE — core VRM voltage in V (limit is element 10).
         let coreVoltageV: Float
         let coreVoltageLimitV: Float
@@ -472,7 +477,10 @@ enum AMDSmuPMTable {
         let fclkMHz: Float
         let uclkMHz: Float
         let memclkMHz: Float
-        /// PEAK_TEMP — hottest sensor reading this window, °C.
+        /// PEAK_TEMP — marked unverified in the reference map. On live 5900XT
+        /// captures it reads above every sensor and falls as load rises
+        /// (65 °C idle, 62.5 °C light load), so it is not a current
+        /// temperature; it is shown only as a raw diagnostic.
         let peakTempC: Float
         /// PC6 — package C6 residency % (0 = unsupported/never sleeps).
         let pc6Percent: Float
@@ -529,6 +537,7 @@ enum AMDSmuPMTable {
         static let tdcLimit = 2
         static let tdcValue = 3
         static let thmLimit = 4
+        static let thmValue = 5
         static let edcLimit = 8
         static let edcValue = 9
         static let vidLimit = 10
@@ -623,6 +632,7 @@ enum AMDSmuPMTable {
             edcLimitA: f(PmHead.edcLimit),
             edcValueA: f(PmHead.edcValue),
             thmLimitC: f(PmHead.thmLimit),
+            thmValueC: f(PmHead.thmValue),
             coreVoltageV: f(PmHead.vidValue),
             coreVoltageLimitV: f(PmHead.vidLimit),
             cpuTelemetryV: f(l.cpuTelemetryVoltage),

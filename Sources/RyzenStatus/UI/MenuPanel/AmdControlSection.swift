@@ -181,7 +181,7 @@ struct AmdControlSection: View {
                                             .foregroundColor(.secondary)
                                         Spacer()
                                         // At-a-glance package state while collapsed.
-                                        Text(String(format: "%.0f W · %.0f °C", decoded.summary.socketPowerW, decoded.summary.peakTempC))
+                                        Text(String(format: "%.0f W · %.0f °C", decoded.summary.socketPowerW, decoded.summary.thmValueC))
                                             .font(.system(size: 9, weight: .medium, design: .monospaced))
                                             .foregroundColor(.secondary)
                                     }

@@ -6,6 +6,10 @@ A full review of both kexts against the Linux drivers and the reference SMU tool
 
 > **Kext Note**: `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` move to 3.35.0. Replace both in `EFI/OC/Kexts/` (and keep Lilu and VirtualSMC up to date), then reboot.
 
+### Changed
+
+- **Core rings in the panel**: the per-core view draws each core as a small ring that fills clockwise with its load, clock, temperature or power, with the value in the middle. Rows divide the core count evenly where they can (12, 10, 9 or 7 per row) and otherwise hold 8, so a 16-core Ryzen shows two rows of eight.
+
 ### Fixed
 
 - **Older Radeon GPUs could hang the kext**: reading GPU power took a lock that the register reads then tried to take again, which stopped the kext's work loop on Polaris, Vega 10 and older GCN cards. Each read now takes the lock once.
@@ -14,6 +18,10 @@ A full review of both kexts against the Linux drivers and the reference SMU tool
 - **SMU requests**: the kext waits for the SMU to be free, never overwrites a request in progress, and passes all six arguments. Busy, missing-prerequisite, unknown-command, failure and timeout answers are told apart and named in the app.
 - **OC mode and fixed frequencies**: OC mode, the all-core frequency and the per-CCD frequency send the arguments the firmware expects; the per-CCD frequency is applied to every core of the physical CCD you chose.
 - **CPU temperatures**: Tctl and the CCD temperatures use the same offsets and per-model layout as Linux, for up to 8 CCDs.
+- **Package temperature**: the dashboard and the menu panel showed a PM table field that reads above every sensor and even drops under load (a peak, not the current temperature), so the package looked 20–25 °C hotter than it was. They now show the temperature the SMU regulates against its thermal limit, and the old field stays in the PM table details as "Peak temp".
+- **C-state warning**: AMD Ryzen Power warned that NVRAM and the running kext disagreed exactly when they agreed (C6 off in both, the default), and stayed quiet when they really differed.
+- **Sensors**: the GPU die and GPU proximity keys were both listed as "GPU Core / Die"; they now carry their own names.
+- **Per-core grid**: a parked core (under 6 % of the time active) hid its temperature and power along with its clock, so most cores showed a dash at idle. Only the clock is hidden now; temperature and power, which stay valid on a parked core, are shown, as the reference monitor does.
 - **Package C6**: the value shown as C6 residency was a configuration register, not a time measurement, and is no longer reported.
 - **Super I/O**: ITE fan tachometers are validated and configuration mode is exited properly; Nuvoton NCT668X chips are identified and released as in the Linux driver.
 - **Sleep and wake**: Curve Optimizer, PBO, cHTC and OC settings are re-read after sleep instead of trusting values from before it.
