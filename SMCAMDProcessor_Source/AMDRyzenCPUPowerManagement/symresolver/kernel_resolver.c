@@ -78,7 +78,7 @@ void find_mach_header_addr(uint8_t kc){
     
     mach_header_64_t* mach_header = (mach_header_64_t*)base_address;
     if (mach_header->magic != MH_MAGIC_64) {
-        // No es un mach header válido; caer al base_address como fallback.
+        // Not a valid Mach-O header: fall back to the computed base address.
         IOLog("kernel_resolver: MH_MAGIC_64 mismatch at 0x%llx, using base_address fallback\n",
               (unsigned long long)base_address);
         mh_base_addr = base_address;

@@ -154,64 +154,47 @@ public:
      * Linux kernel k10temp driver (drivers/hwmon/k10temp.c)
      */
 
-    static constexpr uint32_t kCOFVID_STATUS = 0xC0010071;
-    static constexpr uint32_t k17H_M01H_SVI = 0x0005A000;
     static constexpr uint32_t kF17H_M01H_THM_TCON_CUR_TMP = 0x00059800;
-    static constexpr uint32_t kF17H_M70H_CCD1_TEMP = 0x00059954;
-    static constexpr uint32_t kF17H_TEMP_OFFSET_FLAG = 0x80000;
-    static constexpr uint32_t kF18H_TEMP_OFFSET_FLAG = 0x60000;
-    static constexpr uint8_t kFAMILY_17H_PCI_CONTROL_REGISTER = 0x60;
-    static constexpr uint8_t kFAMILY_1AH_PCI_CONTROL_REGISTER = 0x60;   // Zen 5 — confirm against PPR
+    // Tctl register fields (Linux k10temp ZEN_CUR_TEMP_*): the reading is
+    // 49 C high when the range-select bit is set or both TJ-select bits are.
+    static constexpr uint32_t kZEN_CUR_TEMP_RANGE_SEL = 1u << 19;
+    static constexpr uint32_t kZEN_CUR_TEMP_TJ_SEL_MASK = 3u << 16;
+    // SMN index/data pair in the root complex's configuration space.
+    static constexpr uint8_t kSMN_INDEX_REGISTER = 0x60;
     static constexpr uint16_t kAMD_HOST_BRIDGE_VENDOR = 0x1022;
 
-    /**
-     *  CCD (Core Complex Die) temperature register offsets.
-     *  These offsets are added to kF17H_M01H_THM_TCON_CUR_TMP (0x59800)
-     *  to get the per-CCD temperature register addresses.
-     *
-     *  Values sourced from Linux kernel k10temp.c:
-     *  - 0x154: Family 17h (Zen/Zen+/Zen2), Family 19h models 00-5Fh (Zen3/3+)
-     *  - 0x308: Family 19h models 60-7Fh (Zen4), Family 1Ah (Zen5 Granite Ridge)
-     */
-    static constexpr uint32_t kZEN_CCD_OFFSET_LEGACY = 0x154;
-    static constexpr uint32_t kZEN_CCD_OFFSET_ZEN4_5 = 0x308;
-    static constexpr uint8_t  kMAX_CCD_COUNT = 16;
+    // Per-CCD temperature registers live at 0x59800 + offset + 4 * ccd; the
+    // offset and the number of CCD slots depend on the family and model
+    // (Linux k10temp_probe). A slot reports a CCD when bit 11 is set.
+    static constexpr uint8_t  kMAX_CCD_COUNT = 8;
     static constexpr uint32_t kZEN_CCD_TEMP_VALID_BIT = (1 << 11);
     static constexpr uint32_t kZEN_CCD_TEMP_MASK = 0x7FF;
 
+    // Mailbox status. 0x01 and 0xFC-0xFF are the firmware's own codes
+    // (ryzen_smu smu_return_val, ZenStates-Core SMU.Status); 0x00 and 0xFB
+    // are reported by this driver when the firmware never answered.
     enum SMUResponse : uint32_t {
-        SMU_RSP_OK           = 1,
-        SMU_RSP_INVALID_CMD  = 0xFF,
-        SMU_RSP_INVALID_ARGS = 0xFE,
-        SMU_RSP_BUSY         = 0xFD,
-        SMU_RSP_TIMEOUT      = 0,
+        SMU_RSP_TIMEOUT         = 0x00,  // no reply before the deadline
+        SMU_RSP_OK              = 0x01,
+        SMU_RSP_NOT_READY       = 0xFB,  // previous command still running, nothing sent
+        SMU_RSP_REJECTED_BUSY   = 0xFC,
+        SMU_RSP_REJECTED_PREREQ = 0xFD,
+        SMU_RSP_UNKNOWN_CMD     = 0xFE,
+        SMU_RSP_FAILED          = 0xFF,
     };
 
     static constexpr uint32_t kMSR_HWCR = 0xC0010015;
-    static constexpr uint32_t kMSR_CORE_ENERGY_STAT = 0xC001029A;
-    static constexpr uint32_t kMSR_HARDWARE_PSTATE_STATUS = 0xC0010293;
     static constexpr uint32_t kMSR_PKG_ENERGY_STAT = 0xC001029B;
     static constexpr uint32_t kMSR_PSTATE_0 = 0xC0010064;
     static constexpr uint32_t kMSR_PSTATE_LEN = 8;
-    static constexpr uint32_t kMSR_PSTATE_STAT = 0xC0010063;
     static constexpr uint32_t kMSR_PSTATE_CTL = 0xC0010062;
     static constexpr uint32_t kMSR_RAPL_PWR_UNIT = 0xC0010299;
-    static constexpr uint32_t kMSR_PKG_C6_RES = 0xC0010296;
     static constexpr uint32_t kMSR_MPERF = 0x000000E7;
     static constexpr uint32_t kMSR_APERF = 0x000000E8;
-    static constexpr uint32_t kMSR_PERF_CTL_0 = 0xC0010000;
-    static constexpr uint32_t kMSR_PERF_CTR_0 = 0xC0010004;
     static constexpr uint32_t kMSR_PERF_IRPC = 0xC00000E9;
     static constexpr uint32_t kMSR_CSTATE_ADDR = 0xC0010073;
     static constexpr uint32_t kMSR_AMD_CPPC_CAP1 = 0xC00102B0;
-    static constexpr uint32_t kMSR_AMD_CPPC_ENABLE = 0xC00102B1;
-    static constexpr uint32_t kMSR_AMD_CPPC_CAP2 = 0xC00102B2;
-    static constexpr uint32_t kMSR_AMD_CPPC_REQ = 0xC00102B3;
-    static constexpr uint32_t kMSR_AMD_CPPC_STATUS = 0xC00102B4;
 
-    static constexpr uint32_t kEFI_VARIABLE_NON_VOLATILE = 0x00000001;
-    static constexpr uint32_t kEFI_VARIABLE_BOOTSERVICE_ACCESS = 0x00000002;
-    static constexpr uint32_t kEFI_VARIABLE_RUNTIME_ACCESS = 0x00000004;
 
 
 
@@ -239,9 +222,8 @@ public:
     bool write_msr(uint32_t addr, uint64_t value);
 
 
-    void updateClockSpeed(uint8_t physical);
-    void calculateEffectiveFrequency(uint8_t physical);
-    void updateInstructionDelta(uint8_t physical);
+    void calculateEffectiveFrequency(uint32_t physical);
+    void updateInstructionDelta(uint32_t cpu);
     void applyPowerControl();
     void applyEPPControl();
 
@@ -255,8 +237,8 @@ public:
 #define HF_TEMP_SAMPLE_REP (1.0f / (float)HF_TEMP_SAMPLE_FREQ)
 #define HF_TEMP_SAMPLE_PERIOD (int)(HF_TEMP_SAMPLE_REP * 1000.0)
     inline float getPackageTemp();
-    float getCCDTemp(uint8_t ccd);
-    uint32_t readCCDRegisterRaw(uint8_t ccd);
+    float getCCDTemp(uint8_t slot);
+    void probeCCDs();
     void updatePackageTemp();
 
     void updatePackageEnergy();
@@ -286,20 +268,26 @@ public:
     bool cppcThrottled {false};
     bool disableCStates = true;
     uint64_t cstateAddrConfig {0};
-    uint64_t packageC6Residency {0};
 
     uint8_t cpuFamily {0};
     uint8_t cpuModel {0};
     uint8_t cpuSupportedByCurrentVersion {0};
 
-    uint32_t ccdOffset = kZEN_CCD_OFFSET_LEGACY;
+    // ccdTemperatures[i] belongs to the CCD in register slot ccdSlot[i];
+    // fused-off CCDs leave gaps in the slots, never in this array.
+    uint32_t ccdOffset {0};
     uint8_t  ccdCount = 0;
+    uint8_t  ccdSlot[kMAX_CCD_COUNT] {};
     float    ccdTemperatures[kMAX_CCD_COUNT] {};
     char     cpuArchName[16] {};
     pmRyzen_idle_strategy_t cpuIdleStrategy{PMRYZEN_IDLE_STRATEGY_SIMPLE};
 
     // Curve Optimizer offsets last acknowledged by the SMU (selector 110)
     int8_t curveOptimizerOffsets[CPUInfo::MaxCpus] {};
+    // SMU core mask (CCD [31:28], core [23:20]) of each enabled core, in the
+    // order the OS numbers them; built from the fuses in buildCoreMap().
+    uint32_t coreSmuMask[CPUInfo::MaxCpus] {};
+    bool coreMapValid {false};
 
     // Precision Boost Overdrive limits (Vermeer-only SMU commands).
     // Values are the last successfully-programmed limits, cached for read-back
@@ -317,7 +305,7 @@ public:
     // the same gate as Curve Optimizer. Fail-closed everywhere else.
     bool pboLimitsSupported() const {
         return (cpuFamily == 0x19 && cpuModel >= 0x21 && cpuModel <= 0x2F) &&
-               smuMailbox.supported;
+               rsmu.supported;
     }
     // int setPBOLimit(uint32_t cmd, uint32_t value): shared SMU write path for
     // PPT/TDC/EDC/scalar; negative return maps like setCurveOptimizer.
@@ -335,7 +323,7 @@ public:
     // Arg0 = degrees Celsius). Same capability gate + thermal interlock policy
     // as setPBOLimit; on success the new limit is cached for read-back.
     // Negative return maps like setPBOLimit (-1 unsupported, -4 hot, -5 SMU
-    // error, -10 timeout, -11 invalid cmd, -12 invalid args, -13 busy).
+    // error, -10 timeout, -11 unknown command, -12 rejected, -13 busy).
     int setCHTCLimit(uint32_t arg);
 
     // One-shot read of the Vermeer ProcessorParameters bitfield (SMU 0x6F:
@@ -354,13 +342,11 @@ public:
     // command gate only.
     uint32_t pollSmuPBOScalar();
 
-    // Enable/disable Vermeer OC mode (RSMU 0x5A EnableOcMode / 0x5B
-    // DisableOcMode — semantics pinned by ZenStates-Core, resolving the doc's
-    // contradictory rows). Writes blocked under the same thermal interlock as
-    // the PBO/CO/cHTC paths. On the disable path `resetScalar` additionally
-    // re-programs the PBO scalar to 1.0 via 0x58, working around SMU firmware
-    // that does not auto-reset it. Returns 0 on success; negative maps like
-    // setPBOLimit.
+    // Enable/disable Vermeer OC mode (RSMU 0x5A / 0x5B, Arg0 0). Writes are
+    // blocked under the same thermal interlock as the PBO/CO/cHTC paths. On
+    // disable, `resetScalar` also writes the PBO scalar back to 1.0 via 0x58
+    // for SMU firmware that does not reset it. Returns 0 on success;
+    // negative maps like setPBOLimit.
     int setOcMode(bool enable, bool resetScalar);
 
     // SMU PM-table plumbing (0x08 version → per-version size → 0x05
@@ -377,23 +363,19 @@ public:
     // the same policy as every other privileged SMU write path (CO/cHTC/PBO).
     int forcePMTableCapture();
 
-    // Program a frequency override via the Vermeer RSMU OC commands —
-    // all-core (0x5C, one call) or per-CCD (0x5D, one round trip per CCD;
-    // Vermeer mask = (ccd << 28) | freq).
-    // Hard-gated: refuses with -3 unless THIS driver enabled OC mode via
-    // 0x5A earlier this boot (we only send frequency writes after observing
-    // the gate open ourselves — another tool's enable does not count).
-    // Same Vermeer gate, thermal interlock and mapped-error policy as
-    // setOcMode/setPBOLimit. Per-CCD writes are all-or-nothing per CCD:
-    // a mid-sequence failure returns the mapped error and the cache keeps
-    // only the CCDs that acknowledged OK.
-    //   allCores: mhz in 400..8000 (doc MAX), perCcd must be null.
-    //   perCcd:   window of windowLen entries starting at CCD `startCcd`,
-    //             each an absolute MHz in 400..8000. ccd index of entry i
-    //             = startCcd + i.
+    // Program a frequency override via the Vermeer RSMU OC commands:
+    // all-core (0x5C, one call) or per-CCD (0x5D to every core of the CCD).
+    // Refuses with -3 unless this driver enabled OC mode via 0x5A earlier
+    // this boot (another tool's enable does not count). Same Vermeer gate,
+    // thermal interlock and error mapping as setOcMode/setPBOLimit. A
+    // failure stops a per-CCD sequence; the cache keeps only the CCDs that
+    // were fully written.
+    //   allCores: mhz in 400..8000.
+    //   perCcd:   windowLen entries starting at enabled-CCD index
+    //             `startCcd`, each an absolute MHz in 400..8000.
     // Returns 0 on success; negative maps: -1 unsupported, -2 bad args,
     // -3 OC mode not enabled by this driver, -4 hot, -5 SMU error,
-    // -10 timeout, -11 invalid cmd, -12 invalid args, -13 busy.
+    // -10 timeout, -11 unknown command, -12 rejected, -13 busy.
     int setOverclockFreqAllCores(uint32_t mhz);
     int setOverclockFreqPerCcd(const uint32_t *mhzByCcd, uint8_t windowLen, uint8_t startCcd);
 
@@ -415,15 +397,9 @@ public:
 
     uint64_t lastMPERF_perCore[CPUInfo::MaxCpus] {};
     uint64_t lastAPERF_perCore[CPUInfo::MaxCpus] {};
-    uint64_t deltaMPERF_perCore[CPUInfo::MaxCpus] {};
 
     uint64_t instructionDelta_perCore[CPUInfo::MaxCpus] {};
     uint64_t lastInstructionDelta_perCore[CPUInfo::MaxCpus] {};
-
-    float loadIndex_perCore[CPUInfo::MaxCpus] {};
-
-    float PStateStepUpRatio = 0.36;
-    float PStateStepDownRatio = 0.05;
 
     uint8_t PStateCur_perCore[CPUInfo::MaxCpus] {};
     uint8_t PStateCtl = 0;
@@ -464,7 +440,6 @@ public:
         bool supportsCPPCv2;
         bool legacyPstateAllowed;
         bool pmDispatchAllowed;
-        bool temperatureOffset49;  // applies 49 C temperature offset to package temp
     };
 
     // === Family 17h profiles: need full PM dispatch (macOS has no native AMD PM) ===
@@ -473,72 +448,62 @@ public:
     static constexpr ZenCpuFeatureMap ZEN1_PROFILE = {
         0x17, 0x00, 0x0F, "Zen", 1,
         false, false,           // CPPC: no, CPPCv2: no
-        true, true,             // legacyPstate: yes, pmDispatch: yes
-        true                    // temperatureOffset49: hardware bit verified
+        true, true              // legacyPstate: yes, pmDispatch: yes
     };
     // Zen+ (Pinnacle Ridge)
     static constexpr ZenCpuFeatureMap ZEN_PLUS_PROFILE = {
         0x17, 0x10, 0x2F, "Zen+", 1,
         false, false,
-        true, true,
-        true
+        true, true
     };
     // Zen 2 (Matisse, Rome)
     static constexpr ZenCpuFeatureMap ZEN2_PROFILE = {
         0x17, 0x30, 0xFF, "Zen 2", 2,
         false, false,
-        true, true,
-        true
+        true, true
     };
 
     // === Family 19h+ profiles: telemetry-only (macOS AMD Vanilla handles CPPC) ===
 
-    // Zen 3 Cezanne (mobile)
-    static constexpr ZenCpuFeatureMap ZEN3_CEZANNE_PROFILE = {
-        0x19, 0x10, 0x1F, "Zen 3 Cezanne", 3,
-        true, false,            // CPPC: yes, CPPCv2: no
-        false, false,           // legacyPstate: no, pmDispatch: no
-        true
-    };
+    // Model ranges follow Linux k10temp and ryzen_smu's codename table.
     // Zen 3 Vermeer (desktop)
     static constexpr ZenCpuFeatureMap ZEN3_VERMEER_PROFILE = {
         0x19, 0x21, 0x2F, "Zen 3 Vermeer", 3,
-        true, false,
-        false, false,
-        true
+        true, false,            // CPPC: yes, CPPCv2: no
+        false, false            // legacyPstate: no, pmDispatch: no
     };
-    // Zen 3+ (Rembrandt, Barcelo)
+    // Zen 3+ (Rembrandt)
     static constexpr ZenCpuFeatureMap ZEN3_PLUS_PROFILE = {
-        0x19, 0x40, 0x5F, "Zen 3+", 3,
+        0x19, 0x40, 0x4F, "Zen 3+", 3,
         true, false,
-        false, false,
-        true
+        false, false
+    };
+    // Zen 3 Cezanne / Barcelo (APU)
+    static constexpr ZenCpuFeatureMap ZEN3_CEZANNE_PROFILE = {
+        0x19, 0x50, 0x5F, "Zen 3 Cezanne", 3,
+        true, false,
+        false, false
     };
     // Zen 4 (Raphael, Phoenix)
     static constexpr ZenCpuFeatureMap ZEN4_PROFILE = {
         0x19, 0x60, 0x7F, "Zen 4", 4,
         true, false,
-        false, false,
-        true                    // temperatureOffset49: verified working
+        false, false
     };
     // Zen 5 (Granite Ridge, Strix Point)
     static constexpr ZenCpuFeatureMap ZEN5_PROFILE = {
         0x1A, 0x00, 0xFF, "Zen 5", 5,
         true, false,
-        false, false,
-        true                    // temperatureOffset49: verified working on 9950X3D
+        false, false
     };
 
     // Feature matrix - controlled per-profile
-    bool cppcReadInInit {false};       // Read CPPC CAP1 during workloop init
     bool legacyPstateAllowed {false};  // Legacy P-state writes
     bool pmDispatchAllowed {false};    // Custom PM dispatch takeover
-    bool temperatureOffset49 {false};  // Apply 49C temperature offset (per profile)
 
     // Derived state
     uint32_t zenGeneration = 0;
     bool supportsCPPC = false;
-    bool supportsCPPCv2 = false;
 
     bool disablePrivilegeCheck = false;
     uint16_t savedSMCChipIntel = 0;
@@ -636,11 +601,11 @@ public:
     // never written by this driver this boot; on success each slot holds the
     // absolute MHz last acknowledged by the SMU. Driver-local truth only:
     // the SMU has no read-back for these commands.
-    static constexpr uint8_t kS8MaxCcds = 8;   // Vermeer tops out well below
+    static constexpr uint8_t kOC_MAX_CCDS = 8;   // Vermeer tops out well below
                                                // this; kept in step with the
                                                // CPUSensorPacket CCD cap.
     uint32_t ocFreqMHzAllCores {0};
-    uint32_t ocFreqMHzPerCcd[kS8MaxCcds] {0};
+    uint32_t ocFreqMHzPerCcd[kOC_MAX_CCDS] {0};
 
     /// Clears the caches above (and the CO/PBO/cHTC ones) when the system
     /// sleeps; see the definition for why.
@@ -664,8 +629,10 @@ public:
     // Read-only view for the UserClient capability report (selector 35).
     // Exposes only the fields the CO capability needs; keeps the rest of the
     // mailbox (SMN register layout) private.
-    bool smuMailboxSupported() const { return smuMailbox.supported; }
-    uint32_t smuCurveOptimizerCmd() const { return smuMailbox.curveOptimizerCmd; }
+    bool smuMailboxSupported() const { return rsmu.supported; }
+    uint32_t smuCurveOptimizerCmd() const {
+        return (mp1.supported && coreMapValid) ? kMP1_SET_DLDO_PSM_MARGIN : 0;
+    }
 
     // On-demand mailbox health report (UserClient selector 58). Runs the
     // same three probes the boot diagnostic does — SMN aperture read (Tctl),
@@ -709,7 +676,6 @@ private:
     int tempNextSample = 0;
     float tempSamples[HF_TEMP_SAMPLE_LEN] {};
     float tempOffset = 0;
-    double pwrTimeUnit = 0;
     double pwrEnergyUnit = 0;
     uint64_t pwrLastTSC = 0;
 
@@ -728,24 +694,35 @@ private:
 
     uint32_t smnRead32(uint32_t addr);
     void smnWrite32(uint32_t addr, uint32_t val);
-    bool smuMailboxIdle(uint32_t rspReg);
-    int smuSendCmd(uint32_t cmd, uint32_t arg);
-    int smuSendCmd(uint32_t cmd, uint32_t arg, uint32_t &outArg0, uint32_t *outElapsedUs = nullptr);
-    // Two-argument variant returning both arg-window words after OK —
-    // GetDramBaseAddress (0x06) is called with Arg0=1/Arg1=1 on Vermeer and
-    // the 64-bit physical base assembles as arg0 | (arg1 << 32)
-    // (reference smu.c smu_get_dram_base_address, BASE_ADDR_CLASS_1).
-    int smuSendCmd2(uint32_t cmd, uint32_t arg0, uint32_t arg1,
-                    uint32_t &outArg0, uint32_t &outArg1, uint32_t *outElapsedUs = nullptr);
 
     struct SMUMailbox {
         uint32_t msgReg;
-        uint32_t argReg;
+        uint32_t argReg;   // first of kSMU_ARG_COUNT consecutive argument registers
         uint32_t rspReg;
-        uint32_t curveOptimizerCmd;   // 0x3D on Zen 3, 0x55 on Zen 4 (per AGESA), 0x0 (unsupported) otherwise
         bool     supported;
     };
-    SMUMailbox smuMailbox{};
+    // The SMU answers on several mailboxes: RSMU carries the Ryzen Master
+    // command set (PBO, OC, PM table), MP1 the Curve Optimizer margins.
+    SMUMailbox rsmu{};
+    SMUMailbox mp1{};
+
+    static constexpr uint32_t kSMU_ARG_COUNT = 6;
+    // Vermeer MP1 SetDldoPsmMargin (ZenStates-Core Zen3Settings).
+    static constexpr uint32_t kMP1_SET_DLDO_PSM_MARGIN = 0x35;
+
+    // One complete mailbox transaction. args[] goes out in the argument
+    // registers and, on SMU_RSP_OK, comes back with the reply words.
+    int smuExecute(const SMUMailbox &mb, uint32_t cmd, uint32_t (&args)[kSMU_ARG_COUNT],
+                   uint32_t timeoutUs, uint32_t *outElapsedUs = nullptr);
+    // RSMU helpers: one argument in, the first reply word out.
+    int smuSendCmd(uint32_t cmd, uint32_t arg);
+    int smuSendCmd(uint32_t cmd, uint32_t arg, uint32_t &outArg0, uint32_t *outElapsedUs = nullptr);
+    // Maps a mailbox status to the driver's negative error codes
+    // (-10 timeout, -11 unknown command, -12 rejected, -13 busy, -5 failed).
+    static int smuError(int response);
+
+    void buildCoreMap();
+    bool physicalCcdForIndex(uint8_t index, uint32_t &physical) const;
 
     // SMU read commands ride the main timer's command gate. The throttle
     // keeps the added SMU traffic to ~2 round trips per second worst case.
