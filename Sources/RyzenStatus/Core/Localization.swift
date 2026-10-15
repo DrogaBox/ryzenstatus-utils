@@ -961,6 +961,8 @@ struct Strings {
     let systemLoadAverage: String
     /// The live graph's entry in a detail view's range menu.
     let historyLive: String
+    /// Label of the long-history graph in the panel.
+    let historyTitle: String
     let batteryCharge: String
     let powerHealth: String
     let powerCycles: String
@@ -2123,6 +2125,7 @@ extension Strings {
         systemUptime: "Ativo há",
         systemLoadAverage: "Carga média (1, 5, 15 min)",
         historyLive: "Ao vivo",
+        historyTitle: "Histórico",
         batteryCharge: "Carga",
         powerHealth: "Saúde da bateria",
         powerCycles: "Ciclos",
@@ -3276,6 +3279,7 @@ extension Strings {
         systemUptime: "Up for",
         systemLoadAverage: "Load average (1, 5, 15 min)",
         historyLive: "Live",
+        historyTitle: "History",
         batteryCharge: "Charge",
         powerHealth: "Battery health",
         powerCycles: "Cycles",

@@ -13,6 +13,9 @@ extension DefaultsKey {
     /// Range of the graph in a metric's detail view: 0 for the live graph,
     /// otherwise a `LongHistoryRange` in seconds.
     static let metricDetailHistoryRange = "metricDetailHistoryRange"
+    /// Range of the long-history graphs in the panel, a `LongHistoryRange`
+    /// in seconds.
+    static let panelHistoryRange = "panelHistoryRange"
     static let menuBarCPU = "menuBarCPU"
     static let menuBarGPU = "menuBarGPU"
     static let menuBarCPUPower = "menuBarCPUPower"

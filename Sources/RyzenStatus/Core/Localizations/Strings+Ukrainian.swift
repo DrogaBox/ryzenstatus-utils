@@ -750,6 +750,7 @@ extension Strings {
         systemUptime: "Працює",
         systemLoadAverage: "Середнє навантаження (1, 5, 15 хв)",
         historyLive: "Зараз",
+        historyTitle: "Історія",
         batteryCharge: "Заряд",
         powerHealth: "Стан акумулятора",
         powerCycles: "Цикли",

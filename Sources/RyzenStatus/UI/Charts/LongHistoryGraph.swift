@@ -103,3 +103,94 @@ struct LongHistoryGraph: View {
         return formatter.string(from: columnEnd)
     }
 }
+
+/// A long-history graph for a panel section: a "History" line with the range
+/// menu, and the graph under it. Every panel graph shares one range. With
+/// `collapsible`, the graph stays folded until the line is clicked.
+struct PanelLongHistory: View {
+    @ObservedObject private var l10n = L10n.shared
+    @AppStorage(DefaultsKey.panelHistoryRange) private var rangeRaw = LongHistoryRange.oneHour.rawValue
+    @State private var expanded = false
+    var collapsible = false
+    var height: CGFloat = 30
+    /// The columns for a range ending at a time (seconds since 1970).
+    let series: (LongHistoryRange, TimeInterval) -> LongHistoryGraph.Series
+    let format: (Double, Double?) -> String
+
+    private var range: LongHistoryRange { LongHistoryRange(rawValue: rangeRaw) ?? .oneHour }
+    private var showsGraph: Bool { !collapsible || expanded }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                if collapsible {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 7, weight: .semibold))
+                                .rotationEffect(.degrees(expanded ? 90 : 0))
+                            Text(l10n.s.historyTitle)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Text(l10n.s.historyTitle)
+                }
+                Spacer(minLength: 4)
+                if showsGraph {
+                    Menu {
+                        ForEach(LongHistoryRange.allCases) { option in
+                            Button(option.label(l10n.language)) { rangeRaw = option.rawValue }
+                        }
+                    } label: {
+                        Text(range.label(l10n.language))
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                }
+            }
+            .font(.system(size: 9.5, weight: .medium))
+            .foregroundStyle(.secondary)
+            if showsGraph {
+                let end = Date()
+                LongHistoryGraph(series: series(range, end.timeIntervalSince1970),
+                                 range: range, end: end, language: l10n.language, format: format)
+                    .frame(height: height)
+            }
+        }
+    }
+}
+
+/// The 1, 5 and 15 minute load averages as shares of the threads, each in
+/// its level's color: green with room to spare, yellow past half, orange
+/// near every thread busy, red once work waits.
+struct LoadAverageText: View {
+    let percents: [Int]
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(Array(percents.enumerated()), id: \.offset) { index, percent in
+                if index > 0 {
+                    Text("·").foregroundStyle(.secondary)
+                }
+                Text("\(percent)%").foregroundStyle(color(percent))
+            }
+        }
+        .font(.system(size: 11, weight: .medium))
+        .monospacedDigit()
+        .lineLimit(1)
+    }
+
+    private func color(_ percent: Int) -> Color {
+        switch MetricFormat.loadLevel(percent: percent) {
+        case 0: return PanelMetricColor.green(for: colorScheme)
+        case 1: return PanelMetricColor.yellow(for: colorScheme)
+        case 2: return PanelMetricColor.orange(for: colorScheme)
+        default: return PanelMetricColor.red(for: colorScheme)
+        }
+    }
+}

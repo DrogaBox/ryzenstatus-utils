@@ -779,6 +779,7 @@ extension Strings {
         systemUptime: "稼働時間",
         systemLoadAverage: "平均負荷 (1・5・15分)",
         historyLive: "ライブ",
+        historyTitle: "履歴",
         batteryCharge: "充電量",
         powerHealth: "バッテリーの状態",
         powerCycles: "充放電回数",

@@ -750,6 +750,7 @@ extension Strings {
         systemUptime: "Beží",
         systemLoadAverage: "Priemerná záťaž (1, 5, 15 min)",
         historyLive: "Živé",
+        historyTitle: "História",
         batteryCharge: "Nabitie",
         powerHealth: "Kondícia batérie",
         powerCycles: "Cykly",

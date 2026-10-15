@@ -657,17 +657,7 @@ struct MetricDetailView: View {
                 if row.showsPressure, case .memory = kind {
                     PressureIndicator(pressure: monitor.snapshot.memoryPressure)
                 } else if let percents = row.loadPercents {
-                    HStack(spacing: 4) {
-                        ForEach(Array(percents.enumerated()), id: \.offset) { index, percent in
-                            if index > 0 {
-                                Text("·").foregroundStyle(.secondary)
-                            }
-                            Text("\(percent)%").foregroundStyle(loadColor(percent))
-                        }
-                    }
-                    .font(.system(size: 11, weight: .medium))
-                    .monospacedDigit()
-                    .lineLimit(1)
+                    LoadAverageText(percents: percents)
                 } else {
                     Text(row.value)
                         .font(.system(size: 11, weight: .medium))
@@ -694,17 +684,6 @@ struct MetricDetailView: View {
                         showsPressure: showsPressure,
                         wrapsValue: wrapsValue,
                         loadPercents: loadPercents)
-    }
-
-    /// A load average's share of the threads: green with room to spare,
-    /// yellow past half, orange near every thread busy, red once work waits.
-    private func loadColor(_ percent: Int) -> Color {
-        switch MetricFormat.loadLevel(percent: percent) {
-        case 0: return PanelMetricColor.green(for: colorScheme)
-        case 1: return PanelMetricColor.yellow(for: colorScheme)
-        case 2: return PanelMetricColor.orange(for: colorScheme)
-        default: return PanelMetricColor.red(for: colorScheme)
-        }
     }
 
     private func refreshProcessRows(force: Bool, delay: TimeInterval = 0) {

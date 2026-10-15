@@ -195,6 +195,16 @@ struct NetworkSection: View {
                 if showGraph, monitor.snapshot.netDownHistory.count >= 2 {
                     graph
                 }
+                if showGraph {
+                    PanelLongHistory(collapsible: true,
+                                     series: { range, end in
+                                         .dual(upper: LongHistoryStore.shared.averages(.networkUp, range: range, end: end),
+                                               lower: LongHistoryStore.shared.averages(.networkDown, range: range, end: end))
+                                     },
+                                     format: { upper, lower in
+                                         "↑ \(Self.historyRate(upper)) ↓ \(Self.historyRate(lower ?? .nan))"
+                                     })
+                }
             }
         }
     }
@@ -216,6 +226,11 @@ struct NetworkSection: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// A long-history column's rate, or a dash for a gap.
+    static func historyRate(_ bytesPerSecond: Double) -> String {
+        bytesPerSecond.isFinite ? MetricFormat.bytesPerSec(bytesPerSecond) : "—"
     }
 
     /// Upload above, download below, each against its own busiest visible

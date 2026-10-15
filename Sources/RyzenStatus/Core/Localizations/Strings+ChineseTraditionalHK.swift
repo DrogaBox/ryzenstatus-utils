@@ -780,6 +780,7 @@ extension Strings {
         systemUptime: "已運作",
         systemLoadAverage: "平均負載 (1/5/15 分鐘)",
         historyLive: "即時",
+        historyTitle: "歷史",
         batteryCharge: "電量",
         powerHealth: "電池健康度",
         powerCycles: "次循環",

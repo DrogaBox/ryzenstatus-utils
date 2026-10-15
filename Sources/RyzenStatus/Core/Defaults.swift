@@ -859,6 +859,8 @@ enum Defaults {
         DefaultsKey.panelCoreGridMetric: "load",
         // Detail views open on the live graph; long ranges are picked there.
         DefaultsKey.metricDetailHistoryRange: 0,
+        // Panel history graphs open on the last hour, as iStat Menus does.
+        DefaultsKey.panelHistoryRange: 3_600,
         // Gaming Mode — off by default; hiding the icon is the default behavior.
         DefaultsKey.gamingModeActive: false,
         DefaultsKey.gamingModeHideMenuBar: true,

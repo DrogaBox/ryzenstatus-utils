@@ -780,6 +780,7 @@ extension Strings {
         systemUptime: "Время работы",
         systemLoadAverage: "Средняя нагрузка (1, 5, 15 мин)",
         historyLive: "Сейчас",
+        historyTitle: "История",
         batteryCharge: "Заряд",
         powerHealth: "Состояние батареи",
         powerCycles: "Циклы",

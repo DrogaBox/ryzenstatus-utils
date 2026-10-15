@@ -780,6 +780,7 @@ extension Strings {
         systemUptime: "가동 시간",
         systemLoadAverage: "평균 부하 (1·5·15분)",
         historyLive: "실시간",
+        historyTitle: "기록",
         batteryCharge: "충전량",
         powerHealth: "배터리 상태",
         powerCycles: "충전 횟수",

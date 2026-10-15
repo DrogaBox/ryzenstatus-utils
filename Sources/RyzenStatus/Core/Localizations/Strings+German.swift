@@ -779,6 +779,7 @@ extension Strings {
         systemUptime: "Aktiv seit",
         systemLoadAverage: "Durchschnittslast (1, 5, 15 Min.)",
         historyLive: "Live",
+        historyTitle: "Verlauf",
         batteryCharge: "Ladung",
         powerHealth: "Batteriezustand",
         powerCycles: "Zyklen",

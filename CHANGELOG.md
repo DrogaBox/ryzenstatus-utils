@@ -8,12 +8,13 @@ A full review of both kexts against the Linux drivers and the reference SMU tool
 
 ### Added
 
-- **Load average**: the CPU detail view shows the 1, 5 and 15 minute load averages as a share of the CPU's threads (100% means every thread had work; more means work was waiting), each colored green, yellow, orange or red by level.
-- **Long history**: each detail view (CPU, GPU, memory, network, disk and power) has a range menu next to its value. Besides the live graph, it shows the last 10 minutes up to 30 days, always as 120 averaged columns; hovering a column shows its value and time. Only what RyzenStatus already measures is kept, nothing is sampled in the background for it, and the month is saved on this Mac so it survives a restart.
+- **Load average**: clicking CPU in the panel (and the CPU view of a separate menu bar metric) shows the 1, 5 and 15 minute load averages as a share of the CPU's threads, each colored green, yellow, orange or red by level; 100% means every thread had work and more means work was waiting.
+- **Long history**: clicking CPU, GPU or Memory in the panel shows a history graph above the process list, and Network and Disk have a folded History line under their graph. A menu picks the last 10 minutes up to 30 days, always as 120 averaged columns; hovering a column shows its value and time. With separate menu bar metrics, each metric's own view has the same menu. Only what RyzenStatus already measures is kept, nothing is sampled in the background for it, and the month is saved on this Mac so it survives a restart.
 - **Page ins and page outs**: the memory section and its detail view show how much memory has been read in from and written out to disk since boot.
 
 ### Changed
 
+- **System panel**: every block works on its own, whichever are shown and in whatever order. Clicking a CPU or GPU card unfolds its details right under the cards, even with the usage rows hidden. GPU video memory moved from Memory to the GPU details, and Memory shows pressure and use at a glance, with compressed, cached, swap and page traffic unfolding on click. The "Temperatures" title only appears while arranging the panel.
 - **Core rings in the panel**: the per-core view draws each core as a small ring that fills clockwise with its load, clock, temperature or power, with the value in the middle. Rows divide the core count evenly where they can (12, 10, 9 or 7 per row) and otherwise hold 8, so a 16-core Ryzen shows two rows of eight.
 
 ### Fixed

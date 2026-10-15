@@ -779,6 +779,7 @@ extension Strings {
         systemUptime: "Çalışma süresi",
         systemLoadAverage: "Ortalama yük (1, 5, 15 dk)",
         historyLive: "Canlı",
+        historyTitle: "Geçmiş",
         batteryCharge: "Şarj",
         powerHealth: "Pil sağlığı",
         powerCycles: "döngü",

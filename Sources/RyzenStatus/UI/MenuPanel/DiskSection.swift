@@ -243,6 +243,16 @@ struct DiskSection: View {
                 if showGraph, monitor.snapshot.diskReadHistory.count >= 2 {
                     graph
                 }
+                if showGraph {
+                    PanelLongHistory(collapsible: true,
+                                     series: { range, end in
+                                         .dual(upper: LongHistoryStore.shared.averages(.diskWrite, range: range, end: end),
+                                               lower: LongHistoryStore.shared.averages(.diskRead, range: range, end: end))
+                                     },
+                                     format: { upper, lower in
+                                         "↑ \(Self.historyRate(upper)) ↓ \(Self.historyRate(lower ?? .nan))"
+                                     })
+                }
                 HStack(spacing: 6) {
                     Text(l10n.s.networkThisSession)
                         .font(.system(size: 10))
@@ -478,6 +488,11 @@ struct DiskSection: View {
 
     private var displayTemperatureUnit: TemperatureUnit {
         TemperatureUnit(rawValue: temperatureUnit) ?? .celsius
+    }
+
+    /// A long-history column's rate, or a dash for a gap.
+    static func historyRate(_ bytesPerSecond: Double) -> String {
+        bytesPerSecond.isFinite ? MetricFormat.bytesPerSec(bytesPerSecond) : "—"
     }
 }
 
