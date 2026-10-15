@@ -54,6 +54,7 @@ extension AppFeature {
         case .killProcess: return FeatureStrings.killProcess(language).hubDescription
         case .wallpaper: return FeatureStrings.wallpaper(language).hubDescription
         case .portManager: return FeatureStrings.portManager(language).hubDescription
+        case .worldClock: return FeatureStrings.worldClock(language).hubDescription
         case .cleaningMode: return hub.descCleaningMode
         case .mediaTools: return hub.descMediaTools
         case .cleaner: return hub.descCleaner

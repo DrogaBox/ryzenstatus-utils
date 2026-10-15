@@ -34,6 +34,10 @@ extension DefaultsKey {
     static let wallpaperApplyAllDisplays = "wallpaperApplyAllDisplays"
     static let wallpaperFilter = "wallpaperFilter"
     static let wallpaperOwnBookmarks = "wallpaperOwnBookmarks"
+
+    // World clocks: comma-separated time zone identifiers.
+    static let panelShowWorldClock = "panelShowWorldClock"
+    static let worldClockZones = "worldClockZones"
     // paths hidden from folder scans (does not delete files)
     static let wallpaperExcludedOwnPaths = "wallpaperExcludedOwnPaths"
 }

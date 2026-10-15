@@ -4,12 +4,14 @@
 
 A full review of both kexts against the Linux drivers and the reference SMU tools: Curve Optimizer now uses the command and core numbering the firmware expects, SMU requests follow the firmware's protocol, GPU power reads no longer hang older Radeons, and the app stops counting GPU time twice.
 
-> **Kext Note**: `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` move to 3.35.0. Replace both in `EFI/OC/Kexts/` (and keep Lilu and VirtualSMC up to date), then reboot.
+> [!WARNING]
+> **This release updates the kexts.** Unlike the last few releases, `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` move from 3.34.17 to **3.35.0**. Updating the app alone is not enough: copy both kexts from the DMG into `EFI/OC/Kexts/`, replacing the old ones, keep Lilu and VirtualSMC up to date, and reboot. Until you do, the old kexts keep running and the Curve Optimizer, SMU and GPU fixes below do not apply. Keep a copy of your current EFI so you can boot from it if anything goes wrong.
 
 ### Added
 
 - **Load average**: clicking CPU in the panel (and the CPU view of a separate menu bar metric) shows the 1, 5 and 15 minute load averages as a share of the CPU's threads, each colored green, yellow, orange or red by level; 100% means every thread had work and more means work was waiting.
 - **Long history**: clicking CPU, GPU or Memory in the panel shows a history graph above the process list, and Network and Disk have a folded History line under their graph. A menu picks the last 10 minutes up to 30 days, always as 120 averaged columns; hovering a column shows its value and time. With separate menu bar metrics, each metric's own view has the same menu. Only what RyzenStatus already measures is kept, nothing is sampled in the background for it, and the month is saved on this Mac so it survives a restart.
+- **World clocks**: an optional panel tab with the time in the cities you choose, west to east, each with its day, the difference from your own time and a sun or moon. Cities are picked with a search in Settings → Quick tools; turn the tab on in Features.
 - **Apps using disk**: the Disk section lists the apps reading and writing the most right now, with their read and write rates.
 - **Network volumes**: mounted file shares (SMB, AFP, NFS, WebDAV) appear in the Disk section with their server, free space and an eject button. The block shows only while a share is mounted, and reading it never waits on a server that stopped answering.
 - **Public IP (optional)**: the address block can show the address the internet sees. It is off until you click Show, and then asks Cloudflare at most every ten minutes.

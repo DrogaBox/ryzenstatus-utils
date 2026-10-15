@@ -128,6 +128,7 @@ private extension PanelSectionID {
         case .controls: return text.sectionControls
         case .toggles: return text.sectionToggles
         case .wallpaper: return FeatureStrings.wallpaper(L10n.shared.language).panelDescription
+        case .worldClock: return FeatureStrings.worldClock(L10n.shared.language).panelDescription
         }
     }
 }

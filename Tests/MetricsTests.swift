@@ -1392,6 +1392,40 @@ struct MetricsTests {
             1 packets transmitted, 0 packets received, 100.0% packet loss
             """) == nil,
                "ping reports a lost probe as no reply")
+        expect(WorldClockSupport.zones(from: "Europe/Madrid, Nowhere/City,Europe/Madrid,Asia/Tokyo")
+                == ["Europe/Madrid", "Asia/Tokyo"],
+               "world clocks drop unknown and repeated time zones")
+        expect(WorldClockSupport.zones(from: nil).isEmpty, "world clocks start empty")
+        expect(WorldClockSupport.cityName("America/Argentina/Buenos_Aires") == "Buenos Aires"
+                && WorldClockSupport.cityName("UTC") == "UTC",
+               "world clocks name the city from the identifier")
+        expect(WorldClockSupport.offsetLabel(seconds: 18_000) == "+5 h"
+                && WorldClockSupport.offsetLabel(seconds: -12_600) == "−3:30 h"
+                && WorldClockSupport.offsetLabel(seconds: 0) == "+0 h",
+               "world clocks label the difference in hours")
+        do {
+            let utc = TimeZone(identifier: "UTC")!
+            let tokyo = TimeZone(identifier: "Asia/Tokyo")!
+            let losAngeles = TimeZone(identifier: "America/Los_Angeles")!
+            let lateNight = Date(timeIntervalSince1970: 1_767_310_200)  // 2026-01-01 23:30 UTC
+            expect(WorldClockSupport.dayShift(at: lateNight, zone: tokyo, local: utc) == 1
+                    && WorldClockSupport.dayShift(at: lateNight, zone: losAngeles, local: tokyo) == -1
+                    && WorldClockSupport.dayShift(at: lateNight, zone: utc, local: utc) == 0,
+                   "world clocks tell tomorrow and yesterday apart")
+            let noon = Date(timeIntervalSince1970: 1_767_268_800)  // 2026-01-01 12:00 UTC
+            expect(WorldClockSupport.isDaytime(at: noon, zone: utc)
+                    && !WorldClockSupport.isDaytime(at: noon, zone: tokyo),
+                   "world clocks tell day from night")
+            expect(WorldClockSupport.sorted(["Asia/Tokyo", "America/New_York", "Europe/London"], at: noon)
+                    == ["America/New_York", "Europe/London", "Asia/Tokyo"],
+                   "world clocks read west to east")
+        }
+        let english = Locale(identifier: "en_US")
+        expect(WorldClockSupport.matches("tokyo", excluding: [], locale: english).contains("Asia/Tokyo")
+                && !WorldClockSupport.matches("tokyo", excluding: ["Asia/Tokyo"], locale: english)
+                    .contains("Asia/Tokyo")
+                && WorldClockSupport.matches("  ", excluding: [], locale: english).isEmpty,
+               "world clock search finds cities and skips the chosen ones")
         expect(VMStatisticsDecoder.decode(vmPayload,
                                           returnedCount: VMStatisticsDecoder.rev2Count)?.tagStoragePages == 0,
                "VM statistics does not read tagged storage from a rev2 payload")
@@ -6820,7 +6854,7 @@ struct MetricsTests {
 
         // MARK: Features hub catalog
 
-        expect(AppFeature.allCases.count == 82, "feature catalog has 82 features")
+        expect(AppFeature.allCases.count == 83, "feature catalog has 83 features")
         expect(Set(AppFeature.allCases.map(\.rawValue)).count == AppFeature.allCases.count,
                "feature ids are unique")
         expect(AppFeature.allCases.map(\.rawValue) == [
@@ -6839,7 +6873,7 @@ struct MetricsTests {
             "quickLauncher", "quickToggles", "colorPicker", "screenOCR", "cleaningMode", "mediaTools",
             "cleaner", "uninstaller", "homebrew", "appUpdates", "whatsAppDownloads", "screenshot", "screenRecorder", "cameraPreview", "radialMenu",
             "scratchpad", "killProcess", "commandBar",
-            "wallpaper", "portManager",
+            "wallpaper", "portManager", "worldClock",
             "notch", "notchCalendar", "notchNotifications", "notchGestures", "notchTimer", "notchAccessories", "notchLyrics",
             "notchLiveEqualizer", "notchQueue", "notchDownloads", "notchAgents", "notchWatch", "notchMascot",
             "monitorCPU", "monitorGPU", "monitorMemory", "monitorNetwork", "monitorDisk", "monitorPower",

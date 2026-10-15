@@ -145,6 +145,9 @@ extension AppFeature {
         // when a picture is chosen.
         case .diskImageInstaller, .wallpaper:
             return .idle
+        // The rows redraw once a minute, and only while they are on screen.
+        case .worldClock:
+            return .idle
         case .appUpdates:
             // The list is on demand; only a background schedule keeps a timer.
             return AppUpdatesSupport.CheckFrequency.sanitized(

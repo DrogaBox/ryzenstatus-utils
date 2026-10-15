@@ -254,6 +254,9 @@ enum Defaults {
         DefaultsKey.panelShowWallpaper: true,
         DefaultsKey.wallpaperApplyAllDisplays: true,
         DefaultsKey.wallpaperFilter: "all",
+        // World clocks.
+        DefaultsKey.panelShowWorldClock: true,
+        DefaultsKey.worldClockZones: "",
         DefaultsKey.whatsAppDownloadsAutomaticEnabled: false,
         DefaultsKey.whatsAppDownloadsCategories: "image,video,audio",
         DefaultsKey.whatsAppDownloadsRetentionDays: 7,
