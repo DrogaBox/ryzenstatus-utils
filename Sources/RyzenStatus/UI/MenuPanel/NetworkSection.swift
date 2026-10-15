@@ -18,6 +18,7 @@ struct NetworkSection: View {
     @AppStorage(DefaultsKey.monitorNetTotals) private var netTotals = true
     @AppStorage(DefaultsKey.monitorNetTest) private var netTest = true
     @AppStorage(DefaultsKey.monitorNetAddresses) private var netAddresses = true
+    @AppStorage(DefaultsKey.monitorNetLatency) private var netLatency = true
     @AppStorage(DefaultsKey.panelNetworkOrder) private var networkOrderRaw = ""
     @State private var draggingBlock: Block?
     @State private var appRows: [ProcessUsage] = []
@@ -78,7 +79,7 @@ struct NetworkSection: View {
         }
     }
 
-    private enum Block: String, PanelOrderItem { case speed, apps, totals, addresses, test }
+    private enum Block: String, PanelOrderItem { case speed, apps, totals, addresses, latency, test }
 
     private var visibleBlocks: [Block] {
         orderedBlocks.filter(isVisible)
@@ -107,6 +108,7 @@ struct NetworkSection: View {
         case .apps: return netApps
         case .totals: return netTotals
         case .addresses: return netAddresses
+        case .latency: return netLatency
         case .test: return netTest
         }
     }
@@ -118,6 +120,7 @@ struct NetworkSection: View {
         netApps = true
         netTotals = true
         netAddresses = true
+        netLatency = true
         netTest = true
     }
 
@@ -128,6 +131,7 @@ struct NetworkSection: View {
         case .apps: appUsageBlock(editing: editing)
         case .totals: totalsRow(editing: editing)
         case .addresses: NetworkAddressBlock(service: addresses, isVisible: $netAddresses, editing: editing)
+        case .latency: NetworkLatencyBlock(isVisible: $netLatency, editing: editing)
         case .test: speedTestRow(editing: editing)
         }
     }
@@ -380,18 +384,67 @@ struct NetworkSection: View {
     }
 }
 
-/// The local address block. Nothing here leaves the machine.
+/// The address block. The local addresses never leave the machine; the
+/// public one is asked of Cloudflare only after the user turns it on.
 private struct NetworkAddressBlock: View {
     @ObservedObject var service: NetworkAddressService
     @Binding var isVisible: Bool
     var editing: Bool
     @ObservedObject private var l10n = L10n.shared
+    @ObservedObject private var publicIP = PublicIPService.shared
+    @AppStorage(DefaultsKey.networkPublicIPEnabled) private var publicIPEnabled = false
 
     var body: some View {
         if !isVisible {
             PanelHiddenItemRow(title: l10n.s.networkIPAddresses,
                                systemImage: "network", isVisible: $isVisible)
         } else {
+            VStack(alignment: .leading, spacing: 4) {
+                localRow
+                publicRow
+            }
+        }
+    }
+
+    private var publicRow: some View {
+        HStack(spacing: 6) {
+            Text(l10n.s.networkPublicIP)
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+            Spacer()
+            if publicIPEnabled {
+                Text(publicIP.address ?? (publicIP.failed ? l10n.s.monitorUnavailable : "…"))
+                    .font(.system(size: 10.5, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                Button {
+                    publicIPEnabled = false
+                } label: {
+                    Image(systemName: "eye.slash")
+                        .font(.system(size: 9))
+                }
+                .buttonStyle(.borderless)
+                .help(l10n.s.networkPublicIPHide)
+            } else {
+                Button(l10n.s.networkPublicIPShow) {
+                    publicIPEnabled = true
+                }
+                .buttonStyle(.link)
+                .font(.system(size: 10.5))
+            }
+        }
+        .onAppear { if publicIPEnabled { publicIP.refresh() } }
+        .onReceive(SystemMonitor.shared.$snapshot) { _ in
+            if publicIPEnabled { publicIP.refresh() }
+        }
+        .onChange(of: publicIPEnabled) { _, enabled in
+            if enabled { publicIP.refresh(force: true) } else { publicIP.clear() }
+        }
+    }
+
+    private var localRow: some View {
+        Group {
             HStack(alignment: .top, spacing: 6) {
                 Text(l10n.s.networkLocalIP)
                     .font(.system(size: 10))
@@ -414,5 +467,83 @@ private struct NetworkAddressBlock: View {
             .onReceive(SystemMonitor.shared.$snapshot) { _ in service.refreshLocalAddresses() }
             .onDisappear { service.cancel() }
         }
+    }
+}
+
+/// Round-trip time to 1.1.1.1, pinged only after the user starts it and only
+/// while this block is on screen.
+private struct NetworkLatencyBlock: View {
+    @Binding var isVisible: Bool
+    var editing: Bool
+    @ObservedObject private var l10n = L10n.shared
+    @ObservedObject private var ping = PingService.shared
+    @AppStorage(DefaultsKey.networkPingEnabled) private var enabled = false
+    @State private var watching = false
+    @State private var onScreen = false
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        if !isVisible {
+            PanelHiddenItemRow(title: l10n.s.networkLatency, systemImage: "timer", isVisible: $isVisible)
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(l10n.s.networkLatency)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                    if enabled {
+                        Text(valueText)
+                            .font(.system(size: 10.5, weight: .medium))
+                            .monospacedDigit()
+                            .foregroundStyle(ping.lastLost ? PanelMetricColor.red(for: colorScheme) : .secondary)
+                        Button {
+                            enabled = false
+                        } label: {
+                            Image(systemName: "stop.fill")
+                                .font(.system(size: 8))
+                        }
+                        .buttonStyle(.borderless)
+                        .help(l10n.s.networkLatencyStop)
+                    } else {
+                        Button(l10n.s.networkLatencyStart) {
+                            enabled = true
+                        }
+                        .buttonStyle(.link)
+                        .font(.system(size: 10.5))
+                    }
+                    if editing { PanelInlineHideButton(isVisible: $isVisible) }
+                }
+                if enabled, ping.history.count >= 2 {
+                    let finite = ping.history.filter(\.isFinite)
+                    let ceiling = ColumnGraphGeometry.roundedCeiling(peak: finite.max() ?? 0, step: 50, minimum: 100)
+                    ColumnHistoryGraph(layers: [ColumnGraphGeometry.fractions(ping.history, ceiling: ceiling)],
+                                       inks: [.primary])
+                        .frame(height: 18)
+                }
+            }
+            .onAppear {
+                onScreen = true
+                updateWatching()
+            }
+            .onDisappear {
+                onScreen = false
+                updateWatching()
+            }
+            .onChange(of: enabled) { _, _ in updateWatching() }
+        }
+    }
+
+    private var valueText: String {
+        if let latest = ping.latest { return String(format: "%.0f ms", latest) }
+        return ping.lastLost ? l10n.s.networkLatencyLost : "…"
+    }
+
+    /// Pings only while started and on screen; every start is balanced.
+    private func updateWatching() {
+        let shouldWatch = enabled && onScreen
+        guard shouldWatch != watching else { return }
+        watching = shouldWatch
+        if shouldWatch { ping.beginWatching() } else { ping.endWatching() }
     }
 }

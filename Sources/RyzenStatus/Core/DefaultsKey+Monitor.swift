@@ -88,11 +88,19 @@ extension DefaultsKey {
     static let monitorNetApps = "monitorNetApps"
     static let monitorNetTotals = "monitorNetTotals"
     static let monitorNetTest = "monitorNetTest"
+    static let monitorNetLatency = "monitorNetLatency"
+    /// Opt-in: the latency block pings a public resolver only once this is on.
+    static let networkPingEnabled = "networkPingEnabled"
+    /// Opt-in: the public address is asked of an outside service only once
+    /// this is on.
+    static let networkPublicIPEnabled = "networkPublicIPEnabled"
     static let monitorDiskUsage = "monitorDiskUsage"
     static let monitorDiskActivity = "monitorDiskActivity"
     static let monitorDiskSMART = "monitorDiskSMART"
     static let monitorDiskProtection = "monitorDiskProtection"
     static let monitorDiskTools = "monitorDiskTools"
+    static let monitorDiskApps = "monitorDiskApps"
+    static let monitorDiskNetworkVolumes = "monitorDiskNetworkVolumes"
     static let monitorPwrSystem = "monitorPwrSystem"
     static let monitorPwrAdapter = "monitorPwrAdapter"
     static let monitorPwrBattery = "monitorPwrBattery"

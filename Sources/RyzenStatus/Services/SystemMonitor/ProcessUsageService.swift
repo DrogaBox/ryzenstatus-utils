@@ -9,10 +9,12 @@ import IOKit
 struct ProcessUsage: Identifiable, Equatable {
     let pid: pid_t
     let name: String
-    /// CPU/GPU: percentage (0–100+). Memory: bytes. Network: total bytes/s.
+    /// CPU/GPU: percentage (0–100+). Memory: bytes. Network and disk: total bytes/s.
     let value: Double
     let networkDownBytesPerSec: Double?
     let networkUpBytesPerSec: Double?
+    let diskReadBytesPerSec: Double?
+    let diskWriteBytesPerSec: Double?
 
     var id: pid_t { pid }
 
@@ -20,12 +22,16 @@ struct ProcessUsage: Identifiable, Equatable {
          name: String,
          value: Double,
          networkDownBytesPerSec: Double? = nil,
-         networkUpBytesPerSec: Double? = nil) {
+         networkUpBytesPerSec: Double? = nil,
+         diskReadBytesPerSec: Double? = nil,
+         diskWriteBytesPerSec: Double? = nil) {
         self.pid = pid
         self.name = name
         self.value = value
         self.networkDownBytesPerSec = networkDownBytesPerSec
         self.networkUpBytesPerSec = networkUpBytesPerSec
+        self.diskReadBytesPerSec = diskReadBytesPerSec
+        self.diskWriteBytesPerSec = diskWriteBytesPerSec
     }
 }
 
@@ -57,6 +63,9 @@ final class ProcessUsageService {
     private var gpuCache: CachedRows?
     private var energyCache: CachedRows?
     private var networkCache: CachedRows?
+    private var diskCache: CachedRows?
+    private var diskDeltaTracker = DiskProcessDeltaTracker()
+    private let diskSampleLock = NSLock()
     private var cpuLoading = false
     private var memoryLoading = false
     private var gpuLoading = false
@@ -114,6 +123,7 @@ final class ProcessUsageService {
         gpuCache = nil
         energyCache = nil
         networkCache = nil
+        diskCache = nil
         cacheLock.unlock()
     }
 
@@ -329,6 +339,63 @@ final class ProcessUsageService {
     }
 
     // MARK: - CPU
+
+    // MARK: - Disk
+
+    /// Readings closer together than this share one sample, so two callers in
+    /// the same refresh do not measure a sliver of time between them.
+    private let minimumDiskSampleInterval: TimeInterval = 1
+
+    /// The apps reading from and writing to storage the most since the
+    /// previous sample, heaviest first. Blocking: call it off the main thread.
+    /// Nil while warming up: the first sample only primes the counters.
+    func topDisk(limit: Int = 5) -> [ProcessUsage]? {
+        diskSampleLock.lock()
+        defer { diskSampleLock.unlock() }
+        let now = ProcessInfo.processInfo.systemUptime
+        cacheLock.lock()
+        let cached = limitedRows(diskCache, limit: limit, now: now, maxAge: minimumDiskSampleInterval)
+        cacheLock.unlock()
+        if let cached { return cached }
+
+        guard let rates = diskDeltaTracker.rates(DiskProcessSampler.totals(), at: now) else { return nil }
+        let rows = groupedDiskByApp(rates)
+        cacheLock.lock()
+        diskCache = cachedRows(from: rows)
+        cacheLock.unlock()
+        return Array(rows.prefix(limit))
+    }
+
+    private func groupedDiskByApp(_ rates: [pid_t: (read: Double, write: Double)]) -> [ProcessUsage] {
+        var totals: [pid_t: (read: Double, write: Double)] = [:]
+        var fallbackNames: [pid_t: String] = [:]
+        for (pid, rate) in rates {
+            let responsible = ResponsibleProcess.owner(of: pid)
+            let owner = responsible <= 1 ? pid : responsible
+            var total = totals[owner] ?? (0, 0)
+            total.read += rate.read
+            total.write += rate.write
+            totals[owner] = total
+            if fallbackNames[owner] == nil {
+                fallbackNames[owner] = DiskProcessSampler.name(of: pid)
+            }
+        }
+        return totals
+            .sorted { ($0.value.read + $0.value.write) > ($1.value.read + $1.value.write) }
+            .enumerated()
+            .map { index, element in
+                let owner = element.key
+                let fallback = fallbackNames[owner] ?? "pid \(owner)"
+                let name = index < maximumCachedRows
+                    ? ResponsibleProcess.displayName(pid: owner, fallback: fallback)
+                    : fallback
+                return ProcessUsage(pid: owner,
+                                    name: name,
+                                    value: element.value.read + element.value.write,
+                                    diskReadBytesPerSec: element.value.read,
+                                    diskWriteBytesPerSec: element.value.write)
+            }
+    }
 
     func topCPU(limit: Int = 15) -> [ProcessUsage] {
         let now = ProcessInfo.processInfo.systemUptime

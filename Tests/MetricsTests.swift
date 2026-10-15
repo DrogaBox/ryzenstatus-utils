@@ -1343,6 +1343,55 @@ struct MetricsTests {
                "long history serves long ranges from the minute ring")
         expect(LongHistoryRange.allCases.allSatisfy { !$0.label(.enUS).isEmpty && !$0.label(.ja).isEmpty },
                "long history ranges have labels")
+
+        var diskTracker = DiskProcessDeltaTracker()
+        expect(diskTracker.rates([10: DiskProcessTotals(read: 100, written: 0)], at: 1) == nil,
+               "per-app disk rates need a previous sample")
+        let diskRates = diskTracker.rates([10: DiskProcessTotals(read: 300, written: 50),
+                                           11: DiskProcessTotals(read: 900, written: 900)], at: 3)
+        expect(diskRates?[10]?.read == 100 && diskRates?[10]?.write == 25 && diskRates?[11] == nil,
+               "per-app disk rates divide by the elapsed time and skip new processes")
+        let reusedRates = diskTracker.rates([10: DiskProcessTotals(read: 5, written: 5)], at: 4)
+        expect(reusedRates?.isEmpty == true, "per-app disk rates skip a reused pid whose counters went back")
+        expect(DiskProcessSampler.totals()[getpid()] != nil, "per-app disk counters read this process")
+
+        let share = NetworkVolume(fileSystem: "smbfs", mountPoint: "/Volumes/Media",
+                                  source: "//guest@nas.local/Media", blockSize: 4096,
+                                  blocks: 1_000, availableBlocks: 250, isLocal: false)
+        expect(share?.name == "Media" && share?.server == "nas.local"
+                && share?.totalBytes == 4_096_000 && share?.usedFraction == 0.75,
+               "network volumes read their name, server and space")
+        let export = NetworkVolume(fileSystem: "nfs", mountPoint: "/Volumes/Backup",
+                                   source: "server.lan:/exports/backup", blockSize: 512,
+                                   blocks: 0, availableBlocks: 0, isLocal: false)
+        expect(export?.server == "server.lan" && export?.usedFraction == nil,
+               "network volumes read an NFS server and tolerate unknown space")
+        expect(NetworkVolume(fileSystem: "apfs", mountPoint: "/", source: "/dev/disk3s1",
+                             blockSize: 4096, blocks: 1, availableBlocks: 1, isLocal: true) == nil
+                && NetworkVolume(fileSystem: "smbfs", mountPoint: "/Volumes/X", source: "//x/y",
+                                 blockSize: 1, blocks: 1, availableBlocks: 1, isLocal: true) == nil,
+               "network volumes leave out local file systems")
+        _ = NetworkVolume.mounted()
+
+        expect(PublicIPService.address(fromTrace: "fl=1\nh=one.one.one.one\nip=203.0.113.7\nts=1\n") == "203.0.113.7"
+                && PublicIPService.address(fromTrace: "ip=2001:db8::1\n") == "2001:db8::1",
+               "public IP reads the trace page's address")
+        expect(PublicIPService.address(fromTrace: "ip=<html>\n") == nil
+                && PublicIPService.address(fromTrace: "") == nil,
+               "public IP rejects anything that is not an address")
+        expect(PingService.roundTrip(fromPingOutput: """
+            PING 1.1.1.1 (1.1.1.1): 56 data bytes
+
+            --- 1.1.1.1 ping statistics ---
+            1 packets transmitted, 1 packets received, 0.0% packet loss
+            round-trip min/avg/max/stddev = 12.345/12.345/12.345/0.000 ms
+            """) == 12.345,
+               "ping reads the round trip")
+        expect(PingService.roundTrip(fromPingOutput: """
+            --- 1.1.1.1 ping statistics ---
+            1 packets transmitted, 0 packets received, 100.0% packet loss
+            """) == nil,
+               "ping reports a lost probe as no reply")
         expect(VMStatisticsDecoder.decode(vmPayload,
                                           returnedCount: VMStatisticsDecoder.rev2Count)?.tagStoragePages == 0,
                "VM statistics does not read tagged storage from a rev2 payload")

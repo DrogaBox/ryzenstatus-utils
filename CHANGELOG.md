@@ -10,6 +10,10 @@ A full review of both kexts against the Linux drivers and the reference SMU tool
 
 - **Load average**: clicking CPU in the panel (and the CPU view of a separate menu bar metric) shows the 1, 5 and 15 minute load averages as a share of the CPU's threads, each colored green, yellow, orange or red by level; 100% means every thread had work and more means work was waiting.
 - **Long history**: clicking CPU, GPU or Memory in the panel shows a history graph above the process list, and Network and Disk have a folded History line under their graph. A menu picks the last 10 minutes up to 30 days, always as 120 averaged columns; hovering a column shows its value and time. With separate menu bar metrics, each metric's own view has the same menu. Only what RyzenStatus already measures is kept, nothing is sampled in the background for it, and the month is saved on this Mac so it survives a restart.
+- **Apps using disk**: the Disk section lists the apps reading and writing the most right now, with their read and write rates.
+- **Network volumes**: mounted file shares (SMB, AFP, NFS, WebDAV) appear in the Disk section with their server, free space and an eject button. The block shows only while a share is mounted, and reading it never waits on a server that stopped answering.
+- **Public IP (optional)**: the address block can show the address the internet sees. It is off until you click Show, and then asks Cloudflare at most every ten minutes.
+- **Latency (optional)**: a new Network block pings 1.1.1.1 every five seconds, with a small graph, once you start it and only while the panel shows it.
 - **Page ins and page outs**: the memory section and its detail view show how much memory has been read in from and written out to disk since boot.
 
 ### Changed
