@@ -1,5 +1,5 @@
 //
-//  ISSuperIODevice.cpp
+//  ISSuperIONCT67XXFamily.cpp
 //  AMDRyzenCPUPowerManagement
 //
 //  Created by trulyspinach, modified by Droga (2026) on 5/14/20.
@@ -87,7 +87,7 @@ ISSuperIONCT67XXFamily* ISSuperIONCT67XXFamily::getDevice(uint16_t *chipIntel, b
             outb(regport, CHIP_SIO_CLOSE);
         }
     }
-    *chipIntel = (deviceID << 8) | revision;
+    *chipIntel = (uint16_t)((deviceID << 8) | revision);
     if(!found) return nullptr;
 
     IOLog("SMC Chip id:%X revision:%X \n", deviceID, revision);
@@ -98,7 +98,7 @@ ISSuperIONCT67XXFamily* ISSuperIONCT67XXFamily::getDevice(uint16_t *chipIntel, b
     //verify addr
     IODelay(10);
     if((ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER) & (~7)) != devAddr){
-        IOLog("NCT67XX address verify failed");
+        IOLog("NCT67XX address verify failed\n");
         // Failure paths here used to skip the 0xAA close, leaving
         // the SIO in PnP config mode until the next power cycle. Close the port
         // like the probe loop's not-found branch does.
@@ -108,7 +108,8 @@ ISSuperIONCT67XXFamily* ISSuperIONCT67XXFamily::getDevice(uint16_t *chipIntel, b
 
     IOLog("Chip address: 0x%X\n", devAddr);
 
-    //Now that the present of chip is confirmed, disable IO address space lock.
+    // The chip is confirmed: clear the hardware-monitor I/O space lock
+    // (LibreHardwareMonitor does the same for NCT6791D and later).
     uint8_t conf = 0;
     switch (*chipIntel) {
         // In short, these are all the chips we currently support.
@@ -130,7 +131,7 @@ ISSuperIONCT67XXFamily* ISSuperIONCT67XXFamily::getDevice(uint16_t *chipIntel, b
             // that can drive fan control anyway — may clear it; the read-only
             // probe stays available to everyone.
             if(allowUnlock && (conf & 0x10)){
-                ISLPCPort::writeByte(portSel, CHIP_IO_SPACE_LOCK, conf & ~0x10);
+                ISLPCPort::writeByte(portSel, CHIP_IO_SPACE_LOCK, (uint8_t)(conf & ~0x10));
             }
             break;
 
@@ -146,8 +147,8 @@ ISSuperIONCT67XXFamily* ISSuperIONCT67XXFamily::getDevice(uint16_t *chipIntel, b
 
 uint8_t ISSuperIONCT67XXFamily::readByte(uint16_t addr){
     outb(chipAddr + CHIP_ADDR_REG_OFFSET, CHIP_BANK_SEL_REG);
-    outb(chipAddr + CHIP_DAT_REG_OFFSET, addr >> 8); // select bank
-    outb(chipAddr + CHIP_ADDR_REG_OFFSET, addr & 0xff); // select register
+    outb(chipAddr + CHIP_DAT_REG_OFFSET, static_cast<uint8_t>(addr >> 8));     // select bank
+    outb(chipAddr + CHIP_ADDR_REG_OFFSET, static_cast<uint8_t>(addr & 0xff));  // select register
     return inb(chipAddr + CHIP_DAT_REG_OFFSET);
 }
 
@@ -158,28 +159,28 @@ uint16_t ISSuperIONCT67XXFamily::readWord(uint16_t addr){
     // Each readByte() is its own bank-select + index + data sequence, so the
     // chip can update the tachometer counter between the high and low byte and
     // hand back a value stitched from two different samples. That is the
-    // Physical origin of the implausible words the plausibility check filters.
+    // physical origin of the implausible words the plausibility check filters.
     //
     // Re-read the high byte after the low byte: if it changed, the counter
     // rolled between our accesses and the pair is inconsistent, so retry.
     //
     for (int attempt = 0; attempt < 3; attempt++) {
         uint8_t hi  = readByte(addr);
-        uint8_t lo  = readByte(addr + 1);
+        uint8_t lo  = readByte(static_cast<uint16_t>(addr + 1));
         uint8_t hi2 = readByte(addr);
         if (hi == hi2) {
             return (uint16_t)((hi << 8) | lo);
         }
     }
     // Persistent disagreement: report the sentinel so the caller's
-    // Plausibility check rejects this sample.
+    // plausibility check rejects this sample.
     return 0xFFFF;
 }
 
 void ISSuperIONCT67XXFamily::writeByte(uint16_t addr, uint8_t val){
     outb(chipAddr + CHIP_ADDR_REG_OFFSET, CHIP_BANK_SEL_REG);
-    outb(chipAddr + CHIP_DAT_REG_OFFSET, addr >> 8); // select bank
-    outb(chipAddr + CHIP_ADDR_REG_OFFSET, addr & 0xff); // select register
+    outb(chipAddr + CHIP_DAT_REG_OFFSET, static_cast<uint8_t>(addr >> 8));     // select bank
+    outb(chipAddr + CHIP_ADDR_REG_OFFSET, static_cast<uint8_t>(addr & 0xff));  // select register
     outb(chipAddr + CHIP_DAT_REG_OFFSET, val);
 }
 
@@ -194,7 +195,7 @@ const char *ISSuperIONCT67XXFamily::getReadableStringForFan(int fan){
 
 uint32_t ISSuperIONCT67XXFamily::getRPMForFan(int fan){
     if(fan < 0 || fan >= activeFansOnSystem) return 0;
-    return fanRPMs[fan];
+    return static_cast<uint32_t>(fanRPMs[fan]);
 }
 
 bool ISSuperIONCT67XXFamily::getFanRPMValid(int fan){

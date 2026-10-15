@@ -139,30 +139,30 @@ enum AMDKextSelector: UInt32 {
     /// (0x6F) bitfield for context (bit 0 IsOverclockable fuse), [2] =
     /// OC-mode cache state (`AMDOcMode` codes: 0 unknown / 1 enabled /
     /// 2 disabled), [3] = 1 when frequency overrides (0x5C/0x5D) are
-    /// accepted — S8.2; 1.28.0 shipped this slot as reserved 0, so a 0
+    /// accepted; 1.28.0 shipped this slot as reserved 0, so a 0
     /// simply hides those controls. Unsupported on pre-1.28 kexts.
     case ocCapability = 49
-    /// Write OC mode (S8, privileged): [0] = 1 enable (RSMU 0x5A, Arg0 1) or
-    /// 0 disable (RSMU 0x5B, Arg0 0) — semantics pinned by ZenStates-Core,
-    /// resolving rsmu_commands.md's contradictory rows; [1] = reset-scalar
+    /// Write OC mode (privileged): [0] = 1 enable (RSMU 0x5A) or 0 disable
+    /// (RSMU 0x5B), Arg0 0 in both cases (ZenStates-Core); [1] = reset-scalar
     /// flag (on disable, also re-program the PBO scalar to 1.0 via 0x58 —
-    /// some SMU firmware does not auto-reset it). Frequency (0x5C/0x5D) and
-    /// VID (0x61) writes are deliberately NOT exposed yet.
+    /// some SMU firmware does not auto-reset it). Frequency overrides are
+    /// selector 51; VID (0x61) is not exposed.
     case ocModeWrite = 50
-    /// Write frequency override (S8.2, privileged): [0] = mode (0 all-core
+    /// Write frequency override (privileged): [0] = mode (0 all-core
     /// via 0x5C, 1 per-CCD via 0x5D), [1] = MHz (all-core mode), [2..9] =
     /// per-CCD MHz (entry i targets CCD startCcd + i, per-CCD mode),
     /// [10] = startCcd, [11] = CCD count (contiguous window; a single-CCD
-    /// apply is startCcd = ccd, count = 1). Envelopes: 400..8000 MHz,
-    /// startCcd + count ≤ 8. The kernel builds the 0x5D mask ((ccd << 28) |
-    /// freq on Vermeer) — never pack masks in user space. Refuses with
+    /// apply is startCcd = ccd, count = 1). All-core sends 2 scalars,
+    /// per-CCD 12. Envelopes: 400..8000 MHz, startCcd + count ≤ 8. The
+    /// kernel writes 0x5D to every core of each CCD with masks it builds
+    /// itself — user space sends plain MHz. Refuses with
     /// `kIOReturnNotPermitted` unless THIS driver enabled OC mode earlier
     /// this boot, `kIOReturnNotReady` under the thermal interlock. Output:
-    /// [0] = 0, [1] = programmed MHz (all-core), [2] = last mask/arg
-    /// (0xFFFFFFFF sentinel = all-core), [3] = CCDs processed, [4..7]
-    /// reserved. Unsupported on pre-1.29 kexts.
+    /// [0] = 0, [1] = programmed MHz (all-core), [2] = 0x5C argument
+    /// (all-core) or 0, [3] = CCDs processed, [4..7] reserved.
+    /// Unsupported on pre-1.29 kexts.
     case ocFreqWrite = 51
-    /// Read-only frequency-override cache (S8.2): [0] = all-core cache MHz
+    /// Read-only frequency-override cache: [0] = all-core cache MHz
     /// (0 = never written by this driver this boot), [1] = kext's CCD count
     /// from its start-time register probe (0 = not ready / no AMD host —
     /// fall back to the app's own estimate), [2..9] = per-CCD caches (index

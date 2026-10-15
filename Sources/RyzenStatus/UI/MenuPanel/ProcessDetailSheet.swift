@@ -159,8 +159,7 @@ struct ProcessDetailSheet: View {
                     Spacer()
 
                     Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(path, forType: .string)
+                        GeneralPasteboardAccess.shared.copyString(path, ownCopy: false)
                         pathCopied = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                             pathCopied = false

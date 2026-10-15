@@ -74,6 +74,21 @@ enum MetricDetailKind: String, Equatable, Identifiable {
         }
     }
 
+    /// The long-history readings the detail graph can show over hours and
+    /// days: the main one, and a second drawn small beneath it. Nil for kinds
+    /// the store does not keep.
+    var longHistory: (main: LongHistoryMetric, extra: LongHistoryMetric?)? {
+        switch self {
+        case .cpu: return (.cpu, .cpuTemperature)
+        case .gpu: return (.gpu, .gpuTemperature)
+        case .memory: return (.memory, nil)
+        case .network: return (.networkUp, nil)
+        case .disk: return (.diskWrite, nil)
+        case .power: return (.systemPower, nil)
+        case .battery, .connectedDevices: return nil
+        }
+    }
+
     var processKind: BreakdownKind? {
         switch self {
         case .cpu: return .cpu
@@ -116,6 +131,7 @@ struct MetricDetailView: View {
     @ObservedObject private var connectedDevices = ConnectedDevicesMonitor.shared
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnit = TemperatureUnit.celsius.rawValue
+    @AppStorage(DefaultsKey.metricDetailHistoryRange) private var historyRangeRaw = 0
     let kind: MetricDetailKind
     @State private var processRows: [ProcessUsage] = []
     @State private var processRowsLoading = false
@@ -186,10 +202,86 @@ struct MetricDetailView: View {
                         .lineLimit(2)
                 }
                 Spacer(minLength: 0)
+                if kind.longHistory != nil {
+                    historyRangeMenu
+                }
             }
-            graph
+            if let range = historyRange {
+                longHistoryGraph(range)
+            } else {
+                graph
+            }
         }
         .panelCard()
+    }
+
+    /// The long range picked in the menu, or nil for the live graph.
+    private var historyRange: LongHistoryRange? {
+        kind.longHistory == nil ? nil : LongHistoryRange(rawValue: historyRangeRaw)
+    }
+
+    private var historyRangeMenu: some View {
+        Menu {
+            Button(l10n.s.historyLive) { historyRangeRaw = 0 }
+            Divider()
+            ForEach(LongHistoryRange.allCases) { range in
+                Button(range.label(l10n.language)) { historyRangeRaw = range.rawValue }
+            }
+        } label: {
+            Text(historyRange?.label(l10n.language) ?? l10n.s.historyLive)
+                .font(.system(size: 10, weight: .medium))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    /// The same readings averaged over `range`, from the long-history store.
+    @ViewBuilder
+    private func longHistoryGraph(_ range: LongHistoryRange) -> some View {
+        let store = LongHistoryStore.shared
+        let end = Date()
+        let now = end.timeIntervalSince1970
+        switch kind {
+        case .network:
+            LongHistoryGraph(series: .dual(upper: store.averages(.networkUp, range: range, end: now),
+                                           lower: store.averages(.networkDown, range: range, end: now)),
+                             range: range, end: end, language: l10n.language,
+                             format: { up, down in "↑ \(trafficText(up)) ↓ \(trafficText(down ?? .nan))" })
+                .frame(height: 38)
+        case .disk:
+            LongHistoryGraph(series: .dual(upper: store.averages(.diskWrite, range: range, end: now),
+                                           lower: store.averages(.diskRead, range: range, end: now)),
+                             range: range, end: end, language: l10n.language,
+                             format: { write, read in "↑ \(trafficText(write)) ↓ \(trafficText(read ?? .nan))" })
+                .frame(height: 38)
+        case .power:
+            let watts = store.averages(.systemPower, range: range, end: now)
+            let ceiling = ColumnGraphGeometry.roundedCeiling(peak: watts.filter(\.isFinite).max() ?? 0,
+                                                             step: 10, minimum: 10)
+            LongHistoryGraph(series: .single(watts, ceiling: ceiling),
+                             range: range, end: end, language: l10n.language,
+                             format: { value, _ in value.isFinite ? String(format: "%.1f W", value) : "—" })
+                .frame(height: 38)
+        case .cpu, .gpu, .memory:
+            if let metrics = kind.longHistory {
+                LongHistoryGraph(series: .single(store.averages(metrics.main, range: range, end: now), ceiling: 1),
+                                 range: range, end: end, language: l10n.language,
+                                 format: { value, _ in value.isFinite ? MetricFormat.percent(value) : "—" })
+                    .frame(height: 38)
+                if let extra = metrics.extra {
+                    LongHistoryGraph(series: .single(store.averages(extra, range: range, end: now), ceiling: 100),
+                                     range: range, end: end, language: l10n.language,
+                                     format: { value, _ in value.isFinite ? formatTemperature(value) : "—" })
+                        .frame(height: 16)
+                }
+            }
+        case .battery, .connectedDevices:
+            EmptyView()
+        }
+    }
+
+    private func trafficText(_ bytesPerSecond: Double) -> String {
+        bytesPerSecond.isFinite ? MetricFormat.bytesPerSec(bytesPerSecond) : "—"
     }
 
     @ViewBuilder
@@ -362,6 +454,8 @@ struct MetricDetailView: View {
             return [
                 row(l10n.s.usageSection, snapshot.cpuUsage.map(MetricFormat.percent) ?? l10n.s.networkMeasuring),
                 row(l10n.s.temperatures, snapshot.cpuTemperature.map(formatTemperature) ?? l10n.s.monitorUnavailable),
+                row(l10n.s.systemLoadAverage, l10n.s.monitorUnavailable,
+                    loadPercents: SystemSection.loadAveragePercents()),
                 row(l10n.s.systemUptime, SystemSection.uptimeString()),
             ]
         case .gpu:
@@ -384,6 +478,10 @@ struct MetricDetailView: View {
             }
             if let swapUsed = snapshot.memorySwapUsed {
                 rows.append(row(l10n.s.memorySwapUsed, formatMemory(swapUsed)))
+            }
+            if let pageIns = snapshot.memoryPageIns, let pageOuts = snapshot.memoryPageOuts {
+                rows.append(row(l10n.s.memoryPageIns, formatMemory(pageIns)))
+                rows.append(row(l10n.s.memoryPageOuts, formatMemory(pageOuts)))
             }
             return rows
 
@@ -558,6 +656,8 @@ struct MetricDetailView: View {
                 Spacer(minLength: 0)
                 if row.showsPressure, case .memory = kind {
                     PressureIndicator(pressure: monitor.snapshot.memoryPressure)
+                } else if let percents = row.loadPercents {
+                    LoadAverageText(percents: percents)
                 } else {
                     Text(row.value)
                         .font(.system(size: 11, weight: .medium))
@@ -576,12 +676,14 @@ struct MetricDetailView: View {
                      _ title: String,
                      _ value: String,
                      showsPressure: Bool = false,
-                     wrapsValue: Bool = false) -> MetricDetailRow {
+                     wrapsValue: Bool = false,
+                     loadPercents: [Int]? = nil) -> MetricDetailRow {
         MetricDetailRow(id: id ?? title,
                         title: title,
                         value: value,
                         showsPressure: showsPressure,
-                        wrapsValue: wrapsValue)
+                        wrapsValue: wrapsValue,
+                        loadPercents: loadPercents)
     }
 
     private func refreshProcessRows(force: Bool, delay: TimeInterval = 0) {
@@ -731,4 +833,7 @@ private struct MetricDetailRow: Identifiable {
     let value: String
     var showsPressure = false
     var wrapsValue = false
+    /// The 1, 5 and 15 minute load averages, drawn each in its level's color
+    /// in place of `value`, which stands in when they are unavailable.
+    var loadPercents: [Int]?
 }

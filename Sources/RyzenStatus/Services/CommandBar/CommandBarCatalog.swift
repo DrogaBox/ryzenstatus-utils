@@ -1282,8 +1282,7 @@ enum CommandBarCatalog {
     /// same reason: both cross into the kernel (IOKit power sources, the mach
     /// VM statistics), and the bar opens on a keystroke.
     static var cachedBattery: BatteryInfo?
-    static var cachedMemory: (used: UInt64, appUsed: UInt64, total: UInt64,
-                              compressed: UInt64, cached: UInt64, swapUsed: UInt64?)?
+    static var cachedMemory: SystemInfo.MemoryUsage?
 
     static func readBootVolumeSpace() -> (free: UInt64, total: UInt64)? {
         let url = URL(fileURLWithPath: "/")

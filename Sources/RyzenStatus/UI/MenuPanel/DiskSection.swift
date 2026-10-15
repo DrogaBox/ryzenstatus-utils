@@ -16,12 +16,23 @@ struct DiskSection: View {
     @AppStorage(DefaultsKey.monitorDiskSMART) private var diskSMART = true
     @AppStorage(DefaultsKey.monitorDiskProtection) private var diskProtection = true
     @AppStorage(DefaultsKey.monitorDiskTools) private var diskTools = true
+    @AppStorage(DefaultsKey.monitorDiskApps) private var diskApps = true
+    @AppStorage(DefaultsKey.monitorDiskNetworkVolumes) private var diskNetworkVolumes = true
     @AppStorage(DefaultsKey.panelDiskOrder) private var diskOrderRaw = ""
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnit = TemperatureUnit.celsius.rawValue
     @State private var draggingBlock: Block?
     @State private var selectedDiskID: String?
+    @State private var appRows: [ProcessUsage] = []
+    @State private var appRowsLoading = true
+    @State private var appRefreshSerial = 0
+    @State private var lastAppRefresh = Date.distantPast
+    @State private var networkVolumes: [NetworkVolume] = []
+    @State private var ejectingVolumes: Set<String> = []
+    private let appLimit = 8
 
-    private enum Block: String, PanelOrderItem { case usage, activity, smart, protection, tools }
+    private enum Block: String, PanelOrderItem {
+        case usage, activity, smart, protection, tools, apps, networkVolumes
+    }
 
     var body: some View {
         PanelSection(.disk, title: l10n.s.diskSection, collapsible: collapsible,
@@ -56,6 +67,19 @@ struct DiskSection: View {
             .panelCard()
             .onAppear(perform: ensureSelectedDisk)
             .onChange(of: disks.map(\.id)) { _, _ in ensureSelectedDisk() }
+        }
+        .onAppear {
+            refreshNetworkVolumes()
+            refreshAppRows(force: true)
+        }
+        .onReceive(monitor.$snapshot) { _ in
+            refreshNetworkVolumes()
+            refreshAppRows(force: false)
+        }
+        .onDisappear {
+            appRefreshSerial &+= 1
+            appRows = []
+            appRowsLoading = true
         }
     }
 
@@ -102,8 +126,9 @@ struct DiskSection: View {
         }
     }
 
+    /// Network volumes stay out of the way while none is mounted.
     private func blocks(editing: Bool) -> [Block] {
-        editing ? orderedBlocks : orderedBlocks.filter(isVisible)
+        editing ? orderedBlocks : orderedBlocks.filter { isVisible($0) && ($0 != .networkVolumes || !networkVolumes.isEmpty) }
     }
 
     private func isVisible(_ block: Block) -> Bool {
@@ -113,6 +138,8 @@ struct DiskSection: View {
         case .smart: return diskSMART
         case .protection: return diskProtection
         case .tools: return diskTools
+        case .apps: return diskApps
+        case .networkVolumes: return diskNetworkVolumes
         }
     }
 
@@ -124,6 +151,8 @@ struct DiskSection: View {
         diskSMART = true
         diskProtection = true
         diskTools = true
+        diskApps = true
+        diskNetworkVolumes = true
     }
 
     @ViewBuilder
@@ -134,6 +163,143 @@ struct DiskSection: View {
         case .smart: smartBlock(disk: disk, editing: editing)
         case .protection: protectionBlock(disk: disk, editing: editing)
         case .tools: toolsBlock(disk: disk, editing: editing)
+        case .apps: appsBlock(editing: editing)
+        case .networkVolumes: networkVolumesBlock(editing: editing)
+        }
+    }
+
+    // MARK: Apps by disk activity (all disks)
+
+    @ViewBuilder
+    private func appsBlock(editing: Bool) -> some View {
+        if !diskApps {
+            PanelHiddenItemRow(title: l10n.s.diskApps,
+                               systemImage: "list.bullet.rectangle",
+                               isVisible: $diskApps)
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                blockHeader(l10n.s.diskApps, editing: editing, visible: $diskApps)
+                if appRows.isEmpty {
+                    Text(appRowsLoading ? l10n.s.breakdownMeasuring : l10n.s.diskAppsIdle)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.tertiary)
+                } else {
+                    ForEach(appRows) { row in
+                        ProcessUsageRow(row: row,
+                                        value: "↓\(MetricFormat.bytesPerSecCompact(row.diskReadBytesPerSec ?? 0)) ↑\(MetricFormat.bytesPerSecCompact(row.diskWriteBytesPerSec ?? 0))",
+                                        iconSize: 14)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Samples every two seconds while the block shows. The first sample only
+    /// primes the counters, so it asks again a second later.
+    private func refreshAppRows(force: Bool) {
+        guard diskApps else { return }
+        guard force || Date().timeIntervalSince(lastAppRefresh) > 2 else { return }
+        lastAppRefresh = Date()
+        appRefreshSerial &+= 1
+        let serial = appRefreshSerial
+        let limit = appLimit
+        DispatchQueue.global(qos: .utility).async {
+            let rows = ProcessUsageService.shared.topDisk(limit: limit)
+            DispatchQueue.main.async {
+                guard self.appRefreshSerial == serial, self.diskApps else { return }
+                if let rows {
+                    self.appRows = rows
+                    self.appRowsLoading = false
+                } else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                        guard self.appRefreshSerial == serial else { return }
+                        self.refreshAppRows(force: true)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: Network volumes
+
+    @ViewBuilder
+    private func networkVolumesBlock(editing: Bool) -> some View {
+        if !diskNetworkVolumes {
+            PanelHiddenItemRow(title: l10n.s.diskNetworkVolumes,
+                               systemImage: "server.rack",
+                               isVisible: $diskNetworkVolumes)
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                blockHeader(l10n.s.diskNetworkVolumes, editing: editing, visible: $diskNetworkVolumes)
+                if networkVolumes.isEmpty {
+                    Text(l10n.s.diskNetworkVolumesNone)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.tertiary)
+                }
+                ForEach(networkVolumes) { volume in
+                    networkVolumeRow(volume)
+                }
+            }
+        }
+    }
+
+    private func networkVolumeRow(_ volume: NetworkVolume) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Image(systemName: "server.rack")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(volume.name)
+                        .font(.system(size: 11, weight: .medium))
+                        .lineLimit(1)
+                    Text(volume.server)
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 4)
+                if volume.totalBytes > 0 {
+                    Text("\(MetricFormat.bytes(volume.availableBytes)) / \(MetricFormat.bytes(volume.totalBytes))")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                Button {
+                    eject(volume)
+                } label: {
+                    Image(systemName: "eject.fill")
+                        .font(.system(size: 9))
+                }
+                .buttonStyle(.borderless)
+                .disabled(ejectingVolumes.contains(volume.id))
+                .help(l10n.s.diskEject)
+            }
+            if let fraction = volume.usedFraction {
+                ProgressView(value: fraction)
+                    .progressViewStyle(.linear)
+                    .controlSize(.mini)
+            }
+        }
+    }
+
+    private func refreshNetworkVolumes() {
+        guard diskNetworkVolumes else { return }
+        let volumes = NetworkVolume.mounted()
+        if volumes != networkVolumes { networkVolumes = volumes }
+    }
+
+    /// Unmounting waits on the server, so it runs off the main thread.
+    private func eject(_ volume: NetworkVolume) {
+        ejectingVolumes.insert(volume.id)
+        let url = URL(fileURLWithPath: volume.mountPoint)
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = try? NSWorkspace.shared.unmountAndEjectDevice(at: url)
+            DispatchQueue.main.async {
+                ejectingVolumes.remove(volume.id)
+                refreshNetworkVolumes()
+            }
         }
     }
 
@@ -242,6 +408,16 @@ struct DiskSection: View {
                 }
                 if showGraph, monitor.snapshot.diskReadHistory.count >= 2 {
                     graph
+                }
+                if showGraph {
+                    PanelLongHistory(collapsible: true,
+                                     series: { range, end in
+                                         .dual(upper: LongHistoryStore.shared.averages(.diskWrite, range: range, end: end),
+                                               lower: LongHistoryStore.shared.averages(.diskRead, range: range, end: end))
+                                     },
+                                     format: { upper, lower in
+                                         "↑ \(Self.historyRate(upper)) ↓ \(Self.historyRate(lower ?? .nan))"
+                                     })
                 }
                 HStack(spacing: 6) {
                     Text(l10n.s.networkThisSession)
@@ -478,6 +654,11 @@ struct DiskSection: View {
 
     private var displayTemperatureUnit: TemperatureUnit {
         TemperatureUnit(rawValue: temperatureUnit) ?? .celsius
+    }
+
+    /// A long-history column's rate, or a dash for a gap.
+    static func historyRate(_ bytesPerSecond: Double) -> String {
+        bytesPerSecond.isFinite ? MetricFormat.bytesPerSec(bytesPerSecond) : "—"
     }
 }
 

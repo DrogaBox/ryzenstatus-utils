@@ -285,10 +285,7 @@ struct HomebrewOperationStatusView: View {
 
     private func copy(_ text: String?) {
         guard let text, !text.isEmpty else { return }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.declareRyzenStatusSource()
-        pasteboard.setString(text, forType: .string)
+        GeneralPasteboardAccess.shared.copyString(text, ownCopy: true)
     }
 }
 

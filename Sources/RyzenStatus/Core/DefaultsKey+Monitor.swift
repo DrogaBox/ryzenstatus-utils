@@ -10,6 +10,12 @@ extension DefaultsKey {
     /// classic fill), "clock" / "temp" / "power" (SMU PM-table per-core
     /// values when the table decodes; falls back to load otherwise).
     static let panelCoreGridMetric = "panelCoreGridMetric"
+    /// Range of the graph in a metric's detail view: 0 for the live graph,
+    /// otherwise a `LongHistoryRange` in seconds.
+    static let metricDetailHistoryRange = "metricDetailHistoryRange"
+    /// Range of the long-history graphs in the panel, a `LongHistoryRange`
+    /// in seconds.
+    static let panelHistoryRange = "panelHistoryRange"
     static let menuBarCPU = "menuBarCPU"
     static let menuBarGPU = "menuBarGPU"
     static let menuBarCPUPower = "menuBarCPUPower"
@@ -82,11 +88,19 @@ extension DefaultsKey {
     static let monitorNetApps = "monitorNetApps"
     static let monitorNetTotals = "monitorNetTotals"
     static let monitorNetTest = "monitorNetTest"
+    static let monitorNetLatency = "monitorNetLatency"
+    /// Opt-in: the latency block pings a public resolver only once this is on.
+    static let networkPingEnabled = "networkPingEnabled"
+    /// Opt-in: the public address is asked of an outside service only once
+    /// this is on.
+    static let networkPublicIPEnabled = "networkPublicIPEnabled"
     static let monitorDiskUsage = "monitorDiskUsage"
     static let monitorDiskActivity = "monitorDiskActivity"
     static let monitorDiskSMART = "monitorDiskSMART"
     static let monitorDiskProtection = "monitorDiskProtection"
     static let monitorDiskTools = "monitorDiskTools"
+    static let monitorDiskApps = "monitorDiskApps"
+    static let monitorDiskNetworkVolumes = "monitorDiskNetworkVolumes"
     static let monitorPwrSystem = "monitorPwrSystem"
     static let monitorPwrAdapter = "monitorPwrAdapter"
     static let monitorPwrBattery = "monitorPwrBattery"

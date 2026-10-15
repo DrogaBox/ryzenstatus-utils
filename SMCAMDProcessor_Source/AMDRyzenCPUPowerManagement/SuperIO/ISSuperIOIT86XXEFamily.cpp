@@ -35,7 +35,7 @@ ISSuperIOIT86XXEFamily::ISSuperIOIT86XXEFamily(int psel, uint16_t addr, uint16_t
     }
 
     // Enable 16-bit fan tachometer mode for all 6 fans
-    writeByte(0x0c, readByte(0x0c) | 0x3f);
+    writeByte(0x0c, static_cast<uint8_t>(readByte(0x0c) | 0x3f));
 
     // backup default ctrl mode
     for (int i = 0; i < activeFansOnSystem; i++)
@@ -45,124 +45,89 @@ ISSuperIOIT86XXEFamily::ISSuperIOIT86XXEFamily(int psel, uint16_t addr, uint16_t
     }
 }
 
+// ITE MB PnP configuration mode, as Linux it87 / LibreHardwareMonitor IT87:
+// the 0x87 0x01 0x55 key, then 0x55 on port 0x2E or 0xAA on port 0x4E.
+static void enterConfig(i386_ioport_t regport)
+{
+    outb(regport, 0x87);
+    outb(regport, 0x01);
+    outb(regport, 0x55);
+    outb(regport, regport == 0x4E ? 0xAA : 0x55);
+}
+
+// Leaving sets bit 1 of configuration-control register 0x02 (index AND value;
+// the old code wrote only the index, which left the chip in config mode).
+// Port 0x4E is the secondary chip on dual-ITE Gigabyte boards and is left
+// alone, as LibreHardwareMonitor does: exiting it there disturbs the primary.
+static void exitConfig(int portSel)
+{
+    const i386_ioport_t regport = ISLPCPort::kREGISTER_PORTS[portSel];
+    if (regport == 0x4E)
+        return;
+    outb(regport, 0x02);
+    outb(ISLPCPort::kVALUE_PORTS[portSel], 0x02);
+}
+
 ISSuperIOIT86XXEFamily* ISSuperIOIT86XXEFamily::getDevice(uint16_t* chipIntel)
 {
-
-    i386_ioport_t regport = 0;
-    uint8_t deviceID = 0, revision = 0;
-    bool found = false;
-    int portSel = 0;
     IOLog("probe IT86XXE\n");
 
-    for (; portSel < 2; portSel++)
+    for (int portSel = 0; portSel < 2; portSel++)
     {
-        regport = ISLPCPort::kREGISTER_PORTS[portSel];
+        enterConfig(ISLPCPort::kREGISTER_PORTS[portSel]);
 
-        if (regport != 0x2E && regport != 0x4E)
-        {
-            break;
-        }
+        const uint8_t idHigh = ISLPCPort::readByte(portSel, ISLPCPort::kCHIP_ID_REG);
+        const uint8_t idLow = ISLPCPort::readByte(portSel, ISLPCPort::kCHIP_REVISION_REG);
+        const uint16_t chipID = (uint16_t)((idHigh << 8) | idLow);
+        *chipIntel = chipID;
 
-        // open port
-        outb(regport, 0x87);
-        outb(regport, 0x01);
-        outb(regport, 0x55);
-
-        if (regport == 0x4E)
-        {
-            outb(regport, 0xAA);
-        }
-        else
-        {
-            outb(regport, 0x55);
-        }
-
-        deviceID = ISLPCPort::readByte(portSel, ISLPCPort::kCHIP_ID_REG);
-        revision = ISLPCPort::readByte(portSel, ISLPCPort::kCHIP_REVISION_REG);
-
-        switch ((deviceID << 8) | revision)
+        switch (chipID)
         {
             case CHIP_IT8688E:
             case CHIP_IT8686E:
             case CHIP_IT8665E:
             case CHIP_IT8689E:
-                found = true;
-                IOLog("IT%X%XE chip identified\n", deviceID, revision);
                 break;
             default:
-                break;
+                exitConfig(portSel);
+                continue;
         }
 
-        if (found)
+        IOLog("IT%04XE chip identified\n", chipID);
+
+        // Base addresses must read back the same twice; a mismatch means the
+        // LPC bus is not answering reliably and the chip is not used.
+        ISLPCPort::select(portSel, CHIP_ENVIRONMENT_CONTROLLER_LDN);
+        const uint16_t devAddr = ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER);
+        IODelay(10);
+        if (ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER) != devAddr)
         {
-            break;
+            IOLog("IT%04XE address verify failed\n", chipID);
+            exitConfig(portSel);
+            return nullptr;
         }
-        else
+
+        ISLPCPort::select(portSel, CHIP_GPIO_LDN);
+        const uint16_t gpioAddress = ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER + 2);
+        IODelay(10);
+        if (ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER + 2) != gpioAddress)
         {
-            // close port
-            // Ensure port 0x4E is closed with 0xAA close sequence, matching exit paths
-            if (regport == 0x4E)
-            {
-                outb(regport, 0xAA);
-            }
-            else
-            {
-                outb(regport, 0x02);
-            }
+            IOLog("IT%04XE gpio address verify failed\n", chipID);
+            exitConfig(portSel);
+            return nullptr;
         }
+
+        exitConfig(portSel);
+        return new ISSuperIOIT86XXEFamily(portSel, devAddr, chipID, gpioAddress);
     }
 
-    *chipIntel = (deviceID << 8) | revision;
-    if (!found)
-        return nullptr;
-
-    IOLog("SMC Chip id:%X revision:%X \n", deviceID, revision);
-    ISLPCPort::select(portSel, CHIP_ENVIRONMENT_CONTROLLER_LDN);
-
-    uint16_t devAddr = ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER);
-
-    // verify addr
-    IODelay(10);
-    if (ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER) != devAddr)
-    {
-        IOLog("IT%X%XE address verify failed", deviceID, revision);
-        // Close the config port before bailing out.
-        if (regport == 0x4E) { outb(regport, 0xAA); } else { outb(regport, 0x02); }
-        return nullptr;
-    }
-
-    ISLPCPort::select(portSel, CHIP_GPIO_LDN);
-    uint16_t gpioAddress = ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER + 2);
-
-    // verify gpio addr
-    IODelay(10);
-    if (ISLPCPort::readWord(portSel, ISLPCPort::kBASE_ADDRESS_REGISTER + 2) != gpioAddress)
-    {
-        IOLog("IT%X%XE gpio address verify failed", deviceID, revision);
-        // Close the config port before bailing out.
-        if (regport == 0x4E) { outb(regport, 0xAA); } else { outb(regport, 0x02); }
-        return nullptr;
-    }
-
-    // close port
-    if (regport == 0x4E) {
-        outb(regport, 0xAA);   // ITE 0x4E close sequence
-    } else {
-        outb(regport, 0x02);   // ITE 0x2E close sequence
-    }
-
-    return new ISSuperIOIT86XXEFamily(portSel, devAddr, *chipIntel, gpioAddress);
+    return nullptr;
 }
 
 uint8_t ISSuperIOIT86XXEFamily::readByte(uint16_t addr)
 {
     outb(chipAddr + CHIP_ADDR_REG_OFFSET, addr & 0xFF);
     return inb(chipAddr + CHIP_DAT_REG_OFFSET);
-}
-
-uint16_t ISSuperIOIT86XXEFamily::readWord(uint16_t addr)
-{
-    return (readByte(addr) << 8) | readByte(addr + 1);
 }
 
 void ISSuperIOIT86XXEFamily::writeByte(uint16_t addr, uint8_t val)
@@ -187,7 +152,14 @@ uint32_t ISSuperIOIT86XXEFamily::getRPMForFan(int fan)
 {
     if (fan < 0 || fan >= activeFansOnSystem)
         return 0;
-    return fanRPMs[fan];
+    return static_cast<uint32_t>(fanRPMs[fan]);
+}
+
+bool ISSuperIOIT86XXEFamily::getFanRPMValid(int fan)
+{
+    if (fan < 0 || fan >= activeFansOnSystem)
+        return false;
+    return fanRPMValid[fan];
 }
 
 bool ISSuperIOIT86XXEFamily::getFanAutoControlMode(int fan)
@@ -204,28 +176,52 @@ uint8_t ISSuperIOIT86XXEFamily::getFanThrottle(int fan)
 {
     if (fan < 0 || fan >= activeFansOnSystem)
         return 0;
-    return fanThrottles[fan];
+    return static_cast<uint8_t>(fanThrottles[fan]);
 }
 
 void ISSuperIOIT86XXEFamily::updateFanRPMS()
 {
+    // Same validation as ISSuperIONCT67XXFamily::updateFanRPMS. The low and
+    // extended count bytes are two separate reads, so they can tear across a
+    // tach update, and a count of 0x40 alone gives ~10,500 RPM. One such sample
+    // latched into fanPeakRPMs (a high-water mark that only rises) pinned the
+    // Auto-mode duty estimate in updateFanControl() near 0 % for the whole boot.
+    // A stopped fan (count 0xFFFF or <= 0x3F) still reads as a trusted 0 RPM,
+    // which the selector 95 start-up floor relies on.
+    static const int kMAX_PLAUSIBLE_RPM = 10500;
+
     for (int i = 0; i < activeFansOnSystem; i++)
     {
+        int ext = readByte(regFanRPMExt[i]);
         int value = readByte(regFanRPM[i]);
-        value |= readByte(regFanRPMExt[i]) << 8;
-
-        if (value > 0x3f)
-        {
-            fanRPMs[i] = (value < 0xffff) ? 1.35e6f / (value * 2) : 0;
+        int ext2 = readByte(regFanRPMExt[i]);
+        if (ext != ext2) {
+            // The count rolled over between reads; take a fresh low byte
+            // against the settled high byte.
+            value = readByte(regFanRPM[i]);
+            ext = ext2;
         }
-        else
+        value |= ext << 8;
+
+        int rpm = 0;
+        if (value > 0x3f && value < 0xffff)
         {
-            fanRPMs[i] = 0;
+            rpm = (int)(1.35e6f / (value * 2));
         }
 
-        // Track peak RPM for PWM estimation in Auto mode
-        if ((uint32_t)fanRPMs[i] > fanPeakRPMs[i]) {
-            fanPeakRPMs[i] = (uint16_t)fanRPMs[i];
+        if (rpm > kMAX_PLAUSIBLE_RPM) {
+            // Implausible: hold the previous good reading and mark it untrusted.
+            fanRPMValid[i] = false;
+            continue;
+        }
+
+        fanRPMs[i] = rpm;
+        fanRPMValid[i] = true;
+
+        // Track peak RPM for PWM estimation in Auto mode. Only trusted samples
+        // may raise the high-water mark.
+        if ((uint32_t)rpm > fanPeakRPMs[i]) {
+            fanPeakRPMs[i] = (uint16_t)rpm;
         }
     }
 }
@@ -246,7 +242,7 @@ void ISSuperIOIT86XXEFamily::updateFanControl()
         // (RPM > 100), the chip is in SmartGuardian mode and doesn't update
         // the ext register. Estimate the throttle from RPM/peakRPM ratio
         // so the UI slider shows the real fan speed in Auto mode.
-        if (fanThrottles[i] == 0 && fanRPMs[i] > 100 && fanPeakRPMs[i] > 200) {
+        if (fanThrottles[i] == 0 && fanRPMValid[i] && fanRPMs[i] > 100 && fanPeakRPMs[i] > 200) {
             uint32_t est = (uint32_t)((uint64_t)fanRPMs[i] * 255 / fanPeakRPMs[i]);
             fanThrottles[i] = est > 255 ? 255 : (uint8_t)est;
         }
@@ -258,11 +254,11 @@ void ISSuperIOIT86XXEFamily::overrideFanControl(int fan, uint8_t thr)
     if (fan < 0 || fan >= activeFansOnSystem)
         return;
     if (fan < 3) {
-        writeByte(kFAN_MAIN_CTRL_REG, (readByte(kFAN_MAIN_CTRL_REG) | (1 << fan)));
+        writeByte(kFAN_MAIN_CTRL_REG, static_cast<uint8_t>(readByte(kFAN_MAIN_CTRL_REG) | (1 << fan)));
     } else {
-        writeByte(0x14, (readByte(0x14) | (1 << (fan - 3))));
+        writeByte(0x14, static_cast<uint8_t>(readByte(0x14) | (1 << (fan - 3))));
     }
-    writeByte(regPwmCtrl[fan], (fanDefaultControlMode[fan] & 0x7F));
+    writeByte(regPwmCtrl[fan], static_cast<uint8_t>(fanDefaultControlMode[fan] & 0x7F));
     writeByte(kFAN_PWM_CTRL_EXT_REGS[fan], thr);
 }
 
@@ -272,9 +268,9 @@ void ISSuperIOIT86XXEFamily::setDefaultFanControl(int fan)
         return;
     // Clear override bit (restore BIOS automatic control)
     if (fan < 3) {
-        writeByte(kFAN_MAIN_CTRL_REG, readByte(kFAN_MAIN_CTRL_REG) & ~(1 << fan));
+        writeByte(kFAN_MAIN_CTRL_REG, static_cast<uint8_t>(readByte(kFAN_MAIN_CTRL_REG) & ~(1 << fan)));
     } else {
-        writeByte(0x14, readByte(0x14) & ~(1 << (fan - 3)));
+        writeByte(0x14, static_cast<uint8_t>(readByte(0x14) & ~(1 << (fan - 3))));
     }
     writeByte(regPwmCtrl[fan], fanDefaultControlMode[fan]);
     writeByte(kFAN_PWM_CTRL_EXT_REGS[fan], fanDefaultExtControlMode[fan]);

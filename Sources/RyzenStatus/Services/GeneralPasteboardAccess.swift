@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
-import Foundation
+import AppKit
 
 /// Serializes every access the app makes to the general pasteboard.
 /// NSPasteboard keeps a mutable type cache on its shared instance, so reading
@@ -36,6 +36,18 @@ final class GeneralPasteboardAccess {
 
     func async(_ work: @escaping () -> Void) {
         queue.async(execute: work)
+    }
+
+    /// Replaces the general pasteboard's contents with plain text, on the lane
+    /// like every other access. `ownCopy` adds the RyzenStatus source mark so
+    /// the clipboard history credits the write to this app.
+    func copyString(_ string: String, ownCopy: Bool) {
+        queue.async {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            if ownCopy { pasteboard.declareRyzenStatusSource() }
+            pasteboard.setString(string, forType: .string)
+        }
     }
 
     /// Runs `work` on the lane and hands its result to `completion` on the

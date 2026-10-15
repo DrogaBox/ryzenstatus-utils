@@ -81,6 +81,7 @@ struct MenuPanelView: View {
     @AppStorage(DefaultsKey.panelShowControls) private var showControls = true
     @AppStorage(DefaultsKey.panelShowToggles) private var showToggles = true
     @AppStorage(DefaultsKey.panelShowWallpaper) private var showWallpaper = true
+    @AppStorage(DefaultsKey.panelShowWorldClock) private var showWorldClock = true
     @AppStorage(DefaultsKey.panelSectionOrder) private var sectionOrderRaw = ""
     @AppStorage(DefaultsKey.panelAccordionMode) private var accordionMode = false
     @State private var navigableContentHeight: CGFloat = 0
@@ -427,6 +428,7 @@ struct MenuPanelView: View {
         case .controls: return 360
         case .toggles: return 420
         case .wallpaper: return 480
+        case .worldClock: return 220
         }
     }
 
@@ -463,6 +465,7 @@ struct MenuPanelView: View {
         case .controls: QuickControlsSection(collapsible: collapsible)
         case .toggles: QuickTogglesSection(collapsible: collapsible)
         case .wallpaper: if showWallpaper { WallpaperSection(collapsible: collapsible) }
+        case .worldClock: if showWorldClock { WorldClockSection(collapsible: collapsible) }
         }
     }
 
@@ -495,6 +498,7 @@ struct MenuPanelView: View {
         case .controls: return showControls
         case .toggles: return showToggles
         case .wallpaper: return showWallpaper
+        case .worldClock: return showWorldClock
         }
     }
 

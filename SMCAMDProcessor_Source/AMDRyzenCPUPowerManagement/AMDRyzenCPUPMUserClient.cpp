@@ -140,7 +140,7 @@ bool AMDRyzenCPUPMUserClient::hasPrivilege(uint32_t selector){
     // privileges — the cached flag would incorrectly remain true.
     proc_t proc = (proc_t)get_bsdtask_info(fOwningTask);
     if (proc) {
-        // Acquire + read + release — mirrors the fix in initWithTask.
+        // Take a credential reference for the read, as initWithTask does.
         kauth_cred_t cred = kauth_cred_proc_ref(proc);
         bool privileged = (proc_suser(proc) == 0 || kauth_cred_getuid(cred) == 0);
         kauth_cred_unref(&cred);
@@ -165,13 +165,16 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
         if (OSCompareAndSwap(0, 1, &provider->kextAlertDisplayed)) {
             unsigned int rf = 0;
 
-            char buf[128];
-            snprintf(buf, 128,
-                     "Kext alert detected: %d",
+            char buf[160];
+            snprintf(buf, sizeof(buf),
+                     "%d problem(s) were detected while the driver loaded. "
+                     "Check the system log for AMDRyzenCPUPowerManagement messages.",
                      provider->kextloadAlerts);
 
+            // "OK" (rf 0) dismisses it for this boot; "Clear Alert" (rf 1)
+            // also resets the count.
             (*(provider->kunc_alert))(0, 0, NULL, NULL, NULL,
-                          "AMDRyzenCPUPowerManagement", buf, "Ok", "Ok and Clear Alert", "WTF?", &rf);
+                          "AMDRyzenCPUPowerManagement", buf, "OK", "Clear Alert", NULL, &rf);
             if (rf == 1) {
                 provider->kextloadAlerts = 0;
                 OSCompareAndSwap(1, 0, &provider->kextAlertDisplayed);
@@ -193,6 +196,11 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
     //
     // This gate enforces the invariants that hold for EVERY selector, so an
     // omission in a future case cannot reach a memcpy.
+    //
+    // Output buffers: a selector that fills a fixed-size structure rejects an
+    // undersized buffer up front (nothing partial, nothing uninitialized can
+    // reach user space) and then reports exactly the size it wrote. IOKit
+    // forbids reporting more than the caller supplied.
     //
     if (arguments->structureInputSize > 0 && !arguments->structureInput) {
         IOLog("AMDRyzenCPUPMUserClient: selector %u declared %u input bytes with a null pointer\n",
@@ -218,14 +226,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = (provider->kMSR_PSTATE_LEN) * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -248,14 +250,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = (provider->kMSR_PSTATE_LEN) * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -279,14 +275,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = numPhyCores * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -307,14 +297,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = 1 * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -327,8 +311,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        //Get all data like this: [power, temp, pstateCur, clock_core_1, 2, 3 .....]
-        //Yes, i am too lazy to write a struct
+        // Packed float array: [package power W, package temp °C, P-state
+        // control, clock of core 0, core 1, ...]. Layout is ABI with the app.
         case 4: {
             uint32_t numPhyCores = provider->totalNumberOfPhysicalCores;
             arguments->scalarOutputCount = 1;
@@ -340,14 +324,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             uint32_t effectiveCores = (numPhyCores < CPUInfo::MaxCpus) ? numPhyCores : CPUInfo::MaxCpus;
             uint32_t requiredSize = (effectiveCores + 3) * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -374,14 +352,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = 1 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -409,14 +381,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = (provider->totalNumberOfPhysicalCores) * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -424,11 +390,11 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             float *dataOut = (float*) arguments->structureOutput;
 
-            int lcpu_percore = 1;
+            uint32_t lcpu_percore = 1;
             if (provider->totalNumberOfPhysicalCores > 0) {
                 lcpu_percore = provider->totalNumberOfLogicalCores / provider->totalNumberOfPhysicalCores;
             }
-            if (lcpu_percore <= 0) {
+            if (lcpu_percore == 0) {
                 lcpu_percore = 1;
             }
 
@@ -449,14 +415,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = (8) * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -483,14 +443,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = sizeof(xStringify(MODULE_VERSION));
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -511,14 +465,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = 1 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -551,16 +499,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // Zero-copy streaming structured telemetry packet (Task 1.2)
+        // CPUSensorPacket: one-call telemetry snapshot (layout is ABI with CPUSensorPacket.swift)
         case 100: {
             arguments->scalarOutputCount = 0;
             uint32_t requiredSize = sizeof(AMDRyzenCPUPowerManagement::CPUSensorPacket);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
+            // Never report more than the caller's buffer holds (see "Output buffers").
             arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
 
             if (!arguments->structureOutput || maxLen < requiredSize) {
@@ -580,6 +524,10 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             for (uint32_t i = 0; i < 8; i++) {
                 packet->ccdTemperatures[i] = (i < provider->ccdCount) ? provider->ccdTemperatures[i] : 0.0f;
             }
+            // Deliberately i % physical, not the thread-adjacent i / lcpu_percore:
+            // entries [0, physical) are then physical cores 0..N-1 in order, which
+            // `RyzenStatus --selftest` prints as "coreN"; the SMT tail repeats them.
+            // The app's min/avg/max readout sees the same values either way.
             for (uint32_t i = 0; i < 64 && i < provider->totalNumberOfLogicalCores; i++) {
                 uint32_t phys = (provider->totalNumberOfPhysicalCores > 0)
                     ? (i % provider->totalNumberOfPhysicalCores) : i;
@@ -594,14 +542,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = 2 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -641,14 +583,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = 1 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -730,14 +666,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = 1 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -757,14 +687,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = 1 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -802,14 +726,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = ccdCount * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -835,14 +753,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = numLogicalCores * sizeof(uint8_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -865,12 +777,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // S2-T4: Get resolved deep C-State policy (read-only, no privilege).
+        // Deep C-state policy (read-only, no privilege).
         // Scalar output: [0] = 1 if the kext disables deep C-States (C6+),
         //                [1] = raw cstateAddrConfig read after the boot write.
-        // Complements selector 22: apps can distinguish "0xF0 because we wrote
-        // it" from "0xF0 because firmware set it" and detect pre-1.21 kexts
-        // (this case absent → kIOReturnUnsupported → selector-22 fallback).
+        // Lets the app tell "0xF0 because the kext wrote it" from "0xF0 set by
+        // firmware"; kexts without this selector return kIOReturnUnsupported
+        // and the app falls back to selector 22.
         case 34: {
             arguments->scalarOutputCount = 2;
             arguments->scalarOutput[0] = provider->disableCStates ? 1 : 0;
@@ -879,12 +791,11 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // S3-B: Curve Optimizer capability report (read-only, no privilege).
-        // Scalar output: [0] = 1 when the kext will accept CO writes (family
-        //                 matches the Vermeer-only payload AND the SMU mailbox
-        //                 reports itself supported),
-        //                 0 when writes are fail-closed (other generations).
-        // [1] = active SMU command ID for CO (0x3D on Vermeer, else 0),
+        // Curve Optimizer capability report (read-only, no privilege).
+        // Scalar output: [0] = 1 when the kext will accept CO writes (Vermeer
+        //                 mailboxes up and the fuse core map matches the OS),
+        //                 0 when writes are fail-closed.
+        // [1] = active SMU command ID for CO (MP1 0x35 on Vermeer, else 0),
         // [2] = minimum safe offset (-30),
         // [3] = maximum safe offset (+30).
         // Single source of truth: the app renders its CO UI from this report
@@ -895,7 +806,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             arguments->scalarOutput[0] = (provider->smuMailboxSupported() &&
                                           provider->smuCurveOptimizerCmd() != 0) ? 1 : 0;
             arguments->scalarOutput[1] = provider->smuCurveOptimizerCmd();
-            arguments->scalarOutput[2] = -30;
+            arguments->scalarOutput[2] = (uint64_t)(int64_t)-30;
             arguments->scalarOutput[3] = 30;
 
             break;
@@ -965,14 +876,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             uint32_t flagsSize = sizeof(uint64_t);
             uint32_t requiredSize = nameSize + flagsSize;
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -1013,14 +918,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             uint32_t gpuCountLocal = provider->getGPUCount();
             uint32_t requiredSize = gpuCountLocal * sizeof(UInt16);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -1046,14 +945,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             uint32_t gpuCountLocal = provider->getGPUCount();
             uint32_t requiredSize = gpuCountLocal * sizeof(float);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -1069,20 +962,17 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // Get Package C6 Residency (cumulative microseconds)
+        // Package C6 residency, cumulative microseconds. Zen has no such
+        // counter (MSR C001_0296 is the C-state configuration register, not
+        // a residency count), so this reports 0, which the app reads as
+        // "no counter". Kept for ABI compatibility.
         case 31: {
             arguments->scalarOutputCount = 0;
 
             uint32_t requiredSize = sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -1090,16 +980,15 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint64_t *dataOut = (uint64_t*) arguments->structureOutput;
             if (maxLen >= sizeof(uint64_t)) {
-                dataOut[0] = provider->packageC6Residency;
+                dataOut[0] = 0;
             }
             break;
         }
 
-        // KEXT_WAVE 1.20.0 (C-1): Per-core C6 residency (%), one UInt16 per logical core.
-        // Derived from the pmRyzen per-CPU idle accounting the kernel already
-        // maintains (pmAMDRyzen.c: eff_idleaccd/eff_timeaccd decayed deltas).
-        // Read-only, cache-free (counters are lock-free per-CPU accumulators),
-        // and ABI-safe: new selector, no change to existing ones.
+        // Per-CPU idle residency (%), one UInt16 per logical CPU: the share of
+        // the decayed pmRyzen accounting window spent in the idle loop
+        // (pmAMDRyzen.c eff_idleaccd / eff_timeaccd). It counts idle time, not
+        // a hardware C6 counter. Read-only; the counters are per-CPU.
         case 32: {
             arguments->scalarOutputCount = 0;
             uint32_t n = pmRyzen_num_logi;
@@ -1108,10 +997,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = n * sizeof(UInt16);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -1130,7 +1017,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // KEXT_WAVE 1.20.0 (C-2): Per-core instruction-retired delta (IPC input),
+        // Per-core instruction-retired delta (IPC input),
         // one UInt32 per logical core. instructionDelta_perCore is refreshed by
         // the provider timer (updateInstructionDelta, MSR PERF_IRPC); this
         // selector only exports the latest window. Read-only, additive (ABI-safe).
@@ -1142,10 +1029,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = n * sizeof(UInt32);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -1155,9 +1040,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             uint32_t copyCount = (maxLen / sizeof(UInt32) < n) ? (maxLen / sizeof(UInt32)) : n;
 
             for (uint32_t c = 0; c < copyCount; c++) {
-                dataOut[c] = (c < CPUInfo::MaxCpus)
-                    ? (UInt32)min(provider->instructionDelta_perCore[c], (uint64_t)UINT32_MAX)
-                    : 0;
+                uint64_t delta = (c < CPUInfo::MaxCpus) ? provider->instructionDelta_perCore[c] : 0;
+                dataOut[c] = delta > UINT32_MAX ? UINT32_MAX : (UInt32)delta;
             }
             break;
         }
@@ -1170,14 +1054,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             uint32_t gpuCountLocal = provider->getGPUCount();
             uint32_t requiredSize = gpuCountLocal * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -1206,14 +1084,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             arguments->scalarOutputCount = 0;
             uint32_t requiredSize = 2 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -1258,14 +1130,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t requiredSize = 1 * sizeof(uint64_t);
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffer to prevent uninitialized kernel memory leak
             if (maxLen < requiredSize) return kIOReturnBadArgument;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             if (!arguments->structureOutput) {
                 return kIOReturnBadArgument;
@@ -1350,12 +1216,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 IOLockUnlock(provider->superIOLock);
                 return kIOReturnBadArgument;
             }
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
             UInt32 currentCount = (UInt32)OSIncrementAtomic(&provider->fanUpdateCounter);
             if ((currentCount % 4) == 0) {
@@ -1363,7 +1224,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             }
             uint32_t copyCount = (maxLen / sizeof(uint64_t) < numFans) ? (maxLen / sizeof(uint64_t)) : numFans;
             for (uint32_t i = 0; i < copyCount; i++) {
-                dataOut[i] = provider->superIO->getRPMForFan(i);
+                dataOut[i] = provider->superIO->getRPMForFan((int)i);
             }
             IOLockUnlock(provider->superIOLock);
 
@@ -1395,73 +1256,27 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 IOLockUnlock(provider->superIOLock);
                 return kIOReturnBadArgument;
             }
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
-            arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
+            arguments->structureOutputSize = requiredSize;
 
+            // Refresh the tachometers and the duty estimate together, under the
+            // same lock: under BIOS SmartFan control the PWM register reads 0,
+            // and updateFanControl() estimates the duty from the RPM data that
+            // updateFanRPMS() just wrote. Every fourth call, to limit Super I/O
+            // port traffic, which the firmware shares.
             UInt32 snap94 = (UInt32)OSIncrementAtomic(&provider->fanCtrlUpdateCounter);
             if ((snap94 % 4) == 0) {
-                // Refresh the estimator's INPUTS in the same critical
-                // section that consumes them.
-                //
-                // updateFanControl()'s fallback estimator — which is what
-                // produces a duty reading at all while a fan is under BIOS
-                // SmartFan control, since the PWM command register genuinely
-                // reads 0 there — is gated on fanRPMValid[i] and
-                // fanPeakRPMs[i] > 200. Both of those are written ONLY by
-                // updateFanRPMS().
-                //
-                // fanUpdateCounter is a single shared counter and BOTH selector
-                // 93 (which calls updateFanRPMS) and this one increment it, so
-                // the producer and the consumer fired on different values of it
-                // and could never coincide. getFans() calls 93 then 94 back to
-                // back, consuming n and n+1: updateFanRPMS on n % 4 == 0 and
-                // updateFanControl on (n+1) % 4 == 0 are never the same tick.
-                // The only timer-driven path, evaluateFanCurves(), early-continues
-                // for every fan with fanToCurveMap[fan] < 0 — i.e. every fan under
-                // BIOS Auto — so nothing else ever seeded fanPeakRPMs for exactly
-                // the fans that need the estimator. The guard stayed false, the
-                // estimator never ran, and all six fans reported pwm 0 (0.0%)
-                // while physically spinning at 40-1683 RPM.
-                //
-                // Pairing them here is the fix: the estimator now always sees
-                // inputs written on this same tick, under this same lock. The
-                // %4 gate is deliberately kept — it rate-limits Super I/O port
-                // I/O, which is slow and shared with the firmware.
                 provider->superIO->updateFanRPMS();
                 provider->superIO->updateFanControl();
             }
+            // One uint64_t per fan: bits 15:8 throttle, bit 1 tachometer
+            // reading trusted (the driver holds the last good RPM otherwise),
+            // bit 0 BIOS auto control. All other bits are zero.
             uint32_t copyCount = (maxLen / sizeof(uint64_t) < numFans) ? (maxLen / sizeof(uint64_t)) : numFans;
             for (uint32_t i = 0; i < copyCount; i++) {
-                // Bit 1 carries per-fan tachometer validity.
-                //
-                // Wire format, per fan, one uint64_t: bits 15:8 throttle (a
-                // uint8_t, so it cannot spill), bit 0 auto-control mode, bit 1
-                // rpmValid, everything else zero. Bit 1 was previously written as
-                // zero, and the Swift reader masks only bits 15:8 and bit 0, so an
-                // OLDER app against this kext ignores the new bit and behaves
-                // exactly as before. The buffer size is unchanged, so nothing in
-                // the size negotiation on either side moves.
-                //
-                // Why it matters: the NCT drivers now hold the last good value
-                // when a tach read is untrustworthy, which is safer than
-                // publishing 65535 but LESS detectable — a dead sensor shows a
-                // plausible frozen RPM instead of an obviously wrong one. Without
-                // this bit the app has no way to tell the difference, and its own
-                // `rawRPM <= 10500` heuristic can never fire because the kext
-                // already filters above that threshold.
-                //
-                // The app-side consumption is deliberately NOT in this change: a
-                // kext revision costs a hardware validation cycle and an app
-                // revision costs nothing, so the expensive half ships now and the
-                // Swift reader (which needs a kext-version gate so a new app does
-                // not blank every fan against an old kext) follows separately.
-                dataOut[i] = provider->superIO->getFanThrottle(i) << 8
-                           | (provider->superIO->getFanRPMValid(i) ? 0x2 : 0)
-                           | (provider->superIO->getFanAutoControlMode(i) ? 1 : 0);
+                int fan = (int)i;
+                dataOut[i] = (uint64_t)provider->superIO->getFanThrottle(fan) << 8
+                           | (provider->superIO->getFanRPMValid(fan) ? 0x2u : 0u)
+                           | (provider->superIO->getFanAutoControlMode(fan) ? 0x1u : 0u);
             }
             IOLockUnlock(provider->superIOLock);
 
@@ -1482,14 +1297,10 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             int fanSel = (int)arguments->scalarInput[0];
             uint8_t pwm = (uint8_t)arguments->scalarInput[1];
 
-            // S2-T4b (defense-in-depth): every manual PWM write, from any
-            // privileged process, honors the same emergency thermal guard the
-            // kext applies to curve-mode fans (kTHERMAL_GUARD_TEMP_C →
-            // kTHERMAL_GUARD_PWM). PACKAGE_TEMPERATURE_perPackage[0] is the
-            // timer-cached snapshot refreshed by updatePackageTemp() on the
-            // Command-gated workloop (no live SMN/PCI read here).
-            // Reading it under superIOLock is safe: writers hold rendezvousLock
-            // only, and the float read is atomic-enough for a clamp floor.
+            // Manual writes honour the same emergency thermal guard as curve
+            // mode (kTHERMAL_GUARD_TEMP_C -> kTHERMAL_GUARD_PWM), judged on the
+            // package temperature the work loop caches; an aligned float read
+            // is atomic on x86, which is all a clamp floor needs.
             if (provider->PACKAGE_TEMPERATURE_perPackage[0] >= kTHERMAL_GUARD_TEMP_C
                 && pwm < kTHERMAL_GUARD_PWM) {
                 pwm = kTHERMAL_GUARD_PWM;
@@ -1504,29 +1315,13 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 IOLockUnlock(provider->superIOLock);
                 return kIOReturnBadArgument;
             }
-            // Floor a duty that would be commanded to a STOPPED rotor.
-            //
-            // The active-PWM floor (kCURVE_MIN_ACTIVE_PWM) lives only in
-            // evaluateFanCurves(), and overrideFanControl() writes whatever byte
-            // it is handed straight to the PWM register — so this privileged
-            // manual path could latch a rotor at duty 1-39, below its start
-            // threshold, on an open-loop controller with no RPM feedback. Below
-            // 85 C the thermal guard above does not fire, so nothing caught it.
-            //
-            // The floor is NOT applied unconditionally, and that is the whole
-            // point. The hazard is at rotor START, not at maintain: a fan the
-            // BIOS is holding at duty 20 and which is demonstrably turning is
-            // safe, and raising it to 40 would just make the machine louder for
-            // nothing. That is exactly why the Swift side splits
-            // clampManualPWM (user-commanded, floored) from guardOnlyPWM
-            // (hardware-inherited, guard only) — and why a blanket floor here
-            // would break the inherited path and ramp every BIOS-fixed fan on
-            // the first poll.
-            //
-            // So the kernel decides from the evidence it has rather than from a
-            // caller's claim: floor only when the tachometer is TRUSTED and says
-            // the fan is not turning. When validity is unknown the reading is not
-            // evidence, so behaviour is left exactly as before.
+            // A duty below kCURVE_MIN_ACTIVE_PWM may not start a stopped rotor,
+            // and nothing would notice: the controller is open loop. So such a
+            // duty is raised to the floor when the tachometer is trusted and
+            // reads a stopped fan. A fan that is already turning keeps the
+            // requested duty (holding speed is safe at low duty, and the app's
+            // guardOnlyPWM path relies on it), and an untrusted reading changes
+            // nothing.
             if (pwm != 0 && pwm < kCURVE_MIN_ACTIVE_PWM
                 && provider->superIO->getFanRPMValid(fanSel)
                 && provider->superIO->getRPMForFan(fanSel) < kFAN_STOPPED_RPM) {
@@ -1760,29 +1555,28 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // Get Curve Optimizer Offsets (Phase 13)
+        // Get Curve Optimizer offsets
         case 110: {
             if(!provider)
                 return kIOReturnNoDevice;
 
             uint32_t requiredSize = CPUInfo::MaxCpus;
             uint32_t maxLen = arguments->structureOutputSize;
-            // Report only what actually fits the caller's buffer.
-            // IOKit forbids raising structureOutputSize beyond the supplied
-            // buffer; the old line reported `requiredSize` even when the write
-            // below was clamped to maxLen, so undersized callers failed the
-            // trap (or, on older kernels, over-copied).
+            // Never report more than the caller's buffer holds (see "Output buffers").
             arguments->structureOutputSize = (maxLen < requiredSize) ? maxLen : requiredSize;
 
             if (!arguments->structureOutput || maxLen < requiredSize) {
                 return kIOReturnBadArgument;
             }
 
+            // Under controlLock so a read never interleaves with a selector 111 write.
+            if (provider->controlLock) IOLockLock(provider->controlLock);
             memcpy(arguments->structureOutput, provider->curveOptimizerOffsets, requiredSize);
+            if (provider->controlLock) IOLockUnlock(provider->controlLock);
             break;
         }
 
-        // Set Curve Optimizer Offset (Phase 13)
+        // Set Curve Optimizer offset
         case 111: {
             if(!provider)
                 return kIOReturnNoDevice;
@@ -1796,13 +1590,19 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             uint8_t core = (uint8_t)arguments->scalarInput[0];
             int8_t offset = (int8_t)arguments->scalarInput[1];
 
+            // controlLock serializes every SMU write path (selectors 10, 24,
+            // 25, 41, 42, 46, 50); the thermal check and the cache update in
+            // setCurveOptimizer must not interleave with them.
+            if (provider->controlLock) IOLockLock(provider->controlLock);
             int rc = provider->setCurveOptimizer(core, offset);
+            if (provider->controlLock) IOLockUnlock(provider->controlLock);
             if (rc < 0) {
                 // Map setCurveOptimizer error codes to IOReturn values.
                 // -1 unsupported, -2/-3 bad args, -4 not ready,
-                // -10 SMU timeout, -11 invalid SMU cmd, -12 invalid SMU args, -13 SMU busy.
+                // -10 SMU timeout, -11 unknown SMU command, -12 SMU rejected, -13 SMU busy.
                 if (rc == -1 || rc == -11) return kIOReturnUnsupported;
-                if (rc == -2 || rc == -3 || rc == -12) return kIOReturnBadArgument;
+                if (rc == -2 || rc == -3) return kIOReturnBadArgument;
+                if (rc == -12) return kIOReturnNotPermitted;
                 if (rc == -4) return kIOReturnNotReady;
                 if (rc == -10) return kIOReturnTimeout;
                 if (rc == -13) return kIOReturnBusy;
@@ -1811,7 +1611,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // ---- S4: Precision Boost Overdrive limits + scalar (Vermeer) ----
+        // ---- Precision Boost Overdrive limits + scalar (Vermeer) ----
         // Read-only selectors 36-39 report the last successfully-programmed
         // values plus the PBO capability; write selectors 41-42 program new
         // limits and are root/-amdpnopchk only.
@@ -1869,7 +1669,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // Get boost telemetry snapshot (S5): [0] = max boost frequency in MHz
+        // Get boost telemetry snapshot: [0] = max boost frequency in MHz
         // (RSMU 0x6E), [1] = raw GetFastestCoreOfSocket word (RSMU 0x59 —
         // decoded app-side in AMDSmuBoost where it is unit-testable),
         // [2] = 1 once the timer has populated the caches this boot.
@@ -1888,7 +1688,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // Get ProcessorParameters bitfield (S6): [0] = raw 0x6F response word
+        // Get ProcessorParameters bitfield: [0] = raw 0x6F response word
         // (bit 0 IsOverclockable, bit 1 PBO support — decode lives app-side in
         // AMDSmuParameters), [1] = 1 once the timer command gate has read the
         // command successfully this boot (a real 0-bitfield is a valid answer,
@@ -1905,7 +1705,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // Get cHTC limit cache (S6): [0] = the last value successfully
+        // Get cHTC limit cache: [0] = the last value successfully
         // programmed via SMU 0x56 this boot in °C (0 = never set — the SMU has
         // no read command for cHTC; the kext caches on write success).
         // Read-only, no SMU traffic.
@@ -1919,7 +1719,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // Set cHTC thermal limit (S6, privileged): [0] = target in °C, valid
+        // Set cHTC thermal limit (privileged): [0] = target in °C, valid
         // window 40..95 (0x56 Arg0 = degrees Celsius). Privilege required,
         // same as the PBO limits; the provider enforces the Vermeer gate and
         // the package-temperature interlock.
@@ -1958,7 +1758,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // Get SMU firmware version (S7): [0] = raw byte-packed version word
+        // Get SMU firmware version: [0] = raw byte-packed version word
         // (24-bit A.B.C, or 32-bit A.B.C.D when byte 3 != 0 — decoded app-side
         // in AMDSmuReadback.formatSmuVersion), [1] = 1 once the timer command
         // gate has read the command successfully this boot. Read-only: served
@@ -1974,7 +1774,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // Get active PBO scalar (S7): [0] = raw 0x6C response word (IEEE-754
+        // Get active PBO scalar: [0] = raw 0x6C response word (IEEE-754
         // float 1.0–10.0, decoded app-side in AMDSmuReadback — different
         // encoding than the 0x58 write), [1] = 1 once the timer has read the
         // command successfully this boot. Read-only, rides the
@@ -1997,7 +1797,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
         // [2] = OC-mode cache state (0 = never touched by this driver this
         // boot, 1 = enabled via 0x5A, 2 = disabled via 0x5B — the SMU has no
         // read-back, and 0 honestly means "unknown"). [3] = 1 when the kext
-        // accepts frequency overrides (S8.2: 0x5C/0x5D behind the OC-mode
+        // accepts frequency overrides (0x5C/0x5D behind the OC-mode
         // gate) — same Vermeer verdict as [0]; the app mirrors the kext's
         // fixed 8-CCD cache model. 1.28.0 shipped [3] as reserved 0, so
         // pre-1.29 apps reading 0 simply hide those controls (compatibility-
@@ -2016,15 +1816,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // Set OC mode (S8, privileged): [0] = 1 enable (RSMU 0x5A, Arg0 1) or
-        // 0 disable (RSMU 0x5B, Arg0 0) — semantics pinned by ZenStates-Core,
-        // resolving rsmu_commands.md's contradictory rows. [1] = reset-scalar
-        // flag: when disabling with [1] = 1, the kext additionally re-programs
-        // the PBO scalar to 1.0 via 0x58 (some SMU firmware does not auto-reset
-        // it on leaving OC mode). Frequency (0x5C/0x5D) and VID (0x61) writes
-        // are NOT in this selector — deferred until owner hardware validation.
-        // Privilege required; provider enforces the Vermeer gate and the
-        // package-temperature interlock.
+        // Set OC mode (privileged): [0] = 1 enable (RSMU 0x5A) or 0 disable
+        // (RSMU 0x5B), Arg0 0 in both cases (ZenStates-Core). [1] = 1 also
+        // writes the PBO scalar back to 1.0 via 0x58 after a disable, since
+        // some SMU firmware does not reset it. Frequency overrides are
+        // selector 51; there is no VID (0x61) write. The provider enforces the
+        // Vermeer gate and the package-temperature interlock.
         case 50: {
             if(!provider)
                 return kIOReturnNoDevice;
@@ -2057,20 +1854,20 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // Set frequency override (S8.2, privileged): [0] = mode (0 all-core
+        // Set frequency override (privileged): [0] = mode (0 all-core
         // via 0x5C, 1 per-CCD via 0x5D), [1] = MHz for all-core mode,
         // [2..9] = per-CCD MHz (entry i targets CCD startCcd + i),
         // [10] = startCcd, [11] = CCD count for per-CCD mode (contiguous
         // window — the app applies one CCD with startCcd = ccd, count = 1).
-        // Envelopes mirror the kernel: 400..8000 MHz, startCcd + count <= 8.
-        // The kernel builds the 0x5D mask itself ((ccd << 28) | freq on
-        // Vermeer) — user space never ships a packed mask. Hard-gated
-        // kernel-side: OC mode must have been enabled by THIS driver earlier
-        // this boot — refusal maps to kIOReturnNotPermitted; thermal
-        // interlock maps to kIOReturnNotReady.
+        // All-core mode takes 2 scalars, per-CCD mode 12. Envelopes mirror
+        // the kernel: 400..8000 MHz, startCcd + count <= 8. CCDs are counted
+        // in order of the enabled ones; the kernel builds every core mask
+        // itself, user space only sends MHz. OC mode must have been enabled
+        // by this driver earlier this boot (kIOReturnNotPermitted otherwise);
+        // the thermal interlock maps to kIOReturnNotReady.
         // Output scalars: [0] = 0 on success, [1] = programmed MHz (all-core
-        // mode) or 0, [2] = last mask/arg used (0xFFFFFFFF sentinel for
-        // all-core), [3] = CCD count processed, [4..7] reserved 0.
+        // mode) or 0, [2] = 0x5C argument (all-core mode) or 0, [3] = CCD
+        // count processed, [4..7] reserved 0.
         case 51: {
             if(!provider)
                 return kIOReturnNoDevice;
@@ -2078,7 +1875,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             if(!hasPrivilege(51))
                 return kIOReturnNotPrivileged;
 
-            if(arguments->scalarInputCount < 2 || arguments->scalarInputCount > 11)
+            if(arguments->scalarInputCount != 2 && arguments->scalarInputCount != 12)
                 return kIOReturnBadArgument;
 
             uint32_t mode = (uint32_t)arguments->scalarInput[0];
@@ -2089,36 +1886,44 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 return kIOReturnUnsupported;
 
             int rc;
-            uint32_t maskUsed = 0xFFFFFFFF;   // sentinel: all-core
+            uint32_t maskUsed = 0;
             uint32_t ccdsDone = 0;
 
+            // Both paths run under controlLock, like selector 50: the OC-mode
+            // gate they check (smuOcModeState) is what selector 50 writes, and
+            // the per-CCD sequence is meant to run as one hold.
             if (mode == 0) {
                 if (arguments->scalarInputCount != 2)
                     return kIOReturnBadArgument;
                 uint32_t mhz = (uint32_t)arguments->scalarInput[1];
+                if (provider->controlLock) IOLockLock(provider->controlLock);
                 rc = provider->setOverclockFreqAllCores(mhz);
+                if (provider->controlLock) IOLockUnlock(provider->controlLock);
                 maskUsed = mhz & 0xFFFFF;
             } else {
                 if (arguments->scalarInputCount != 12)
                     return kIOReturnBadArgument;
                 uint32_t startCcd = (uint32_t)arguments->scalarInput[10];
                 uint32_t ccdCount = (uint32_t)arguments->scalarInput[11];
-                if (ccdCount == 0 || startCcd >= AMDRyzenCPUPowerManagement::kS8MaxCcds ||
-                    startCcd + ccdCount > AMDRyzenCPUPowerManagement::kS8MaxCcds)
+                if (ccdCount == 0 || startCcd >= AMDRyzenCPUPowerManagement::kOC_MAX_CCDS ||
+                    startCcd + ccdCount > AMDRyzenCPUPowerManagement::kOC_MAX_CCDS)
                     return kIOReturnBadArgument;
-                uint32_t mhzByCcd[AMDRyzenCPUPowerManagement::kS8MaxCcds];
-                for (uint8_t c = 0; c < ccdCount; c++)
+                uint32_t mhzByCcd[AMDRyzenCPUPowerManagement::kOC_MAX_CCDS];
+                for (uint8_t c = 0; c < ccdCount; c++) {
+                    if (arguments->scalarInput[2 + c] > 8000)
+                        return kIOReturnBadArgument;
                     mhzByCcd[c] = (uint32_t)arguments->scalarInput[2 + c];
+                }
+                if (provider->controlLock) IOLockLock(provider->controlLock);
                 rc = provider->setOverclockFreqPerCcd(mhzByCcd, (uint8_t)ccdCount, (uint8_t)startCcd);
-                if (rc == 0)
-                    maskUsed = ((uint32_t)(startCcd + ccdCount - 1) << 28) | (mhzByCcd[ccdCount - 1] & 0xFFFFF);
+                if (provider->controlLock) IOLockUnlock(provider->controlLock);
                 ccdsDone = (rc == 0) ? ccdCount : 0;
             }
 
             if (rc < 0) {
                 if (rc == -1 || rc == -11) return kIOReturnUnsupported;
-                if (rc == -2 || rc == -12) return kIOReturnBadArgument;
-                if (rc == -3) return kIOReturnNotPermitted;   // OC gate closed
+                if (rc == -2) return kIOReturnBadArgument;
+                if (rc == -3 || rc == -12) return kIOReturnNotPermitted;   // OC gate closed / SMU refused
                 if (rc == -4) return kIOReturnNotReady;        // thermal
                 if (rc == -10) return kIOReturnTimeout;
                 if (rc == -13) return kIOReturnBusy;
@@ -2138,7 +1943,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // Get frequency-override cache (S8.2, read-only): [0] = all-core
+        // Get frequency-override cache (read-only): [0] = all-core
         // cache MHz (0 = never written by this driver this boot), [1] = CCD
         // count from the kext's start-time register probe (0 = probe not
         // ready or no AMD host — the app falls back to its own estimate),
@@ -2149,10 +1954,12 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 return kIOReturnNoDevice;
 
             arguments->scalarOutputCount = 10;
+            if (provider->controlLock) IOLockLock(provider->controlLock);
             arguments->scalarOutput[0] = provider->ocFreqMHzAllCores;
             arguments->scalarOutput[1] = provider->ccdCount;
-            for (uint8_t c = 0; c < AMDRyzenCPUPowerManagement::kS8MaxCcds; c++)
+            for (uint8_t c = 0; c < AMDRyzenCPUPowerManagement::kOC_MAX_CCDS; c++)
                 arguments->scalarOutput[2 + c] = provider->ocFreqMHzPerCcd[c];
+            if (provider->controlLock) IOLockUnlock(provider->controlLock);
 
             break;
         }
@@ -2311,7 +2118,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             uint32_t available = tableSize - offset;
             uint32_t maxLen = arguments->structureOutputSize;
-            // Reject undersized output buffers; // Report only what actually fits.
+            // Partial reads are allowed here: copy what fits and report it.
             if (maxLen == 0 || arguments->structureOutput == nullptr) {
                 if (provider->rendezvousLock) IOLockUnlock(provider->rendezvousLock);
                 return kIOReturnBadArgument;

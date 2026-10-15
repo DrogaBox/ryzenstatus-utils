@@ -9,10 +9,12 @@ import IOKit
 struct ProcessUsage: Identifiable, Equatable {
     let pid: pid_t
     let name: String
-    /// CPU/GPU: percentage (0–100+). Memory: bytes. Network: total bytes/s.
+    /// CPU/GPU: percentage (0–100+). Memory: bytes. Network and disk: total bytes/s.
     let value: Double
     let networkDownBytesPerSec: Double?
     let networkUpBytesPerSec: Double?
+    let diskReadBytesPerSec: Double?
+    let diskWriteBytesPerSec: Double?
 
     var id: pid_t { pid }
 
@@ -20,12 +22,16 @@ struct ProcessUsage: Identifiable, Equatable {
          name: String,
          value: Double,
          networkDownBytesPerSec: Double? = nil,
-         networkUpBytesPerSec: Double? = nil) {
+         networkUpBytesPerSec: Double? = nil,
+         diskReadBytesPerSec: Double? = nil,
+         diskWriteBytesPerSec: Double? = nil) {
         self.pid = pid
         self.name = name
         self.value = value
         self.networkDownBytesPerSec = networkDownBytesPerSec
         self.networkUpBytesPerSec = networkUpBytesPerSec
+        self.diskReadBytesPerSec = diskReadBytesPerSec
+        self.diskWriteBytesPerSec = diskWriteBytesPerSec
     }
 }
 
@@ -57,6 +63,9 @@ final class ProcessUsageService {
     private var gpuCache: CachedRows?
     private var energyCache: CachedRows?
     private var networkCache: CachedRows?
+    private var diskCache: CachedRows?
+    private var diskDeltaTracker = DiskProcessDeltaTracker()
+    private let diskSampleLock = NSLock()
     private var cpuLoading = false
     private var memoryLoading = false
     private var gpuLoading = false
@@ -114,6 +123,7 @@ final class ProcessUsageService {
         gpuCache = nil
         energyCache = nil
         networkCache = nil
+        diskCache = nil
         cacheLock.unlock()
     }
 
@@ -330,6 +340,63 @@ final class ProcessUsageService {
 
     // MARK: - CPU
 
+    // MARK: - Disk
+
+    /// Readings closer together than this share one sample, so two callers in
+    /// the same refresh do not measure a sliver of time between them.
+    private let minimumDiskSampleInterval: TimeInterval = 1
+
+    /// The apps reading from and writing to storage the most since the
+    /// previous sample, heaviest first. Blocking: call it off the main thread.
+    /// Nil while warming up: the first sample only primes the counters.
+    func topDisk(limit: Int = 5) -> [ProcessUsage]? {
+        diskSampleLock.lock()
+        defer { diskSampleLock.unlock() }
+        let now = ProcessInfo.processInfo.systemUptime
+        cacheLock.lock()
+        let cached = limitedRows(diskCache, limit: limit, now: now, maxAge: minimumDiskSampleInterval)
+        cacheLock.unlock()
+        if let cached { return cached }
+
+        guard let rates = diskDeltaTracker.rates(DiskProcessSampler.totals(), at: now) else { return nil }
+        let rows = groupedDiskByApp(rates)
+        cacheLock.lock()
+        diskCache = cachedRows(from: rows)
+        cacheLock.unlock()
+        return Array(rows.prefix(limit))
+    }
+
+    private func groupedDiskByApp(_ rates: [pid_t: (read: Double, write: Double)]) -> [ProcessUsage] {
+        var totals: [pid_t: (read: Double, write: Double)] = [:]
+        var fallbackNames: [pid_t: String] = [:]
+        for (pid, rate) in rates {
+            let responsible = ResponsibleProcess.owner(of: pid)
+            let owner = responsible <= 1 ? pid : responsible
+            var total = totals[owner] ?? (0, 0)
+            total.read += rate.read
+            total.write += rate.write
+            totals[owner] = total
+            if fallbackNames[owner] == nil {
+                fallbackNames[owner] = DiskProcessSampler.name(of: pid)
+            }
+        }
+        return totals
+            .sorted { ($0.value.read + $0.value.write) > ($1.value.read + $1.value.write) }
+            .enumerated()
+            .map { index, element in
+                let owner = element.key
+                let fallback = fallbackNames[owner] ?? "pid \(owner)"
+                let name = index < maximumCachedRows
+                    ? ResponsibleProcess.displayName(pid: owner, fallback: fallback)
+                    : fallback
+                return ProcessUsage(pid: owner,
+                                    name: name,
+                                    value: element.value.read + element.value.write,
+                                    diskReadBytesPerSec: element.value.read,
+                                    diskWriteBytesPerSec: element.value.write)
+            }
+    }
+
     func topCPU(limit: Int = 15) -> [ProcessUsage] {
         let now = ProcessInfo.processInfo.systemUptime
         cacheLock.lock()
@@ -508,8 +575,10 @@ final class ProcessUsageService {
         defer { windowServerLock.unlock() }
         // WindowServer restarts on logout/login; a cached PID must be
         // re-validated before reuse or GPU time is billed to a dead/reused PID forever.
+        // WindowServer runs as _windowserver, so a live one answers EPERM, not 0;
+        // only ESRCH means it is gone. Treating EPERM as dead ran pgrep every tick.
         if let cached = _windowServerPID {
-            if kill(cached, 0) == 0 { return cached }
+            if kill(cached, 0) == 0 || errno == EPERM { return cached }
             _windowServerPID = nil
         }
         for app in NSWorkspace.shared.runningApplications {
@@ -608,8 +677,9 @@ final class ProcessUsageService {
         memoryLoading = false
         if let rows {
             memoryCache = cachedRows(from: rows)
-            updateFootprintHistory(rows: rows)
+            let historyToAnalyze = updateFootprintHistory(rows: rows)
             cacheLock.unlock()
+            if let historyToAnalyze { updateLeakingPIDs(from: historyToAnalyze) }
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .processUsageDidUpdate, object: nil)
             }
@@ -619,8 +689,9 @@ final class ProcessUsageService {
         return limitedRows(memoryCache, limit: limit, now: ProcessInfo.processInfo.systemUptime, maxAge: staleCacheSeconds) ?? []
     }
 
-    private func updateFootprintHistory(rows: [ProcessUsage]) {
-        // This method is always called while cacheLock is held (from finishMemory).
+    /// Called with cacheLock held (from finishMemory). Returns a snapshot of the
+    /// history when a leak analysis is due; the caller runs it after unlocking.
+    private func updateFootprintHistory(rows: [ProcessUsage]) -> [pid_t: [(Date, UInt64)]]? {
         let now = Date()
         let activePIDs = Set(rows.map(\.pid))
         let cutoff = now.addingTimeInterval(-1800)
@@ -634,23 +705,23 @@ final class ProcessUsageService {
         footprintHistory = footprintHistory.filter { activePIDs.contains($0.key) }
 
         let uptime = ProcessInfo.processInfo.systemUptime
-        guard uptime - lastLeakAnalysisTime >= 30 else { return }
+        guard uptime - lastLeakAnalysisTime >= 30 else { return nil }
         lastLeakAnalysisTime = uptime
+        return footprintHistory
+    }
 
-        // BUG-05 fix: LeakDetector.analyze runs a linear regression over thousands of points.
-        // Running it while holding cacheLock blocks topCPU/topGPU/topMemory callers.
-        // Capture the history snapshot under lock, then analyze on a background queue.
-        let historyCopy = footprintHistory
-        cacheLock.unlock()  // temporarily release while doing heavy computation
+    /// LeakDetector.analyze runs a linear regression over thousands of points, so
+    /// it runs outside cacheLock or it would block topCPU/topGPU/topMemory callers.
+    private func updateLeakingPIDs(from history: [pid_t: [(Date, UInt64)]]) {
         var newLeaking = Set<pid_t>()
-        for (pid, series) in historyCopy {
+        for (pid, series) in history {
             if LeakDetector.analyze(series: series) != nil {
                 newLeaking.insert(pid)
             }
         }
-        cacheLock.lock()  // re-acquire to safely update leakingPIDs
-        // BUG-08 fix: update through the private backing store, which is always accessed under cacheLock.
+        cacheLock.lock()
         _leakingPIDs = newLeaking
+        cacheLock.unlock()
     }
 
     private func finishGPU(_ rows: [ProcessUsage]?, limit: Int) -> [ProcessUsage] {
@@ -692,6 +763,10 @@ final class ProcessUsageService {
             "AMDRadeonX6000_AMDAcceleratedVKDriver",
             "AMDGPUAccelerator"
         ]
+        // IOServiceMatching also matches subclasses, so one accelerator answers to
+        // several of these names (a Navi 21 is both IOAccelerator and
+        // IOGraphicsAccelerator2). Walk each one once or its time is counted twice.
+        var visitedAccelerators = Set<UInt64>()
 
         for className in classes {
             var accelIterator = io_iterator_t()
@@ -706,6 +781,10 @@ final class ProcessUsageService {
                     IOObjectRelease(accelerator)
                     accelerator = IOIteratorNext(accelIterator)
                 }
+
+                var entryID: UInt64 = 0
+                if IORegistryEntryGetRegistryEntryID(accelerator, &entryID) == kIOReturnSuccess,
+                   !visitedAccelerators.insert(entryID).inserted { continue }
 
                 var clients = io_iterator_t()
                 guard IORegistryEntryGetChildIterator(accelerator, kIOServicePlane, &clients) == kIOReturnSuccess

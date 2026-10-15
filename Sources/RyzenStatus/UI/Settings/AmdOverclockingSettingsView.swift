@@ -502,8 +502,7 @@ struct AmdOverclockingSettingsView: View {
                 Button {
                     Task { await controls.runMailboxDiagnostics() }
                     let bundle = controls.buildDiagnosticsBundle()
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(bundle, forType: .string)
+                    GeneralPasteboardAccess.shared.copyString(bundle, ownCopy: false)
                     showCopiedToast = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
                         showCopiedToast = false

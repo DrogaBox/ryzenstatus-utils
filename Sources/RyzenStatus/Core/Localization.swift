@@ -231,6 +231,8 @@ struct Strings {
     let memorySwapUsed: String
     let memoryCompressed: String
     let memoryCachedFiles: String
+    let memoryPageIns: String
+    let memoryPageOuts: String
     let pressureNormal: String
     let pressureWarning: String
     let pressureCritical: String
@@ -881,6 +883,13 @@ struct Strings {
     let networkMeasuring: String
     let networkApps: String
     let networkAppsIdle: String
+    let networkPublicIP: String
+    let networkPublicIPShow: String
+    let networkPublicIPHide: String
+    let networkLatency: String
+    let networkLatencyStart: String
+    let networkLatencyStop: String
+    let networkLatencyLost: String
 
     // MARK: Panel — disk
     let diskSection: String
@@ -891,6 +900,10 @@ struct Strings {
     let diskSelect: String
     let diskRead: String
     let diskWrite: String
+    let diskApps: String
+    let diskAppsIdle: String
+    let diskNetworkVolumes: String
+    let diskNetworkVolumesNone: String
     let diskSMARTStatus: String
     let diskSMARTUnavailable: String
     let diskTotalRead: String
@@ -956,6 +969,11 @@ struct Strings {
 
     // MARK: System uptime, battery health, speed test
     let systemUptime: String
+    let systemLoadAverage: String
+    /// The live graph's entry in a detail view's range menu.
+    let historyLive: String
+    /// Label of the long-history graph in the panel.
+    let historyTitle: String
     let batteryCharge: String
     let powerHealth: String
     let powerCycles: String
@@ -1419,6 +1437,8 @@ extension Strings {
         memorySwapUsed: "Swap em uso",
         memoryCompressed: "Comprimida",
         memoryCachedFiles: "Arquivos em cache",
+        memoryPageIns: "Entradas de página",
+        memoryPageOuts: "Saídas de página",
         pressureNormal: "Normal",
         pressureWarning: "Atenção",
         pressureCritical: "Crítico",
@@ -2043,6 +2063,13 @@ extension Strings {
         networkMeasuring: "Medindo…",
         networkApps: "Apps usando rede",
         networkAppsIdle: "Nenhum app usando rede agora",
+        networkPublicIP: "IP pública",
+        networkPublicIPShow: "Mostrar (consulta a Cloudflare)",
+        networkPublicIPHide: "Ocultar IP pública",
+        networkLatency: "Latência",
+        networkLatencyStart: "Medir (ping para 1.1.1.1)",
+        networkLatencyStop: "Parar de medir",
+        networkLatencyLost: "Sem resposta",
 
         diskSection: "Discos",
         diskUsed: "usado",
@@ -2052,6 +2079,10 @@ extension Strings {
         diskSelect: "Selecionar disco",
         diskRead: "Leitura",
         diskWrite: "Escrita",
+        diskApps: "Apps usando o disco",
+        diskAppsIdle: "Nenhum app lendo ou gravando agora",
+        diskNetworkVolumes: "Volumes de rede",
+        diskNetworkVolumesNone: "Nenhum volume de rede montado",
         diskSMARTStatus: "Status",
         diskSMARTUnavailable: "SMART indisponível para este disco",
         diskTotalRead: "Total lido",
@@ -2114,6 +2145,9 @@ extension Strings {
         memoryStyleBoth: "Ambos",
 
         systemUptime: "Ativo há",
+        systemLoadAverage: "Carga média (1, 5, 15 min)",
+        historyLive: "Ao vivo",
+        historyTitle: "Histórico",
         batteryCharge: "Carga",
         powerHealth: "Saúde da bateria",
         powerCycles: "Ciclos",
@@ -2567,6 +2601,8 @@ extension Strings {
         memorySwapUsed: "Swap used",
         memoryCompressed: "Compressed",
         memoryCachedFiles: "Cached files",
+        memoryPageIns: "Page ins",
+        memoryPageOuts: "Page outs",
         pressureNormal: "Normal",
         pressureWarning: "Caution",
         pressureCritical: "Critical",
@@ -3192,6 +3228,13 @@ extension Strings {
         networkMeasuring: "Measuring…",
         networkApps: "Apps using network",
         networkAppsIdle: "No apps using network now",
+        networkPublicIP: "Public IP",
+        networkPublicIPShow: "Show (asks Cloudflare)",
+        networkPublicIPHide: "Hide public IP",
+        networkLatency: "Latency",
+        networkLatencyStart: "Measure (ping 1.1.1.1)",
+        networkLatencyStop: "Stop measuring",
+        networkLatencyLost: "No reply",
 
         diskSection: "Disks",
         diskUsed: "used",
@@ -3201,6 +3244,10 @@ extension Strings {
         diskSelect: "Select disk",
         diskRead: "Read",
         diskWrite: "Write",
+        diskApps: "Apps using disk",
+        diskAppsIdle: "No apps reading or writing now",
+        diskNetworkVolumes: "Network volumes",
+        diskNetworkVolumesNone: "No network volumes mounted",
         diskSMARTStatus: "Status",
         diskSMARTUnavailable: "SMART unavailable for this disk",
         diskTotalRead: "Total read",
@@ -3263,6 +3310,9 @@ extension Strings {
         memoryStyleBoth: "Both",
 
         systemUptime: "Up for",
+        systemLoadAverage: "Load average (1, 5, 15 min)",
+        historyLive: "Live",
+        historyTitle: "History",
         batteryCharge: "Charge",
         powerHealth: "Battery health",
         powerCycles: "Cycles",

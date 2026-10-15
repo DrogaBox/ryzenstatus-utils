@@ -16,10 +16,11 @@
 //   - KASLR slide calculation (new kernel layout)
 //   - Required symbol removal or renaming
 //
-// This is an accepted architectural tradeoff: there is no public API for
-// SMU mailbox access, CPPC MSR read/write, or CCD temperature reporting.
-// Without this resolver, those features cannot exist. The resolver must be
-// validated against every new macOS release before shipping an update.
+// It resolves the private symbols the driver needs and the kernel does not
+// export to kexts: _wrmsr_carefully (fault-tolerant MSR writes),
+// _KUNCUserNotificationDisplayAlert, _tscFreq, _pmDispatch and _pmUnRegister.
+// Every caller handles a NULL result. The resolver must be validated
+// against every new macOS release before shipping an update.
 //
 
 #include <IOKit/IOLib.h>

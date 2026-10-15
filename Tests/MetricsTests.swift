@@ -1277,6 +1277,8 @@ struct MetricsTests {
         vmPrefix.compressor_page_count = 4
         vmPrefix.external_page_count = 5
         vmPrefix.internal_page_count = 6
+        vmPrefix.pageins = 8
+        vmPrefix.pageouts = 9
         vmPayload.prefix = vmPrefix
         vmPayload.tagStoragePages = 7
         expect(VMStatisticsDecoder.payloadByteCount == 248
@@ -1292,8 +1294,138 @@ struct MetricsTests {
                                         compressorPages: 4,
                                         externalPages: 5,
                                         internalPages: 6,
-                                        tagStoragePages: 0),
+                                        tagStoragePages: 0,
+                                        pageIns: 8,
+                                        pageOuts: 9),
                "VM statistics decodes the typed legacy prefix")
+        if let loads = SystemInfo.loadAverages() {
+            expect(loads.count == 3 && loads.allSatisfy { $0.isFinite && $0 >= 0 },
+                   "load averages are three finite, non-negative values")
+        } else {
+            expect(false, "load averages read on this Mac")
+        }
+        expect([0, 49, 50, 79, 80, 100, 101].map(MetricFormat.loadLevel(percent:)) == [0, 0, 1, 1, 2, 2, 3],
+               "load average levels step at half, 80% and every thread busy")
+        expect(SystemSection.loadAveragePercents(threads: 0) == nil,
+               "load average needs a thread count")
+
+        var historyTier = LongHistoryTier(step: 60, capacity: 10)
+        historyTier.record(1, at: 0)
+        historyTier.record(3, at: 30)
+        historyTier.record(5, at: 120)
+        let historyBuckets = historyTier.averages(end: 180, duration: 180, buckets: 3)
+        expect(historyBuckets.count == 3 && historyBuckets[0] == 2 && historyBuckets[1].isNaN && historyBuckets[2] == 5,
+               "long history averages each slot and leaves an empty bucket as a gap")
+        historyTier.record(7, at: 15 * 60)
+        expect(historyTier.mean(slot: 0) == nil && historyTier.mean(slot: 15) == 7,
+               "long history drops slots that left the ring")
+        historyTier.record(.nan, at: 15 * 60)
+        expect(historyTier.mean(slot: 15) == 7, "long history ignores invalid readings")
+
+        var savedTier = LongHistoryTier(step: LongHistoryStore.coarseStep, capacity: LongHistoryStore.coarseCapacity)
+        savedTier.record(42, at: 600)
+        let emptyTier = LongHistoryTier(step: LongHistoryStore.coarseStep, capacity: LongHistoryStore.coarseCapacity)
+        var restoredTiers = [emptyTier, emptyTier]
+        LongHistoryStore.decode(LongHistoryStore.encode([savedTier, emptyTier]), into: &restoredTiers)
+        expect(restoredTiers[0].mean(slot: 10) == 42 && restoredTiers[0].newestSlot == 10
+                && restoredTiers[1].newestSlot == nil,
+               "long history survives a save and a reload")
+        var untouchedTiers = [emptyTier]
+        LongHistoryStore.decode(Data([1, 2, 3]), into: &untouchedTiers)
+        expect(untouchedTiers[0].newestSlot == nil, "long history ignores a damaged file")
+
+        let historyStore = LongHistoryStore(fileURL: nil, now: 0)
+        historyStore.record(.cpu, 0.5, at: 1_000)
+        expect(historyStore.averages(.cpu, range: .tenMinutes, end: 1_005).last == 0.5
+                && historyStore.averages(.cpu, range: .tenMinutes, end: 1_005).count == LongHistoryStore.bucketCount,
+               "long history serves short ranges from the five-second ring")
+        expect(historyStore.averages(.cpu, range: .oneDay, end: 1_060).last == 0.5,
+               "long history serves long ranges from the minute ring")
+        expect(LongHistoryRange.allCases.allSatisfy { !$0.label(.enUS).isEmpty && !$0.label(.ja).isEmpty },
+               "long history ranges have labels")
+
+        var diskTracker = DiskProcessDeltaTracker()
+        expect(diskTracker.rates([10: DiskProcessTotals(read: 100, written: 0)], at: 1) == nil,
+               "per-app disk rates need a previous sample")
+        let diskRates = diskTracker.rates([10: DiskProcessTotals(read: 300, written: 50),
+                                           11: DiskProcessTotals(read: 900, written: 900)], at: 3)
+        expect(diskRates?[10]?.read == 100 && diskRates?[10]?.write == 25 && diskRates?[11] == nil,
+               "per-app disk rates divide by the elapsed time and skip new processes")
+        let reusedRates = diskTracker.rates([10: DiskProcessTotals(read: 5, written: 5)], at: 4)
+        expect(reusedRates?.isEmpty == true, "per-app disk rates skip a reused pid whose counters went back")
+        expect(DiskProcessSampler.totals()[getpid()] != nil, "per-app disk counters read this process")
+
+        let share = NetworkVolume(fileSystem: "smbfs", mountPoint: "/Volumes/Media",
+                                  source: "//guest@nas.local/Media", blockSize: 4096,
+                                  blocks: 1_000, availableBlocks: 250, isLocal: false)
+        expect(share?.name == "Media" && share?.server == "nas.local"
+                && share?.totalBytes == 4_096_000 && share?.usedFraction == 0.75,
+               "network volumes read their name, server and space")
+        let export = NetworkVolume(fileSystem: "nfs", mountPoint: "/Volumes/Backup",
+                                   source: "server.lan:/exports/backup", blockSize: 512,
+                                   blocks: 0, availableBlocks: 0, isLocal: false)
+        expect(export?.server == "server.lan" && export?.usedFraction == nil,
+               "network volumes read an NFS server and tolerate unknown space")
+        expect(NetworkVolume(fileSystem: "apfs", mountPoint: "/", source: "/dev/disk3s1",
+                             blockSize: 4096, blocks: 1, availableBlocks: 1, isLocal: true) == nil
+                && NetworkVolume(fileSystem: "smbfs", mountPoint: "/Volumes/X", source: "//x/y",
+                                 blockSize: 1, blocks: 1, availableBlocks: 1, isLocal: true) == nil,
+               "network volumes leave out local file systems")
+        _ = NetworkVolume.mounted()
+
+        expect(PublicIPService.address(fromTrace: "fl=1\nh=one.one.one.one\nip=203.0.113.7\nts=1\n") == "203.0.113.7"
+                && PublicIPService.address(fromTrace: "ip=2001:db8::1\n") == "2001:db8::1",
+               "public IP reads the trace page's address")
+        expect(PublicIPService.address(fromTrace: "ip=<html>\n") == nil
+                && PublicIPService.address(fromTrace: "") == nil,
+               "public IP rejects anything that is not an address")
+        expect(PingService.roundTrip(fromPingOutput: """
+            PING 1.1.1.1 (1.1.1.1): 56 data bytes
+
+            --- 1.1.1.1 ping statistics ---
+            1 packets transmitted, 1 packets received, 0.0% packet loss
+            round-trip min/avg/max/stddev = 12.345/12.345/12.345/0.000 ms
+            """) == 12.345,
+               "ping reads the round trip")
+        expect(PingService.roundTrip(fromPingOutput: """
+            --- 1.1.1.1 ping statistics ---
+            1 packets transmitted, 0 packets received, 100.0% packet loss
+            """) == nil,
+               "ping reports a lost probe as no reply")
+        expect(WorldClockSupport.zones(from: "Europe/Madrid, Nowhere/City,Europe/Madrid,Asia/Tokyo")
+                == ["Europe/Madrid", "Asia/Tokyo"],
+               "world clocks drop unknown and repeated time zones")
+        expect(WorldClockSupport.zones(from: nil).isEmpty, "world clocks start empty")
+        expect(WorldClockSupport.cityName("America/Argentina/Buenos_Aires") == "Buenos Aires"
+                && WorldClockSupport.cityName("UTC") == "UTC",
+               "world clocks name the city from the identifier")
+        expect(WorldClockSupport.offsetLabel(seconds: 18_000) == "+5 h"
+                && WorldClockSupport.offsetLabel(seconds: -12_600) == "−3:30 h"
+                && WorldClockSupport.offsetLabel(seconds: 0) == "+0 h",
+               "world clocks label the difference in hours")
+        do {
+            let utc = TimeZone(identifier: "UTC")!
+            let tokyo = TimeZone(identifier: "Asia/Tokyo")!
+            let losAngeles = TimeZone(identifier: "America/Los_Angeles")!
+            let lateNight = Date(timeIntervalSince1970: 1_767_310_200)  // 2026-01-01 23:30 UTC
+            expect(WorldClockSupport.dayShift(at: lateNight, zone: tokyo, local: utc) == 1
+                    && WorldClockSupport.dayShift(at: lateNight, zone: losAngeles, local: tokyo) == -1
+                    && WorldClockSupport.dayShift(at: lateNight, zone: utc, local: utc) == 0,
+                   "world clocks tell tomorrow and yesterday apart")
+            let noon = Date(timeIntervalSince1970: 1_767_268_800)  // 2026-01-01 12:00 UTC
+            expect(WorldClockSupport.isDaytime(at: noon, zone: utc)
+                    && !WorldClockSupport.isDaytime(at: noon, zone: tokyo),
+                   "world clocks tell day from night")
+            expect(WorldClockSupport.sorted(["Asia/Tokyo", "America/New_York", "Europe/London"], at: noon)
+                    == ["America/New_York", "Europe/London", "Asia/Tokyo"],
+                   "world clocks read west to east")
+        }
+        let english = Locale(identifier: "en_US")
+        expect(WorldClockSupport.matches("tokyo", excluding: [], locale: english).contains("Asia/Tokyo")
+                && !WorldClockSupport.matches("tokyo", excluding: ["Asia/Tokyo"], locale: english)
+                    .contains("Asia/Tokyo")
+                && WorldClockSupport.matches("  ", excluding: [], locale: english).isEmpty,
+               "world clock search finds cities and skips the chosen ones")
         expect(VMStatisticsDecoder.decode(vmPayload,
                                           returnedCount: VMStatisticsDecoder.rev2Count)?.tagStoragePages == 0,
                "VM statistics does not read tagged storage from a rev2 payload")
@@ -6722,7 +6854,7 @@ struct MetricsTests {
 
         // MARK: Features hub catalog
 
-        expect(AppFeature.allCases.count == 82, "feature catalog has 82 features")
+        expect(AppFeature.allCases.count == 83, "feature catalog has 83 features")
         expect(Set(AppFeature.allCases.map(\.rawValue)).count == AppFeature.allCases.count,
                "feature ids are unique")
         expect(AppFeature.allCases.map(\.rawValue) == [
@@ -6741,7 +6873,7 @@ struct MetricsTests {
             "quickLauncher", "quickToggles", "colorPicker", "screenOCR", "cleaningMode", "mediaTools",
             "cleaner", "uninstaller", "homebrew", "appUpdates", "whatsAppDownloads", "screenshot", "screenRecorder", "cameraPreview", "radialMenu",
             "scratchpad", "killProcess", "commandBar",
-            "wallpaper", "portManager",
+            "wallpaper", "portManager", "worldClock",
             "notch", "notchCalendar", "notchNotifications", "notchGestures", "notchTimer", "notchAccessories", "notchLyrics",
             "notchLiveEqualizer", "notchQueue", "notchDownloads", "notchAgents", "notchWatch", "notchMascot",
             "monitorCPU", "monitorGPU", "monitorMemory", "monitorNetwork", "monitorDisk", "monitorPower",
@@ -9823,6 +9955,13 @@ struct MetricsTests {
 
         let pmDecoded = AMDSmuPMTable.decode(version: 0x380805, data: pmData)
         expect(pmDecoded != nil, "decode must accept a full live 0x380805 capture")
+        // Core rings: rows divide the count evenly where they can, else 8 per row.
+        for (count, perRow, diameter) in [(16, 8, 24.0), (32, 8, 24.0), (12, 12, 14.0), (24, 12, 14.0),
+                                         (20, 10, 18.0), (18, 9, 22.0), (14, 7, 24.0), (6, 8, 24.0)] {
+            let layout = CoreRingLayout(count: count)
+            expect(layout.perRow == perRow && Double(layout.diameter) == diameter,
+                   "\(count) cores must lay out \(perRow) per row at \(diameter) pt, got \(layout.perRow) at \(layout.diameter)")
+        }
         if let d = pmDecoded {
             func near(_ a: Float, _ b: Float, _ eps: Float) -> Bool { abs(a - b) < eps }
             let s = d.summary
@@ -9839,7 +9978,10 @@ struct MetricsTests {
             expect(near(s.fclkMHz, 1667, 2), "FCLK must decode ~1667 MHz, got \(s.fclkMHz)")
             expect(near(s.uclkMHz, 1667, 2), "UCLK must decode ~1667 MHz, got \(s.uclkMHz)")
             expect(near(s.memclkMHz, 1667, 2), "MEMCLK must decode ~1667 MHz, got \(s.memclkMHz)")
+            expect(near(s.thmValueC, 43.1, 0.2), "THM value must decode ~43.1 C idle, got \(s.thmValueC)")
             expect(near(s.peakTempC, 65, 0.5), "peak temp must decode 65 C, got \(s.peakTempC)")
+            expect(s.thmValueC < s.peakTempC && d.cores.allSatisfy { $0.tempC < s.peakTempC },
+                   "PEAK_TEMP reads above every live sensor, so it must not be the package temperature")
             expect(s.pc6Percent == 0, "PC6 must be 0 while the kext keeps deep C6 disabled")
 
             expect(d.cores.count == 16, "0x380805 exposes 16 core slots, got \(d.cores.count)")
@@ -9868,6 +10010,7 @@ struct MetricsTests {
                 expect(abs(s2.tdcLimitA - 75) < 0.5, "light-load TDC limit must decode 75 A, got \(s2.tdcLimitA)")
                 expect(abs(s2.edcLimitA - 110) < 0.5, "light-load EDC limit must decode 110 A, got \(s2.edcLimitA)")
                 expect(abs(s2.thmLimitC - 80) < 0.5, "light-load THM limit must decode 80 C, got \(s2.thmLimitC)")
+                expect(abs(s2.thmValueC - 50.1) < 0.2, "light-load THM value must decode ~50.1 C, got \(s2.thmValueC)")
                 expect(s2.pptValueW > 40 && s2.pptValueW < 115,
                        "light-load PPT value must stay plausible, got \(s2.pptValueW)")
                 expect(d2.cores.count == 16, "light-load capture must expose 16 core slots, got \(d2.cores.count)")
@@ -10084,15 +10227,24 @@ struct MetricsTests {
         let kextCpp = kextSource("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.cpp")
         expect(!kextCpp.isEmpty, "kernel source must be readable for the pin checks (run tests from the repo root)")
 
-        // Pin 1 — Vermeer RSMU mailbox registers (the silent-timeout fix).
-        // The old contiguous layout {0x3B10524, 0x3B10528, 0x3B1052C} polled
-        // a response register that never changes, so every SMU command timed
-        // out invisibly. Canonical layout per ryzen_smu smu.c: cmd 0x3B10524,
-        // args 0x3B10A40, rsp 0x3B10570 (values+order pinned; whitespace-
-        // tolerant so reformatting does not false-fail).
-        expect(kextCpp.range(of: "smuMailbox\\s*=\\s*\\{\\s*0x3B10524,\\s*0x3B10A40,\\s*0x3B10570,\\s*0x3D,\\s*true\\s*\\}",
+        // Pin 1 — Vermeer RSMU and MP1 mailbox registers (the silent-timeout
+        // fix). The old contiguous layout {0x3B10524, 0x3B10528, 0x3B1052C}
+        // polled a response register that never changes, so every SMU command
+        // timed out invisibly. Canonical layouts per ryzen_smu smu.c and
+        // ZenStates-Core: RSMU cmd 0x3B10524 / args 0x3B10A40 / rsp 0x3B10570,
+        // MP1 cmd 0x3B10530 / args 0x3B109C4 / rsp 0x3B1057C (values+order
+        // pinned; whitespace-tolerant so reformatting does not false-fail).
+        expect(kextCpp.range(of: "rsmu\\s*=\\s*\\{\\s*0x3B10524,\\s*0x3B10A40,\\s*0x3B10570,\\s*true\\s*\\}",
                              options: .regularExpression) != nil,
-               "Vermeer mailbox must initialize cmd/args/rsp = 0x3B10524/0x3B10A40/0x3B10570 (supported)")
+               "Vermeer RSMU must initialize cmd/args/rsp = 0x3B10524/0x3B10A40/0x3B10570 (supported)")
+        expect(kextCpp.range(of: "mp1\\s*=\\s*\\{\\s*0x3B10530,\\s*0x3B109C4,\\s*0x3B1057C,\\s*true\\s*\\}",
+                             options: .regularExpression) != nil,
+               "Vermeer MP1 must initialize cmd/args/rsp = 0x3B10530/0x3B109C4/0x3B1057C (supported)")
+        // Curve Optimizer is MP1 SetDldoPsmMargin 0x35 with the fuse core mask
+        // (ZenStates-Core); RSMU 0x3D with a core|offset<<8 word is not a
+        // Vermeer Curve Optimizer command.
+        expect(kextCpp.contains("smuExecute(mp1, kMP1_SET_DLDO_PSM_MARGIN"),
+               "Curve Optimizer writes must go through the MP1 mailbox")
         expect(!kextCpp.contains("0x3B10528") && !kextCpp.contains("0x3B1052C"),
                "old wrong Vermeer registers 0x3B10528/0x3B1052C must never reappear")
 
@@ -10100,6 +10252,8 @@ struct MetricsTests {
         // pin it in the header so a field reorder cannot reinterpret values.
         let kextHpp = kextSource("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.hpp")
         expect(!kextHpp.isEmpty, "kernel header must be readable for the pin checks")
+        expect(kextHpp.range(of: "kMP1_SET_DLDO_PSM_MARGIN\\s*=\\s*0x35;", options: .regularExpression) != nil,
+               "kMP1_SET_DLDO_PSM_MARGIN must stay 0x35 (Vermeer MP1 SetDldoPsmMargin)")
         if let m = kextHpp.range(of: "msgReg"), let a = kextHpp.range(of: "argReg"), let r = kextHpp.range(of: "rspReg") {
             expect(m.lowerBound < a.lowerBound && a.lowerBound < r.lowerBound,
                    "SMUMailbox field order must stay msgReg/argReg/rspReg (the positional initializers depend on it)")
@@ -10167,7 +10321,7 @@ struct MetricsTests {
         }
         let sample = AMDSmuDiagnostics.Report(
             mailboxSupported: true, msgReg: 0x3B10524, argReg: 0x3B10A40,
-            rspReg: 0x3B10570, curveOptimizerCmd: 0x3D, smnTctlRaw: 0x1234,
+            rspReg: 0x3B10570, curveOptimizerCmd: 0x35, smnTctlRaw: 0x1234,
             testRspCode: 1, testArg0: 0x43, testElapsedUs: 240,
             versionRspCode: 1, versionRaw: 0x00380805, versionElapsedUs: 180)
         let encoded = diagWire([
@@ -10204,7 +10358,9 @@ struct MetricsTests {
         expect(AMDSmuDiagnostics.responseName(0) == "TIMEOUT", "rsp 0 must decode as TIMEOUT")
         expect(AMDSmuDiagnostics.responseName(0xFF) == "FAILED", "rsp 0xFF must decode as FAILED")
         expect(AMDSmuDiagnostics.responseName(0xFE) == "UNKNOWN_CMD", "rsp 0xFE must decode as UNKNOWN_CMD")
-        expect(AMDSmuDiagnostics.responseName(0xFD) == "BUSY", "rsp 0xFD must decode as BUSY")
+        expect(AMDSmuDiagnostics.responseName(0xFD) == "REJECTED_PREREQ", "rsp 0xFD must decode as REJECTED_PREREQ")
+        expect(AMDSmuDiagnostics.responseName(0xFC) == "REJECTED_BUSY", "rsp 0xFC must decode as REJECTED_BUSY")
+        expect(AMDSmuDiagnostics.responseName(0xFB) == "NOT_READY", "driver 0xFB must decode as NOT_READY")
         expect(AMDSmuDiagnostics.responseName(-11) == "UNSUPPORTED", "app-side -11 must decode as UNSUPPORTED")
 
         // Kernel-side pins: the UserClient must keep the privilege gate, the
@@ -10347,49 +10503,18 @@ struct MetricsTests {
         expect(AMDOcMode.validate(enable: false, resetScalar: false), "disable without reset is valid")
         expect(!AMDOcMode.validate(enable: true, resetScalar: true), "enable with reset must be rejected app-side")
 
-        // MARK: S8.2 AMDOcFreq (selectors 51/52 — 0x5C/0x5D pinned encodings)
+        // MARK: AMDOcFreq (selector 51 — 0x5C argument and MHz envelope)
 
-        // Pinned packing vectors: Vermeer mask = (ccd << 28) | ((core % 8)
-        // << 20) | freq with core = ccd·8 → (ccd << 28) | freq.
-        //   4000 MHz  = 0x0FA0 → 0x0000_0FA0
-        //   4250 MHz  = 0x109A → 0x1000_109A (CCD 1)
-        //   4875 MHz  = 0x130B → 0x3000_130B (CCD 3)
-        expect(AMDOcFreq.perCcdArg(ccd: 0, mhz: 4000) == 0x0000_0FA0,
-               "perCcdArg(0, 4000) must equal 0x0000_0FA0, got \(AMDOcFreq.perCcdArg(ccd: 0, mhz: 4000).map { String(format: "0x%08X", $0) } ?? "nil")")
-        expect(AMDOcFreq.perCcdArg(ccd: 1, mhz: 4250) == 0x1000_109A,
-               "perCcdArg(1, 4250) must equal 0x1000_109A, got \(AMDOcFreq.perCcdArg(ccd: 1, mhz: 4250).map { String(format: "0x%08X", $0) } ?? "nil")")
-        expect(AMDOcFreq.perCcdArg(ccd: 3, mhz: 4875) == 0x3000_130B,
-               "perCcdArg(3, 4875) must equal 0x3000_130B, got \(AMDOcFreq.perCcdArg(ccd: 3, mhz: 4875).map { String(format: "0x%08X", $0) } ?? "nil")")
-        // 8000 MHz must fit the 20-bit freq field exactly (doc MAX).
-        expect(AMDOcFreq.perCcdArg(ccd: 0, mhz: 8000) == 0x0000_1F40,
-               "perCcdArg(0, 8000) must equal 0x0000_1F40 (doc MAX fits 20 bits)")
-
-        // All-core is the mask-free 0x5C encoding: freq & 0xFFFFF.
+        // All-core is the mask-free 0x5C encoding: freq & 0xFFFFF. Per-CCD
+        // requests carry plain MHz; the kext builds each core's 0x5D mask.
         expect(AMDOcFreq.allCoresArg(4000) == 0x0FA0, "allCoresArg(4000) must equal 0x0FA0")
         expect(AMDOcFreq.allCoresArg(8000) == 0x1F40, "allCoresArg(8000) must equal 0x1F40")
 
-        // Envelope guards: doc MIN 400 / MAX 8000, CCDs below 8.
+        // Envelope guards: doc MIN 400 / MAX 8000.
         expect(AMDOcFreq.allCoresArg(399) == nil, "399 MHz must be rejected")
         expect(AMDOcFreq.allCoresArg(8001) == nil, "8001 MHz must be rejected (doc MAX 8000)")
-        expect(AMDOcFreq.perCcdArg(ccd: 8, mhz: 4000) == nil, "CCD 8 must be rejected (max 8 CCDs)")
-        expect(AMDOcFreq.perCcdArg(ccd: -1, mhz: 4000) == nil, "negative CCD must be rejected")
-        expect(AMDOcFreq.perCcdArg(ccd: 0, mhz: 0) == nil, "0 MHz must be rejected")
         expect(AMDOcFreq.isValidMHz(400) && AMDOcFreq.isValidMHz(8000), "envelope endpoints must be valid")
         expect(!AMDOcFreq.isValidMHz(8001) && !AMDOcFreq.isValidMHz(399), "out-of-envelope values must be invalid")
-
-        // Round trip: decode inverts the packing (CCD, freq fields).
-        if let d = AMDOcFreq.decode(mask: 0x3000_130B) {
-            expect(d.ccd == 3 && d.mhz == 4875, "decode(0x3000_130B) must give ccd 3 @ 4875, got ccd \(d.ccd) @ \(d.mhz)")
-        } else {
-            expect(false, "decode(0x3000_130B) must succeed")
-        }
-        if let d = AMDOcFreq.decode(mask: 0x1000_109A) {
-            expect(d.ccd == 1 && d.mhz == 4250, "decode(0x1000_109A) must give ccd 1 @ 4250")
-        } else {
-            expect(false, "decode(0x1000_109A) must succeed")
-        }
-        expect(AMDOcFreq.decode(mask: 0x8000_0FA0) == nil, "decode must refuse CCD 8 (mask bit 31 set)")
-        expect(AMDOcFreq.decode(mask: 0x0000_0000) == nil, "decode must refuse 0 MHz (never-written cache)")
 
         // MARK: Hardware validation — probe record
         //

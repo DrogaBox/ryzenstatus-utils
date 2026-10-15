@@ -56,10 +56,7 @@ final class ColorSamplerService: ObservableObject {
     @discardableResult
     func copyQuietly(_ color: NSColor) -> String? {
         guard let value = formattedValue(color) else { return nil }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.declareRyzenStatusSource()
-        pasteboard.setString(value, forType: .string)
+        GeneralPasteboardAccess.shared.copyString(value, ownCopy: true)
         return value
     }
 

@@ -328,10 +328,10 @@ struct PerformanceSuiteView: View {
                     history: amdControls.packagePowerHistory,
                     maxDomain: max(60, Double(decoded.summary.pptLimitW) * 1.05)
                 )
-                // Peak sensor: PM-table window peak (package) vs hottest core.
+                // Package temperature (THM_VALUE) vs hottest core.
                 smuMetricCard(
                     title: amdStrings.packageTempLabel,
-                    value: MetricFormat.temperatureCompact(Double(decoded.summary.peakTempC), unit: tempUnit),
+                    value: MetricFormat.temperatureCompact(Double(decoded.summary.thmValueC), unit: tempUnit),
                     extraInfo: String(format: "core %.0f °C", corePeak),
                     accentColor: PanelMetricColor.orange(for: colorScheme),
                     history: amdControls.packageTempHistory,
@@ -401,12 +401,12 @@ struct PerformanceSuiteView: View {
             }
             HStack(spacing: 4) {
                 Spacer()
-                Text(core.isSleeping ? "—" : MetricFormat.temperatureCompact(Double(core.tempC), unit: tempUnit))
+                Text(MetricFormat.temperatureCompact(Double(core.tempC), unit: tempUnit))
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundColor(core.isSleeping ? .secondary.opacity(0.5) : tempColor)
+                    .foregroundColor(tempColor)
                     .monospacedDigit()
                 Spacer()
-                Text(core.isSleeping ? "—" : String(format: "%.1f W", core.powerW))
+                Text(String(format: "%.1f W", core.powerW))
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundColor(.secondary)
                     .monospacedDigit()

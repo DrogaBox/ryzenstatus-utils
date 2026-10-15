@@ -25,6 +25,9 @@ struct SystemSection: View {
     /// Core-grid metric mode, persisted ("load" = classic fill).
     @AppStorage(DefaultsKey.panelCoreGridMetric) private var coreGridMetricRaw = "load"
     @State private var expandedKinds: Set<BreakdownKind> = []
+    /// CPU or GPU opened from its card: the details unfold under the cards
+    /// instead of under the usage rows, which may be hidden or elsewhere.
+    @State private var expandedFromCards: Set<BreakdownKind> = []
     @State private var alertsExpanded = false
     @State private var breakdownRows: [BreakdownKind: [ProcessUsage]] = [:]
     @State private var breakdownLoading: [BreakdownKind: Bool] = [:]
@@ -303,20 +306,65 @@ struct SystemSection: View {
         }
     }
 
-    private func toggleBreakdown(_ kind: BreakdownKind) {
+    private func toggleBreakdown(_ kind: BreakdownKind, fromCards: Bool = false) {
         if expandedKinds.contains(kind) {
             expandedKinds.remove(kind)
+            expandedFromCards.remove(kind)
             breakdownRows.removeValue(forKey: kind)
             breakdownLoading.removeValue(forKey: kind)
         } else {
             if accordionMode {
                 expandedKinds.removeAll()
+                expandedFromCards.removeAll()
                 breakdownRows.removeAll()
                 breakdownLoading.removeAll()
             }
             expandedKinds.insert(kind)
+            if fromCards { expandedFromCards.insert(kind) }
             updateBreakdown(for: kind)
         }
+    }
+
+    /// Whether `kind`'s details unfold under the cards rather than the rows.
+    private func unfoldsUnderCards(_ kind: BreakdownKind) -> Bool {
+        sysTemps && expandedFromCards.contains(kind)
+    }
+
+    /// What CPU unfolds: load averages, history and the busiest processes.
+    @ViewBuilder
+    private var cpuDetails: some View {
+        if expandedKinds.contains(.cpu) {
+            loadAverageRow
+            usageHistory(.cpu)
+            breakdownList(for: .cpu)
+        }
+    }
+
+    /// What GPU unfolds: video memory, history and the busiest processes.
+    @ViewBuilder
+    private var gpuDetails: some View {
+        if expandedKinds.contains(.gpu) {
+            if let used = monitor.snapshot.gpuMemoryUsed, let total = monitor.snapshot.gpuMemoryTotal {
+                detailLine("VRAM", "\(formatMemory(used)) / \(formatMemory(total))")
+            }
+            usageHistory(.gpu)
+            breakdownList(for: .gpu)
+        }
+    }
+
+    /// A secondary reading under an expanded row: title left, value right.
+    private func detailLine(_ title: String, _ value: String) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+                .font(.system(size: 11, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .padding(.leading, 16)
     }
 
     private func refreshBreakdown(force: Bool = false) {
@@ -374,10 +422,12 @@ struct SystemSection: View {
                                isVisible: $sysTemps)
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    subsectionLabel(l10n.s.temperatures)
-                    Spacer(minLength: 0)
-                    if editing {
+                // The cards name themselves; the title only marks the block
+                // while the panel is being arranged.
+                if editing {
+                    HStack(spacing: 6) {
+                        subsectionLabel(l10n.s.temperatures)
+                        Spacer(minLength: 0)
                         PanelInlineHideButton(isVisible: $sysTemps)
                     }
                 }
@@ -385,7 +435,7 @@ struct SystemSection: View {
                     if cpuAvailable {
                         Button {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                                toggleBreakdown(.cpu)
+                                toggleBreakdown(.cpu, fromCards: true)
                             }
                         } label: {
                             PanelSquareCard(
@@ -407,7 +457,7 @@ struct SystemSection: View {
                         let gpuFreqVal = monitor.snapshot.gpuFreq ?? 0
                         Button {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                                toggleBreakdown(.gpu)
+                                toggleBreakdown(.gpu, fromCards: true)
                             }
                         } label: {
                             PanelSquareCard(
@@ -432,6 +482,10 @@ struct SystemSection: View {
                     Text(l10n.s.monitorUnavailable)
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
+                }
+                if !editing {
+                    if unfoldsUnderCards(.cpu) { cpuDetails }
+                    if unfoldsUnderCards(.gpu) { gpuDetails }
                 }
             }
         }
@@ -555,7 +609,9 @@ struct SystemSection: View {
                             .frame(height: 22)
                     }
                 }
-                breakdownList(for: .cpu)
+                if !unfoldsUnderCards(.cpu) {
+                    cpuDetails
+                }
             } else if editing, cpuAvailable {
                 PanelHiddenItemRow(title: l10n.s.cpuLabel, systemImage: "cpu", isVisible: $sysCPU)
             }
@@ -576,7 +632,9 @@ struct SystemSection: View {
                         .frame(height: 22)
                 }
 
-                breakdownList(for: .gpu)
+                if !unfoldsUnderCards(.gpu) {
+                    gpuDetails
+                }
             } else if editing, gpuAvailable {
                 PanelHiddenItemRow(title: l10n.s.gpuLabel, systemImage: "memorychip", isVisible: $sysGPU)
             }
@@ -713,9 +771,44 @@ struct SystemSection: View {
         }
     }
 
+    /// The 1, 5 and 15 minute load averages, shown under CPU while its
+    /// processes are expanded.
+    @ViewBuilder
+    private var loadAverageRow: some View {
+        if let percents = Self.loadAveragePercents() {
+            HStack(spacing: 8) {
+                Text(l10n.s.systemLoadAverage)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 4)
+                LoadAverageText(percents: percents)
+            }
+            .padding(.leading, 16)
+        }
+    }
+
+    /// A usage reading (0...1) over the range picked in the panel.
+    private func usageHistory(_ metric: LongHistoryMetric) -> some View {
+        PanelLongHistory(series: { range, end in
+                             .single(LongHistoryStore.shared.averages(metric, range: range, end: end), ceiling: 1)
+                         },
+                         format: { value, _ in value.isFinite ? MetricFormat.percent(value) : "—" })
+            .padding(.leading, 16)
+            .padding(.bottom, 2)
+    }
+
     static func uptimeString() -> String {
         let total = SystemInfo.wallClockUptimeSeconds() ?? Int(ProcessInfo.processInfo.systemUptime)
         return MetricFormat.uptime(total)
+    }
+
+    /// The 1, 5 and 15 minute load averages as a share of the logical CPUs:
+    /// 100% means every thread had work on average, more means work waited.
+    static func loadAveragePercents(threads: Int = ProcessInfo.processInfo.activeProcessorCount) -> [Int]? {
+        guard threads > 0, let loads = SystemInfo.loadAverages() else { return nil }
+        return loads.map { Int(($0 / Double(threads) * 100).rounded()) }
     }
 
     private static let memoryFormatter: ByteCountFormatter = {
@@ -800,24 +893,16 @@ struct SystemSection: View {
                     .buttonStyle(.plain)
                 }
 
-                memorySecondaryRow(l10n.s.memoryCompressed, monitor.snapshot.memoryCompressed)
-                memorySecondaryRow(l10n.s.memoryCachedFiles, monitor.snapshot.memoryCached)
-                memorySecondaryRow(l10n.s.memorySwapUsed, monitor.snapshot.memorySwapUsed)
-
-                if let gpuUsed = monitor.snapshot.gpuMemoryUsed, let gpuTotal = monitor.snapshot.gpuMemoryTotal {
-                    HStack(spacing: 8) {
-                        // Aligning with the chevron in the main memory row (or just indent)
-                        Spacer().frame(width: 8)
-                        Text("GPU VRAM")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text("\(formatMemory(gpuUsed)) / \(formatMemory(gpuTotal))")
-                            .font(.system(size: 11, weight: .medium))
-                            .monospacedDigit()
-                    }
+                // The breakdown of used memory, its history and the busiest
+                // processes unfold together; video memory sits under GPU.
+                if expandedKinds.contains(.memory) {
+                    memorySecondaryRow(l10n.s.memoryCompressed, monitor.snapshot.memoryCompressed)
+                    memorySecondaryRow(l10n.s.memoryCachedFiles, monitor.snapshot.memoryCached)
+                    memorySecondaryRow(l10n.s.memorySwapUsed, monitor.snapshot.memorySwapUsed)
+                    memorySecondaryRow(l10n.s.memoryPageIns, monitor.snapshot.memoryPageIns)
+                    memorySecondaryRow(l10n.s.memoryPageOuts, monitor.snapshot.memoryPageOuts)
+                    usageHistory(.memory)
                 }
-
                 breakdownList(for: .memory)
             }
         }

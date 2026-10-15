@@ -69,8 +69,7 @@ final class CStateNvramService: ObservableObject {
     @discardableResult
     func copyAmdArgsToClipboard() -> String {
         let str = amdBootArgsString
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(str, forType: .string)
+        GeneralPasteboardAccess.shared.copyString(str, ownCopy: false)
         return str
     }
 

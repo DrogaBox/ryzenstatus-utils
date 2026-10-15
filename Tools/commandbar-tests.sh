@@ -31,16 +31,6 @@ echo "▸ Building & running command bar tests against $(basename "$SDK")…"
 mkdir -p build
 rm -f build/commandbar-tests
 
-# `enum DefaultsKey {}` is declared at the top of Core/Defaults.swift, a file that
-# also registers the default value of every preference in the app and therefore
-# drags the whole app into this harness. The type is empty in the real tree too:
-# `DefaultsKey+App.swift` and `DefaultsKey+Monitor.swift` are what add the keys.
-# So the runner states the same empty namespace in its own build directory, and
-# nothing in the repository duplicates it.
-cat > build/CommandBarDefaultsKeyNamespace.swift <<'SWIFT'
-enum DefaultsKey {}
-SWIFT
-
 # Pure contracts do not require whole-program optimization. Production build
 # still uses -O; all assertions and inputs stay identical in this runner.
 # The whole module (minus the app entry point), so the harness cannot drift

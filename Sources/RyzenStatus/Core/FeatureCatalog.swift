@@ -36,6 +36,7 @@ enum AppFeature: String, CaseIterable {
          cleaner, uninstaller, homebrew, appUpdates, whatsAppDownloads, screenshot, screenRecorder, cameraPreview, radialMenu, scratchpad, killProcess, commandBar
     case wallpaper
     case portManager
+    case worldClock
     // Dynamic Island
     case notch, notchCalendar, notchNotifications, notchGestures, notchTimer, notchAccessories, notchLyrics,
          notchLiveEqualizer, notchQueue, notchDownloads, notchAgents, notchWatch, notchMascot
@@ -91,6 +92,8 @@ extension AppFeature {
         case .wallpaper:
             return .tools
         case .portManager:
+            return .tools
+        case .worldClock:
             return .tools
         case .notch, .notchCalendar, .notchNotifications, .notchGestures, .notchTimer, .notchAccessories,
              .notchLyrics, .notchLiveEqualizer, .notchQueue, .notchDownloads, .notchAgents, .notchWatch,
@@ -164,6 +167,7 @@ extension AppFeature {
         case .portManager: return "network"
         case .commandBar: return "command"
         case .wallpaper: return "photo.on.rectangle"
+        case .worldClock: return "globe"
         case .notch: return "macbook"
         case .notchGestures: return "hand.draw"
         case .notchTimer: return "timer"
@@ -272,6 +276,9 @@ extension AppFeature {
         // wallpaper gallery acts only when a picture is chosen.
         case .diskImageInstaller, .wallpaper:
             return []
+        // On demand: the rows redraw only while the panel shows them.
+        case .worldClock:
+            return []
         case .windowLayout, .mixer, .micMute, .keepAwake,
              .quickLauncher, .quickToggles, .colorPicker, .screenOCR, .cleaningMode, .mediaTools,
              .cleaner, .uninstaller, .homebrew, .appUpdates, .whatsAppDownloads, .screenshot, .screenRecorder, .cameraPreview, .scratchpad, .killProcess,
@@ -310,6 +317,8 @@ extension AppFeature {
         // lists App Management, which this catalog does not model); the
         // gallery reads Apple's stills and pictures the user picked.
         case .diskImageInstaller, .wallpaper: return []
+        // Time zones are part of Foundation; nothing is asked of macOS.
+        case .worldClock: return []
         // Only emptying the Trash asks the Finder; every other quick toggle
         // (dark mode included) works without a permission.
         case .quickToggles: return [.automationFinder]
@@ -386,6 +395,8 @@ extension AppFeature {
     /// grow the panel by a tab.
     static let optInFeatures: Set<AppFeature> = [
         .diskImageInstaller, .wallpaper,
+        // A new panel tab arrives only when asked for.
+        .worldClock,
         // Upstream ships these opt-in: they change how every window, wheel or
         // Space behaves, so an update must not install them on its own.
         .focusFollowsMouse, .scrollHorizontal, .linearScroll, .spacesOrder,
@@ -405,6 +416,8 @@ extension AppFeature {
         .uninstaller, .homebrew, .cleaningMode, .quickToggles, .killProcess,
         // Runs `lsof` only while its page or panel row is open.
         .portManager,
+        // A view that reads the saved cities when it draws.
+        .worldClock,
         // This fork's queue keeps no state; a running island re-reads the switch.
         .notchQueue,
         // Performance dashboard tabs: views that read availability on render,
@@ -575,6 +588,7 @@ extension AppFeature {
         case .killProcess: return FeatureStrings.killProcess(L10n.shared.language).pageTitle
         case .wallpaper: return FeatureStrings.wallpaper(L10n.shared.language).pageTitle
         case .portManager: return FeatureStrings.portManager(L10n.shared.language).title
+        case .worldClock: return FeatureStrings.worldClock(L10n.shared.language).pageTitle
         case .cleaningMode: return s.cleaningMenuItem
         case .mediaTools: return s.mediaName
         case .cleaner: return s.cleanerName

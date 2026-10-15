@@ -216,7 +216,7 @@ actor ProcessorModel {
 
     /// Queries the kernel for the true marketing bundle version of AMDRyzenCPUPowerManagement.
     /// Kext selector 8 historically returns MODULE_VERSION (internal module ABI = "6"),
-    /// whereas KextManager retrieves the true CFBundleVersion / CFBundleShortVersionString ("3.34.17").
+    /// whereas KextManager retrieves the true CFBundleVersion / CFBundleShortVersionString ("3.35.0").
     static func queryLoadedKextVersion() -> String? {
         let bundleIDs = ["wtf.spinach.AMDRyzenCPUPowerManagement"] as CFArray
         guard let dict = KextManagerCopyLoadedKextInfo(bundleIDs, nil)?.takeRetainedValue() as? [String: [String: Any]],
@@ -2118,11 +2118,10 @@ actor ProcessorModel {
     }
 
     /// Program per-CCD frequency overrides via 0x5D (selector 51, mode 1).
-    /// `targets` maps CCD index → absolute MHz; only the entries present are
-    /// sent as one contiguous window ([startCcd = min, count = span] with
-    /// every in-between CCD also written — pass the full window when in
-    /// doubt; single-CCD applies send exactly one 0x5D). App mirrors the
-    /// kernel clamps first — fail fast in-process.
+    /// `targets` maps CCD index → absolute MHz and must form one contiguous
+    /// window [startCcd = min, count = span]. The kext takes plain MHz and
+    /// writes 0x5D to every core of each CCD itself. App mirrors the kernel
+    /// clamps first — fail fast in-process.
     @discardableResult
     nonisolated func setOverclockFreq(perCcdMHz targets: [Int: Int]) -> kern_return_t {
         guard !targets.isEmpty, targets.count <= AMDOcFreq.maxCcds,
@@ -2135,10 +2134,10 @@ actor ProcessorModel {
         var input = [UInt64](repeating: 0, count: 12)
         input[0] = 1                                  // mode: per-CCD
         for (ccd, mhz) in targets {
-            guard ccd >= startCcd, let arg = AMDOcFreq.perCcdArg(ccd: ccd, mhz: mhz) else {
+            guard ccd >= startCcd, AMDOcFreq.isValidMHz(mhz) else {
                 return kIOReturnBadArgument
             }
-            input[2 + ccd - startCcd] = UInt64(arg)
+            input[2 + ccd - startCcd] = UInt64(mhz)
         }
         input[10] = UInt64(startCcd)
         input[11] = UInt64(targets.count)

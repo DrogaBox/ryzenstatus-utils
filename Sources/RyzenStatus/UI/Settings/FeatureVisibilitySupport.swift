@@ -60,6 +60,7 @@ enum SettingsSectionAnchor: String, CaseIterable, Hashable {
     case micMute
     case cameraPreview
     case wallpaper
+    case worldClock
     case scratchpad
     case cleaningMode
     case soundOutputSwitcher
@@ -80,7 +81,8 @@ enum SettingsSectionAnchor: String, CaseIterable, Hashable {
         case .windowMaximizer: return .windowLayout
         case .finderCutPaste, .finderRename: return .cutPaste
         case .clipboardHistory, .pastePlain: return .clipboard
-        case .quickLauncher, .quickToggles, .micMute, .cameraPreview, .wallpaper, .scratchpad, .cleaningMode:
+        case .quickLauncher, .quickToggles, .micMute, .cameraPreview, .wallpaper, .worldClock, .scratchpad,
+             .cleaningMode:
             return .quickTools
         // Every tool that starts from the screen shares one page, as upstream.
         case .screenshot, .screenRecorder, .colorPicker, .screenOCR: return .screenshot
@@ -232,6 +234,8 @@ extension AppFeature {
             return FeatureSettingsDestination(.quickTools, sectionAnchor: .cameraPreview)
         case .wallpaper:
             return FeatureSettingsDestination(.quickTools, sectionAnchor: .wallpaper)
+        case .worldClock:
+            return FeatureSettingsDestination(.quickTools, sectionAnchor: .worldClock)
         case .notch, .notchCalendar, .notchNotifications, .notchGestures, .notchTimer, .notchAccessories,
              .notchLyrics, .notchQueue, .notchLiveEqualizer, .notchDownloads, .notchAgents, .notchWatch,
              .notchMascot:
@@ -278,7 +282,7 @@ enum FeatureVisibilitySupport {
         case .shelf: return [.shelf]
         case .media: return [.mediaTools]
         case .quickTools: return [.quickLauncher, .quickToggles, .micMute,
-                                  .cameraPreview, .scratchpad, .wallpaper]
+                                  .cameraPreview, .scratchpad, .wallpaper, .worldClock]
         case .urlCleaner: return [.urlCleaner]
         case .homebrew: return [.homebrew]
         case .appUpdates: return [.appUpdates]
@@ -348,7 +352,7 @@ extension AppFeature {
         case .mixer, .soundOutputSwitcher, .connectedDevices: return .monitor
         case .keepAwake, .brightness, .extraBrightness, .bluetoothSleep: return .energy
         case .quickLauncher, .quickToggles, .micMute, .cameraPreview,
-             .scratchpad, .wallpaper:
+             .scratchpad, .wallpaper, .worldClock:
             return .quickTools
         case .colorPicker, .screenOCR: return .screenshot
         case .mediaTools: return .media

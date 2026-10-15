@@ -1,12 +1,12 @@
 //
-//  ISSuperIONCT6683.hpp
+//  ISSuperIONCT668X.hpp
 //  AMDRyzenCPUPowerManagement
 //
 //  Created by trulyspinach, modified by Droga (2026) on 5/17/20.
 //
 
-#ifndef ISSuperIONCT6683_hpp
-#define ISSuperIONCT6683_hpp
+#ifndef ISSuperIONCT668X_hpp
+#define ISSuperIONCT668X_hpp
 
 #include <IOKit/IOLib.h>
 
@@ -17,6 +17,8 @@
 
 #define CHIP_NCT6681 0xb270
 #define CHIP_NCT6683 0xc730
+#define NCT668X_ID_MASK 0xfff0
+#define NCT668X_SIO_REG_ENABLE 0x30
 
 
 #define NCT668X_MAX_NUMFAN 8
@@ -62,9 +64,9 @@ public:
 
     ISSuperIONCT668X(int psel, uint16_t addr, uint16_t chipIntel);
 
-    int fanRPMs[NCT668X_MAX_NUMFAN];
-    uint8_t fanThrottles[NCT668X_MAX_NUMFAN];
-    uint8_t fanControlMode[NCT668X_MAX_NUMFAN];
+    int fanRPMs[NCT668X_MAX_NUMFAN]{};
+    uint8_t fanThrottles[NCT668X_MAX_NUMFAN]{};
+    uint8_t fanControlMode[NCT668X_MAX_NUMFAN]{};
     uint16_t fanPeakRPMs[NCT668X_MAX_NUMFAN]{};
     // Per-fan trust flag for the last tachometer read. False means
     // the last word was implausible (0xFFFF / torn / out of range) and
@@ -96,7 +98,6 @@ private:
     int lpcPortSel = 0;
 
     uint16_t chipAddr = 0;
-    uint8_t fanDefaultControlMode[NCT668X_MAX_NUMFAN];
 
     uint8_t readByte(uint16_t addr);
     uint16_t readWord(uint16_t addr);
@@ -104,4 +105,4 @@ private:
     void writeByte(uint16_t addr, uint8_t val);
 };
 
-#endif /* ISSuperIONCT6683_hpp */
+#endif /* ISSuperIONCT668X_hpp */

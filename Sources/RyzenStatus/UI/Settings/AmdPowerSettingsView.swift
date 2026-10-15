@@ -248,8 +248,7 @@ struct AmdPowerSettingsView: View {
                             Button {
                                 Task { await controls.runMailboxDiagnostics() }
                                 let bundle = controls.buildDiagnosticsBundle()
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(bundle, forType: .string)
+                                GeneralPasteboardAccess.shared.copyString(bundle, ownCopy: false)
                                 pmStatusMessage = l10n.amdPower.diagBundleCopied
                                 pmStatusIsError = false
                             } label: {
@@ -625,10 +624,11 @@ struct AmdPowerSettingsView: View {
                                     .foregroundColor(.secondary)
                             }
                         }
-                        if let runtime = c6RuntimeDisabled, runtime != nvramCState.isC6Enabled {
+                        if let runtimeDisabled = c6RuntimeDisabled, runtimeDisabled == nvramCState.isC6Enabled {
                             // amdcstate in boot-args says one thing, the running
                             // kext does another: stale boot-args vs pre-feature
-                            // kext (older than 1.21.0). Drift must be visible.
+                            // kext (older than 1.21.0). They agree when the kext
+                            // has C6 disabled exactly when NVRAM has it off.
                             Label(l10n.amdPower.c6DriftWarning, systemImage: "exclamationmark.triangle.fill")
                                 .font(.caption2)
                                 .foregroundColor(.orange)
@@ -804,7 +804,7 @@ struct AmdPowerSettingsView: View {
             pmTablePair("PPT", String(format: "%6.1f / %.0f W", s.pptValueW, s.pptLimitW))
             pmTablePair("TDC", String(format: "%6.1f / %.0f A", s.tdcValueA, s.tdcLimitA))
             pmTablePair("EDC", String(format: "%6.1f / %.0f A", s.edcValueA, s.edcLimitA))
-            pmTablePair("THM", String(format: "%.0f C limit", s.thmLimitC))
+            pmTablePair("THM", String(format: "%6.1f / %.0f C", s.thmValueC, s.thmLimitC))
             pmTablePair("Core V", String(format: "%.3f V", s.coreVoltageV))
             pmTablePair("Socket", String(format: "%6.1f W", s.socketPowerW))
             pmTablePair("FCLK/UCLK/MEM", String(format: "%.0f / %.0f / %.0f MHz", s.fclkMHz, s.uclkMHz, s.memclkMHz))
@@ -845,7 +845,7 @@ struct AmdPowerSettingsView: View {
             Text(String(format: "C%02d", c.slot))
                 .foregroundColor(c.isPresent ? .primary : .secondary)
             Text(sleeping
-                 ? String(format: "   park  %5.1f W", c.powerW)
+                 ? String(format: "   park  %5.1f W %4.1f C", c.powerW, c.tempC)
                  : String(format: "%5.0f MHz %5.1f W %4.1f C", c.freqMHz, c.powerW, c.tempC))
                 .font(.system(size: 11, weight: .regular, design: .monospaced))
                 .foregroundColor(c.isPresent ? (sleeping ? .secondary : .primary) : .secondary)

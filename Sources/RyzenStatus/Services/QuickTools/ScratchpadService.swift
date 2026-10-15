@@ -273,10 +273,7 @@ final class ScratchpadService: NSObject, ObservableObject, NSWindowDelegate {
 
     func copyAll() {
         guard !text.isEmpty else { return }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.declareRyzenStatusSource()
-        pasteboard.setString(text, forType: .string)
+        GeneralPasteboardAccess.shared.copyString(text, ownCopy: true)
     }
 
     /// Clearing goes through the text view when it is up, so one Cmd+Z brings

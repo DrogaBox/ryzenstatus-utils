@@ -254,6 +254,9 @@ enum Defaults {
         DefaultsKey.panelShowWallpaper: true,
         DefaultsKey.wallpaperApplyAllDisplays: true,
         DefaultsKey.wallpaperFilter: "all",
+        // World clocks.
+        DefaultsKey.panelShowWorldClock: true,
+        DefaultsKey.worldClockZones: "",
         DefaultsKey.whatsAppDownloadsAutomaticEnabled: false,
         DefaultsKey.whatsAppDownloadsCategories: "image,video,audio",
         DefaultsKey.whatsAppDownloadsRetentionDays: 7,
@@ -682,11 +685,17 @@ enum Defaults {
         DefaultsKey.monitorNetApps: true,
         DefaultsKey.monitorNetTotals: true,
         DefaultsKey.monitorNetTest: true,
+        DefaultsKey.monitorNetLatency: true,
+        // Both reach outside the Mac, so they start off.
+        DefaultsKey.networkPingEnabled: false,
+        DefaultsKey.networkPublicIPEnabled: false,
         DefaultsKey.monitorDiskUsage: true,
         DefaultsKey.monitorDiskActivity: true,
         DefaultsKey.monitorDiskSMART: true,
         DefaultsKey.monitorDiskProtection: true,
         DefaultsKey.monitorDiskTools: true,
+        DefaultsKey.monitorDiskApps: true,
+        DefaultsKey.monitorDiskNetworkVolumes: true,
         DefaultsKey.monitorPwrSystem: true,
         DefaultsKey.monitorPwrAdapter: true,
         DefaultsKey.monitorPwrBattery: true,
@@ -857,6 +866,10 @@ enum Defaults {
         // Classic core grid renders load (the classic fill) until the
         // user switches the card to an SMU metric.
         DefaultsKey.panelCoreGridMetric: "load",
+        // Detail views open on the live graph; long ranges are picked there.
+        DefaultsKey.metricDetailHistoryRange: 0,
+        // Panel history graphs open on the last hour, as iStat Menus does.
+        DefaultsKey.panelHistoryRange: 3_600,
         // Gaming Mode — off by default; hiding the icon is the default behavior.
         DefaultsKey.gamingModeActive: false,
         DefaultsKey.gamingModeHideMenuBar: true,

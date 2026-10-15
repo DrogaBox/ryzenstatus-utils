@@ -191,6 +191,19 @@ struct QuickToolsSettings: View {
                 .settingsFormSectionAnchor(.wallpaper)
             }
 
+            if AppFeature.worldClock.isAvailable {
+                Section {
+                    WorldClockEditor()
+                } header: {
+                    Text(FeatureStrings.worldClock(l10n.language).pageTitle)
+                } footer: {
+                    Text(FeatureStrings.worldClock(l10n.language).hubDescription)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .settingsFormSectionAnchor(.worldClock)
+            }
+
             if AppFeature.scratchpad.isAvailable {
                 Section {
                     Button {

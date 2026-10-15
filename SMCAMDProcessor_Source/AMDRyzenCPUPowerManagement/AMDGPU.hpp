@@ -2,8 +2,9 @@
 //  AMDGPU.hpp
 //  AMDRyzenCPUPowerManagement
 //
-//  GPU temperature and power monitoring via PCI BAR MMIO.
-//  All register addresses are hardware facts from the Linux amdgpu driver documentation.
+//  GPU temperature and power monitoring through the GPU's register BAR.
+//  Register offsets, field layouts and device-ID ranges are hardware facts
+//  taken from the Linux amdgpu driver (drivers/gpu/drm/amd/).
 //  Implementation is original — no code copied from SMCRadeonSensors.
 //
 
@@ -13,142 +14,88 @@
 #include <IOKit/pci/IOPCIDevice.h>
 
 /**
- *  AMD GPU monitoring device.
+ *  One AMD discrete GPU (or Vega-based APU graphics), read directly from its
+ *  MMIO registers while macOS's own driver keeps running the device.
  *
- *  Reads GPU temperature and power by mapping the PCI BAR and reading
- *  thermal registers directly. Supports AMD dGPUs from GCN 1.0 (Sea Islands)
- *  through RDNA 2/3 (Navi 2x/3x) and all Vega-based iGPUs (Raven, etc.).
+ *  Everything here is read-only towards the GPU except the SMU power query,
+ *  which uses the same mailbox as the macOS driver and therefore only sends
+ *  when that mailbox is idle (see smu7GetPower / smu9GetPower).
  *
- *  Chip family detection is based on the PCI device ID, following the
- *  ranges documented in the Linux amdgpu kernel driver (drivers/gpu/drm/amd/).
+ *  Threading: the provider's work loop is the only caller in practice, but
+ *  every multi-register sequence runs under gpuLock so a second caller is
+ *  safe. gpuLock is a plain IOLock and is NOT recursive: code that holds it
+ *  calls only the raw* accessors.
  */
 class AMDGPUDevice : public OSObject {
     OSDeclareDefaultStructors(AMDGPUDevice);
 
-    /** PCI device for BAR mapping */
-    IOPCIDevice *dev{nullptr};
-
-    /** Mapped MMIO region (PCI BAR2 or BAR5) */
-    IOMemoryMap *rmmio{nullptr};
-
-    /** Virtual address of the mapped BAR */
-    volatile UInt32 *rmmioPtr{nullptr};
-
-    /** Protects multi-step register read/write sequences */
-    IOLock *gpuLock{nullptr};
-
-    /**
-     *  Chip family identifier.
-     *
-     *  Mappings:
-     *   1 = SeaIslands       (GCN 1.0: Tahiti, Venus, Cape Verde)
-     *   2 = SouthernIslands  (GCN 1.1-1.2: Bonaire, Hawaii, Tonga)
-     *   3 = VolcanicIslands  (GCN 1.3: Polaris 10/11/12)
-     *   4 = ArcticIslands    (GCN 5: Vega 10, Vega 12, Vega 20)
-     *   5 = Raven            (GCN 5: Raven, Picasso, Renoir, Cezanne iGPUs)
-     *   6 = Navi             (RDNA 1/2/3: Navi 1x, 2x, 3x)
-     */
-    UInt8 chipFamily{0};
-
-    /** Whether this GPU supports power reading via SMU mailbox */
-    bool supportsPower_{false};
-
-    /** Whether this GPU uses THM11 temperature register (Vega 20) */
-    bool isTHM11_{false};
-
-    /**
-     *  Ensure the PCI BAR is mapped and accessible.
-     *  Uses BAR5 for GCN 1.2+, BAR2 for older chips.
-     */
-    IOReturn ensureRMMIOMapped();
-
-    /**
-     *  MMIO register read (pre-GCN 5 / pre-Raven).
-     *  Falls back to indexed PCI config for out-of-range addresses.
-     */
-    UInt32 readReg32(UInt32 reg);
-
-    /**
-     *  MMIO register write (pre-GCN 5 / pre-Raven).
-     *  Falls back to indexed PCI config for out-of-range addresses.
-     */
-    void writeReg32(UInt32 reg, UInt32 val);
-
-    /**
-     *  SOC15-style MMIO register read (GCN 5 / RDNA+).
-     *  Uses PCIE_INDEX2/DATA2 for out-of-range addresses.
-     */
-    UInt32 soc15ReadReg32(UInt32 reg);
-
-    /**
-     *  SOC15-style MMIO register write (GCN 5 / RDNA+).
-     *  Uses PCIE_INDEX2/DATA2 for out-of-range addresses.
-     */
-    void soc15WriteReg32(UInt32 reg, UInt32 val);
-
-    /**
-     *  Read an SMC indirect register.
-     *  Dispatches to the correct index/data pair based on chip family.
-     */
-    UInt32 readIndirectSMC(UInt32 reg);
-
-    /**
-     *  Write an SMC indirect register.
-     *  Dispatches to the correct index/data pair based on chip family.
-     */
-    void writeIndirectSMC(UInt32 reg, UInt32 val);
-
-    /** Poll SMU7 SMC response register until ready or timeout */
-    UInt32 smu7PollResponse();
-
-    // == Temperature reading methods ==
-
-    /** SMU7-style temperature (Sea Islands, Southern Islands, Volcanic Islands) */
-    IOReturn smu7GetTemp(UInt16 *data);
-
-    /** THM9 temperature (Arctic Islands, non-THM11) */
-    IOReturn thm9GetTemp(UInt16 *data);
-
-    /** THM11 temperature (Vega 20) */
-    IOReturn thm11GetTemp(UInt16 *data);
-
-    /** THM10 temperature (Raven, Navi) */
-    IOReturn thm10GetTemp(UInt16 *data);
-
-    // == Power reading methods ==
-
-    /** SMU7 power via PM Status log (Sea Islands) */
-    IOReturn smu7GetPowerPMStatus(float *data);
-
-    /** SMU7 power via SMC mailbox (Southern Islands, Volcanic Islands) */
-    IOReturn smu7GetPowerSMC(float *data);
-
-    /** SMU9 power (Arctic Islands) */
-    IOReturn smu9GetPower(float *data);
-
 public:
+    /** GPU generations, named and split as in Linux amdgpu. */
+    enum class Family : UInt8 {
+        Unknown = 0,
+        SouthernIslands,   // GCN 1: Tahiti, Pitcairn, Cape Verde, Oland, Hainan
+        SeaIslands,        // GCN 2: Bonaire, Hawaii
+        VolcanicIslands,   // GCN 3/4: Tonga, Fiji, Polaris 10/11/12, Vega M
+        Vega,              // GCN 5: Vega 10, Vega 12, Vega 20
+        Raven,             // GCN 5 APU graphics: Raven, Picasso, Renoir, Cezanne, ...
+        Navi,              // RDNA 1/2: Navi 1x, Navi 2x
+    };
 
     /**
-     *  Initialize from a matched IOPCIDevice.
-     *  Detects chip family from device ID and allocates locks.
-     *  Returns false if the GPU is not supported or allocation fails.
+     *  Identify the GPU from its PCI device ID and take a reference on it.
+     *  Returns false for an unsupported GPU or when allocation fails; the
+     *  caller then releases the object, which drops the reference again.
      */
     bool initFromDevice(IOPCIDevice *device);
 
-    /** Release all resources */
     void free() APPLE_KEXT_OVERRIDE;
 
-    /**
-     *  Read the GPU temperature.
-     *  Output: UInt16 integer degrees Celsius.
-     */
-    IOReturn getTemperature(UInt16 *data);
+    /** Current GPU temperature in whole °C (255 = the GPU flagged it invalid). */
+    IOReturn getTemperature(UInt16 *celsius);
 
     /**
-     *  Read the GPU power consumption in watts.
+     *  Current package power in watts. kIOReturnBusy means the SMU mailbox was
+     *  in use by the macOS driver and the sample was skipped.
      */
-    IOReturn getPower(float *data);
+    IOReturn getPower(float *watts);
 
-    /** Whether this GPU supports power reading */
-    bool supportsPower() { return supportsPower_; }
+    /** Whether this GPU's firmware answers the package-power query. */
+    bool supportsPower() const { return supportsPower_; }
+
+private:
+    IOPCIDevice *dev {nullptr};
+    IOMemoryMap *rmmio {nullptr};
+    /** Published last, after rmmio, so a non-null value means "mapped". */
+    volatile UInt32 *rmmioPtr {nullptr};
+    /** Set once mapping failed; the BAR is not retried every sample. */
+    bool mapFailed {false};
+    IOLock *gpuLock {nullptr};
+
+    Family family {Family::Unknown};
+    bool supportsPower_ {false};
+    /** Vega 20 moved CG_MULT_THERMAL_STATUS within the THM block. */
+    bool isVega20 {false};
+
+    /** Map the register BAR on first use (BAR2 on GCN 1, BAR5 later). */
+    IOReturn ensureRMMIOMapped();
+
+    // Register access. raw* = caller holds gpuLock.
+    UInt32 rawReadReg32(UInt32 reg);
+    void rawWriteReg32(UInt32 reg, UInt32 val);
+    UInt32 rawSoc15ReadReg32(UInt32 reg);
+    void rawSoc15WriteReg32(UInt32 reg, UInt32 val);
+
+    /** One locked register read (pre-SOC15 / SOC15 index-data window). */
+    UInt32 readReg32(UInt32 reg);
+    UInt32 soc15ReadReg32(UInt32 reg);
+    /** One locked read through the SMC indirect index/data pair. */
+    UInt32 readIndirectSMC(UInt32 reg);
+
+    // Temperature, per register layout.
+    IOReturn ctfTempFrom(UInt32 status, UInt16 *celsius);
+    IOReturn thm10GetTemp(UInt16 *celsius);
+
+    // Power, per SMU generation.
+    IOReturn smu7GetPower(float *watts);
+    IOReturn smu9GetPower(float *watts);
 };
