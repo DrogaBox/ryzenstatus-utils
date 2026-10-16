@@ -117,14 +117,69 @@ enum NotchNotificationSupport {
         return source.isEmpty || source.utf8.count > 256 ? nil : source
     }
 
+    /// A read that could not finish is tried again this many times, this
+    /// far apart; a banner stays on screen for several seconds.
+    static let readRetries = 3
+    static let readRetryDelay: TimeInterval = 0.3
+
+    /// A message held back by a busier notice is still worth showing this
+    /// long after it arrived; later, its own banner would have ended too.
+    static let waitingLimit: TimeInterval = 10
+
+    static func stillWaits(received: Date, now: Date) -> Bool {
+        let age = now.timeIntervalSince(received)
+        return age >= 0 && age < waitingLimit
+    }
+
+    /// A banner can drop out of one read while the center lays it out
+    /// again. Back within this window it is still the same message.
+    static let reappearanceWindow: TimeInterval = 2
+
+    static func continues(wasLive: Bool, seen: TimeInterval, now: TimeInterval) -> Bool {
+        wasLive || (now - seen >= 0 && now - seen < reappearanceWindow)
+    }
+
     static func dismissesNative(in defaults: UserDefaults = .standard) -> Bool {
         isEnabled(in: defaults) && defaults.bool(forKey: DefaultsKey.notchDismissNativeNotifications)
     }
 
-    static func closeAction(in actions: [String], title: String) -> String? {
-        guard !title.isEmpty else { return nil }
-        let matches = actions.filter { $0.components(separatedBy: "\n").first == "Name:" + title }
+    /// The center names its close action in the language it runs in, which
+    /// need not be the one this app reads its bundle in, so every title it
+    /// may use is tried. Still only one action may match.
+    static func closeAction(in actions: [String], titles: [String]) -> String? {
+        let names = Set(titles.filter { !$0.isEmpty }.map { "Name:" + $0 })
+        guard !names.isEmpty else { return nil }
+        let matches = actions.filter { names.contains($0.components(separatedBy: "\n").first ?? "") }
         return matches.count == 1 ? matches.first : nil
+    }
+
+    /// The center's own word for Close in the system's languages, the first
+    /// one it would pick included, with English last.
+    static func nativeCloseTitles(in bundle: Bundle?, languages: [String]) -> [String] {
+        guard let bundle else { return ["Close"] }
+        // Recent systems keep every language in one table; older ones in a
+        // strings file per language.
+        let table = bundle.url(forResource: "Localizable", withExtension: "loctable")
+            .flatMap { NSDictionary(contentsOf: $0) as? [String: Any] }
+        func title(_ localization: String) -> String? {
+            if let strings = table?[localization] as? [String: Any] { return strings["Close"] as? String }
+            return bundle.path(forResource: "Localizable", ofType: "strings", inDirectory: nil, forLocalization: localization)
+                .flatMap { NSDictionary(contentsOfFile: $0)?["Close"] as? String }
+        }
+        let preferred = Bundle.preferredLocalizations(from: bundle.localizations, forPreferences: languages)
+        var titles: [String] = []
+        for localization in preferred + ["en"] {
+            if let title = title(localization), !title.isEmpty, !titles.contains(title) { titles.append(title) }
+        }
+        if !titles.contains("Close") { titles.append("Close") }
+        return titles
+    }
+
+    /// The system's languages, which the center follows, rather than the ones
+    /// this app may have been given on its own.
+    static var systemLanguages: [String] {
+        CFPreferencesCopyValue("AppleLanguages" as CFString, kCFPreferencesAnyApplication,
+                               kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? [String] ?? Locale.preferredLanguages
     }
 
     static func isEnabled(in defaults: UserDefaults = .standard) -> Bool {

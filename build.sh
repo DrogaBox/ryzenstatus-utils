@@ -304,8 +304,10 @@ if (( INSTALL )); then
     echo "▸ Installing into /Applications…"
     stop_process "$EXECUTABLE"
     # Remove the pre-rename apps so two menu bar items never coexist. Same bundle
-    # id, so macOS keeps the granted permissions for the new bundle.
-    for legacy in "RyzenStatus:RyzenStatus" "RyzenStatus Utils:RyzenStatusUtils"; do
+    # id, so macOS keeps the granted permissions for the new bundle. The
+    # Developer variant coexists with the official app by design, and
+    # "RyzenStatus" is the official app's own name now: it removes nothing.
+    (( DEV )) || for legacy in "RyzenStatus:RyzenStatus" "RyzenStatus Utils:RyzenStatusUtils"; do
         name="${legacy%%:*}"; proc="${legacy##*:}"
         if [[ -d "/Applications/$name.app" ]]; then
             stop_process "$proc"

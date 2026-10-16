@@ -10,6 +10,7 @@ struct NotchMusicView: View {
     @ObservedObject private var service = NowPlayingService.shared
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var features = FeatureRuntime.shared
+    @ObservedObject private var coverFlight = NotchCoverFlightState.shared
     @AppStorage(DefaultsKey.notchLyricsEnabled) private var lyricsEnabled = true
     @AppStorage(DefaultsKey.notchQueueEnabled) private var queueEnabled = true
     @State private var extra: MusicExtra?
@@ -172,11 +173,14 @@ struct NotchMusicView: View {
         return HStack(spacing: roomy ? 20 : 16) {
             Button { NowPlayingApplication.open(playback.track) } label: {
                 NotchArtwork(image: service.artworkImage, size: height, identity: service.artworkIdentity)
-                    .scaleEffect(playback.isPlaying || reduceMotion ? 1 : 0.94)
+                    .background { if !preview { NotchCoverProbe(role: .page) } }
+                    .scaleEffect(playback.isPlaying || reduceMotion ? 1 : NotchCoverFlight.pausedScale)
                     .shadow(color: halo.opacity(0.42), radius: 20, y: 7)
                     .shadow(color: halo.opacity(0.2), radius: 42, y: 14)
                     .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: playback.isPlaying)
                     .animation(reduceMotion ? nil : .smooth(duration: 0.45), value: halo)
+                    // The strip's cover flying in stands for it until it lands.
+                    .opacity(coverFlight.inFlight && !preview ? 0 : 1)
             }
             .buttonStyle(NotchButtonStyle(cornerRadius: 24))
             .help(text.mediaNowPlaying)

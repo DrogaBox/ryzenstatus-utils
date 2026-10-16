@@ -266,9 +266,9 @@ struct NotchArtwork: View {
             }
         }
         .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: size * 0.19, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: NotchCoverFlight.pageRadius(side: size), style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: size * 0.19, style: .continuous)
+            RoundedRectangle(cornerRadius: NotchCoverFlight.pageRadius(side: size), style: .continuous)
                 .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
         }
         .accessibilityHidden(true)

@@ -47,6 +47,10 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
     private let overlaySpace = NotchOverlaySpace()
     private var concealedForFrameChange = false
     private var restoresKeyAfterFrameChange = false
+    /// Room the window holds below the island for a pull's stretch.
+    private var pullReserve: CGFloat = 0
+    /// The running motion is a released pull on its way back to rest.
+    private var retracting = false
     private var settledActions: [() -> Void] = []
     private(set) var targetSize: CGSize
     private(set) var resizeCount = 0
@@ -145,7 +149,7 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
     }
 
     private func applyShadow() {
-        let wanted = castsShadow && !canvas.clearSurface && !isAnimating && !hidesWhenSettled
+        let wanted = castsShadow && !canvas.clearSurface && !isAnimating && !hidesWhenSettled && !isPulled
         if panel.hasShadow != wanted { panel.hasShadow = wanted }
         guard wanted else { return }
         panel.invalidateShadow()
@@ -168,6 +172,22 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
     }
 
     func endMascotBridge(fading: Bool = false) { canvas.hideMascotBridge(fading: fading) }
+
+    /// Opening onto the music page, the strip's cover flies from `from` into
+    /// the page's artwork at `to`, both frames on screen, and `landed` runs
+    /// as it settles. False, with nothing shown, when it has nowhere to fly.
+    @discardableResult
+    func bridgeCover(_ image: CGImage, from: CGRect, fromRadius: CGFloat, to: CGRect, toRadius: CGFloat,
+                     toScale: CGFloat, landed: @escaping () -> Void) -> Bool {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, panel.isVisible,
+              let start = canvas.coverSpot(screenFrame: from, radius: fromRadius),
+              let end = canvas.coverSpot(screenFrame: to, radius: toRadius, scale: toScale),
+              NotchCoverFlight.flies(from: start, to: end) else { return false }
+        canvas.flyCover(image, from: start, to: end, landed: landed)
+        return true
+    }
+
+    func endCoverBridge() { canvas.endCoverBridge() }
 
     func reactMascotBridge(_ event: NotchMascotReactionEvent, lift: CGFloat) {
         canvas.reactMascotBridge(event, lift: lift)
@@ -273,6 +293,7 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
         let drawnShift = canvas.visibleShift.map { abs($0 - previousShift) < 1 ? previousShift : $0 } ?? previousShift
         let startShift = revealing ? 0 : drawnShift
         animationGeneration += 1
+        retracting = false
         let generation = animationGeneration
         targetSize = size
         currentGeometry = geometry
@@ -283,6 +304,8 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
         }
 
         let start = revealing ? canvas.surfaceSize(of: previousPath) : canvas.visibleSize ?? canvas.surfaceSize(of: previousPath)
+        // A pull hands its shape to the opening or closing it led to.
+        endPull()
         // Only a width change eases steadily; anything that also grows taller
         // keeps the island's usual springs.
         let steady = steady && start.height == size.height
@@ -372,6 +395,8 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
         defer { if concealed { reinstateAfterFrameChange() } }
         guard generation == animationGeneration else { return }
         isAnimating = false
+        retracting = false
+        endPull()
         canvas.stopMotion()
         canvas.setUsesGlass(targetUsesGlass)
         // Settled glass is fully open, whatever a cut-short transition planned.
@@ -395,6 +420,75 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
         }
         applyShadow()
         runSettledActions()
+    }
+
+    /// Whether a pull holds the island off its resting shape or window.
+    var isPulled: Bool { canvas.pullStretch != 0 || pullReserve > 0 }
+
+    /// The island follows a pull on the trackpad: its lower edge sits
+    /// `displacement` points below where it rests, or above it while negative.
+    /// The window grows once, by the most a pull can stretch; every later step
+    /// redraws only the silhouette, so the island never leaves the screen or
+    /// jumps while the fingers move. An opening or closing keeps its motion;
+    /// a released pull still on its way back gives way to a new one.
+    func pull(_ displacement: CGFloat) {
+        guard displacement.isFinite, isPresented, !hidesWhenSettled, !concealedForMissionControl,
+              !concealedForFrameChange, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        if isAnimating {
+            guard retracting else { return }
+            animationGeneration += 1
+            isAnimating = false
+            retracting = false
+            canvas.stopMotion()
+        }
+        // A window's shadow is taken once; it would keep the resting outline.
+        if panel.hasShadow { panel.hasShadow = false }
+        let reserve = displacement > 0 ? NotchPull.reservation : 0
+        let grows = reserve > pullReserve
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if grows {
+            pullReserve = reserve
+            let gutter: CGFloat = quickAccessConfiguration == nil ? 0 : NotchQuickAccessLayout.gutter
+            setFrame(mainSize: CGSize(width: targetSize.width, height: targetSize.height + reserve), gutter: gutter,
+                     bottom: quickAccessBottomInset(for: targetSize, geometry: currentGeometry))
+        }
+        canvas.setPull(min(max(displacement, -targetSize.height), pullReserve))
+        CATransaction.commit()
+        // The grown window and the stretched shape reach the screen together.
+        if grows { CATransaction.flush() }
+    }
+
+    /// A pull let go without opening or closing springs back to rest, then
+    /// gives back the room it held below the island.
+    func releasePull(animated: Bool = true) {
+        guard isPulled, !isAnimating else { return }
+        let start = canvas.visibleSize ?? targetSize
+        canvas.clearPull()
+        animationGeneration += 1
+        guard animated, isPresented, !hidesWhenSettled, start.height != targetSize.height,
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { settle(); return }
+        let motion = NotchPull.retraction(from: start.height, to: targetSize.height)
+        let paths = motion.heights.map { canvas.silhouettePath(for: CGSize(width: targetSize.width, height: $0)) }
+        let animation = CAKeyframeAnimation(keyPath: "path")
+        animation.values = paths
+        animation.keyTimes = motion.keyTimes.map { NSNumber(value: $0) }
+        animation.calculationMode = .linear
+        animation.duration = motion.duration
+        animation.delegate = self
+        animation.setValue(animationGeneration, forKey: "notchGeneration")
+        isAnimating = true
+        retracting = true
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        canvas.animate(animation, from: paths.first)
+        CATransaction.commit()
+    }
+
+    /// A motion or a settled window takes the pull's place.
+    private func endPull() {
+        pullReserve = 0
+        canvas.clearPull()
     }
 
     private func reservedFrame(mainSize: CGSize, gutter: CGFloat, bottom: CGFloat) -> CGRect {
@@ -751,6 +845,8 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
         panel.visibilityDidChange = nil
         animationGeneration += 1
         isAnimating = false
+        retracting = false
+        endPull()
         concealedForFrameChange = false
         canvas.stopMotion()
         quickAccessContainer?.motion.setVisible(false, animated: false)
@@ -1023,6 +1119,32 @@ private final class NotchBackdropTick: NSObject {
     }
 }
 
+/// A layer of its own for the cover in flight, clear of the content's fade,
+/// counting down from the top as the canvas does.
+private final class NotchCoverBridgeView: NSView {
+    let cover = CALayer()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        layer = CALayer()
+        wantsLayer = true
+        layer?.isGeometryFlipped = true
+        cover.contentsGravity = .resizeAspectFill
+        cover.masksToBounds = true
+        cover.cornerCurve = .continuous
+        // The hairline the page's artwork wears.
+        cover.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
+        cover.borderWidth = 0.5
+        layer?.addSublayer(cover)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 private final class NotchCanvas: NSView {
     private let host: NotchHostingView
     private let backdrop: NotchHostingView
@@ -1056,6 +1178,11 @@ private final class NotchCanvas: NSView {
     /// Where it stands: its centre's offset from the display's centre, its
     /// centre's height from the top, and its size.
     private var mascotBridgeSpot: (offset: CGFloat, baseline: CGFloat, size: CGFloat)?
+    /// The song's cover on its way from the closed strip into the page,
+    /// above the content as it fades in, inside the island as it grows.
+    private let coverBridge = NotchCoverBridgeView(frame: .zero)
+    private var coverBridgeSpot: NotchCoverSpot?
+    private var coverBridgeGeneration = 0
     private var dropActions: NotchFileDropActions?
     private var acceptingDrag = false
     private var contentSize: CGSize
@@ -1082,6 +1209,8 @@ private final class NotchCanvas: NSView {
         layer?.mask = silhouette
         addSubview(backdrop)
         addSubview(host)
+        coverBridge.isHidden = true
+        addSubview(coverBridge)
         mascotBridge.isHidden = true
         addSubview(mascotBridge)
         activationButton.isTransparent = true
@@ -1113,6 +1242,20 @@ private final class NotchCanvas: NSView {
         contentSize = size
         needsLayout = true
     }
+
+    /// How far a pull moves the resting island's lower edge: down while
+    /// positive, up into the island while negative.
+    private(set) var pullStretch: CGFloat = 0
+
+    func setPull(_ stretch: CGFloat) {
+        guard pullStretch != stretch else { return }
+        pullStretch = stretch
+        updateGeometry()
+    }
+
+    /// Taken over by a motion starting from the pulled shape, or by the
+    /// resting one the next layout draws.
+    func clearPull() { pullStretch = 0 }
 
     func setActivationArea(_ rect: CGRect, title: String, willPress: @escaping () -> Void, activate: @escaping () -> Void) {
         activationRect = rect
@@ -1745,6 +1888,102 @@ private final class NotchCanvas: NSView {
         if mascotBridge.frame != frame { mascotBridge.frame = frame }
     }
 
+    /// A frame on screen as a spot on the stage, which keeps its place as the
+    /// window changes size around it.
+    func coverSpot(screenFrame: CGRect, radius: CGFloat, scale: CGFloat = 1) -> NotchCoverSpot? {
+        guard let window else { return nil }
+        let frame = convert(window.convertFromScreen(screenFrame), from: nil)
+        let centre = stageCentreX?() ?? bounds.midX
+        return NotchCoverSpot(offset: frame.midX - centre, top: frame.midY,
+                              side: min(frame.width, frame.height) * scale, radius: radius * scale)
+    }
+
+    /// The cover stands at `to` and springs there from `from`. `landed`
+    /// runs as it settles, while the copy hands over to the page's artwork.
+    func flyCover(_ image: CGImage, from: NotchCoverSpot, to: NotchCoverSpot, landed: @escaping () -> Void) {
+        coverBridgeGeneration += 1
+        let generation = coverBridgeGeneration
+        coverBridgeSpot = to
+        let cover = coverBridge.cover
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cover.removeAllAnimations()
+        cover.contents = image
+        cover.contentsScale = window?.backingScaleFactor ?? 2
+        cover.opacity = 1
+        layoutCoverBridge()
+        coverBridge.isHidden = false
+        CATransaction.commit()
+        let spring = NotchCoverFlight.spring()
+        func flight(_ keyPath: String, from: Any, to: Any, additive: Bool = false) -> CASpringAnimation {
+            let animation = CASpringAnimation(keyPath: keyPath)
+            animation.mass = 1
+            animation.stiffness = spring.stiffness
+            animation.damping = spring.damping
+            animation.fromValue = from
+            animation.toValue = to
+            animation.isAdditive = additive
+            animation.duration = animation.settlingDuration
+            return animation
+        }
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            guard let self, generation == self.coverBridgeGeneration else { return }
+            landed()
+            self.handOverCover(generation: generation)
+        }
+        // The canvas counts down from its top, as the spots do.
+        cover.add(flight("position", from: NSValue(point: CGPoint(x: from.offset - to.offset, y: from.top - to.top)),
+                         to: NSValue(point: .zero), additive: true), forKey: "flight.position")
+        cover.add(flight("bounds.size", from: NSValue(size: CGSize(width: from.side, height: from.side)),
+                         to: NSValue(size: CGSize(width: to.side, height: to.side))), forKey: "flight.size")
+        cover.add(flight("cornerRadius", from: from.radius, to: to.radius), forKey: "flight.radius")
+        CATransaction.commit()
+    }
+
+    /// Landed, the copy fades over the page's own artwork, now shown beneath it.
+    private func handOverCover(generation: Int) {
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        fade.duration = NotchCoverFlight.handOver
+        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        fade.fillMode = .forwards
+        fade.isRemovedOnCompletion = false
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            guard let self, generation == self.coverBridgeGeneration else { return }
+            self.endCoverBridge()
+        }
+        coverBridge.cover.add(fade, forKey: "flight.handOver")
+        CATransaction.commit()
+    }
+
+    func endCoverBridge() {
+        coverBridgeGeneration += 1
+        coverBridgeSpot = nil
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        coverBridge.cover.removeAllAnimations()
+        coverBridge.cover.contents = nil
+        coverBridge.isHidden = true
+        CATransaction.commit()
+    }
+
+    /// Placed again whenever the canvas moves under the display's centre.
+    private func layoutCoverBridge() {
+        if coverBridge.frame != bounds { coverBridge.frame = bounds }
+        guard let spot = coverBridgeSpot else { return }
+        let centre = stageCentreX?() ?? bounds.midX
+        let cover = coverBridge.cover
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cover.bounds = CGRect(x: 0, y: 0, width: spot.side, height: spot.side)
+        cover.position = CGPoint(x: centre + spot.offset, y: spot.top)
+        cover.cornerRadius = spot.radius
+        CATransaction.commit()
+    }
+
     private func endArrival() {
         arrivalGeneration += 1
         arrival = nil
@@ -1780,7 +2019,7 @@ private final class NotchCanvas: NSView {
             silhouette.frame = maskFrame
             edge.frame = maskFrame
         }
-        silhouetteSize = motionStart ?? contentSize
+        silhouetteSize = motionStart ?? CGSize(width: contentSize.width, height: max(0, contentSize.height + pullStretch))
         silhouette.path = silhouettePath(for: silhouetteSize, offset: motionStart == nil ? 0 : motionStartOffset)
         edge.path = silhouette.path
         updateContrast()
@@ -1791,6 +2030,7 @@ private final class NotchCanvas: NSView {
         if host.frame != hostFrame { host.frame = hostFrame }
         contentVisibility.frame = host.bounds
         layoutMascotBridge()
+        layoutCoverBridge()
         if let arrival, arrival.width != host.layer?.bounds.width { installArrivalScale() }
         var backdropFrame = NotchStage.frame(stage, in: bounds)
         backdropFrame.origin.x = hostFrame.minX

@@ -28,6 +28,9 @@ final class NotchNotificationService: ObservableObject {
     private var generation = UUID()
     private var reading = false
     private var rescan = false
+    /// Reads in a row that could not finish. A banner that arrives during
+    /// one gets no other layout event, so the pass is tried again soon.
+    private var failedReads = 0
     private var running = false
     /// Banners the island shows, whose originals stay out of sight.
     private var shownIDs = Set<UUID>()
@@ -114,10 +117,21 @@ final class NotchNotificationService: ObservableObject {
             DispatchQueue.main.async {
                 guard let self, self.generation == requested else { return }
                 self.reading = false
-                if let snapshot { self.accept(snapshot.items) }
+                if let snapshot { self.failedReads = 0; self.accept(snapshot.items) }
                 self.placeNative()
                 if self.rescan { self.rescan = false; self.scheduleScan() }
+                else if snapshot == nil { self.retryRead() }
             }
+        }
+    }
+
+    private func retryRead() {
+        guard monitoring, failedReads < NotchNotificationSupport.readRetries else { return }
+        failedReads += 1
+        let requested = generation
+        DispatchQueue.main.asyncAfter(deadline: .now() + NotchNotificationSupport.readRetryDelay) { [weak self] in
+            guard let self, self.generation == requested else { return }
+            self.scheduleScan()
         }
     }
 
@@ -152,18 +166,41 @@ final class NotchNotificationService: ObservableObject {
         sourceApplications = sourceApplications.filter { ids.contains($0.key) }
     }
 
+    /// Closing a message in the island also closes its original while that
+    /// is still on screen, when the island is set to take the place of the
+    /// system's banners. Notification Center keeps what already left.
     func dismiss(_ id: UUID) {
+        closeNativeNow([id])
         inbox.dismiss(id)
         trimIcons()
     }
 
-    /// Empties the island's inbox only; Notification Center keeps its own.
     /// An opening in flight still needs its message, so it waits for it.
     func clearAll() {
         guard openingID == nil else { return }
+        closeNativeNow(items.map(\.id))
         inbox.clear()
         unavailableID = nil
         trimIcons()
+    }
+
+    /// The person asked for it, so there is no grace and alerts go as well.
+    private func closeNativeNow(_ ids: [UUID]) {
+        guard monitoring, NotchNotificationSupport.dismissesNative(), let reader, !ids.isEmpty else { return }
+        // Also when an automatic close is pending or gave up: this one may
+        // take an alert too, and closing what is gone does nothing.
+        closingIDs.formUnion(ids)
+        let requested = generation
+        queue.async { [weak self] in
+            for id in ids where reader.isLive(id) {
+                // A pass that runs out of time on a busy center gets one more go.
+                if !reader.closeNative(id, explicit: true), reader.isLive(id) { _ = reader.closeNative(id, explicit: true) }
+            }
+            DispatchQueue.main.async {
+                guard let self, self.generation == requested else { return }
+                self.scheduleScan()
+            }
+        }
     }
 
     /// The island shows this banner, so its original can leave the screen.
@@ -207,14 +244,24 @@ final class NotchNotificationService: ObservableObject {
 
     /// Where a window cannot be moved, the original is closed instead after
     /// a short grace for its sound.
-    private func closeNative(_ id: UUID) {
+    private func closeNative(_ id: UUID, attempt: Int = 0) {
         guard monitoring, NotchNotificationSupport.dismissesNative(),
               items.contains(where: { $0.id == id }) else { return }
         let requested = generation
-        DispatchQueue.main.asyncAfter(deadline: .now() + NotchNotificationSupport.nativeCloseGrace) { [weak self] in
+        let delay = attempt == 0 ? NotchNotificationSupport.nativeCloseGrace : NotchNotificationSupport.readRetryDelay
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, self.generation == requested, self.monitoring, let reader = self.reader,
                   NotchNotificationSupport.dismissesNative() else { return }
-            self.queue.async { _ = reader.closeNative(id) }
+            self.queue.async { [weak self] in
+                // A read that could not finish closes nothing; the banner is
+                // still up, so it is tried again a few times.
+                guard !reader.closeNative(id), reader.isLive(id) else { return }
+                DispatchQueue.main.async {
+                    guard let self, self.generation == requested,
+                          attempt + 1 < NotchNotificationSupport.readRetries else { return }
+                    self.closeNative(id, attempt: attempt + 1)
+                }
+            }
         }
     }
 
@@ -268,7 +315,7 @@ final class NotchNotificationService: ObservableObject {
             }
         }
         observer = nil; application = nil; pid = nil; reader = nil
-        monitoring = false; reading = false; rescan = false; openingID = nil
+        monitoring = false; reading = false; rescan = false; failedReads = 0; openingID = nil
         shownIDs.removeAll(); closingIDs.removeAll(); placing = false; hidesNative = false
         appIcons.removeAll()
         sourceApplications.removeAll()

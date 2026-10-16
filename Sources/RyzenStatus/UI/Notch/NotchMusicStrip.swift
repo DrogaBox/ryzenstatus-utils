@@ -66,6 +66,7 @@ struct NotchMusicStrip: View {
                     if named != nil { namedLabel }
                     if wing > 0 {
                         NotchMusicCover(artwork: artwork, side: artworkSide, radius: artworkRadius)
+                            .background { if live { NotchCoverProbe(role: .strip) } }
                     }
                 }
                 .padding(.leading, named == nil ? artworkInset : Layout.endInset)
