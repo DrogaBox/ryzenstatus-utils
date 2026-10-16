@@ -128,7 +128,7 @@ final class NotchMascotDecor {
 
         for layer in creatureLayers { layer.isHidden = true }
         switch style {
-        case .minimal, .robot:
+        case .minimal, .robot, .cristobal, .whiteRabbit:
             break
         case .chip:
             pins.path = NotchMascotCreatures.chipPins(size: size)
@@ -255,7 +255,7 @@ final class NotchMascotDecor {
             fade(pins, to: sleeping ? 0.45 : 1, duration: duration, animated: animated)
         case .ghost:
             fade(fill, to: sleeping ? 0.55 : 0.92, duration: duration, animated: animated)
-        case .fan, .minimal, .robot:
+        case .fan, .minimal, .robot, .cristobal, .whiteRabbit:
             break
         }
         applyAmbient()
@@ -548,7 +548,7 @@ final class NotchMascotDecor {
             glow.keyTimes = [0, 0.2, 0.45, 0.7, 1]
             glow.duration = min(1, reaction.length)
             pins.add(glow, forKey: "glow")
-        case .slime, .minimal, .robot:
+        case .slime, .minimal, .robot, .cristobal, .whiteRabbit:
             break
         }
     }

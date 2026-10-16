@@ -625,6 +625,10 @@ extension DefaultsKey {
     static let notchMascotVisitFrequency = "notchMascotVisitFrequency"
     static let notchMascotHidesWhenIdle = "notchMascotHidesWhenIdle"
     static let notchMascotPerch = "notchMascotPerch"
+    static let notchMascotDesktop = "notchMascotDesktop"          // Bool, comes out onto the desktop
+    static let notchMascotExcursions = "notchMascotExcursions"    // Bool, goes for walks there on its own
+    static let notchMascotDesktopFriend = "notchMascotDesktopFriend" // String, style of the friend that comes out with it, empty for none
+    static let notchMascotDesktopPlay = "notchMascotDesktopPlay" // Bool, the two out on the desktop play together now and then
     static let notchMascotBetaInstalled = "notchMascotBetaInstalled"
     /// Automatic reactions to what the Mac does, and each kind of them.
     static let notchMascotAutomatic = "notchMascotAutomatic"

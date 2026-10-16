@@ -66,6 +66,10 @@ final class NotchMascotRig: NSObject {
     private let aura = NotchMascotAura()
     /// The body lit white for an instant, as a transformation bursts out.
     private let bodyFlash = CAShapeLayer()
+    /// A sprite companion's figure, shown in place of the drawn body.
+    private let sprite = NotchMascotSpriteLayer()
+    /// It is drawn from a sprite sheet now, rather than with shapes.
+    private(set) var showsSprite = false
     private var transformObserver: NSObjectProtocol?
     /// The pointer rests on it: happy eyes and a sway until it leaves.
     private(set) var isStroked = false
@@ -92,6 +96,8 @@ final class NotchMascotRig: NSObject {
         squasher.addSublayer(tilter)
         tilter.addSublayer(decor.back)
         for layer in [ears, antenna, bulb, fill, visor, shine, bodyFlash] { tilter.addSublayer(layer) }
+        tilter.addSublayer(sprite)
+        sprite.isHidden = true
         tilter.addSublayer(decor.middle)
         tilter.addSublayer(attention)
         tilter.addSublayer(wearables.head)
@@ -210,8 +216,29 @@ final class NotchMascotRig: NSObject {
         rightEye.frame = CGRect(x: face.rightEye.x * size - side / 2, y: face.rightEye.y * size - side / 2, width: side, height: side)
         leftEye.contentsScale = scale
         rightEye.contentsScale = scale
+        // A sprite companion shows its sheet in place of the drawn body, face,
+        // props and wearables, and its motions still hop, squash and lean it.
+        // A sheet missing from the app leaves the drawn companion showing.
+        let drawsSprite = look.style.sprite.map { sprite.configure(sheet: $0, size: size, scale: scale) } ?? false
+        showsSprite = drawsSprite
+        sprite.isHidden = !drawsSprite
+        for layer in [fill, attention, decor.back, decor.middle, decor.props, wearables.head, wearables.face] {
+            layer.isHidden = drawsSprite
+        }
+        if drawsSprite {
+            for layer in [ears, antenna, bulb, visor, shine] { layer.isHidden = true }
+            bodyFlash.path = CGPath(rect: sprite.frame, transform: nil)
+            syncSpriteLoop()
+        }
         apply(mood.expression, animated: false)
         applyAmbient()
+    }
+
+    /// A sprite companion keeps the row its mood calls for.
+    private func syncSpriteLoop() {
+        guard showsSprite, let sheet = sprite.sheet else { return }
+        let loop = NotchMascotSpriteChoreography.loop(for: mood, in: sheet)
+        sprite.loop(loop.state, speed: reduceMotion ? 0 : loop.speed)
     }
 
     // MARK: Faces
@@ -223,6 +250,7 @@ final class NotchMascotRig: NSObject {
         dozed = false
         if mood != .sleepy { blinks = 0 }
         apply(mood.expression, animated: animated && !reduceMotion)
+        syncSpriteLoop()
         lightBulb(mood != .sleepy, animated: animated && !reduceMotion)
         decor.setSleeping(mood == .sleepy, animated: animated && !reduceMotion && size > 0, fill: fill)
         applyAmbient()
@@ -325,7 +353,9 @@ final class NotchMascotRig: NSObject {
         self.mood = mood
         blinks = 0
         dozed = false
+        sprite.clearOverlays()
         apply(mood.expression, animated: false)
+        syncSpriteLoop()
         decor.setSleeping(mood == .sleepy, animated: false, fill: fill)
         applyAmbient()
     }
@@ -383,6 +413,7 @@ final class NotchMascotRig: NSObject {
     /// Ends a visit under way where it stands, and it blinks again.
     func endVisit() {
         for layer in [root, squasher, face] { layer.removeAnimation(forKey: "visit") }
+        sprite.removeAnimation(forKey: "walk")
         root.removeAnimation(forKey: "visitFade")
         blinksResume = CACurrentMediaTime()
         stopBlinking()
@@ -394,6 +425,7 @@ final class NotchMascotRig: NSObject {
     func clearFinishedVisit() {
         guard root.animation(forKey: "visit") != nil, CACurrentMediaTime() >= visitEnds else { return }
         for layer in [root, squasher, face] { layer.removeAnimation(forKey: "visit") }
+        sprite.removeAnimation(forKey: "walk")
         root.removeAnimation(forKey: "visitFade")
     }
     /// It grew sleepy on its own after a long rest.
@@ -798,6 +830,10 @@ final class NotchMascotRig: NSObject {
         if dozed, reaction != .wakeUp { setMood(.idle, animated: !reduceMotion) }
         blinks = 0
         let now = CACurrentMediaTime()
+        if showsSprite, !reduceMotion, let sheet = sprite.sheet,
+           let state = NotchMascotSpriteChoreography.state(for: reaction, in: sheet) {
+            sprite.perform(state, for: reaction.length)
+        }
         glowBulb(for: reaction.length)
         decor.flourish(reaction, reduceMotion: reduceMotion)
         guard !reduceMotion else {
@@ -1084,6 +1120,7 @@ final class NotchMascotRig: NSObject {
             walk.isRemovedOnCompletion = false
         }
         root.add(walk, forKey: "visit")
+        if showsSprite { sprite.walk(path, start: start, holdsEnd: holdsEnd) }
         let squash = CAKeyframeAnimation(keyPath: "transform")
         squash.values = path.squash.map { NSValue(caTransform3D: squashed($0)) }
         squash.keyTimes = walk.keyTimes
@@ -1105,6 +1142,62 @@ final class NotchMascotRig: NSObject {
         }
         // No blink while it walks, as the face it shows is the greeting's.
         pauseBlinking(for: start + path.duration - now, from: nil)
+    }
+
+    // MARK: On the desktop
+
+    /// Walks on the spot toward `direction`, right when positive, while the
+    /// desktop moves its window; nil stops it. A sprite runs its row; a drawn
+    /// companion bobs along, leaning a little and looking where it goes.
+    func setStride(toward direction: CGFloat?) {
+        guard size > 0 else { return }
+        if showsSprite { sprite.run(toward: reduceMotion ? nil : direction) }
+        hopper.removeAnimation(forKey: "stride")
+        guard let direction, !reduceMotion else {
+            if !showsSprite { lookAhead() }
+            return
+        }
+        let bob = CAKeyframeAnimation(keyPath: "transform.translation.y")
+        bob.values = [0, -size * (showsSprite ? 0.03 : 0.1), 0]
+        bob.keyTimes = [0, 0.4, 1]
+        bob.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeIn)]
+        bob.duration = 0.3
+        bob.repeatCount = .infinity
+        bob.isAdditive = true
+        hopper.add(bob, forKey: "stride")
+        if !showsSprite { attend(to: CGPoint(x: direction > 0 ? 0.1 : -0.1, y: 0)) }
+    }
+
+    /// Leans `angle` radians, clockwise on screen, as it swings from the
+    /// pointer or flies through the air; zero rights it with a little spring.
+    func lean(_ angle: CGFloat) {
+        let target = CATransform3DMakeRotation(reduceMotion ? 0 : angle, 0, 0, 1)
+        guard !CATransform3DEqualToTransform(root.transform, target) else { return }
+        let spring = CASpringAnimation(keyPath: "transform")
+        spring.fromValue = NSValue(caTransform3D: root.presentation()?.transform ?? root.transform)
+        spring.toValue = NSValue(caTransform3D: target)
+        spring.damping = 14
+        spring.stiffness = 240
+        spring.duration = min(0.6, spring.settlingDuration)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        root.transform = target
+        CATransaction.commit()
+        root.add(spring, forKey: "lean")
+    }
+
+    /// Lands from a fall: squashed flat for an instant, more the harder it
+    /// came down, from 0 to 1.
+    func land(impact: CGFloat) {
+        guard size > 0, !reduceMotion else { return }
+        let amount = min(0.35, max(0.08, impact * 0.35))
+        let squash = CAKeyframeAnimation(keyPath: "transform")
+        squash.values = [squashed(0), squashed(amount), squashed(-amount * 0.4), squashed(0)].map { NSValue(caTransform3D: $0) }
+        squash.keyTimes = [0, 0.25, 0.6, 1]
+        squash.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeInEaseOut),
+                                  CAMediaTimingFunction(name: .easeOut)]
+        squash.duration = 0.32
+        squasher.add(squash, forKey: "land")
     }
 
     // MARK: Blinking

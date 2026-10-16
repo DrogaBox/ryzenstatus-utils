@@ -876,6 +876,18 @@ struct NotchRestingStrip: View {
                     .animation(nil, value: service.mascotBridging)
                     .allowsHitTesting(false)
             }
+            // The friend that lives with it rests in the other wing.
+            if service.mascotFriendRests(on: geometry), let friend = service.mascotFriendLook {
+                let track = service.mascotFriendTrack(on: geometry)
+                NotchMascotTrackView(look: friend, track: track, rests: true, visit: nil,
+                                     mood: service.mascotRestingMood, reaction: service.mascotFriendReaction,
+                                     yieldsToActivities: true)
+                    .frame(width: track.width, height: track.height)
+                    .opacity(service.mascotFriendSteppedAside ? 0 : 1)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: service.mascotFriendSteppedAside)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
         }
         .foregroundStyle(.white.opacity(0.9))
         // The strip stays in its band at the top: hover grows the island

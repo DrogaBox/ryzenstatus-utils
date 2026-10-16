@@ -205,6 +205,21 @@ enum NotchMascotWardrobe {
         return chosen.isPickable && chosen.unlockLevel <= level ? chosen : .none
     }
 
+    /// What the friend wears beside a companion wearing `main`: a costume or
+    /// the Gaming Mode headband the same, so the two match; otherwise one of
+    /// its own among those `level` unlocks, worn somewhere else on it than
+    /// the companion's, and always the same one for its `style`.
+    static func friendAccessory(main: NotchMascotAccessory, level: Int,
+                                style: NotchMascotStyle) -> NotchMascotAccessory {
+        guard main.isPickable else { return main }
+        let options = NotchMascotAccessory.wardrobe.filter {
+            $0 != .none && $0 != main && $0.unlockLevel <= level && (main == .none || $0.placement != main.placement)
+        }
+        guard !options.isEmpty else { return .none }
+        let seed = style.rawValue.unicodeScalars.reduce(UInt32(7)) { $0 &* 31 &+ $1.value }
+        return options[Int(seed % UInt32(options.count))]
+    }
+
     /// The accessory a level unlocks, if any.
     static func unlocked(at level: Int) -> NotchMascotAccessory? {
         NotchMascotAccessory.wardrobe.first { $0.unlockLevel == level && $0 != .none }

@@ -1,5 +1,103 @@
 # Changelog
 
+## [1.53.0] — 2026-10-16 — kexts 3.35.0 (No kext changes)
+
+The companion and its friend live together on the desktop: they duel with blades of light, throw energy at each other, dance to the music, play tag and nap side by side. The friend wears an item of its own, comes out from a floating island too and rests at the capsule's other end. Cristóbal and the White Rabbit are kept for the companion named DrogaBox.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.0. Only the application's validation version pin changes.
+
+### Added
+
+- **They play together**: now and then the two out on the desktop start something together, each time with its own twist:
+  - a duel with blades of light, two to four clashes in a shower of sparks, won by either or ended with a bow;
+  - a blast of gathered energy that the other holds off with its own until both burst, takes and is thrown back by, jumps over or knocks back;
+  - powering up in bursts of aura, which the other matches or fizzles out at;
+  - a dance-off with notes flying, then both together;
+  - high fives, tag, leapfrog, hugs, a copying game the friend loses on its last move, a star handed over as a gift, and naps side by side.
+
+  What they just did is less likely next, music calls for dancing and the small hours for a nap. The energy and the blades take the colour of the companion's transformation, crackle with lightning from the second golden form on, and grow with the bond. A press on either, or either going home, ends a play at once. A new switch, **They play together**, turns it off. Reduce Motion and Low Power Mode keep them still.
+- **A life between plays**: patting one makes the other come over, hop up for a pat of its own or cheer. A hard fall brings the other running with a heart. One dozing off alone is joined by the other after a yawn. Both bob along while music plays, as the companion does in the island.
+- **The friend's own take**: in the island and on the desktop, the friend answers what the companion reacts to a moment later with a reaction of its own, rather than the same one at the same time.
+- **The friend's own item**: the friend wears its own accessory among those the level unlocks, worn elsewhere on it than the companion's and always the same for its figure. Seasonal costumes and the Gaming Mode headband the two wear alike.
+- **Both companions in the capsule**: with a friend picked, a floating island keeps the companion at the end on its side and the friend at the other, as the wings do beside a camera. With nothing else to show, the floating style still draws them below the menu bar, and the friend stays there while the companion is out. With no friend picked, the companion rests in the middle as before.
+
+### Changed
+
+- **The comic's characters by name**: Cristóbal and the White Rabbit are offered as a style or a friend only to the companion named DrogaBox. A companion with another name that wore one goes back to the minimal style.
+
+### Fixed
+
+- **The friend never came out from a floating island**: it came out only after the companion walked out on its own, and only where it had a place to rest in the island, which a capsule never gave it. It now comes out with the companion whenever the island keeps no place for it, pulled out or not, and joins a companion already out when it is picked.
+
+## [1.52.1] — 2026-10-16 — kexts 3.35.0 (No kext changes)
+
+A drawn companion is seen again when it comes out onto the desktop.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.0. Only the application's validation version pin changes.
+
+### Fixed
+
+- **A drawn companion vanished on the desktop**: the cat, the robot and the other drawn companions are as big on the desktop as the window was first made for, so the window never got a size and they left the island for an empty window, taking the friend along with them. The window now takes its size the first time, whatever the companion.
+
+## [1.52.0] — 2026-10-16 — kexts 3.35.0 (No kext changes)
+
+The White Rabbit's sign speaks your language: in every language but Spanish, the words on its cardboard sign are written in the language the app uses.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.0. Only the application's validation version pin changes.
+
+### Changed
+
+- **The White Rabbit's sign in your language**: its sign said HOLA, VOY, QUÉ TAL, ¡SÍ!, PENSANDO, EN CAMINO and ¡LISTO! REVISÁ whatever the app's language. In the fourteen other languages its frames now carry a blank sign with the words written onto it, in heavy rounded capitals sized to the sign, following it frame by frame. In Spanish it keeps the comic's own lettering.
+
+## [1.51.0] — 2026-10-16 — kexts 3.35.0 (No kext changes)
+
+Two companions can share the island: the friend you pick rests in the wing on the camera's other side, and each one comes out onto the desktop and goes back in on its own.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.0. Only the application's validation version pin changes.
+
+### Changed
+
+- **A friend in the island**: the friend picked under A friend keeps it company (Companion settings) now lives in the closed island too, resting in the wing on the camera's other side. Drag either one down to bring it out onto the desktop; drop it back on the island, double-click it or pick Back to the Island and it flies back to its own wing. On a walk of its own, your companion still takes its friend along and brings it back. The friend steps out of sight while your companion walks over its wing. A floating capsule has room for one companion only, so there the friend rests out of view.
+- **The White Rabbit's size**: on the desktop it stands half Cristóbal's height, as in the comic.
+- **The White Rabbit's signs**: "¡LISTO! REVISÁ" now shows only when something finishes well, such as an agent's task or a download. Thinking, it holds up "PENSANDO", and looking about or yawning it shows "HOLA". Cristóbal reads his finished page with a thumbs-up for the same moments.
+
+## [1.50.0] — 2026-10-16 — kexts 3.35.0 (No kext changes)
+
+Cristóbal reads at a glance in the island: drawn small, he shows his top half, face, glasses and mug, instead of a tiny whole figure.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.0. Only the application's validation version pin changes.
+
+### Changed
+
+- **Cristóbal up close in the island**: in the closed island, the menu bar and notices, where a companion is only a few points tall, Cristóbal is drawn from the waist up and fades out at the bottom, so his face, his waves and his coffee show at twice the size. On the desktop and in the Settings previews he stands whole. The White Rabbit stays whole everywhere, so its sign always reads.
+
+## [1.49.0] — 2026-10-16 — kexts 3.35.0 (No kext changes)
+
+The companion no longer has to go out alone: pick a friend and two companions roam the desktop together, Cristóbal and the White Rabbit among them.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.0. Only the application's validation version pin changes.
+
+### Added
+
+- **Comes out with a friend**: with Come out onto the desktop on, pick a second companion under Comes out with a friend (Companion settings). It hops out of the island just after yours, on the other side, and wanders on its own; when the two are far apart one walks over to the other, and when they meet they wave. It shares your companion's level, so it wears the same accessory and transformation, and its pats count toward the same bond. Pat it, carry it and throw it like the first. Double-click it or pick Back to the Island from its menu and it goes in by itself; it follows yours in when yours goes home. Reactions to what the Mac does play on both.
+
+## [1.48.0] — 2026-10-16 — kexts 3.35.0 (No kext changes)
+
+The companion can leave the island: drag it down out of the closed island and it walks around your desktop, where you can pat it, carry it, throw it and watch it bounce, and send it home with a double click. Two new companions join the styles: Cristóbal Sincronía and the White Rabbit, from the author's own comic.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.0. Only the application's validation version pin changes.
+
+### Added
+
+- **Companion on the desktop**: with Come out onto the desktop on (Companion settings), drag the companion down out of the closed island and it grows to desktop size and hangs from the pointer. Let go, it falls to the bottom of the screen, bounces off its sides and lands; flung, it flies and slides to a stop. On its own it stands, looks about, walks along the bottom of the screen and dozes, and its eyes follow the pointer when it comes near. A click pats it, a moment's rest of the pointer brings out its hearts, and pats count toward its level as in the island. Double-click it, drop it back on the island or pick Back to the Island from its menu and it flies home and hops out to its place. Reactions to what the Mac does play where it stands while it is out.
+- **Walks on its own**: with Go for walks on its own on, now and then a visit takes it out of the island by itself for a minute or two, and it goes back in unless you play with it. Reduce Motion and Low Power Mode keep it still.
+- **Cristóbal Sincronía and the White Rabbit**: two sprite companions drawn frame by frame, from the author's comic. They walk, hop, wave, think and fret in the island, the menu bar, notices and on the desktop, playing a row of their sheet for each mood and reaction. Accessories, colors and transformations apply to the drawn companions only.
+
+### Fixed
+
+- **AMD Ryzen Power panel**: the section now sits in the same rounded card as the other panel sections, instead of looking loose on the panel.
+- **Sprite outlines**: Cristóbal's frames lost the faint cyan fringe left around his outline, stray specks are gone, and both characters have a softer edge.
+
 ## [1.47.1] — 2026-10-16 — kexts 3.35.0 (No kext changes)
 
 Notifications in the Dynamic Island are more dependable: they show up when they arrive, and closing one in the island closes the system's banner too.

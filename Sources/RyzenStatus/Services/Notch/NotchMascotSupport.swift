@@ -23,12 +23,41 @@ enum NotchMascotStyle: String, CaseIterable, Identifiable {
     case ghost
     /// A wobbly slime that jiggles and melts a little as it dozes.
     case slime
+    /// Cristóbal Sincronía, coffee in hand, from the author's comic: a sprite
+    /// figure, as are the companions after him.
+    case cristobal
+    /// The comic's White Rabbit, with its apron and cardboard sign.
+    case whiteRabbit
 
     var id: String { rawValue }
 
     /// Only the minimal companion comes in shapes; every other style is its
     /// own figure.
     var takesShape: Bool { self == .minimal }
+
+    /// The comic's own characters.
+    var isComic: Bool { self == .cristobal || self == .whiteRabbit }
+
+    /// The comic's characters come only to the companion named after their
+    /// author, for now.
+    static let comicName = "DrogaBox"
+
+    static func unlocksComic(name: String?) -> Bool {
+        (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(comicName) == .orderedSame
+    }
+
+    /// The styles a companion named `name` may wear.
+    static func available(name: String?) -> [NotchMascotStyle] {
+        unlocksComic(name: name) ? allCases : allCases.filter { !$0.isComic }
+    }
+
+    /// The style stored as `raw` for a companion named `name`: the minimal
+    /// one for none, or for a comic character it may not wear.
+    static func resolved(_ raw: String?, name: String?) -> NotchMascotStyle {
+        guard let style = NotchMascotStyle(rawValue: raw ?? ""), !style.isComic || unlocksComic(name: name)
+        else { return .minimal }
+        return style
+    }
 }
 
 enum NotchMascotShape: String, CaseIterable, Identifiable {
@@ -113,6 +142,9 @@ enum NotchMascotSide: String, CaseIterable, Identifiable {
     case left, right
 
     var id: String { rawValue }
+
+    /// The camera's other side, where a friend rests.
+    var other: NotchMascotSide { self == .left ? .right : .left }
 }
 
 /// How often the companion strolls through the island.
@@ -479,6 +511,9 @@ enum NotchMascotGeometry {
                 .reduce(parts.head.boundingBoxOfPath) { $0.union($1.boundingBoxOfPath) }
         } else if let figure = NotchMascotCreatures.bounds(look.style) {
             bounds = figure
+        } else if look.style.sprite != nil {
+            // A sprite figure stands the whole height of its box.
+            bounds = CGRect(x: 0, y: 0, width: 1, height: 1)
         } else {
             bounds = body(look.shape, size: 1).boundingBoxOfPath
         }
@@ -793,6 +828,14 @@ struct NotchMascotVisit: Equatable {
         /// a countdown, or its own wing as it reacts, with the music's bars
         /// playing on or an arriving activity reading at once. Only a stroll
         /// from end to end takes the whole strip.
+        /// It walks over the camera's other side, where a friend rests.
+        var crossesTheIsland: Bool {
+            switch self {
+            case .lap, .pass, .cross: return true
+            default: return false
+            }
+        }
+
         var takesOnlyItsWing: Bool {
             switch self {
             case .countdown, .retreat, .cameo, .linger: return true
@@ -1255,6 +1298,8 @@ enum NotchMascotSupport {
     /// How it goes into the island to hide: a yawn where it rests, then in
     /// behind the camera, or out at a capsule's far end.
     static let hideAway = NotchMascotVisit.Kind.linger(.yawn)
+    /// Free to roam the desktop, about one visit in three takes it out there.
+    static let excursionChance = 0.35
 
     /// How it takes a countdown running out: startled by a plain timer's
     /// ring, glad at the end of a focus session, and ready to go again when
@@ -1332,6 +1377,36 @@ enum NotchMascotSupport {
         isEnabled(in: defaults) && defaults.bool(forKey: DefaultsKey.notchMascotPerch)
     }
 
+    /// Whether it can be taken out of the closed island onto the desktop.
+    static func roamsDesktop(in defaults: UserDefaults = .standard) -> Bool {
+        isEnabled(in: defaults) && defaults.bool(forKey: DefaultsKey.notchMascotDesktop)
+    }
+
+    /// Whether it also comes out onto the desktop on its own now and then.
+    static func goesOnExcursions(in defaults: UserDefaults = .standard) -> Bool {
+        roamsDesktop(in: defaults) && defaults.bool(forKey: DefaultsKey.notchMascotExcursions)
+    }
+
+    /// The friend that comes out onto the desktop with it; nil for none. It
+    /// shares the bond, so it wears the same shape, colours, accessory and
+    /// transformation the level gives, where its own figure takes them.
+    static func desktopFriend(in defaults: UserDefaults = .standard) -> NotchMascotLook? {
+        guard roamsDesktop(in: defaults),
+              let style = NotchMascotStyle(rawValue: defaults.string(forKey: DefaultsKey.notchMascotDesktopFriend) ?? ""),
+              NotchMascotStyle.available(name: defaults.string(forKey: DefaultsKey.notchMascotName)).contains(style)
+        else { return nil }
+        var friend = look(in: defaults)
+        friend.style = style
+        friend.accessory = NotchMascotWardrobe.friendAccessory(main: friend.accessory, level: shownLevel(in: defaults),
+                                                               style: style)
+        return friend
+    }
+
+    /// Whether the two out on the desktop play together now and then.
+    static func friendsPlay(in defaults: UserDefaults = .standard) -> Bool {
+        desktopFriend(in: defaults) != nil && defaults.bool(forKey: DefaultsKey.notchMascotDesktopPlay)
+    }
+
     static func visitFrequency(in defaults: UserDefaults = .standard) -> NotchMascotVisitFrequency {
         NotchMascotVisitFrequency(rawValue: defaults.string(forKey: DefaultsKey.notchMascotVisitFrequency) ?? "") ?? .normal
     }
@@ -1342,7 +1417,8 @@ enum NotchMascotSupport {
 
     static func look(in defaults: UserDefaults = .standard) -> NotchMascotLook {
         NotchMascotLook(
-            style: NotchMascotStyle(rawValue: defaults.string(forKey: DefaultsKey.notchMascotStyle) ?? "") ?? .minimal,
+            style: NotchMascotStyle.resolved(defaults.string(forKey: DefaultsKey.notchMascotStyle),
+                                             name: defaults.string(forKey: DefaultsKey.notchMascotName)),
             shape: NotchMascotShape(rawValue: defaults.string(forKey: DefaultsKey.notchMascotShape) ?? "") ?? .ball,
             palette: NotchMascotPalette(rawValue: defaults.string(forKey: DefaultsKey.notchMascotPalette) ?? "") ?? .pearl,
             accessory: accessory(in: defaults),
@@ -1425,6 +1501,28 @@ enum NotchMascotSupport {
                                 rest: side == .right ? stripWidth - rest : rest,
                                 hidden: wing...(wing + cameraWidth), baseline: stripHeight / 2 + 0.5,
                                 mirrored: side == .right)
+    }
+
+    /// A capsule's resting `track` shared with a friend: the companion at the
+    /// end on its side and the friend at the other, each `inset` points in
+    /// from its end. Nil when the two would not fit apart.
+    static func capsulePair(_ track: NotchMascotTrack, inset: CGFloat,
+                            side: NotchMascotSide) -> (companion: NotchMascotTrack, friend: NotchMascotTrack)? {
+        let rest = inset + track.size / 2
+        guard track.width - rest * 2 >= track.size else { return nil }
+        var left = track
+        left.rest = rest
+        left.mirrored = false
+        var right = track
+        right.rest = track.width - rest
+        right.mirrored = true
+        return side == .right ? (right, left) : (left, right)
+    }
+
+    /// The pair's ends in a capsule on `geometry`: as far in as the
+    /// companion stands beside a centre reading.
+    static func capsulePairInset(_ geometry: NotchGeometry) -> CGFloat {
+        NotchCapsuleLayout.side(geometry) + NotchCapsuleLayout.endPadding
     }
 
     /// Room a wing keeps beyond the companion for it to come out in, so it

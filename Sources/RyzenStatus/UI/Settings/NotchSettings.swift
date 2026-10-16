@@ -37,6 +37,7 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchMascotEnabled) private var mascotEnabled = false
     @AppStorage(DefaultsKey.notchMascotHidesWhenIdle) private var mascotHidesWhenIdle = true
     @AppStorage(DefaultsKey.notchMascotStyle) private var mascotStyle = NotchMascotStyle.minimal.rawValue
+    @AppStorage(DefaultsKey.notchMascotName) private var mascotName = ""
     @AppStorage(DefaultsKey.notchMascotShape) private var mascotShape = NotchMascotShape.ball.rawValue
     @AppStorage(DefaultsKey.notchMascotPalette) private var mascotPalette = NotchMascotPalette.pearl.rawValue
     @AppStorage(DefaultsKey.notchMascotSide) private var mascotSide = NotchMascotSide.left.rawValue
@@ -984,7 +985,7 @@ struct NotchSettings: View {
 
     /// The companion where it rests, beside a camera drawn black on black.
     private var restingMascot: some View {
-        let look = NotchMascotLook(style: NotchMascotStyle(rawValue: mascotStyle) ?? .minimal,
+        let look = NotchMascotLook(style: NotchMascotStyle.resolved(mascotStyle, name: mascotName),
                                    shape: NotchMascotShape(rawValue: mascotShape) ?? .ball,
                                    palette: NotchMascotPalette(rawValue: mascotPalette) ?? .pearl)
         let right = NotchMascotSide(rawValue: mascotSide) == .right
