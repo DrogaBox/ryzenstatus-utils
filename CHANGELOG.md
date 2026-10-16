@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.53.1] — 2026-10-16 — kexts 3.35.0 (No kext changes)
+
+Fans keep their reading: a fan turning at a steady speed no longer shows "— RPM" now and then.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.0. Only the application's validation version pin changes.
+
+### Fixed
+
+- **Fans showing "— RPM" at random**: a fan turning at a steady speed could be taken for an unconnected header and lose its reading. The kext re-reads the fan chip on one request in four and repeats its last value in between, and the app counted those repeats as a frozen sensor. A reading is now treated as frozen only when it has not changed for 90 seconds.
+
 ## [1.53.0] — 2026-10-16 — kexts 3.35.0 (No kext changes)
 
 The companion and its friend live together on the desktop: they duel with blades of light, throw energy at each other, dance to the music, play tag and nap side by side. The friend wears an item of its own, comes out from a floating island too and rests at the capsule's other end. Cristóbal and the White Rabbit are kept for the companion named DrogaBox.

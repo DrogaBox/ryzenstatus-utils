@@ -56,15 +56,10 @@ final class FanCurveController: ObservableObject {
     private var gpuBridgeWarned = false
     private var wakeObserver: Any?
     private var reconnectObserver: Any?
-    /// Rolling RPM window per fan, feeding the frozen-tachometer detector
-    /// (S11-b). Reset whenever the fan list is rebuilt, since a rebuild means
-    /// the channel set changed and the old windows describe other headers.
-    private var rpmWindows: [Int: [UInt64]] = [:]
-    /// 12 polls (18 s at the 1.5 s view cadence, 36 s at the 3 s safety
-    /// cadence): eight identical non-zero readings is the detector's
-    /// threshold, and the extra four keep the judgement from being made on a
-    /// window that is all there is.
-    private static let rpmWindowLength = 12
+    /// Each fan's run of identical RPM readings, feeding the frozen-tachometer
+    /// detector. Reset whenever the fan list is rebuilt, since a rebuild means
+    /// the channel set changed and the old runs describe other headers.
+    private var rpmRuns: [Int: AMDFanSafety.TachometerRun] = [:]
     private let logger = OSLog(subsystem: "com.ryzenstatus.fancurve", category: "Controller")
 
     // MARK: - Initialization
@@ -707,7 +702,7 @@ final class FanCurveController: ObservableObject {
                 rpmValid: snap.rpmValid
             )
         }
-        self.rpmWindows.removeAll()
+        self.rpmRuns.removeAll()
         updatePollTimer()
     }
 
@@ -803,17 +798,13 @@ final class FanCurveController: ObservableObject {
         }
     }
 
-    /// Folds one RPM reading into a fan's window and answers whether the
-    /// channel now looks frozen (`AMDFanSafety.isTachometerStale`, already
-    /// unit-tested; this is where it finally gets wired in).
+    /// Folds one RPM reading into a fan's run and answers whether the
+    /// channel now looks frozen (`AMDFanSafety.isTachometerFrozen`).
     private func recordRPM(_ rpm: UInt64, for fanId: Int) -> Bool {
-        var window = rpmWindows[fanId] ?? []
-        window.append(rpm)
-        if window.count > Self.rpmWindowLength {
-            window.removeFirst(window.count - Self.rpmWindowLength)
-        }
-        rpmWindows[fanId] = window
-        return AMDFanSafety.isTachometerStale(samples: window)
+        let run = AMDFanSafety.advanceTachometerRun(rpmRuns[fanId], rpm: rpm,
+                                                    at: ProcessInfo.processInfo.systemUptime)
+        rpmRuns[fanId] = run
+        return AMDFanSafety.isTachometerFrozen(run)
     }
 
     /// `packageTemp` is the kext's reading taken by this poll; without one

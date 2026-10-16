@@ -9437,22 +9437,36 @@ struct MetricsTests {
         expect(AMDFanSafety.hottestSensor(cpuTemp: 75.0, gpuTemp: Double.nan) == 75.0, "hottestSensor ignores NaN GPU temp")
         expect(AMDFanSafety.hottestSensor(cpuTemp: Double.nan, gpuTemp: Double.nan) == 0.0, "hottestSensor returns 0.0 when both are invalid")
 
-        // Frozen tachometer detector (S11-b)
-        let staleTachSamples: [UInt64] = [40, 40, 40, 40, 40, 40, 40, 40]
-        expect(AMDFanSafety.isTachometerStale(samples: staleTachSamples) == true,
-               "isTachometerStale flags 8 identical non-zero RPM samples as stale")
-        let activeJitterSamples: [UInt64] = [851, 851, 838, 840, 850, 851, 852, 850]
-        expect(AMDFanSafety.isTachometerStale(samples: activeJitterSamples) == false,
-               "isTachometerStale does NOT flag active rotor with natural RPM jitter")
-        let stoppedFanSamples: [UInt64] = [0, 0, 0, 0, 0, 0, 0, 0]
-        expect(AMDFanSafety.isTachometerStale(samples: stoppedFanSamples) == false,
-               "isTachometerStale does NOT flag a stopped fan (0 RPM) as stale")
-        let insufficientSamples: [UInt64] = [40, 40, 40]
-        expect(AMDFanSafety.isTachometerStale(samples: insufficientSamples) == false,
-               "isTachometerStale requires at least threshold samples before flagging")
-        let suffixStaleSamples: [UInt64] = [1200, 1100, 40, 40, 40, 40, 40, 40, 40, 40]
-        expect(AMDFanSafety.isTachometerStale(samples: suffixStaleSamples) == true,
-               "isTachometerStale evaluates the sliding window suffix correctly")
+        // Frozen tachometer detector: judged on time, not on readings,
+        // because the kext answers three calls in four from its cache.
+        do {
+            func tachRun(_ samples: [(UInt64, TimeInterval)]) -> AMDFanSafety.TachometerRun {
+                var run: AMDFanSafety.TachometerRun?
+                for (rpm, time) in samples {
+                    run = AMDFanSafety.advanceTachometerRun(run, rpm: rpm, at: time)
+                }
+                return run!
+            }
+            func steady(_ rpm: UInt64, polls: Int) -> [(UInt64, TimeInterval)] {
+                (0..<polls).map { (rpm, Double($0) * 1.5) }
+            }
+            expect(!AMDFanSafety.isTachometerFrozen(tachRun(steady(1238, polls: 8))),
+                   "eight cached repeats of a turning fan are not a frozen tachometer")
+            expect(AMDFanSafety.isTachometerFrozen(tachRun(steady(40, polls: 62))),
+                   "a header stuck on one non-zero value for 90 s is frozen")
+            expect(!AMDFanSafety.isTachometerFrozen(tachRun(steady(0, polls: 62))),
+                   "a stopped fan (0 RPM) is not frozen")
+            var drift: [(UInt64, TimeInterval)] = []
+            for poll in 0..<62 {
+                let rpm: UInt64 = poll % 9 == 0 ? 1241 : 1238
+                drift.append((rpm, Double(poll) * 1.5))
+            }
+            expect(!AMDFanSafety.isTachometerFrozen(tachRun(drift)),
+                   "a fan that drifts by a few RPM now and then is not frozen")
+            let farApart: [(UInt64, TimeInterval)] = [(40, 0), (40, 50), (40, 100)]
+            expect(!AMDFanSafety.isTachometerFrozen(tachRun(farApart)),
+                   "readings far apart (polling paused) start a new run")
+        }
 
 
 
@@ -10859,7 +10873,7 @@ struct MetricsTests {
 
         // MARK: Hardware validation — the detector is actually wired
         //
-        // AMDFanSafety.isTachometerStale shipped tested but unwired. A pure
+        // The frozen-tachometer detector once shipped tested but unwired. A pure
         // helper nobody calls is dead "safety" code, which is the most
         // dangerous smell this codebase has an audit finding for, so the
         // wiring itself is pinned here.
@@ -10867,14 +10881,14 @@ struct MetricsTests {
         let controllerSource = (try? String(contentsOfFile:
             "Sources/RyzenStatus/Services/AMD/FanCurveController.swift", encoding: .utf8)) ?? ""
         expect(!controllerSource.isEmpty, "FanCurveController.swift is readable")
-        expect(controllerSource.contains("AMDFanSafety.isTachometerStale(samples: window)"),
+        expect(controllerSource.contains("AMDFanSafety.isTachometerFrozen(run)"),
                "the frozen-tachometer detector is called from the poll path")
         expect(controllerSource.contains("snap.rpmValid && !frozen"),
                "a frozen channel removes trust from the fan row instead of showing a plausible RPM")
         expect(!controllerSource.contains("snap.rpmValid || "),
                "the detector must never GRANT trust to an invalid reading")
-        expect(controllerSource.contains("self.rpmWindows.removeAll()"),
-               "RPM windows are reset when the channel set is rebuilt")
+        expect(controllerSource.contains("self.rpmRuns.removeAll()"),
+               "RPM runs are reset when the channel set is rebuilt")
 
         // MARK: Pointer exit while typing
 
