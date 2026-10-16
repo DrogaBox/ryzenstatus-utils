@@ -88,6 +88,9 @@ final class NotchService: ObservableObject {
     private var noticeFitsInPlace = false
     private var noticeWork: DispatchWorkItem?
     private var departureWork: DispatchWorkItem?
+    /// A message that arrived while a busier notice, such as the volume,
+    /// had the island. It takes its turn when that notice ends.
+    private var waitingNotification: NotchSystemNotification?
     private var musicDepartureWork: DispatchWorkItem?
     private var presentedMusic: NotchCompactMusicSnapshot?
     private var trackWork: DispatchWorkItem?
@@ -1633,9 +1636,40 @@ final class NotchService: ObservableObject {
         }
     }
 
+    private func presentNotification(_ item: NotchSystemNotification) {
+        let shown = show(NotchNotice(event: .systemNotification, title: item.content.title,
+                                     detail: item.content.body, symbol: "bell.fill", notification: item.content, notificationID: item.id))
+        if shown {
+            if waitingNotification?.id == item.id { waitingNotification = nil }
+            if !expanded, captureControls == nil, !dragPlaceholder {
+                NotchNotificationService.shared.hideNative(item.id)
+            }
+        } else if showsSystemFeedback, notice != nil {
+            waitingNotification = item
+        }
+    }
+
+    /// Once the busier notice has left, the waiting message appears if the
+    /// person has not closed it and it is still recent.
+    private func presentWaitingNotification() {
+        guard let waiting = waitingNotification else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.waitingNotification?.id == waiting.id else { return }
+            self.waitingNotification = nil
+            guard self.notice == nil,
+                  NotchNotificationSupport.stillWaits(received: waiting.received, now: Date()),
+                  NotchNotificationService.shared.items.contains(where: { $0.id == waiting.id }) else { return }
+            self.presentNotification(waiting)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + NotchMotion.departureHidden, execute: work)
+    }
+
     private func scheduleNoticeDismissal(after duration: TimeInterval) {
         noticeWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.dismissNotice() }
+        let work = DispatchWorkItem { [weak self] in
+            self?.dismissNotice()
+            self?.presentWaitingNotification()
+        }
         noticeWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
     }
@@ -4064,12 +4098,7 @@ final class NotchService: ObservableObject {
         }
         if NotchSupport.routes(.systemNotification) {
             NotchNotificationService.shared.received.sink { [weak self] item in
-                guard let self else { return }
-                let shown = self.show(NotchNotice(event: .systemNotification, title: item.content.title,
-                                                 detail: item.content.body, symbol: "bell.fill", notification: item.content, notificationID: item.id))
-                if shown, !self.expanded, self.captureControls == nil, !self.dragPlaceholder {
-                    NotchNotificationService.shared.hideNative(item.id)
-                }
+                self?.presentNotification(item)
             }.store(in: &subscriptions)
         }
         if NotchSupport.routes(.clipboard) {

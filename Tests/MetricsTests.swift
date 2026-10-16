@@ -10933,6 +10933,79 @@ struct MetricsTests {
                    "outside full screen the island keeps its level")
         }
 
+        // MARK: Island notifications and their system originals
+
+        do {
+            let close = "Name:Cerrar\nTarget:0x0\nSelector:(null)"
+            expect(NotchNotificationSupport.closeAction(in: ["AXPress", close], titles: ["Cerrar", "Close"]) == close,
+                   "the center's close action is found in the system's language")
+            expect(NotchNotificationSupport.closeAction(in: ["AXPress", close], titles: ["Close"]) == nil,
+                   "an English title alone misses a Spanish center")
+            expect(NotchNotificationSupport.closeAction(in: [close, "Name:Close\nTarget:0x0"], titles: ["Cerrar", "Close"]) == nil,
+                   "two matching actions close nothing")
+            expect(NotchNotificationSupport.closeAction(in: [close], titles: [""]) == nil, "an empty title matches nothing")
+            expect(NotchNotificationSupport.nativeCloseTitles(in: nil, languages: ["es"]) == ["Close"],
+                   "without the center's bundle the English title remains")
+            if let center = Bundle(path: "/System/Library/CoreServices/NotificationCenter.app"),
+               center.localizations.contains("es") {
+                let titles = NotchNotificationSupport.nativeCloseTitles(in: center, languages: ["es-US", "en"])
+                expect(titles.first == "Cerrar" && titles.contains("Close"),
+                       "a Spanish system reads the center's Spanish title first and keeps English")
+            }
+
+            expect(NotchNotificationSupport.continues(wasLive: true, seen: 0, now: 60), "a banner still on screen continues")
+            expect(NotchNotificationSupport.continues(wasLive: false, seen: 10, now: 11), "a banner back within a moment continues")
+            expect(!NotchNotificationSupport.continues(wasLive: false, seen: 10, now: 15), "a banner back later is a new message")
+            expect(!NotchNotificationSupport.continues(wasLive: false, seen: 10, now: 9), "a clock running backwards never continues")
+
+            let now = Date()
+            expect(NotchNotificationSupport.stillWaits(received: now.addingTimeInterval(-2), now: now),
+                   "a message held back by the volume still shows after it")
+            expect(!NotchNotificationSupport.stillWaits(received: now.addingTimeInterval(-30), now: now),
+                   "a message held back too long is left to the inbox")
+
+            var time: TimeInterval = 100
+            let tree = NotchNotificationFakeTree()
+            let reader = NotchNotificationReaderCore(access: tree, allowed: { true }, clock: { time },
+                                                     allowsNativeClose: { true }, nativeCloseTitles: ["Cerrar", "Close"])
+            var inbox = NotchNotificationInbox()
+            _ = inbox.update(reader.read()?.items ?? [])
+            tree.banner(1, window: 100, alert: false, title: "Ana", body: "Hola", closeTitle: "Cerrar")
+            let first = reader.read()?.items ?? []
+            expect(first.count == 1 && inbox.update(first).count == 1, "a new banner arrives once")
+            time += 0.5
+            expect(inbox.update(reader.read()?.items ?? []).isEmpty, "the same banner on the next pass is not new")
+            tree.clear()
+            time += 0.5
+            _ = inbox.update(reader.read()?.items ?? [])
+            time += 0.5
+            tree.banner(1, window: 100, alert: false, title: "Ana", body: "Hola", closeTitle: "Cerrar")
+            let flicker = reader.read()?.items ?? []
+            expect(flicker.first?.id == first.first?.id, "a banner gone for a moment is still the same message")
+            tree.clear()
+            _ = reader.read()
+            time += 6
+            _ = inbox.update(reader.read()?.items ?? [])
+            tree.banner(1, window: 100, alert: false, title: "Ana", body: "Hola", closeTitle: "Cerrar")
+            let repeated = reader.read()?.items ?? []
+            expect(repeated.count == 1 && repeated.first?.id != first.first?.id,
+                   "the same words again in a reused banner are a new message")
+            expect(inbox.update(repeated).count == 1, "a repeated message reaches the island")
+
+            let banner = repeated.first?.id ?? UUID()
+            expect(reader.closeNative(banner), "the banner's original closes through the Spanish action")
+            expect(tree.performed.last?.action == close, "the close action used is the center's own")
+            tree.clear()
+            tree.banner(2, window: 100, alert: true, title: "Calendario", body: "Reunión", closeTitle: "Cerrar")
+            let alerts = reader.read()?.items ?? []
+            expect(alerts.count == 1, "the alert is read")
+            let alert = alerts.first?.id ?? UUID()
+            let closes = tree.performed.count
+            expect(!reader.closeNative(alert) && tree.performed.count == closes, "an alert is never closed on its own")
+            expect(reader.closeNative(alert, explicit: true), "an alert closed in the island closes its original")
+            expect(reader.isLive(alert) && !reader.isLive(banner), "only what the last read found is live")
+        }
+
         // MARK: Floating island below the menu bar
 
         do {
@@ -11684,4 +11757,39 @@ struct MetricsTests {
         return specifiers
     }
 
+}
+
+/// A notification center made of plain numbers: windows hold banners, each
+/// banner a title and a body, and every action performed is recorded.
+final class NotchNotificationFakeTree: NotchNotificationAccess {
+    typealias Element = Int
+    private var windowIDs: [Int] = []
+    private var nodes: [Int: [Int]] = [:]
+    private var attributes: [Int: [String: String]] = [:]
+    private var actionNames: [Int: [String]] = [:]
+    private(set) var performed: [(action: String, element: Int)] = []
+
+    func banner(_ id: Int, window: Int, alert: Bool, title: String, body: String, closeTitle: String) {
+        if !windowIDs.contains(window) { windowIDs.append(window) }
+        nodes[window, default: []].append(id)
+        attributes[id] = ["AXRole": "AXGroup",
+                          "AXSubrole": alert ? "AXNotificationCenterAlert" : "AXNotificationCenterBanner"]
+        nodes[id] = [id * 10 + 1, id * 10 + 2]
+        attributes[id * 10 + 1] = ["AXRole": "AXStaticText", "AXIdentifier": "title", "AXValue": title]
+        attributes[id * 10 + 2] = ["AXRole": "AXStaticText", "AXIdentifier": "body", "AXValue": body]
+        actionNames[id] = ["AXPress", "Name:\(closeTitle)\nTarget:0x0\nSelector:(null)"]
+    }
+
+    func clear() { windowIDs.removeAll(); nodes.removeAll(); attributes.removeAll(); actionNames.removeAll() }
+
+    func windows() throws -> [Int] { windowIDs }
+    func hasFocusedWindow() throws -> Bool { false }
+    func string(_ element: Int, _ attribute: String) throws -> String? { attributes[element]?[attribute] }
+    func children(_ element: Int) throws -> [Int] { nodes[element] ?? [] }
+    func actions(_ element: Int) throws -> [String] { actionNames[element] ?? [] }
+    func frame(_ element: Int) throws -> CGRect? { CGRect(x: 0, y: 0, width: 360, height: 80) }
+    func press(_ element: Int) -> Bool { true }
+    func perform(_ action: String, on element: Int) -> Bool { performed.append((action, element)); return true }
+    func move(_ element: Int, to origin: CGPoint) -> Bool { false }
+    func same(_ lhs: Int, _ rhs: Int) -> Bool { lhs == rhs }
 }

@@ -9,13 +9,13 @@ typealias NotchNotificationReader = NotchNotificationReaderCore<NotchNativeNotif
 extension NotchNotificationReaderCore where Access == NotchNativeNotificationAccess {
     convenience init(pid: pid_t, cancellation: DispatchWorkItem) {
         let bundle = Bundle(path: "/System/Library/CoreServices/NotificationCenter.app")
-        let closeTitle = bundle?.localizedString(forKey: "Close", value: "Close", table: "Localizable") ?? "Close"
+        let closeTitles = NotchNotificationSupport.nativeCloseTitles(in: bundle, languages: NotchNotificationSupport.systemLanguages)
         self.init(access: NotchNativeNotificationAccess(pid: pid),
                   allowed: { !cancellation.isCancelled && NotchNotificationSupport.isEnabled() && AXIsProcessTrusted() },
                   sourceApplicationName: { labels in
                       guard !labels.isEmpty else { return nil }
                       return NotchNotificationSources.source(for: labels)?.name
-                  }, allowsNativeClose: { NotchNotificationSupport.dismissesNative() }, nativeCloseTitle: closeTitle,
+                  }, allowsNativeClose: { NotchNotificationSupport.dismissesNative() }, nativeCloseTitles: closeTitles,
                   displays: {
                       var count: UInt32 = 0
                       guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return [] }

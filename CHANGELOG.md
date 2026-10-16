@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.47.1] — 2026-10-16 — kexts 3.35.0 (No kext changes)
+
+Notifications in the Dynamic Island are more dependable: they show up when they arrive, and closing one in the island closes the system's banner too.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.0. Only the application's validation version pin changes.
+
+### Fixed
+
+- **System banners left on screen**: with Hide the system banner on, the island looked for the banner's close button by its English name, so on a Mac in another language the system's banner stayed up next to the island's. It now uses the name Notification Center shows in your language.
+- **Closing in the island**: the close button on a message, in the inbox or on the held preview, and Clear all now also close the system's banner while it is still on screen, alerts included. Messages that already went to Notification Center stay there.
+- **Messages that never appeared**: a read of Notification Center that ran out of time while a banner slid in is tried again a moment later, instead of waiting for the next banner. A message with the same words as an earlier one is no longer taken for that one, and a message that arrives while the volume or another busier notice has the island waits for its turn instead of going straight to the inbox.
+
 ## [1.47.0] — 2026-10-15 — kexts 3.35.0 (No kext changes)
 
 The Dynamic Island now follows your fingers: pull it open or closed on the trackpad and it stretches with them, then settles the way you were heading. A song's cover flies from the closed island into the music page, the island stays open while you type in it, and a file carried to the top of a full-screen app lands on the island instead of the menu bar.

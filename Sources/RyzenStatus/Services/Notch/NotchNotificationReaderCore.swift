@@ -32,6 +32,8 @@ final class NotchNotificationReaderCore<Access: NotchNotificationAccess> {
         let transient: Bool
         let nativeIdentity: String?
         let item: NotchSystemNotification
+        /// When a complete read last found it on screen.
+        let seen: TimeInterval
     }
 
     private let access: Access
@@ -40,7 +42,7 @@ final class NotchNotificationReaderCore<Access: NotchNotificationAccess> {
     private let receivedDate: () -> Date
     private let sourceApplicationName: ([String]) -> String?
     private let allowsNativeClose: () -> Bool
-    private let nativeCloseTitle: String
+    private let nativeCloseTitles: [String]
     private let displays: () -> [CGRect]
     private var targets: [Target] = []
     /// Windows moved off screen, with the place the center had given them.
@@ -59,7 +61,7 @@ final class NotchNotificationReaderCore<Access: NotchNotificationAccess> {
          clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          receivedDate: @escaping () -> Date = Date.init,
          sourceApplicationName: @escaping ([String]) -> String? = { _ in nil },
-         allowsNativeClose: @escaping () -> Bool = { false }, nativeCloseTitle: String = "",
+         allowsNativeClose: @escaping () -> Bool = { false }, nativeCloseTitles: [String] = [],
          displays: @escaping () -> [CGRect] = { [] }) {
         self.access = access
         self.allowed = allowed
@@ -67,7 +69,7 @@ final class NotchNotificationReaderCore<Access: NotchNotificationAccess> {
         self.receivedDate = receivedDate
         self.sourceApplicationName = sourceApplicationName
         self.allowsNativeClose = allowsNativeClose
-        self.nativeCloseTitle = nativeCloseTitle
+        self.nativeCloseTitles = nativeCloseTitles
         self.displays = displays
     }
 
@@ -93,6 +95,7 @@ final class NotchNotificationReaderCore<Access: NotchNotificationAccess> {
         var currentIDs = Set<UUID>()
         var identityCounts: [String: Int] = [:]
         var untaken: [Access.Element] = []
+        let now = clock()
         for candidate in roots {
             let root = candidate.root
             guard let content = content(root) else {
@@ -103,8 +106,12 @@ final class NotchNotificationReaderCore<Access: NotchNotificationAccess> {
             }
             let identity = NotchNotificationSupport.nativeIdentity(string(root, "AXIdentifier"))
             if let identity { identityCounts[identity, default: 0] += 1 }
+            // The center reuses its views, and a sender often repeats the
+            // same words. A banner that left the screen a while ago and is
+            // back is a new message, not the one the island already took.
             let old = nextTargets.first {
-                $0.nativeIdentity == identity && $0.item.content == content
+                NotchNotificationSupport.continues(wasLive: liveIDs.contains($0.item.id), seen: $0.seen, now: now)
+                    && $0.nativeIdentity == identity && $0.item.content == content
                     && (identity != nil || access.same($0.root, root))
             }
             let id = old?.item.id ?? UUID()
@@ -114,7 +121,7 @@ final class NotchNotificationReaderCore<Access: NotchNotificationAccess> {
                 canOpen: rootActions.contains("AXPress"))
             nextTargets.removeAll { $0.item.id == id }
             nextTargets.append(Target(root: root, window: candidate.window, transient: candidate.transient,
-                                      nativeIdentity: identity, item: item))
+                                      nativeIdentity: identity, item: item, seen: now))
             items.append(item)
         }
         guard usable else { return nil }
@@ -137,7 +144,9 @@ final class NotchNotificationReaderCore<Access: NotchNotificationAccess> {
         return access.press(target.root) ? .handedOff : .uncertain
     }
 
-    func closeNative(_ id: UUID) -> Bool {
+    /// Explicit when the person closed the message in the island: then a
+    /// persistent alert goes too, as its own close button would take it.
+    func closeNative(_ id: UUID, explicit: Bool = false) -> Bool {
         // Closing persistent alerts can stop alarms. Only transient banners
         // may be replaced automatically; validate their current container too.
         guard allowsNativeClose(), read() != nil else { return false }
@@ -145,11 +154,14 @@ final class NotchNotificationReaderCore<Access: NotchNotificationAccess> {
         // Validation gets a budget of its own so a busy center does not leave
         // the banner open; a check it cannot finish still closes nothing.
         beginRead()
-        guard let target = validatedTarget(id), target.transient,
-              let action = NotchNotificationSupport.closeAction(in: actions(target.root), title: nativeCloseTitle),
+        guard let target = validatedTarget(id), target.transient || explicit,
+              let action = NotchNotificationSupport.closeAction(in: actions(target.root), titles: nativeCloseTitles),
               usable, allowsNativeClose() else { return false }
         return access.perform(action, on: target.root)
     }
+
+    /// Whether the banner is still on screen as the island last read it.
+    func isLive(_ id: UUID) -> Bool { liveIDs.contains(id) }
 
     /// Moves the windows holding banners the island shows off screen. Unlike
     /// closing, the originals keep playing their sound and still reach the
