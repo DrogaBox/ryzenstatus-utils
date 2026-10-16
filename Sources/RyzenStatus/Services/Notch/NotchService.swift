@@ -109,6 +109,21 @@ final class NotchService: ObservableObject {
     private var openedByHover = false
     /// A click inside the open island, which may be what brings another app forward.
     private var clickedSinceOpening = false
+    /// A key typed into one of the open island's text fields.
+    private var typedSinceOpening = false
+    /// An editable field in the island holds the keyboard.
+    private var editingText: Bool {
+        (panel?.firstResponder as? NSTextView)?.isEditable == true
+    }
+    private var typingHoldsIsland: Bool {
+        NotchSupport.holdsForTyping(panelIsKey: panel?.isKeyWindow == true,
+                                    typedSinceOpening: typedSinceOpening, editingText: editingText)
+    }
+    /// The closed strip's cover and the music page's artwork, read for the
+    /// cover's flight between them.
+    private weak var stripCoverProbe: NotchCoverProbeView?
+    private weak var pageCoverProbe: NotchCoverProbeView?
+    private var coverFlightGeneration = 0
     /// Whether the open detail was reached from inside the island, so Escape
     /// steps back to its page as the Back button does. A detail the island
     /// opened on, from the menu bar for instance, has nothing behind it and
@@ -151,6 +166,8 @@ final class NotchService: ObservableObject {
     }
     private var settingsSignature = ""
     private var gesture = NotchGestureSupport()
+    private var pullCommit = NotchPullCommit()
+    private var pullWatchdog: DispatchWorkItem?
     private var sectionScroll = NotchSectionScroll()
     private var volumeBaseline: Double?
     private var muteBaseline: Bool?
@@ -1187,6 +1204,7 @@ final class NotchService: ObservableObject {
         pageLayers.removeAll()
         panel?.handleScroll = nil
         gesture = NotchGestureSupport()
+        pullWatchdog?.cancel(); pullWatchdog = nil
         sectionScroll = NotchSectionScroll()
         stopMenuSpaceMonitoring()
         geometry.compactSideRoom = nil
@@ -1342,6 +1360,8 @@ final class NotchService: ObservableObject {
         // An open page is followed again only from an exit report.
         if !expanded { removeHoverExitMonitors() }
         let mascotFrom = mascotBridgeStart(opening: true)
+        // Read before the strip gives way to the page.
+        let coverStart = coverFlightStart(destination: destination, appPanel: appPanel, sections: sections, metric: metric)
         mutatePresentation(transitionContent: changesPresentation ? (expanded ? .replace : .reveal) : .none) {
             showingCommandBar = false
             showingAppPanel = appPanel
@@ -1357,6 +1377,7 @@ final class NotchService: ObservableObject {
             if notice?.notificationID != nil { noticeWork?.cancel(); noticeWork = nil; notice = nil; noticeExpanded = false }
         }
         if let mascotFrom { bridgeMascot(from: mascotFrom, opening: true) }
+        if let coverStart { flyCover(from: coverStart) }
         inside = windowHost?.containsHover(NSEvent.mouseLocation) == true
         installEventMonitors()
         syncVisibleConsumers()
@@ -1367,6 +1388,7 @@ final class NotchService: ObservableObject {
 
     func collapse() {
         guard captureControls == nil, !heldDrag else { return }
+        endCoverFlight()
         let closeCapture = detachCaptureIfClosingOnCollapse()
         let closesCommandBar = showingCommandBar
         hoverState.close(pointerInside: windowHost?.containsHover(NSEvent.mouseLocation) == true)
@@ -1516,7 +1538,8 @@ final class NotchService: ObservableObject {
                 self.releaseNotification()
                 guard !self.pinned, !self.heldDrag, !self.keepsWorkingSurface, self.captureControls == nil,
                       !AssistiveKeyboard.ownsCocoaPoint(NSEvent.mouseLocation),
-                      NotchSupport.closesOnPointerExit(expanded: self.expanded, peeking: self.peeking, openedByHover: self.openedByHover) else { return }
+                      NotchSupport.closesOnPointerExit(expanded: self.expanded, peeking: self.peeking, openedByHover: self.openedByHover,
+                                                       typing: self.typingHoldsIsland) else { return }
                 self.collapse()
             }
             hoverWork = work
@@ -2531,7 +2554,9 @@ final class NotchService: ObservableObject {
         let contentTransition = compactMusicTransition(transitionContent, animated: animated)
         if captureControls == nil {
             // A simulated cutout yields to the menu bar when it reappears in full screen.
-            panel?.level = hiddenInFullscreen && !geometry.isNotched && !NotchSupport.coversMenus()
+            panel?.level = NotchSupport.yieldsToMenuBar(fullscreen: hiddenInFullscreen, notched: geometry.isNotched,
+                                                        coversMenus: NotchSupport.coversMenus(),
+                                                        inUse: expanded || dragPlaceholder)
                 ? NotchPanel.fullscreenLevel : NotchPanel.normalLevel
         }
         // Preferences can change computed dimensions without publishing a
@@ -3600,6 +3625,7 @@ final class NotchService: ObservableObject {
     private func installEventMonitors() {
         guard eventMonitors.isEmpty else { return }
         clickedSinceOpening = false
+        typedSinceOpening = false
         let clicks: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         if let token = NSEvent.addGlobalMonitorForEvents(matching: clicks, handler: { [weak self] _ in
             guard let self, !self.keepsWorkingSurface,
@@ -3610,6 +3636,10 @@ final class NotchService: ObservableObject {
         }) { eventMonitors.append(token) }
         if let token = NSEvent.addLocalMonitorForEvents(matching: clicks.union(.keyDown), handler: { [weak self] event in
             guard let self else { return event }
+            // Escape steps back or closes; any other key into a field is typing.
+            if event.type == .keyDown, event.window === self.panel, event.keyCode != 53, self.editingText {
+                self.typedSinceOpening = true
+            }
             // While an input method is composing, Esc belongs to it and
             // drops the candidate; the island takes the next one.
             if event.type == .keyDown, event.window === self.panel, event.keyCode == 53,
@@ -3684,7 +3714,7 @@ final class NotchService: ObservableObject {
     }
 
     private func syncGestures() {
-        if !NotchGestureSupport.isEnabled() { gesture = NotchGestureSupport() }
+        if !NotchGestureSupport.isEnabled() { resetGesture() }
         panel?.handleScroll = { [weak self] event in self?.handleScroll(event) ?? false }
     }
 
@@ -3716,15 +3746,30 @@ final class NotchService: ObservableObject {
         return true
     }
 
+    /// Forgets the scroll sequence; an island following it goes back to rest.
+    private func resetGesture() {
+        gesture = NotchGestureSupport()
+        pullWatchdog?.cancel(); pullWatchdog = nil
+        windowHost?.releasePull()
+    }
+
     private func handleGesture(_ event: NSEvent) -> Bool {
+        let handled = followGesture(event)
+        // Whatever ended the pull without opening or closing, the island
+        // goes back; an opening or closing has already taken its shape.
+        if !gesture.isPulling { windowHost?.releasePull() }
+        return handled
+    }
+
+    private func followGesture(_ event: NSEvent) -> Bool {
         guard running, !suspended, NotchGestureSupport.isEnabled(), let panel,
               !trackingMenu, captureControls == nil, !heldDrag,
               event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty else {
-            gesture = NotchGestureSupport()
+            resetGesture()
             return false
         }
         let screenPoint = panel.convertPoint(toScreen: event.locationInWindow)
-        guard windowHost?.contains(screenPoint) == true else { gesture = NotchGestureSupport(); return false }
+        guard windowHost?.contains(screenPoint) == true else { resetGesture(); return false }
         let fromTop = panel.frame.maxY - screenPoint.y
         let inHeader = NotchSupport.gestureIsOverHeader(expanded: expanded, peeking: peeking,
                                                        fromTop: fromTop, safeTop: expanded ? expandedGeometry.headerTopInset : geometry.safeContentTop,
@@ -3741,6 +3786,11 @@ final class NotchService: ObservableObject {
         let activitySurface = !musicSurface && compactActivityIsVisible && compactActivities.count > 1
         let horizontal = !interaction.control && !interaction.scroll && !inHeader && (musicSurface || activitySurface)
         let dismissible = notice != nil && !expanded && !peeking
+        // Only a trackpad, which reports where the fingers are, is followed;
+        // a wheel opens and closes in steps, and so does Reduce Motion. An
+        // opening or closing a pull committed to finishes before another starts.
+        let pull = event.hasPreciseScrollingDeltas && !event.phase.isEmpty
+            && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let x = NotchGestureSupport.movement(Double(event.scrollingDeltaX), precise: event.hasPreciseScrollingDeltas,
                                              inverted: event.isDirectionInvertedFromDevice)
         let y = NotchGestureSupport.movement(Double(event.scrollingDeltaY), precise: event.hasPreciseScrollingDeltas,
@@ -3751,13 +3801,25 @@ final class NotchService: ObservableObject {
                                           momentum: !event.momentumPhase.isEmpty,
                                           precise: event.hasPreciseScrollingDeltas,
                                           hasPhase: !event.phase.isEmpty,
-                                          allowVertical: vertical, allowHorizontal: horizontal, expanded: expanded,
-                                          dismissible: dismissible) else { return false }
+                                          allowVertical: vertical && !pullCommit.isSettling,
+                                          allowHorizontal: horizontal, expanded: expanded,
+                                          dismissible: dismissible, pull: pull,
+                                          cancelled: event.phase.contains(.cancelled)) else { return false }
         switch action {
-        case .open: open()
-        case .close: collapse()
+        case .pull(let displacement):
+            // The island changed under the fingers, as when hovering opened
+            // it: it no longer follows them, and lifting decides as before.
+            guard displacement == 0 || (displacement > 0) != expanded else { return true }
+            windowHost?.pull(CGFloat(displacement))
+            watchPull()
+        case .retract:
+            windowHost?.releasePull()
+        case .open, .close:
+            let pulled = windowHost?.isPulled == true
+            if action == .open { open() } else { collapse() }
+            if pulled { settleCommit() }
         case .dismiss:
-            guard notice != nil, !expanded else { gesture = NotchGestureSupport(); return false }
+            guard notice != nil, !expanded else { resetGesture(); return false }
             dismissNotice()
             provideHapticFeedback()
         case .forward, .back:
@@ -3766,12 +3828,35 @@ final class NotchService: ObservableObject {
             } else if activitySurface {
                 stepCompactActivity(forward: action == .forward)
             } else {
-                gesture = NotchGestureSupport(); return false
+                resetGesture(); return false
             }
             // Opening taps on its own; a skip or a step has nothing else to feel.
             provideHapticFeedback()
         }
         return true
+    }
+
+    /// Until the island settles into what a pull committed to, no new pull
+    /// starts over it. The token keeps an earlier commit's late report from
+    /// ending a newer one.
+    private func settleCommit() {
+        guard let windowHost else { return }
+        let token = pullCommit.begin()
+        windowHost.whenSettled { [weak self] in self?.pullCommit.finish(token) }
+        // A motion cut short by another can settle late; gestures never stay blocked.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.pullCommit.finish(token) }
+    }
+
+    /// A pull whose fingers never report lifting, as when the sequence goes
+    /// to another window, must not leave the island stretched.
+    private func watchPull() {
+        pullWatchdog?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.gesture.isPulling else { return }
+            self.resetGesture()
+        }
+        pullWatchdog = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
     }
 
     /// The shade behind the open island, while it is open on screen.
@@ -4660,6 +4745,68 @@ extension NotchService {
 
     /// The companion moved to the camera's other side in Settings: from where
     /// it rested it goes behind the camera, across, and out on the new side.
+    func registerCoverProbe(_ view: NotchCoverProbeView, role: NotchCoverProbe.Role) {
+        switch role {
+        case .strip: stripCoverProbe = view
+        case .page: pageCoverProbe = view
+        }
+    }
+
+    /// Where the closed strip's cover is on screen as the island opens onto
+    /// the music page, with its corner. Nil when nothing flies: no song, no
+    /// strip in view, another page, or Reduce Motion.
+    private func coverFlightStart(destination: NotchModule, appPanel: Bool, sections: Bool,
+                                  metric: MetricDetailKind?) -> (frame: CGRect, radius: CGFloat)? {
+        endCoverFlight()
+        let music = NowPlayingService.shared
+        guard !expanded, compactMusicIsVisible, destination == .music, !appPanel, !sections, metric == nil,
+              music.artworkImage != nil, music.playback != nil,
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+              let frame = stripCoverProbe?.screenFrame else { return nil }
+        let geometry = compactActivityGeometry
+        return (frame, min(NotchMusicStripLayout.coverSide(geometry) / 2, geometry.compactMusicArtworkRadius))
+    }
+
+    /// The page's artwork stays out of sight from the first frame; the copy
+    /// sets off once the page has laid out, a pass or two later.
+    private func flyCover(from start: (frame: CGRect, radius: CGFloat)) {
+        guard let artwork = NowPlayingService.shared.artworkImage else { return }
+        // Lifted as the page draws it, so the hand-over shows no step.
+        var lifted = artwork
+        MainActor.assumeIsolated { lifted = NotchArtworkLift.image(for: artwork) }
+        guard let image = lifted.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+        coverFlightGeneration += 1
+        let generation = coverFlightGeneration
+        NotchCoverFlightState.shared.inFlight = true
+        func attempt(_ remaining: Int) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, generation == self.coverFlightGeneration else { return }
+                guard self.expanded, self.selected == .music, let end = self.pageCoverProbe?.screenFrame else {
+                    if remaining > 0, self.expanded { attempt(remaining - 1) } else { self.endCoverFlight() }
+                    return
+                }
+                let playing = NowPlayingService.shared.playback?.isPlaying == true
+                let side = min(end.width, end.height)
+                let flew = self.windowHost?.bridgeCover(
+                    image, from: start.frame, fromRadius: start.radius, to: end,
+                    toRadius: NotchCoverFlight.pageRadius(side: side),
+                    toScale: playing ? 1 : NotchCoverFlight.pausedScale) { [weak self] in
+                        guard let self, generation == self.coverFlightGeneration else { return }
+                        NotchCoverFlightState.shared.inFlight = false
+                    } ?? false
+                if !flew { self.endCoverFlight() }
+            }
+        }
+        attempt(2)
+    }
+
+    /// Anything on its way stops, and the page's own artwork shows.
+    private func endCoverFlight() {
+        coverFlightGeneration += 1
+        windowHost?.endCoverBridge()
+        if NotchCoverFlightState.shared.inFlight { NotchCoverFlightState.shared.inFlight = false }
+    }
+
     /// Where the companion stands beside the camera if the island opens or
     /// closes around it now: its centre's offset from the camera's, before
     /// the change. Nil when it is not standing there, as on a visit.

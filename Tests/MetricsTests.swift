@@ -10876,6 +10876,63 @@ struct MetricsTests {
         expect(controllerSource.contains("self.rpmWindows.removeAll()"),
                "RPM windows are reset when the channel set is rebuilt")
 
+        // MARK: Pointer exit while typing
+
+        do {
+            expect(NotchSupport.closesOnPointerExit(expanded: true, peeking: false, openedByHover: true),
+                   "a hover opening closes as the pointer leaves")
+            expect(!NotchSupport.closesOnPointerExit(expanded: true, peeking: false, openedByHover: true, typing: true),
+                   "a hover opening being typed into stays as the pointer leaves")
+            expect(!NotchSupport.closesOnPointerExit(expanded: true, peeking: false, openedByHover: false),
+                   "a direct opening never closes from the pointer")
+            expect(NotchSupport.closesOnPointerExit(expanded: false, peeking: true, openedByHover: false, typing: true),
+                   "a peek still closes as the pointer leaves")
+            expect(NotchSupport.holdsForTyping(panelIsKey: true, typedSinceOpening: true, editingText: true),
+                   "a field typed into that keeps the keyboard holds the island")
+            expect(!NotchSupport.holdsForTyping(panelIsKey: true, typedSinceOpening: false, editingText: true),
+                   "a field focused as its page opens is not typing")
+            expect(!NotchSupport.holdsForTyping(panelIsKey: true, typedSinceOpening: true, editingText: false),
+                   "typing ends once the field gives up the keyboard")
+            expect(!NotchSupport.holdsForTyping(panelIsKey: false, typedSinceOpening: true, editingText: true),
+                   "typing ends once another window takes the keyboard")
+        }
+
+        // MARK: Cover flight into the music page
+
+        do {
+            let critical = NotchCoverFlight.spring(response: 0.5, dampingRatio: 1)
+            expectClose(Double(critical.damping), Double(2 * critical.stiffness.squareRoot()),
+                        "a damping ratio of one is critical damping", tol: 0.000_1)
+            let flight = NotchCoverFlight.spring()
+            expectClose(Double(flight.stiffness), 223.8, "the flight spring's stiffness follows its response", tol: 0.1)
+            expect(flight.damping < 2 * flight.stiffness.squareRoot(), "the flight spring settles with a little give")
+            let strip = NotchCoverSpot(offset: -90, top: 16, side: 22, radius: 6)
+            let page = NotchCoverSpot(offset: -150, top: 120, side: 140, radius: 26.6)
+            expect(NotchCoverFlight.flies(from: strip, to: page), "a cover crossing the island flies")
+            expect(!NotchCoverFlight.flies(from: strip, to: NotchCoverSpot(offset: -88, top: 18, side: 24, radius: 6)),
+                   "a cover a few points from its landing does not fly")
+            expect(!NotchCoverFlight.flies(from: NotchCoverSpot(offset: .nan, top: 16, side: 22, radius: 6), to: page),
+                   "an unmeasured cover does not fly")
+            expect(!NotchCoverFlight.flies(from: NotchCoverSpot(offset: -90, top: 16, side: 0, radius: 0), to: page),
+                   "an empty cover does not fly")
+            expectClose(Double(NotchCoverFlight.pageRadius(side: 100)), 19, "the page artwork's corner")
+        }
+
+        // MARK: Island and the full-screen menu bar
+
+        do {
+            expect(NotchSupport.yieldsToMenuBar(fullscreen: true, notched: false, coversMenus: false, inUse: false),
+                   "a simulated cutout at rest yields to the full-screen menu bar")
+            expect(!NotchSupport.yieldsToMenuBar(fullscreen: true, notched: false, coversMenus: false, inUse: true),
+                   "an island open or taking a file stays over the full-screen menu bar")
+            expect(!NotchSupport.yieldsToMenuBar(fullscreen: true, notched: false, coversMenus: true, inUse: false),
+                   "an island set to cover the menus never yields")
+            expect(!NotchSupport.yieldsToMenuBar(fullscreen: true, notched: true, coversMenus: false, inUse: false),
+                   "a real notch has no menu bar to yield to")
+            expect(!NotchSupport.yieldsToMenuBar(fullscreen: false, notched: false, coversMenus: false, inUse: false),
+                   "outside full screen the island keeps its level")
+        }
+
         // MARK: Floating island below the menu bar
 
         do {
@@ -11472,6 +11529,107 @@ struct MetricsTests {
                 expect(!strings.title.isEmpty && !strings.caption.isEmpty,
                        "menu bar companion strings are filled in \(language.rawValue)")
             }
+        }
+
+        // MARK: Island pull — rubber stretch, release decision and commit token
+        do {
+            expect(NotchPull.stretch(travel: 0) == 0 && NotchPull.stretch(travel: -40) == 0
+                   && NotchPull.stretch(travel: .nan) == 0,
+                   "a pull the other way, or none, leaves the island at rest")
+            expectClose(NotchPull.stretch(travel: NotchPull.softness), NotchPull.maximumStretch * (1 - exp(-1)),
+                        "the stretch saturates as max · (1 − e^(−d/k))")
+            expect(NotchPull.stretch(travel: 40) < NotchPull.stretch(travel: 80)
+                   && NotchPull.stretch(travel: 10_000) <= NotchPull.maximumStretch,
+                   "the stretch grows with the pull but never passes its maximum")
+            expect(NotchPull.displacement(travel: 60, expanded: false) > 0
+                   && NotchPull.displacement(travel: 60, expanded: true) < 0
+                   && NotchPull.displacement(travel: 10_000, expanded: true) >= -NotchPull.maximumShrink,
+                   "a closed island stretches down and an open one gives way up, a little")
+            expect(NotchPull.progress(travel: 10_000) == NotchPull.progressRange.upperBound
+                   && NotchPull.progress(travel: -10_000) == NotchPull.progressRange.lowerBound,
+                   "raw progress is held within its rubber range")
+
+            expect(NotchPull.commits(travel: 8, velocity: 900), "a flick commits however short")
+            expect(!NotchPull.commits(travel: 190, velocity: -900), "a flick back cancels however far")
+            expect(NotchPull.commits(travel: 110, velocity: 0) && !NotchPull.commits(travel: 90, velocity: 0),
+                   "a pull let go at rest commits past half its travel")
+            expect(NotchPull.commits(travel: 90, velocity: 120) && !NotchPull.commits(travel: 110, velocity: -200),
+                   "a slow release is projected a moment ahead")
+            expect(!NotchPull.commits(travel: .nan, velocity: 900) && !NotchPull.commits(travel: 40, velocity: .nan),
+                   "invalid readings never open or close")
+
+            var moving = NotchPullVelocity()
+            for step in 0...10 { moving.record(travel: Double(step) * 10, at: Double(step) * 0.01) }
+            expectClose(moving.velocity(at: 0.1), 1000, "steady fingers lift at their speed", tol: 1)
+            expectClose(moving.velocity(at: 0.4), 0, "fingers held still before lifting have no speed", tol: 50)
+            expect(NotchPullVelocity().velocity(at: 1) == 0, "no travel has no speed")
+
+            var commit = NotchPullCommit()
+            let first = commit.begin()
+            let second = commit.begin()
+            expect(!commit.finish(first) && commit.isSettling,
+                   "an earlier commit's late report leaves the newer one settling")
+            expect(commit.finish(second) && !commit.isSettling && !commit.finish(second),
+                   "only the current commit ends the settling, once")
+
+            let stretched = NotchPull.retraction(from: 60, to: 32)
+            expect(stretched.heights.first == 60 && stretched.heights.last == 32
+                   && stretched.keyTimes.first == 0 && stretched.keyTimes.last == 1
+                   && stretched.heights.count == stretched.keyTimes.count && stretched.duration > 0,
+                   "a released stretch springs from where it is back to rest")
+            expect(stretched.heights.allSatisfy { $0 >= 32 - 3.01 && $0 <= 60 },
+                   "the stretch swings only a little past rest")
+            let shrunk = NotchPull.retraction(from: 300, to: 314)
+            expect(shrunk.heights.allSatisfy { $0 <= 314 } && shrunk.heights.last == 314,
+                   "an open island returns without passing its resting edge")
+
+            // A phased trackpad sequence, as AppKit delivers it.
+            func run(_ deltas: [(y: Double, dt: Double)], expanded: Bool = false, dismissible: Bool = false,
+                     pull: Bool = true, precise: Bool = true, phased: Bool = true, lift: Double = 0.008,
+                     cancelled: Bool = false) -> [NotchGestureSupport.Action] {
+                var gesture = NotchGestureSupport()
+                var actions: [NotchGestureSupport.Action] = []
+                var time = 100.0
+                func send(_ y: Double, began: Bool = false, ended: Bool = false) {
+                    if let action = gesture.handle(x: 0, y: y, timestamp: time, began: began && phased,
+                                                   ended: ended && phased, momentum: false, precise: precise,
+                                                   hasPhase: phased, allowVertical: true, allowHorizontal: false,
+                                                   expanded: expanded, dismissible: dismissible, pull: pull,
+                                                   cancelled: cancelled && ended) {
+                        actions.append(action)
+                    }
+                }
+                send(0, began: true)
+                for delta in deltas { time += delta.dt; send(delta.y) }
+                if phased { time += lift; send(0, ended: true) }
+                return actions
+            }
+            func pulls(_ actions: [NotchGestureSupport.Action]) -> [Double] {
+                actions.compactMap { if case .pull(let value) = $0 { return value } else { return nil } }
+            }
+
+            let slow = run(Array(repeating: (y: 3.0, dt: 0.016), count: 20), lift: 0.3)
+            expect(pulls(slow).count >= 18 && pulls(slow) == pulls(slow).sorted() && pulls(slow).allSatisfy { $0 > 0 },
+                   "a slow pull down stretches the closed island step by step")
+            expect(slow.last == .retract && !slow.contains(.open),
+                   "a short pull held still and let go springs back instead of opening")
+            let flick = run(Array(repeating: (y: 8.0, dt: 0.008), count: 4))
+            expect(flick.last == .open, "a quick flick down opens the island")
+            let long = run(Array(repeating: (y: 10.0, dt: 0.016), count: 14), lift: 0.3)
+            expect(long.last == .open, "a pull past half its travel opens even when let go at rest")
+            let up = run(Array(repeating: (y: -8.0, dt: 0.008), count: 4), expanded: true)
+            expect(pulls(up).allSatisfy { $0 < 0 } && up.last == .close,
+                   "a flick up shrinks the open island and closes it")
+            expect(run(Array(repeating: (y: 8.0, dt: 0.008), count: 4), cancelled: true).last == .retract,
+                   "a cancelled sequence never opens")
+            let away = run(Array(repeating: (y: -8.0, dt: 0.008), count: 4), dismissible: true)
+            expect(away.contains(.dismiss) && !away.contains(.open) && !away.contains(.retract),
+                   "a flick up still sends a notice away at once")
+            let stepped = run([(y: 8.0, dt: 0.008), (y: 10.0, dt: 0.008)], pull: false)
+            expect(stepped == [.open], "with Reduce Motion a trackpad opens in one step, as before")
+            let wheel = run([(y: NotchGestureSupport.movement(-1, precise: false, inverted: false), dt: 0.01)],
+                            precise: false, phased: false)
+            expect(wheel == [.open], "a mouse wheel still opens the island at once")
         }
 
         // MARK: Upstream suites

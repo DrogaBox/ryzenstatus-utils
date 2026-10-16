@@ -1681,6 +1681,14 @@ enum NotchSupport {
         defaults.object(forKey: DefaultsKey.notchCoversMenus) as? Bool ?? true
     }
 
+    /// A simulated cutout yields to the menu bar as it comes down in full
+    /// screen, unless the island covers the menus. Open, or taking a dragged
+    /// file, the island is in use: yielding would lay the menus over it, and
+    /// a file carried to the top edge would land on the menu bar.
+    static func yieldsToMenuBar(fullscreen: Bool, notched: Bool, coversMenus: Bool, inUse: Bool) -> Bool {
+        fullscreen && !notched && !coversMenus && !inUse
+    }
+
     static let defaultLowBatteryThreshold = 10
     /// Both level sliders share this scale so their knobs line up; red stops
     /// one short of the top so amber always has room above it.
@@ -1785,8 +1793,18 @@ enum NotchSupport {
 
     /// Direct openings are dismissed explicitly, never by the pointer's
     /// initial position at the menu bar or in the application being used.
-    static func closesOnPointerExit(expanded: Bool, peeking: Bool, openedByHover: Bool) -> Bool {
-        peeking || (expanded && openedByHover)
+    /// A hover opening being typed into stays as the pointer drifts off: a
+    /// field lost mid-word costs more than the click away that closes it.
+    static func closesOnPointerExit(expanded: Bool, peeking: Bool, openedByHover: Bool,
+                                    typing: Bool = false) -> Bool {
+        peeking || (expanded && openedByHover && !typing)
+    }
+
+    /// Typing holds the island only while the field typed into keeps the
+    /// keyboard. Focus alone is not typing: a page can focus its field as it
+    /// opens, and a hover opening must still close as the pointer leaves.
+    static func holdsForTyping(panelIsKey: Bool, typedSinceOpening: Bool, editingText: Bool) -> Bool {
+        panelIsKey && typedSinceOpening && editingText
     }
 
     /// Another app becoming active closes the open island like a click away.

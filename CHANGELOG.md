@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.47.0] — 2026-10-15 — kexts 3.35.0 (No kext changes)
+
+The Dynamic Island now follows your fingers: pull it open or closed on the trackpad and it stretches with them, then settles the way you were heading. A song's cover flies from the closed island into the music page, the island stays open while you type in it, and a file carried to the top of a full-screen app lands on the island instead of the menu bar.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.0. Only the application's validation version pin changes.
+
+### Added
+
+- **Pull to open and close**: with Dynamic Island gestures on, a vertical swipe on the trackpad stretches the closed island down with your fingers, with a rubbery give, and an open one gives way a little upward. Lifting decides: a quick flick opens or closes it, a slower pull goes the way it was heading, and a short one springs back. A mouse wheel still opens and closes it in one step, and so does Reduce Motion.
+- **Cover flight**: opening the island from the closed music capsule, the song's cover flies from the capsule into the music page and lands on its artwork, instead of fading out on one side and in on the other. Reduce Motion keeps the fade.
+
+### Changed
+
+- **Typing keeps the island open**: an island opened by hovering no longer closes when the pointer drifts off while you type in one of its fields, such as the Scratchpad or the Clipboard search. A click away, Escape or switching apps still closes it, and an island you only looked at still closes as the pointer leaves.
+- **Activity picker**: one highlight glides under the pointer from choice to choice, instead of each choice lighting up on its own.
+
+### Fixed
+
+- **Full screen with Show over the menus off**: the menu bar coming down in a full-screen app no longer covers the island while it is open or taking a dragged file, so a file carried to the top edge lands on the island instead of the menu bar. At rest the island still makes way for the menus.
+
 ## [1.46.0] — 2026-10-14 — kexts 3.35.0
 
 A full review of both kexts against the Linux drivers and the reference SMU tools: Curve Optimizer now uses the command and core numbering the firmware expects, SMU requests follow the firmware's protocol, GPU power reads no longer hang older Radeons, and the app stops counting GPU time twice.

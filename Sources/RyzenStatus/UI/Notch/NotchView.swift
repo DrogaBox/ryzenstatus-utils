@@ -935,6 +935,10 @@ private struct NotchPickedStrip: Hashable {
 /// Named choices appear below the camera, with the current activity highlighted.
 struct NotchActivityPicker: View {
     @Namespace private var choice
+    /// One highlight glides under the pointer from choice to choice rather
+    /// than each lighting up on its own.
+    @State private var hovered: NotchCompactActivity?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let activities: [NotchCompactActivity]
     let selected: NotchCompactActivity
     let combinations: [NotchActivityCombination]
@@ -987,6 +991,10 @@ struct NotchActivityPicker: View {
                     .background {
                         ZStack {
                             RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.12))
+                            if hovered == activity, !chosen {
+                                RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.14))
+                                    .matchedGeometryEffect(id: "hover", in: choice)
+                            }
                             if chosen {
                                 RoundedRectangle(cornerRadius: 8).fill(Color.white)
                                     .matchedGeometryEffect(id: "choice", in: choice)
@@ -996,6 +1004,11 @@ struct NotchActivityPicker: View {
                     .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
+                .onHover { inside in
+                    let next = inside ? activity : (hovered == activity ? nil : hovered)
+                    guard next != hovered else { return }
+                    withAnimation(reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.7)) { hovered = next }
+                }
                 .accessibilityLabel(activity.title(language))
                 .accessibilityAddTraits(chosen ? .isSelected : [])
                 .accessibilityIdentifier("notch.activity.\(activity.rawValue)")
