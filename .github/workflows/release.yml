@@ -17,19 +17,18 @@ jobs:
   release:
     name: Build & publish DMG
     runs-on: macos-26
-    # The tests and the release build each compile the whole app; with the
-    # DMG on top they no longer fit in 30 minutes on a hosted runner.
+    # Usually done in a couple of minutes: CI has already tested, built,
+    # selftested and packaged this exact code on the pull request, so the
+    # release takes that DMG. Only when no CI run built this tree does it do
+    # the whole build here, and the tests and the release build each compile
+    # the whole app, so that path keeps the hour.
     timeout-minutes: 60
     steps:
+      # The whole history, so a pull request's head commit can be compared
+      # with the tagged merge.
       - uses: actions/checkout@v5
-
-      - name: Select Xcode 26
-        uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '26.x'
-
-      - name: Unit tests
-        run: ./build.sh --test
+          fetch-depth: 0
 
       - name: Verify release version
         run: |
@@ -40,19 +39,63 @@ jobs:
             exit 1
           fi
 
+      # A successful CI run whose commit has the same tree as the tag already
+      # ran the tests, the concurrency gate, the release build, the selftest
+      # and the DMG on exactly this code: a pull request merged into a main
+      # that had not moved, or the push of the merge itself. Its DMG is the
+      # release's. The build is ad-hoc signed and stamps no commit, so the
+      # tree is all that decides what it contains.
+      - name: Reuse the DMG CI built from this code
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          TREE="$(git rev-parse 'HEAD^{tree}')"
+          RUNS="$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --status success --limit 40 \
+                    --json databaseId,headSha -q '.[] | "\(.databaseId) \(.headSha)"')"
+          while read -r id sha; do
+            [[ -n "$id" ]] || continue
+            [[ "$(git rev-parse -q --verify "$sha^{tree}" 2>/dev/null)" == "$TREE" ]] || continue
+            rm -rf dist && mkdir -p dist
+            if gh run download "$id" -R "$GITHUB_REPOSITORY" -n RyzenStatus-dmg -D dist \
+               && [[ -f "dist/RyzenStatus-$VERSION.dmg" ]]; then
+              echo "Reusing the DMG of CI run $id ($sha), built from this same code"
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done <<< "$RUNS"
+          rm -rf dist
+          echo "No successful CI run built this code; building it here"
+          echo "found=false" >> "$GITHUB_OUTPUT"
+
+      - name: Select Xcode 26
+        if: steps.reuse.outputs.found != 'true'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.x'
+
+      - name: Unit tests
+        if: steps.reuse.outputs.found != 'true'
+        run: ./build.sh --test
+
       - name: Build
+        if: steps.reuse.outputs.found != 'true'
         run: ./build.sh
 
       - name: Install Rosetta
+        if: steps.reuse.outputs.found != 'true'
         run: |
           if [[ ! -f /Library/Apple/usr/share/rosetta/rosettaRuntimeVersions ]] && ! /usr/bin/pgrep -q oahd; then
             sudo softwareupdate --install-rosetta --agree-to-license
           fi
 
       - name: Selftest
+        if: steps.reuse.outputs.found != 'true'
         run: ./build/RyzenStatus --selftest
 
       - name: Package DMG
+        if: steps.reuse.outputs.found != 'true'
         run: ./Tools/make-dmg.sh
 
       - name: Prepare release showcase media
