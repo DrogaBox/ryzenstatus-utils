@@ -404,20 +404,36 @@ public enum AMDFanSafety {
         return guardTemp
     }
 
-    /// Detects whether consecutive tachometer RPM readings indicate a frozen/stale sensor.
+    /// How long one tachometer value has been read without a change.
+    public struct TachometerRun: Equatable {
+        public var value: UInt64
+        public var since: TimeInterval
+        public var last: TimeInterval
+    }
+
+    /// An unchanged non-zero value for this long marks the channel frozen.
+    public static let tachometerFrozenAfter: TimeInterval = 90
+    /// A longer silence between readings (polling paused, sleep) starts over.
+    public static let tachometerRunGap: TimeInterval = 10
+
+    /// Folds one reading into the fan's run of identical values.
+    public static func advanceTachometerRun(_ run: TachometerRun?, rpm: UInt64,
+                                            at time: TimeInterval) -> TachometerRun {
+        guard let run, run.value == rpm, time >= run.last, time - run.last <= tachometerRunGap else {
+            return TachometerRun(value: rpm, since: time, last: time)
+        }
+        return TachometerRun(value: rpm, since: run.since, last: time)
+    }
+
+    /// Whether a channel reads a frozen value: an unconnected header, or one
+    /// reading electrical residue, repeats one plausible non-zero count
+    /// forever, while a turning rotor drifts by a few RPM.
     ///
-    /// When an unconnected fan header or noisy Super I/O channel reports an unchanging
-    /// non-zero value across repeated polling intervals without any natural physical jitter,
-    /// it indicates an electrical residue / floating reading rather than an active rotor.
-    ///
-    /// - Parameters:
-    ///   - samples: Consecutive historical RPM samples for a specific fan.
-    ///   - threshold: Minimum consecutive identical non-zero readings to declare stale (default: 8).
-    /// - Returns: True if at least `threshold` samples are present, all > 0, and all identical.
-    public static func isTachometerStale(samples: [UInt64], threshold: Int = 8) -> Bool {
-        guard samples.count >= threshold else { return false }
-        let window = samples.suffix(threshold)
-        guard let first = window.first, first > 0 else { return false }
-        return window.allSatisfy { $0 == first }
+    /// Measured in time, not in readings: the kext re-reads the Super I/O on
+    /// one call in four and answers the others from its cache, and other
+    /// callers share that counter, so several polls in a row repeat one value
+    /// by design. Counting readings marked healthy, steady fans as frozen.
+    public static func isTachometerFrozen(_ run: TachometerRun) -> Bool {
+        run.value > 0 && run.last - run.since >= tachometerFrozenAfter
     }
 }

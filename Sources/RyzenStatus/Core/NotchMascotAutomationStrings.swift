@@ -41,6 +41,9 @@ struct NotchMascotAutomationStrings {
         case .cat: return cat
         case .ghost: return ghost
         case .slime: return slime
+        // Characters' own names, the same in every language.
+        case .cristobal: return "Cristóbal"
+        case .whiteRabbit: return "Conejo Blanco"
         }
     }
 }

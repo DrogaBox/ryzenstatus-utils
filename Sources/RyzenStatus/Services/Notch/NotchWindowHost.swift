@@ -761,6 +761,12 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
         canvas.setActivationArea(rect, title: title, willPress: willPress, activate: activate)
     }
 
+    /// A press on the resting companion that turns into a drag pulls it out
+    /// onto the desktop instead of opening the island.
+    func setCompanionGrab(grabs: @escaping (CGPoint) -> Bool, drag: @escaping (NotchMascotGrab) -> Void) {
+        canvas.setCompanionGrab(grabs: grabs, drag: drag)
+    }
+
 #if DEBUG
     func probePresentDuringLayout(size: CGSize, geometry: NotchGeometry) -> Bool {
         guard let container = quickAccessContainer else { return false }
@@ -1265,6 +1271,11 @@ private final class NotchCanvas: NSView {
         activationButton.activate = activate
         needsLayout = true
         layoutSubtreeIfNeeded()
+    }
+
+    func setCompanionGrab(grabs: @escaping (CGPoint) -> Bool, drag: @escaping (NotchMascotGrab) -> Void) {
+        activationButton.grabsCompanion = grabs
+        activationButton.dragsCompanion = drag
     }
 
     func updateContrast() {
@@ -2051,15 +2062,54 @@ private final class NotchCanvas: NSView {
 final class NotchActivationButton: NSButton {
     var willPress: (() -> Void)?
     var activate: (() -> Void)?
+    /// Whether a press at a screen point lands on the resting companion.
+    var grabsCompanion: ((CGPoint) -> Bool)?
+    /// Where a drag that began on the companion goes, in screen points.
+    var dragsCompanion: ((NotchMascotGrab) -> Void)?
+    /// A press must travel this far before it pulls the companion out.
+    private static let grabDistance: CGFloat = 6
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     // With Keyboard navigation on, a click would focus the button, and macOS
     // draws its focus ring around the camera it sits behind.
     override var acceptsFirstResponder: Bool { false }
     override func mouseDown(with event: NSEvent) {
+        if let grabs = grabsCompanion, grabs(NSEvent.mouseLocation) {
+            trackCompanion()
+            return
+        }
         willPress?()
         super.mouseDown(with: event)
     }
     @objc func invoke() { activate?() }
+
+    /// A press on the companion: let go where it began, it is a click on the
+    /// island as ever; dragged away, it pulls the companion out and carries
+    /// it until let go.
+    private func trackCompanion() {
+        let start = NSEvent.mouseLocation
+        var pulled = false
+        while let event = NSApp.nextEvent(matching: [.leftMouseDragged, .leftMouseUp], until: .distantFuture,
+                                          inMode: .eventTracking, dequeue: true) {
+            let point = NSEvent.mouseLocation
+            if event.type == .leftMouseUp {
+                if pulled {
+                    dragsCompanion?(.ended(point))
+                } else {
+                    willPress?()
+                    activate?()
+                }
+                return
+            }
+            if pulled {
+                dragsCompanion?(.moved(point))
+            } else if hypot(point.x - start.x, point.y - start.y) >= Self.grabDistance {
+                pulled = true
+                dragsCompanion?(.began(start))
+                dragsCompanion?(.moved(point))
+            }
+        }
+    }
 }
 
 private final class NotchHostingView: NSHostingView<AnyView> {

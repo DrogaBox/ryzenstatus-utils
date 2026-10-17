@@ -443,8 +443,8 @@ struct AmdControlSection: View {
                     }
                 }
             }
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+            // The same rounded card every other panel section sits in.
+            .panelCard()
             .onAppear {
                 Task { await controls.syncFromKext() }
                 loadTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in

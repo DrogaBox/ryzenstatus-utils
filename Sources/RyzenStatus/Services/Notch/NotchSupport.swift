@@ -935,12 +935,13 @@ enum NotchCapsuleLayout {
     }
 
     /// The capsule at rest with a center reading, the companion resting at
-    /// the start of the row when it shows.
-    static func restingCenterSurface(text: String, companion: Bool, visualizer: Bool = false,
+    /// the start of the row when it shows, and its friend at the other end.
+    static func restingCenterSurface(text: String, companion: Bool, friend: Bool = false, visualizer: Bool = false,
                                      geometry: NotchGeometry) -> CGSize {
-        let mascot = companion ? restingCenterMascotSize(geometry) + groupSpacing : 0
+        let room = restingCenterMascotSize(geometry) + groupSpacing
+        let mascots = (companion ? room : 0) + (friend ? room : 0)
         let middle = visualizer ? NotchMusicVisualizerSupport.width + endPadding : centerWidth(text)
-        return surface(content: mascot + middle, maximum: Maximum.activity, geometry: geometry)
+        return surface(content: mascots + middle, maximum: Maximum.activity, geometry: geometry)
     }
 
     static func restingCenterMascotSize(_ geometry: NotchGeometry) -> CGFloat {

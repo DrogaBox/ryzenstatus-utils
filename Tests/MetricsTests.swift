@@ -9437,22 +9437,36 @@ struct MetricsTests {
         expect(AMDFanSafety.hottestSensor(cpuTemp: 75.0, gpuTemp: Double.nan) == 75.0, "hottestSensor ignores NaN GPU temp")
         expect(AMDFanSafety.hottestSensor(cpuTemp: Double.nan, gpuTemp: Double.nan) == 0.0, "hottestSensor returns 0.0 when both are invalid")
 
-        // Frozen tachometer detector (S11-b)
-        let staleTachSamples: [UInt64] = [40, 40, 40, 40, 40, 40, 40, 40]
-        expect(AMDFanSafety.isTachometerStale(samples: staleTachSamples) == true,
-               "isTachometerStale flags 8 identical non-zero RPM samples as stale")
-        let activeJitterSamples: [UInt64] = [851, 851, 838, 840, 850, 851, 852, 850]
-        expect(AMDFanSafety.isTachometerStale(samples: activeJitterSamples) == false,
-               "isTachometerStale does NOT flag active rotor with natural RPM jitter")
-        let stoppedFanSamples: [UInt64] = [0, 0, 0, 0, 0, 0, 0, 0]
-        expect(AMDFanSafety.isTachometerStale(samples: stoppedFanSamples) == false,
-               "isTachometerStale does NOT flag a stopped fan (0 RPM) as stale")
-        let insufficientSamples: [UInt64] = [40, 40, 40]
-        expect(AMDFanSafety.isTachometerStale(samples: insufficientSamples) == false,
-               "isTachometerStale requires at least threshold samples before flagging")
-        let suffixStaleSamples: [UInt64] = [1200, 1100, 40, 40, 40, 40, 40, 40, 40, 40]
-        expect(AMDFanSafety.isTachometerStale(samples: suffixStaleSamples) == true,
-               "isTachometerStale evaluates the sliding window suffix correctly")
+        // Frozen tachometer detector: judged on time, not on readings,
+        // because the kext answers three calls in four from its cache.
+        do {
+            func tachRun(_ samples: [(UInt64, TimeInterval)]) -> AMDFanSafety.TachometerRun {
+                var run: AMDFanSafety.TachometerRun?
+                for (rpm, time) in samples {
+                    run = AMDFanSafety.advanceTachometerRun(run, rpm: rpm, at: time)
+                }
+                return run!
+            }
+            func steady(_ rpm: UInt64, polls: Int) -> [(UInt64, TimeInterval)] {
+                (0..<polls).map { (rpm, Double($0) * 1.5) }
+            }
+            expect(!AMDFanSafety.isTachometerFrozen(tachRun(steady(1238, polls: 8))),
+                   "eight cached repeats of a turning fan are not a frozen tachometer")
+            expect(AMDFanSafety.isTachometerFrozen(tachRun(steady(40, polls: 62))),
+                   "a header stuck on one non-zero value for 90 s is frozen")
+            expect(!AMDFanSafety.isTachometerFrozen(tachRun(steady(0, polls: 62))),
+                   "a stopped fan (0 RPM) is not frozen")
+            var drift: [(UInt64, TimeInterval)] = []
+            for poll in 0..<62 {
+                let rpm: UInt64 = poll % 9 == 0 ? 1241 : 1238
+                drift.append((rpm, Double(poll) * 1.5))
+            }
+            expect(!AMDFanSafety.isTachometerFrozen(tachRun(drift)),
+                   "a fan that drifts by a few RPM now and then is not frozen")
+            let farApart: [(UInt64, TimeInterval)] = [(40, 0), (40, 50), (40, 100)]
+            expect(!AMDFanSafety.isTachometerFrozen(tachRun(farApart)),
+                   "readings far apart (polling paused) start a new run")
+        }
 
 
 
@@ -10859,7 +10873,7 @@ struct MetricsTests {
 
         // MARK: Hardware validation — the detector is actually wired
         //
-        // AMDFanSafety.isTachometerStale shipped tested but unwired. A pure
+        // The frozen-tachometer detector once shipped tested but unwired. A pure
         // helper nobody calls is dead "safety" code, which is the most
         // dangerous smell this codebase has an audit finding for, so the
         // wiring itself is pinned here.
@@ -10867,14 +10881,14 @@ struct MetricsTests {
         let controllerSource = (try? String(contentsOfFile:
             "Sources/RyzenStatus/Services/AMD/FanCurveController.swift", encoding: .utf8)) ?? ""
         expect(!controllerSource.isEmpty, "FanCurveController.swift is readable")
-        expect(controllerSource.contains("AMDFanSafety.isTachometerStale(samples: window)"),
+        expect(controllerSource.contains("AMDFanSafety.isTachometerFrozen(run)"),
                "the frozen-tachometer detector is called from the poll path")
         expect(controllerSource.contains("snap.rpmValid && !frozen"),
                "a frozen channel removes trust from the fan row instead of showing a plausible RPM")
         expect(!controllerSource.contains("snap.rpmValid || "),
                "the detector must never GRANT trust to an invalid reading")
-        expect(controllerSource.contains("self.rpmWindows.removeAll()"),
-               "RPM windows are reset when the channel set is rebuilt")
+        expect(controllerSource.contains("self.rpmRuns.removeAll()"),
+               "RPM runs are reset when the channel set is rebuilt")
 
         // MARK: Pointer exit while typing
 
@@ -11224,6 +11238,317 @@ struct MetricsTests {
                    "invalid battery data cannot trigger a warning")
         }
 
+        // MARK: Companion — sprite figures and the desktop
+        do {
+            let rabbit = NotchMascotSpriteSheet.whiteRabbit
+            expect(NotchMascotStyle.cristobal.sprite == NotchMascotSpriteSheet.cristobal && NotchMascotStyle.whiteRabbit.sprite == rabbit
+                   && NotchMascotStyle.cat.sprite == nil && !NotchMascotStyle.cristobal.takesPalette
+                   && NotchMascotStyle.minimal.takesPalette,
+                   "the comic's characters are sprite companions and keep their own colours")
+            expect(NotchMascotSpriteState.allCases.count == 9 && rabbit.frameCounts.count == 9
+                   && NotchMascotSpriteState.review.rawValue == 8 && NotchMascotSpriteState.runLeft.rawValue == 2,
+                   "a sheet has the nine rows of the Codex pet layout, in its order")
+            let waving = rabbit.frames(for: .waving)
+            expect(waving.count == 4 && waving.map(\.column) == [0, 1, 2, 3]
+                   && waving.last!.duration > waving.first!.duration,
+                   "a row holds its frames, the last one a little longer")
+            expect(abs(rabbit.cycle(of: .idle) - (0.16 * 5 + 0.32)) < 0.0001, "a cycle is its frames' time")
+            expect(rabbit.crop(.jumping, column: 2) == CGRect(x: 17 + 384, y: 2 + 832, width: 157, height: 201),
+                   "a frame is the figure's part of its cell")
+            let cristobal = NotchMascotSpriteSheet.cristobal
+            let island = NotchMascotSupport.size(stripHeight: 32, floats: false)
+            let bust = cristobal.framing(for: island)
+            expect(island < NotchMascotSpriteSheet.bustBelow && bust != cristobal.figure
+                   && bust.minY == cristobal.figure.minY && bust.height < cristobal.figure.height
+                   && NotchMascotSpriteSheet.aspect(of: bust) > cristobal.aspect,
+                   "small in the island, Cristóbal shows his top half, wider for its height")
+            expect(cristobal.framing(for: NotchMascotRoam.spriteSize) == cristobal.figure
+                   && cristobal.framing(for: 30) == bust && cristobal.framing(for: NotchMascotSpriteSheet.bustBelow) == cristobal.figure,
+                   "on the desktop and from the threshold up, he stands whole")
+            expect(rabbit.framing(for: island) == rabbit.figure, "the rabbit keeps its sign and stays whole")
+            expect(cristobal.crop(.idle, column: 1, framing: bust) == bust.offsetBy(dx: 192, dy: 0),
+                   "a bust is cut from each cell like the figure")
+            let doze = NotchMascotSpriteChoreography.loop(for: .sleepy, in: cristobal)
+            expect(doze.state == .idle && doze.speed == 0.45
+                   && NotchMascotSpriteChoreography.loop(for: .confused, in: cristobal).state == .failed
+                   && NotchMascotSpriteChoreography.state(for: .perk, in: cristobal) == .jumping
+                   && NotchMascotSpriteChoreography.state(for: .flash, in: cristobal) == nil,
+                   "moods keep a row and reactions play one over it")
+            expect(NotchMascotSpriteChoreography.state(for: .celebrate, in: rabbit) == .review
+                   && NotchMascotSpriteChoreography.state(for: .celebrate, in: cristobal) == .review,
+                   "something finished well holds up the review row: done, take a look")
+            expect(NotchMascotSpriteChoreography.loop(for: .thinking, in: rabbit).state == .waiting
+                   && NotchMascotSpriteChoreography.state(for: .lookAround, in: rabbit) == .idle
+                   && NotchMascotSpriteChoreography.state(for: .hush, in: rabbit) == .idle
+                   && NotchMascotSpriteChoreography.loop(for: .thinking, in: cristobal).state == .review,
+                   "the rabbit thinks under its thinking sign, never under done")
+            if let signs = rabbit.signs {
+                expect(signs.boxes.map(\.count) == rabbit.frameCounts
+                       && signs.boxes.joined().allSatisfy { rabbit.figure.contains($0) && $0.width > 40 && $0.height > 20 },
+                       "every frame of the rabbit has its sign's face, inside the figure")
+                expect(!NotchMascotSpriteSigns.writes(.es) && NotchMascotSpriteSigns.writes(.enUS) && NotchMascotSpriteSigns.writes(.ja),
+                       "the sheet letters its signs in Spanish; other languages are written")
+            } else {
+                expect(false, "the rabbit holds up a sign")
+            }
+            expect(cristobal.signs == nil, "Cristóbal holds no sign")
+            expect(AppLanguage.allCases.allSatisfy { language in
+                       let words = FeatureStrings.notchMascotSign(language)
+                       return NotchMascotSpriteState.allCases.allSatisfy { !words.text(for: $0).isEmpty }
+                           && words.text(for: .review).contains("\n") && words.text(for: .runRight).hasSuffix(">")
+                           && words.text(for: .runLeft).hasPrefix("<")
+                   }, "the sign has words for every row in every language, done over take a look")
+            expect(NotchMascotRoam.size(for: NotchMascotLook(style: .whiteRabbit, shape: .ball, palette: .pearl))
+                   == (NotchMascotRoam.spriteSize / 2).rounded(), "on the desktop the rabbit stands half Cristóbal's height")
+            expect(NotchMascotSpriteChoreography.walking(dx: 3) == .runRight
+                   && NotchMascotSpriteChoreography.walking(dx: -3) == .runLeft
+                   && NotchMascotSpriteChoreography.walking(dx: 0.2) == .idle,
+                   "it runs the way it goes and idles standing")
+
+            let roam = NotchMascotRoam.self
+            expect(roam.isTap(held: 0.2, moved: 1) && !roam.isTap(held: 0.6, moved: 1) && !roam.isTap(held: 0.2, moved: 5),
+                   "a quick press that hardly moves is a pat")
+            var samples: [NotchMascotRoam.Sample] = []
+            for step in 0...20 {
+                roam.record(.init(point: CGPoint(x: CGFloat(step) * 10, y: 0), time: Double(step) * 0.01), into: &samples)
+            }
+            expect(samples.count <= roam.sampleLimit && samples.allSatisfy { 0.2 - $0.time <= roam.sampleWindow },
+                   "only recent positions are kept")
+            let velocity = roam.velocity(of: samples, at: 0.2)
+            expect(velocity.map { abs($0.dx - 1000) < 1 && abs($0.dy) < 0.001 } == true, "release speed is the recent travel")
+            expect(roam.velocity(of: [.init(point: .zero, time: 1)], at: 1) == nil, "one sample says nothing")
+            let fast = roam.velocity(of: [.init(point: .zero, time: 0), .init(point: CGPoint(x: 1000, y: 0), time: 0.05)], at: 0.05)
+            expect(fast.map { abs(hypot($0.dx, $0.dy) - roam.maximumThrow) < 0.5 } == true, "a throw has a top speed")
+            expect(roam.lean(forSpeed: 10_000) == -0.32 && roam.lean(forSpeed: -10_000) == 0.32 && roam.lean(forSpeed: 0) == 0,
+                   "it leans into a swing, within limits")
+
+            let area = CGRect(x: 0, y: 100, width: 800, height: 600)
+            var body = NotchMascotRoam.Body(position: CGPoint(x: 400, y: 500), velocity: .zero, airborne: true)
+            var events: [NotchMascotRoam.Event] = []
+            for _ in 0..<400 { events += roam.step(&body, by: 1.0 / 60, in: area, width: 40) }
+            expect(!body.airborne && body.position.y == 100 && body.velocity == .zero, "dropped, it falls to the floor and rests")
+            expect(events.contains { if case .landed = $0 { return true } else { return false } } && events.last == .settled,
+                   "it lands and settles")
+            var bouncer = NotchMascotRoam.Body(position: CGPoint(x: 400, y: 110), velocity: CGVector(dx: 0, dy: -1200))
+            let bounce = roam.step(&bouncer, by: 1.0 / 60, in: area, width: 40)
+            let impact: CGFloat? = bounce.first.flatMap { if case .landed(let speed) = $0 { return speed } else { return nil } }
+            expect(impact.map { abs($0 - (1200 + roam.gravity / 60)) < 0.01 } == true && bouncer.airborne
+                   && bouncer.velocity.dy > 0, "a hard landing bounces")
+            var thrown = NotchMascotRoam.Body(position: CGPoint(x: 790, y: 300), velocity: CGVector(dx: 900, dy: 0))
+            let bump = roam.step(&thrown, by: 1.0 / 60, in: area, width: 40)
+            let hit: CGFloat? = bump.first.flatMap { if case .bumped(let speed) = $0 { return speed } else { return nil } }
+            expect(hit.map { abs($0 - 900 * pow(roam.airDrag, 1000.0 / 60 / 16)) < 0.01 } == true
+                   && thrown.position.x == 780 && thrown.velocity.dx < 0, "a side of the screen bounces it back")
+            var slider = NotchMascotRoam.Body(position: CGPoint(x: 100, y: 100), velocity: CGVector(dx: 300, dy: 0), airborne: false)
+            var slid: [NotchMascotRoam.Event] = []
+            for _ in 0..<200 { slid += roam.step(&slider, by: 1.0 / 60, in: area, width: 40) }
+            expect(slider.velocity == .zero && slider.position.x > 100 && slid.contains(.settled), "on the floor it slides to a stop")
+            var hidden = NotchMascotRoam.Body(position: CGPoint(x: 100, y: 160), airborne: false)
+            _ = roam.step(&hidden, by: 1.0 / 60, in: area, width: 40)
+            expect(hidden.airborne, "a floor that drops away lets it fall")
+
+            var rolls = [0.9, 0.5]
+            let walk = roam.nextActivity(x: 5, minX: 0, maxX: 1000, random: { rolls.removeFirst() })
+            expect(walk == .walk(direction: 1, duration: 4), "near an edge it walks away from it")
+            expect(roam.nextActivity(x: 500, minX: 0, maxX: 1000, random: { 0.1 }) == .stand(5)
+                   && roam.nextActivity(x: 500, minX: 0, maxX: 1000, random: { 0.55 }) == .lookAround,
+                   "it mostly stands, and now and then looks about")
+            var friendRolls = [0.9, 0.5]
+            expect(roam.nextActivity(x: 900, minX: 0, maxX: 1000, friendX: 100, random: { friendRolls.removeFirst() })
+                   == .walk(direction: -1, duration: 5), "far from its friend it walks over to it")
+            friendRolls = [0.9, 0.0, 0.0]
+            expect(roam.nextActivity(x: 500, minX: 0, maxX: 1000, friendX: 600, random: { friendRolls.removeFirst() })
+                   == .walk(direction: -1, duration: 2), "close to its friend it wanders as it likes")
+            expect(roam.meets(walking: 1, from: 100, friendX: 160) && !roam.meets(walking: -1, from: 100, friendX: 160)
+                   && !roam.meets(walking: 1, from: 100, friendX: 300), "it meets a friend only walking up to it")
+            expect(roam.greets(distance: 80, since: 60) && !roam.greets(distance: 80, since: 10)
+                   && !roam.greets(distance: 400, since: 60), "close friends wave now and then, not all the time")
+            expect(roam.friendDelay > 0 && roam.meetDistance < roam.greetDistance && roam.greetDistance < roam.farApart,
+                   "a friend that walks over stops where they wave")
+            expect(roam.friendComesAlong(grabbed: false, friendRestsInIsland: true)
+                   && !roam.friendComesAlong(grabbed: true, friendRestsInIsland: true)
+                   && roam.friendComesAlong(grabbed: true, friendRestsInIsland: false),
+                   "pulled out, it leaves its friend only where the friend has a place to wait")
+            let capsule = NotchMascotSupport.track(stripWidth: 69, stripHeight: 24, wing: 0, cameraWidth: 0,
+                                                   floats: true, bodyHeight: 20)
+            if let pair = NotchMascotSupport.capsulePair(capsule, inset: 12, side: .left),
+               let mirrored = NotchMascotSupport.capsulePair(capsule, inset: 12, side: .right) {
+                expect(pair.companion.rest == 12 + capsule.size / 2 && pair.friend.rest == 69 - 12 - capsule.size / 2
+                       && pair.friend.rest - pair.companion.rest >= capsule.size,
+                       "in a capsule the two rest one at each end, apart")
+                expect(mirrored.companion.rest == pair.friend.rest && mirrored.friend.rest == pair.companion.rest
+                       && mirrored.friend.mirrored == false && pair.friend.mirrored,
+                       "a companion on the right takes the capsule's right end")
+            } else {
+                expect(false, "a resting capsule holds the companion and its friend")
+            }
+            expect(NotchMascotSupport.capsulePair(capsule, inset: 25, side: .left) == nil,
+                   "a capsule too short for two keeps the companion alone")
+            expect(NotchMascotStyle.unlocksComic(name: " drogabox ") && !NotchMascotStyle.unlocksComic(name: "Pip")
+                   && !NotchMascotStyle.unlocksComic(name: nil), "the comic opens for the DrogaBox companion only")
+            expect(NotchMascotStyle.available(name: "DrogaBox").contains(.cristobal)
+                   && !NotchMascotStyle.available(name: "Pip").contains(where: \.isComic)
+                   && NotchMascotStyle.available(name: "Pip").contains(.cat),
+                   "other companions choose among the drawn styles")
+            expect(NotchMascotStyle.resolved("whiteRabbit", name: "DrogaBox") == .whiteRabbit
+                   && NotchMascotStyle.resolved("whiteRabbit", name: "") == .minimal
+                   && NotchMascotStyle.resolved("cat", name: "") == .cat
+                   && NotchMascotStyle.resolved("nope", name: "DrogaBox") == .minimal,
+                   "a comic style stored without the name falls back to the minimal companion")
+            // Playing together.
+            typealias Play = NotchMascotPlay
+            let due = Play.Context(distance: 200, music: false, since: 120, hour: 15)
+            expect(Play.next(in: Play.Context(distance: 200, music: false, since: 10, hour: 15), random: { 0 }) == nil
+                   && Play.next(in: Play.Context(distance: 900, music: false, since: 120, hour: 15), random: { 0 }) == nil
+                   && Play.next(in: due, random: { 0.99 }) == nil,
+                   "they play only once a while has passed, close enough, and not every time")
+            expect(Play.next(in: due, random: { 0 }) != nil, "a play due and taken starts")
+            expect(Play.Kind.allCases.allSatisfy { Play.play($0, random: { 0.5 }).kind == $0 },
+                   "every play comes with its twist and stays itself")
+            expect(Play.weight(of: .duel, in: Play.Context(distance: 0, music: false, since: 0, hour: 12, recent: [.duel])) == 0
+                   && Play.weight(of: .duel, in: Play.Context(distance: 0, music: false, since: 0, hour: 12,
+                                                              recent: [.duel, .hug])) < Play.weight(of: .duel, in: due),
+                   "the play just done is never next, and one done lately is less likely")
+            expect(Play.weight(of: .danceOff, in: Play.Context(distance: 0, music: true, since: 0, hour: 12))
+                   > Play.weight(of: .duel, in: due) && Play.weight(of: .danceOff, in: due) < 1,
+                   "music calls for a dance-off")
+            expect(Play.weight(of: .nap, in: Play.Context(distance: 0, music: false, since: 0, hour: 2))
+                   > Play.weight(of: .nap, in: due), "the small hours call for a nap")
+            expect(Play.play(.duel, random: { 0 }) == .duel(clashes: 2, outcome: .leaderWins)
+                   && Play.play(.duel, random: { 0.999 }) == .duel(clashes: 4, outcome: .draw)
+                   && Play.play(.mimic, random: { 0.999 }) == .mimic(rounds: 4),
+                   "a duel has two to four clashes and can end in a draw")
+            var blastRolls = [0.2, 0.7]
+            expect(Play.play(.blast, random: { blastRolls.removeFirst() }) == .blast(byLeader: true, answer: .dodge),
+                   "a blast can be jumped")
+            let spots = Play.places(leaderX: 400, friendX: 500, spacing: 220, minX: 0, maxX: 1000)
+            expect(spots.leader == 340 && spots.friend == 560, "they spread out about where they are, each on its side")
+            let edge = Play.places(leaderX: 30, friendX: 10, spacing: 100, minX: 0, maxX: 1000)
+            expect(edge.leader == 100 && edge.friend == 0, "near the screen's side they keep on it")
+            expect(Play.echo(of: .celebrate) == .bounce && Play.echo(of: .sip) == nil && Play.echo(of: .love) == .love
+                   && NotchMascotReaction.allCases.allSatisfy { Play.echo(of: $0) != .sip },
+                   "the friend answers a reaction with its own take")
+            expect(Play.patResponse(distance: 400, random: 0) == .comesOver
+                   && Play.patResponse(distance: 80, random: 0) == .wantsOne
+                   && Play.patResponse(distance: 80, random: 0.9) == .cheers,
+                   "a pat for one: the other comes over, wants one too or cheers")
+            let divine = NotchMascotLook(style: .cat, shape: .ball, palette: .pearl, form: .divine)
+            let plainCat = NotchMascotLook(style: .cat, shape: .ball, palette: .pearl)
+            expect(Play.energy(for: divine) == Play.energy(for: NotchMascotLook(style: .robot, shape: .ball,
+                                                                               palette: .pearl, form: .divine))
+                   && Play.energy(for: plainCat) != Play.energy(for: divine)
+                   && Play.crackles(divine) && !Play.crackles(plainCat),
+                   "a transformation colours its energy and makes it crackle")
+            expect(abs(Play.power(level: 1) - 0.8) < 0.001 && abs(Play.power(level: 50) - 1.4) < 0.001
+                   && Play.power(level: 90) == Play.power(level: 50),
+                   "energy grows with the bond")
+            // The friend's own wardrobe.
+            expect(NotchMascotWardrobe.friendAccessory(main: .santaHat, level: 10, style: .cat) == .santaHat
+                   && NotchMascotWardrobe.friendAccessory(main: .headband, level: 10, style: .cat) == .headband,
+                   "a costume or the headband the two wear alike")
+            let ownItem = NotchMascotWardrobe.friendAccessory(main: .flower, level: 10, style: .cristobal)
+            expect(ownItem != .flower && ownItem != .none && ownItem.placement != NotchMascotAccessory.flower.placement
+                   && ownItem.unlockLevel <= 10
+                   && ownItem == NotchMascotWardrobe.friendAccessory(main: .flower, level: 10, style: .cristobal),
+                   "the friend wears an item of its own, elsewhere on it, the same every time")
+            expect(NotchMascotWardrobe.friendAccessory(main: .none, level: 1, style: .cat) == .none,
+                   "before anything is unlocked the friend wears nothing")
+            expect(NotchMascotWardrobe.friendAccessory(main: .flower, level: 18, style: .cat, chosen: .halo) == .halo
+                   && NotchMascotWardrobe.friendAccessory(main: .flower, level: 18, style: .cat, chosen: .flower) == .flower,
+                   "the item picked for the friend is the one it wears, even the companion's own")
+            expect(NotchMascotWardrobe.friendAccessory(main: .bow, level: 3, style: .cat, chosen: .crown) == .none
+                   && NotchMascotWardrobe.friendAccessory(main: .bow, level: 18, style: .cat, chosen: NotchMascotAccessory.none) == .none,
+                   "an item picked but still locked, or nothing picked on purpose, leaves the friend bare")
+            expect(NotchMascotWardrobe.friendAccessory(main: .santaHat, level: 18, style: .cat, chosen: .halo) == .santaHat,
+                   "a costume still dresses both alike")
+            expect(NotchMascotSide.left.other == .right && NotchMascotSide.right.other == .left,
+                   "a friend rests on the camera's other side")
+            // Playing together in the island.
+            do {
+                typealias Island = NotchMascotIslandPlay
+                func rolls(_ values: [Double]) -> () -> Double {
+                    var index = 0
+                    return {
+                        defer { index += 1 }
+                        return values[index % values.count]
+                    }
+                }
+                let quiet = Island.Context(since: 60, music: false, hour: 15)
+                expect(Island.next(in: Island.Context(since: 5, music: false, hour: 15), random: { 0 }) == nil,
+                       "no play comes right after the last one")
+                expect(Island.weight(of: .dance, in: quiet) == 0
+                       && Island.weight(of: .dance, in: Island.Context(since: 60, music: true, hour: 15)) > 0,
+                       "they dance only to music")
+                expect(Island.weight(of: .item(.topHat), in: quiet) == 0
+                       && Island.weight(of: .item(.topHat), in: Island.Context(since: 60, music: false, hour: 15,
+                                                                               leaderWears: .topHat)) > 0,
+                       "an item brings its play only while one of them wears it")
+                var tired = quiet
+                tired.recent = [.greet]
+                expect(Island.weight(of: .greet, in: tired) == 0, "the play just done is never next")
+                let worn = Island.Context(since: 60, music: true, hour: 23, leaderWears: .beanie, friendWears: .cap)
+                var kinds: [Island.Kind] = [.greet, .toss, .rally, .mimic, .dance, .doze, .peekaboo]
+                kinds += NotchMascotAccessory.allCases.map { Island.Kind.item($0) }
+                for kind in kinds {
+                    for seed in [0.05, 0.5, 0.95] {
+                        let play = Island.play(kind, in: worn, random: rolls([seed, 0.3, 0.7, 0.1, 0.9]))
+                        expect(play.kind == kind && !play.beats.isEmpty && play.length > 0 && play.length < 12
+                               && play.beats.allSatisfy { $0.at >= 0 },
+                               "\(kind) plays out in a few seconds")
+                    }
+                }
+                let rally = Island.play(.rally, in: quiet, random: rolls([0.2, 0.99, 0.5]))
+                let volleys = rally.beats.compactMap(\.flight)
+                expect(volleys.count >= 2 && volleys.dropLast().allSatisfy { !$0.falls } && volleys.last?.falls == true
+                       && zip(volleys, volleys.dropFirst()).allSatisfy { $0.fromLeader != $1.fromLeader },
+                       "a rallied spark goes back and forth until the last one is missed")
+                let heart = Island.play(.toss, in: quiet, random: rolls([0.2, 0.0, 0.99]))
+                expect(heart.beats.compactMap(\.flight).first?.thing == .heart
+                       && heart.beats.compactMap(\.flight).allSatisfy { !$0.falls },
+                       "a tossed heart is always caught")
+                let mimic = Island.play(.mimic, in: quiet, random: rolls([0.4, 0.1, 0.6, 0.3, 0.8]))
+                let leads = mimic.beats.compactMap(\.leader).dropLast()
+                let copies = mimic.beats.compactMap(\.friend).dropLast()
+                expect(leads.count == copies.count && leads.last != copies.last
+                       && zip(leads.dropLast(), copies.dropLast()).allSatisfy { $0 == $1 },
+                       "the friend copies every move but the last")
+                let trick = Island.play(.item(.topHat), in: Island.Context(since: 60, music: false, hour: 15,
+                                                                          friendWears: .topHat),
+                                        random: { 0.1 })
+                expect(trick.beats.first?.friend == .ready && trick.beats.first?.leader == nil
+                       && trick.beats.compactMap(\.flight).first?.fromLeader == false,
+                       "the one wearing the item starts its play")
+
+                let from = CGPoint(x: 10, y: 20), to = CGPoint(x: 110, y: 20)
+                let start = NotchMascotIslandPlayLayer.place(progress: 0, from: from, to: to, lift: 6, falls: false, drop: 10)
+                let middle = NotchMascotIslandPlayLayer.place(progress: 0.5, from: from, to: to, lift: 6, falls: false, drop: 10)
+                let end = NotchMascotIslandPlayLayer.place(progress: 1, from: from, to: to, lift: 6, falls: false, drop: 10)
+                expect(start.point == from && abs(end.point.x - to.x) < 0.001 && abs(end.point.y - to.y) < 0.001
+                       && middle.point.y < from.y,
+                       "a toss arcs from one to the other")
+                let short = NotchMascotIslandPlayLayer.place(progress: 1, from: from, to: to, lift: 6, falls: true, drop: 10)
+                expect(short.point.x < to.x - 10 && short.point.y > from.y && short.opacity == 0,
+                       "a missed toss drops short and fades")
+            }
+            expect(NotchMascotVisit.Kind.lap.crossesTheIsland && NotchMascotVisit.Kind.cross.crossesTheIsland
+                   && !NotchMascotVisit.Kind.home.crossesTheIsland && !NotchMascotVisit.Kind.cameo(.wave).crossesTheIsland,
+                   "the friend steps aside only for walks over its wing")
+            let ownTrack = NotchMascotSupport.track(stripWidth: 300, stripHeight: 32, wing: 44, cameraWidth: 212,
+                                                    floats: false, bodyHeight: 32, side: .left)
+            let friendTrack = NotchMascotSupport.track(stripWidth: 300, stripHeight: 32, wing: 44, cameraWidth: 212,
+                                                       floats: false, bodyHeight: 32, side: NotchMascotSide.left.other)
+            expect(abs(ownTrack.rest + friendTrack.rest - 300) < 0.001 && friendTrack.mirrored,
+                   "the two rest mirrored about the camera")
+            expect(roam.dropsHome(at: CGPoint(x: 520, y: 1060), rest: CGPoint(x: 500, y: 1070), screenTop: 1080)
+                   && !roam.dropsHome(at: CGPoint(x: 500, y: 900), rest: CGPoint(x: 500, y: 1070), screenTop: 1080),
+                   "let go by the island, it goes back in")
+            let start = CGPoint(x: 0, y: 0), end = CGPoint(x: 100, y: 500)
+            expect(roam.homeArc(from: start, to: end, at: 0) == start && roam.homeArc(from: start, to: end, at: 1) == end
+                   && roam.homeArc(from: start, to: end, at: 0.5).y > 250, "the way home arcs up into the island")
+            expect(roam.size(for: NotchMascotLook(style: .cristobal, shape: .ball, palette: .pearl)) == roam.spriteSize
+                   && roam.size(for: .standard) == roam.drawnSize, "a sprite stands taller on the desktop")
+        }
+
         // MARK: Companion — bond, growth, wardrobe, seasons and hardware
         do {
             var calendar = Calendar(identifier: .gregorian)
@@ -11279,8 +11604,13 @@ struct MetricsTests {
                    "an ordinary day has no costume")
 
             let wardrobe = NotchMascotWardrobe.self
-            expect(NotchMascotAccessory.crown.unlockLevel == 10 && NotchMascotAccessory.wardrobe.count == 10,
-                   "one accessory unlocks at each of the first ten levels, the crown last")
+            expect(NotchMascotAccessory.crown.unlockLevel == 10 && NotchMascotAccessory.eyePatch.unlockLevel == 18
+                   && NotchMascotAccessory.wardrobe.count == 18
+                   && NotchMascotAccessory.wardrobe.allSatisfy { $0.unlockLevel < NotchMascotForm.golden.unlockLevel },
+                   "one accessory unlocks at each of the first eighteen levels, all before the first transformation")
+            expect(NotchMascotAccessory.monocle.placement == .eyes && NotchMascotAccessory.eyePatch.placement == .eyes
+                   && NotchMascotAccessory.bowTie.placement == .neck && NotchMascotAccessory.halo.placement == .head,
+                   "the new items sit where they belong")
             let forms = NotchMascotTransformation.self
             expect(NotchMascotForm.allCases.map(\.unlockLevel) == [20, 30, 40, 50]
                    && NotchMascotForm.allCases.allSatisfy { $0.unlockLevel <= growth.maxLevel },
@@ -11520,6 +11850,17 @@ struct MetricsTests {
             expect(NotchCapsuleLayout.restingCenterSurface(text: long, companion: true, geometry: geometry).width
                    > NotchCapsuleLayout.restingCenterSurface(text: long, companion: false, geometry: geometry).width,
                    "a resting center reading makes room for the companion")
+            let withFriend = NotchCapsuleLayout.restingCenterSurface(text: long, companion: true, friend: true,
+                                                                     geometry: geometry)
+            let withoutFriend = NotchCapsuleLayout.restingCenterSurface(text: long, companion: true, geometry: geometry)
+            expect(withFriend.width >= withoutFriend.width + NotchCapsuleLayout.restingCenterMascotSize(geometry),
+                   "a resting center reading makes room for the friend at the other end too")
+            let pairTrack = NotchMascotSupport.track(stripWidth: withFriend.width, stripHeight: geometry.stripHeight,
+                                                     wing: 0, cameraWidth: 0, floats: true,
+                                                     bodyHeight: geometry.stripBodyHeight)
+            expect(NotchMascotSupport.capsulePair(pairTrack, inset: NotchMascotSupport.capsulePairInset(geometry),
+                                                  side: .left) != nil,
+                   "the two fit at the ends of a capsule reading something in its middle")
             let mascotRest = NotchCapsuleLayout.restingCenterMascotRest(geometry)
             let mascotSize = NotchCapsuleLayout.restingCenterMascotSize(geometry)
             expect(mascotRest - mascotSize / 2 >= NotchCapsuleLayout.side(geometry)

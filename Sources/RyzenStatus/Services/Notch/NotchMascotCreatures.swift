@@ -15,7 +15,7 @@ enum NotchMascotCreatures {
 
     static func face(_ style: NotchMascotStyle) -> NotchMascotFaceLayout? {
         switch style {
-        case .minimal, .robot: return nil
+        case .minimal, .robot, .cristobal, .whiteRabbit: return nil
         case .chip:
             return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.39, y: 0.59), rightEye: CGPoint(x: 0.61, y: 0.59),
                                          eyeSize: CGSize(width: 0.085, height: 0.17),
@@ -48,7 +48,7 @@ enum NotchMascotCreatures {
     /// included, so it can be centred by what shows.
     static func bounds(_ style: NotchMascotStyle) -> CGRect? {
         switch style {
-        case .minimal, .robot: return nil
+        case .minimal, .robot, .cristobal, .whiteRabbit: return nil
         case .chip: return CGRect(x: 0.09, y: 0.17, width: 0.82, height: 0.82)
         case .fan: return CGRect(x: 0.10, y: 0.18, width: 0.80, height: 0.80)
         case .cat: return CGRect(x: 0.06, y: 0.12, width: 0.94, height: 0.82)
@@ -64,7 +64,7 @@ enum NotchMascotCreatures {
         func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
         let path = CGMutablePath()
         switch style {
-        case .minimal, .robot: return nil
+        case .minimal, .robot, .cristobal, .whiteRabbit: return nil
         case .chip:
             path.addRoundedRect(in: rect(0.18, 0.26, 0.64, 0.64, size), cornerWidth: 0.12 * size, cornerHeight: 0.12 * size)
         case .fan:

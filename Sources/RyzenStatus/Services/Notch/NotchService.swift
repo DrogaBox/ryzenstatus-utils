@@ -251,8 +251,26 @@ final class NotchService: ObservableObject {
     private var mascotTuckWork: DispatchWorkItem?
     /// The last reaction published for the companion to play where it rests.
     @Published private(set) var mascotReaction: NotchMascotReactionEvent? {
-        didSet { noteMascotStirred() }
+        didSet {
+            noteMascotStirred()
+            echoMascotFriend(mascotReaction)
+        }
     }
+    /// The friend resting in the island answers each reaction a moment
+    /// later with a take of its own.
+    @Published private(set) var mascotFriendReaction: NotchMascotReactionEvent?
+    private var mascotFriendEchoWork: DispatchWorkItem?
+    /// What flies between the two resting in the island during a play, and
+    /// the little bursts over them.
+    @Published private(set) var mascotIslandFlight: NotchMascotIslandFlightEvent?
+    @Published private(set) var mascotIslandBurst: NotchMascotIslandBurstEvent?
+    /// A play the two in the island are in the middle of: the friend leaves
+    /// the companion's moves to it rather than echoing them.
+    private var mascotIslandPlaying = false
+    private var mascotIslandPlayWork: [DispatchWorkItem] = []
+    private var mascotIslandPlayTick: DispatchWorkItem?
+    private var mascotIslandPlaysRecent: [NotchMascotIslandPlay.Kind] = []
+    private var lastMascotIslandPlay: CFTimeInterval = CACurrentMediaTime()
     /// A reaction waiting for the companion to show, until its deadline, and
     /// not before its time when it was asked to wait.
     private var pendingMascotReaction: (reaction: NotchMascotReaction, deadline: CFTimeInterval,
@@ -272,6 +290,52 @@ final class NotchService: ObservableObject {
     private var lastMascotAgentStart: CFTimeInterval = -.infinity
     /// The companion is out in the Command Bar's drop, and the island rests without it.
     @Published private(set) var mascotInBar = false
+    /// The companion is out on the desktop, and the island rests without it.
+    @Published private(set) var mascotOnDesktop = false
+    /// The companion out on the desktop, in a window of its own.
+    private lazy var mascotDesktop: NotchMascotDesktop = {
+        let desktop = NotchMascotDesktop()
+        desktop.restingPlace = { [weak self] in self?.mascotDesktopEntrance() }
+        desktop.cameHome = { [weak self] mood in self?.mascotCameHome(mood) }
+        desktop.openSettings = { [weak self] in self?.openCompanionSettings() }
+        desktop.neighbor = { [weak self] in self?.mascotFriend.feet }
+        desktop.greetNeighbor = { [weak self] point in self?.mascotFriend.greet(toward: point) }
+        return desktop
+    }()
+    /// The friend picked to live with it: it rests in the closed island on
+    /// the camera's other side and comes out onto the desktop the same way.
+    private lazy var mascotFriend: NotchMascotDesktop = {
+        let friend = NotchMascotDesktop(leads: false)
+        friend.restingPlace = { [weak self] in self?.mascotFriendEntrance() }
+        friend.cameHome = { [weak self] _ in self?.mascotFriendCameHome() }
+        friend.openSettings = { [weak self] in self?.openCompanionSettings() }
+        friend.neighbor = { [weak self] in self?.mascotDesktop.feet }
+        friend.greetNeighbor = { [weak self] point in self?.mascotDesktop.greet(toward: point) }
+        return friend
+    }()
+    /// What the two out on the desktop do together, and between their plays.
+    private lazy var mascotPlay: NotchMascotPlayDirector = {
+        let play = NotchMascotPlayDirector(leader: mascotDesktop, friend: mascotFriend)
+        play.allowed = {
+            NotchMascotSupport.friendsPlay() && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                && !ProcessInfo.processInfo.isLowPowerModeEnabled
+        }
+        play.music = { NowPlayingService.shared.playback?.isPlaying == true }
+        play.level = { NotchMascotSupport.shownLevel() }
+        return play
+    }()
+    /// The friend is out on the desktop, and its wing rests without it.
+    @Published private(set) var mascotFriendOut = false
+    private var mascotFriendWork: DispatchWorkItem?
+    /// It came out after the companion on a walk of the companion's own,
+    /// and goes back in with it.
+    private var mascotFriendTagsAlong = false
+    /// The friend picked when the companion was last kept in step, so one
+    /// picked while the companion is out comes out to join it once.
+    private var mascotFriendPicked = NotchMascotSupport.desktopFriend()?.style
+    /// Which of the two a drag begun in the closed island pulls out.
+    private enum MascotGrabTarget { case companion, friend }
+    private var mascotGrabTarget: MascotGrabTarget?
     /// The companion stands in the window's own layer while the island opens
     /// or closes around it, and the strip and the page leave theirs out.
     @Published private(set) var mascotBridging = false
@@ -364,18 +428,19 @@ final class NotchService: ObservableObject {
     private func restingCapsuleSize(on geometry: NotchGeometry) -> CGSize {
         guard let text = restingCenterText else { return geometry.restingSize(showsContent: false) }
         return NotchCapsuleLayout.restingCenterSurface(text: text, companion: mascotShows(on: geometry),
+                                                       friend: mascotFriendAtHome,
                                                        visualizer: restingVisualizes, geometry: geometry)
     }
 
     /// Nothing at all to show, not even the companion: nothing is drawn, and
     /// a thin strip under the menu bar stands in for the island.
     private var floatsWithNothingToShow: Bool {
-        floatsAtRestBelowMenuBar && !mascotShows(on: geometry)
+        floatsAtRestBelowMenuBar && !mascotShows(on: geometry) && !mascotFriendRests(on: geometry)
     }
 
     /// The companion alone at rest below the menu bar, with no surface under it.
     private var floatsWithCompanionOnly: Bool {
-        floatsAtRestBelowMenuBar && mascotShows(on: geometry)
+        floatsAtRestBelowMenuBar && (mascotShows(on: geometry) || mascotFriendRests(on: geometry))
     }
 
     /// The empty floating island stays off screen until the pointer reaches its strip.
@@ -420,7 +485,7 @@ final class NotchService: ObservableObject {
 
     /// The companion rests in the closed island when nothing else is there,
     /// unless it hides in the island.
-    var mascotAtRest: Bool { mascotOn && idleContent == .none && !mascotInBar && !mascotTucked }
+    var mascotAtRest: Bool { mascotOn && idleContent == .none && !mascotInBar && !mascotOnDesktop && !mascotTucked }
 
     /// The face it keeps at rest: wide awake while Keep Awake holds the Mac up.
     var mascotRestingMood: NotchMascotMood { KeepAwakeManager.shared.isActive ? .alert : .idle }
@@ -430,6 +495,54 @@ final class NotchService: ObservableObject {
     /// holds it inside, as it holds the charge.
     func mascotShows(on geometry: NotchGeometry) -> Bool {
         (mascotAtRest || mascotVisit != nil) && (geometry.floats || geometry.restingWingWidth > 0)
+    }
+
+    /// The friend that lives with it, while it is in the island.
+    var mascotFriendLook: NotchMascotLook? { mascotFriendOut ? nil : NotchMascotSupport.desktopFriend() }
+
+    /// A friend picked, at home and free to rest in the closed island,
+    /// wherever the island finds it room.
+    private var mascotFriendAtHome: Bool {
+        mascotOn && idleContent == .none && !mascotInBar && !mascotTucked && mascotFriendLook != nil
+    }
+
+    /// Whether the closed island on `geometry` keeps the friend: in the wing
+    /// on the camera's other side, or at a capsule's other end, beyond what
+    /// the capsule reads in its middle.
+    func mascotFriendRests(on geometry: NotchGeometry) -> Bool {
+        guard mascotFriendAtHome else { return false }
+        if geometry.floats { return mascotCapsulePair(on: geometry) != nil }
+        return geometry.restingWingWidth > 0
+    }
+
+    /// The companion and its friend at a resting capsule's two ends on
+    /// `geometry`, with a friend picked, around whatever the middle reads.
+    func mascotCapsulePair(on geometry: NotchGeometry) -> (companion: NotchMascotTrack, friend: NotchMascotTrack)? {
+        guard geometry.floats, NotchMascotSupport.desktopFriend() != nil else { return nil }
+        return NotchMascotSupport.capsulePair(mascotCapsuleTrack(width: restingCapsuleSize(on: geometry).width,
+                                                                 on: geometry),
+                                              inset: NotchMascotSupport.capsulePairInset(geometry), side: mascotSide)
+    }
+
+    /// A resting capsule's track `width` wide on `geometry`.
+    func mascotCapsuleTrack(width: CGFloat, on geometry: NotchGeometry) -> NotchMascotTrack {
+        NotchMascotSupport.track(stripWidth: width, stripHeight: geometry.stripHeight, wing: 0, cameraWidth: 0,
+                                 floats: true, bodyHeight: geometry.stripBodyHeight)
+    }
+
+    /// The friend steps out of sight while the companion walks over its
+    /// wing, or anywhere through a capsule.
+    var mascotFriendSteppedAside: Bool {
+        guard let visit = mascotVisit else { return false }
+        return geometry.floats || visit.kind.crossesTheIsland
+    }
+
+    /// Where the friend rests in the closed island on `geometry`.
+    func mascotFriendTrack(on geometry: NotchGeometry) -> NotchMascotTrack {
+        if let pair = mascotCapsulePair(on: geometry) { return pair.friend }
+        return NotchMascotSupport.track(stripWidth: geometry.collapsed.width, stripHeight: geometry.stripHeight,
+                                        wing: geometry.restingWingWidth, cameraWidth: geometry.cameraWidth,
+                                        floats: false, bodyHeight: geometry.stripBodyHeight, side: mascotSide.other)
     }
 
     /// The companion needs the menu bar measured to know where its wings fit.
@@ -889,7 +1002,8 @@ final class NotchService: ObservableObject {
                                           reach: named.map { ($0.leading - $0.trailing) / 2 } ?? 0)
                 : resting
         }
-        let resting = geometry.restingSize(showsContent: idleContent != .none || mascotShows(on: geometry))
+        let resting = geometry.restingSize(showsContent: idleContent != .none || mascotShows(on: geometry)
+                                                          || mascotFriendRests(on: geometry))
         return hoverEmphasized ? NotchHoverEmphasis.size(from: resting, geometry: geometry) : resting
     }
 
@@ -1066,6 +1180,7 @@ final class NotchService: ObservableObject {
             running = true
             installObservers()
         }
+        scheduleMascotIslandPlayTick()
         syncCapsuleCenter()
         if !NotchTimerSupport.isEnabled() { NotchTimerService.shared.stop() }
         // A watch keeps reading while the island is away, as on the lock
@@ -1135,6 +1250,12 @@ final class NotchService: ObservableObject {
         mascotWasEnabled = mascotEnabled
         let hidingToggled = syncMascotHiding(switchedOn: mascotToggled && mascotEnabled)
         if mascotToggled, !expanded { stageMascotEntrance(arriving: mascotEnabled) }
+        // Out on the desktop when that is switched off, it comes back in; with
+        // the companion itself switched off, it is simply gone.
+        if mascotOnDesktop, !NotchMascotSupport.roamsDesktop() {
+            if mascotEnabled { mascotDesktop.goHome() } else { mascotDesktop.dismiss(); mascotOnDesktop = false }
+        }
+        if !mascotEnabled { dismissMascotFriend() }
         refreshPresentation(animated: (mascotToggled || hidingToggled) && !expanded)
         syncMascotVisits()
         syncMascotSide()
@@ -1168,6 +1289,8 @@ final class NotchService: ObservableObject {
         AgentUsageService.shared.stop()
         guard running else { return }
         running = false
+        mascotIslandPlayTick?.cancel(); mascotIslandPlayTick = nil
+        endMascotIslandPlay()
         NotchMascotAutomation.shared.sync(islandRunning: false)
         NotchTimerService.shared.stop()
         NotchAccessoryService.shared.stop()
@@ -1197,6 +1320,11 @@ final class NotchService: ObservableObject {
         mascotTuckWork?.cancel(); mascotTuckWork = nil
         mascotStepsAside = false
         mascotInBar = false
+        if mascotOnDesktop {
+            mascotDesktop.dismiss()
+            mascotOnDesktop = false
+        }
+        dismissMascotFriend()
         commandBarHeight = nil
         if showingCommandBar {
             showingCommandBar = false
@@ -2144,6 +2272,12 @@ final class NotchService: ObservableObject {
         }
     }
 
+    /// Opens the companion's own settings.
+    func openCompanionSettings() {
+        Task { @MainActor in SettingsRouter.shared.notchCompanion = true }
+        openSettings()
+    }
+
     /// Opens the Dynamic Island settings on one section's options.
     func openSettings(showing module: NotchModule) {
         // The page takes the hint when it appears, or at once if already open.
@@ -2535,6 +2669,7 @@ final class NotchService: ObservableObject {
         syncMascotKeepAwake()
         syncMascotAgents()
         syncMascotPerch()
+        syncMascotDesktop()
         activitySelection.reconcile(available: compactActivities)
         if fullscreenCompact {
             finishMusicDeparture()
@@ -2663,6 +2798,8 @@ final class NotchService: ObservableObject {
                     self.openCountdownEvent()
                 } else { self.toggle() }
             })
+        windowHost?.setCompanionGrab(grabs: { [weak self] point in self?.mascotGrabbable(at: point) ?? false },
+                                     drag: { [weak self] grab in self?.mascotGrab(grab) })
         if panel?.isVisible != true { panel?.orderFrontRegardless() }
         let music = NowPlayingService.shared
         rememberPresentedMusic(playback: music.playback, artwork: music.artworkImage, tint: music.artworkTint)
@@ -3104,7 +3241,8 @@ final class NotchService: ObservableObject {
     private func mirrorSurface(on base: NotchGeometry, activity: NotchCompactActivity?) -> (strip: NotchGeometry, size: CGSize) {
         guard let activity else {
             if base.floats { return (base, restingCapsuleSize(on: base)) }
-            return (base, base.restingSize(showsContent: idleContent != .none || mascotShows(on: base)))
+            return (base, base.restingSize(showsContent: idleContent != .none || mascotShows(on: base)
+                                                 || mascotFriendRests(on: base)))
         }
         let companion = compactCompanion
         if base.floats { return (base, capsuleStripSize(for: activity, companion: companion, geometry: base)) }
@@ -4384,6 +4522,13 @@ extension NotchService {
             scheduleMascotVisit(after: NotchMascotSupport.nextVisitDelay())
             return
         }
+        // Free to roam, it now and then hops out onto the desktop instead.
+        if !asked, NotchMascotSupport.goesOnExcursions(), mascotRestsInView,
+           !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+           Double.random(in: 0..<1) < NotchMascotSupport.excursionChance {
+            beginMascotDesktop(grabbedAt: nil)
+            return
+        }
         // Without motion a stroll over an activity hides its strip for
         // seconds: it waits for the island to rest, and a hello asked for
         // plays in its own wing. Hidden in an island with nothing else to
@@ -4475,7 +4620,7 @@ extension NotchService {
         // A stroll under way when it is turned off finishes first and says
         // goodbye after. One turned back on mid-farewell comes out from where it went.
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, idleContent == .none,
-              compactActivity == nil, !mascotInBar, arriving || !mascotTucked, canHostMascotVisit(),
+              compactActivity == nil, !mascotInBar, !mascotOnDesktop, arriving || !mascotTucked, canHostMascotVisit(),
               arriving ? mascotVisit == nil || mascotVisit?.kind == .farewell : mascotVisit == nil else { return }
         let visit = NotchMascotVisit(id: UUID(), kind: arriving ? .arrive : .farewell,
                                      greeting: arriving ? .wink : .happy, start: CACurrentMediaTime())
@@ -4539,6 +4684,11 @@ extension NotchService {
     private func tuckMascotIfQuiet(now: Bool) {
         mascotTuckWork = nil
         guard running, mascotHidesAtSync == true, !mascotTucked else { return }
+        // Out on the desktop, it is not in the island to hide in it.
+        if mascotOnDesktop {
+            scheduleMascotTuck(after: NotchMascotSupport.hideDelay)
+            return
+        }
         let quiet = CACurrentMediaTime() - mascotStirred
         if !now, quiet < NotchMascotSupport.hideDelay - 0.05 {
             scheduleMascotTuck(after: NotchMascotSupport.hideDelay - quiet)
@@ -4564,7 +4714,7 @@ extension NotchService {
     private func stageMascotTuck() -> Bool {
         // A reaction still waiting to be seen comes first. One past its time never will be.
         let reacting = pendingMascotReaction.map { CACurrentMediaTime() <= $0.deadline } ?? false
-        guard mascotVisit == nil, !reacting, !mascotBridging, !mascotInBar else { return false }
+        guard mascotVisit == nil, !reacting, !mascotBridging, !mascotInBar, !mascotOnDesktop else { return false }
         let shown = mascotRestsInView && canHostMascotVisit()
         mascotTucked = true
         mascotTuckWork?.cancel(); mascotTuckWork = nil
@@ -4618,7 +4768,8 @@ extension NotchService {
     /// A visit needs the closed island on screen with room for the companion,
     /// whatever it shows. The companion coming back from the bar is not out in it.
     private func canHostMascotVisit(returning: Bool = false) -> Bool {
-        showsSystemFeedback && (returning || !mascotInBar) && !expanded && !peeking && !dragPlaceholder && notice == nil
+        showsSystemFeedback && (returning || (!mascotInBar && !mascotOnDesktop)) && !expanded && !peeking && !dragPlaceholder
+            && notice == nil
             && captureControls == nil && !showsCompactActivityPicker && !fullscreenCompact
             && panel?.isVisible == true && mascotHasRoom
     }
@@ -4648,7 +4799,7 @@ extension NotchService {
     /// it. The row must leave it room: free when the header sits below the
     /// camera, or past the title or the actions on its side of the camera.
     var mascotResidentShows: Bool {
-        guard mascotOn, !mascotInBar, expanded, !showingCommandBar, captureControls == nil,
+        guard mascotOn, !mascotInBar, !mascotOnDesktop, expanded, !showingCommandBar, captureControls == nil,
               !dragPlaceholder, !noticeExpanded, geometry.isNotched, !geometry.floats else { return false }
         let header = expandedGeometry
         guard header.headerCameraGap > 0 else { return true }
@@ -4671,7 +4822,7 @@ extension NotchService {
     /// it is out in the Command Bar.
     private var mascotPerches: Bool {
         running && !suspended && expanded && geometry.floatsBelowMenuBar && !hiddenInFullscreen
-            && mascotOn && !mascotInBar && captureControls == nil && !dragPlaceholder
+            && mascotOn && !mascotInBar && !mascotOnDesktop && captureControls == nil && !dragPlaceholder
             && windowHost != nil && NotchMascotSupport.perchesWhenOpen()
     }
 
@@ -4746,6 +4897,330 @@ extension NotchService {
         syncVisibleConsumers()
         panel.makeKey()
         return panel
+    }
+
+    // MARK: Out on the desktop
+
+    /// The companion's centre on screen where it rests in the closed island,
+    /// and its size there.
+    private var mascotRestScreenPoint: (center: CGPoint, size: CGFloat) {
+        if geometry.floats {
+            let track = NotchMascotSupport.track(stripWidth: geometry.collapsed.width, stripHeight: geometry.stripHeight,
+                                                 wing: 0, cameraWidth: 0, floats: true,
+                                                 bodyHeight: geometry.stripBodyHeight)
+            let top = geometry.screen.maxY - geometry.floatingDrop
+            // Beside a friend, it rests at its end of the capsule.
+            if let pair = mascotCapsulePair(on: geometry) {
+                let width = geometry.restingSize(showsContent: false).width
+                return (CGPoint(x: geometry.screen.midX + pair.companion.rest - width / 2, y: top - track.baseline),
+                        track.size)
+            }
+            return (CGPoint(x: geometry.screen.midX, y: top - track.baseline), track.size)
+        }
+        let track = mascotClosedTrack
+        return (CGPoint(x: geometry.screen.midX + mascotClosedOffset, y: geometry.screen.maxY - track.baseline), track.size)
+    }
+
+    /// Where it goes back into the closed island from the desktop: behind the
+    /// camera, which its homecoming hops out from, or where it rests in a
+    /// capsule. Nil with the island stopped.
+    private func mascotDesktopEntrance() -> (center: CGPoint, size: CGFloat, screenTop: CGFloat)? {
+        guard running, panel != nil else { return nil }
+        let rest = mascotRestScreenPoint
+        let x = geometry.floats ? rest.center.x : geometry.screen.midX
+        return (CGPoint(x: x, y: rest.center.y), rest.size, geometry.screen.maxY)
+    }
+
+    /// Whether a press at `point` lands on the companion resting in the
+    /// closed island, which a drag then pulls out onto the desktop.
+    func mascotGrabbable(at point: CGPoint) -> Bool { mascotGrabTarget(at: point) != nil }
+
+    /// Which companion resting in the closed island a press at `point` lands on.
+    private func mascotGrabTarget(at point: CGPoint) -> MascotGrabTarget? {
+        guard NotchMascotSupport.roamsDesktop() else { return nil }
+        func reaches(_ rest: (center: CGPoint, size: CGFloat)) -> Bool {
+            let reach = rest.size / 2 + 6
+            return abs(point.x - rest.center.x) <= reach && abs(point.y - rest.center.y) <= reach
+        }
+        if !mascotOnDesktop, mascotVisit == nil, mascotRestsInView, canHostMascotVisit(), reaches(mascotRestScreenPoint) {
+            return .companion
+        }
+        if mascotFriendRests(on: geometry), !mascotFriendSteppedAside, compactActivity == nil, !expanded,
+           let rest = mascotFriendEntrance(), reaches((rest.center, rest.size)) {
+            return .friend
+        }
+        return nil
+    }
+
+    /// A drag that began on a resting companion: it comes out as it starts,
+    /// and the desktop carries it from then on.
+    func mascotGrab(_ grab: NotchMascotGrab) {
+        switch grab {
+        case .began(let point):
+            mascotGrabTarget = mascotGrabTarget(at: point)
+            switch mascotGrabTarget {
+            case .companion: beginMascotDesktop(grabbedAt: point)
+            case .friend: beginMascotFriend(grabbedAt: point)
+            case nil: break
+            }
+        case .moved, .ended:
+            switch mascotGrabTarget {
+            case .companion: if mascotOnDesktop { mascotDesktop.continueGrab(grab) }
+            case .friend: if mascotFriendOut { mascotFriend.continueGrab(grab) }
+            case nil: break
+            }
+            if case .ended = grab { mascotGrabTarget = nil }
+        }
+    }
+
+    /// The companion leaves the closed island for the desktop: pulled out by
+    /// the pointer at `pointer`, or hopping out on its own with nil.
+    private func beginMascotDesktop(grabbedAt pointer: CGPoint?) {
+        guard !mascotOnDesktop, NotchMascotSupport.roamsDesktop() else { return }
+        let rest = mascotRestScreenPoint
+        mascotVisitWork?.cancel(); mascotVisitWork = nil
+        mascotStepBackWork?.cancel(); mascotStepBackWork = nil
+        mutatePresentation {
+            mascotVisit = nil
+            mascotStepsAside = false
+            mascotOnDesktop = true
+        }
+        noteMascotStirred()
+        mascotDesktop.comeOut(from: rest.center, fromSize: rest.size, look: NotchMascotSupport.look(),
+                              mood: mascotRestingMood, grabbedAt: pointer)
+        // On a walk of its own its friend comes along, and pulled out too
+        // where the island has no place for the friend to wait.
+        if NotchMascotSupport.desktopFriend() != nil,
+           NotchMascotRoam.friendComesAlong(grabbed: pointer != nil, friendRestsInIsland: mascotFriendRests(on: geometry)) {
+            scheduleMascotFriend(after: NotchMascotRoam.friendDelay)
+        }
+    }
+
+    /// The friend hops out of its wing `delay` seconds from now to go with
+    /// the companion, if the companion is still out by then.
+    private func scheduleMascotFriend(after delay: TimeInterval) {
+        mascotFriendWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.mascotFriendWork = nil
+            guard self.mascotOnDesktop else { return }
+            self.beginMascotFriend(grabbedAt: nil, tagsAlong: true)
+        }
+        mascotFriendWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    /// The friend leaves its wing for the desktop: pulled out by the pointer
+    /// at `pointer`, or hopping out on its own, outward, with nil.
+    private func beginMascotFriend(grabbedAt pointer: CGPoint?, tagsAlong: Bool = false) {
+        guard !mascotFriendOut, NotchMascotSupport.roamsDesktop(), let look = NotchMascotSupport.desktopFriend(),
+              let rest = mascotFriendEntrance() else { return }
+        mascotFriendTagsAlong = tagsAlong
+        mascotPlay.cameOut()
+        mutatePresentation { mascotFriendOut = true }
+        mascotFriend.comeOut(from: rest.center, fromSize: rest.size, look: look, mood: mascotRestingMood,
+                             grabbedAt: pointer, hop: mascotSide.other == .left ? -1 : 1)
+    }
+
+    /// Where the friend goes back into the closed island: its wing, or,
+    /// where there is none, behind the camera like the companion. Nil with
+    /// the island stopped.
+    private func mascotFriendEntrance() -> (center: CGPoint, size: CGFloat, screenTop: CGFloat)? {
+        guard running, panel != nil else { return nil }
+        if let pair = mascotCapsulePair(on: geometry) {
+            let width = geometry.restingSize(showsContent: false).width
+            let top = geometry.screen.maxY - geometry.floatingDrop
+            return (CGPoint(x: geometry.screen.midX + pair.friend.rest - width / 2, y: top - pair.friend.baseline),
+                    pair.friend.size, geometry.screen.maxY)
+        }
+        guard !geometry.floats, geometry.restingWingWidth > 0 else { return mascotDesktopEntrance() }
+        let track = mascotFriendTrack(on: geometry)
+        return (CGPoint(x: geometry.screen.midX + track.rest - geometry.collapsed.width / 2,
+                        y: geometry.screen.maxY - track.baseline), track.size, geometry.screen.maxY)
+    }
+
+    /// The friend landed back in its wing.
+    private func mascotFriendCameHome() {
+        mascotPlay.wentIn()
+        mascotFriendTagsAlong = false
+        mutatePresentation { mascotFriendOut = false }
+    }
+
+    private func dismissMascotFriend() {
+        mascotPlay.wentIn()
+        mascotFriendWork?.cancel(); mascotFriendWork = nil
+        mascotFriendTagsAlong = false
+        mascotFriend.dismiss()
+        if mascotFriendOut { mascotFriendOut = false }
+    }
+
+    /// The friend resting in the island answers `event` with its own take
+    /// on it a moment later.
+    private func echoMascotFriend(_ event: NotchMascotReactionEvent?) {
+        mascotFriendEchoWork?.cancel(); mascotFriendEchoWork = nil
+        guard !mascotIslandPlaying, let event, let echo = NotchMascotPlay.echo(of: event.reaction),
+              mascotFriendRests(on: geometry) else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.mascotFriendEchoWork = nil
+            self?.mascotFriendReaction = NotchMascotReactionEvent(id: UUID(), reaction: echo, start: CACurrentMediaTime())
+        }
+        mascotFriendEchoWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double.random(in: NotchMascotPlay.echoDelay), execute: work)
+    }
+
+    // MARK: Plays in the island
+
+    /// Both rest in the closed island, in view, with nothing else going on
+    /// there: room for a play between them.
+    private var mascotIslandPlayFits: Bool {
+        running && mascotRestsInView && mascotVisit == nil && !mascotBridging && !expanded && notice == nil
+            && pendingMascotReaction == nil && mascotShows(on: geometry) && mascotFriendRests(on: geometry)
+            && !mascotFriendSteppedAside && !mascotFriendOut
+    }
+
+    /// Looks now and then for a moment to play, while the island runs.
+    private func scheduleMascotIslandPlayTick() {
+        guard mascotIslandPlayTick == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.mascotIslandPlayTick = nil
+            guard self.running else { return }
+            self.startMascotIslandPlayIfDue()
+            self.scheduleMascotIslandPlayTick()
+        }
+        mascotIslandPlayTick = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: work)
+    }
+
+    private func startMascotIslandPlayIfDue() {
+        let now = CACurrentMediaTime()
+        guard !mascotIslandPlaying, NotchMascotSupport.friendsPlay(), NotchMascotSupport.reacts(),
+              let friend = mascotFriendLook else { return }
+        // Apart, or something else going on: once back together, they
+        // settle a while before they play.
+        guard mascotIslandPlayFits else { lastMascotIslandPlay = max(lastMascotIslandPlay, now - 10); return }
+        // Fresh from a reaction, it lets that one finish first.
+        guard now - mascotStirred >= 3 else { return }
+        let context = NotchMascotIslandPlay.Context(
+            since: now - lastMascotIslandPlay,
+            music: NowPlayingService.shared.playback?.isPlaying == true,
+            hour: Calendar.current.component(.hour, from: Date()),
+            recent: mascotIslandPlaysRecent,
+            leaderWears: NotchMascotSupport.look().accessory,
+            friendWears: friend.accessory)
+        guard let play = NotchMascotIslandPlay.next(in: context, random: { Double.random(in: 0..<1) }) else { return }
+        startMascotIslandPlay(play)
+    }
+
+    private func startMascotIslandPlay(_ play: NotchMascotIslandPlay) {
+        mascotFriendEchoWork?.cancel(); mascotFriendEchoWork = nil
+        mascotIslandPlaying = true
+        mascotIslandPlaysRecent = Array((mascotIslandPlaysRecent + [play.kind]).suffix(NotchMascotIslandPlay.memory))
+        // Under Reduce Motion they still act it out, but nothing flies.
+        let moves = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        for beat in play.beats {
+            let work = DispatchWorkItem { [weak self] in self?.playMascotIslandBeat(beat, moves: moves) }
+            mascotIslandPlayWork.append(work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + beat.at, execute: work)
+        }
+        let end = DispatchWorkItem { [weak self] in self?.endMascotIslandPlay() }
+        mascotIslandPlayWork.append(end)
+        DispatchQueue.main.asyncAfter(deadline: .now() + play.length, execute: end)
+    }
+
+    private func playMascotIslandBeat(_ beat: NotchMascotIslandPlay.Beat, moves: Bool) {
+        guard mascotIslandPlaying else { return }
+        // Something took the island over: the play stops where it is.
+        guard mascotIslandPlayFits else { endMascotIslandPlay(); return }
+        let now = CACurrentMediaTime()
+        if let reaction = beat.leader {
+            mascotReaction = NotchMascotReactionEvent(id: UUID(), reaction: reaction, start: now)
+        }
+        if let reaction = beat.friend {
+            mascotFriendReaction = NotchMascotReactionEvent(id: UUID(), reaction: reaction, start: now)
+        }
+        if moves, let flight = beat.flight {
+            let event = NotchMascotIslandFlightEvent(id: UUID(), flight: flight, start: now)
+            mascotIslandFlight = event
+            DispatchQueue.main.asyncAfter(deadline: .now() + flight.duration + 0.1) { [weak self] in
+                if self?.mascotIslandFlight?.id == event.id { self?.mascotIslandFlight = nil }
+            }
+        }
+        if moves, let burst = beat.burst {
+            let event = NotchMascotIslandBurstEvent(id: UUID(), burst: burst, start: now)
+            mascotIslandBurst = event
+            DispatchQueue.main.asyncAfter(deadline: .now() + NotchMascotIslandPlay.burstLength + 0.1) { [weak self] in
+                if self?.mascotIslandBurst?.id == event.id { self?.mascotIslandBurst = nil }
+            }
+        }
+    }
+
+    private func endMascotIslandPlay() {
+        mascotIslandPlayWork.forEach { $0.cancel() }
+        mascotIslandPlayWork.removeAll()
+        if mascotIslandPlaying { lastMascotIslandPlay = CACurrentMediaTime() }
+        mascotIslandPlaying = false
+        if mascotIslandFlight != nil { mascotIslandFlight = nil }
+        if mascotIslandBurst != nil { mascotIslandBurst = nil }
+    }
+
+    /// Back from the desktop: it hops out from behind the camera to its place,
+    /// wearing `homecoming` until it lands, unless it hides in the island or
+    /// the island has no room for it just then.
+    private func mascotCameHome(_ homecoming: NotchMascotMood) {
+        guard mascotOnDesktop else { return }
+        mascotPlay.wentIn()
+        // A friend that came along on its walk follows it in.
+        mascotFriendWork?.cancel(); mascotFriendWork = nil
+        if mascotFriendTagsAlong { mascotFriend.goHome() }
+        let home: NotchMascotVisit? = {
+            guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, NotchMascotSupport.isEnabled(),
+                  !mascotTucked, idleContent == .none, compactActivity == nil, canHostMascotVisit(returning: true)
+            else { return nil }
+            return NotchMascotVisit(id: UUID(), kind: .home, greeting: homecoming, start: CACurrentMediaTime())
+        }()
+        mutatePresentation {
+            mascotOnDesktop = false
+            if let home { mascotVisit = home }
+        }
+        noteMascotStirred()
+        if running, NotchMascotSupport.visits(), home == nil {
+            scheduleMascotVisit(after: NotchMascotSupport.nextVisitDelay())
+        }
+        guard let home else { return }
+        mascotVisitWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.endMascotVisit() }
+        mascotVisitWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + home.duration + 0.1, execute: work)
+    }
+
+    /// Out on the desktop, it keeps the look and the face the island would
+    /// give it, and so does its friend; a friend no longer picked goes in.
+    private func syncMascotDesktop() {
+        let friend = NotchMascotSupport.desktopFriend()
+        let newlyPicked = friend != nil && friend?.style != mascotFriendPicked
+        mascotFriendPicked = friend?.style
+        if mascotFriendOut {
+            if let friend {
+                mascotFriend.configure(look: friend, mood: mascotRestingMood)
+            } else {
+                mascotFriend.goHome()
+            }
+        }
+        // Out there, they bob along to the music.
+        if mascotOnDesktop || mascotFriendOut {
+            let dancing = NowPlayingService.shared.playback?.isPlaying == true
+                && UserDefaults.standard.bool(forKey: DefaultsKey.notchMascotDances)
+            mascotPlay.syncMusic(dancing: dancing)
+        }
+        guard mascotOnDesktop else { return }
+        mascotDesktop.configure(look: NotchMascotSupport.look(), mood: mascotRestingMood)
+        // A friend picked while it is out joins it, unless the island keeps
+        // a place where the friend waits to be pulled out.
+        if newlyPicked, !mascotFriendOut, mascotFriendWork == nil,
+           NotchMascotRoam.friendComesAlong(grabbed: true, friendRestsInIsland: mascotFriendRests(on: geometry)) {
+            scheduleMascotFriend(after: NotchMascotRoam.friendDelay)
+        }
     }
 
     /// The companion leaves the island for the Command Bar's drop, and comes
@@ -5088,8 +5563,17 @@ extension NotchService {
     func reactMascot(_ reaction: NotchMascotReaction, patience: TimeInterval = NotchMascotReactionGate.patience,
                      after delay: TimeInterval = 0, countsAsMoment: Bool = true) {
         guard NotchMascotSupport.reacts() else { return }
+        // Something that happened comes before a game between the two.
+        if mascotIslandPlaying { endMascotIslandPlay() }
         // Something it reacted to is a moment shared; its own celebrations are not.
         if countsAsMoment { NotchMascotBondStore.shared.record(.moment) }
+        // A friend out on the desktop answers it there, a moment later.
+        if mascotFriendOut { mascotPlay.echo(reaction) }
+        // Out on the desktop, it plays it where it stands.
+        if mascotOnDesktop {
+            if mascotReactionGate.admits(reaction, at: CACurrentMediaTime()) { mascotDesktop.react(reaction) }
+            return
+        }
         // A notice on screen that shows the companion plays it there already.
         if notice?.mascot == reaction, noticeCanPresent {
             _ = mascotReactionGate.admits(reaction, at: CACurrentMediaTime())
