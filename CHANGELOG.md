@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.54.0] — 2026-10-16 — kexts 3.35.0 (No kext changes)
+
+The companion and its friend play together in the island too, eight new items join the wardrobe, and the friend can wear the item you pick for it.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.0. Only the application's validation version pin changes.
+
+### Added
+
+- **They play in the island**: resting together, now and then the two play across the room between them: they wave to each other, toss hearts, stars and notes, rally a spark until one misses it, play a copying game the friend loses on its last move, dance to the music, doze off at night and play peekaboo. In a floating island they play inside the capsule; beside the camera, what they toss flies behind it. Under Reduce Motion they still act it out, but nothing flies. They follow the They play together switch.
+- **What they wear plays too**: each item brings a play of its own when one of them wears it: a magic trick from the top hat, a bow to the crown, a shared beat from the headphones, a snowball fight from the beanie, a game of catch from the cap, a quickdraw from the cowboy hat, a blessing from the halo, a prank from the little horns, a treat from the chef's hat, treasure from the eye patch, a spell from the witch hat, a present from the Santa hat and a party from the party hat, among others.
+- **Eight new items**: a cap, a bow tie, a monocle, a cowboy hat, a halo, little horns, a chef's hat and an eye patch, one at each level from eleven to eighteen.
+- **Pick what the friend wears**: Settings › Companion › What the friend wears picks any unlocked item for it, or leaves it to the friend as before. A costume or the Gaming Mode headband still dresses both alike.
+
+### Fixed
+
+- **The friend left a floating island that had something in its middle**: with the song, the visualizer or another reading in the capsule's middle, the friend was not shown. The capsule now keeps room for both, the companion at its end and the friend at the other.
+
 ## [1.53.1] — 2026-10-16 — kexts 3.35.0 (No kext changes)
 
 Fans keep their reading: a fan turning at a steady speed no longer shows "— RPM" now and then.

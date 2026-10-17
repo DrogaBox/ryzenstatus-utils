@@ -6,18 +6,22 @@ import Foundation
 
 // MARK: - Accessories
 
-/// What the companion wears. The first ten come out of the wardrobe as it
-/// grows; the last four are put on for it: a costume for the season, a party
-/// hat for a celebration and a headband while Gaming Mode runs.
+/// What the companion wears. The wardrobe opens one at each of the first
+/// eighteen levels as it grows; the last four are put on for it: a costume
+/// for the season, a party hat for a celebration and a headband while
+/// Gaming Mode runs.
 enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
     case none, bow, glasses, scarf, headphones, beanie, flower, topHat, sunglasses, crown
+    case cap, bowTie, monocle, cowboyHat, halo, horns, chefHat, eyePatch
     case witchHat, santaHat, partyHat, headband
 
     var id: String { rawValue }
 
     /// The ones that can be picked, in the order they unlock.
     static let wardrobe: [NotchMascotAccessory] = [.none, .bow, .glasses, .scarf, .headphones, .beanie,
-                                                   .flower, .topHat, .sunglasses, .crown]
+                                                   .flower, .topHat, .sunglasses, .crown,
+                                                   .cap, .bowTie, .monocle, .cowboyHat, .halo, .horns,
+                                                   .chefHat, .eyePatch]
 
     /// The level it unlocks at; zero for the ones that are put on for it.
     var unlockLevel: Int {
@@ -30,10 +34,11 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
 
     var placement: Placement {
         switch self {
-        case .glasses, .sunglasses: return .eyes
-        case .scarf: return .neck
+        case .glasses, .sunglasses, .monocle, .eyePatch: return .eyes
+        case .scarf, .bowTie: return .neck
         case .headphones: return .ears
-        case .none, .bow, .beanie, .flower, .topHat, .crown, .witchHat, .santaHat, .partyHat, .headband: return .head
+        case .none, .bow, .beanie, .flower, .topHat, .crown, .cap, .cowboyHat, .halo, .horns, .chefHat,
+             .witchHat, .santaHat, .partyHat, .headband: return .head
         }
     }
 }
@@ -206,12 +211,14 @@ enum NotchMascotWardrobe {
     }
 
     /// What the friend wears beside a companion wearing `main`: a costume or
-    /// the Gaming Mode headband the same, so the two match; otherwise one of
-    /// its own among those `level` unlocks, worn somewhere else on it than
-    /// the companion's, and always the same one for its `style`.
-    static func friendAccessory(main: NotchMascotAccessory, level: Int,
-                                style: NotchMascotStyle) -> NotchMascotAccessory {
+    /// the Gaming Mode headband the same, so the two match; otherwise the
+    /// one `chosen` for it once unlocked, or with nothing chosen, one of its
+    /// own among those `level` unlocks, worn somewhere else on it than the
+    /// companion's, and always the same one for its `style`.
+    static func friendAccessory(main: NotchMascotAccessory, level: Int, style: NotchMascotStyle,
+                                chosen: NotchMascotAccessory? = nil) -> NotchMascotAccessory {
         guard main.isPickable else { return main }
+        if let chosen { return chosen.isPickable && chosen.unlockLevel <= level ? chosen : .none }
         let options = NotchMascotAccessory.wardrobe.filter {
             $0 != .none && $0 != main && $0.unlockLevel <= level && (main == .none || $0.placement != main.placement)
         }

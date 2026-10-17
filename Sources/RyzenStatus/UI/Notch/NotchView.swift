@@ -888,6 +888,21 @@ struct NotchRestingStrip: View {
                     .allowsHitTesting(false)
                     .transition(.opacity)
             }
+            // What they toss to each other across the camera as they play.
+            if service.mascotFriendRests(on: geometry), let friend = service.mascotFriendLook,
+               service.mascotIslandFlight != nil || service.mascotIslandBurst != nil {
+                NotchMascotIslandPlayLayer(flight: service.mascotIslandFlight, burst: service.mascotIslandBurst,
+                                           leader: NotchMascotSupport.track(stripWidth: geometry.collapsed.width,
+                                                                            stripHeight: geometry.stripHeight,
+                                                                            wing: geometry.restingWingWidth,
+                                                                            cameraWidth: geometry.cameraWidth,
+                                                                            floats: false,
+                                                                            bodyHeight: geometry.stripBodyHeight,
+                                                                            side: service.mascotSide),
+                                           friend: service.mascotFriendTrack(on: geometry),
+                                           leaderLook: NotchMascotSupport.look(), friendLook: friend)
+                    .frame(width: geometry.collapsed.width, height: geometry.stripHeight)
+            }
         }
         .foregroundStyle(.white.opacity(0.9))
         // The strip stays in its band at the top: hover grows the island

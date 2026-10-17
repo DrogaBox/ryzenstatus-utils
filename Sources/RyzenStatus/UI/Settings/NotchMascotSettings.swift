@@ -23,6 +23,7 @@ struct NotchMascotSettings: View {
     @AppStorage(DefaultsKey.notchMascotExcursions) private var excursions = true
     @AppStorage(DefaultsKey.notchMascotDesktopFriend) private var friend = ""
     @AppStorage(DefaultsKey.notchMascotDesktopPlay) private var friendsPlay = true
+    @AppStorage(DefaultsKey.notchMascotFriendAccessory) private var friendAccessory = ""
     @AppStorage(DefaultsKey.notchMascotStyle) private var style = NotchMascotStyle.minimal.rawValue
     @AppStorage(DefaultsKey.notchMascotShape) private var shape = NotchMascotShape.ball.rawValue
     @AppStorage(DefaultsKey.notchMascotPalette) private var palette = NotchMascotPalette.pearl.rawValue
@@ -449,6 +450,14 @@ struct NotchMascotSettings: View {
                 .padding(.leading, settingsRowTextInset)
                 .transition(.opacity)
                 if !friend.isEmpty {
+                    SettingsChoiceRow(symbol: "tshirt", title: desktopText.friendItem, selection: $friendAccessory) {
+                        Text(desktopText.friendItemOwn).tag("")
+                        ForEach(NotchMascotAccessory.wardrobe.filter { $0.unlockLevel <= level }) {
+                            Text(life.name(of: $0)).tag($0.rawValue)
+                        }
+                    }
+                    .padding(.leading, settingsRowTextInset)
+                    .transition(.opacity)
                     switchRow("figure.2.and.child.holdinghands", desktopText.plays, caption: desktopText.playsCaption,
                               isOn: $friendsPlay)
                         .padding(.leading, settingsRowTextInset)

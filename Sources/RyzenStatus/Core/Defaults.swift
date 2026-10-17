@@ -498,6 +498,7 @@ enum Defaults {
         DefaultsKey.notchMascotExcursions: true,
         DefaultsKey.notchMascotDesktopFriend: "",
         DefaultsKey.notchMascotDesktopPlay: true,
+        DefaultsKey.notchMascotFriendAccessory: "",
         DefaultsKey.notchMascotAutomatic: true,
         DefaultsKey.notchMascotAutoLoad: true,
         DefaultsKey.notchMascotAutoMusic: true,

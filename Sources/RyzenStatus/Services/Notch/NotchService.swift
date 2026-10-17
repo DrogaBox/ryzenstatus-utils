@@ -260,6 +260,17 @@ final class NotchService: ObservableObject {
     /// later with a take of its own.
     @Published private(set) var mascotFriendReaction: NotchMascotReactionEvent?
     private var mascotFriendEchoWork: DispatchWorkItem?
+    /// What flies between the two resting in the island during a play, and
+    /// the little bursts over them.
+    @Published private(set) var mascotIslandFlight: NotchMascotIslandFlightEvent?
+    @Published private(set) var mascotIslandBurst: NotchMascotIslandBurstEvent?
+    /// A play the two in the island are in the middle of: the friend leaves
+    /// the companion's moves to it rather than echoing them.
+    private var mascotIslandPlaying = false
+    private var mascotIslandPlayWork: [DispatchWorkItem] = []
+    private var mascotIslandPlayTick: DispatchWorkItem?
+    private var mascotIslandPlaysRecent: [NotchMascotIslandPlay.Kind] = []
+    private var lastMascotIslandPlay: CFTimeInterval = CACurrentMediaTime()
     /// A reaction waiting for the companion to show, until its deadline, and
     /// not before its time when it was asked to wait.
     private var pendingMascotReaction: (reaction: NotchMascotReaction, deadline: CFTimeInterval,
@@ -417,6 +428,7 @@ final class NotchService: ObservableObject {
     private func restingCapsuleSize(on geometry: NotchGeometry) -> CGSize {
         guard let text = restingCenterText else { return geometry.restingSize(showsContent: false) }
         return NotchCapsuleLayout.restingCenterSurface(text: text, companion: mascotShows(on: geometry),
+                                                       friend: mascotFriendAtHome,
                                                        visualizer: restingVisualizes, geometry: geometry)
     }
 
@@ -488,20 +500,26 @@ final class NotchService: ObservableObject {
     /// The friend that lives with it, while it is in the island.
     var mascotFriendLook: NotchMascotLook? { mascotFriendOut ? nil : NotchMascotSupport.desktopFriend() }
 
+    /// A friend picked, at home and free to rest in the closed island,
+    /// wherever the island finds it room.
+    private var mascotFriendAtHome: Bool {
+        mascotOn && idleContent == .none && !mascotInBar && !mascotTucked && mascotFriendLook != nil
+    }
+
     /// Whether the closed island on `geometry` keeps the friend: in the wing
-    /// on the camera's other side, or at a capsule's other end while nothing
-    /// is read in its middle.
+    /// on the camera's other side, or at a capsule's other end, beyond what
+    /// the capsule reads in its middle.
     func mascotFriendRests(on geometry: NotchGeometry) -> Bool {
-        guard mascotOn, idleContent == .none, !mascotInBar, !mascotTucked, mascotFriendLook != nil else { return false }
+        guard mascotFriendAtHome else { return false }
         if geometry.floats { return mascotCapsulePair(on: geometry) != nil }
         return geometry.restingWingWidth > 0
     }
 
     /// The companion and its friend at a resting capsule's two ends on
-    /// `geometry`, with a friend picked and nothing in the capsule's middle.
+    /// `geometry`, with a friend picked, around whatever the middle reads.
     func mascotCapsulePair(on geometry: NotchGeometry) -> (companion: NotchMascotTrack, friend: NotchMascotTrack)? {
-        guard geometry.floats, restingCenterText == nil, NotchMascotSupport.desktopFriend() != nil else { return nil }
-        return NotchMascotSupport.capsulePair(mascotCapsuleTrack(width: geometry.restingSize(showsContent: false).width,
+        guard geometry.floats, NotchMascotSupport.desktopFriend() != nil else { return nil }
+        return NotchMascotSupport.capsulePair(mascotCapsuleTrack(width: restingCapsuleSize(on: geometry).width,
                                                                  on: geometry),
                                               inset: NotchMascotSupport.capsulePairInset(geometry), side: mascotSide)
     }
@@ -1162,6 +1180,7 @@ final class NotchService: ObservableObject {
             running = true
             installObservers()
         }
+        scheduleMascotIslandPlayTick()
         syncCapsuleCenter()
         if !NotchTimerSupport.isEnabled() { NotchTimerService.shared.stop() }
         // A watch keeps reading while the island is away, as on the lock
@@ -1270,6 +1289,8 @@ final class NotchService: ObservableObject {
         AgentUsageService.shared.stop()
         guard running else { return }
         running = false
+        mascotIslandPlayTick?.cancel(); mascotIslandPlayTick = nil
+        endMascotIslandPlay()
         NotchMascotAutomation.shared.sync(islandRunning: false)
         NotchTimerService.shared.stop()
         NotchAccessoryService.shared.stop()
@@ -5037,13 +5058,110 @@ extension NotchService {
     /// on it a moment later.
     private func echoMascotFriend(_ event: NotchMascotReactionEvent?) {
         mascotFriendEchoWork?.cancel(); mascotFriendEchoWork = nil
-        guard let event, let echo = NotchMascotPlay.echo(of: event.reaction), mascotFriendRests(on: geometry) else { return }
+        guard !mascotIslandPlaying, let event, let echo = NotchMascotPlay.echo(of: event.reaction),
+              mascotFriendRests(on: geometry) else { return }
         let work = DispatchWorkItem { [weak self] in
             self?.mascotFriendEchoWork = nil
             self?.mascotFriendReaction = NotchMascotReactionEvent(id: UUID(), reaction: echo, start: CACurrentMediaTime())
         }
         mascotFriendEchoWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Double.random(in: NotchMascotPlay.echoDelay), execute: work)
+    }
+
+    // MARK: Plays in the island
+
+    /// Both rest in the closed island, in view, with nothing else going on
+    /// there: room for a play between them.
+    private var mascotIslandPlayFits: Bool {
+        running && mascotRestsInView && mascotVisit == nil && !mascotBridging && !expanded && notice == nil
+            && pendingMascotReaction == nil && mascotShows(on: geometry) && mascotFriendRests(on: geometry)
+            && !mascotFriendSteppedAside && !mascotFriendOut
+    }
+
+    /// Looks now and then for a moment to play, while the island runs.
+    private func scheduleMascotIslandPlayTick() {
+        guard mascotIslandPlayTick == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.mascotIslandPlayTick = nil
+            guard self.running else { return }
+            self.startMascotIslandPlayIfDue()
+            self.scheduleMascotIslandPlayTick()
+        }
+        mascotIslandPlayTick = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: work)
+    }
+
+    private func startMascotIslandPlayIfDue() {
+        let now = CACurrentMediaTime()
+        guard !mascotIslandPlaying, NotchMascotSupport.friendsPlay(), NotchMascotSupport.reacts(),
+              let friend = mascotFriendLook else { return }
+        // Apart, or something else going on: once back together, they
+        // settle a while before they play.
+        guard mascotIslandPlayFits else { lastMascotIslandPlay = max(lastMascotIslandPlay, now - 10); return }
+        // Fresh from a reaction, it lets that one finish first.
+        guard now - mascotStirred >= 3 else { return }
+        let context = NotchMascotIslandPlay.Context(
+            since: now - lastMascotIslandPlay,
+            music: NowPlayingService.shared.playback?.isPlaying == true,
+            hour: Calendar.current.component(.hour, from: Date()),
+            recent: mascotIslandPlaysRecent,
+            leaderWears: NotchMascotSupport.look().accessory,
+            friendWears: friend.accessory)
+        guard let play = NotchMascotIslandPlay.next(in: context, random: { Double.random(in: 0..<1) }) else { return }
+        startMascotIslandPlay(play)
+    }
+
+    private func startMascotIslandPlay(_ play: NotchMascotIslandPlay) {
+        mascotFriendEchoWork?.cancel(); mascotFriendEchoWork = nil
+        mascotIslandPlaying = true
+        mascotIslandPlaysRecent = Array((mascotIslandPlaysRecent + [play.kind]).suffix(NotchMascotIslandPlay.memory))
+        // Under Reduce Motion they still act it out, but nothing flies.
+        let moves = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        for beat in play.beats {
+            let work = DispatchWorkItem { [weak self] in self?.playMascotIslandBeat(beat, moves: moves) }
+            mascotIslandPlayWork.append(work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + beat.at, execute: work)
+        }
+        let end = DispatchWorkItem { [weak self] in self?.endMascotIslandPlay() }
+        mascotIslandPlayWork.append(end)
+        DispatchQueue.main.asyncAfter(deadline: .now() + play.length, execute: end)
+    }
+
+    private func playMascotIslandBeat(_ beat: NotchMascotIslandPlay.Beat, moves: Bool) {
+        guard mascotIslandPlaying else { return }
+        // Something took the island over: the play stops where it is.
+        guard mascotIslandPlayFits else { endMascotIslandPlay(); return }
+        let now = CACurrentMediaTime()
+        if let reaction = beat.leader {
+            mascotReaction = NotchMascotReactionEvent(id: UUID(), reaction: reaction, start: now)
+        }
+        if let reaction = beat.friend {
+            mascotFriendReaction = NotchMascotReactionEvent(id: UUID(), reaction: reaction, start: now)
+        }
+        if moves, let flight = beat.flight {
+            let event = NotchMascotIslandFlightEvent(id: UUID(), flight: flight, start: now)
+            mascotIslandFlight = event
+            DispatchQueue.main.asyncAfter(deadline: .now() + flight.duration + 0.1) { [weak self] in
+                if self?.mascotIslandFlight?.id == event.id { self?.mascotIslandFlight = nil }
+            }
+        }
+        if moves, let burst = beat.burst {
+            let event = NotchMascotIslandBurstEvent(id: UUID(), burst: burst, start: now)
+            mascotIslandBurst = event
+            DispatchQueue.main.asyncAfter(deadline: .now() + NotchMascotIslandPlay.burstLength + 0.1) { [weak self] in
+                if self?.mascotIslandBurst?.id == event.id { self?.mascotIslandBurst = nil }
+            }
+        }
+    }
+
+    private func endMascotIslandPlay() {
+        mascotIslandPlayWork.forEach { $0.cancel() }
+        mascotIslandPlayWork.removeAll()
+        if mascotIslandPlaying { lastMascotIslandPlay = CACurrentMediaTime() }
+        mascotIslandPlaying = false
+        if mascotIslandFlight != nil { mascotIslandFlight = nil }
+        if mascotIslandBurst != nil { mascotIslandBurst = nil }
     }
 
     /// Back from the desktop: it hops out from behind the camera to its place,
@@ -5445,6 +5563,8 @@ extension NotchService {
     func reactMascot(_ reaction: NotchMascotReaction, patience: TimeInterval = NotchMascotReactionGate.patience,
                      after delay: TimeInterval = 0, countsAsMoment: Bool = true) {
         guard NotchMascotSupport.reacts() else { return }
+        // Something that happened comes before a game between the two.
+        if mascotIslandPlaying { endMascotIslandPlay() }
         // Something it reacted to is a moment shared; its own celebrations are not.
         if countsAsMoment { NotchMascotBondStore.shared.record(.moment) }
         // A friend out on the desktop answers it there, a moment later.

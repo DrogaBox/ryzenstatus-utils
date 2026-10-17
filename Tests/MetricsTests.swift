@@ -11453,8 +11453,83 @@ struct MetricsTests {
                    "the friend wears an item of its own, elsewhere on it, the same every time")
             expect(NotchMascotWardrobe.friendAccessory(main: .none, level: 1, style: .cat) == .none,
                    "before anything is unlocked the friend wears nothing")
+            expect(NotchMascotWardrobe.friendAccessory(main: .flower, level: 18, style: .cat, chosen: .halo) == .halo
+                   && NotchMascotWardrobe.friendAccessory(main: .flower, level: 18, style: .cat, chosen: .flower) == .flower,
+                   "the item picked for the friend is the one it wears, even the companion's own")
+            expect(NotchMascotWardrobe.friendAccessory(main: .bow, level: 3, style: .cat, chosen: .crown) == .none
+                   && NotchMascotWardrobe.friendAccessory(main: .bow, level: 18, style: .cat, chosen: NotchMascotAccessory.none) == .none,
+                   "an item picked but still locked, or nothing picked on purpose, leaves the friend bare")
+            expect(NotchMascotWardrobe.friendAccessory(main: .santaHat, level: 18, style: .cat, chosen: .halo) == .santaHat,
+                   "a costume still dresses both alike")
             expect(NotchMascotSide.left.other == .right && NotchMascotSide.right.other == .left,
                    "a friend rests on the camera's other side")
+            // Playing together in the island.
+            do {
+                typealias Island = NotchMascotIslandPlay
+                func rolls(_ values: [Double]) -> () -> Double {
+                    var index = 0
+                    return {
+                        defer { index += 1 }
+                        return values[index % values.count]
+                    }
+                }
+                let quiet = Island.Context(since: 60, music: false, hour: 15)
+                expect(Island.next(in: Island.Context(since: 5, music: false, hour: 15), random: { 0 }) == nil,
+                       "no play comes right after the last one")
+                expect(Island.weight(of: .dance, in: quiet) == 0
+                       && Island.weight(of: .dance, in: Island.Context(since: 60, music: true, hour: 15)) > 0,
+                       "they dance only to music")
+                expect(Island.weight(of: .item(.topHat), in: quiet) == 0
+                       && Island.weight(of: .item(.topHat), in: Island.Context(since: 60, music: false, hour: 15,
+                                                                               leaderWears: .topHat)) > 0,
+                       "an item brings its play only while one of them wears it")
+                var tired = quiet
+                tired.recent = [.greet]
+                expect(Island.weight(of: .greet, in: tired) == 0, "the play just done is never next")
+                let worn = Island.Context(since: 60, music: true, hour: 23, leaderWears: .beanie, friendWears: .cap)
+                var kinds: [Island.Kind] = [.greet, .toss, .rally, .mimic, .dance, .doze, .peekaboo]
+                kinds += NotchMascotAccessory.allCases.map { Island.Kind.item($0) }
+                for kind in kinds {
+                    for seed in [0.05, 0.5, 0.95] {
+                        let play = Island.play(kind, in: worn, random: rolls([seed, 0.3, 0.7, 0.1, 0.9]))
+                        expect(play.kind == kind && !play.beats.isEmpty && play.length > 0 && play.length < 12
+                               && play.beats.allSatisfy { $0.at >= 0 },
+                               "\(kind) plays out in a few seconds")
+                    }
+                }
+                let rally = Island.play(.rally, in: quiet, random: rolls([0.2, 0.99, 0.5]))
+                let volleys = rally.beats.compactMap(\.flight)
+                expect(volleys.count >= 2 && volleys.dropLast().allSatisfy { !$0.falls } && volleys.last?.falls == true
+                       && zip(volleys, volleys.dropFirst()).allSatisfy { $0.fromLeader != $1.fromLeader },
+                       "a rallied spark goes back and forth until the last one is missed")
+                let heart = Island.play(.toss, in: quiet, random: rolls([0.2, 0.0, 0.99]))
+                expect(heart.beats.compactMap(\.flight).first?.thing == .heart
+                       && heart.beats.compactMap(\.flight).allSatisfy { !$0.falls },
+                       "a tossed heart is always caught")
+                let mimic = Island.play(.mimic, in: quiet, random: rolls([0.4, 0.1, 0.6, 0.3, 0.8]))
+                let leads = mimic.beats.compactMap(\.leader).dropLast()
+                let copies = mimic.beats.compactMap(\.friend).dropLast()
+                expect(leads.count == copies.count && leads.last != copies.last
+                       && zip(leads.dropLast(), copies.dropLast()).allSatisfy { $0 == $1 },
+                       "the friend copies every move but the last")
+                let trick = Island.play(.item(.topHat), in: Island.Context(since: 60, music: false, hour: 15,
+                                                                          friendWears: .topHat),
+                                        random: { 0.1 })
+                expect(trick.beats.first?.friend == .ready && trick.beats.first?.leader == nil
+                       && trick.beats.compactMap(\.flight).first?.fromLeader == false,
+                       "the one wearing the item starts its play")
+
+                let from = CGPoint(x: 10, y: 20), to = CGPoint(x: 110, y: 20)
+                let start = NotchMascotIslandPlayLayer.place(progress: 0, from: from, to: to, lift: 6, falls: false, drop: 10)
+                let middle = NotchMascotIslandPlayLayer.place(progress: 0.5, from: from, to: to, lift: 6, falls: false, drop: 10)
+                let end = NotchMascotIslandPlayLayer.place(progress: 1, from: from, to: to, lift: 6, falls: false, drop: 10)
+                expect(start.point == from && abs(end.point.x - to.x) < 0.001 && abs(end.point.y - to.y) < 0.001
+                       && middle.point.y < from.y,
+                       "a toss arcs from one to the other")
+                let short = NotchMascotIslandPlayLayer.place(progress: 1, from: from, to: to, lift: 6, falls: true, drop: 10)
+                expect(short.point.x < to.x - 10 && short.point.y > from.y && short.opacity == 0,
+                       "a missed toss drops short and fades")
+            }
             expect(NotchMascotVisit.Kind.lap.crossesTheIsland && NotchMascotVisit.Kind.cross.crossesTheIsland
                    && !NotchMascotVisit.Kind.home.crossesTheIsland && !NotchMascotVisit.Kind.cameo(.wave).crossesTheIsland,
                    "the friend steps aside only for walks over its wing")
@@ -11529,8 +11604,13 @@ struct MetricsTests {
                    "an ordinary day has no costume")
 
             let wardrobe = NotchMascotWardrobe.self
-            expect(NotchMascotAccessory.crown.unlockLevel == 10 && NotchMascotAccessory.wardrobe.count == 10,
-                   "one accessory unlocks at each of the first ten levels, the crown last")
+            expect(NotchMascotAccessory.crown.unlockLevel == 10 && NotchMascotAccessory.eyePatch.unlockLevel == 18
+                   && NotchMascotAccessory.wardrobe.count == 18
+                   && NotchMascotAccessory.wardrobe.allSatisfy { $0.unlockLevel < NotchMascotForm.golden.unlockLevel },
+                   "one accessory unlocks at each of the first eighteen levels, all before the first transformation")
+            expect(NotchMascotAccessory.monocle.placement == .eyes && NotchMascotAccessory.eyePatch.placement == .eyes
+                   && NotchMascotAccessory.bowTie.placement == .neck && NotchMascotAccessory.halo.placement == .head,
+                   "the new items sit where they belong")
             let forms = NotchMascotTransformation.self
             expect(NotchMascotForm.allCases.map(\.unlockLevel) == [20, 30, 40, 50]
                    && NotchMascotForm.allCases.allSatisfy { $0.unlockLevel <= growth.maxLevel },
@@ -11770,6 +11850,17 @@ struct MetricsTests {
             expect(NotchCapsuleLayout.restingCenterSurface(text: long, companion: true, geometry: geometry).width
                    > NotchCapsuleLayout.restingCenterSurface(text: long, companion: false, geometry: geometry).width,
                    "a resting center reading makes room for the companion")
+            let withFriend = NotchCapsuleLayout.restingCenterSurface(text: long, companion: true, friend: true,
+                                                                     geometry: geometry)
+            let withoutFriend = NotchCapsuleLayout.restingCenterSurface(text: long, companion: true, geometry: geometry)
+            expect(withFriend.width >= withoutFriend.width + NotchCapsuleLayout.restingCenterMascotSize(geometry),
+                   "a resting center reading makes room for the friend at the other end too")
+            let pairTrack = NotchMascotSupport.track(stripWidth: withFriend.width, stripHeight: geometry.stripHeight,
+                                                     wing: 0, cameraWidth: 0, floats: true,
+                                                     bodyHeight: geometry.stripBodyHeight)
+            expect(NotchMascotSupport.capsulePair(pairTrack, inset: NotchMascotSupport.capsulePairInset(geometry),
+                                                  side: .left) != nil,
+                   "the two fit at the ends of a capsule reading something in its middle")
             let mascotRest = NotchCapsuleLayout.restingCenterMascotRest(geometry)
             let mascotSize = NotchCapsuleLayout.restingCenterMascotSize(geometry)
             expect(mascotRest - mascotSize / 2 >= NotchCapsuleLayout.side(geometry)

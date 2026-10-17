@@ -209,14 +209,22 @@ struct NotchCapsuleRestingView: View {
                         .allowsHitTesting(false)
                         .transition(.opacity)
                 }
+                // What they toss to each other as they play.
+                if let pair, let friend = service.mascotFriendLook,
+                   service.mascotIslandFlight != nil || service.mascotIslandBurst != nil {
+                    NotchMascotIslandPlayLayer(flight: service.mascotIslandFlight, burst: service.mascotIslandBurst,
+                                               leader: pair.companion, friend: pair.friend,
+                                               leaderLook: NotchMascotSupport.look(), friendLook: friend)
+                        .frame(width: size.width, height: geometry.stripHeight)
+                }
             }
             .accessibilityHidden(true)
     }
 
     /// The companion and its friend at the capsule's two ends, with a friend
-    /// resting and nothing read in the middle.
+    /// resting, around whatever the middle reads.
     private var pair: (companion: NotchMascotTrack, friend: NotchMascotTrack)? {
-        guard service.mascotFriendRests(on: geometry), service.restingCenterText == nil else { return nil }
+        guard service.mascotFriendRests(on: geometry) else { return nil }
         return NotchMascotSupport.capsulePair(service.mascotCapsuleTrack(width: size.width, on: geometry),
                                               inset: NotchMascotSupport.capsulePairInset(geometry),
                                               side: service.mascotSide)
@@ -229,6 +237,15 @@ struct NotchCapsuleRestingView: View {
         var track = service.mascotCapsuleTrack(width: size.width, on: geometry)
         if service.restingCenterText != nil { track.rest = CapsuleLayout.restingCenterMascotRest(geometry) }
         return track
+    }
+
+    /// Which ends of a center reading's row keep room for a companion: the
+    /// companion's at the start, or with a friend, each at its own end.
+    private var mascotEnds: (leading: Bool, trailing: Bool) {
+        let companion = service.mascotShows(on: geometry)
+        guard pair != nil else { return (companion, false) }
+        let companionLeads = service.mascotSide == .left
+        return (companionLeads ? companion : true, companionLeads ? true : companion)
     }
 
     private var resting: some View {
@@ -260,9 +277,10 @@ struct NotchCapsuleRestingView: View {
                     }
                 case .none:
                     if let center = service.restingCenterText {
+                        let ends = mascotEnds
                         HStack(spacing: CapsuleLayout.groupSpacing) {
-                            // The companion stands here; its own view draws it.
-                            if service.mascotShows(on: geometry) {
+                            // The companion, or its friend, stands here; its own view draws it.
+                            if ends.leading {
                                 Color.clear.frame(width: CapsuleLayout.restingCenterMascotSize(geometry))
                             }
                             Group {
@@ -280,6 +298,9 @@ struct NotchCapsuleRestingView: View {
                                 }
                             }
                             .frame(maxWidth: .infinity)
+                            if ends.trailing {
+                                Color.clear.frame(width: CapsuleLayout.restingCenterMascotSize(geometry))
+                            }
                         }
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: center)
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: service.restingVisualizes)

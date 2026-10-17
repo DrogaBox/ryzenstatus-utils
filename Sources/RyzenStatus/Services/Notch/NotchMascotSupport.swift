@@ -1398,8 +1398,13 @@ enum NotchMascotSupport {
         var friend = look(in: defaults)
         friend.style = style
         friend.accessory = NotchMascotWardrobe.friendAccessory(main: friend.accessory, level: shownLevel(in: defaults),
-                                                               style: style)
+                                                               style: style, chosen: friendAccessoryChoice(in: defaults))
         return friend
+    }
+
+    /// The accessory picked for the friend; nil when it picks its own.
+    static func friendAccessoryChoice(in defaults: UserDefaults = .standard) -> NotchMascotAccessory? {
+        NotchMascotAccessory(rawValue: defaults.string(forKey: DefaultsKey.notchMascotFriendAccessory) ?? "")
     }
 
     /// Whether the two out on the desktop play together now and then.

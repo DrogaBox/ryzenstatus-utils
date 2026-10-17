@@ -27,7 +27,8 @@ final class NotchMascotWearables {
     /// Whether it covers the top of the head, where the robot's antenna is.
     static func coversHead(_ accessory: NotchMascotAccessory) -> Bool {
         switch accessory {
-        case .topHat, .beanie, .crown, .witchHat, .santaHat, .partyHat, .headphones: return true
+        case .topHat, .beanie, .crown, .witchHat, .santaHat, .partyHat, .headphones,
+             .cap, .cowboyHat, .chefHat, .halo: return true
         default: return false
         }
     }
@@ -252,6 +253,98 @@ enum NotchMascotWearableShapes {
             return [NotchMascotWearablePart(path: rounded(tail, w * 0.03), fill: rgb(0xC63E3B)),
                     NotchMascotWearablePart(path: rounded(band, w * 0.065), fill: rgb(0xE8524F)),
                     NotchMascotWearablePart(path: stripe, fill: nil, stroke: rgb(0xFFD166), lineWidth: line)]
+
+        case .cap:
+            let base = top + w * 0.12
+            let dome = CGMutablePath()
+            dome.move(to: CGPoint(x: cx - w * 0.4, y: base))
+            dome.addCurve(to: CGPoint(x: cx + w * 0.4, y: base),
+                          control1: CGPoint(x: cx - w * 0.4, y: top - w * 0.3),
+                          control2: CGPoint(x: cx + w * 0.4, y: top - w * 0.3))
+            dome.closeSubpath()
+            let brim = CGRect(x: cx + w * 0.16, y: base - w * 0.08, width: w * 0.5, height: w * 0.11)
+            return [NotchMascotWearablePart(path: rounded(brim, w * 0.055), fill: rgb(0x3358C9)),
+                    NotchMascotWearablePart(path: dome, fill: rgb(0x4A7BFF)),
+                    NotchMascotWearablePart(path: circle(CGPoint(x: cx, y: top - w * 0.16), w * 0.05),
+                                            fill: rgb(0xF4F1EA))]
+
+        case .cowboyHat:
+            let brim = CGRect(x: cx - w * 0.56, y: top - w * 0.07, width: w * 1.12, height: w * 0.16)
+            let crown = CGMutablePath()
+            let foot = brim.midY
+            crown.move(to: CGPoint(x: cx - w * 0.27, y: foot))
+            crown.addLine(to: CGPoint(x: cx - w * 0.24, y: top - w * 0.3))
+            crown.addQuadCurve(to: CGPoint(x: cx, y: top - w * 0.24), control: CGPoint(x: cx - w * 0.12, y: top - w * 0.36))
+            crown.addQuadCurve(to: CGPoint(x: cx + w * 0.24, y: top - w * 0.3), control: CGPoint(x: cx + w * 0.12, y: top - w * 0.36))
+            crown.addLine(to: CGPoint(x: cx + w * 0.27, y: foot))
+            crown.closeSubpath()
+            let band = CGRect(x: cx - w * 0.26, y: foot - w * 0.1, width: w * 0.52, height: w * 0.07)
+            return [NotchMascotWearablePart(path: crown, fill: rgb(0xB07A45)),
+                    NotchMascotWearablePart(path: CGPath(rect: band, transform: nil), fill: rgb(0x5C3B1E)),
+                    NotchMascotWearablePart(path: CGPath(ellipseIn: brim, transform: nil), fill: rgb(0x9A6638))]
+
+        case .chefHat:
+            let band = CGRect(x: cx - w * 0.27, y: top - w * 0.07, width: w * 0.54, height: w * 0.15)
+            let puffs = CGMutablePath()
+            puffs.addPath(circle(CGPoint(x: cx - w * 0.17, y: top - w * 0.18), w * 0.16))
+            puffs.addPath(circle(CGPoint(x: cx, y: top - w * 0.27), w * 0.19))
+            puffs.addPath(circle(CGPoint(x: cx + w * 0.17, y: top - w * 0.18), w * 0.16))
+            return [NotchMascotWearablePart(path: puffs, fill: rgb(0xF7F4EE)),
+                    NotchMascotWearablePart(path: rounded(band, w * 0.03), fill: rgb(0xE4DED2),
+                                            stroke: rgb(0xC9C1B2), lineWidth: line * 0.5)]
+
+        case .halo:
+            let ring = CGRect(x: cx - w * 0.27, y: top - w * 0.33, width: w * 0.54, height: w * 0.13)
+            return [NotchMascotWearablePart(path: CGPath(ellipseIn: ring, transform: nil), fill: nil,
+                                            stroke: rgb(0xFFD84D), lineWidth: line * 1.4)]
+
+        case .horns:
+            let horns = CGMutablePath()
+            for side in [-1, 1] as [CGFloat] {
+                let inner = CGPoint(x: cx + side * w * 0.12, y: top + w * 0.05)
+                let outer = CGPoint(x: cx + side * w * 0.32, y: top + w * 0.07)
+                let tip = CGPoint(x: cx + side * w * 0.36, y: top - w * 0.22)
+                horns.move(to: inner)
+                horns.addQuadCurve(to: tip, control: CGPoint(x: cx + side * w * 0.16, y: top - w * 0.14))
+                horns.addQuadCurve(to: outer, control: CGPoint(x: cx + side * w * 0.38, y: top - w * 0.06))
+                horns.closeSubpath()
+            }
+            return [NotchMascotWearablePart(path: horns, fill: rgb(0xE5384F), stroke: rgb(0xB82638),
+                                            lineWidth: line * 0.5)]
+
+        case .bowTie:
+            let knot = CGPoint(x: cx, y: f.outline.minY + f.outline.height * 0.74)
+            let s = w * 0.17
+            let wings = CGMutablePath()
+            for side in [-1, 1] as [CGFloat] {
+                wings.move(to: knot)
+                wings.addLine(to: CGPoint(x: knot.x + side * s, y: knot.y - s * 0.6))
+                wings.addLine(to: CGPoint(x: knot.x + side * s, y: knot.y + s * 0.6))
+                wings.closeSubpath()
+            }
+            return [NotchMascotWearablePart(path: wings, fill: rgb(0xE5384F)),
+                    NotchMascotWearablePart(path: circle(knot, s * 0.3), fill: rgb(0xB82638))]
+
+        case .monocle:
+            let r = max(f.size * 0.06, abs(f.rightEye.x - f.leftEye.x) * 0.4)
+            let chain = CGMutablePath()
+            chain.move(to: CGPoint(x: f.rightEye.x, y: f.rightEye.y + r))
+            chain.addQuadCurve(to: CGPoint(x: f.outline.maxX - w * 0.04, y: f.outline.minY + f.outline.height * 0.7),
+                               control: CGPoint(x: f.rightEye.x + r * 0.4, y: f.rightEye.y + r * 3))
+            return [NotchMascotWearablePart(path: chain, fill: nil, stroke: rgb(0xD9A82E), lineWidth: line * 0.6),
+                    NotchMascotWearablePart(path: circle(f.rightEye, r * 1.05), fill: nil, stroke: rgb(0xD9A82E),
+                                            lineWidth: line * 1.1)]
+
+        case .eyePatch:
+            let r = max(f.size * 0.06, abs(f.rightEye.x - f.leftEye.x) * 0.42)
+            let strap = CGMutablePath()
+            strap.move(to: CGPoint(x: f.outline.minX + w * 0.02, y: f.leftEye.y - r * 1.4))
+            strap.addLine(to: CGPoint(x: f.outline.maxX - w * 0.02, y: f.rightEye.y - r * 2.1))
+            let ink = NotchMascotColor.ink.cgColor
+            return [NotchMascotWearablePart(path: strap, fill: nil, stroke: ink, lineWidth: line * 0.8),
+                    NotchMascotWearablePart(path: CGPath(ellipseIn: CGRect(x: f.leftEye.x - r, y: f.leftEye.y - r * 0.9,
+                                                                         width: r * 2, height: r * 1.8), transform: nil),
+                                            fill: rgb(0x16161C), stroke: ink, lineWidth: line * 0.6)]
 
         case .glasses, .sunglasses:
             // Lenses a little apart, so the bridge shows between them.
