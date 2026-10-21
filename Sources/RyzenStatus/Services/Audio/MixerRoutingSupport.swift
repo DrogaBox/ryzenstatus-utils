@@ -172,6 +172,15 @@ enum MixerRoutingSupport {
 
     private static let forbiddenScalars = CharacterSet.controlCharacters.union(.newlines)
 
+    /// The whole percent a slider position is shown as. A device can report a
+    /// level that is not a number, and converting that to an integer traps, so
+    /// it reads as 0% here instead of taking the app down.
+    static func displayPercent(forVolume volume: Double) -> Int {
+        guard volume.isFinite else { return 0 }
+        // Bound the value so an absurdly large finite level cannot overflow Int.
+        return Int((min(max(volume, -1000), 1000) * 100).rounded())
+    }
+
     static func isUnity(_ volume: Double) -> Bool {
         abs(volume - 1) < 0.005
     }
