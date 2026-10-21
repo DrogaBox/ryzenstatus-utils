@@ -58,6 +58,7 @@ enum SettingsBackupSupport {
         DefaultsKey.systemShortcutTakeOverKeys,
         DefaultsKey.language,
         DefaultsKey.appVolumes,
+        DefaultsKey.appVolumesArePositions,
         DefaultsKey.appOutputDevices,
         DefaultsKey.preferredInputDevice,
         DefaultsKey.soundOutputSwitcherDeviceUIDs,

@@ -1118,6 +1118,7 @@ enum Defaults {
         defaults.register(defaults: AppFeature.availabilityDefaults)
         // Idempotent repairs upstream runs on every launch.
         migrateSilentHeadphonesDisconnectVolume(in: defaults)
+        migrateAppVolumesToPositions(in: defaults)
         recheckBrightnessDDCWriteOnlyPaths(in: defaults)
         // The "all apps" output choice now lasts one session; a saved one
         // would move apps that chose their own output after every launch.
@@ -1533,6 +1534,24 @@ enum Defaults {
               stored < minimumMixerHeadphonesDisconnectVolumePercent else { return }
         defaults.set(defaultMixerHeadphonesDisconnectVolumePercent,
                      forKey: DefaultsKey.mixerHeadphonesDisconnectVolumePercent)
+    }
+
+    /// App volumes were saved as the gain itself until the sliders followed
+    /// perceived loudness. Each saved level moves once to the slider position
+    /// that plays it exactly as loud as before, so the update changes where a
+    /// slider sits, never how an app sounds. The marker travels with the
+    /// volumes in a backup: restoring one written before the change clears
+    /// it, and the relaunch that follows converts that backup's levels too.
+    static func migrateAppVolumesToPositions(in defaults: UserDefaults) {
+        guard !defaults.bool(forKey: DefaultsKey.appVolumesArePositions) else { return }
+        defer { defaults.set(true, forKey: DefaultsKey.appVolumesArePositions) }
+        guard let saved = defaults.dictionary(forKey: DefaultsKey.appVolumes), !saved.isEmpty else { return }
+        var positions: [String: Double] = [:]
+        for (id, value) in saved {
+            guard let gain = (value as? NSNumber)?.doubleValue, gain.isFinite else { continue }
+            positions[id] = MixerRoutingSupport.volume(forGain: sanitizedAppVolume(gain))
+        }
+        defaults.set(positions, forKey: DefaultsKey.appVolumes)
     }
 
     static func sanitizedAppOutputDeviceUID(_ value: Any?) -> String? {
