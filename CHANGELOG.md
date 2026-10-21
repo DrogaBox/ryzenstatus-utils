@@ -1,5 +1,56 @@
 # Changelog
 
+## [1.55.0] — 2026-10-21 — kexts 3.35.0 (No kext changes)
+
+A large pass over the little things: the island opens from the keyboard and shows what happened while it was hidden, updates now say what changed for each feature you use, the screenshot editor gains a spotlight and a canvas that grows, and the switcher, mixer, dock preview and auto-quit stop getting in the way.
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.0. Only the application's validation version pin changes.
+
+### Added
+
+- **What changed, feature by feature**: after an update the digest now reads our `CHANGELOG.md` and groups the notes under the features they belong to, so a change to the mixer, the island or the uninstaller is listed where you would look for it instead of in one long list. The preview toggle in Settings › Updates shows it before a release too.
+- **Update exceptions**: Settings › Updates lists apps that should never be offered an update again, and the checks skip them from then on.
+- **Clipboard history for a number of days**: history items can now expire on their own, so the list keeps the last few days instead of the last few hundred copies.
+- **Markdown task lists in the scratchpad**: the preview draws real checkboxes, clicking one ticks the line in the text, and list shortcuts keep the boxes on their own lines.
+- **An uninstaller that explains itself**: iPhone and iPad apps dragged onto it are accepted, and an app that cannot be removed now says why — part of macOS, sharing files with the system, inside another app, RyzenStatus itself, a link to an app kept elsewhere, or not an app at all. The picker says up front that Apple's own apps are not listed.
+- **A spotlight tool and a growing canvas**: the screenshot editor dims everything around a chosen region, expands the canvas for pasted or drawn content, and keeps pasted images editable after they land.
+- **Copy text from the quick preview**: the capture preview reads the text in the shot, so a screenshot of a message or a code snippet can be copied without opening the editor.
+- **Screenshot tools in your order**: the rail remembers the order you give the tools and the number keys follow it, with nine tools reachable from the keyboard.
+- **A switcher column limit**: the grid stops at the number of columns you pick, or fits the display when left automatic.
+- **The island from the keyboard**: a shortcut opens and closes it, a hidden island still shows activities and notices, and the shelf closes it when an item is dragged out.
+- **The player's icon when a track has no cover**: the island shows the app that is playing instead of an empty square, without borrowing the cover-art tint.
+- **Limits for separate Codex accounts**: each account gets its own reading, and the usage page no longer mixes them.
+- **Silence after headphones disconnect**: the mixer can drop the output level instead of jumping to full volume.
+
+### Changed
+
+- **Auto-quit reads the screen**: an app that still shows a window keeps running, and a window taken to the Dock is no longer counted as closed.
+- **Dock preview hit-tests the Dock itself**, so a hung app cannot freeze the main thread while a preview is opened.
+- **Quit protection forwards the confirmed quit** to apps on remote screens instead of leaving them open.
+- **Dock icons of apps running as several processes** now resolve to the right icon instead of the first process's.
+- **Window layout snaps windows moved with the modifier drag**, not only those resized at an edge.
+- **The mixer follows perceived loudness**, pauses an AirPlay stream with playback, and mutes an output when its level reaches zero.
+- **A mirroring display gets its own brightness controls** and its own overlay.
+- **The island's height matches the physical notch by default**, and a custom width applies to every page.
+- **The switcher pauses window capture while the Screen is locked**, reads the cycle flag per window, and unhides only apps that were hidden.
+- **Secure input is explained where it matters**: the switcher says why ⌘Tab opens the macOS switcher, and the settings name the app that holds it.
+- **Permissions stay suspended**: a tap suspended by Cleaning Mode or by a missing permission no longer restarts itself.
+
+### Fixed
+
+- **False update offers**: versions with numeric suffixes and builds from different channels no longer look newer than the installed one.
+- **Large calculator answers** keep every digit instead of being rounded in the command bar.
+- **Command bar rows** copy a script's output when the row was reached by part of its name, and find Xcode's Instruments and Device Hub.
+- **Clipboard filtering catches credential names** that continue past the first word, and transient pastes cancel after a newer copy.
+- **Screenshots in short windows** keep every tool reachable, and the capture dim covers the whole display.
+- **GIF exports stream with bounded memory**, and a window recording keeps only the app's own sound.
+- **Smooth scrolling glides on its own window**, so page scrolling in another app no longer stutters.
+- **The mouse wheel is left alone** over a Launchpad or Dock entry, keypad digits reach number shortcuts, and a Java runtime is matched by its path as well as its identifier.
+- **The monitor samples power immediately** when the power source changes.
+- **Displays ignore DDC replies meant for another control**, and windows stay in their Mission Control desktop.
+- **The port manager shows port and PID numbers whole**, and the feature hub keeps its scroll position when a feature is opened.
+- **Island details**: the Japanese stopwatch name stays whole on macOS 15, the focus ring no longer shows when it opens, music takes priority over an idle companion, and a timed capture can dismiss under an island.
+
 ## [1.54.0] — 2026-10-16 — kexts 3.35.0 (No kext changes)
 
 The companion and its friend play together in the island too, eight new items join the wardrobe, and the friend can wear the item you pick for it.
