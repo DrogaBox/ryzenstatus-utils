@@ -919,6 +919,8 @@ extension DefaultsKey {
     static let notchAgentsOptInMigrated = "notchAgentsOptInMigrated" // local migration marker; never backed up
     static let notchAgentsClaude = "notchAgentsClaude"
     static let notchAgentsCodex = "notchAgentsCodex"
+    /// The Codex homes, `CODEX_HOME` folders, that get limits cards of their own.
+    static let notchAgentsCodexProfiles = "notchAgentsCodexProfiles"
     static let notchAgentsOpenCode = "notchAgentsOpenCode"
     static let notchAgentsCopilot = "notchAgentsCopilot"
     static let notchAgentsCardOrder = "notchAgentsCardOrder"

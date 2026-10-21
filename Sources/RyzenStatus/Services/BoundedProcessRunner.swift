@@ -47,7 +47,7 @@ final class BoundedProcessCancellation: @unchecked Sendable {
         }
     }
 
-    fileprivate func launch(_ child: Process) throws {
+    func launch(_ child: Process) throws {
         lock.lock()
         defer { lock.unlock() }
         guard !cancelled, process == nil else { throw CancellationError() }
@@ -55,7 +55,7 @@ final class BoundedProcessCancellation: @unchecked Sendable {
         process = child
     }
 
-    fileprivate func release(_ child: Process) {
+    func release(_ child: Process) {
         lock.lock()
         defer { lock.unlock() }
         if process === child { process = nil }
