@@ -100,6 +100,33 @@ enum NowPlayingApplication {
         return nil
     }
 
+    private static var icons: [String: NSImage] = [:]
+    private static var missingIcons = Set<String>()
+
+    /// The player's own icon, shown in place of a cover the player does not
+    /// send (Firefox and Zen, for instance), so the song still says where it
+    /// plays. Read once per player and remembered.
+    static func icon(for track: NowPlayingTrack) -> NSImage? {
+        let key = track.appBundleIdentifier ?? track.appPID.map { "pid:\($0)" } ?? ""
+        if let icon = icons[key] { return icon }
+        if missingIcons.contains(key) { return nil }
+        let icon: NSImage?
+        if let runningIcon = runningApplication(for: track)?.icon {
+            icon = runningIcon
+        } else if let identifier = track.appBundleIdentifier,
+                  let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: identifier) {
+            icon = NSWorkspace.shared.icon(forFile: url.path)
+        } else {
+            icon = nil
+        }
+        if let icon {
+            icons[key] = icon
+        } else {
+            missingIcons.insert(key)
+        }
+        return icon
+    }
+
     static func name(for snapshot: NowPlayingTrack) -> String? {
         if let name = runningApplication(for: snapshot)?.localizedName, !name.isEmpty { return name }
         guard let identifier = snapshot.appBundleIdentifier else { return nil }

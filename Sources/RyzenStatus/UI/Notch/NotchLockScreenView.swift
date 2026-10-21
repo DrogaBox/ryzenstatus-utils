@@ -188,7 +188,7 @@ struct NotchLockScreenPlayer: View {
     }
 
     private func cover(size: CGFloat, playback: NowPlayingPlayback) -> some View {
-        NotchArtwork(image: music.artworkImage, size: size)
+        NotchArtwork(image: music.artworkImage, size: size, source: playback.track)
             .shadow(color: (music.artworkTint?.color ?? .black).opacity(0.5), radius: size * 0.28, y: size * 0.1)
             .scaleEffect(playback.isPlaying || reduceMotion ? 1 : 0.92)
             .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: playback.isPlaying)

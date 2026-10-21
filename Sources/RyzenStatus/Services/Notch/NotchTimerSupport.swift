@@ -198,6 +198,11 @@ enum NotchTimerSupport {
         static let spacing: CGFloat = 14
         static let labelSize: CGFloat = 12
         static let labelPadding: CGFloat = 4
+        static let menuSpacing: CGFloat = 3
+        /// macOS 15 draws Japanese kana about 4% wider than macOS 26, so the
+        /// stopwatch's name needs about 0.74 of its size beside the widest
+        /// camera there.
+        static let menuMinimumScale: CGFloat = 0.7
     }
 
     /// The start capsule beside the mode row; the test measures both against the

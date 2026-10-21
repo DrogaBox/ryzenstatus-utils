@@ -536,6 +536,8 @@ extension DefaultsKey {
 
     // Dynamic Island / Notch keys
     static let notchEnabled = "notchEnabled"
+    static let notchShortcutEnabled = "notchShortcutEnabled"
+    static let notchShortcut = "notchShortcut"
     static let notchSize = "notchSize"
     static let notchDisplay = "notchDisplay"
     static let notchSilhouette = "notchSilhouette"
@@ -554,6 +556,7 @@ extension DefaultsKey {
     static let notchHoverDelay = "notchHoverDelay"
     static let notchCloseDelay = "notchCloseDelay"
     static let notchHideUntilHover = "notchHideUntilHover"
+    static let notchHiddenShowsActivity = "notchHiddenShowsActivity"
     static let notchHideInFullscreen = "notchHideInFullscreen"
     static let notchHapticFeedback = "notchHapticFeedback"
     static let notchIdleContent = "notchIdleContent"
@@ -583,6 +586,7 @@ extension DefaultsKey {
     static let notchBattery = "notchBattery"
     static let notchClipboard = "notchClipboard"
     static let notchClipboardWindow = "notchClipboardWindow"
+    static let notchClipboardCardSize = "notchClipboardCardSize"
     static let notchCapture = "notchCapture"
     static let notchTrackChange = "notchTrackChange"
     static let notchShowInCaptures = "notchShowInCaptures"

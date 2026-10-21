@@ -460,8 +460,11 @@ enum Defaults {
         DefaultsKey.notchCapsuleFitHeight: 0.0,
         DefaultsKey.notchCapsuleFitDrop: 0.0,
         DefaultsKey.notchOpenOnHover: false,
+        DefaultsKey.notchShortcutEnabled: false,
+        DefaultsKey.notchShortcut: GlobalShortcut.notchDefault.storageValue,
         DefaultsKey.notchHideInFullscreen: false,
         DefaultsKey.notchHideUntilHover: false,
+        DefaultsKey.notchHiddenShowsActivity: false,
         DefaultsKey.notchCoversMenus: true,
         DefaultsKey.notchLowBatteryTint: false,
         DefaultsKey.notchLowBatteryThreshold: 10,
@@ -482,6 +485,7 @@ enum Defaults {
         DefaultsKey.notchBattery: true,
         DefaultsKey.notchClipboard: true,
         DefaultsKey.notchClipboardWindow: true,
+        DefaultsKey.notchClipboardCardSize: NotchClipboardCardSize.comfortable.rawValue,
         DefaultsKey.notchCapture: true,
         DefaultsKey.notchTrackChange: true,
         DefaultsKey.notchMusicActivity: false,
@@ -954,7 +958,7 @@ enum Defaults {
         DefaultsKey.notchControlOrder: "",
         DefaultsKey.notchSize: "spacious", // NotchSize.spacious
         DefaultsKey.notchOutlineEnabled: false,
-        DefaultsKey.notchHideMenuBarGap: true,
+        DefaultsKey.notchHideMenuBarGap: false,
         DefaultsKey.notchCustomWidth: 440.0, // NotchSize.defaultWidth
         DefaultsKey.notchCustomHeight: 480.0, // NotchSize.defaultHeight
         DefaultsKey.notchCameraFitWidth: 0.0,
