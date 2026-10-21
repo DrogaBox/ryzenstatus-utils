@@ -312,7 +312,6 @@ enum SpaceWindowBridge {
 
     // MARK: - Child windows
 
-    private typealias IteratorParentIDFunction = @convention(c) (CFTypeRef) -> UInt32
     private static let iteratorParentID: IteratorParentIDFunction? = {
         guard let symbol = symbol("SLSWindowIteratorGetParentID") else { return nil }
         return unsafeBitCast(symbol, to: IteratorParentIDFunction.self)

@@ -419,7 +419,7 @@ final class AppUninstaller: ObservableObject {
     func removeSelectedWithHomebrew(confirmation: HomebrewRemovalConfirmation) {
         guard phase == .results, !isRemoving,
               target?.url == confirmation.targetURL,
-              target.map({ Self.applicationIdentityMatches(
+              target.map({ UninstallerSupport.applicationIdentityMatches(
                   $0.url, appIdentity: targetFileIdentity,
                   infoIdentity: targetInfoIdentity) }) == true,
               selectedHomebrewPackage?.id == confirmation.package.id,
@@ -432,7 +432,7 @@ final class AppUninstaller: ObservableObject {
         let manager = HomebrewManager.shared
         guard manager.operation == nil,
               let targetURL = target?.url,
-              Self.applicationIdentityMatches(targetURL,
+              UninstallerSupport.applicationIdentityMatches(targetURL,
                                                appIdentity: targetFileIdentity,
                                                infoIdentity: targetInfoIdentity) else { return }
         manager.clearLog()

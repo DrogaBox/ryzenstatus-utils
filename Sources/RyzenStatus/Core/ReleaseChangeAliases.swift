@@ -160,7 +160,8 @@ enum ReleaseChangeAliases {
         case .notchWatch: return [.exact("Watch")]
         case .notchMascot: return ["companion"]
         case .monitorCPU: return ["cpu temperature", "cpu load", "cpu readings", "per core", "per-core",
-            "processor temperature", "process breakdowns", "cpu alert", "cpu and gpu temperatures"]
+            "processor temperature", "process breakdowns", "cpu alert", "cpu and gpu temperatures",
+            "fan control", "fan curves", "fan curve", "fan speed", "fan speeds", "cooling curve"]
         case .monitorGPU: return ["gpu usage", "gpu load", "gpu temperature", "gpu temperatures",
             "cpu and gpu temperatures"]
         case .monitorMemory: return ["memory usage", "memory pressure", "memory readouts", "swap memory",
@@ -173,8 +174,15 @@ enum ReleaseChangeAliases {
             "menu bar battery icon", "battery health", "battery section", "battery temperature",
             "battery temperatures"]
         case .connectedDevices: return ["connected devices", "usb devices"]
-        case .fanControl: return ["fan control", "fan curves", "fan curve", "fan speed", "fan speeds",
-            "cooling curve"]
+        case .nowPlaying: return ["now playing", "music", "now playing panel", "song", "songs",
+            "album art", "cover art", "track", "tracks"]
+        case .whatsAppDownloads: return ["whatsapp downloads", "whatsapp media"]
+        case .worldClock: return ["world clock", "world clocks", "world time"]
+        case .monitorInsights: return ["insights", "monitor insights", "system insights"]
+        case .monitorAnalytics: return ["analytics", "monitor analytics", "system analytics"]
+        case .monitorEnergy: return ["energy usage", "energy impact", "energy readings"]
+        case .monitorNetworkDetails: return ["network details", "interface details", "link speed",
+            "public ip", "latency"]
         }
     }
 
@@ -183,7 +191,7 @@ enum ReleaseChangeAliases {
         .mouseClickDebounce]
     private static let monitorMetrics: [AppFeature] = [.monitorCPU, .monitorGPU, .monitorMemory, .monitorNetwork,
         .monitorDisk, .monitorPower]
-    private static let monitorPage: [AppFeature] = monitorMetrics + [.connectedDevices, .fanControl]
+    private static let monitorPage: [AppFeature] = monitorMetrics + [.connectedDevices]
 
     static let families: [Family] = [
         Family(
