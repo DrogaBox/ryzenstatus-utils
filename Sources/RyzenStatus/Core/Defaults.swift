@@ -1065,6 +1065,7 @@ enum Defaults {
         DefaultsKey.screenshotLastBlurLevel: 3, // ScreenshotSupport.BlurStrength.defaultLevel upstream
         DefaultsKey.screenshotLastBlurStyle: "pixelate",
         DefaultsKey.screenshotLastBlurTextOnly: false,
+        DefaultsKey.screenshotSpotlightDim: Double(ScreenshotSupport.defaultSpotlightDim),
         DefaultsKey.screenshotLastArrowStyle: "filled",
         DefaultsKey.screenshotToolShortcuts: "",
         DefaultsKey.screenshotWatermarkStyle: "",
