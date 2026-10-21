@@ -7293,15 +7293,19 @@ struct MetricsTests {
 
         var ddcReply: [UInt8] = [0x6E, 0x88, 0x02, 0x00, 0x10, 0x00, 0x00, 0x64, 0x00, 0x32]
         ddcReply.append(ddcReply.reduce(UInt8(0x50)) { $0 ^ $1 })
-        expect(BrightnessSupport.parseReply(ddcReply)?.current == 0x32
-                && BrightnessSupport.parseReply(ddcReply)?.maximum == 0x64,
+        expect(BrightnessSupport.parseReply(ddcReply, code: 0x10)?.current == 0x32
+                && BrightnessSupport.parseReply(ddcReply, code: 0x10)?.maximum == 0x64,
                "a valid DDC reply yields the current and maximum values")
         var corrupted = ddcReply
         corrupted[7] ^= 0xFF
-        expect(BrightnessSupport.parseReply(corrupted) == nil,
+        expect(BrightnessSupport.parseReply(corrupted, code: 0x10) == nil,
                "a corrupted DDC reply fails its checksum and reads as no reply")
-        expect(BrightnessSupport.parseReply([0x6E, 0x88]) == nil,
+        expect(BrightnessSupport.parseReply([0x6E, 0x88], code: 0x10) == nil,
                "a short DDC reply reads as no reply")
+        // A monitor read too early answers the previous request; that reply
+        // must not be taken for this control's value (#2966).
+        expect(BrightnessSupport.parseReply(ddcReply, code: 0x12) == nil,
+               "a DDC reply for another control reads as no reply")
 
         expect(BrightnessSupport.sanitizedMaximum(0) == 100 && BrightnessSupport.sanitizedMaximum(255) == 255,
                "a display reporting no range falls back to the conventional scale")
