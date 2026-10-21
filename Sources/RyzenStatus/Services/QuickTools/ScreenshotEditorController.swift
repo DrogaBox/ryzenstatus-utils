@@ -21,11 +21,18 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             refreshDirtyState()
         }
     }
+    @Published var expansionFill = ScreenshotCanvasSupport.Fill.white
+    @Published private(set) var expansionDraft: CGRect?
+    @Published private(set) var expansionRejected = false
+    private var expansionHandle: ScreenshotSupport.Handle?
+    private var expansionStartPoint: CGPoint?
+
     @Published var selectedID: UUID?
     @Published var editingTextID: UUID?
     @Published var tool: ScreenshotSupport.Tool {
         didSet {
             UserDefaults.standard.set(tool.rawValue, forKey: DefaultsKey.screenshotLastTool)
+            if oldValue == .expandCanvas, tool != .expandCanvas { cancelCanvasExpansion() }
             if tool != .select { clearTextSelection() }
             if tool != oldValue, tool != .select {
                 selectedID = nil
@@ -173,6 +180,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     /// Small soft blurs of the base image, one per blur level in use.
     private(set) var softBlurred: [Int: CGImage] = [:]
     private let eraseCache = ScreenshotRenderer.EraseCache()
+    private let imageLayerCache = ScreenshotRenderer.ImageLayerCache()
 
     /// What blur areas paint from, shared by the canvas and the exporter.
     var blurSources: ScreenshotRenderer.BlurSources {
@@ -180,7 +188,8 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
                                        softBlurs: softBlurred,
                                        image: baseImage,
                                        eraseCache: eraseCache,
-                                       textRuns: textRuns)
+                                       textRuns: textRuns,
+                                       imageLayerCache: imageLayerCache)
     }
 
     private var undoStack: [(image: CGImage, annotations: [ScreenshotSupport.Annotation])] = []
@@ -227,10 +236,8 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         baseImage = image
         self.scale = scale
         let defaults = UserDefaults.standard
-        var lastTool = ScreenshotSupport.Tool(
-            rawValue: defaults.string(forKey: DefaultsKey.screenshotLastTool) ?? "") ?? .arrow
-        if lastTool == .select || lastTool == .crop { lastTool = .arrow }
-        tool = lastTool
+        tool = ScreenshotSupport.Tool.startingTool(
+            remembered: defaults.string(forKey: DefaultsKey.screenshotLastTool))
         color = ScreenshotSupport.ColorID.sanitized(
             defaults.string(forKey: DefaultsKey.screenshotLastColor))
         stroke = ScreenshotSupport.StrokeID.sanitized(
@@ -520,6 +527,66 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         zoomOverride = min(max(zoom, Self.zoomRange.lowerBound), Self.zoomRange.upperBound)
     }
 
+    func pasteImage(_ image: CGImage) -> Bool {
+        guard ScreenshotCanvasSupport.validSize(CGSize(width: image.width, height: image.height))
+        else { return false }
+        let annotation = ScreenshotSupport.Annotation(
+            tool: .image,
+            rect: ScreenshotCanvasSupport.fittedImageRect(image, canvas: imageSize),
+            imageAsset: ScreenshotSupport.ImageAsset(image: image))
+        registerUndo()
+        clearTextSelection()
+        tool = .select
+        annotations.append(annotation)
+        selectedID = annotation.id
+        return true
+    }
+
+    func commitCanvasExpansion(to rect: CGRect) -> Bool {
+        let oldSize = CGSize(width: baseImage.width, height: baseImage.height)
+        guard rect != CGRect(origin: .zero, size: oldSize),
+              let expanded = ScreenshotCanvasSupport.expandedImage(baseImage, to: rect, fill: expansionFill)
+        else { return false }
+        registerUndo()
+        let oldBounds = CGRect(origin: .zero, size: oldSize)
+        annotations = annotations.compactMap { annotation in
+            var moved = annotation
+            // A spotlight region lights only its part on the image. Past the
+            // old edge it would land in the new margin and light it, or start
+            // dimming the canvas while lighting nothing of the content.
+            if moved.tool == .spotlight {
+                let lit = moved.rect.standardized.intersection(oldBounds)
+                guard !lit.isEmpty else { return nil }
+                moved.rect = lit
+            }
+            moved.rect = moved.rect.offsetBy(dx: -rect.minX, dy: -rect.minY)
+            moved.points = moved.points.map { CGPoint(x: $0.x - rect.minX, y: $0.y - rect.minY) }
+            if moved.tool == .counter || moved.tool == .pixelate {
+                moved.renderReferenceSize = moved.renderReferenceSize ?? oldSize
+            }
+            return moved
+        }
+        let previousRuns = textRuns
+        baseImage = expanded
+        if let previousRuns {
+            carriedRuns[ObjectIdentifier(expanded)] =
+                previousRuns.map { $0.offsetBy(dx: -rect.minX, dy: -rect.minY) }
+        }
+        pixelated = [:]
+        softBlurred = [:]
+        textRuns = nil
+        textWords = []
+        clearTextSelection()
+        selectedID = nil
+        editingTextID = nil
+        cropDraft = nil
+        pruneCarriedRuns()
+        ensureBlurSamplesForAnnotations()
+        recognizeText()
+        recognizeQRCodes()
+        return true
+    }
+
     // MARK: - Undo
 
     private func registerUndo() {
@@ -551,6 +618,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     }
 
     private func restore(_ state: (image: CGImage, annotations: [ScreenshotSupport.Annotation])) {
+        cancelCanvasExpansion()
         if state.image !== baseImage {
             baseImage = state.image
             pixelated = [:]
@@ -611,6 +679,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         guard let selectedID,
               let index = annotations.firstIndex(where: { $0.id == selectedID })
         else { return }
+        guard annotations[index].tool != .image else { return }
         let arrowStyleChanged = annotations[index].tool == .arrow
             && annotations[index].arrowStyle != arrowStyle
         let textSizeChanged = annotations[index].tool == .text
@@ -702,13 +771,13 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         editingSelectedAnnotation = false
         // A spotlight region claims only its handles and edge, so a drag
         // inside the one just drawn lights another region.
-        if tool != .select, tool != .crop,
+        if tool != .select, tool != .crop, tool != .expandCanvas,
            selectedAnnotationOwns(point, includingInterior: tool != .spotlight) {
             editingSelectedAnnotation = true
             beginSelectDrag(at: point)
             return
         }
-        if tool != .select, tool != .crop {
+        if tool != .select, tool != .crop, tool != .expandCanvas {
             selectedID = nil
         }
         switch tool {
@@ -754,7 +823,14 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
                 blurStyle: blurStyle, blurTextOnly: blurTextOnly)
             annotations.append(annotation)
             draftID = annotation.id
-        case .text, .sticker, .counter:
+        case .expandCanvas:
+            expansionRejected = false
+            expansionDraft = CGRect(origin: .zero, size: imageSize)
+            expansionHandle = ScreenshotCanvasSupport.expansionHandle(at: point,
+                rect: CGRect(origin: .zero, size: imageSize),
+                tolerance: ScreenshotCanvasSupport.expansionGripReach / max(currentDisplayZoom, 0.001))
+            expansionStartPoint = expansionHandle == nil ? nil : point
+        case .text, .sticker, .counter, .image:
             break
         }
     }
@@ -764,8 +840,9 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
            let selected = annotations.first(where: { $0.id == selectedID }) {
             let tolerance = 12 * scale
             if selected.tool.resizesWithHandles,
-               let handle = ScreenshotSupport.handle(at: point, rect: selected.rect,
-                                                     tolerance: tolerance) {
+               let handle = selected.tool == .image
+                    ? ScreenshotCanvasSupport.imageHandle(at: point, rect: selected.rect, tolerance: tolerance)
+                    : ScreenshotSupport.handle(at: point, rect: selected.rect, tolerance: tolerance) {
                 activeHandle = handle
                 moveOrigin = selected.rect
                 return
@@ -829,7 +906,14 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             updateDraft { $0.points.append(point) }
         case .rect, .ellipse, .highlight, .pixelate, .redact, .spotlight:
             updateDraft { $0.rect = ScreenshotSupport.selectionRect(from: dragStart, to: point) }
-        case .text, .sticker, .counter:
+        case .expandCanvas:
+            if let handle = expansionHandle, let start = expansionStartPoint {
+                let anchor = handle.position(in: CGRect(origin: .zero, size: imageSize))
+                let target = CGPoint(x: anchor.x + point.x - start.x, y: anchor.y + point.y - start.y)
+                expansionDraft = ScreenshotCanvasSupport.expandedRect(size: imageSize, handle: handle, point: target)
+                expansionRejected = expansionDraft == nil
+            }
+        case .text, .sticker, .counter, .image:
             break
         }
     }
@@ -853,13 +937,19 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
                 if handle == .topLeft { points[0] = point } else { points[1] = point }
                 annotations[index].points = points
             } else {
-                annotations[index].rect = ScreenshotSupport.resizedRect(
-                    moveOrigin, dragging: handle, to: point)
+                annotations[index].rect = annotations[index].tool == .image
+                    ? ScreenshotCanvasSupport.resizedImageRect(moveOrigin, handle: handle, point: point)
+                    : ScreenshotSupport.resizedRect(moveOrigin, dragging: handle, to: point)
             }
             return
         }
         let delta = CGPoint(x: point.x - dragStart.x, y: point.y - dragStart.y)
-        if annotations[index].points.isEmpty {
+        if annotations[index].tool == .image {
+            // Whole pixels, so the moved layer still exports pixel for pixel.
+            annotations[index].rect = CGRect(origin: CGPoint(x: (moveOrigin.minX + delta.x).rounded(),
+                                                             y: (moveOrigin.minY + delta.y).rounded()),
+                                             size: moveOrigin.size)
+        } else if annotations[index].points.isEmpty {
             annotations[index].rect = moveOrigin.offsetBy(dx: delta.x, dy: delta.y)
         } else {
             annotations[index].points = movePoints.map {
@@ -938,6 +1028,15 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             } else if let draftID {
                 selectedID = draftID
             }
+        case .expandCanvas:
+            if expansionRejected {
+                NSSound.beep()
+            } else if let draft = expansionDraft, draft.size != imageSize {
+                if !commitCanvasExpansion(to: draft) { NSSound.beep() }
+            }
+            cancelCanvasExpansion()
+        case .image:
+            break
         case .select:
             finishSelectDrag(at: point, isTap: isTap)
         case .crop:
@@ -956,8 +1055,9 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         else { return false }
         let tolerance = 12 * scale
         if selected.tool.resizesWithHandles,
-           ScreenshotSupport.handle(at: point, rect: selected.rect,
-                                    tolerance: tolerance) != nil {
+           (selected.tool == .image
+                ? ScreenshotCanvasSupport.imageHandle(at: point, rect: selected.rect, tolerance: tolerance)
+                : ScreenshotSupport.handle(at: point, rect: selected.rect, tolerance: tolerance)) != nil {
             return true
         }
         if selected.points.prefix(2).contains(where: {
@@ -1035,7 +1135,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
                     return annotation.id
                 }
             case .counter:
-                let radius = ScreenshotSupport.counterDiameter(for: imageSize, scale: 1) / 2
+                let radius = ScreenshotSupport.counterDiameter(for: annotation.renderReferenceSize ?? imageSize, scale: 1) / 2
                 if hypot(point.x - annotation.rect.midX, point.y - annotation.rect.midY)
                     <= radius + 4 * scale {
                     return annotation.id
@@ -1053,16 +1153,39 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
                     || !inner.contains(point) {
                     return annotation.id
                 }
+            case .image:
+                if includeShapeInteriors,
+                   annotation.rect.insetBy(dx: -tolerance / 2, dy: -tolerance / 2).contains(point) {
+                    return annotation.id
+                }
             case .text, .sticker:
                 if annotation.rect.insetBy(dx: -tolerance / 2, dy: -tolerance / 2)
                     .contains(point) {
                     return annotation.id
                 }
-            case .select, .crop:
+            case .select, .crop, .expandCanvas:
                 continue
             }
         }
         return nil
+    }
+
+    func cancelCanvasExpansion() {
+        expansionDraft = nil
+        expansionHandle = nil
+        expansionStartPoint = nil
+        expansionRejected = false
+    }
+
+    /// Escape backs out of Expand canvas the way it backs out of crop: a drag
+    /// in progress is dropped first, then the tool itself is left, so the
+    /// editor only closes once there is nothing left to leave.
+    func leaveCanvasExpansion() {
+        if expansionDraft != nil || expansionRejected {
+            cancelCanvasExpansion()
+        } else {
+            tool = .select
+        }
     }
 
     // MARK: - Edits
@@ -1353,6 +1476,26 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Reads and decodes the clipboard image on the shared pasteboard lane,
+    /// as opening the clipboard image in the editor does: the read can race
+    /// with the clipboard history poll, data another app only promised can
+    /// keep it waiting, and a large photo copied in Finder takes a while to
+    /// decode. The paste lands only while this editor is still open.
+    private func pasteImageFromClipboard() {
+        GeneralPasteboardAccess.shared.async({
+            autoreleasepool {
+                ScreenshotService.clipboardImage(from: .general)
+                    .flatMap { ScreenshotService.imageCapture(from: $0) }
+            }
+        }) { [weak self] capture in
+            guard let self, self.window != nil else { return }
+            guard let capture, self.model.pasteImage(capture.image) else {
+                NSSound.beep()
+                return
+            }
+        }
+    }
+
     private func handleKey(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let key = Int(event.keyCode)
@@ -1388,6 +1531,7 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
                     copyToClipboard()
                 }
                 return true
+            case kVK_ANSI_V: pasteImageFromClipboard(); return true
             case kVK_ANSI_S:
                 if flags.contains(.shift) { saveAs() } else { save() }
                 return true
@@ -1420,7 +1564,9 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
             }
             return true
         case kVK_Escape:
-            if model.tool == .crop, model.cropDraft != nil {
+            if model.tool == .expandCanvas {
+                model.leaveCanvasExpansion()
+            } else if model.tool == .crop, model.cropDraft != nil {
                 model.tool = .select
             } else if !model.selectedWordIndexes.isEmpty {
                 model.clearTextSelection()
