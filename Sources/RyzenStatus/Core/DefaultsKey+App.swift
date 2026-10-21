@@ -660,6 +660,12 @@ extension DefaultsKey {
     static let notchMascotSeasonal = "notchMascotSeasonal"     // Bool, seasonal costumes
     static let notchMascotForm = "notchMascotForm"             // "auto", "none" or NotchMascotForm raw value
     static let notchMascotSpeech = "notchMascotSpeech"         // Bool, its own notices
+    /// The Wonder Boy side of its life: hearts, vitality, gold and the synergies found.
+    static let notchMascotHeartContainers = "notchMascotHeartContainers" // Int, 3...10
+    static let notchMascotCurrentHearts = "notchMascotCurrentHearts"     // Double, 0...10
+    static let notchMascotVitality = "notchMascotVitality"               // Double, 0...100
+    static let notchMascotGold = "notchMascotGold"                       // Int
+    static let notchMascotSynergies = "notchMascotSynergies"             // [String], ids of the synergies played
     static let notchMascotHardware = "notchMascotHardware"     // Bool, follows the AMD hardware
     static let notchCommandBar = "notchCommandBar"
     static let notchCommandBarStyle = "notchCommandBarStyle"

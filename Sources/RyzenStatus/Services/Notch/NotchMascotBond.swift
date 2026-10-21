@@ -14,6 +14,11 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
     case none, bow, glasses, scarf, headphones, beanie, flower, topHat, sunglasses, crown
     case cap, bowTie, monocle, cowboyHat, halo, horns, chefHat, eyePatch
     case witchHat, santaHat, partyHat, headband
+    /// The Wonder Boy wardrobe: arms and gear, then the Tamagotchi's life and gadgets.
+    case legendSword, legendShield, wingBoots, knightHelm, katana, vikingHelm, wizardStaff, magicTome
+    case crystalOrb, rangerBow, kingScepter, boomerang, fireballSpell, tornadoSpell, thunderTalisman, goldenKey
+    case hourglass, heartPotion, goldBag, iceCreamCone, onigiri, ramenBowl, bobaTea, sleepMask
+    case pacifier, bardLute, dumbbells, detectiveLens, laserVisor, jetpack, gameController, angelWings
 
     var id: String { rawValue }
 
@@ -21,7 +26,17 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
     static let wardrobe: [NotchMascotAccessory] = [.none, .bow, .glasses, .scarf, .headphones, .beanie,
                                                    .flower, .topHat, .sunglasses, .crown,
                                                    .cap, .bowTie, .monocle, .cowboyHat, .halo, .horns,
-                                                   .chefHat, .eyePatch]
+                                                   .chefHat, .eyePatch] + rpgItems
+
+    /// The thirty-two of the Wonder Boy wardrobe, in the order they unlock
+    /// after the first eighteen: one a level from the nineteenth.
+    static let rpgItems: [NotchMascotAccessory] = [
+        .legendSword, .legendShield, .wingBoots, .knightHelm, .katana, .vikingHelm, .wizardStaff, .magicTome,
+        .crystalOrb, .rangerBow, .kingScepter, .boomerang, .fireballSpell, .tornadoSpell, .thunderTalisman, .goldenKey,
+        .hourglass, .heartPotion, .goldBag, .iceCreamCone, .onigiri, .ramenBowl, .bobaTea, .sleepMask,
+        .pacifier, .bardLute, .dumbbells, .detectiveLens, .laserVisor, .jetpack, .gameController, .angelWings]
+
+    var isRPGItem: Bool { Self.rpgItems.contains(self) }
 
     /// The level it unlocks at; zero for the ones that are put on for it.
     var unlockLevel: Int {
@@ -30,7 +45,7 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
 
     var isPickable: Bool { unlockLevel > 0 }
 
-    enum Placement { case head, eyes, neck, ears }
+    enum Placement { case head, eyes, neck, ears, hand, back, feet }
 
     var placement: Placement {
         switch self {
@@ -38,7 +53,14 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
         case .scarf, .bowTie: return .neck
         case .headphones: return .ears
         case .none, .bow, .beanie, .flower, .topHat, .crown, .cap, .cowboyHat, .halo, .horns, .chefHat,
-             .witchHat, .santaHat, .partyHat, .headband: return .head
+             .witchHat, .santaHat, .partyHat, .headband, .knightHelm, .vikingHelm: return .head
+        case .detectiveLens, .laserVisor, .sleepMask, .pacifier: return .eyes
+        case .wingBoots: return .feet
+        case .jetpack, .angelWings: return .back
+        case .legendSword, .legendShield, .katana, .wizardStaff, .magicTome, .crystalOrb, .rangerBow, .kingScepter,
+             .boomerang, .fireballSpell, .tornadoSpell, .thunderTalisman, .goldenKey, .hourglass, .heartPotion,
+             .goldBag, .iceCreamCone, .onigiri, .ramenBowl, .bobaTea, .bardLute, .dumbbells, .gameController:
+            return .hand
         }
     }
 }
@@ -350,8 +372,21 @@ final class NotchMascotBondStore: ObservableObject {
         let levels = NotchMascotGrowth.record(event, into: &next, day: NotchMascotGrowth.dayKey(now))
         let gained = next.experience - bond.experience
         save(next)
+        NotchMascotRPG.collect(gold: event == .dayTogether ? 10 : 1)
         if levels.after > levels.before { announceLevel(levels.after) }
         return gained
+    }
+
+    /// Experience that does not come from a bond event: a pat in the
+    /// island, a chest from a lair. It counts toward the level like any other.
+    func award(experience amount: Int) {
+        guard amount > 0 else { return }
+        var next = bond
+        let before = NotchMascotGrowth.level(for: next.experience)
+        next.experience += amount
+        save(next)
+        let after = NotchMascotGrowth.level(for: next.experience)
+        if after > before { announceLevel(after) }
     }
 
     /// Once a day, the first time you are around: a greeting for the time of

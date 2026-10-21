@@ -204,7 +204,7 @@ struct NotchCapsuleRestingView: View {
                 if let pair, let friend = service.mascotFriendLook {
                     NotchMascotTrackView(look: friend, track: pair.friend, rests: true, visit: nil,
                                          mood: service.mascotRestingMood, reaction: service.mascotFriendReaction,
-                                         yieldsToActivities: true)
+                                         yieldsToActivities: true, isFriend: true)
                         .frame(width: size.width, height: geometry.stripHeight)
                         .opacity(service.mascotFriendSteppedAside ? 0 : 1)
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2),
@@ -214,8 +214,9 @@ struct NotchCapsuleRestingView: View {
                 }
                 // What they toss to each other as they play.
                 if let pair, let friend = service.mascotFriendLook,
-                   service.mascotIslandFlight != nil || service.mascotIslandBurst != nil {
+                   service.mascotIslandFlight != nil || service.mascotIslandBurst != nil || service.mascotIslandMarker != nil {
                     NotchMascotIslandPlayLayer(flight: service.mascotIslandFlight, burst: service.mascotIslandBurst,
+                                           marker: service.mascotIslandMarker,
                                                leader: pair.companion, friend: pair.friend,
                                                leaderLook: NotchMascotSupport.look(), friendLook: friend)
                         .frame(width: size.width, height: geometry.stripHeight)

@@ -19,13 +19,31 @@ struct NotchMascotIslandPlay: Equatable {
         case greet, toss, rally, mimic, dance, doze, peekaboo
         /// The play what one of them wears brings.
         case item(NotchMascotAccessory)
+        /// A combo of the catalog, by id: what the pair wears or is makes it.
+        case synergy(String)
+        /// A snack grown in the track when the hourglass is low.
+        case snack
+        /// A secret door opens behind the camera.
+        case door(WonderBoySecretDoor)
+        /// What the figure can do that the others cannot.
+        case ability(NotchMascotAbility)
     }
 
     /// What flies from one to the other.
-    enum Thing: Equatable { case heart, star, note, spark, snowball, flower, cookie, coin, ball }
+    enum Thing: Equatable {
+        case heart, star, note, spark, snowball, flower, cookie, coin, ball
+        case fireball, boomerang, arrow, key, potion, bag, bolt, tornado, sword
+        case snack(NotchMascotSnack)
+    }
 
-    /// A little burst over one of them.
-    enum Burst: Equatable { case confetti, sparkles, hearts, magic }
+    /// A little burst over one of them; a door, the secret one in the middle.
+    enum Burst: Equatable { case confetti, sparkles, hearts, magic, coins, smoke, door }
+
+    /// An arcade marker that floats up over one of them: `+100`, `1UP`.
+    struct Marker: Equatable {
+        var text: String
+        var onLeader: Bool
+    }
 
     struct Flight: Equatable {
         var thing: Thing
@@ -39,6 +57,8 @@ struct NotchMascotIslandPlay: Equatable {
     struct BurstAt: Equatable {
         var burst: Burst
         var onLeader: Bool
+        /// A door stays open longer than a puff of confetti.
+        var duration: TimeInterval = NotchMascotIslandPlay.burstLength
     }
 
     /// What each of them does `at` seconds in, and what flies or bursts.
@@ -48,13 +68,15 @@ struct NotchMascotIslandPlay: Equatable {
         var friend: NotchMascotReaction? = nil
         var flight: Flight? = nil
         var burst: BurstAt? = nil
+        var marker: Marker? = nil
     }
 
     /// How long it lasts: until its last beat has played out.
     var length: TimeInterval {
         beats.map { beat in
             beat.at + max(beat.leader?.length ?? 0, beat.friend?.length ?? 0,
-                          beat.flight?.duration ?? 0, beat.burst == nil ? 0 : Self.burstLength)
+                          beat.flight?.duration ?? 0, beat.burst?.duration ?? 0,
+                          beat.marker == nil ? 0 : Self.markerLength)
         }.max() ?? 0
     }
 
@@ -69,6 +91,7 @@ struct NotchMascotIslandPlay: Equatable {
     static let memory = 4
     static let flightLength: TimeInterval = 0.85
     static let burstLength: TimeInterval = 1.0
+    static let markerLength: TimeInterval = 1.2
 
     /// What they know as they might start one.
     struct Context: Equatable {
@@ -82,15 +105,36 @@ struct NotchMascotIslandPlay: Equatable {
         var recent: [Kind] = []
         var leaderWears: NotchMascotAccessory = .none
         var friendWears: NotchMascotAccessory = .none
+        var leaderStyle: NotchMascotStyle = .minimal
+        var friendStyle: NotchMascotStyle = .minimal
+        /// Hearts, the hourglass, gold and the combos found.
+        var rpg = NotchMascotRPGSnapshot()
+    }
+
+    /// The combos the pair can play now, as kinds.
+    static func synergyKinds(in context: Context) -> [Kind] {
+        NotchMascotSynergyCatalog.candidates(leaderWears: context.leaderWears, friendWears: context.friendWears,
+                                             leaderStyle: context.leaderStyle, friendStyle: context.friendStyle)
+            .map { .synergy($0.id) }
+    }
+
+    /// The abilities either of them has.
+    static func abilityKinds(in context: Context) -> [Kind] {
+        var kinds: [Kind] = []
+        for style in [context.leaderStyle, context.friendStyle] {
+            if let ability = NotchMascotAbility.of(style), !kinds.contains(.ability(ability)) {
+                kinds.append(.ability(ability))
+            }
+        }
+        return kinds
     }
 
     /// The items worn that bring a play, with whether the companion wears it.
     static func itemPlays(in context: Context) -> [(item: NotchMascotAccessory, byLeader: Bool)] {
         var items: [(NotchMascotAccessory, Bool)] = []
+        // Both may wear the same: the twin combos of the catalog make it theirs.
         if context.leaderWears != .none { items.append((context.leaderWears, true)) }
-        if context.friendWears != .none, context.friendWears != context.leaderWears {
-            items.append((context.friendWears, false))
-        }
+        if context.friendWears != .none { items.append((context.friendWears, false)) }
         return items
     }
 
@@ -112,16 +156,44 @@ struct NotchMascotIslandPlay: Equatable {
         case .item(let item):
             guard itemPlays(in: context).contains(where: { $0.item == item }) else { return 0 }
             weight = item == .headphones && context.music ? 5 : 3
+        case .synergy(let id):
+            guard itemPlaysOrStyles(id, in: context) else { return 0 }
+            // What they have not tried yet is more wanted than what they know.
+            weight = context.rpg.discovered.contains(id) ? 2.2 : 4.5
+        case .snack:
+            weight = context.rpg.isHungry ? 12 : 0
+        case .door(let door):
+            switch door {
+            case .inn: weight = context.rpg.vitality < 60 || context.rpg.currentHearts < Double(context.rpg.heartContainers) ? 2 : 0.3
+            case .bossLair: weight = 0.25
+            default: weight = 0.5
+            }
+        case .ability(let ability):
+            guard abilityKinds(in: context).contains(.ability(ability)) else { return 0 }
+            weight = 1.6
         }
         if context.recent.suffix(memory).contains(kind) { weight *= 0.3 }
         return weight
     }
 
+    private static func itemPlaysOrStyles(_ id: String, in context: Context) -> Bool {
+        synergyKinds(in: context).contains(.synergy(id))
+    }
+
     /// The play they start now, if any. `random` gives numbers in 0..<1.
     static func next(in context: Context, random: () -> Double) -> NotchMascotIslandPlay? {
         guard context.since >= interval, random() < chance else { return nil }
+        return pick(in: context, random: random)
+    }
+
+    /// The play they pick when it is time, without waiting for the interval:
+    /// the desktop's director uses it too.
+    static func pick(in context: Context, random: () -> Double) -> NotchMascotIslandPlay? {
+        var items: [Kind] = []
+        for entry in itemPlays(in: context) where !items.contains(.item(entry.item)) { items.append(.item(entry.item)) }
         let kinds: [Kind] = [.greet, .toss, .rally, .mimic, .dance, .doze, .peekaboo]
-            + itemPlays(in: context).map { .item($0.item) }
+            + items + synergyKinds(in: context) + [.snack] + abilityKinds(in: context)
+            + WonderBoySecretDoor.allCases.map { .door($0) }
         let weights = kinds.map { ($0, weight(of: $0, in: context)) }.filter { $0.1 > 0 }
         let total = weights.reduce(0) { $0 + $1.1 }
         guard total > 0 else { return nil }
@@ -222,11 +294,120 @@ struct NotchMascotIslandPlay: Equatable {
             score.act(3.9, starter: .celebrate, other: .celebrate)
 
         case .item(let item):
-            let wearer = itemPlays(in: context).first { $0.item == item }?.byLeader ?? byLeader
+            // Both wearing it, either may start: the twin plays begin with a coin toss.
+            let wearers = itemPlays(in: context).filter { $0.item == item }
+            let wearer = wearers.count > 1 ? byLeader : (wearers.first?.byLeader ?? byLeader)
             score = Score(byLeader: wearer)
             itemPlay(item, into: &score, random: random)
+
+        case .synergy(let id):
+            guard let synergy = NotchMascotSynergyCatalog.synergy(id: id) else { break }
+            let starter = synergy.starterIsLeader(leaderWears: context.leaderWears, friendWears: context.friendWears,
+                                                  leaderStyle: context.leaderStyle, friendStyle: context.friendStyle,
+                                                  fallback: byLeader)
+            score = Score(byLeader: starter)
+            synergy.script.write(into: &score)
+
+        case .snack:
+            let snack = pick(NotchMascotSnack.allCases)
+            score.act(0, starter: .wave)
+            score.toss(0.35, .snack(snack), fromStarter: true)
+            score.act(0.35 + flightLength, other: .celebrate)
+            score.marker(0.35 + flightLength, snack.marker, onStarter: false)
+            score.burst(0.35 + flightLength, snack.heartsBonus > 0 ? .hearts : .sparkles, onStarter: false)
+
+        case .door(let door):
+            score = Score(byLeader: byLeader)
+            writeDoor(door, into: &score)
+
+        case .ability(let ability):
+            let leaderHas = NotchMascotAbility.of(context.leaderStyle) == ability
+            let friendHas = NotchMascotAbility.of(context.friendStyle) == ability
+            score = Score(byLeader: leaderHas && friendHas ? byLeader : leaderHas)
+            writeAbility(ability, into: &score)
         }
         return NotchMascotIslandPlay(kind: kind, beats: score.beats)
+    }
+
+    /// What happens behind the camera when `door` opens.
+    static func writeDoor(_ door: WonderBoySecretDoor, into score: inout Score) {
+        let lands = flightLength
+        score.act(0, starter: .peek, other: .lookAround)
+        score.burst(0.3, .door, onStarter: true, duration: door.openLength)
+        switch door {
+        case .shop:
+            score.act(0.9, starter: .perk)
+            score.toss(1.2, .bag, fromStarter: true)
+            score.act(1.2 + lands, other: .celebrate)
+            score.marker(1.2 + lands, "SPEED", onStarter: false)
+            score.burst(1.2 + lands, .sparkles, onStarter: false)
+        case .inn:
+            score.act(0.9, starter: .relax, other: .relax)
+            score.toss(1.1, .note, fromStarter: true)
+            score.toss(1.5, .note, fromStarter: false)
+            score.burst(1.4, .hearts, onStarter: true)
+            score.burst(1.6, .hearts, onStarter: false)
+            score.marker(1.8, "1UP", onStarter: true)
+        case .tavern:
+            score.act(0.9, starter: .sip, other: .sip)
+            score.toss(1.2, .snack(.bobaTea), fromStarter: true)
+            score.act(1.2 + lands, other: .surprised)
+            score.burst(1.2 + lands, .sparkles, onStarter: false)
+            score.marker(1.8, "HINT", onStarter: true)
+        case .wizardHut:
+            score.act(0.9, starter: .ready)
+            score.burst(1.0, .smoke, onStarter: true)
+            score.toss(1.3, .spark, fromStarter: true)
+            score.burst(1.3 + lands, .magic, onStarter: false)
+            score.marker(1.8, "MAGIC", onStarter: false)
+        case .bossLair:
+            score.act(0.9, starter: .panic, other: .panic)
+            score.toss(1.2, .fireball, fromStarter: false)
+            score.toss(1.9, .sword, fromStarter: true)
+            score.act(1.9 + lands, starter: .celebrate, other: .surprised)
+            score.burst(1.9 + lands, .coins, onStarter: true)
+            score.marker(2.0 + lands, "+50 XP", onStarter: true)
+        }
+    }
+
+    /// What `ability` looks like on the strip.
+    static func writeAbility(_ ability: NotchMascotAbility, into score: inout Score) {
+        let lands = flightLength
+        switch ability {
+        case .ceilingWalk:
+            score.act(0, starter: .ready)
+            score.act(0.6, starter: .peek)
+            score.burst(0.8, .smoke, onStarter: true)
+            score.act(1.8, other: .lookAround)
+            score.act(2.4, starter: .bounce, other: .surprised)
+            score.marker(2.4, "+100", onStarter: true)
+        case .fireballBreath:
+            score.act(0, starter: .ready)
+            score.toss(0.5, .fireball, fromStarter: true)
+            score.act(0.5 + lands, other: .surprised)
+            score.toss(1.8, .fireball, fromStarter: true, falls: true)
+            score.burst(1.8 + lands, .smoke, onStarter: false)
+            score.act(2.8, starter: .celebrate)
+        case .glide:
+            score.act(0, starter: .bounce)
+            score.toss(0.5, .tornado, fromStarter: true)
+            score.act(0.5 + lands, other: .peek)
+            score.burst(0.5 + lands, .sparkles, onStarter: false)
+            score.act(2.0, starter: .celebrate)
+        case .dolphinDive:
+            score.act(0, starter: .ready)
+            score.burst(0.5, .smoke, onStarter: true)
+            score.act(1.1, other: .surprised)
+            score.burst(1.6, .sparkles, onStarter: true)
+            score.act(1.6, starter: .celebrate)
+            score.marker(1.7, "SPLASH", onStarter: true)
+        case .pepelogooSpringboard:
+            score.act(0, starter: .perk, other: .ready)
+            score.act(0.7, starter: .bounce)
+            score.act(1.1, starter: .bounce, other: .perk)
+            score.burst(1.1, .confetti, onStarter: true)
+            score.marker(1.2, "+200", onStarter: true)
+        }
     }
 
     /// The play `item` brings, started by the one wearing it.
@@ -370,7 +551,8 @@ struct NotchMascotIslandPlay: Equatable {
             score.act(0, starter: .ready, other: .ready)
             score.act(1.3, starter: .sweat, other: .sweat)
             score.act(2.8, starter: .celebrate, other: .confused)
-        case .none:
+        default:
+            // The rest of the Wonder Boy wardrobe plays through the catalog's combos.
             score.act(0, starter: .wave)
             score.act(1.0, other: .wave)
         }
@@ -378,7 +560,7 @@ struct NotchMascotIslandPlay: Equatable {
 
     /// Beats written as the one who starts and the other, then laid out as
     /// the companion and its friend.
-    private struct Score {
+    struct Score {
         let byLeader: Bool
         var beats: [Beat] = []
 
@@ -390,8 +572,13 @@ struct NotchMascotIslandPlay: Equatable {
             beats.append(Beat(at: at, flight: Flight(thing: thing, fromLeader: fromStarter == byLeader, falls: falls)))
         }
 
-        mutating func burst(_ at: TimeInterval, _ burst: Burst, onStarter: Bool) {
-            beats.append(Beat(at: at, burst: BurstAt(burst: burst, onLeader: onStarter == byLeader)))
+        mutating func burst(_ at: TimeInterval, _ burst: Burst, onStarter: Bool,
+                            duration: TimeInterval = NotchMascotIslandPlay.burstLength) {
+            beats.append(Beat(at: at, burst: BurstAt(burst: burst, onLeader: onStarter == byLeader, duration: duration)))
+        }
+
+        mutating func marker(_ at: TimeInterval, _ text: String, onStarter: Bool) {
+            beats.append(Beat(at: at, marker: Marker(text: text, onLeader: onStarter == byLeader)))
         }
     }
 }
@@ -407,5 +594,12 @@ struct NotchMascotIslandFlightEvent: Equatable {
 struct NotchMascotIslandBurstEvent: Equatable {
     let id: UUID
     let burst: NotchMascotIslandPlay.BurstAt
+    let start: CFTimeInterval
+}
+
+/// An arcade marker floating up over one of the two, from `start` on the media clock.
+struct NotchMascotIslandMarkerEvent: Equatable {
+    let id: UUID
+    let marker: NotchMascotIslandPlay.Marker
     let start: CFTimeInterval
 }

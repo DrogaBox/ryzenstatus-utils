@@ -437,6 +437,367 @@ enum NotchMascotPlayEffects {
     }
 }
 
+// MARK: - The Wonder Boy props
+
+/// Doors, coins, smoke, arcade markers and the things thrown between the
+/// two, as shape layers: paths and colours only, sharp at any scale.
+extension NotchMascotPlayEffects {
+    /// A layer `side` points square holding `parts`, centred on `point` in a
+    /// parent whose y grows upward. The parts are drawn y-down.
+    static func propLayer(_ parts: [NotchMascotWearablePart], side: CGFloat, at point: CGPoint,
+                          scale scaleFactor: CGFloat) -> CALayer {
+        let holder = CALayer()
+        holder.bounds = CGRect(x: 0, y: 0, width: side, height: side)
+        holder.position = point
+        holder.isGeometryFlipped = true
+        for part in parts {
+            let layer = CAShapeLayer()
+            layer.frame = holder.bounds
+            layer.contentsScale = scaleFactor
+            layer.path = part.path
+            layer.fillColor = part.fill
+            layer.strokeColor = part.stroke
+            layer.lineWidth = part.lineWidth
+            layer.lineCap = .round
+            layer.lineJoin = .round
+            holder.addSublayer(layer)
+        }
+        return holder
+    }
+
+    private static func fadeOut(after delay: TimeInterval, length: TimeInterval = 0.25) -> CABasicAnimation {
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        fade.beginTime = CACurrentMediaTime() + delay
+        fade.duration = length
+        fade.fillMode = .forwards
+        fade.isRemovedOnCompletion = false
+        return fade
+    }
+
+    // MARK: Secret door
+
+    /// A stone door that grows out of the floor at `base`, swings open to
+    /// a warm light, stays `duration` seconds and closes. `height` is the
+    /// door's, and its width a little over half of it.
+    static func secretDoor(in parent: CALayer, at base: CGPoint, height: CGFloat, duration: TimeInterval) {
+        let width = height * 0.62
+        let side = max(width, height)
+        let rect = CGRect(x: (side - width) / 2, y: (side - height) / 2, width: width, height: height)
+        let closed = NotchMascotRPGShapes.door(in: rect, open: 0)
+        let open = NotchMascotRPGShapes.door(in: rect, open: 1)
+        let holder = propLayer(closed, side: side, at: CGPoint(x: base.x, y: base.y + height / 2),
+                               scale: scale(of: parent))
+        // The leaf and its knob swing; the arch and the light stay.
+        if holder.sublayers?.count == closed.count {
+            for index in [2, 3] {
+                guard let layer = holder.sublayers?[index] as? CAShapeLayer else { continue }
+                let swing = CAKeyframeAnimation(keyPath: "path")
+                swing.values = [closed[index].path, open[index].path, open[index].path, closed[index].path]
+                swing.keyTimes = [0, 0.25, 0.8, 1]
+                swing.duration = duration
+                layer.add(swing, forKey: "swing")
+            }
+        }
+        let grow = CAKeyframeAnimation(keyPath: "transform.scale")
+        grow.values = [0.2, 1.08, 1, 1, 0.2]
+        grow.keyTimes = [0, 0.15, 0.25, 0.85, 1]
+        let appear = CAKeyframeAnimation(keyPath: "opacity")
+        appear.values = [0, 1, 1, 1, 0]
+        appear.keyTimes = [0, 0.1, 0.25, 0.85, 1]
+        let group = CAAnimationGroup()
+        group.animations = [grow, appear]
+        group.duration = duration
+        holder.opacity = 0
+        holder.add(group, forKey: "door")
+        // The light the open door throws.
+        let glow = CAShapeLayer()
+        glow.path = CGPath(ellipseIn: CGRect(x: -width * 0.5, y: -height * 0.35, width: width * 2, height: height * 0.7),
+                           transform: nil)
+        glow.position = CGPoint(x: side / 2, y: side / 2)
+        glow.fillColor = CGColor(srgbRed: 1, green: 0.91, blue: 0.64, alpha: 0.32)
+        holder.insertSublayer(glow, at: 0)
+        parent.addSublayer(holder)
+        remove(holder, after: duration + 0.1)
+    }
+
+    // MARK: Coins
+
+    /// Gold coins thrown up from `point` that fall back and bounce twice,
+    /// each turning on its edge as it goes.
+    static func goldCoins(in parent: CALayer, at point: CGPoint, radius: CGFloat, count: Int = 7) {
+        let factor = scale(of: parent)
+        for index in 0..<count {
+            let side = radius * 2.4
+            let holder = propLayer(NotchMascotRPGShapes.coin(at: CGPoint(x: side / 2, y: side / 2), radius: radius),
+                                   side: side, at: point, scale: factor)
+            let drift = CGFloat(index - count / 2) * radius * 1.6 + CGFloat.random(in: -radius...radius)
+            let floorY = point.y - radius * 2
+            let apex = point.y + radius * CGFloat.random(in: 5...8)
+            let path = CGMutablePath()
+            path.move(to: point)
+            path.addQuadCurve(to: CGPoint(x: point.x + drift * 0.55, y: floorY),
+                              control: CGPoint(x: point.x + drift * 0.25, y: apex * 2 - floorY))
+            path.addQuadCurve(to: CGPoint(x: point.x + drift * 0.85, y: floorY),
+                              control: CGPoint(x: point.x + drift * 0.7, y: floorY + radius * 3))
+            path.addQuadCurve(to: CGPoint(x: point.x + drift, y: floorY),
+                              control: CGPoint(x: point.x + drift * 0.92, y: floorY + radius * 1.2))
+            let move = CAKeyframeAnimation(keyPath: "position")
+            move.path = path
+            move.duration = 1.1
+            move.beginTime = CACurrentMediaTime() + Double(index) * 0.06
+            move.fillMode = .both
+            let turn = CAKeyframeAnimation(keyPath: "transform.scale.x")
+            turn.values = [1, 0.2, 1, 0.2, 1, 0.2, 1]
+            turn.keyTimes = [0, 0.17, 0.33, 0.5, 0.67, 0.83, 1]
+            turn.duration = 1.1
+            turn.beginTime = move.beginTime
+            turn.fillMode = .both
+            holder.opacity = 0
+            let show = CAKeyframeAnimation(keyPath: "opacity")
+            show.values = [0, 1, 1, 0]
+            show.keyTimes = [0, 0.05, 0.85, 1]
+            show.duration = 1.2
+            show.beginTime = move.beginTime
+            show.fillMode = .both
+            holder.add(move, forKey: "arc")
+            holder.add(turn, forKey: "turn")
+            holder.add(show, forKey: "show")
+            parent.addSublayer(holder)
+            remove(holder, after: 1.4 + Double(index) * 0.06)
+        }
+    }
+
+    // MARK: Smoke
+
+    /// Puffs of arcane smoke rising from `point` in the colour of `energy`,
+    /// with a few lit motes: the mark of a transformation.
+    static func magicSmoke(in parent: CALayer, at point: CGPoint, radius: CGFloat, energy: NotchMascotPlay.Energy,
+                           count: Int = 7) {
+        for index in 0..<count {
+            let size = radius * CGFloat.random(in: 0.5...0.9)
+            let puff = CAShapeLayer()
+            puff.path = CGPath(ellipseIn: CGRect(x: -size, y: -size, width: size * 2, height: size * 2), transform: nil)
+            let tone: CGFloat = index.isMultiple(of: 2) ? 0.92 : 0.7
+            puff.fillColor = CGColor(srgbRed: energy.red * 0.5 + tone * 0.5, green: energy.green * 0.4 + tone * 0.4,
+                                     blue: energy.blue * 0.5 + tone * 0.5, alpha: 0.78)
+            let start = CGPoint(x: point.x + CGFloat.random(in: -radius...radius) * 0.6, y: point.y)
+            puff.position = start
+            puff.opacity = 0
+            let rise = CABasicAnimation(keyPath: "position")
+            rise.fromValue = NSValue(point: start)
+            rise.toValue = NSValue(point: CGPoint(x: start.x + CGFloat.random(in: -radius...radius) * 0.5,
+                                                  y: start.y + radius * CGFloat.random(in: 1.4...2.2)))
+            let grow = CABasicAnimation(keyPath: "transform.scale")
+            grow.fromValue = 0.3
+            grow.toValue = 1.5
+            let fade = CAKeyframeAnimation(keyPath: "opacity")
+            fade.values = [0, 0.85, 0.6, 0]
+            fade.keyTimes = [0, 0.2, 0.6, 1]
+            let group = CAAnimationGroup()
+            group.animations = [rise, grow, fade]
+            group.duration = 1.0
+            group.beginTime = CACurrentMediaTime() + Double(index) * 0.05
+            group.fillMode = .both
+            group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            puff.add(group, forKey: "smoke")
+            parent.addSublayer(puff)
+            remove(puff, after: 1.2 + Double(index) * 0.05)
+        }
+        sparks(in: parent, at: point, reach: radius * 1.4, energy: energy, count: 6)
+    }
+
+    // MARK: Arcade markers
+
+    /// A marker such as `+100`, `♥ +1` or `1UP`, lit in pixels over `point`,
+    /// that pops, rises and fades. `cell` is one pixel's side.
+    static func arcadeMarker(_ text: String, in parent: CALayer, at point: CGPoint, cell: CGFloat) {
+        let size = NotchMascotRPGShapes.pixelSize(text, cell: cell)
+        guard size.width > 0 else { return }
+        let path = NotchMascotRPGShapes.pixelPath(text, cell: cell)
+        let holder = CALayer()
+        holder.bounds = CGRect(x: 0, y: 0, width: size.width, height: size.height)
+        holder.position = point
+        holder.isGeometryFlipped = true
+        let shadow = CAShapeLayer()
+        shadow.frame = holder.bounds.offsetBy(dx: cell * 0.6, dy: cell * 0.6)
+        shadow.path = path
+        shadow.fillColor = CGColor(gray: 0, alpha: 0.7)
+        let lit = CAShapeLayer()
+        lit.frame = holder.bounds
+        lit.path = path
+        lit.fillColor = NotchMascotRPGShapes.markerColor(text)
+        lit.contentsScale = scale(of: parent)
+        shadow.contentsScale = lit.contentsScale
+        holder.addSublayer(shadow)
+        holder.addSublayer(lit)
+        holder.opacity = 0
+        let rise = CABasicAnimation(keyPath: "position")
+        rise.fromValue = NSValue(point: point)
+        rise.toValue = NSValue(point: CGPoint(x: point.x, y: point.y + cell * 9))
+        let pop = CAKeyframeAnimation(keyPath: "transform.scale")
+        pop.values = [0.4, 1.3, 1]
+        pop.keyTimes = [0, 0.2, 1]
+        let fade = CAKeyframeAnimation(keyPath: "opacity")
+        fade.values = [0, 1, 1, 0]
+        fade.keyTimes = [0, 0.1, 0.75, 1]
+        let group = CAAnimationGroup()
+        group.animations = [rise, pop, fade]
+        group.duration = NotchMascotIslandPlay.markerLength
+        group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        holder.add(group, forKey: "marker")
+        parent.addSublayer(holder)
+        remove(holder, after: NotchMascotIslandPlay.markerLength + 0.1)
+    }
+
+    // MARK: Things in flight
+
+    /// What a `thing` looks like in flight, in a square of side `side`.
+    static func thingParts(_ thing: NotchMascotIslandPlay.Thing, side: CGFloat,
+                           energy: NotchMascotPlay.Energy) -> [NotchMascotWearablePart] {
+        let c = CGPoint(x: side / 2, y: side / 2)
+        let rgb = NotchMascotRPGShapes.rgb
+        if let parts = NotchMascotRPGShapes.prop(thing, at: c, side: side) { return parts }
+        switch thing {
+        case .heart:
+            let heart = CGMutablePath()
+            heart.move(to: CGPoint(x: c.x, y: c.y + side * 0.38))
+            heart.addCurve(to: CGPoint(x: c.x, y: c.y - side * 0.12),
+                           control1: CGPoint(x: c.x - side * 0.6, y: c.y + side * 0.1),
+                           control2: CGPoint(x: c.x - side * 0.34, y: c.y - side * 0.48))
+            heart.addCurve(to: CGPoint(x: c.x, y: c.y + side * 0.38),
+                           control1: CGPoint(x: c.x + side * 0.34, y: c.y - side * 0.48),
+                           control2: CGPoint(x: c.x + side * 0.6, y: c.y + side * 0.1))
+            return [NotchMascotWearablePart(path: heart, fill: rgb(0xFF5E8A))]
+        case .star:
+            let star = CGMutablePath()
+            for i in 0..<10 {
+                let a = Double(i) / 10 * 2 * .pi - .pi / 2
+                let r = side * (i.isMultiple(of: 2) ? 0.48 : 0.2)
+                let point = CGPoint(x: c.x + CGFloat(cos(a)) * r, y: c.y + CGFloat(sin(a)) * r)
+                if i == 0 { star.move(to: point) } else { star.addLine(to: point) }
+            }
+            star.closeSubpath()
+            return [NotchMascotWearablePart(path: star, fill: rgb(0xFFD23F), stroke: rgb(0xD99A1E), lineWidth: max(0.5, side * 0.04))]
+        case .note:
+            var shift = CGAffineTransform(translationX: side * 0.12, y: side * 0.1)
+            let glyph = NotchMascotRPGShapes.pixelPath("♪", cell: side / 4).copy(using: &shift) ?? CGMutablePath()
+            return [NotchMascotWearablePart(path: glyph, fill: rgb(0xFFFFFF))]
+        case .spark:
+            return [NotchMascotWearablePart(path: NotchMascotWearableShapes.circle(c, side * 0.3), fill: color(energy))]
+        case .snowball:
+            return [NotchMascotWearablePart(path: NotchMascotWearableShapes.circle(c, side * 0.34), fill: rgb(0xFFFFFF),
+                                            stroke: rgb(0xCFE6FF), lineWidth: max(0.5, side * 0.04))]
+        case .flower:
+            let petals = CGMutablePath()
+            for i in 0..<5 {
+                let a = Double(i) / 5 * 2 * .pi - .pi / 2
+                petals.addPath(NotchMascotWearableShapes.circle(CGPoint(x: c.x + CGFloat(cos(a)) * side * 0.2,
+                                                                         y: c.y + CGFloat(sin(a)) * side * 0.2), side * 0.14))
+            }
+            return [NotchMascotWearablePart(path: petals, fill: rgb(0xFF8FB1)),
+                    NotchMascotWearablePart(path: NotchMascotWearableShapes.circle(c, side * 0.1), fill: rgb(0xFFD23F))]
+        case .cookie:
+            let chips = CGMutablePath()
+            for (dx, dy) in [(-0.14, -0.1), (0.12, -0.04), (0.0, 0.16)] as [(CGFloat, CGFloat)] {
+                chips.addPath(NotchMascotWearableShapes.circle(CGPoint(x: c.x + dx * side, y: c.y + dy * side), side * 0.05))
+            }
+            return [NotchMascotWearablePart(path: NotchMascotWearableShapes.circle(c, side * 0.36), fill: rgb(0xC68642)),
+                    NotchMascotWearablePart(path: chips, fill: rgb(0x5C3B1E))]
+        case .coin:
+            return NotchMascotRPGShapes.coin(at: c, radius: side * 0.36)
+        case .ball:
+            let seam = CGMutablePath()
+            seam.addArc(center: c, radius: side * 0.22, startAngle: -.pi * 0.3, endAngle: .pi * 0.3, clockwise: false)
+            return [NotchMascotWearablePart(path: NotchMascotWearableShapes.circle(c, side * 0.34), fill: rgb(0xFFFFFF),
+                                            stroke: rgb(0xCFC9BC), lineWidth: max(0.5, side * 0.04)),
+                    NotchMascotWearablePart(path: seam, fill: nil, stroke: rgb(0xE5384F), lineWidth: max(0.5, side * 0.05))]
+        default:
+            return []
+        }
+    }
+
+    /// `thing` thrown along a high arc from `start` to `end` over `duration`,
+    /// turning as it goes, and gone on arrival or, `falls`, dropped short.
+    static func fly(_ thing: NotchMascotIslandPlay.Thing, in parent: CALayer, from start: CGPoint, to end: CGPoint,
+                    duration: TimeInterval, side: CGFloat = 16, falls: Bool = false,
+                    energy: NotchMascotPlay.Energy = NotchMascotPlay.Energy(red: 1, green: 0.86, blue: 0.3)) {
+        let holder = propLayer(thingParts(thing, side: side, energy: energy), side: side, at: start,
+                               scale: scale(of: parent))
+        let target = falls ? CGPoint(x: start.x + (end.x - start.x) * 0.7, y: min(start.y, end.y) - side) : end
+        let arc = CGMutablePath()
+        arc.move(to: start)
+        arc.addQuadCurve(to: target, control: CGPoint(x: (start.x + target.x) / 2, y: max(start.y, target.y) + 60))
+        let move = CAKeyframeAnimation(keyPath: "position")
+        move.path = arc
+        move.duration = duration
+        move.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        move.fillMode = .forwards
+        move.isRemovedOnCompletion = false
+        let spins: Bool
+        switch thing {
+        case .star, .ball, .coin, .cookie, .flower, .boomerang, .sword: spins = true
+        default: spins = false
+        }
+        if spins {
+            let spin = CABasicAnimation(keyPath: "transform.rotation.z")
+            spin.fromValue = 0
+            spin.toValue = -CGFloat.pi * 2 * (end.x >= start.x ? 1 : -1)
+            spin.duration = duration
+            holder.add(spin, forKey: "spin")
+        }
+        // Things that point travel facing their way.
+        if end.x < start.x, !spins { holder.transform = CATransform3DMakeScale(-1, 1, 1) }
+        holder.add(move, forKey: "fly")
+        holder.add(fadeOut(after: duration), forKey: "fade")
+        parent.addSublayer(holder)
+        remove(holder, after: duration + 0.3)
+    }
+
+    // MARK: Bursts
+
+    /// A little burst over `point`, `size` points across: confetti, sparkles,
+    /// hearts, magic, a shower of coins, a puff of smoke or a door.
+    static func burst(_ burst: NotchMascotIslandPlay.Burst, in parent: CALayer, at point: CGPoint, size: CGFloat,
+                      energy: NotchMascotPlay.Energy, duration: TimeInterval = NotchMascotIslandPlay.burstLength) {
+        switch burst {
+        case .coins: goldCoins(in: parent, at: point, radius: max(3, size * 0.13))
+        case .smoke: magicSmoke(in: parent, at: point, radius: size * 0.5, energy: energy)
+        case .door: secretDoor(in: parent, at: CGPoint(x: point.x, y: point.y - size * 0.7), height: size * 1.4, duration: duration)
+        case .magic: magicSmoke(in: parent, at: point, radius: size * 0.35, energy: energy, count: 3)
+        case .sparkles: sparks(in: parent, at: point, reach: size * 0.9, energy: NotchMascotPlay.Energy(red: 1, green: 0.89, blue: 0.48), count: 9)
+        case .hearts: float("♥", in: parent, at: point, size: max(9, size * 0.32), color: NotchMascotRPGShapes.rgb(0xFF5E8A), count: 3)
+        case .confetti:
+            let colors: [UInt32] = [0xFF5E8A, 0xFFD23F, 0x6C8CFF, 0x3FB8AF, 0xFF8C2B, 0xB57CFF]
+            for index in 0..<10 {
+                let piece = CAShapeLayer()
+                piece.path = CGPath(rect: CGRect(x: -2, y: -3, width: 4, height: 6), transform: nil)
+                piece.fillColor = NotchMascotRPGShapes.rgb(colors[index % colors.count])
+                piece.position = point
+                let angle = CGFloat(index) / 10 * .pi * 2
+                let far = size * CGFloat.random(in: 0.6...1.1)
+                let move = CABasicAnimation(keyPath: "position")
+                move.fromValue = NSValue(point: point)
+                move.toValue = NSValue(point: CGPoint(x: point.x + cos(angle) * far, y: point.y + sin(angle) * far - size * 0.3))
+                let spin = CABasicAnimation(keyPath: "transform.rotation.z")
+                spin.fromValue = 0
+                spin.toValue = CGFloat.pi * 3
+                let fade = CABasicAnimation(keyPath: "opacity")
+                fade.fromValue = 1
+                fade.toValue = 0
+                let group = CAAnimationGroup()
+                group.animations = [move, spin, fade]
+                group.duration = 0.9
+                group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                piece.add(group, forKey: "confetti")
+                parent.addSublayer(piece)
+                remove(piece, after: 1.0)
+            }
+        }
+    }
+}
+
 /// A clear layer over the companion's own window, for what it holds and
 /// what floats off it; its y grows upward.
 final class NotchMascotPlayLayerView: NSView {

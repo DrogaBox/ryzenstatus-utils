@@ -11409,7 +11409,7 @@ struct MetricsTests {
                    && Play.next(in: due, random: { 0.99 }) == nil,
                    "they play only once a while has passed, close enough, and not every time")
             expect(Play.next(in: due, random: { 0 }) != nil, "a play due and taken starts")
-            expect(Play.Kind.allCases.allSatisfy { Play.play($0, random: { 0.5 }).kind == $0 },
+            expect(Play.Kind.allCases.filter { $0 != .choreography }.allSatisfy { Play.play($0, random: { 0.5 }).kind == $0 },
                    "every play comes with its twist and stays itself")
             expect(Play.weight(of: .duel, in: Play.Context(distance: 0, music: false, since: 0, hour: 12, recent: [.duel])) == 0
                    && Play.weight(of: .duel, in: Play.Context(distance: 0, music: false, since: 0, hour: 12,
@@ -11525,6 +11525,153 @@ struct MetricsTests {
                        && trick.beats.compactMap(\.flight).first?.fromLeader == false,
                        "the one wearing the item starts its play")
 
+                // The Wonder Boy side: the catalog, the state, the wardrobe, the words.
+                do {
+                    let all = NotchMascotSynergyCatalog.all
+                    expect(all.count == 135 && NotchMascotSynergyCatalog.total == 135, "the catalog holds 135 combos")
+                    expect(all.map(\.number) == Array(1...135) && Set(all.map(\.id)).count == 135,
+                           "the combos are numbered 1 to 135 with an id each")
+                    let sizes = SynergyCategory.allCases.map { NotchMascotSynergyCatalog.synergies(in: $0).count }
+                    expect(sizes == [15, 20, 15, 15, 12, 12, 12, 16, 10, 8], "each family holds its share: \(sizes)")
+                    for synergy in all {
+                        for starter in [true, false] {
+                            let play = synergy.play(starterIsLeader: starter)
+                            expect(!play.beats.isEmpty && play.length > 0 && play.length < 14
+                                   && play.beats.allSatisfy { $0.at >= 0 }, "\(synergy.id) plays out in a few seconds")
+                            for text in play.beats.compactMap(\.marker?.text) {
+                                expect(NotchMascotRPGShapes.cells(of: text) > 0
+                                       && !NotchMascotRPGShapes.pixelPath(text, cell: 1).isEmpty,
+                                       "\(synergy.id) marker \(text) can be drawn in pixels")
+                            }
+                        }
+                        expect(!synergy.name.isEmpty && !synergy.nameES.isEmpty && !synergy.description.isEmpty
+                               && !synergy.descriptionES.isEmpty, "\(synergy.id) is named and described in two languages")
+                    }
+                    let duo = NotchMascotSynergyCatalog.resolveSynergy(leaderWears: .legendShield, friendWears: .legendSword,
+                                                                       leaderStyle: .minimal, friendStyle: .cat)
+                    expect(duo?.id == "swordShieldDuo", "sword and shield, in either hand, make the duo")
+                    let twin = NotchMascotSynergyCatalog.resolveSynergy(leaderWears: .crown, friendWears: .crown,
+                                                                        leaderStyle: .minimal, friendStyle: .cat)
+                    expect(twin?.id == "doubleCrown", "two crowns make the twin combo")
+                    expect(NotchMascotSynergyCatalog.resolveSynergy(leaderWears: .none, friendWears: .none,
+                                                                    leaderStyle: .robot, friendStyle: .chip)?.id == "mekaDragonCurse",
+                           "two figures make a combo with nothing worn")
+                    expect(NotchMascotSynergyCatalog.resolveSynergy(leaderWears: .bow, friendWears: .none,
+                                                                    leaderStyle: .minimal, friendStyle: .minimal)?.id == "minimalZen",
+                           "a pair with nothing in common still finds its figures' combo")
+                    let both = Island.Context(since: 60, music: false, hour: 15, leaderWears: .crown, friendWears: .crown)
+                    expect(Island.itemPlays(in: both).count == 2 && Island.weight(of: .item(.crown), in: both) > 0,
+                           "the same item on both is no longer left out")
+                    expect(Island.weight(of: .synergy("doubleCrown"), in: both) > 0
+                           && Island.weight(of: .synergy("swordShieldDuo"), in: both) == 0,
+                           "only the combos that fit are wanted")
+                    let hungry = Island.Context(since: 60, music: false, hour: 15,
+                                                rpg: NotchMascotRPGSnapshot(vitality: 20))
+                    expect(Island.weight(of: .snack, in: hungry) > 0 && Island.weight(of: .snack, in: quiet) == 0,
+                           "snacks grow in the track only when the hourglass is low")
+                    let dining = Island.play(.snack, in: hungry, random: { 0.2 })
+                    expect(dining.beats.compactMap(\.flight).contains { if case .snack = $0.thing { return true }; return false }
+                           && dining.beats.compactMap(\.marker).first != nil, "a snack is thrown and scores")
+                    for door in WonderBoySecretDoor.allCases {
+                        let play = Island.play(.door(door), in: quiet, random: { 0.3 })
+                        expect(play.beats.contains { $0.burst?.burst == .door } && play.length < 14,
+                               "\(door) opens a door in the middle")
+                    }
+                    for ability in NotchMascotAbility.allCases {
+                        var context = quiet
+                        context.leaderStyle = NotchMascotStyle.allCases.first { NotchMascotAbility.of($0) == ability } ?? .cat
+                        expect(Island.abilityKinds(in: context).contains(.ability(ability)), "\(ability) belongs to a figure")
+                        expect(Island.play(.ability(ability), in: context, random: { 0.4 }).length > 0, "\(ability) plays")
+                    }
+                    // Desktop plays carry what they wear.
+                    var desktop = NotchMascotPlay.Context(distance: 100, music: false, since: 100, hour: 15)
+                    desktop.leaderLook.accessory = .headphones
+                    desktop.friendLook.accessory = .headphones
+                    expect(NotchMascotPlay.weight(of: .choreography, in: desktop) > 1
+                           && NotchMascotIslandPlay.synergyKinds(in: desktop.islandContext).contains(.synergy("headphoneDuet")),
+                           "out on the desktop, what they wear calls for its own play")
+                    if case .choreography(let play)? = NotchMascotPlay.choreography(in: desktop, random: { 0.5 }) {
+                        expect(!play.beats.isEmpty, "a desktop choreography has beats")
+                    } else {
+                        expect(false, "the desktop picks a choreography for a pair that wears the same crown")
+                    }
+
+                    // Hearts, the hourglass, gold and what is found are kept.
+                    let suite = "RyzenStatusRPGTests"
+                    let defaults = UserDefaults(suiteName: suite) ?? .standard
+                    defaults.removePersistentDomain(forName: suite)
+                    MainActor.assumeIsolated {
+                        let state = NotchMascotRPGState(defaults: defaults)
+                        expect(state.heartContainers == 3 && state.currentHearts == 3 && state.hourglassVitality == 100
+                               && state.goldCoins == 0, "a new companion starts with three hearts and a full hourglass")
+                        state.heartContainers = 99
+                        expect(state.heartContainers == 10, "there are ten containers at most")
+                        state.heartContainers = 1
+                        expect(state.heartContainers == 3, "and three at least")
+                        state.collect(gold: 40)
+                        state.hourglassVitality = 25
+                        expect(state.isHungry, "under thirty it is hungry")
+                        state.feed(.onigiri)
+                        expect(state.hourglassVitality == 55 && state.goldCoins == 45, "a rice ball fills it and pays five")
+                        state.hourglassVitality = 25
+                        let before = state.currentHearts
+                        state.feed(.bobaTea)
+                        expect(state.currentHearts == min(Double(state.heartContainers), before + 1), "boba brings a heart")
+                        expect(state.discover("steelCross") && !state.discover("steelCross"), "a combo is found once")
+                        state.enter(.inn)
+                        expect(state.currentHearts == Double(state.heartContainers) && state.hourglassVitality == 100,
+                               "the inn makes hearts and hourglass full")
+                        state.enter(.shop)
+                        expect(state.stepBuffActive, "the shop quickens the steps")
+                        state.tick(elapsed: 3600, level: 1)
+                        expect(state.hourglassVitality < 100 && state.hourglassVitality > 90, "it runs down very slowly")
+                        let again = NotchMascotRPGState(defaults: defaults)
+                        expect(again.goldCoins == state.goldCoins && again.discoveredSynergies == ["steelCross"]
+                               && again.heartContainers == state.heartContainers
+                               && abs(again.hourglassVitality - state.hourglassVitality) < 0.0001,
+                               "gold, hearts, the hourglass and the combos found survive a restart")
+                        expect(NotchMascotRPG.heartContainers(forLevel: 1) == 3 && NotchMascotRPG.heartContainers(forLevel: 50) == 10,
+                               "levels bring containers up to ten")
+                    }
+                    defaults.removePersistentDomain(forName: suite)
+                    expect(NotchMascotSnack.allCases.map(\.marker) == ["+100", "+200", "+200", "+500", "+500", "♥ +1"],
+                           "snacks score in arcade points")
+
+                    // The wardrobe: fifty-four, drawn and named in every language.
+                    expect(NotchMascotAccessory.allCases.count == 54 && NotchMascotAccessory.rpgItems.count == 32
+                           && NotchMascotAccessory.wardrobe.count == 50, "fifty-four accessories, fifty to pick")
+                    expect(NotchMascotAccessory.rpgItems.map(\.unlockLevel) == Array(19...50), "one more unlocks each level to fifty")
+                    let sample = NotchMascotWearableFrame(outline: CGRect(x: 4, y: 6, width: 20, height: 18), size: 28,
+                                                          leftEye: CGPoint(x: 11, y: 14), rightEye: CGPoint(x: 18, y: 14))
+                    for item in NotchMascotAccessory.rpgItems {
+                        let parts = NotchMascotWearableShapes.parts(for: item, in: sample)
+                        expect(!parts.isEmpty && parts.allSatisfy { !$0.path.boundingBoxOfPath.isNull }, "\(item) is drawn")
+                    }
+                    for language in AppLanguage.allCases {
+                        let words = FeatureStrings.notchMascotRPG(language)
+                        expect(words.isComplete, "\(language) words every Wonder Boy text")
+                        expect(words.accessories.allSatisfy { !$0.isEmpty } && words.hud.allSatisfy { !$0.isEmpty }
+                               && words.doors.allSatisfy { !$0.isEmpty } && words.abilities.allSatisfy { !$0.isEmpty },
+                               "\(language) leaves nothing empty")
+                        expect(Set(words.accessories).count == 32, "\(language) names the thirty-two apart")
+                        expect(String(format: words.text(.synergiesFound), 3, 135).contains("135")
+                               && String(format: words.text(.tavernHint), "x").contains("x"),
+                               "\(language) keeps its placeholders")
+                        for item in NotchMascotAccessory.rpgItems { expect(words.detail(of: item) != nil, "\(item) has a kind") }
+                    }
+
+                    // The perch holds a pair, and the flight clears the camera.
+                    expect(NotchMascotPerchLayout.seat(-1, size: 20) < 0 && NotchMascotPerchLayout.seat(1, size: 20) > 0
+                           && NotchMascotPerchLayout.seat(0, size: 20) == 0, "the pair perch seats the two apart")
+                    expect(NotchMascotIslandPlayLayer.overGap(50, gap: 40...60, margin: 2)
+                           && !NotchMascotIslandPlayLayer.overGap(10, gap: 40...60, margin: 2)
+                           && !NotchMascotIslandPlayLayer.overGap(50, gap: nil, margin: 2),
+                           "a flight is out of sight over the camera's gap")
+                    expect(NotchMascotIslandPlayLayer.arcLift(start: CGPoint(x: 0, y: 20), end: CGPoint(x: 90, y: 20), ceiling: 0,
+                                                              thing: 6, figure: 18) > 7,
+                           "the arc rises higher than a plain toss")
+                }
+
                 let from = CGPoint(x: 10, y: 20), to = CGPoint(x: 110, y: 20)
                 let start = NotchMascotIslandPlayLayer.place(progress: 0, from: from, to: to, lift: 6, falls: false, drop: 10)
                 let middle = NotchMascotIslandPlayLayer.place(progress: 0.5, from: from, to: to, lift: 6, falls: false, drop: 10)
@@ -11611,8 +11758,8 @@ struct MetricsTests {
 
             let wardrobe = NotchMascotWardrobe.self
             expect(NotchMascotAccessory.crown.unlockLevel == 10 && NotchMascotAccessory.eyePatch.unlockLevel == 18
-                   && NotchMascotAccessory.wardrobe.count == 18
-                   && NotchMascotAccessory.wardrobe.allSatisfy { $0.unlockLevel < NotchMascotForm.golden.unlockLevel },
+                   && NotchMascotAccessory.wardrobe.count == 18 + NotchMascotAccessory.rpgItems.count
+                   && NotchMascotAccessory.wardrobe.prefix(18).allSatisfy { $0.unlockLevel < NotchMascotForm.golden.unlockLevel },
                    "one accessory unlocks at each of the first eighteen levels, all before the first transformation")
             expect(NotchMascotAccessory.monocle.placement == .eyes && NotchMascotAccessory.eyePatch.placement == .eyes
                    && NotchMascotAccessory.bowTie.placement == .neck && NotchMascotAccessory.halo.placement == .head,

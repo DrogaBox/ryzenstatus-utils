@@ -2,7 +2,7 @@
 
 ## [1.55.0] — 2026-10-21 — kexts 3.35.0 (No kext changes)
 
-A large pass over the little things: the island opens from the keyboard and shows what happened while it was hidden, updates now say what changed for each feature you use, the screenshot editor gains a spotlight and a canvas that grows, and the switcher, mixer, dock preview and auto-quit stop getting in the way.
+A large pass over the little things: the island opens from the keyboard and shows what happened while it was hidden, updates now say what changed for each feature you use, the screenshot editor gains a spotlight and a canvas that grows, and the switcher, mixer, dock preview and auto-quit stop getting in the way. The companions also grow a Wonder Boy side: hearts and an hourglass to look after, gold, secret doors in the island, thirty-two more things to wear, a catalog of 135 combos for the pair and an arcade card to play them from.
 
 > **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.0. Only the application's validation version pin changes.
 
@@ -21,6 +21,13 @@ A large pass over the little things: the island opens from the keyboard and show
 - **The player's icon when a track has no cover**: the island shows the app that is playing instead of an empty square, without borrowing the cover-art tint.
 - **Limits for separate Codex accounts**: each account gets its own reading, and the usage page no longer mixes them.
 - **Silence after headphones disconnect**: the mixer can drop the output level instead of jumping to full volume.
+- **135 combos for the pair**: what the two wear or are brings a play of its own — tributes, duels, spells, feasts, music, heists, hardware jokes, twins in the same hat, figure-to-figure combos and eight mini-quests. They play in the closed island and out on the desktop alike, and Settings counts how many have been found.
+- **Thirty-two more things to wear**, one unlocked each level from nineteen to fifty: arms, helms, boots, wings, a jetpack, snacks and gadgets, all drawn as vectors.
+- **Hearts, an hourglass and gold**: three to ten heart containers, a vitality hourglass that runs down very slowly, and gold found by living with it. Under thirty percent, snacks grow in the track and score arcade points.
+- **Secret doors**: a shop, an inn, a tavern, a wizard's hut and a boss's lair open behind the camera now and then, or from the Pocket Card.
+- **The Pocket Card**: a click on the companion in the open island shows its hearts, hourglass, gold, class and combo, with buttons to throw fruit, open a door, run the combo and change what the two wear.
+- **Abilities by figure**: a ceiling walk, fireball breath, a glide, a dive and a springboard, acted out in the island and on the desktop.
+- **Both companions in Settings**: the stage shows the pair, with a button to try the combo.
 
 ### Changed
 
@@ -50,6 +57,12 @@ A large pass over the little things: the island opens from the keyboard and show
 - **Displays ignore DDC replies meant for another control**, and windows stay in their Mission Control desktop.
 - **The port manager shows port and PID numbers whole**, and the feature hub keeps its scroll position when a feature is opened.
 - **Island details**: the Japanese stopwatch name stays whole on macOS 15, the focus ring no longer shows when it opens, music takes priority over an idle companion, and a timed capture can dismiss under an island.
+- A capsule with a reading in its middle no longer offsets where the companions are caught or return to.
+- A hide that came due during a play, or a pat in the island, no longer cuts it short; a pat now counts, rests the hide timer and makes the other companion hop.
+- Two companions wearing the same thing now play together, and the pair out on the desktop use what they wear.
+- A friend pulled out first is no longer left alone when the companion comes home.
+- A floating island opened below the menu bar now perches both companions, side by side.
+- Things thrown across the island leave and land at the figures' own height, in a high arc, and stay out of sight over the camera.
 
 ## [1.54.0] — 2026-10-16 — kexts 3.35.0 (No kext changes)
 

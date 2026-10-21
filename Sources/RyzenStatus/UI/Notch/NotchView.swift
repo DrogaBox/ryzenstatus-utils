@@ -113,6 +113,7 @@ struct NotchView: View {
                         }
                     }
                     .overlay(alignment: .top) { residentMascot }
+                    .overlay(alignment: .top) { pocketCard }
             }
         } else if service.dragPlaceholder {
             Group {
@@ -284,6 +285,27 @@ struct NotchView: View {
                 .animation(nil, value: service.mascotBridging)
                 .allowsHitTesting(false)
                 .transition(.opacity)
+                // A click on it opens the Pocket Card.
+                .overlay(alignment: .topLeading) {
+                    Color.clear
+                        .frame(width: track.size * 1.3, height: track.size * 1.3)
+                        .contentShape(Rectangle())
+                        .onTapGesture { withAnimation(.snappy) { service.mascotPocketCardShown.toggle() } }
+                        .offset(x: track.rest - track.size * 0.65, y: track.baseline - track.size * 0.65)
+                        .accessibilityLabel(FeatureStrings.notchMascotRPG(L10n.shared.language).text(.pocketCard))
+                        .accessibilityAddTraits(.isButton)
+                }
+        }
+    }
+
+    /// The companion's arcade card, below the strip on its side of the camera.
+    @ViewBuilder private var pocketCard: some View {
+        if service.mascotPocketCardShown, service.mascotResidentShows {
+            NotchMascotPocketCard(service: service)
+                .padding(.top, service.geometry.stripHeight + 6)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, alignment: service.mascotSide == .left ? .leading : .trailing)
+                .transition(.scale(scale: 0.92, anchor: .top).combined(with: .opacity))
         }
     }
 
@@ -960,7 +982,7 @@ struct NotchRestingStrip: View {
                 let track = service.mascotFriendTrack(on: geometry)
                 NotchMascotTrackView(look: friend, track: track, rests: true, visit: nil,
                                      mood: service.mascotRestingMood, reaction: service.mascotFriendReaction,
-                                     yieldsToActivities: true)
+                                     yieldsToActivities: true, isFriend: true)
                     .frame(width: track.width, height: track.height)
                     .opacity(service.mascotFriendSteppedAside ? 0 : 1)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: service.mascotFriendSteppedAside)
@@ -969,8 +991,9 @@ struct NotchRestingStrip: View {
             }
             // What they toss to each other across the camera as they play.
             if service.mascotFriendRests(on: geometry), let friend = service.mascotFriendLook,
-               service.mascotIslandFlight != nil || service.mascotIslandBurst != nil {
+               service.mascotIslandFlight != nil || service.mascotIslandBurst != nil || service.mascotIslandMarker != nil {
                 NotchMascotIslandPlayLayer(flight: service.mascotIslandFlight, burst: service.mascotIslandBurst,
+                                           marker: service.mascotIslandMarker,
                                            leader: NotchMascotSupport.track(stripWidth: geometry.collapsed.width,
                                                                             stripHeight: geometry.stripHeight,
                                                                             wing: geometry.restingWingWidth,

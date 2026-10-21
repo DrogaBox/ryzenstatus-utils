@@ -104,6 +104,9 @@ struct NotchMascotLifeStrings {
         case .santaHat: return santaHat
         case .partyHat: return partyHat
         case .headband: return headband
+        default:
+            // The Wonder Boy wardrobe is worded in NotchMascotStrings.
+            return FeatureStrings.notchMascotRPG(L10n.shared.language).name(of: accessory) ?? ""
         }
     }
 }

@@ -10,6 +10,7 @@ import SwiftUI
 struct NotchMascotIslandPlayLayer: View {
     let flight: NotchMascotIslandFlightEvent?
     let burst: NotchMascotIslandBurstEvent?
+    var marker: NotchMascotIslandMarkerEvent? = nil
     let leader: NotchMascotTrack
     let friend: NotchMascotTrack
     let leaderLook: NotchMascotLook
@@ -21,6 +22,7 @@ struct NotchMascotIslandPlayLayer: View {
             ZStack {
                 if let flight { flying(flight, now: now) }
                 if let burst { bursting(burst, now: now) }
+                if let marker { marking(marker, now: now) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -38,15 +40,46 @@ struct NotchMascotIslandPlayLayer: View {
             let from = flight.fromLeader ? leader : friend
             let to = flight.fromLeader ? friend : leader
             let size = max(5, leader.size * 0.38)
-            let lift = min(leader.size * 0.42, max(2, leader.baseline - leader.ceiling - size / 2))
-            let start = CGPoint(x: from.rest, y: from.baseline - from.size * 0.1)
-            let end = CGPoint(x: to.rest, y: to.baseline - to.size * 0.1)
+            // Each figure sits a little off its square: the flight leaves and
+            // lands at the figure's own height, not the square's.
+            let fromLook = flight.fromLeader ? leaderLook : friendLook
+            let toLook = flight.fromLeader ? friendLook : leaderLook
+            let start = CGPoint(x: from.rest,
+                                y: from.baseline - from.size * 0.1 + NotchMascotGeometry.figureOffset(fromLook) * from.size)
+            let end = CGPoint(x: to.rest,
+                              y: to.baseline - to.size * 0.1 + NotchMascotGeometry.figureOffset(toLook) * to.size)
+            // A high arc, as high as the island allows, so it clears the
+            // camera's gap, and out of sight while it is over the gap.
+            let lift = Self.arcLift(start: start, end: end, ceiling: leader.ceiling, thing: size, figure: leader.size)
             let place = Self.place(progress: progress, from: start, to: end, lift: lift, falls: flight.falls,
                                    drop: leader.size * 0.5)
-            thing(flight.thing, size: size, look: flight.fromLeader ? leaderLook : friendLook)
+            let hidden = Self.overGap(place.point.x, gap: leader.hidden ?? friend.hidden, margin: size * 0.5)
+            thing(flight.thing, size: size, look: fromLook)
                 .rotationEffect(.degrees(Self.spins(flight.thing) ? progress * 360 : 0))
-                .opacity(place.opacity)
+                .scaleEffect(x: end.x < start.x && Self.points(flight.thing) ? -1 : 1, y: 1)
+                .opacity(hidden ? 0 : place.opacity)
                 .position(place.point)
+        }
+    }
+
+    /// How high the arc rises above the line between the two: the island's
+    /// room up to its top, but at least what a figure's hop takes.
+    static func arcLift(start: CGPoint, end: CGPoint, ceiling: CGFloat, thing: CGFloat, figure: CGFloat) -> CGFloat {
+        let room = min(start.y, end.y) - ceiling - thing / 2
+        return max(2, min(figure * 1.1, room))
+    }
+
+    /// Whether x is over the camera's gap, where nothing shows.
+    static func overGap(_ x: CGFloat, gap: ClosedRange<CGFloat>?, margin: CGFloat) -> Bool {
+        guard let gap else { return false }
+        return x > gap.lowerBound - margin && x < gap.upperBound + margin
+    }
+
+    /// Things that have a front and point the way they fly.
+    static func points(_ thing: NotchMascotIslandPlay.Thing) -> Bool {
+        switch thing {
+        case .arrow, .sword, .fireball, .key: return true
+        default: return false
         }
     }
 
@@ -77,13 +110,24 @@ struct NotchMascotIslandPlayLayer: View {
 
     static func spins(_ thing: NotchMascotIslandPlay.Thing) -> Bool {
         switch thing {
-        case .star, .ball, .coin, .cookie, .flower: return true
-        case .heart, .note, .spark, .snowball: return false
+        case .star, .ball, .coin, .cookie, .flower, .boomerang: return true
+        case .heart, .note, .spark, .snowball, .fireball, .arrow, .key, .potion, .bag, .bolt, .tornado, .sword,
+             .snack: return false
         }
     }
 
     @ViewBuilder
     private func thing(_ thing: NotchMascotIslandPlay.Thing, size: CGFloat, look: NotchMascotLook) -> some View {
+        if let parts = NotchMascotRPGShapes.prop(thing, at: CGPoint(x: size, y: size), side: size * 1.5) {
+            NotchMascotPartsView(parts: parts, side: size * 2)
+                .frame(width: size * 2, height: size * 2)
+        } else {
+            basicThing(thing, size: size, look: look)
+        }
+    }
+
+    @ViewBuilder
+    private func basicThing(_ thing: NotchMascotIslandPlay.Thing, size: CGFloat, look: NotchMascotLook) -> some View {
         switch thing {
         case .heart: symbol("heart.fill", size: size, color: Color(hex: 0xFF5E8A))
         case .star: symbol("star.fill", size: size, color: Color(hex: 0xFFD23F))
@@ -108,6 +152,8 @@ struct NotchMascotIslandPlayLayer: View {
         case .coin:
             Circle().fill(Color(hex: 0xFFC940)).frame(width: size * 0.8, height: size * 0.8)
                 .overlay(Circle().stroke(Color(hex: 0xD99A1E), lineWidth: 0.8))
+        default:
+            EmptyView()
         }
     }
 
@@ -123,21 +169,107 @@ struct NotchMascotIslandPlayLayer: View {
 
     @ViewBuilder
     private func bursting(_ event: NotchMascotIslandBurstEvent, now: CFTimeInterval) -> some View {
-        let progress = (now - event.start) / NotchMascotIslandPlay.burstLength
+        let progress = (now - event.start) / max(0.01, event.burst.duration)
         if progress >= 0, progress <= 1 {
             let track = event.burst.onLeader ? leader : friend
             let look = event.burst.onLeader ? leaderLook : friendLook
-            let center = CGPoint(x: track.rest, y: track.baseline - track.size * 0.45)
+            let center = CGPoint(x: track.rest,
+                                 y: track.baseline - track.size * 0.45 + NotchMascotGeometry.figureOffset(look) * track.size)
             let p = CGFloat(progress)
-            ForEach(0..<6, id: \.self) { index in
-                let angle = Double(index) / 6 * 2 * .pi - .pi / 2 + 0.3
-                let reach = track.size * (0.35 + 0.45 * p)
-                let rise = event.burst.burst == .hearts ? track.size * 0.4 * p : 0
-                particle(event.burst.burst, index: index, size: max(3, track.size * 0.2), look: look)
-                    .opacity(Double(1 - p * p))
-                    .position(x: center.x + CGFloat(cos(angle)) * reach,
-                              y: center.y + CGFloat(sin(angle)) * reach * 0.55 - rise)
+            switch event.burst.burst {
+            case .door: door(progress: progress, now: now, event: event)
+            case .coins: coins(center: center, track: track, progress: p)
+            case .smoke: smoke(center: center, track: track, progress: p, look: look)
+            default: classicBurst(event.burst, center: center, track: track, look: look, p: p)
             }
+        }
+    }
+
+    /// The secret door in the middle, over the camera's gap or between the two.
+    @ViewBuilder
+    private func door(progress: Double, now: CFTimeInterval, event: NotchMascotIslandBurstEvent) -> some View {
+        let p = max(0, min(1, (now - event.start) / max(0.01, event.burst.duration)))
+        let height = leader.size * 1.5
+        let width = height * 0.62
+        let x = leader.hidden.map { ($0.lowerBound + $0.upperBound) / 2 } ?? (leader.rest + friend.rest) / 2
+        // It grows in, swings open, holds, and closes.
+        let open = p < 0.25 ? p / 0.25 : (p < 0.8 ? 1 : max(0, 1 - (p - 0.8) / 0.2))
+        let scale = p < 0.15 ? 0.2 + 0.88 * (p / 0.15) : (p > 0.85 ? max(0.2, 1 - (p - 0.85) / 0.15 * 0.8) : 1)
+        let rect = CGRect(x: (height - width) / 2, y: 0, width: width, height: height)
+        NotchMascotPartsView(parts: NotchMascotRPGShapes.door(in: rect, open: CGFloat(open)), side: height)
+            .frame(width: height, height: height)
+            .scaleEffect(scale, anchor: .bottom)
+            .opacity(p < 0.08 ? p / 0.08 : (p > 0.9 ? max(0, (1 - p) / 0.1) : 1))
+            .position(x: x, y: max(height / 2, leader.baseline + leader.size * 0.3 - height / 2))
+    }
+
+    @ViewBuilder
+    private func coins(center: CGPoint, track: NotchMascotTrack, progress p: CGFloat) -> some View {
+        let radius = max(2.5, track.size * 0.11)
+        ForEach(0..<5, id: \.self) { index in
+            let drift = CGFloat(index - 2) * radius * 1.7
+            // Up and over, then a bounce on the way down.
+            let t = min(1, p * 1.1)
+            let arc = sin(.pi * min(1, t * 1.15))
+            let bounce = t > 0.75 ? abs(sin(.pi * (t - 0.75) / 0.25)) * 0.25 : 0
+            NotchMascotPartsView(parts: NotchMascotRPGShapes.coin(at: CGPoint(x: radius * 1.5, y: radius * 1.5), radius: radius,
+                                                                  turn: CGFloat(cos(Double(t) * 14 + Double(index)))),
+                                 side: radius * 3)
+                .frame(width: radius * 3, height: radius * 3)
+                .opacity(Double(t > 0.9 ? (1 - t) * 10 : 1))
+                .position(x: center.x + drift * t, y: center.y - track.size * 0.7 * (arc + bounce))
+        }
+    }
+
+    @ViewBuilder
+    private func smoke(center: CGPoint, track: NotchMascotTrack, progress p: CGFloat, look: NotchMascotLook) -> some View {
+        let tint = Self.color(NotchMascotPlay.energy(for: look))
+        ForEach(0..<5, id: \.self) { index in
+            let side = CGFloat(index % 2 == 0 ? 1 : -1)
+            let radius = track.size * (0.14 + 0.1 * CGFloat(index % 3)) * (0.5 + p)
+            Circle().fill(index.isMultiple(of: 2) ? Color.white.opacity(0.8) : tint.opacity(0.75))
+                .frame(width: radius * 2, height: radius * 2)
+                .opacity(Double(1 - p * p))
+                .position(x: center.x + side * track.size * 0.18 * CGFloat(index) * p,
+                          y: center.y - track.size * 0.7 * p - CGFloat(index) * 1.5)
+        }
+    }
+
+    @ViewBuilder
+    private func classicBurst(_ at: NotchMascotIslandPlay.BurstAt, center: CGPoint, track: NotchMascotTrack,
+                              look: NotchMascotLook, p: CGFloat) -> some View {
+        ForEach(0..<6, id: \.self) { index in
+            let angle = Double(index) / 6 * 2 * .pi - .pi / 2 + 0.3
+            let reach = track.size * (0.35 + 0.45 * p)
+            let rise = at.burst == .hearts ? track.size * 0.4 * p : 0
+            particle(at.burst, index: index, size: max(3, track.size * 0.2), look: look)
+                .opacity(Double(1 - p * p))
+                .position(x: center.x + CGFloat(cos(angle)) * reach,
+                          y: center.y + CGFloat(sin(angle)) * reach * 0.55 - rise)
+        }
+    }
+
+    // MARK: Marker
+
+    /// An arcade marker rising over one of them, lit in pixels.
+    @ViewBuilder
+    private func marking(_ event: NotchMascotIslandMarkerEvent, now: CFTimeInterval) -> some View {
+        let progress = (now - event.start) / NotchMascotIslandPlay.markerLength
+        if progress >= 0, progress <= 1 {
+            let track = event.marker.onLeader ? leader : friend
+            let look = event.marker.onLeader ? leaderLook : friendLook
+            let p = CGFloat(progress)
+            let cell = max(0.9, track.size * 0.065)
+            let size = NotchMascotRPGShapes.pixelSize(event.marker.text, cell: cell)
+            let top = track.baseline - track.size * 0.8 + NotchMascotGeometry.figureOffset(look) * track.size
+            let lift = track.size * 0.35 * p
+            let pop = p < 0.2 ? 0.4 + 3 * p : 1
+            NotchMascotPixelText(text: event.marker.text, cell: cell)
+                .frame(width: size.width + cell, height: size.height + cell)
+                .scaleEffect(pop)
+                .opacity(p < 0.1 ? Double(p / 0.1) : (p > 0.75 ? Double(max(0, (1 - p) / 0.25)) : 1))
+                .position(x: min(max(track.rest, size.width / 2 + 1), max(size.width / 2 + 1, track.width - size.width / 2 - 1)),
+                          y: max(size.height / 2, top - lift))
         }
     }
 
@@ -153,6 +285,7 @@ struct NotchMascotIslandPlayLayer: View {
         case .sparkles: symbol("sparkle", size: size, color: index % 2 == 0 ? Color(hex: 0xFFE27A) : .white)
         case .hearts: symbol("heart.fill", size: size, color: Color(hex: 0xFF5E8A))
         case .magic: symbol("sparkles", size: size, color: Self.color(NotchMascotPlay.energy(for: look)))
+        case .coins, .smoke, .door: EmptyView()
         }
     }
 }
@@ -163,3 +296,38 @@ private extension Color {
                   blue: Double(hex & 0xFF) / 255)
     }
 }
+
+/// Parts drawn in a square of `side` points, y growing downward.
+struct NotchMascotPartsView: View {
+    let parts: [NotchMascotWearablePart]
+    let side: CGFloat
+
+    var body: some View {
+        Canvas { context, _ in
+            for part in parts {
+                let path = Path(part.path)
+                if let fill = part.fill { context.fill(path, with: .color(Color(cgColor: fill))) }
+                if let stroke = part.stroke, part.lineWidth > 0 {
+                    context.stroke(path, with: .color(Color(cgColor: stroke)),
+                                   style: StrokeStyle(lineWidth: part.lineWidth, lineCap: .round, lineJoin: .round))
+                }
+            }
+        }
+        .frame(width: side, height: side)
+    }
+}
+
+/// An arcade marker lit in pixels, with a shadow a pixel below.
+struct NotchMascotPixelText: View {
+    let text: String
+    let cell: CGFloat
+
+    var body: some View {
+        Canvas { context, _ in
+            let path = Path(NotchMascotRPGShapes.pixelPath(text, cell: cell))
+            context.fill(path.offsetBy(dx: cell * 0.6, dy: cell * 0.6), with: .color(.black.opacity(0.7)))
+            context.fill(path, with: .color(Color(cgColor: NotchMascotRPGShapes.markerColor(text))))
+        }
+    }
+}
+

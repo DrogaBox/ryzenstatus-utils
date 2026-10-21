@@ -67,7 +67,9 @@ final class NotchMascotPlayDirector {
               leader.playScreen == friend.playScreen, let a = leader.feet, let b = friend.feet else { return false }
         let context = NotchMascotPlay.Context(distance: abs(a.x - b.x), music: music(),
                                               since: CACurrentMediaTime() - lastPlay,
-                                              hour: Calendar.current.component(.hour, from: Date()), recent: recent)
+                                              hour: Calendar.current.component(.hour, from: Date()), recent: recent,
+                                              leaderLook: leader.playLook, friendLook: friend.playLook,
+                                              rpg: NotchMascotRPG.snapshot())
         guard let play = NotchMascotPlay.next(in: context, random: { Double.random(in: 0..<1) }) else { return false }
         start(play)
         return true
@@ -86,8 +88,10 @@ final class NotchMascotPlayDirector {
             let places = NotchMascotPlay.places(leaderX: a.x, friendX: b.x, spacing: spacing,
                                                 minX: floor.lowerBound, maxX: floor.upperBound)
             // One dozing already stays where it lies.
-            let leaderWalk = leader.isDozing ? 0 : leader.stroll(to: places.leader, pace: 1.6)
-            let friendWalk = friend.isDozing ? 0 : friend.stroll(to: places.friend, pace: 1.6)
+            // Winged boots from the shop quicken the steps for a while.
+            let pace: CGFloat = NotchMascotRPG.stepBuffActive ? 2.3 : 1.6
+            let leaderWalk = leader.isDozing ? 0 : leader.stroll(to: places.leader, pace: pace)
+            let friendWalk = friend.isDozing ? 0 : friend.stroll(to: places.friend, pace: pace)
             ready = max(leaderWalk, friendWalk) + 0.35
         }
         at(ready) { [weak self] in self?.act(play) }
@@ -176,6 +180,74 @@ final class NotchMascotPlayDirector {
         case .mimic(let rounds): mimic(rounds: rounds)
         case .gift(let byLeader): gift(from: byLeader ? leader : friend, to: byLeader ? friend : leader)
         case .nap: nap()
+        case .choreography(let play): choreograph(play)
+        }
+    }
+
+    /// A play of the island's, acted out on the desktop: its beats in order,
+    /// with the props flying between the two, bursts over them, arcade
+    /// markers rising, and the door standing on the floor between them.
+    private func choreograph(_ play: NotchMascotIslandPlay) {
+        for beat in play.beats {
+            at(beat.at) { [weak self] in self?.perform(beat) }
+        }
+        if case .ability(let ability) = play.kind { abilityMoves(ability) }
+        at(play.length) { NotchMascotRPG.applyOutcome(of: play) }
+        finish(after: play.length + 0.9)
+    }
+
+    private func perform(_ beat: NotchMascotIslandPlay.Beat) {
+        guard leader.isOut, friend.isOut else { return }
+        if let reaction = beat.leader { leader.react(reaction) }
+        if let reaction = beat.friend { friend.react(reaction) }
+        guard let canvas = canvas() else { return }
+        let figure = leader.figureSize
+        if let flight = beat.flight {
+            let from = flight.fromLeader ? leader : friend
+            let to = flight.fromLeader ? friend : leader
+            let side = direction(from: from, to: to)
+            NotchMascotPlayEffects.fly(flight.thing, in: canvas, from: onCanvas(from.hand(toward: side)),
+                                       to: onCanvas(to.hand(toward: -side)), duration: flight.duration,
+                                       side: max(14, figure * 0.34), falls: flight.falls, energy: energy(from))
+        }
+        if let burst = beat.burst {
+            let one = burst.onLeader ? leader : friend
+            if burst.burst == .door, let a = leader.feet, let b = friend.feet {
+                NotchMascotPlayEffects.secretDoor(in: canvas, at: onCanvas(middle(a, b)), height: figure * 1.5,
+                                                  duration: burst.duration)
+            } else {
+                NotchMascotPlayEffects.burst(burst.burst, in: canvas, at: onCanvas(one.head), size: figure * 0.9,
+                                             energy: energy(one), duration: burst.duration)
+            }
+        }
+        if let marker = beat.marker {
+            let one = marker.onLeader ? leader : friend
+            let head = one.head
+            NotchMascotPlayEffects.arcadeMarker(marker.text, in: canvas,
+                                                at: onCanvas(CGPoint(x: head.x, y: head.y + figure * 0.35)),
+                                                cell: max(1.6, figure * 0.05))
+        }
+    }
+
+    /// What an ability asks of the body: the one that has it springs, glides,
+    /// dives or climbs, where the strip only shows it.
+    private func abilityMoves(_ ability: NotchMascotAbility) {
+        let doer = NotchMascotAbility.of(leader.playLook.style) == ability ? leader : friend
+        let other = doer === leader ? friend : leader
+        let side = direction(from: doer, to: other)
+        switch ability {
+        case .glide:
+            at(0.6) { doer.hop(dx: side * 200, dy: 140) }
+        case .pepelogooSpringboard:
+            at(0.7) { doer.hop(dx: 0, dy: 150) }
+            at(1.2) { doer.hop(dx: side * 30, dy: 220) }
+        case .dolphinDive:
+            at(0.5) { doer.hop(dx: side * 50, dy: 120) }
+            at(1.4) { doer.hop(dx: side * 50, dy: 120) }
+        case .ceilingWalk:
+            at(0.6) { doer.hop(dx: side * 60, dy: 200) }
+        case .fireballBreath:
+            break
         }
     }
 

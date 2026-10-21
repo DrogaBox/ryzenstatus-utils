@@ -13,6 +13,16 @@ enum NotchMascotPerchLayout {
     /// small movements turn its eyes and not its feet.
     static let stride: CGFloat = 18
 
+    /// How far a perched pair stands from the bar's middle, in companion
+    /// sizes, and how far each walks from its seat.
+    static let pairSeat: CGFloat = 0.75
+    static let pairReach: CGFloat = 0.4
+
+    /// Where a seat is, relative to the bar's middle.
+    static func seat(_ side: Int, size: CGFloat) -> CGFloat {
+        CGFloat(max(-1, min(1, side))) * size * pairSeat
+    }
+
     /// Its window: wide enough for its props and hops, as tall as the bar,
     /// centred on `centerX` along the top of `screen`.
     static func frame(screen: CGRect, barHeight: CGFloat, centerX: CGFloat, size: CGFloat) -> CGRect {
@@ -66,12 +76,16 @@ final class NotchMascotPerch {
 
     /// Shows it over `geometry`'s bar, or keeps it there with a new look or
     /// mood. A perch already up stays where it walked to.
-    func show(geometry: NotchGeometry, look: NotchMascotLook, mood: NotchMascotMood, visibleInCaptures: Bool) {
+    /// `side` seats it for a pair: -1 stands the companion left of the bar's
+    /// middle, 1 its friend on the right, each a little apart from the
+    /// other; 0 is alone, in the middle.
+    func show(geometry: NotchGeometry, look: NotchMascotLook, mood: NotchMascotMood, visibleInCaptures: Bool,
+              side: Int = 0) {
         // Opened again while it was fading out: it comes back where it was.
         let returning = hideWork != nil
         hideWork?.cancel(); hideWork = nil
         let size = NotchMascotSupport.size(stripHeight: geometry.stripBodyHeight, floats: true)
-        let middle = geometry.screen.midX
+        let middle = geometry.screen.midX + NotchMascotPerchLayout.seat(side, size: size)
         let frame = NotchMascotPerchLayout.frame(screen: geometry.screen, barHeight: geometry.menuBarHeight,
                                                  centerX: middle, size: size)
         let panel = self.panel ?? makePanel()
@@ -95,6 +109,8 @@ final class NotchMascotPerch {
         }
         reach = NotchMascotPerchLayout.reach(cameraWidth: geometry.cameraWidth, sideRoom: geometry.compactSideRoom,
                                              windowWidth: frame.width)
+        // Side by side, each stays near its seat so they never walk through each other.
+        if side != 0 { reach = min(reach, size * NotchMascotPerchLayout.pairReach) }
         host.configure(look: look, size: size, mood: mood, idles: true, reduceMotion: reduceMotion,
                        animated: !arriving)
         host.place(at: nil, visible: nil)

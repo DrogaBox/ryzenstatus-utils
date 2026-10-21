@@ -1367,6 +1367,8 @@ final class NotchMascotHostView: NSView {
     private var placement: (center: CGPoint?, visible: [CGRect]?) = (nil, nil)
     /// A resting companion's eyes follow the pointer over the island, and
     /// the pointer wakes it from a long rest.
+    /// Whether it is the friend, so a pat tells the island which of the two it was.
+    var isFriend = false
     var followsPointer = false {
         didSet {
             guard followsPointer != oldValue else { return }
@@ -1590,6 +1592,7 @@ final class NotchMascotHostView: NSView {
             self.mascot.react(.love, lift: 0)
             let gained = NotchMascotBondStore.shared.record(.petted)
             self.mascot.showPetted(gained: gained)
+            NotchService.shared.noteMascotPettedInIsland(isFriend: self.isFriend)
             // A soft tick under a finger on the trackpad, as the hearts come.
             if NotchSupport.usesHapticFeedback() {
                 NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
@@ -1814,6 +1817,8 @@ struct NotchMascotTrackView: NSViewRepresentable {
     /// The lasting mood it shows at rest. Nil follows the automatic
     /// reactions, as in the island; the Settings preview passes its own.
     var ambient: MascotMoodState? = nil
+    /// It is the friend that lives with the companion, not the companion.
+    var isFriend = false
 
     func makeNSView(context: Context) -> NotchMascotHostView {
         NotchMascotHostView(frame: CGRect(x: 0, y: 0, width: track.width, height: track.height))
@@ -1833,6 +1838,7 @@ struct NotchMascotTrackView: NSViewRepresentable {
                               height: track.height * 3)]
         }
         view.place(at: CGPoint(x: x, y: track.baseline), visible: visible)
+        view.isFriend = isFriend
         view.followsPointer = rests && awake
         view.followsIsland = followsIsland && rests && awake
         view.yieldsToActivities = yieldsToActivities

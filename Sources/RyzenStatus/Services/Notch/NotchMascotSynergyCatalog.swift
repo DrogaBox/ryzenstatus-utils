@@ -1,0 +1,865 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 RyzenStatus
+
+import Foundation
+
+/// The ten families the combos are grouped in.
+enum SynergyCategory: Int, CaseIterable, Identifiable {
+    case wonderBoy = 1, combat, magic, tavern, music, rogues, sciFi, twin, species, quests
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .wonderBoy: return "Wonder Boy tributes"
+        case .combat: return "RPG combat"
+        case .magic: return "Magic and alchemy"
+        case .tavern: return "Tavern and feast"
+        case .music: return "Music and dance"
+        case .rogues: return "Rogues and exploration"
+        case .sciFi: return "Sci-fi and Ryzen hardware"
+        case .twin: return "Twin and mirror combos"
+        case .species: return "Species synergies"
+        case .quests: return "Mini-quests and your input"
+        }
+    }
+
+    var titleES: String {
+        switch self {
+        case .wonderBoy: return "Homenajes a Wonder Boy"
+        case .combat: return "Combate RPG"
+        case .magic: return "Magia y alquimia"
+        case .tavern: return "Taberna y banquete"
+        case .music: return "Música y baile"
+        case .rogues: return "Pícaros y exploración"
+        case .sciFi: return "Sci-fi y hardware Ryzen"
+        case .twin: return "Combos gemelos y espejo"
+        case .species: return "Sinergias de especie"
+        case .quests: return "Mini-quests e interacción"
+        }
+    }
+}
+
+/// What the two of them wear or are that makes a combo theirs.
+enum NotchMascotSynergyMatch: Equatable {
+    /// The two wear these, in either order.
+    case pair(NotchMascotAccessory, NotchMascotAccessory)
+    /// Both wear this one.
+    case twin(NotchMascotAccessory)
+    /// Either wears it.
+    case wears(NotchMascotAccessory)
+    /// Their figures are these, in either order.
+    case styles(NotchMascotStyle, NotchMascotStyle)
+    /// A figure of this style wears this.
+    case styleWears(NotchMascotStyle, NotchMascotAccessory)
+    /// Either is this figure.
+    case style(NotchMascotStyle)
+    /// Played on demand: from the Pocket Card, a click or a door.
+    case quest
+
+    /// A pair of things worn beats one worn, which beats one figure alone.
+    var specificity: Int {
+        switch self {
+        case .pair, .twin, .styleWears: return 3
+        case .styles: return 2
+        case .wears, .style: return 1
+        case .quest: return 0
+        }
+    }
+
+    func matches(leaderWears: NotchMascotAccessory, friendWears: NotchMascotAccessory,
+                 leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle) -> Bool {
+        switch self {
+        case .pair(let a, let b):
+            return (leaderWears == a && friendWears == b) || (leaderWears == b && friendWears == a)
+        case .twin(let a): return leaderWears == a && friendWears == a
+        case .wears(let a): return leaderWears == a || friendWears == a
+        case .styles(let s, let t):
+            return (leaderStyle == s && friendStyle == t) || (leaderStyle == t && friendStyle == s)
+        case .styleWears(let s, let a):
+            return (leaderStyle == s && leaderWears == a) || (friendStyle == s && friendWears == a)
+        case .style(let s): return leaderStyle == s || friendStyle == s
+        case .quest: return false
+        }
+    }
+
+    /// Whether the companion starts it: the one wearing or being the first
+    /// thing named does, and with nothing to tell them apart, `fallback`.
+    func starterIsLeader(leaderWears: NotchMascotAccessory, friendWears: NotchMascotAccessory,
+                         leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle, fallback: Bool) -> Bool {
+        switch self {
+        case .pair(let a, let b):
+            if a == b { return fallback }
+            if leaderWears == a && friendWears == b { return true }
+            if friendWears == a && leaderWears == b { return false }
+            return fallback
+        case .wears(let a):
+            if leaderWears == a && friendWears != a { return true }
+            if friendWears == a && leaderWears != a { return false }
+            return fallback
+        case .styles(let s, let t):
+            if s == t { return fallback }
+            return leaderStyle == s && friendStyle == t ? true : (friendStyle == s && leaderStyle == t ? false : fallback)
+        case .styleWears(let s, let a):
+            if leaderStyle == s && leaderWears == a && !(friendStyle == s && friendWears == a) { return true }
+            if friendStyle == s && friendWears == a && !(leaderStyle == s && leaderWears == a) { return false }
+            return fallback
+        case .style(let s):
+            if leaderStyle == s && friendStyle != s { return true }
+            if friendStyle == s && leaderStyle != s { return false }
+            return fallback
+        case .twin, .quest: return fallback
+        }
+    }
+}
+
+/// How a combo plays out between the two. Seven shapes, each with its own
+/// props, reactions, bursts and arcade markers per combo.
+enum NotchMascotSynergyScript: Equatable {
+    typealias Thing = NotchMascotIslandPlay.Thing
+    typealias Burst = NotchMascotIslandPlay.Burst
+
+    /// The starter readies, sends `thing`, and the other takes it.
+    case give(Thing, NotchMascotReaction, Burst?, String?)
+    /// `thing` goes to and fro `rounds` times; the last one is missed.
+    case volley(Thing, Int, Burst?, String?)
+    /// Both ready and let go `thing`, one after the other; the starter wins.
+    case duel(Thing, Burst, String?)
+    /// Both act, then a burst over each.
+    case ritual(NotchMascotReaction, NotchMascotReaction, Burst, String?)
+    /// Notes or stars both ways, then both groove.
+    case chorus(Thing, NotchMascotReaction, String?)
+    /// A slow moment: one, the other, then both.
+    case calm(NotchMascotReaction, NotchMascotReaction, Burst, String?)
+    /// A secret door opens.
+    case door(WonderBoySecretDoor)
+
+    func write(into score: inout NotchMascotIslandPlay.Score) {
+        let lands = NotchMascotIslandPlay.flightLength
+        switch self {
+        case .give(let thing, let catches, let burst, let marker):
+            score.act(0, starter: .ready)
+            score.toss(0.4, thing, fromStarter: true)
+            let at = 0.4 + lands
+            score.act(at, other: catches)
+            if let burst { score.burst(at, burst, onStarter: false) }
+            if let marker { score.marker(at + 0.2, marker, onStarter: false) }
+            score.act(at + 1.1, starter: .celebrate)
+
+        case .volley(let thing, let rounds, let burst, let marker):
+            score.act(0, starter: .ready)
+            for round in 0..<max(1, rounds) {
+                let fromStarter = round % 2 == 0
+                let start = 0.3 + Double(round) * 1.05
+                let last = round == max(1, rounds) - 1
+                score.toss(start, thing, fromStarter: fromStarter, falls: last)
+                let at = start + lands
+                if last {
+                    score.act(at, starter: fromStarter ? .celebrate : .surprised,
+                              other: fromStarter ? .surprised : .celebrate)
+                    if let burst { score.burst(at, burst, onStarter: !fromStarter) }
+                    if let marker { score.marker(at + 0.2, marker, onStarter: fromStarter) }
+                } else {
+                    score.act(at - 0.1, starter: fromStarter ? nil : .perk, other: fromStarter ? .perk : nil)
+                }
+            }
+
+        case .duel(let thing, let burst, let marker):
+            score.act(0, starter: .ready, other: .ready)
+            score.act(0.8, starter: .flash, other: .flash)
+            score.toss(0.9, thing, fromStarter: true)
+            score.toss(0.9 + lands + 0.05, thing, fromStarter: false)
+            let at = 0.9 + 2 * lands + 0.1
+            score.act(at, starter: .celebrate, other: .surprised)
+            score.burst(at, burst, onStarter: false)
+            if let marker { score.marker(at + 0.2, marker, onStarter: true) }
+
+        case .ritual(let first, let second, let burst, let marker):
+            score.act(0, starter: first)
+            score.act(0.9, other: second)
+            score.act(1.8, starter: first, other: second)
+            score.burst(1.8, burst, onStarter: true)
+            score.burst(2.0, burst, onStarter: false)
+            if let marker { score.marker(2.1, marker, onStarter: true) }
+
+        case .chorus(let thing, let reaction, let marker):
+            score.act(0, starter: .groove)
+            score.toss(0.4, thing, fromStarter: true)
+            score.act(0.4 + lands, other: reaction)
+            score.toss(1.5, thing, fromStarter: false)
+            score.act(1.5 + lands, starter: reaction, other: .groove)
+            if let marker { score.marker(1.5 + lands, marker, onStarter: true) }
+
+        case .calm(let first, let second, let burst, let marker):
+            score.act(0, starter: first)
+            score.act(1.3, other: second)
+            score.act(2.6, starter: .relax, other: .relax)
+            score.burst(2.6, burst, onStarter: true)
+            score.burst(2.8, burst, onStarter: false)
+            if let marker { score.marker(2.8, marker, onStarter: false) }
+
+        case .door(let door):
+            NotchMascotIslandPlay.writeDoor(door, into: &score)
+        }
+    }
+}
+
+/// One combo of the catalog: a name, a family, what makes it theirs and how
+/// it plays. Played in the closed island and out on the desktop alike.
+struct NotchMascotSynergy: Identifiable, Equatable {
+    /// Its place in the catalog, 1...135.
+    let number: Int
+    let id: String
+    let category: SynergyCategory
+    let name: String
+    let nameES: String
+    let description: String
+    let descriptionES: String
+    let match: NotchMascotSynergyMatch
+    let script: NotchMascotSynergyScript
+
+    func matches(leaderWears: NotchMascotAccessory, friendWears: NotchMascotAccessory,
+                 leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle) -> Bool {
+        match.matches(leaderWears: leaderWears, friendWears: friendWears,
+                      leaderStyle: leaderStyle, friendStyle: friendStyle)
+    }
+
+    func starterIsLeader(leaderWears: NotchMascotAccessory, friendWears: NotchMascotAccessory,
+                         leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle, fallback: Bool) -> Bool {
+        match.starterIsLeader(leaderWears: leaderWears, friendWears: friendWears,
+                              leaderStyle: leaderStyle, friendStyle: friendStyle, fallback: fallback)
+    }
+
+    /// The play it makes, started by the companion or by its friend.
+    func play(starterIsLeader: Bool) -> NotchMascotIslandPlay {
+        var score = NotchMascotIslandPlay.Score(byLeader: starterIsLeader)
+        script.write(into: &score)
+        return NotchMascotIslandPlay(kind: .synergy(id), beats: score.beats)
+    }
+
+    /// Its name in `language`: Spanish where the app is, English elsewhere.
+    func title(in language: AppLanguage) -> String { language == .es ? nameES : name }
+
+    func detail(in language: AppLanguage) -> String { language == .es ? descriptionES : description }
+}
+
+/// The hundred and thirty-five combos, and how a pair finds theirs.
+enum NotchMascotSynergyCatalog {
+    private static func S(_ number: Int, _ id: String, _ category: SynergyCategory, _ name: String, _ nameES: String,
+                          _ description: String, _ descriptionES: String, _ match: NotchMascotSynergyMatch,
+                          _ script: NotchMascotSynergyScript) -> NotchMascotSynergy {
+        NotchMascotSynergy(number: number, id: id, category: category, name: name, nameES: nameES,
+                           description: description, descriptionES: descriptionES, match: match, script: script)
+    }
+
+    static let all: [NotchMascotSynergy] = wonderBoy + combat + magic + tavern + music + rogues + sciFi + twin
+        + species + quests
+
+    static var total: Int { all.count }
+
+    private static let byID: [String: NotchMascotSynergy] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
+
+    static func synergy(id: String) -> NotchMascotSynergy? { byID[id] }
+
+    static func synergies(in category: SynergyCategory) -> [NotchMascotSynergy] {
+        all.filter { $0.category == category }
+    }
+
+    /// The combos this pair can play: when some are made of a pair of things
+    /// worn, only those, otherwise all that fit. Never the quests.
+    static func candidates(leaderWears: NotchMascotAccessory, friendWears: NotchMascotAccessory,
+                           leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle) -> [NotchMascotSynergy] {
+        let fits = all.filter {
+            $0.matches(leaderWears: leaderWears, friendWears: friendWears,
+                       leaderStyle: leaderStyle, friendStyle: friendStyle)
+        }
+        guard let best = fits.map({ $0.match.specificity }).max() else { return [] }
+        return best >= 3 ? fits.filter { $0.match.specificity >= 3 } : fits
+    }
+
+    /// The combo that best fits this pair, if any.
+    static func resolveSynergy(leaderWears: NotchMascotAccessory, friendWears: NotchMascotAccessory,
+                               leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle) -> NotchMascotSynergy? {
+        candidates(leaderWears: leaderWears, friendWears: friendWears,
+                   leaderStyle: leaderStyle, friendStyle: friendStyle).first
+    }
+
+    /// A combo not found yet, for the tavern to hint at: one that plays by
+    /// itself before the quests.
+    static func hint(excluding found: Set<String>) -> NotchMascotSynergy? {
+        let open = all.filter { !found.contains($0.id) }
+        return open.first { $0.match != .quest } ?? open.first
+    }
+
+    // MARK: The catalog
+
+    private static let wonderBoy: [NotchMascotSynergy] = [
+        S(1, "pepelogooCarry", .wonderBoy, "Pepelogoo Carry & Glide", "Pepelogoo: llevar y planear",
+          "Asha rides her blue pet and they glide off together.",
+          "Asha monta a su mascota azul y planean juntos.",
+          .styles(.cristobal, .slime), .give(.heart, .love, .hearts, "1UP")),
+        S(2, "springboardJump", .wonderBoy, "Trampoline Jump", "Salto trampolín",
+          "One springs off the other for a double jump.",
+          "Uno rebota en el otro para un doble salto.",
+          .styles(.whiteRabbit, .slime), .ritual(.bounce, .bounce, .confetti, "+200")),
+        S(3, "swordShieldDuo", .wonderBoy, "Sword & Shield Duo", "Dúo espada y escudo",
+          "Blade and shield, shoulder to shoulder.",
+          "Espada y escudo, hombro con hombro.",
+          .pair(.legendSword, .legendShield), .duel(.sword, .sparkles, "+100")),
+        S(4, "boomerangReturn", .wonderBoy, "Boomerang", "Bumerán",
+          "It throws and the boomerang always comes back.",
+          "Lo lanza y el bumerán siempre vuelve.",
+          .wears(.boomerang), .volley(.boomerang, 2, .sparkles, "+100")),
+        S(5, "fireEater", .wonderBoy, "Fire Eater", "Come-fuego",
+          "One breathes fire, the other swallows it.",
+          "Uno lanza fuego y el otro se lo come.",
+          .wears(.fireballSpell), .volley(.fireball, 2, .smoke, "+200")),
+        S(6, "wingedWhirlwind", .wonderBoy, "Winged Whirlwind", "Torbellino alado",
+          "A tornado lifts the winged boots off the ground.",
+          "Un tornado levanta las botas aladas.",
+          .pair(.tornadoSpell, .wingBoots), .give(.tornado, .bounce, .sparkles, "SPEED")),
+        S(7, "timeRescue", .wonderBoy, "Time Rescue", "Rescate de tiempo",
+          "The hourglass runs out and a potion saves the day.",
+          "Se acaba el reloj de arena y una poción salva el día.",
+          .wears(.hourglass), .give(.potion, .relax, .hearts, "♥ +1")),
+        S(8, "bootsShop", .wonderBoy, "Boots Shop", "Tienda de botas",
+          "Gold for winged boots, and off they run.",
+          "Oro por botas aladas, y a correr.",
+          .pair(.wingBoots, .goldBag), .ritual(.perk, .celebrate, .coins, "SPEED")),
+        S(9, "ceilingWalk", .wonderBoy, "Ceiling Walk", "Caminata por techo",
+          "The cat walks upside down along the island.",
+          "El gato camina boca abajo por la isla.",
+          .style(.cat), .ritual(.peek, .surprised, .sparkles, "TOP")),
+        S(10, "liquidDive", .wonderBoy, "Liquid Dive", "Zambullida líquida",
+          "The slime dives into the edge of the capsule.",
+          "El slime se zambulle en el borde de la cápsula.",
+          .style(.slime), .ritual(.ready, .surprised, .sparkles, "SPLASH")),
+        S(11, "thunderSword", .wonderBoy, "Thunder Sword", "Espada trueno",
+          "The blade catches the talisman's lightning.",
+          "La hoja atrapa el rayo del talismán.",
+          .pair(.legendSword, .thunderTalisman), .duel(.bolt, .sparkles, "+500")),
+        S(12, "chestKey", .wonderBoy, "Chest Key", "Llave de cofre",
+          "A golden key opens a chest full of coins.",
+          "Una llave dorada abre un cofre lleno de monedas.",
+          .wears(.goldenKey), .give(.key, .celebrate, .coins, "+500")),
+        S(13, "hospitalElixir", .wonderBoy, "Hospital Elixir", "Elixir de hospital",
+          "A red potion heals the other one.",
+          "Una poción roja cura al otro.",
+          .wears(.heartPotion), .give(.potion, .love, .hearts, "♥ +1")),
+        S(14, "ocarina", .wonderBoy, "Ocarina", "Ocarina",
+          "A melody that opens a door nobody saw.",
+          "Una melodía que abre una puerta que nadie veía.",
+          .wears(.bardLute), .chorus(.note, .groove, "♪")),
+        S(15, "mekaDragonCurse", .wonderBoy, "Meka-Dragon Curse", "Maldición Meka-Dragón",
+          "Robot against chip, fire against fire.",
+          "Robot contra chip, fuego contra fuego.",
+          .styles(.robot, .chip), .duel(.fireball, .smoke, "BOSS")),
+    ]
+
+    private static let combat: [NotchMascotSynergy] = [
+        S(16, "steelCross", .combat, "Steel Cross", "Cruz de acero",
+          "Two blades cross and ring.",
+          "Dos hojas se cruzan y suenan.",
+          .pair(.legendSword, .katana), .duel(.sword, .sparkles, nil)),
+        S(17, "spellblade", .combat, "Spellblade", "Hoja hechizada",
+          "The wizard charges the blade with sparks.",
+          "El mago carga la hoja de chispas.",
+          .pair(.legendSword, .wizardStaff), .give(.spark, .surprised, .magic, "+200")),
+        S(18, "katanaVsCowboy", .combat, "Katana vs Cowboy", "Katana contra vaquero",
+          "Noon in the West, the blade against the revolver.",
+          "Mediodía en el Oeste, la hoja contra el revólver.",
+          .pair(.katana, .cowboyHat), .duel(.spark, .sparkles, "DUEL")),
+        S(19, "eastWestDuel", .combat, "East-West Duel", "Duelo Este-Oeste",
+          "The samurai and the ranger measure each other.",
+          "El samurái y el arquero se miden.",
+          .pair(.katana, .rangerBow), .duel(.arrow, .sparkles, "DUEL")),
+        S(20, "royalOath", .combat, "Royal Oath", "Juramento real",
+          "The crown knights the sword.",
+          "La corona arma caballero a la espada.",
+          .pair(.crown, .legendSword), .ritual(.hush, .hush, .sparkles, "OATH")),
+        S(21, "williamTell", .combat, "William Tell", "Flecha de Guillermo Tell",
+          "An arrow, a fruit and a very steady hand.",
+          "Una flecha, una fruta y pulso firme.",
+          .pair(.rangerBow, .beanie), .give(.arrow, .surprised, .sparkles, "+500")),
+        S(22, "archerBullseye", .combat, "Archer's Bullseye", "Diana de arquero",
+          "Arrow after arrow into the same spot.",
+          "Flecha tras flecha al mismo punto.",
+          .wears(.rangerBow), .volley(.arrow, 2, .sparkles, "+100")),
+        S(23, "berserkerClash", .combat, "Berserker Clash", "Choque berserker",
+          "Horns against viking helm, head first.",
+          "Cuernos contra casco vikingo, de cabeza.",
+          .pair(.vikingHelm, .horns), .duel(.spark, .smoke, "CLASH")),
+        S(24, "nordicWall", .combat, "Nordic Wall", "Muro nórdico",
+          "Helm and shield, the wall holds.",
+          "Casco y escudo, el muro aguanta.",
+          .pair(.vikingHelm, .legendShield), .ritual(.ready, .ready, .sparkles, "WALL")),
+        S(25, "imperialCut", .combat, "Imperial Cut", "Corte imperial",
+          "One clean cut for the crowned.",
+          "Un corte limpio para el coronado.",
+          .pair(.katana, .crown), .give(.sword, .hush, .sparkles, "+200")),
+        S(26, "shieldDome", .combat, "Shield Dome", "Domo de escudos",
+          "Two shields make a dome of light.",
+          "Dos escudos forman un domo de luz.",
+          .twin(.legendShield), .ritual(.ready, .ready, .magic, "DOME")),
+        S(27, "knightVigil", .combat, "Knight's Vigil", "Vigilia del caballero",
+          "The night watch under a halo.",
+          "La guardia nocturna bajo un halo.",
+          .pair(.knightHelm, .halo), .ritual(.hush, .love, .sparkles, nil)),
+        S(28, "knightSquire", .combat, "Knight & Squire", "Caballero y escudero",
+          "The knight hands his sword to the squire.",
+          "El caballero entrega su espada al escudero.",
+          .pair(.knightHelm, .legendSword), .give(.sword, .celebrate, .sparkles, "+200")),
+        S(29, "vikingAxe", .combat, "Viking Axe", "Hacha vikinga",
+          "A raid in the island, all sparks and shouts.",
+          "Una incursión en la isla, todo chispas y gritos.",
+          .wears(.vikingHelm), .volley(.spark, 2, .smoke, "+100")),
+        S(30, "sceptreCommand", .combat, "Sceptre Command", "Mandato del cetro",
+          "The sceptre points and the helm obeys.",
+          "El cetro señala y el casco obedece.",
+          .pair(.kingScepter, .knightHelm), .ritual(.ready, .perk, .sparkles, "ORDER")),
+        S(31, "royalGuard", .combat, "Royal Guard", "Guardia del rey",
+          "The sceptre commands, the shield answers.",
+          "El cetro manda, el escudo responde.",
+          .pair(.kingScepter, .legendShield), .ritual(.ready, .ready, .sparkles, nil)),
+        S(32, "joustTournament", .combat, "Joust", "Torneo de justas",
+          "Knight against viking, lance and axe.",
+          "Caballero contra vikingo, lanza y hacha.",
+          .pair(.knightHelm, .vikingHelm), .duel(.sword, .confetti, "JOUST")),
+        S(33, "bowAndBlade", .combat, "Bow & Blade", "Arco y hoja",
+          "Arrows cover the one who charges.",
+          "Las flechas cubren al que carga.",
+          .pair(.rangerBow, .legendSword), .volley(.arrow, 2, .sparkles, "+200")),
+        S(34, "lightningParry", .combat, "Lightning Parry", "Parada relámpago",
+          "The shield returns the bolt.",
+          "El escudo devuelve el rayo.",
+          .pair(.thunderTalisman, .legendShield), .duel(.bolt, .sparkles, "PARRY")),
+        S(35, "sparring", .combat, "Sparring", "Entrenamiento",
+          "Weights and blade, strength and edge.",
+          "Pesas y hoja, fuerza y filo.",
+          .pair(.dumbbells, .katana), .volley(.spark, 3, .sparkles, "+100")),
+    ]
+
+    private static let magic: [NotchMascotSynergy] = [
+        S(36, "monsterCauldron", .magic, "Monster World Cauldron", "Caldero Monster World",
+          "A witch's brew with a bowl of noodles.",
+          "Un brebaje de bruja con un cuenco de fideos.",
+          .pair(.witchHat, .ramenBowl), .ritual(.ready, .surprised, .smoke, "BREW")),
+        S(37, "arcaneCircle", .magic, "Arcane Circle", "Círculo arcano",
+          "Staff and orb draw a circle of light.",
+          "Báculo y orbe dibujan un círculo de luz.",
+          .pair(.wizardStaff, .crystalOrb), .ritual(.ready, .ready, .magic, "MAGIC")),
+        S(38, "notchOracle", .magic, "Oracle of the Notch", "Oráculo del Notch",
+          "The orb sees what the monocle reads.",
+          "El orbe ve lo que el monóculo lee.",
+          .pair(.crystalOrb, .monocle), .ritual(.peek, .surprised, .magic, nil)),
+        S(39, "yinYangEclipse", .magic, "Yin-Yang Eclipse", "Eclipse Yin-Yang",
+          "Halo and horns, light and shadow.",
+          "Halo y cuernos, luz y sombra.",
+          .pair(.halo, .horns), .ritual(.love, .surprised, .magic, "ECLIPSE")),
+        S(40, "airDuel", .magic, "Air Duel", "Duelo aéreo",
+          "Wind against fire above the island.",
+          "Viento contra fuego sobre la isla.",
+          .pair(.tornadoSpell, .fireballSpell), .duel(.tornado, .smoke, "AIR")),
+        S(41, "seraphBlessing", .magic, "Seraph's Blessing", "Bendición serafín",
+          "Wings and halo bless the other one.",
+          "Alas y halo bendicen al otro.",
+          .pair(.angelWings, .halo), .ritual(.love, .relax, .sparkles, "♥ +1")),
+        S(42, "supremeAlchemy", .magic, "Supreme Alchemy", "Alquimia suprema",
+          "A tome and a potion make something new.",
+          "Un tomo y una poción hacen algo nuevo.",
+          .pair(.magicTome, .heartPotion), .give(.potion, .celebrate, .magic, "+500")),
+        S(43, "scholars", .magic, "Scholars", "Eruditos",
+          "Book and glasses, a bright idea.",
+          "Libro y gafas, una gran idea.",
+          .pair(.magicTome, .glasses), .ritual(.peek, .surprised, .sparkles, "IDEA")),
+        S(44, "fireworks", .magic, "Fireworks", "Fuegos artificiales",
+          "A fireball under a party hat.",
+          "Una bola de fuego bajo un gorro de fiesta.",
+          .pair(.fireballSpell, .partyHat), .ritual(.celebrate, .celebrate, .confetti, "BOOM")),
+        S(45, "wizardDuel", .magic, "Wizards' Duel", "Duelo de magos",
+          "Staff against witch, spark against spark.",
+          "Báculo contra bruja, chispa contra chispa.",
+          .pair(.wizardStaff, .witchHat), .duel(.spark, .magic, "DUEL")),
+        S(46, "tomeLore", .magic, "Tome of Lore", "Saber del tomo",
+          "The tome reads itself and a star falls out.",
+          "El tomo se lee solo y cae una estrella.",
+          .wears(.magicTome), .give(.star, .surprised, .magic, "LORE")),
+        S(47, "orbVision", .magic, "Orb Vision", "Visión del orbe",
+          "The orb shows something far away.",
+          "El orbe muestra algo lejano.",
+          .wears(.crystalOrb), .ritual(.peek, .lookAround, .magic, nil)),
+        S(48, "staffSparks", .magic, "Staff Sparks", "Chispas del báculo",
+          "The staff throws sparks to the other.",
+          "El báculo lanza chispas al otro.",
+          .wears(.wizardStaff), .give(.spark, .surprised, .sparkles, "+100")),
+        S(49, "stormCaller", .magic, "Storm Caller", "Invocador de tormentas",
+          "Wind and lightning, the island shakes.",
+          "Viento y rayo, la isla tiembla.",
+          .pair(.tornadoSpell, .thunderTalisman), .duel(.bolt, .smoke, "STORM")),
+        S(50, "talismanLuck", .magic, "Talisman Luck", "Suerte del talismán",
+          "A bolt of luck for the other.",
+          "Un rayo de suerte para el otro.",
+          .wears(.thunderTalisman), .give(.bolt, .perk, .sparkles, "LUCK")),
+    ]
+
+    private static let tavern: [NotchMascotSynergy] = [
+        S(51, "ramenMaster", .tavern, "Ramen Master", "Maestro del ramen",
+          "The chef serves a bowl, and love comes with it.",
+          "El chef sirve un cuenco, y el cariño va incluido.",
+          .pair(.chefHat, .ramenBowl), .give(.snack(.ramen), .love, .hearts, "+500")),
+        S(52, "onigiriJuggling", .tavern, "Onigiri Juggling", "Malabares onigiri",
+          "Rice balls in the air, none falls.",
+          "Bolas de arroz en el aire, ninguna cae.",
+          .pair(.chefHat, .onigiri), .volley(.snack(.onigiri), 3, .confetti, "+500")),
+        S(53, "iceCreamParlor", .tavern, "Monster Land Ice Cream", "Heladería Monster Land",
+          "A cone for the chef's friend.",
+          "Un cucurucho para el amigo del chef.",
+          .pair(.iceCreamCone, .chefHat), .give(.snack(.iceCream), .love, .hearts, "+200")),
+        S(54, "royalBanquet", .tavern, "Royal Banquet", "Banquete real",
+          "Ramen at the king's table.",
+          "Ramen en la mesa del rey.",
+          .pair(.crown, .ramenBowl), .ritual(.love, .love, .sparkles, "FEAST")),
+        S(55, "bobaToast", .tavern, "Boba Toast", "Brindis boba",
+          "Two cups touch: cheers.",
+          "Dos vasos chocan: salud.",
+          .twin(.bobaTea), .ritual(.sip, .sip, .sparkles, "CHEERS")),
+        S(56, "ninjaSushi", .tavern, "Ninja Sushi", "Sushi ninja",
+          "A rice ball thrown like a star.",
+          "Una bola de arroz lanzada como estrella.",
+          .pair(.onigiri, .katana), .give(.snack(.onigiri), .surprised, .sparkles, "+500")),
+        S(57, "innNight", .tavern, "Night at the Inn", "Noche en la posada",
+          "Mask and scarf, a long night's rest.",
+          "Antifaz y bufanda, una noche de descanso.",
+          .pair(.sleepMask, .scarf), .calm(.yawn, .yawn, .hearts, "ZZZ")),
+        S(58, "littlePrince", .tavern, "The Little Prince", "El pequeño príncipe",
+          "A scarf, a crown and a flower for someone.",
+          "Una bufanda, una corona y una flor para alguien.",
+          .pair(.scarf, .crown), .give(.flower, .love, .hearts, nil)),
+        S(59, "siesta", .tavern, "Siesta", "Hora de siesta",
+          "The mask comes down and the yawn goes round.",
+          "Baja el antifaz y el bostezo da la vuelta.",
+          .wears(.sleepMask), .calm(.yawn, .hush, .hearts, "ZZZ")),
+        S(60, "dragonFlambe", .tavern, "Dragon Flambé", "Flambé dragón",
+          "The chef lights the dish with a fireball.",
+          "El chef flamea el plato con una bola de fuego.",
+          .pair(.chefHat, .fireballSpell), .give(.fireball, .surprised, .smoke, "FLAMBE")),
+        S(61, "bobaTavern", .tavern, "Boba Tavern", "Taberna de boba",
+          "A cup of pearls for the other one.",
+          "Un vaso de perlas para el otro.",
+          .wears(.bobaTea), .give(.snack(.bobaTea), .love, .hearts, "♥ +1")),
+        S(62, "nursery", .tavern, "Nursery", "Guardería",
+          "Pacifier and boba, a soft moment.",
+          "Chupete y boba, un momento tierno.",
+          .pair(.pacifier, .bobaTea), .calm(.love, .relax, .hearts, nil)),
+        S(63, "lullaby", .tavern, "Lullaby", "Nana",
+          "The lute sings the baby to sleep.",
+          "El laúd duerme al bebé.",
+          .pair(.pacifier, .bardLute), .calm(.groove, .yawn, .hearts, "ZZZ")),
+        S(64, "coneDelivery", .tavern, "Cone Delivery", "Reparto de helados",
+          "A cone goes from hand to hand.",
+          "Un cucurucho pasa de mano en mano.",
+          .wears(.iceCreamCone), .give(.snack(.iceCream), .celebrate, .sparkles, "+200")),
+        S(65, "ramenDuo", .tavern, "Ramen for Two", "Ramen a dúo",
+          "Two bowls, two slurps.",
+          "Dos cuencos, dos sorbos.",
+          .twin(.ramenBowl), .ritual(.sip, .sip, .hearts, "SLURP")),
+    ]
+
+    private static let music: [NotchMascotSynergy] = [
+        S(66, "chiptuneVsSynth", .music, "Chiptune vs Synthwave", "Chiptune 8-bit contra Synthwave",
+          "Controller against headphones, a battle of beats.",
+          "Mando contra auriculares, batalla de ritmos.",
+          .pair(.gameController, .headphones), .chorus(.note, .groove, "8BIT")),
+        S(67, "galaWaltz", .music, "Gala Waltz", "Vals de gala",
+          "Top hat and bow tie, one-two-three.",
+          "Chistera y pajarita, uno-dos-tres.",
+          .pair(.topHat, .bowTie), .ritual(.groove, .groove, .sparkles, "WALTZ")),
+        S(68, "tapDance", .music, "Tap Dance", "Claqué",
+          "Winged boots on a stage of light.",
+          "Botas aladas en un escenario de luz.",
+          .pair(.topHat, .wingBoots), .ritual(.bounce, .bounce, .confetti, "TAP")),
+        S(69, "neonFestival", .music, "Neon Festival", "Festival neón",
+          "Visors and shades under the lights.",
+          "Visores y gafas bajo las luces.",
+          .pair(.sunglasses, .laserVisor), .chorus(.star, .groove, "NEON")),
+        S(70, "monsterWorldBallad", .music, "Monster World Ballad", "Balada Monster World",
+          "The bard sings to the crown.",
+          "El bardo le canta a la corona.",
+          .pair(.bardLute, .crown), .chorus(.note, .love, nil)),
+        S(71, "arcadePinata", .music, "Arcade Piñata", "Piñata arcade",
+          "The party hat swings and coins fall.",
+          "El gorro de fiesta golpea y caen monedas.",
+          .pair(.gameController, .partyHat), .ritual(.celebrate, .celebrate, .coins, "+500")),
+        S(72, "serenade", .music, "Serenade", "Serenata",
+          "A song and a flower under the window.",
+          "Una canción y una flor bajo la ventana.",
+          .pair(.bardLute, .flower), .give(.heart, .love, .hearts, nil)),
+        S(73, "breakdance", .music, "Breakdance", "Breakdance",
+          "Cap and headphones, spins on the floor.",
+          "Gorra y auriculares, giros en el suelo.",
+          .pair(.cap, .headphones), .ritual(.groove, .bounce, .sparkles, "BBOY")),
+        S(74, "winterConcert", .music, "Winter Concert", "Concierto de invierno",
+          "A lute by the fire, hats on.",
+          "Un laúd junto al fuego, con gorro.",
+          .pair(.beanie, .bardLute), .chorus(.note, .groove, nil)),
+        S(75, "headphoneDuet", .music, "Headphone Duet", "Dúo de auriculares",
+          "The same beat in two heads.",
+          "El mismo ritmo en dos cabezas.",
+          .twin(.headphones), .chorus(.note, .groove, nil)),
+        S(76, "luteSolo", .music, "Lute Solo", "Solo de laúd",
+          "The bard plays and the other listens.",
+          "El bardo toca y el otro escucha.",
+          .wears(.bardLute), .chorus(.note, .groove, "SOLO")),
+        S(77, "coOpMode", .music, "Co-op Mode", "Modo cooperativo",
+          "Two controllers, one goal.",
+          "Dos mandos, un objetivo.",
+          .twin(.gameController), .ritual(.ready, .ready, .sparkles, "2P")),
+    ]
+
+    private static let rogues: [NotchMascotSynergy] = [
+        S(78, "captainsTreasure", .rogues, "Captain's Treasure", "Tesoro del capitán",
+          "The eye patch guards a bag of gold.",
+          "El parche guarda una bolsa de oro.",
+          .pair(.eyePatch, .goldBag), .give(.bag, .celebrate, .coins, "+500")),
+        S(79, "crownHeist", .rogues, "Crown Heist", "Robo de corona",
+          "A pirate eyes the crown.",
+          "Un pirata echa el ojo a la corona.",
+          .pair(.eyePatch, .crown), .ritual(.peek, .surprised, .sparkles, "HEIST")),
+        S(80, "hiddenDoorDetectives", .rogues, "Hidden Door Detectives", "Detectives de puertas ocultas",
+          "Two lenses find the secret door.",
+          "Dos lentes encuentran la puerta secreta.",
+          .pair(.detectiveLens, .monocle), .ritual(.peek, .peek, .door, "DOOR")),
+        S(81, "coinTrail", .rogues, "Coin Trail", "Rastro de monedas",
+          "A hole in the bag leaves a trail.",
+          "Un agujero en la bolsa deja un rastro.",
+          .wears(.goldBag), .volley(.coin, 2, .coins, "+100")),
+        S(82, "adventurersPulse", .rogues, "Adventurers' Pulse", "Pulso de aventureros",
+          "Helm and lens set off together.",
+          "Casco y lupa parten juntos.",
+          .pair(.knightHelm, .detectiveLens), .ritual(.ready, .perk, .sparkles, nil)),
+        S(83, "sphinxRiddle", .rogues, "Sphinx Riddle", "Acertijo de la esfinge",
+          "The lens and the orb ask a question.",
+          "La lupa y el orbe hacen una pregunta.",
+          .pair(.detectiveLens, .crystalOrb), .ritual(.confused, .peek, .magic, "?")),
+        S(84, "fireflyHunt", .rogues, "Firefly Hunt", "Caza de luciérnagas",
+          "Ghost and cat chase little lights.",
+          "Fantasma y gato persiguen lucecitas.",
+          .styles(.ghost, .cat), .volley(.spark, 3, .sparkles, nil)),
+        S(85, "pickpocket", .rogues, "Pickpocket", "Carterista",
+          "A coin changes pockets.",
+          "Una moneda cambia de bolsillo.",
+          .pair(.eyePatch, .detectiveLens), .give(.coin, .surprised, .coins, "+1")),
+        S(86, "keyHunt", .rogues, "Key Hunt", "Búsqueda de la llave",
+          "The lens finds what the key opens.",
+          "La lupa halla lo que abre la llave.",
+          .pair(.goldenKey, .detectiveLens), .give(.key, .celebrate, .sparkles, "KEY")),
+        S(87, "forestBandit", .rogues, "Forest Bandit", "Bandido del bosque",
+          "Arrows for the purse.",
+          "Flechas por la bolsa.",
+          .pair(.rangerBow, .eyePatch), .volley(.arrow, 2, .coins, "+200")),
+        S(88, "mapReading", .rogues, "Map Reading", "Lectura del mapa",
+          "The lens reads a map that is not there.",
+          "La lupa lee un mapa que no está.",
+          .wears(.detectiveLens), .ritual(.peek, .lookAround, .sparkles, nil)),
+        S(89, "smugglers", .rogues, "Smugglers", "Contrabandistas",
+          "The key and the bag change hands.",
+          "La llave y la bolsa cambian de manos.",
+          .pair(.goldBag, .goldenKey), .give(.bag, .celebrate, .coins, "+500")),
+    ]
+
+    private static let sciFi: [NotchMascotSynergy] = [
+        S(90, "scanner9000", .sciFi, "Scanner over 9000 MHz", "Escáner de más de 9000 MHz",
+          "The visor reads a number too big for the screen.",
+          "El visor lee un número demasiado grande.",
+          .pair(.laserVisor, .detectiveLens), .ritual(.surprised, .surprised, .sparkles, "9000")),
+        S(91, "masterSystemCoop", .sciFi, "Master System Co-op", "Cooperativo Master System",
+          "Controller and visor, two players at once.",
+          "Mando y visor, dos jugadores a la vez.",
+          .pair(.gameController, .laserVisor), .ritual(.ready, .ready, .confetti, "SMS")),
+        S(92, "speedrun", .sciFi, "Monster Land Speedrun", "Speedrun Monster Land",
+          "Controller and boots, the clock does not stop.",
+          "Mando y botas, el reloj no para.",
+          .pair(.gameController, .wingBoots), .volley(.spark, 3, .sparkles, "RUN")),
+        S(93, "jetpackVsBoots", .sciFi, "Jetpack vs Boots", "Carrera jetpack contra botas",
+          "Fuel against feathers, a race over the island.",
+          "Combustible contra plumas, carrera sobre la isla.",
+          .pair(.jetpack, .wingBoots), .duel(.tornado, .smoke, "RACE")),
+        S(94, "jetpackLoop", .sciFi, "Jetpack Loop", "Looping jetpack",
+          "A loop in the air and a bow.",
+          "Un looping en el aire y una reverencia.",
+          .wears(.jetpack), .ritual(.bounce, .surprised, .smoke, "LOOP")),
+        S(95, "cpuTuning", .sciFi, "CPU Tuning", "Tuning de CPU",
+          "The chip is pushed a little further.",
+          "El chip se lleva un poco más allá.",
+          .styleWears(.chip, .laserVisor), .ritual(.sweat, .ready, .sparkles, "TUNE")),
+        S(96, "turboBoost", .sciFi, "Turbo Boost", "Turbo Boost",
+          "The fan spins up with a jetpack on.",
+          "El ventilador acelera con jetpack.",
+          .styleWears(.fan, .jetpack), .ritual(.panic, .bounce, .smoke, "TURBO")),
+        S(97, "overclock", .sciFi, "Overclock", "Overclock",
+          "Chip and fan push the limit together.",
+          "Chip y ventilador llevan el límite juntos.",
+          .styles(.chip, .fan), .ritual(.sweat, .sweat, .smoke, "OC")),
+        S(98, "robotUplink", .sciFi, "Robot Uplink", "Enlace robot",
+          "A spark runs along the link.",
+          "Una chispa recorre el enlace.",
+          .styles(.robot, .chip), .chorus(.spark, .ready, "LINK")),
+        S(99, "laserTag", .sciFi, "Laser Tag", "Láser tag",
+          "Visors on, bolts across the island.",
+          "Visores puestos, rayos por la isla.",
+          .twin(.laserVisor), .duel(.bolt, .sparkles, "TAG")),
+        S(100, "cooling", .sciFi, "Cooling", "Refrigeración",
+          "The fan cools the ghost down.",
+          "El ventilador enfría al fantasma.",
+          .styles(.fan, .ghost), .calm(.relax, .relax, .sparkles, "COOL")),
+        S(101, "benchmark", .sciFi, "Benchmark", "Benchmark",
+          "Weights and controller, who scores more.",
+          "Pesas y mando, quién puntúa más.",
+          .pair(.dumbbells, .gameController), .ritual(.sweat, .celebrate, .confetti, "SCORE")),
+    ]
+
+    private static let twin: [NotchMascotSynergy] = [
+        S(102, "doubleCrown", .twin, "Double Crown", "Doble corona",
+          "Two crowns bow to each other.",
+          "Dos coronas se saludan.",
+          .twin(.crown), .ritual(.hush, .hush, .sparkles, "DUO")),
+        S(103, "doubleWitch", .twin, "Coven", "Aquelarre",
+          "Two witch hats stir the same pot.",
+          "Dos sombreros de bruja, el mismo caldero.",
+          .twin(.witchHat), .ritual(.ready, .ready, .magic, "COVEN")),
+        S(104, "giftFactory", .twin, "Gift Factory", "Fábrica de regalos",
+          "Two Santa hats toss presents back and forth.",
+          "Dos gorros de Santa se pasan regalos.",
+          .twin(.santaHat), .volley(.star, 3, .confetti, "+200")),
+        S(105, "doubleChef", .twin, "Cook-off", "Duelo culinario",
+          "Two chefs, one apple, one winner.",
+          "Dos chefs, una manzana, un ganador.",
+          .twin(.chefHat), .duel(.snack(.apple), .smoke, "COOK")),
+        S(106, "doubleCowboy", .twin, "Double Draw", "Doble duelo vaquero",
+          "Two hats at noon, who draws first.",
+          "Dos sombreros a mediodía, quién desenfunda antes.",
+          .twin(.cowboyHat), .duel(.spark, .smoke, "DRAW")),
+        S(107, "mirrorGlasses", .twin, "Mirror Pose", "Pose en espejo",
+          "Two pairs of glasses, one anime pose.",
+          "Dos pares de gafas, una pose de anime.",
+          .twin(.glasses), .ritual(.ready, .ready, .sparkles, "POSE")),
+        S(108, "doubleBoots", .twin, "Double Race", "Carrera doble",
+          "Two winged boots, one finish line.",
+          "Dos botas aladas, una meta.",
+          .twin(.wingBoots), .duel(.tornado, .smoke, "RACE")),
+        S(109, "doubleParty", .twin, "Double Party", "Doble fiesta",
+          "Two party hats, twice the confetti.",
+          "Dos gorros de fiesta, el doble de confeti.",
+          .twin(.partyHat), .ritual(.celebrate, .celebrate, .confetti, "PARTY")),
+        S(110, "doubleHalo", .twin, "Double Halo", "Doble halo",
+          "Two halos, one quiet blessing.",
+          "Dos halos, una bendición tranquila.",
+          .twin(.halo), .ritual(.love, .love, .sparkles, "HALO")),
+        S(111, "doubleHorns", .twin, "Double Mischief", "Doble travesura",
+          "Two pairs of horns, one prank.",
+          "Dos pares de cuernos, una travesura.",
+          .twin(.horns), .ritual(.peek, .peek, .smoke, "HEHE")),
+        S(112, "doubleShades", .twin, "Double Shades", "Doble gafas de sol",
+          "Two pairs of shades, too cool.",
+          "Dos gafas de sol, demasiado fresco.",
+          .twin(.sunglasses), .ritual(.ready, .ready, .sparkles, "COOL")),
+        S(113, "snowFight", .twin, "Snow Fight", "Pelea de nieve",
+          "Two beanies, a snowball each.",
+          "Dos gorros de lana, una bola de nieve cada uno.",
+          .twin(.beanie), .duel(.snowball, .sparkles, "SNOW")),
+        S(114, "doubleBow", .twin, "Double Bow", "Doble lazo",
+          "Two bows, one hug.",
+          "Dos lazos, un abrazo.",
+          .twin(.bow), .ritual(.love, .love, .hearts, nil)),
+        S(115, "doubleScarf", .twin, "Double Scarf", "Doble bufanda",
+          "Two scarves, one shared warmth.",
+          "Dos bufandas, un calor compartido.",
+          .twin(.scarf), .calm(.relax, .relax, .hearts, nil)),
+        S(116, "doubleSword", .twin, "Mirror Blades", "Espadas espejo",
+          "Two swords, the same swing.",
+          "Dos espadas, el mismo golpe.",
+          .twin(.legendSword), .duel(.sword, .sparkles, "CLASH")),
+        S(117, "doubleCap", .twin, "Catch", "Pelota doble",
+          "Two caps, a ball between them.",
+          "Dos gorras, una pelota entre ellas.",
+          .twin(.cap), .volley(.ball, 3, .sparkles, nil)),
+    ]
+
+    private static let species: [NotchMascotSynergy] = [
+        S(118, "lionClaw", .species, "Lion-Man Claw", "Tajo felino",
+          "The cat's claws flash like a katana.",
+          "Las garras del gato brillan como una katana.",
+          .styleWears(.cat, .katana), .give(.sword, .surprised, .smoke, "SLASH")),
+        S(119, "ghostDoorOpener", .species, "Ghost Door Opener", "Fantasma abre-puertas",
+          "The ghost passes through a door that was not there.",
+          "El fantasma cruza una puerta que no estaba.",
+          .styleWears(.ghost, .goldenKey), .ritual(.hush, .surprised, .door, "DOOR")),
+        S(120, "pepelogooHealer", .species, "Giant Healing Pepelogoo", "Pepelogoo gigante curativo",
+          "The slime shares a potion that heals.",
+          "El slime comparte una poción que cura.",
+          .styleWears(.slime, .heartPotion), .give(.potion, .love, .hearts, "♥ +1")),
+        S(121, "timeFlies", .species, "Time Flies", "El tiempo vuela",
+          "The rabbit is late, as always.",
+          "El conejo llega tarde, como siempre.",
+          .styleWears(.whiteRabbit, .hourglass), .ritual(.surprised, .perk, .sparkles, "LATE")),
+        S(122, "authorTalk", .species, "Author's Talk", "Charla de autor",
+          "Two storytellers trade a tale.",
+          "Dos narradores se cuentan un cuento.",
+          .styles(.cristobal, .whiteRabbit), .chorus(.star, .love, nil)),
+        S(123, "robotOverload", .species, "Robot Overload", "Sobrecarga eléctrica",
+          "A talisman and a robot: too much current.",
+          "Un talismán y un robot: demasiada corriente.",
+          .styleWears(.robot, .thunderTalisman), .ritual(.panic, .surprised, .smoke, "ZAP")),
+        S(124, "chipHeat", .species, "Chip Heat", "Calor del chip",
+          "The chip holds a fireball and sweats.",
+          "El chip sostiene una bola de fuego y suda.",
+          .styleWears(.chip, .fireballSpell), .ritual(.sweat, .panic, .smoke, "HOT")),
+        S(125, "fanWhirl", .species, "Fan Whirl", "Remolino del ventilador",
+          "The fan spins a tornado of its own.",
+          "El ventilador gira un tornado propio.",
+          .styleWears(.fan, .tornadoSpell), .ritual(.groove, .surprised, .sparkles, "WHIRL")),
+        S(126, "slimeWobble", .species, "Slime Wobble", "Chapoteo slime",
+          "Two slimes jiggle together.",
+          "Dos slimes se menean juntos.",
+          .styles(.slime, .slime), .ritual(.bounce, .bounce, .sparkles, "BLOB")),
+        S(127, "minimalZen", .species, "Minimal Zen", "Zen mínimo",
+          "Two minimal friends, nothing needed.",
+          "Dos amigos mínimos, nada hace falta.",
+          .styles(.minimal, .minimal), .calm(.relax, .relax, .sparkles, "ZEN")),
+    ]
+
+    private static let quests: [NotchMascotSynergy] = [
+        S(128, "secretShop", .quests, "Secret Shop", "Tienda secreta",
+          "A door opens behind the camera: boots and arms.",
+          "Se abre una puerta tras la cámara: botas y armas.",
+          .quest, .door(.shop)),
+        S(129, "monsterInn", .quests, "Monster Land Inn", "Posada Monster Land",
+          "A bed, a song and full hearts.",
+          "Una cama, una canción y corazones llenos.",
+          .quest, .door(.inn)),
+        S(130, "coinCloud", .quests, "Coin Cloud", "Nube de monedas",
+          "A shower of coins over the pair.",
+          "Una lluvia de monedas sobre los dos.",
+          .quest, .ritual(.celebrate, .celebrate, .coins, "+500")),
+        S(131, "dragonMiniboss", .quests, "Dragon Mini-Boss", "Mini-boss dragón",
+          "A quick fight behind the camera and a chest.",
+          "Un combate rápido tras la cámara y un cofre.",
+          .quest, .door(.bossLair)),
+        S(132, "cameraHighFive", .quests, "High Five at the Camera", "Choque de manos en la cámara",
+          "They meet over the camera and clap.",
+          "Se encuentran sobre la cámara y chocan manos.",
+          .quest, .ritual(.bounce, .bounce, .sparkles, "HI5")),
+        S(133, "fruitThrow", .quests, "Fruit Throw", "Lanzar fruta",
+          "A click sends an apple across the island.",
+          "Un clic lanza una manzana por la isla.",
+          .quest, .give(.snack(.apple), .celebrate, .sparkles, "+500")),
+        S(134, "sharedCuddles", .quests, "Shared Cuddles", "Mimos compartidos",
+          "A pat for one is a hug for both.",
+          "Un mimo para uno es un abrazo para los dos.",
+          .quest, .ritual(.love, .love, .hearts, "♥ +1")),
+        S(135, "castleGate", .quests, "Castle Gate", "Portón de castillo",
+          "A great gate opens for the two.",
+          "Se abre un gran portón para los dos.",
+          .quest, .ritual(.ready, .celebrate, .door, "GATE")),
+    ]
+}

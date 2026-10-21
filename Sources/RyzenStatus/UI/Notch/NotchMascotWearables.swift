@@ -28,7 +28,7 @@ final class NotchMascotWearables {
     static func coversHead(_ accessory: NotchMascotAccessory) -> Bool {
         switch accessory {
         case .topHat, .beanie, .crown, .witchHat, .santaHat, .partyHat, .headphones,
-             .cap, .cowboyHat, .chefHat, .halo: return true
+             .cap, .cowboyHat, .chefHat, .halo, .knightHelm, .vikingHelm: return true
         default: return false
         }
     }
@@ -362,6 +362,10 @@ enum NotchMascotWearableShapes {
             }
             return [NotchMascotWearablePart(path: lenses, fill: nil, stroke: ink, lineWidth: line),
                     NotchMascotWearablePart(path: bridge, fill: nil, stroke: ink, lineWidth: line)]
+
+        default:
+            // The Wonder Boy wardrobe has its own file.
+            return rpgParts(for: accessory, in: f)
         }
     }
 

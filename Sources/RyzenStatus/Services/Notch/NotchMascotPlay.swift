@@ -33,6 +33,10 @@ enum NotchMascotPlay: Equatable {
     case gift(byLeader: Bool)
     /// A yawn goes round, and both doze off side by side for a while.
     case nap
+    /// What they wear or are brings a play of its own, a combo of the
+    /// catalog, a snack, a secret door or an ability: the same plays the
+    /// closed island has, acted out here with their light and props.
+    case choreography(NotchMascotIslandPlay)
 
     enum Outcome: Equatable { case leaderWins, friendWins, draw }
 
@@ -42,7 +46,7 @@ enum NotchMascotPlay: Equatable {
     enum BlastAnswer: Equatable { case struggle, hit, dodge, deflect }
 
     enum Kind: CaseIterable, Equatable {
-        case duel, blast, powerUp, danceOff, highFive, tag, leapfrog, hug, mimic, gift, nap
+        case duel, blast, powerUp, danceOff, highFive, tag, leapfrog, hug, mimic, gift, nap, choreography
     }
 
     var kind: Kind {
@@ -58,6 +62,7 @@ enum NotchMascotPlay: Equatable {
         case .mimic: return .mimic
         case .gift: return .gift
         case .nap: return .nap
+        case .choreography: return .choreography
         }
     }
 
@@ -85,6 +90,21 @@ enum NotchMascotPlay: Equatable {
         var hour: Int
         /// The plays they did lately, the latest last.
         var recent: [Kind] = []
+        /// How each of them looks, and so what each wears and is.
+        var leaderLook: NotchMascotLook = .standard
+        var friendLook: NotchMascotLook = .standard
+        /// Hearts, the hourglass, gold and the combos found.
+        var rpg = NotchMascotRPGSnapshot()
+
+        var leaderWears: NotchMascotAccessory { leaderLook.accessory }
+        var friendWears: NotchMascotAccessory { friendLook.accessory }
+
+        /// The context the island's plays are chosen in, for the same pair.
+        var islandContext: NotchMascotIslandPlay.Context {
+            NotchMascotIslandPlay.Context(since: .infinity, music: music, hour: hour, recent: [],
+                                          leaderWears: leaderWears, friendWears: friendWears,
+                                          leaderStyle: leaderLook.style, friendStyle: friendLook.style, rpg: rpg)
+        }
     }
 
     /// How much each play is wanted now: music calls for dancing and the
@@ -106,6 +126,11 @@ enum NotchMascotPlay: Equatable {
         case .mimic: weight = 1.5
         case .gift: weight = 1.2
         case .nap: weight = night ? 5 : 0.4
+        case .choreography:
+            // What they wear or are, and a hungry one, call for their own plays.
+            let island = context.islandContext
+            let calls = !NotchMascotIslandPlay.synergyKinds(in: island).isEmpty || context.rpg.isHungry
+            weight = calls ? 6 : 0.8
         }
         if context.recent.suffix(memory).contains(kind) { weight *= 0.3 }
         return weight
@@ -119,10 +144,15 @@ enum NotchMascotPlay: Equatable {
         guard total > 0 else { return nil }
         var roll = random() * total
         for (kind, weight) in weights {
-            if roll < weight { return play(kind, random: random) }
+            if roll < weight { return chosen(kind, in: context, random: random) }
             roll -= weight
         }
-        return weights.last.map { play($0.0, random: random) }
+        return weights.last.flatMap { chosen($0.0, in: context, random: random) }
+    }
+
+    /// `kind` as the pair plays it now; the choreography needs what they wear.
+    private static func chosen(_ kind: Kind, in context: Context, random: () -> Double) -> NotchMascotPlay? {
+        kind == .choreography ? choreography(in: context, random: random) : play(kind, random: random)
     }
 
     /// `kind` with its twist: who starts it, how long it lasts, how it ends.
@@ -151,7 +181,13 @@ enum NotchMascotPlay: Equatable {
         case .mimic: return .mimic(rounds: count(2...4))
         case .gift: return .gift(byLeader: random() < 0.5)
         case .nap: return .nap
+        case .choreography: return .nap
         }
+    }
+
+    /// A choreography of what they wear or are, or nil when the draw gives none.
+    static func choreography(in context: Context, random: () -> Double) -> NotchMascotPlay? {
+        NotchMascotIslandPlay.pick(in: context.islandContext, random: random).map { .choreography($0) }
     }
 
     // MARK: Where
@@ -170,6 +206,7 @@ enum NotchMascotPlay: Equatable {
         case .mimic: return 110
         case .gift: return 100
         case .nap: return 64
+        case .choreography: return 150
         }
     }
 

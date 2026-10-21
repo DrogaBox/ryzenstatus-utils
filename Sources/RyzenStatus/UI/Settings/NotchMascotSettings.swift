@@ -556,6 +556,14 @@ private struct NotchMascotStageCard: View {
     /// The lasting mood a moment shows for a while, over the live one.
     @State private var previewAmbient: MascotMoodState?
     @State private var ambientWork: DispatchWorkItem?
+    /// The friend beside it and the combo the two are playing.
+    @State private var friendReaction: NotchMascotReactionEvent?
+    @State private var flight: NotchMascotIslandFlightEvent?
+    @State private var burst: NotchMascotIslandBurstEvent?
+    @State private var marker: NotchMascotIslandMarkerEvent?
+    @State private var comboWork: [DispatchWorkItem] = []
+    @State private var comboName: String?
+    @ObservedObject private var rpg = NotchMascotRPGState.shared
     @ObservedObject private var automation = NotchMascotAutomation.shared
     /// The next moment a click on the companion acts out.
     @State private var nextMoment = 0
@@ -571,8 +579,10 @@ private struct NotchMascotStageCard: View {
             GeometryReader { proxy in
                 NotchMascotStage(look: look, side: side, awake: awake, visit: visit, reaction: reaction,
                                  ambient: previewAmbient ?? automation.state,
-                                 caption: playing.map { (text.moment($0, language: language), $0.symbol) },
-                                 width: proxy.size.width)
+                                 caption: comboName.map { ($0, "wand.and.stars") }
+                                     ?? playing.map { (text.moment($0, language: language), $0.symbol) },
+                                 width: proxy.size.width, friendLook: stageFriend, friendReaction: friendReaction,
+                                 flight: flight, burst: burst, marker: marker)
                     .contentShape(Rectangle())
                     .onTapGesture { playNext() }
             }
@@ -595,6 +605,7 @@ private struct NotchMascotStageCard: View {
                 .disabled(!canGreet)
                 .help(text.sayHiHint)
             }
+            comboRow
             FlowLayoutLite(spacing: 6) {
                 ForEach(Self.moments) { moment in
                     NotchMascotMomentChip(title: text.moment(moment, language: language), symbol: moment.symbol,
@@ -663,6 +674,9 @@ private struct NotchMascotStageCard: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
         }
         .onDisappear {
+            comboWork.forEach { $0.cancel() }
+            comboWork = []
+            comboName = nil
             playingWork?.cancel()
             lookWork?.cancel()
             ambientWork?.cancel()
@@ -670,6 +684,76 @@ private struct NotchMascotStageCard: View {
             // Never left hidden for the next time the page shows.
             if visit?.kind == NotchMascotSupport.hideAway { visit = nil }
         }
+    }
+
+    // MARK: Combos
+
+    private var rpgText: NotchMascotRPGStrings { FeatureStrings.notchMascotRPG(language) }
+
+    /// The friend shown beside it: the one picked, or, with none, a stand-in
+    /// of another figure so the combos can still be tried.
+    private var stageFriend: NotchMascotLook {
+        if let friend = NotchMascotSupport.desktopFriend() { return friend }
+        var stand = look
+        stand.style = NotchMascotStyle.available(name: UserDefaults.standard.string(forKey: DefaultsKey.notchMascotName))
+            .first { $0 != look.style } ?? .cat
+        stand.accessory = .none
+        return stand
+    }
+
+    /// The button that plays the pair's combo, and how many they have found.
+    private var comboRow: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Label(rpgText.synergiesFound(rpg.discoveredSynergies.count, of: NotchMascotSynergyCatalog.total),
+                  systemImage: "sparkles")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 12)
+            Button { playCombo() } label: {
+                Label(rpgText.text(.testCombo), systemImage: "wand.and.stars")
+            }
+            .controlSize(.small)
+            .disabled(!awake || visit != nil || !comboWork.isEmpty)
+        }
+    }
+
+    /// Plays the combo the two would play here, or one of the quests, on the stage.
+    private func playCombo() {
+        guard awake, visit == nil, comboWork.isEmpty else { return }
+        let friend = stageFriend
+        let synergy = NotchMascotSynergyCatalog.resolveSynergy(leaderWears: look.accessory, friendWears: friend.accessory,
+                                                               leaderStyle: look.style, friendStyle: friend.style)
+            ?? NotchMascotSynergyCatalog.synergies(in: .quests).randomElement()
+        guard let synergy else { return }
+        let starter = synergy.starterIsLeader(leaderWears: look.accessory, friendWears: friend.accessory,
+                                              leaderStyle: look.style, friendStyle: friend.style,
+                                              fallback: Bool.random())
+        let play = synergy.play(starterIsLeader: starter)
+        comboName = synergy.title(in: language)
+        var work: [DispatchWorkItem] = []
+        for beat in play.beats {
+            let item = DispatchWorkItem { stage(beat) }
+            work.append(item)
+            DispatchQueue.main.asyncAfter(deadline: .now() + beat.at, execute: item)
+        }
+        let end = DispatchWorkItem {
+            NotchMascotRPG.applyOutcome(of: play)
+            comboWork = []
+            comboName = nil
+        }
+        work.append(end)
+        comboWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + play.length + 0.2, execute: end)
+    }
+
+    private func stage(_ beat: NotchMascotIslandPlay.Beat) {
+        let now = CACurrentMediaTime()
+        if let mood = beat.leader { reaction = NotchMascotReactionEvent(id: UUID(), reaction: mood, start: now) }
+        if let mood = beat.friend { friendReaction = NotchMascotReactionEvent(id: UUID(), reaction: mood, start: now) }
+        guard !reduceMotion else { return }
+        if let flown = beat.flight { flight = NotchMascotIslandFlightEvent(id: UUID(), flight: flown, start: now) }
+        if let burst = beat.burst { self.burst = NotchMascotIslandBurstEvent(id: UUID(), burst: burst, start: now) }
+        if let marker = beat.marker { self.marker = NotchMascotIslandMarkerEvent(id: UUID(), marker: marker, start: now) }
     }
 
     private func playNext() {
@@ -752,6 +836,12 @@ private struct NotchMascotStage: View {
     /// The moment it acts out, named under the island while it plays.
     let caption: (title: String, symbol: String)?
     let width: CGFloat
+    /// Its friend beside it, the combos they play and what flies between them.
+    var friendLook: NotchMascotLook? = nil
+    var friendReaction: NotchMascotReactionEvent? = nil
+    var flight: NotchMascotIslandFlightEvent? = nil
+    var burst: NotchMascotIslandBurstEvent? = nil
+    var marker: NotchMascotIslandMarkerEvent? = nil
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -762,7 +852,8 @@ private struct NotchMascotStage: View {
         let scale = model.scale(toFit: width)
         let island = CGSize(width: model.strip.width * scale, height: model.strip.height * scale)
         let bar = model.menuBarHeight * scale
-        let track = model.track.scaled(by: scale)
+        let track = (friendLook == nil ? model.track : model.pairedTrack).scaled(by: scale)
+        let friendTrack = model.friendTrack.scaled(by: scale)
         let dark = colorScheme == .dark
         ZStack(alignment: .top) {
             // The desktop, washed with the accent color like a wallpaper,
@@ -788,6 +879,21 @@ private struct NotchMascotStage: View {
                                          reaction: reaction, awake: awake, ambient: ambient)
                         .frame(width: track.width, height: track.height)
                         .allowsHitTesting(false)
+                }
+                .overlay(alignment: .top) {
+                    // Its friend rests at the other end, and they play the combos here.
+                    if let friendLook {
+                        ZStack {
+                            NotchMascotTrackView(look: friendLook, track: friendTrack, rests: true, visit: nil, mood: .idle,
+                                                 reaction: friendReaction, awake: awake, ambient: ambient,
+                                                 isFriend: true)
+                                .frame(width: friendTrack.width, height: friendTrack.height)
+                            NotchMascotIslandPlayLayer(flight: flight, burst: burst, marker: marker, leader: track,
+                                                       friend: friendTrack, leaderLook: look, friendLook: friendLook)
+                                .frame(width: track.width, height: track.height)
+                        }
+                        .allowsHitTesting(false)
+                    }
                 }
                 .overlay(alignment: .topLeading) {
                     if !awake {
@@ -863,6 +969,10 @@ struct NotchMascotStageModel {
     let menuBarHeight: CGFloat
     let floatingGap: CGFloat?
     let track: NotchMascotTrack
+    /// Where the friend rests: the camera's other wing, or a capsule's other end.
+    let friendTrack: NotchMascotTrack
+    /// Where the companion rests beside its friend; a capsule moves it to its own end.
+    let pairedTrack: NotchMascotTrack
     /// A real camera sits in the middle, not a drawn cutout.
     let hasCamera: Bool
 
@@ -879,6 +989,10 @@ struct NotchMascotStageModel {
             menuBarHeight = max(geometry.menuBarHeight, size.height)
             track = NotchMascotSupport.track(stripWidth: size.width, stripHeight: geometry.stripHeight, wing: 0,
                                              cameraWidth: 0, floats: true, bodyHeight: geometry.stripBodyHeight)
+            let pair = NotchMascotSupport.capsulePair(track, inset: NotchMascotSupport.capsulePairInset(geometry),
+                                                      side: side)
+            pairedTrack = pair?.companion ?? track
+            friendTrack = pair?.friend ?? track
         } else {
             // A crowded menu bar can leave the closed island no wings, but
             // the preview always shows where it would rest.
@@ -888,6 +1002,10 @@ struct NotchMascotStageModel {
             track = NotchMascotSupport.track(stripWidth: strip.width, stripHeight: strip.height, wing: wing,
                                              cameraWidth: geometry.cameraWidth, floats: false,
                                              bodyHeight: geometry.stripBodyHeight, side: side)
+            pairedTrack = track
+            friendTrack = NotchMascotSupport.track(stripWidth: strip.width, stripHeight: strip.height, wing: wing,
+                                                   cameraWidth: geometry.cameraWidth, floats: false,
+                                                   bodyHeight: geometry.stripBodyHeight, side: side.other)
         }
     }
 
