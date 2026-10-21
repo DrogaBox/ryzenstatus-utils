@@ -1688,7 +1688,12 @@ final class NotchService: ObservableObject {
             refreshPresentation()
         }
         defer { syncHoverExitMonitoring(entered: entered, point: point) }
-        captureHover?(entered)
+        // Hidden until hover, the island hears every move on screen. A timed
+        // capture still attached to it hears only the pointer reaching the
+        // island's place or leaving it: each move told as an entry would hold
+        // its dismissal off for as long as the island stays out of sight.
+        if !hiddenUntilHover { captureHover?(entered) }
+        else if inside != wasInside { captureHover?(inside) }
         if captureControls != nil {
             updateCaptureControlsHover(wasInside: wasInside)
             return
