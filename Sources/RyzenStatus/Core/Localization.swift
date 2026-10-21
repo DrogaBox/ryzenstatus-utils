@@ -523,6 +523,7 @@ struct Strings {
     let invertHorizontalScroll: String
     let switcherShowShortcutHints: String
     let switcherShowShortcutHintsCaption: String
+    let switcherWindowlessAppsLockedFormat: String
     let switcherNoOpenWindow: String
     // MARK: Feature — Homebrew manager
     let homebrewName: String
@@ -2886,6 +2887,7 @@ extension Strings {
         invertHorizontalScroll: "Invert horizontal scrolling",
         switcherShowShortcutHints: "Show shortcut hints",
         switcherShowShortcutHintsCaption: "Shows the app and window shortcuts below the icons.",
+        switcherWindowlessAppsLockedFormat: "All running apps stay reachable while “%@” is on. Turn it off to choose.",
         switcherNoOpenWindow: "No open window",
 
         homebrewName: "Homebrew",

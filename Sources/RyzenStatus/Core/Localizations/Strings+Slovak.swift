@@ -346,6 +346,7 @@ extension Strings {
         invertHorizontalScroll: "Obrátiť vodorovné rolovanie",
         switcherShowShortcutHints: "Zobraziť nápovedu ku skratkám",
         switcherShowShortcutHintsCaption: "Zobrazí skratky pre aplikácie a okná pod ikonami.",
+        switcherWindowlessAppsLockedFormat: "Kým je voľba „%@“ zapnutá, všetky spustené aplikácie ostanú dostupné. Ak chcete vybrať, vypnite ju.",
         switcherNoOpenWindow: "Žiadne otvorené okno",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Hľadajte, inštalujte a odstraňujte formulae a casks.",

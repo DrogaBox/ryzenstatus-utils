@@ -346,6 +346,7 @@ extension Strings {
         invertHorizontalScroll: "Інвертувати горизонтальну прокрутку",
         switcherShowShortcutHints: "Показувати підказки поєднань клавіш",
         switcherShowShortcutHintsCaption: "Показує клавіатурні скорочення для програм та вікон під значками.",
+        switcherWindowlessAppsLockedFormat: "Поки параметр «%@» увімкнено, усі запущені програми лишаються доступними. Щоб вибрати, вимкніть параметр.",
         switcherNoOpenWindow: "Без відкритих вікон",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Пошук, встановлення та видалення formulae і casks.",
