@@ -1131,7 +1131,7 @@ final class AppSwitcher: ObservableObject {
 
         // The icon row steps app by app, so the same rule runs over the groups
         // and lands on the chosen group's representative window.
-        let groups = SwitcherSupport.appGroups(items: items)
+        let groups = SwitcherSupport.appGroups(items: items, currentSpaceOnly: currentSpaceOnly)
         guard !groups.isEmpty else { return 0 }
         let groupIndex = SwitcherSupport.initialSelectionPosition(pids: groups.map(\.pid),
                                                                   hasForegroundEntry: hasForegroundItem,
@@ -1298,7 +1298,8 @@ final class AppSwitcher: ObservableObject {
         selectedIndex = SwitcherSupport.nextAppSelectionIndex(items: windows,
                                                               selectedIndex: selectedIndex,
                                                               delta: delta,
-                                                              wrapping: wrapping)
+                                                              wrapping: wrapping,
+                                                              currentSpaceOnly: currentSpaceOnly)
     }
 
     private func advanceWindowInSelectedApp(by delta: Int) {
@@ -1746,6 +1747,10 @@ final class AppSwitcher: ObservableObject {
         UserDefaults.standard.bool(forKey: DefaultsKey.switcherSimpleMode)
     }
 
+    private var currentSpaceOnly: Bool {
+        UserDefaults.standard.bool(forKey: DefaultsKey.switcherCurrentSpaceOnly)
+    }
+
     private var usesWindowRow: Bool {
         SwitcherSupport.usesWindowRow(
             simpleMode: simpleModeEnabled,
@@ -1880,7 +1885,7 @@ final class AppSwitcher: ObservableObject {
         if usesWindowRow {
             return windows.indices.contains(iconIndex) ? iconIndex : nil
         }
-        let groups = SwitcherSupport.appGroups(items: windows)
+        let groups = SwitcherSupport.appGroups(items: windows, currentSpaceOnly: currentSpaceOnly)
         return groups.indices.contains(iconIndex) ? groups[iconIndex].representativeIndex : nil
     }
 

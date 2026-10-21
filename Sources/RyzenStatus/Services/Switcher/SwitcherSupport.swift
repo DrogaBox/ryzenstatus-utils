@@ -966,11 +966,19 @@ enum SwitcherSupport {
     /// in the switcher instead of once per window (or tab). Keeps one
     /// representative per app, preferring the on-screen, front window so its title
     /// and thumbnail are the one you would expect when switching to that app.
-    static func groupWindowsByApp(_ windows: [SwitcherItem]) -> [SwitcherItem] {
+    /// `isOnHiddenSpace` answers only in current-desktop mode: a window from
+    /// another desktop then represents its app only when no window is here.
+    static func groupWindowsByApp(_ windows: [SwitcherItem],
+                                  isOnHiddenSpace: (SwitcherItem) -> Bool = { _ in false }) -> [SwitcherItem] {
         var indexByPid: [pid_t: Int] = [:]
         var grouped: [SwitcherItem] = []
         for window in windows {
             if let index = indexByPid[window.pid] {
+                let keptIsElsewhere = isOnHiddenSpace(grouped[index])
+                if isOnHiddenSpace(window) != keptIsElsewhere {
+                    if keptIsElsewhere { grouped[index] = window }
+                    continue
+                }
                 // Another window of the same app: prefer an on-screen window as
                 // the representative when the one we kept is off-screen.
                 if (window.isOnScreen && !grouped[index].isOnScreen)
@@ -1392,14 +1400,22 @@ enum SwitcherSupport {
                                      windows: windowShortcut.displayString)
     }
 
-    static func appGroups(items: [SwitcherItem]) -> [SwitcherAppGroup] {
+    /// Current-desktop mode still lists fullscreen windows from other desktops.
+    /// One of them represents its app only when the app has no window here,
+    /// so picking the app never moves the user to another desktop.
+    static func appGroups(items: [SwitcherItem], currentSpaceOnly: Bool = false) -> [SwitcherAppGroup] {
         var seen: Set<pid_t> = []
         var groups: [SwitcherAppGroup] = []
         for (index, item) in items.enumerated() where !seen.contains(item.pid) {
             seen.insert(item.pid)
+            var representativeIndex = index
+            if currentSpaceOnly, item.isOnHiddenSpace,
+               let here = items[index...].firstIndex(where: { $0.pid == item.pid && !$0.isOnHiddenSpace }) {
+                representativeIndex = here
+            }
             groups.append(SwitcherAppGroup(pid: item.pid,
                                            appName: item.appName,
-                                           representativeIndex: index,
+                                           representativeIndex: representativeIndex,
                                            itemIDs: items.filter { $0.pid == item.pid }.map(\.id)))
         }
         return groups
@@ -1505,8 +1521,9 @@ enum SwitcherSupport {
     static func nextAppSelectionIndex(items: [SwitcherItem],
                                       selectedIndex: Int,
                                       delta: Int,
-                                      wrapping: Bool = true) -> Int {
-        let groups = appGroups(items: items)
+                                      wrapping: Bool = true,
+                                      currentSpaceOnly: Bool = false) -> Int {
+        let groups = appGroups(items: items, currentSpaceOnly: currentSpaceOnly)
         guard !groups.isEmpty else { return 0 }
         guard items.indices.contains(selectedIndex) else {
             return groups[0].representativeIndex

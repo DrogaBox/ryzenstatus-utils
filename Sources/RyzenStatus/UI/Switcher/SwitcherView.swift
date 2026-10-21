@@ -50,6 +50,7 @@ struct SwitcherView: View {
     @AppStorage(DefaultsKey.switcherSimpleMode) private var simpleMode = false
     @AppStorage(DefaultsKey.switcherInstantSelection) private var instantSelection = false
     @AppStorage(DefaultsKey.switcherMergeTabs) private var mergeWindowsByApp = false
+    @AppStorage(DefaultsKey.switcherCurrentSpaceOnly) private var currentSpaceOnly = false
     @AppStorage(DefaultsKey.switcherShowShortcutHints) private var showsShortcutHints = true
     @AppStorage(DefaultsKey.switcherShortcut) private var switcherShortcutStorage = GlobalShortcut.switcherDefault.storageValue
     @AppStorage(DefaultsKey.switcherWindowShortcut) private var switcherWindowShortcutStorage = GlobalShortcut.switcherWindowDefault.storageValue
@@ -679,7 +680,7 @@ struct SwitcherView: View {
     }
 
     private var appGroups: [SwitcherAppGroup] {
-        SwitcherSupport.appGroups(items: switcher.windows)
+        SwitcherSupport.appGroups(items: switcher.windows, currentSpaceOnly: currentSpaceOnly)
     }
 
     private var iconRowContentWidth: CGFloat {
