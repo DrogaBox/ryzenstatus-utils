@@ -8281,8 +8281,8 @@ struct MetricsTests {
         expect(ScreenshotSupport.joinedWords(recognizedWords, selected: [9]).isEmpty
                 && ScreenshotSupport.joinedWords(recognizedWords, selected: []).isEmpty,
                "out of range or empty selections copy nothing")
-        let defaultScreenshotTools = ScreenshotSupport.Tool.allCases
-        expect(defaultScreenshotTools.count == 13
+        let defaultScreenshotTools = ScreenshotSupport.Tool.editorTools
+        expect(defaultScreenshotTools.count == 15
                 && Array(defaultScreenshotTools.prefix(9))
                     == [.select, .arrow, .pixelate, .crop, .text, .sticker,
                         .rect, .highlight, .freehand],
@@ -8290,8 +8290,8 @@ struct MetricsTests {
         let customScreenshotTools = ScreenshotSupport.Tool.ordered(
             from: "crop,arrow,arrow,invalid")
         expect(Array(customScreenshotTools.prefix(2)) == [.crop, .arrow]
-                && customScreenshotTools.count == 13
-                && Set(customScreenshotTools).count == 13,
+                && customScreenshotTools.count == 15
+                && Set(customScreenshotTools).count == 15,
                "a saved screenshot tool order drops invalid duplicates and appends missing tools")
         expect(ScreenshotSupport.Tool.shortcutTool(number: 1,
                                                    orderRaw: nil,
