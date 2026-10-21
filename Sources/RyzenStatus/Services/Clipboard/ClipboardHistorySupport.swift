@@ -319,8 +319,24 @@ enum ClipboardHistoryEditing {
         return text != original
     }
 
+    /// `retentionDays` drops recent entries copied longer ago than that, even
+    /// under `recentLimit`; 0 keeps them. Pinned entries never expire, and
+    /// `ageExemptIDs` (an entry open in the editor) wait until they are let go.
+    /// An unpinned entry lands at the top of the recent list, so it counts as
+    /// just used: keeping its original copy date would let the retention
+    /// window drop it on the spot and silently undo the unpin.
+    static func unpinned(_ entry: ClipboardHistoryEntry, now: Date = Date()) -> ClipboardHistoryEntry {
+        var entry = entry
+        entry.pinnedAt = nil
+        entry.copiedAt = now
+        return entry
+    }
+
     static func retainedEntries(_ entries: [ClipboardHistoryEntry],
                                 recentLimit: Int,
+                                retentionDays: Int = 0,
+                                ageExemptIDs: Set<UUID> = [],
+                                now: Date = Date(),
                                 textByteLimit: Int = maxStoredTextUTF8Bytes) -> [ClipboardHistoryEntry] {
         var remainingBytes = max(0, textByteLimit)
         func retained(_ candidates: [ClipboardHistoryEntry], limit: Int?) -> [ClipboardHistoryEntry] {
@@ -336,7 +352,14 @@ enum ClipboardHistoryEditing {
         }
         let pinned = retained(entries.filter(\.isPinned), limit: nil)
         let recentLimitOrNil = recentLimit <= 0 ? nil : recentLimit
-        let recent = retained(entries.filter { !$0.isPinned }, limit: recentLimitOrNil)
+        let cutoff = retentionDays > 0
+            ? now.addingTimeInterval(-Double(retentionDays) * 86_400)
+            : nil
+        let recent = retained(entries.filter { entry in
+            guard !entry.isPinned else { return false }
+            guard let cutoff, !ageExemptIDs.contains(entry.id) else { return true }
+            return entry.copiedAt >= cutoff
+        }, limit: recentLimitOrNil)
         return pinned + recent
     }
 
@@ -1050,36 +1073,40 @@ enum ClipboardHistorySensitiveText {
         types.contains(where: excludedPasteboardTypes.contains)
     }
 
-    /// Stricter than a plain keyword check: credential words, web links that
-    /// carry a secret in their query, and long unbroken mixed tokens.
+    // A mention of "token" in a command, error or source code is not a
+    // credential. Require a named field with a nonempty value, including
+    // environment variables, quoted JSON keys, Authorization headers and
+    // explicit command-line options such as --password VALUE.
+    // Horizontal whitespace keeps an empty assignment from consuming the
+    // next line of terminal output. Compile once for repeated clipboard reads.
+    private static let credentialName = #"(?:password|passwd|secret|token|api[_-]?key|private[_-]?key|authorization)"#
+    // Key names often go on past the credential word, as in SECRET_KEY,
+    // aws_secret_access_key, secretKey, SECRET_KEY_BASE, password_confirmation
+    // or PASSWORD_2. Only these endings count, so max_tokens or token_count
+    // stay ordinary text.
+    private static let credentialEnding = #"(?:[_-]?(?:access[_-]?)?key(?:[_-]?base)?|[_-]?confirmation|[_-]?\d{1,3})?"#
+    private static let credentialAssignment = try? NSRegularExpression(
+        pattern: #"(?<![\w-])(?:[\w-]*\#(credentialName)\#(credentialEnding)["']?[ \t]*[:=][ \t]*|--[\w-]*\#(credentialName)\#(credentialEnding)[ \t]+)["']?[^\s"'`,;{}\[\]]"#,
+        options: [.caseInsensitive]
+    )
+
     static func looksSensitive(_ text: String) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lowered = trimmed.lowercased()
-        let obviousWords = [
-            "password", "passwd", "pwd", "secret", "token", "apikey", "api_key",
-            "authorization", "bearer", "session", "credential", "otp", "private_key",
-            "auth_token", "access_token",
-        ]
-        if obviousWords.contains(where: lowered.contains) { return true }
-        if isWebURL(trimmed) {
-            guard let query = URL(string: trimmed)?.query?.lowercased() else { return false }
-            let sensitiveQueryKeys = ["token", "auth", "key", "secret", "sig", "signature",
-                                      "pwd", "password", "session", "bearer"]
-            return sensitiveQueryKeys.contains { query.hasPrefix($0 + "=") || query.contains("&" + $0 + "=") }
+        if credentialAssignment?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil {
+            return true
         }
+        if isWebURL(text) { return false }
         // An identifier code is nobody's secret, and it fits the shape below
         // exactly: long, unbroken, letters and digits with dashes between
-        // them. Copying one around is ordinary work, so it stays.
-        if isIdentifierCode(trimmed) { return false }
+        // them. Copying one around is ordinary work, so it stays (issue #423).
+        if isIdentifierCode(text) { return false }
 
-        guard trimmed.count >= 12, trimmed.count <= 160,
-              !trimmed.contains(where: { $0.isWhitespace }) else {
+        guard text.count >= 20, text.count <= 160, !text.contains(where: { $0.isWhitespace }) else {
             return false
         }
-        let hasLetter = trimmed.contains { $0.isLetter }
-        let hasDigit = trimmed.contains { $0.isNumber }
-        let hasSymbol = trimmed.contains { !$0.isLetter && !$0.isNumber && !$0.isWhitespace }
-        return hasLetter && hasDigit && (hasSymbol || trimmed.count >= 24)
+        let hasLetter = text.contains { $0.isLetter }
+        let hasDigit = text.contains { $0.isNumber }
+        let hasSymbol = text.contains { !$0.isLetter && !$0.isNumber && !$0.isWhitespace }
+        return hasLetter && hasDigit && hasSymbol
     }
 
     /// The one shape every system uses for a generated identifier: thirty-two

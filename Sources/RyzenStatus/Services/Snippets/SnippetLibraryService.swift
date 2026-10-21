@@ -214,6 +214,7 @@ final class SnippetLibraryService: ObservableObject {
                 return
             }
             TextSnippetService.postExpansion(deleteCount: 0,
+                                             typedTrigger: "",
                                              text: text,
                                              trailingKeyCode: nil,
                                              trailingFlags: [])

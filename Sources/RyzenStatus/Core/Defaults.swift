@@ -215,6 +215,7 @@ enum Defaults {
     static let allowedMonitorMemoryMetrics = ["used", "app"]
     static let allowedPreviewSizes = ["small", "normal", "large", "xlarge"]
     static let allowedClipboardHistoryLimits = [20, 50, 100, 250, 500, 1_000, 10_000, 0]
+    static let allowedClipboardHistoryRetentionDays = [1, 7, 30, 90, 365, 0]
     static let allowedClipboardAutoClearDelayRange = 5...3_600
     static let defaultClipboardAutoClearDelay = 20
     static let allowedClipboardMenuBarPreviewLengthRange = 5...50
@@ -345,6 +346,7 @@ enum Defaults {
         DefaultsKey.autoCheckUpdates: true,
         DefaultsKey.checkPrereleases: false,
         DefaultsKey.releaseNotesOnUpdate: true,
+        DefaultsKey.showReleaseNotesBeforeUpdate: true,
         DefaultsKey.updateShowcaseIntroVersion: "",
         DefaultsKey.updateShowcaseMediaOverride: "",
         DefaultsKey.mixerShowFinder: true,
@@ -747,7 +749,8 @@ enum Defaults {
         DefaultsKey.mediaTextLanguageCorrection: true,
         DefaultsKey.clipboardHistoryEnabled: false,
         DefaultsKey.clipboardHistoryLimit: 50,
-        DefaultsKey.clipboardHistorySkipSensitive: true,
+        DefaultsKey.clipboardHistoryFilterSensitiveText: false,
+        DefaultsKey.clipboardHistoryRetentionDays: 0,
         DefaultsKey.clipboardHistoryIncludeImagesFiles: true,
         DefaultsKey.clipboardHistoryQuickPreview: false,
         DefaultsKey.pastePlainEnabled: false,
@@ -1110,6 +1113,7 @@ enum Defaults {
         let defaults = UserDefaults.standard
         // Upstream runs these before registering, so `object(forKey:)` still
         // tells a saved choice from a registered default.
+        migrateClipboardSensitiveTextOptIn(in: defaults)
         migrateBatteryTemperatureVisibility(in: defaults)
         var defaultValues = registeredDefaults
 #if DEBUG
@@ -1137,6 +1141,13 @@ enum Defaults {
         if lastVersion < 7 { migrateLegacyFanSubsystem(in: defaults) }
 
         defaults.set(currentMigrationVersion, forKey: "_migrationVersion")
+    }
+
+    /// Start text filtering off for existing installations as well. A distinct
+    /// key keeps older backups from re-enabling the previous on-by-default
+    /// heuristic, while preserving choices made after this update.
+    static func migrateClipboardSensitiveTextOptIn(in defaults: UserDefaults) {
+        defaults.removeObject(forKey: "clipboardHistorySkipSensitive")
     }
 
     static func migrateLegacyFanSubsystem(in defaults: UserDefaults) {
@@ -1454,6 +1465,10 @@ enum Defaults {
 
     static func sanitizedClipboardHistoryLimit(_ value: Int) -> Int {
         allowedClipboardHistoryLimits.contains(value) ? value : 50
+    }
+
+    static func sanitizedClipboardHistoryRetentionDays(_ value: Int) -> Int {
+        allowedClipboardHistoryRetentionDays.contains(value) ? value : 0
     }
 
     static func sanitizedMonitorAlertCooldown(_ value: Int) -> Int {
