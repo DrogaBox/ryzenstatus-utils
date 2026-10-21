@@ -488,11 +488,6 @@ struct Strings {
     let uninstallerCatLogs: String
     let uninstallerCatState: String
     let uninstallerCatOther: String
-    let uninstallerCommandBarBrowseTitle: String
-    let uninstallerCommandBarToggle: String
-    let uninstallerCommandBarCaption: String
-    let uninstallerCommandBarFinderTitle: String
-    let uninstallerSelectionUnavailable: String
     let uninstallerRefusedNotApp: String
     let uninstallerRefusedSystemFormat: String        // + app name
     let uninstallerRefusedSharedFormat: String        // + app name
@@ -1200,6 +1195,11 @@ struct Strings {
     let cutPasteShowHUDCaption: String
     let autoQuitOngoingWorkNote: String
     let uninstallerConfirmationExpired: String
+    let uninstallerCommandBarBrowseTitle: String
+    let uninstallerCommandBarToggle: String
+    let uninstallerCommandBarCaption: String
+    let uninstallerCommandBarFinderTitle: String
+    let uninstallerSelectionUnavailable: String
     let homebrewDependencies: String
     let homebrewGroupDependencies: String
     let homebrewOrphans: String
