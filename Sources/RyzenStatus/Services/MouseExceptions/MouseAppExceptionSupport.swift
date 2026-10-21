@@ -181,8 +181,8 @@ enum MouseAppExceptionSupport {
         return exceptions.contains(bundleID)
     }
 
-    /// A program that is not packaged as an app has no bundle identifier at
-    /// all — the Java process a game launcher starts is the one people ask
+    /// A program that is not packaged as an app can have no bundle identifier
+    /// at all — the Java process a game launcher starts is the one people ask
     /// about (issue #1009) — so the path of the file being run stands in as
     /// its identity. A stored path is told apart from a bundle identifier by
     /// its leading slash, which a bundle identifier never has, so one list
@@ -215,11 +215,13 @@ enum MouseAppExceptionSupport {
     /// Everything a running program answers to on a list: its bundle
     /// identifier when it has one, and the file being run while a list names a
     /// program by its path. Java's launcher carries an Info.plist of its own,
-    /// so a running JVM reports a bundle identifier, the same one for every
-    /// Java program (measured on this Mac: net.java.openjdk.java for Temurin
-    /// 25). A runtime picked by its path (issue #1009) is told apart by that
-    /// path alone. The path is not even looked at while no list names one:
-    /// this runs under the event taps.
+    /// and a JVM reports its identifier once AWT registers the app, the same
+    /// one for every Java program that runtime runs (measured on this Mac:
+    /// net.java.openjdk.java for an AWT program on Temurin 25). A JVM started
+    /// with -XstartOnFirstThread, as Minecraft 1.13 and later is on macOS,
+    /// skips that registration and reports none. A runtime picked by its path
+    /// (issue #1009) is told apart by that path alone. The path is not even
+    /// looked at while no list names one: this runs under the event taps.
     static func identities(bundleID: String?,
                            executablePath: @autoclosure () -> String?,
                            readsPath: Bool) -> [String] {

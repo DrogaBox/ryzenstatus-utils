@@ -331,9 +331,9 @@ final class MouseAppExceptions: ObservableObject {
     }
 
     /// While a list names a program by its path, a program answers to the
-    /// file being run as well as to its bundle identifier, so a game started
-    /// from a launcher can be named at all (issue #1009), even though Java's
-    /// launcher reports an identifier of its own.
+    /// file being run as well as to its bundle identifier, so a Java runtime
+    /// picked by its path (issue #1009) is matched even when AWT registered
+    /// the JVM under the identifier of Java's launcher.
     private func identities(for app: NSRunningApplication?) -> [String] {
         guard let app else { return [] }
         return MouseAppExceptionSupport.identities(bundleID: app.bundleIdentifier,
