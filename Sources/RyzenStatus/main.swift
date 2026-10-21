@@ -16,13 +16,6 @@ NotchControlItem.keyboardLightIsSupported = { BrightnessService.keyboardLightIsS
 MouseAccelerationGuard.runIfRequestedAndExit()
 MouseAccelerationService.recoverPendingAtLaunch()
 
-// A developer's check of the island's windows, only in debug builds.
-#if DEBUG
-if CommandLine.arguments.contains("--notch-presentation-test") {
-    NotchPresentationProbe.runAndExit()
-}
-#endif
-
 if CommandLine.arguments.contains("--selftest") {
     SelfTest.runAndExit()
 }
@@ -32,6 +25,17 @@ if CommandLine.arguments.contains("--sensors") {
 if CommandLine.arguments.contains("--uninstall") {
     Uninstaller.runAndExit()
 }
+
+// A developer's check of the island's windows, only in debug builds. A probe
+// mode on its own would otherwise launch the whole app, and TCC kills that
+// from a shell whose host app lacks a Bluetooth usage description. The
+// commands above come first, so `--selftest` beside a probe mode runs the
+// selftest, not the probe.
+#if DEBUG
+if NotchPresentationProbe.isRequested(by: CommandLine.arguments) {
+    NotchPresentationProbe.runAndExit()
+}
+#endif
 
 // Top-level code in main.swift is nonisolated in the Swift 5 language mode, and
 // AppDelegate is now @MainActor. This is the program entry point, so the main
