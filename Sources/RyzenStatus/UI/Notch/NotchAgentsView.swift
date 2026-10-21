@@ -8,6 +8,7 @@ struct NotchAgentsView: View {
     let size: CGSize
     @ObservedObject private var usage = AgentUsageService.shared
     @ObservedObject private var l10n = L10n.shared
+    @Environment(\.notchSettingsPreview) private var preview
     @AppStorage(DefaultsKey.notchAgentsPeriod) private var period = AgentPeriod.today.rawValue
     @AppStorage(DefaultsKey.notchAgentsLimitDisplay) private var display = NotchAgentLimitDisplay.remaining.rawValue
     @AppStorage(DefaultsKey.notchAgentsCardOrder) private var cardOrder = ""
@@ -59,7 +60,8 @@ struct NotchAgentsView: View {
         }
         .frame(width: size.width, height: size.height, alignment: .top)
         .environment(\.locale, l10n.language.formattingLocale())
-        .onAppear { usage.pageDidAppear() }
+        .onAppear { usage.pageDidAppear(preview: preview) }
+        .onDisappear { if !preview { usage.pageDidDisappear() } }
     }
 
     private func grid(_ rows: [[NotchAgentTile]], now: Date) -> some View {
@@ -128,10 +130,10 @@ private struct NotchAgentLimitsCard: View {
     let text: NotchAgentStrings
     @Environment(\.locale) private var locale
 
-    /// A reading the Claude app saved a while ago: still the latest known,
-    /// shown quieter until the app checks again.
+    /// A Claude reading from a while ago: still the latest known, shown
+    /// quieter until Claude Code or the Claude app checks again.
     private var stale: Bool {
-        guard let limits = snapshot.limits[provider], limits.source == .claudeApp else { return false }
+        guard provider == .claude, let limits = snapshot.limits[provider] else { return false }
         return now.timeIntervalSince(limits.observedAt) >= AgentClaudeAppUsage.freshness
     }
 

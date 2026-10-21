@@ -139,6 +139,7 @@ struct NotchAgentsSettingsControls: View {
                 TimelineView(.periodic(from: .now, by: 30)) { context in
                     claudeLimitsStatus(now: context.date)
                 }
+                if usage.claudeAccountChecking { ProgressView().controlSize(.small) }
                 Text(text.claudeLimitsPrivacy).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -166,9 +167,16 @@ struct NotchAgentsSettingsControls: View {
     /// Where Claude's plan limits stand, and the one step that brings them
     /// here when they are missing or old.
     @ViewBuilder private func claudeLimitsStatus(now: Date) -> some View {
-        let checked = usage.claudeAppChecked ?? claudeAppFileCheck
+        let account = usage.snapshot.limits[.claude].flatMap { $0.source == .account ? $0.observedAt : nil }
+        let checked = account ?? usage.claudeAppChecked ?? claudeAppFileCheck
         HStack(alignment: .top, spacing: 10) {
-            if let checked, now.timeIntervalSince(checked) < AgentClaudeAppUsage.freshness {
+            if let account {
+                Image(systemName: now.timeIntervalSince(account) < AgentClaudeAppUsage.freshness
+                      ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                    .foregroundStyle(now.timeIntervalSince(account) < AgentClaudeAppUsage.freshness ? .green : .orange)
+                Text("Claude Code · " + text.updated(relative(account, now: now)))
+                Spacer(minLength: 0)
+            } else if let checked, now.timeIntervalSince(checked) < AgentClaudeAppUsage.freshness {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                 Text(text.claudeLimitsCurrent(relative(checked, now: now)))
                 Spacer(minLength: 0)
