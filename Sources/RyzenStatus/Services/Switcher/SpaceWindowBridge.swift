@@ -29,6 +29,13 @@ enum SpaceWindowBridge {
         return unsafeBitCast(symbol, to: Function.self)()
     }()
 
+    private typealias GetWindowTagsFunction =
+        @convention(c) (ConnectionID, CGWindowID, UnsafeMutablePointer<UInt32>, Int) -> CGError
+    private static let getWindowTags: GetWindowTagsFunction? = {
+        guard let symbol = symbol("CGSGetWindowTags") else { return nil }
+        return unsafeBitCast(symbol, to: GetWindowTagsFunction.self)
+    }()
+
     private typealias WindowIsOrderedInFunction =
         @convention(c) (ConnectionID, CGWindowID, UnsafeMutablePointer<UInt8>) -> CGError
     private static let windowIsOrderedIn: WindowIsOrderedInFunction? = {
@@ -263,8 +270,23 @@ enum SpaceWindowBridge {
     /// False when the window server cannot answer, preserving the existing
     /// cross-Space behavior instead of hiding a legitimate window on a guess.
     static func isExcludedFromWindowCycle(_ windowID: CGWindowID) -> Bool {
-        guard let tags = windowTags(of: [windowID])?[windowID] else { return false }
-        return SpaceHopSupport.isExcludedFromWindowCycle(windowTags: tags)
+        if let tags = windowTags(of: [windowID])?[windowID], tags != 0 {
+            return SpaceHopSupport.isExcludedFromWindowCycle(windowTags: tags)
+        }
+        // The batched query was measured on macOS 27 only. Without its
+        // answer, or with one of zeros, the per-window read keeps the flag
+        // where it answered before; on macOS 27 it reads zeros for other
+        // apps, so nothing hides.
+        guard connection != 0, let getWindowTags else { return false }
+        var tags = [UInt32](repeating: 0, count: 2)
+        return tags.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress,
+                  getWindowTags(connection, windowID, base,
+                                MemoryLayout<UnsafeRawPointer>.size * 8) == .success
+            else { return false }
+            return SpaceHopSupport.isExcludedFromWindowCycle(
+                windowTags: UInt64(buffer[0]) | UInt64(buffer[1]) << 32)
+        }
     }
 
     /// The windows among `windowIDs` that the window server hid along with
