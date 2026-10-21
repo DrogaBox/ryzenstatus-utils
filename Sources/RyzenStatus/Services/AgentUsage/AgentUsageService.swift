@@ -483,7 +483,8 @@ final class AgentUsageService: ObservableObject {
             let isSubagent = provider == .opencode && !cursor.state.parentSession.isEmpty
             let turnFile = provider == .opencode && !cursor.state.session.isEmpty ? "\(path)#\(cursor.state.session)" : path
             let tracksTurns = isSubagent ? false : cursor.tracksTurns
-            let parent = isSubagent ? "\(path)#\(cursor.state.parentSession)" : cursor.parent
+            let parent = isSubagent ? "\(path)#\(cursor.state.parentSession)"
+                : cursor.parent ?? cursor.codexParent(among: cursors)
             let finished = store.apply(entries, file: turnFile, provider: provider, tracksTurns: tracksTurns,
                                        parent: parent, modified: cursor.modified, now: now)
             finished.forEach(report)
