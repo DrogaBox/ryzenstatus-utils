@@ -1200,11 +1200,6 @@ struct Strings {
     let cutPasteShowHUDCaption: String
     let autoQuitOngoingWorkNote: String
     let uninstallerConfirmationExpired: String
-    let uninstallerCommandBarBrowseTitle: String
-    let uninstallerCommandBarToggle: String
-    let uninstallerCommandBarCaption: String
-    let uninstallerCommandBarFinderTitle: String
-    let uninstallerSelectionUnavailable: String
     let homebrewDependencies: String
     let homebrewGroupDependencies: String
     let homebrewOrphans: String
