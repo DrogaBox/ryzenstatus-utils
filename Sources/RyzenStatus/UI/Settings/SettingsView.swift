@@ -1245,10 +1245,18 @@ struct PermissionRow: View {
     }
 }
 
-/// Search field for the macOS 26 sidebar, styled after the system pill.
-/// It sits on a fixed header outside the List, so scrolling rows can never
-/// cross it (issues #183, #254). Esc and the clear button empty the query,
-/// matching the system field.
+/// Secure Event Input blocks every synthetic keystroke. Typing a snippet
+/// trigger then does nothing at all, while the snippet library and the
+/// Command Bar's typing actions beep; none of the four paths says what is
+/// wrong or who is holding it. This row is the only place the app explains
+/// that. macOS never names the holder, only the app that was active when it
+/// turned on, so the row offers that app as a lead rather than as the holder.
+///
+/// Both call sites instantiate it only once secure input is on, and the
+/// snippets page waits for one of its own toggles as well, so the `.off`
+/// branch below is there to keep the switch exhaustive and for nothing else.
+/// What drives the feature is the polling demand on each page; see
+/// `SecureInputObservation`.
 struct SecureInputRow: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var monitor = SecureInputMonitor.shared
@@ -1314,6 +1322,10 @@ extension View {
     }
 }
 
+/// Search field for the macOS 26 sidebar, styled after the system pill.
+/// It sits on a fixed header outside the List, so scrolling rows can never
+/// cross it (issues #183, #254). Esc and the clear button empty the query,
+/// matching the system field.
 private struct SidebarSearchField: View {
     @ObservedObject private var l10n = L10n.shared
     @Binding var query: String
