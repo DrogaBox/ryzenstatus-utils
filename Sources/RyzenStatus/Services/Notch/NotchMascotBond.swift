@@ -393,8 +393,11 @@ final class NotchMascotBondStore: ObservableObject {
         var next = bond
         let levels = NotchMascotGrowth.record(event, into: &next, day: NotchMascotGrowth.dayKey(now))
         let gained = next.experience - bond.experience
+        // The company is noted every few seconds; only the first of the day pays.
+        let firstOfDay = next.daysTogether != bond.daysTogether
         save(next)
-        NotchMascotRPG.collect(gold: event == .dayTogether ? 40 : 2)
+        if event != .dayTogether { NotchMascotRPG.collect(gold: 2) }
+        else if firstOfDay { NotchMascotRPG.collect(gold: 40) }
         if levels.after > levels.before { announceLevel(levels.after) }
         return gained
     }

@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.55.2] — 2026-10-21 — kexts 3.35.0 (No kext changes)
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.0. Only the application's validation version pin changes.
+
+### Changed
+
+- **Companion settings in sections**: the page groups its cards under Appearance, Accessories, Your story and Behavior instead of one long column, and the list of moments to try folds away.
+- **The shop is easy to reach**: it now sits at the top of the Accessories section in the companion settings, with your gold, the four items on show and the new-stock button. Right-clicking the companion on the desktop has a Shop item that opens it there. Before, it could only be reached from the companion's card in the island, which shows only on displays with a camera notch.
+- **Shop items stay a surprise**: the accessories list shows only what you already own; the rest appear in the shop.
+
+### Fixed
+
+- **Constant lag in 1.55.1**: the companion paid its daily gold every few seconds instead of once a day, and each payment rewrote the preferences and made the island rebuild itself. The daily gold is paid once, and the gold balance is saved in batches with the rest of its state. The companion settings page no longer redraws every preview each time the hourglass moves.
+
 ## [1.55.1] — 2026-10-21 — kexts 3.35.0 (No kext changes)
 
 > **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.0. Only the application's validation version pin changes.

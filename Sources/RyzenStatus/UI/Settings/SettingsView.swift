@@ -51,6 +51,8 @@ final class SettingsRouter: ObservableObject {
     /// One-shot hint for the Dynamic Island page to show the companion's tab,
     /// where its settings live. Consumed and cleared on arrival.
     @Published var notchCompanion = false
+    /// With it, the companion's page opens on its accessories and the shop.
+    @Published var notchCompanionShop = false
 
     private var history = [HistoryEntry(destination: FeatureSettingsDestination(.general),
                                         sidebarFeature: nil)]
@@ -65,6 +67,7 @@ final class SettingsRouter: ObservableObject {
                  sidebarFeature: AppFeature? = nil, replacingVisit: Bool = false) {
         // Any request, history included, drops a companion hint nobody took.
         notchCompanion = false
+        notchCompanionShop = false
         let requestID = UUID()
         let samePage = page == destination.page
         page = destination.page

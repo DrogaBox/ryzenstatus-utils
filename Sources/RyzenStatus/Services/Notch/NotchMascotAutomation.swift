@@ -45,6 +45,10 @@ final class NotchMascotAutomation: ObservableObject {
     private var hardwareRead: Task<Void, Never>?
     private var wasGaming = false
     private var startedAt: CFTimeInterval = 0
+    /// The last time the company was counted. The island re-reads its
+    /// settings on any preference change and asks for a look each time, so
+    /// counting it on every look turned a write into the next one.
+    private var companyNotedAt: CFTimeInterval = -.infinity
 
     private init() {}
 
@@ -219,6 +223,9 @@ final class NotchMascotAutomation: ObservableObject {
         let store = NotchMascotBondStore.shared
         if gaming, !wasGaming, defaults.bool(forKey: DefaultsKey.notchMascotHardware) { store.cheerGaming() }
         guard idle < 60 else { return }
+        let now = CACurrentMediaTime()
+        guard now - companyNotedAt >= 30 else { return }
+        companyNotedAt = now
         store.record(.dayTogether)
         // Not in the first seconds after launch, when the island settles.
         if defaults.bool(forKey: DefaultsKey.notchMascotSpeech), CACurrentMediaTime() - startedAt > 20 {

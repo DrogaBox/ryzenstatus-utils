@@ -322,6 +322,7 @@ final class NotchService: ObservableObject {
         desktop.restingPlace = { [weak self] in self?.mascotDesktopEntrance() }
         desktop.cameHome = { [weak self] mood in self?.mascotCameHome(mood) }
         desktop.openSettings = { [weak self] in self?.openCompanionSettings() }
+        desktop.openShop = { [weak self] in self?.openCompanionSettings(shop: true) }
         desktop.neighbor = { [weak self] in self?.mascotFriend.feet }
         desktop.greetNeighbor = { [weak self] point in self?.mascotFriend.greet(toward: point) }
         return desktop
@@ -333,6 +334,7 @@ final class NotchService: ObservableObject {
         friend.restingPlace = { [weak self] in self?.mascotFriendEntrance() }
         friend.cameHome = { [weak self] _ in self?.mascotFriendCameHome() }
         friend.openSettings = { [weak self] in self?.openCompanionSettings() }
+        friend.openShop = { [weak self] in self?.openCompanionSettings(shop: true) }
         friend.neighbor = { [weak self] in self?.mascotDesktop.feet }
         friend.greetNeighbor = { [weak self] point in self?.mascotDesktop.greet(toward: point) }
         return friend
@@ -2419,8 +2421,12 @@ final class NotchService: ObservableObject {
     }
 
     /// Opens the companion's own settings.
-    func openCompanionSettings() {
-        Task { @MainActor in SettingsRouter.shared.notchCompanion = true }
+    /// `shop` opens it on the accessories, where the shop is.
+    func openCompanionSettings(shop: Bool = false) {
+        Task { @MainActor in
+            SettingsRouter.shared.notchCompanion = true
+            if shop { SettingsRouter.shared.notchCompanionShop = true }
+        }
         openSettings()
     }
 

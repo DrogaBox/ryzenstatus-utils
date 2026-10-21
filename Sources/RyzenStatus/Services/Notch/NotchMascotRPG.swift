@@ -274,7 +274,7 @@ public final class NotchMascotRPGState: ObservableObject {
     @Published public var goldCoins: Int {
         didSet {
             if goldCoins < 0 { goldCoins = 0; return }
-            defaults.set(goldCoins, forKey: DefaultsKey.notchMascotGold)
+            scheduleSave()
         }
     }
 
@@ -311,6 +311,7 @@ public final class NotchMascotRPGState: ObservableObject {
         saveWork = nil
         defaults.set(currentHearts, forKey: DefaultsKey.notchMascotCurrentHearts)
         defaults.set(hourglassVitality, forKey: DefaultsKey.notchMascotVitality)
+        defaults.set(goldCoins, forKey: DefaultsKey.notchMascotGold)
     }
 
     private var stepBuffUntil: Date = .distantPast

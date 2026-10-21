@@ -46,6 +46,8 @@ final class NotchMascotDesktop: NSObject {
     /// It is back in the island, and shows `homecoming` as it lands there.
     var cameHome: ((_ homecoming: NotchMascotMood) -> Void)?
     var openSettings: (() -> Void)?
+    /// Opens the shop, which lives with the accessories in Settings.
+    var openShop: (() -> Void)?
 
     private(set) var isOut = false
     /// It plays with the other companion: it makes no plans of its own and
@@ -659,6 +661,12 @@ final class NotchMascotDesktop: NSObject {
     fileprivate func menu() -> NSMenu {
         let text = FeatureStrings.notchMascotDesktop(L10n.shared.language)
         let menu = NSMenu()
+        let shop = NSMenuItem(title: FeatureStrings.notchMascotShop(L10n.shared.language).title + "…",
+                              action: #selector(menuShop), keyEquivalent: "")
+        shop.target = self
+        shop.image = NSImage(systemSymbolName: "bag", accessibilityDescription: nil)
+        menu.addItem(shop)
+        menu.addItem(.separator())
         let home = NSMenuItem(title: text.goHome, action: #selector(menuGoHome), keyEquivalent: "")
         home.target = self
         menu.addItem(home)
@@ -685,6 +693,8 @@ final class NotchMascotDesktop: NSObject {
     }
 
     @objc private func menuSettings() { openSettings?() }
+
+    @objc private func menuShop() { openShop?() }
 
     // MARK: The pointer
 

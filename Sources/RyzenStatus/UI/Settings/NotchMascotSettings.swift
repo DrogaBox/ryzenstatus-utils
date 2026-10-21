@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RyzenStatus
 
+import Combine
 import SwiftUI
 
 /// The companion's own page. It lives at the top in a slice of the island,
 /// bigger than life, and acts out what it does on request; below are how it
 /// looks, how it behaves and whether the Command Bar comes out with it.
 struct NotchMascotSettings: View {
-    /// A purchase in the shop redraws what the wardrobe lists.
-    @ObservedObject private var rpgState = NotchMascotRPGState.shared
+    /// A purchase in the shop redraws what the wardrobe lists. Only that is
+    /// watched: the hourglass changes every few seconds, and observing the
+    /// whole state redrew every preview on the page each time.
+    @State private var purchases = NotchMascotRPGState.shared.purchases
     /// Shown as a tab of the Dynamic Island page, which keeps its own margins.
     var embedded = false
     @ObservedObject private var l10n = L10n.shared
@@ -51,7 +54,10 @@ struct NotchMascotSettings: View {
     @AppStorage(DefaultsKey.notchMascotHardware) private var hardware = true
     @AppStorage(DefaultsKey.gamingModeActive) private var gaming = false
     @ObservedObject private var bondStore = NotchMascotBondStore.shared
+    @ObservedObject private var router = SettingsRouter.shared
     @State private var confirmingReset = false
+    /// The part of the page shown under the stage.
+    @State private var section = Part.appearance
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var life: NotchMascotLifeStrings { FeatureStrings.notchMascotLife(l10n.language) }
@@ -104,16 +110,54 @@ struct NotchMascotSettings: View {
                 NotchMascotStageCard(look: look, side: restingSide, awake: enabled, canGreet: enabled && islandOn,
                                      visits: visits, reactions: reactions, hides: hidesWhenIdle, text: text,
                                      language: l10n.language)
-                storyCard
-                appearance
-                wardrobeCard
-                transformationsCard
-                behavior
-                soundCard
-                automaticCard
-                commandBarCard
+                // Nine cards one under the other were too much to take in at
+                // once, so they are grouped, one group at a time.
+                Picker(text.appearance, selection: $section) {
+                    ForEach(Part.allCases) { Text(title(of: $0)).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                switch section {
+                case .appearance:
+                    appearance
+                    transformationsCard
+                case .wardrobe:
+                    NotchMascotShopCard(look: look, language: l10n.language)
+                    wardrobeCard
+                case .story:
+                    storyCard
+                case .behavior:
+                    behavior
+                    automaticCard
+                    soundCard
+                    commandBarCard
+                }
             }
             .padding(embedded ? [.bottom] : .all, 22)
+        }
+        .onReceive(NotchMascotRPGState.shared.$purchases.removeDuplicates()) { purchases = $0 }
+        .onAppear(perform: consumeShopHint)
+        .onChange(of: router.notchCompanionShop) { _, _ in consumeShopHint() }
+    }
+
+    /// The shop was asked for, from the companion on the desktop or the island.
+    private func consumeShopHint() {
+        guard router.notchCompanionShop else { return }
+        router.notchCompanionShop = false
+        section = .wardrobe
+    }
+
+    private enum Part: Int, CaseIterable, Identifiable {
+        case appearance, wardrobe, story, behavior
+        var id: Int { rawValue }
+    }
+
+    private func title(of section: Part) -> String {
+        switch section {
+        case .appearance: text.appearance
+        case .wardrobe: life.accessories
+        case .story: life.bondTitle
+        case .behavior: text.behavior
         }
     }
 
@@ -333,7 +377,8 @@ struct NotchMascotSettings: View {
             }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 84, maximum: 120), spacing: 10)],
                       alignment: .leading, spacing: 10) {
-                ForEach(NotchMascotAccessory.wardrobe) { item in
+                // What the shop sells stays a surprise until it is bought.
+                ForEach(NotchMascotAccessory.wardrobe.filter { !$0.isPurchasable || $0.unlockLevel <= level }) { item in
                     let unlocked = item.unlockLevel <= level
                     NotchMascotChoiceTile(title: unlocked ? life.name(of: item) : lockedTitle(item),
                                           selected: chosenAccessory == item) {
@@ -357,7 +402,7 @@ struct NotchMascotSettings: View {
                 }
             }
             .padding(.leading, settingsRowTextInset)
-            .id(rpgState.purchases)
+            .id(purchases)
             switchRow("leaf", life.seasonal, caption: life.seasonalHint, isOn: $seasonal)
             switchRow("text.bubble", life.speech, caption: life.speechHint, isOn: $speech)
             switchRow("cpu", life.hardware, caption: life.hardwareHint, isOn: $hardware)
@@ -595,10 +640,12 @@ private struct NotchMascotStageCard: View {
     @State private var marker: NotchMascotIslandMarkerEvent?
     @State private var comboWork: [DispatchWorkItem] = []
     @State private var comboName: String?
-    @ObservedObject private var rpg = NotchMascotRPGState.shared
+    /// How many combos are found; the rest of the state changes too often to watch.
+    @State private var combosFound = NotchMascotRPGState.shared.discoveredSynergies.count
     @ObservedObject private var automation = NotchMascotAutomation.shared
     /// The next moment a click on the companion acts out.
     @State private var nextMoment = 0
+    @State private var showsMoments = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The moments it can act out here. This fork has no AI agents section,
@@ -624,9 +671,17 @@ private struct NotchMascotStageCard: View {
             .accessibilityHint(awake ? text.previewHint : "")
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { playNext() }
-            HStack(alignment: .firstTextBaseline) {
-                Text(text.momentsTitle).font(.headline)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Label(rpgText.synergiesFound(combosFound, of: NotchMascotSynergyCatalog.total),
+                      systemImage: "sparkles")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Spacer(minLength: 12)
+                Button { playCombo() } label: {
+                    Label(rpgText.text(.testCombo), systemImage: "wand.and.stars")
+                }
+                .controlSize(.small)
+                .disabled(!awake || visit != nil || !comboWork.isEmpty)
                 Button {
                     // Out of room in the island just now, it says hello here instead.
                     if !NotchService.shared.greetMascot() { play(.visit) }
@@ -637,16 +692,21 @@ private struct NotchMascotStageCard: View {
                 .disabled(!canGreet)
                 .help(text.sayHiHint)
             }
-            comboRow
-            FlowLayoutLite(spacing: 6) {
-                ForEach(Self.moments) { moment in
-                    NotchMascotMomentChip(title: text.moment(moment, language: language), symbol: moment.symbol,
-                                          playing: playing == moment) { play(moment) }
-                        .opacity(visit != nil && playing != moment ? 0.45 : 1)
-                        .disabled(!awake)
+            // Two dozen moments are there to try, not to read every time.
+            DisclosureGroup(isExpanded: $showsMoments) {
+                FlowLayoutLite(spacing: 6) {
+                    ForEach(Self.moments) { moment in
+                        NotchMascotMomentChip(title: text.moment(moment, language: language), symbol: moment.symbol,
+                                              playing: playing == moment) { play(moment) }
+                            .opacity(visit != nil && playing != moment ? 0.45 : 1)
+                            .disabled(!awake)
+                    }
                 }
+                .padding(.top, 6)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: visit == nil)
+            } label: {
+                Text(text.momentsTitle).font(.callout.weight(.semibold))
             }
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: visit == nil)
             // Said here rather than as a tooltip, which came up over the
             // companion just as a resting pointer pets it.
             Label(text.previewHint + " " + text.petTip, systemImage: "hand.point.up.left")
@@ -659,6 +719,7 @@ private struct NotchMascotStageCard: View {
         }
         .padding(16)
         .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onReceive(NotchMascotRPGState.shared.$discoveredSynergies.map(\.count).removeDuplicates()) { combosFound = $0 }
         .onChange(of: awake) { _, awake in
             // A moment still playing ends; switched on, it wakes up with a
             // stretch, and off, it yawns and dozes off. Hidden a moment ago
@@ -731,22 +792,6 @@ private struct NotchMascotStageCard: View {
             .first { $0 != look.style } ?? .cat
         stand.accessory = .none
         return stand
-    }
-
-    /// The button that plays the pair's combo, and how many they have found.
-    private var comboRow: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Label(rpgText.synergiesFound(rpg.discoveredSynergies.count, of: NotchMascotSynergyCatalog.total),
-                  systemImage: "sparkles")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 12)
-            Button { playCombo() } label: {
-                Label(rpgText.text(.testCombo), systemImage: "wand.and.stars")
-            }
-            .controlSize(.small)
-            .disabled(!awake || visit != nil || !comboWork.isEmpty)
-        }
     }
 
     /// Plays the combo the two would play here, or one of the quests, on the stage.

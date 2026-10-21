@@ -21,6 +21,8 @@ struct NotchMascotShopStrings {
     let gold: String
     /// "Shop · 120" on a thing in the wardrobe not bought yet.
     let shopTag: String
+    /// Under the stall in Settings: what it sells and where the gold comes from.
+    let hint: String
 
     func name(of accessory: NotchMascotAccessory) -> String? {
         guard let index = NotchMascotAccessory.shopItems.firstIndex(of: accessory) else { return nil }
@@ -61,7 +63,8 @@ extension FeatureStrings {
                "Ghost smoke and a scare.", "Possessed: a tornado duel.", "A rainbow of sparks."],
         rarities: ["Common", "Uncommon", "Rare", "Legendary"],
         title: "Shop", buy: "Buy", owned: "Owned", reroll: "New stock", soldOut: "Sold out: you own it all",
-        tooPoor: "Not enough gold", close: "Close", gold: "Gold", shopTag: "Shop")
+        tooPoor: "Not enough gold", close: "Close", gold: "Gold", shopTag: "Shop",
+        hint: "Four things at a time, at random; the rarer, the wilder their combos. Gold comes from pats, fruit, snacks, bosses, new combos and each day together.")
 
     private static let spanishShop = NotchMascotShopStrings(
         items: ["Pato de goma", "Cáscara de plátano", "Nariz de payaso", "Tarta de crema", "Cojín pedorro",
@@ -79,7 +82,8 @@ extension FeatureStrings {
                "Humo fantasma y un susto.", "Poseído: duelo de tornados.", "Un arcoíris de chispas."],
         rarities: ["Común", "Poco común", "Raro", "Legendario"],
         title: "Tienda", buy: "Comprar", owned: "Tuyo", reroll: "Nuevo escaparate", soldOut: "Agotado: ya lo tienes todo",
-        tooPoor: "Falta oro", close: "Cerrar", gold: "Oro", shopTag: "Tienda")
+        tooPoor: "Falta oro", close: "Cerrar", gold: "Oro", shopTag: "Tienda",
+        hint: "Cuatro cosas cada vez, al azar; cuanto más raras, más locos sus combos. El oro sale de mimarlo, la fruta, la comida, los jefes, los combos nuevos y cada día juntos.")
 }
 
 /// The words of the sound settings, in English and Spanish; the other
