@@ -770,6 +770,8 @@ struct UpdatesView: View {
     @ObservedObject private var updates = UpdateService.shared
     @AppStorage(DefaultsKey.autoCheckUpdates) private var autoCheck = true
     @AppStorage(DefaultsKey.checkPrereleases) private var checkPrereleases = false
+    @AppStorage(DefaultsKey.showReleaseNotesBeforeUpdate) private var showReleaseNotesFirst = true
+    @AppStorage(DefaultsKey.releaseNotesOnUpdate) private var showWhatsNewAfter = true
 
     var body: some View {
         Section(l10n.s.updatesSection) {
@@ -783,6 +785,16 @@ struct UpdatesView: View {
                 .onChange(of: checkPrereleases) { _, _ in
                     // Re-check with the new setting on next automatic check
                 }
+
+            VStack(alignment: .leading, spacing: 4) {
+                let whatsNew = FeatureStrings.whatsNew(l10n.language)
+                Toggle(whatsNew.showPreviewToggle, isOn: $showReleaseNotesFirst)
+                if showWhatsNewAfter {
+                    SettingsCaptionText(whatsNew.showPreviewCaption)
+                }
+            }
+
+            Toggle(l10n.s.releaseNotesOnUpdateToggle, isOn: $showWhatsNewAfter)
 
             statusRow
 

@@ -1473,7 +1473,7 @@ extension Strings {
         tabAdvanced: "Avançado",
         tabAbout: "Sobre",
         tabReleaseNotes: "Novidades",
-        releaseNotesOnUpdateToggle: "Mostrar novidades ao atualizar",
+        releaseNotesOnUpdateToggle: "Mostrar novidades depois de atualizar",
         whatsNewDontShowAgain: "Não mostrar novamente",
         previewSizeLabel: "Tamanho dos previews",
         previewSizeNormal: "Normal",

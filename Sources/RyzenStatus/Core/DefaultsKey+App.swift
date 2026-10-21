@@ -89,6 +89,10 @@ extension DefaultsKey {
     static let autoCheckUpdates = "autoCheckUpdates"
     static let checkPrereleases = "checkPrereleases"       // include pre-releases when checking
     static let releaseNotesOnUpdate = "releaseNotesOnUpdate" // show What's New after an update
+    static let showReleaseNotesBeforeUpdate = "showReleaseNotesBeforeUpdate" // release notes before downloading an update
+    static let whatsNewPendingVersion = "whatsNewPendingVersion" // the update the post-update window starts after
+    static let whatsNewSeenVersion = "whatsNewSeenVersion"   // last version that finished the window
+    static let whatsNewKnownFeatures = "whatsNewKnownFeatures" // comma-joined AppFeature raw values
     static let appVolumes = "appVolumes"                  // [bundle id: 0...2]
     static let appOutputDevices = "appOutputDevices"      // [bundle id: audio device UID]
     static let mixerShowFinder = "mixerShowFinder"
