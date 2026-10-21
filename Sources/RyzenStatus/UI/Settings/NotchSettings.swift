@@ -273,6 +273,13 @@ struct NotchSettings: View {
                     if NotchSilhouette(rawValue: silhouette) == .floating {
                         Text(text.floatingShapeHint).font(.caption).foregroundStyle(.secondary)
                     }
+                    // An island kept on a camera, or away with the lid closed,
+                    // shows no shape, so the card says where to change that.
+                    if enabled, !NotchService.reachesDisplayWithoutNotch(NotchDisplay(rawValue: display) ?? .automatic) {
+                        Text(text.withoutNotchUnreached).font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button(text.showOnAllDisplays) { display = NotchDisplay.all.rawValue }
+                    }
                 }
                 // A capsule has no camera in its middle, so it can carry a reading there.
                 if NotchSilhouette(rawValue: silhouette) ?? .capsule != .notch {
