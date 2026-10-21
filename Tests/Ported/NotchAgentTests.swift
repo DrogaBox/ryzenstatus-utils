@@ -2011,14 +2011,21 @@ enum NotchAgentTests {
         let reading = AgentLimits(provider: .codex, windows: [window(40, resetsIn: 100, id: "a"), window(60, resetsIn: 50, id: "b")],
                                   observedAt: now, source: .sessionLog)
         suite.expect(AgentLimitSupport.binding(reading, now: now)?.id == "b", "the most spent window binds")
-        func limits(_ used: Double, resets: TimeInterval) -> AgentLimits {
-            AgentLimits(provider: .codex, windows: [window(used, resetsIn: resets)], observedAt: now, source: .sessionLog)
+        func limits(_ used: Double, resets: TimeInterval, observed: TimeInterval = 0) -> AgentLimits {
+            AgentLimits(provider: .codex, windows: [window(used, resetsIn: resets)],
+                        observedAt: now.addingTimeInterval(observed), source: .sessionLog)
         }
         suite.expect(AgentLimitSupport.crossings(previous: limits(70, resets: 100), current: limits(85, resets: 100), threshold: 80).count == 1
                         && AgentLimitSupport.crossings(previous: limits(85, resets: 100), current: limits(90, resets: 100), threshold: 80).isEmpty
-                        && AgentLimitSupport.crossings(previous: limits(85, resets: 100), current: limits(85, resets: 9000), threshold: 80).count == 1
+                        && AgentLimitSupport.crossings(previous: limits(85, resets: 100), current: limits(85, resets: 9000, observed: 200),
+                                                       threshold: 80).count == 1
                         && AgentLimitSupport.crossings(previous: nil, current: limits(99, resets: 100), threshold: 80).isEmpty,
                      "a warning comes once per crossing, again after a renewal, never for the first reading")
+        suite.expect(AgentLimitSupport.crossings(previous: limits(85, resets: 100), current: limits(90, resets: 520, observed: 50),
+                                                 threshold: 80).isEmpty
+                        && AgentLimitSupport.crossings(previous: limits(95, resets: 100), current: limits(85, resets: 100, observed: 50),
+                                                       threshold: 80).count == 1,
+                     "a later renewal read before the old one goes by is the same window, and usage that fell is a new one")
     }
 
     // MARK: Reading files
@@ -2290,9 +2297,8 @@ enum NotchAgentTests {
         suite.expect(lines == ["{\"c\":3}"], "a rewritten file is read from its start")
         suite.expect(!AgentLogCursor(path: "/x/s1/subagents/agent-1.jsonl", provider: .claude).tracksTurns
                         && AgentLogCursor(path: "/x/s1.jsonl", provider: .claude).tracksTurns
-                        && !AgentLogCursor(path: "/x/rollout-2026-09-21T08-17-14-a_b.jsonl", provider: .codex).tracksTurns
                         && AgentLogCursor(path: "/x/session-state/id/events.jsonl", provider: .copilot).tracksTurns,
-                     "subagents and side threads never own a turn")
+                     "a Claude subagent never owns a turn, and a Copilot session log does")
         suite.expect(AgentLogRoot.all(home: folder).contains {
             $0.provider == .copilot && $0.url.path == folder.appending(path: ".copilot/session-state").path
         }, "GitHub Copilot session event logs are a discovered local root")

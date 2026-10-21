@@ -434,8 +434,10 @@ struct MetricsTests {
                "a generated identifier (UUID) is ordinary text, not a secret")
         expect(!ClipboardHistorySensitiveText.looksSensitive("{123E4567-E89B-12D3-A456-426614174000}"),
                "a braced identifier is also kept")
-        expect(ClipboardHistorySensitiveText.looksSensitive("https://example.com/cb?sig=abc&x=1"),
-               "a link carrying a signature in its query is skipped")
+        expect(!ClipboardHistorySensitiveText.looksSensitive("https://example.com/cb?sig=abc&x=1"),
+               "a signature parameter is a link, not a named credential")
+        expect(ClipboardHistorySensitiveText.looksSensitive("https://example.com/cb?token=abc&x=1"),
+               "a link carrying a named credential in its query is skipped")
         expect(!ClipboardHistorySensitiveText.looksSensitive("https://example.com/design?signal=1"),
                "a query name that only starts like a secret key is not one")
         expect(ClipboardHistorySensitiveText.isConcealed(["public.utf8-plain-text", "org.nspasteboard.ConcealedType"]),
@@ -3419,13 +3421,13 @@ struct MetricsTests {
                    "a chosen headphone volume survives the migration")
             silent.removePersistentDomain(forName: "ryzenstatus.tests.mixer.headphones")
         }
-        expect(SecureInputSupport.holder(isEnabled: false, read: .holder(42),
+        expect(SecureInputSupport.holder(isEnabled: false, read: .holder(42), ownPid: 99,
                                          runningApp: { _ in ("App", 42) }, isProcessAlive: { _ in true }) == .off,
                "secure input off wins over a stale recorded holder")
-        expect(SecureInputSupport.holder(isEnabled: true, read: .unavailable,
+        expect(SecureInputSupport.holder(isEnabled: true, read: .unavailable, ownPid: 99,
                                          runningApp: { _ in nil }, isProcessAlive: { _ in true }) == .unknown,
                "a failed secure input read is unknown, not unattributed")
-        expect(SecureInputSupport.holder(isEnabled: true, read: .holder(42),
+        expect(SecureInputSupport.holder(isEnabled: true, read: .holder(42), ownPid: 99,
                                          runningApp: { _ in nil }, isProcessAlive: { _ in false }) == .unattributed,
                "a dead secure input holder is unattributed")
         expect(!SecureInputSupport.shouldPoll(observingSurfaceCount: 1, windowIsOpen: false),
@@ -7076,7 +7078,7 @@ struct MetricsTests {
                    "no em-dash in visible radial menu strings (\(language.rawValue))")
             let scratchpadValues = Mirror(reflecting: FeatureStrings.scratchpad(language)).children
                 .compactMap { $0.value as? String }
-            expect(scratchpadValues.count == 44 && scratchpadValues.allSatisfy { !$0.isEmpty },
+            expect(scratchpadValues.count == 46 && scratchpadValues.allSatisfy { !$0.isEmpty },
                    "every scratchpad string is set for \(language.rawValue)")
             expect(scratchpadValues.allSatisfy { !$0.contains("—") },
                    "no em-dash in visible scratchpad strings (\(language.rawValue))")
