@@ -1519,14 +1519,16 @@ enum SwitcherSupport {
     }
 
     /// ↑/↓ on a wrapped icon row steps a row of icons, not of windows: an app
-    /// row lands on the target app's first window. Nil keeps the selection.
+    /// row lands on the target app's entry, its window here in current-desktop
+    /// mode. Nil keeps the selection.
     static func iconRowSelectionIndex(after selectedIndex: Int,
                                       items: [SwitcherItem],
                                       windowRow: Bool,
                                       columns: Int,
-                                      movingDown: Bool) -> Int? {
+                                      movingDown: Bool,
+                                      currentSpaceOnly: Bool = false) -> Int? {
         guard items.indices.contains(selectedIndex) else { return nil }
-        let groups = windowRow ? [] : appGroups(items: items)
+        let groups = windowRow ? [] : appGroups(items: items, currentSpaceOnly: currentSpaceOnly)
         let selectedPID = items[selectedIndex].pid
         guard let iconIndex = windowRow ? selectedIndex : groups.firstIndex(where: { $0.pid == selectedPID })
         else { return nil }
