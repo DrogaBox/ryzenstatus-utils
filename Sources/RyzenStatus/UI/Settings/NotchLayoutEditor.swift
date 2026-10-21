@@ -136,9 +136,10 @@ struct NotchLayoutEditor: View {
     private static let previewScale: CGFloat = 0.5
     private static let canvasHeight: CGFloat = NotchSize.heightRange.upperBound * previewScale + 20 + 58 + 2
     private var layout: NotchSize { NotchSize(rawValue: size) ?? .spacious }
-    private var actualWidth: CGFloat {
-        NotchLayout.preferredWidth(layout, custom: NotchSize.clamped(width, to: NotchSize.widthRange, fallback: NotchSize.defaultWidth))
-    }
+    /// The width the island opens at, which the preview shows: a width set
+    /// by hand, so the slider moves it, or the preset's, whichever the
+    /// geometry settles on.
+    private var actualWidth: CGFloat { previewGeometry.expandedWidth }
     /// The island around a camera, or as a capsule while it floats in its
     /// display's menu bar.
     private var previewGeometry: NotchGeometry {
