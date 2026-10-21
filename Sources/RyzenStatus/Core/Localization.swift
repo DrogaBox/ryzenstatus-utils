@@ -1172,6 +1172,9 @@ struct Strings {
     let micUnmutePartialHUD: String
     let switcherTakeOverSystemShortcuts: String
     let switcherTakeOverSystemShortcutsCaption: String
+    let switcherMaxColumns: String
+    let switcherMaxColumnsCaption: String
+    let switcherMaxColumnsAuto: String
     let switcherInstantSelection: String
     let switcherInstantSelectionCaption: String
     let switcherOtherDesktop: String
@@ -2335,6 +2338,9 @@ extension Strings {
         micUnmutePartialHUD: "Alguns microfones continuam silenciados",
         switcherTakeOverSystemShortcuts: "Substituir ⌘Tab e ⌘` do macOS",
         switcherTakeOverSystemShortcutsCaption: "Desativa os atalhos correspondentes de apps e janelas do macOS somente enquanto o alternador do RyzenStatus estiver ativo. Todos os apps abertos continuam acessíveis.",
+        switcherMaxColumns: "Máximo de colunas",
+        switcherMaxColumnsCaption: "Quebra para mais linhas depois desse número de itens. Útil em monitores ultrawide.",
+        switcherMaxColumnsAuto: "Automático",
         switcherInstantSelection: "Seleção instantânea",
         switcherInstantSelectionCaption: "Move o destaque e a rolagem imediatamente ao navegar por apps e janelas.",
         switcherOtherDesktop: "Outra Mesa",
