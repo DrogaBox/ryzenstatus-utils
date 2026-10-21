@@ -85,10 +85,12 @@ enum SettingsBackup {
         // exported key, so without carrying that half across by hand, applying
         // a backup would delete those entries outright -- including on the Mac
         // the file was written on, where nothing about them was ever wrong.
-        let carried = MouseExceptionScope.allCases.reduce(into: [String: [String]]()) { out, scope in
-            out[scope.defaultsKey] = SettingsBackupSupport.pathIdentities(
-                in: defaults.stringArray(forKey: scope.defaultsKey) ?? [])
-        }
+        // The thumbnail pause lists take such paths too (issue #3033).
+        let carried = (MouseExceptionScope.allCases.map(\.defaultsKey)
+                       + SettingsBackupSupport.thumbnailPauseListKeys)
+            .reduce(into: [String: [String]]()) { out, key in
+                out[key] = SettingsBackupSupport.pathIdentities(in: defaults.stringArray(forKey: key) ?? [])
+            }
         let windowLayoutPaths = SettingsBackupSupport.pathIdentities(
             in: defaults.stringArray(forKey: DefaultsKey.windowLayoutIgnoredApps) ?? [])
         for key in SettingsBackupSupport.keysToClear(whenImporting: settings) {
@@ -96,6 +98,9 @@ enum SettingsBackup {
         }
         for (key, value) in settings {
             defaults.set(value, forKey: key)
+        }
+        if let shared = SettingsBackupSupport.sharedSwitcherPauseList(in: settings) {
+            defaults.set(shared, forKey: DefaultsKey.switcherPreviewExcludedApps)
         }
         if let restored = settings[DefaultsKey.recorderEditorPresets] as? Data {
             defaults.set(SettingsBackupSupport.preservingLocalPresetImages(

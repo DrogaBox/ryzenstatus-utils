@@ -531,6 +531,7 @@ struct Strings {
     let invertHorizontalScroll: String
     let switcherShowShortcutHints: String
     let switcherShowShortcutHintsCaption: String
+    let switcherWindowlessAppsLockedFormat: String
     let switcherNoOpenWindow: String
     // MARK: Feature — Homebrew manager
     let homebrewName: String
@@ -1180,6 +1181,9 @@ struct Strings {
     let micUnmutePartialHUD: String
     let switcherTakeOverSystemShortcuts: String
     let switcherTakeOverSystemShortcutsCaption: String
+    let switcherMaxColumns: String
+    let switcherMaxColumnsCaption: String
+    let switcherMaxColumnsAuto: String
     let switcherInstantSelection: String
     let switcherInstantSelectionCaption: String
     let switcherOtherDesktop: String
@@ -1256,6 +1260,11 @@ struct Strings {
     let secureInputUnattributed: String
     let secureInputUnidentified: String
     let secureInputRevealFormat: String
+    // The switcher page's captions: there secure input costs the switcher its
+    // keys rather than typing, and ⌘Tab reaches the macOS switcher until it ends.
+    let secureInputSwitcherHeldFormat: String
+    let secureInputSwitcherUnattributed: String
+    let secureInputSwitcherUnidentified: String
     let reviewHighlights: String
     let networkIPAddresses: String
     let networkLocalIP: String
@@ -1732,6 +1741,7 @@ extension Strings {
         invertHorizontalScroll: "Inverter rolagem horizontal",
         switcherShowShortcutHints: "Mostrar dicas de atalhos",
         switcherShowShortcutHintsCaption: "Exibe os atalhos de apps e janelas abaixo dos ícones.",
+        switcherWindowlessAppsLockedFormat: "Todos os apps abertos continuam acessíveis enquanto “%@” estiver ativado. Desative para escolher.",
         switcherNoOpenWindow: "Nenhuma janela aberta",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Pesquise, instale e remova fórmulas e casks.",
@@ -2351,6 +2361,9 @@ extension Strings {
         micUnmutePartialHUD: "Alguns microfones continuam silenciados",
         switcherTakeOverSystemShortcuts: "Substituir ⌘Tab e ⌘` do macOS",
         switcherTakeOverSystemShortcutsCaption: "Desativa os atalhos correspondentes de apps e janelas do macOS somente enquanto o alternador do RyzenStatus estiver ativo. Todos os apps abertos continuam acessíveis.",
+        switcherMaxColumns: "Máximo de colunas",
+        switcherMaxColumnsCaption: "Quebra para mais linhas depois desse número de itens. Útil em monitores ultrawide.",
+        switcherMaxColumnsAuto: "Automático",
         switcherInstantSelection: "Seleção instantânea",
         switcherInstantSelectionCaption: "Move o destaque e a rolagem imediatamente ao navegar por apps e janelas.",
         switcherOtherDesktop: "Outra Mesa",
@@ -2427,6 +2440,9 @@ extension Strings {
         secureInputUnattributed: "Nenhum app em execução a reivindica. Encerre a sessão e entre novamente para limpá-la.",
         secureInputUnidentified: "Não foi possível identificar o app que a está mantendo ativa, então o RyzenStatus não consegue digitar por você.",
         secureInputRevealFormat: "Mostrar %@",
+        secureInputSwitcherHeldFormat: "%@ era o app em primeiro plano quando ela foi ligada e pode estar mantendo-a ativa. Até ela ser desativada, o macOS esconde do alternador as teclas que você pressiona e o ⌘Tab abre o alternador do macOS. Saia do campo de senha do app, ou encerre-o, para liberá-la.",
+        secureInputSwitcherUnattributed: "Não é possível dizer qual app a está mantendo ativa. Até ela ser desativada, o macOS esconde do alternador as teclas que você pressiona e o ⌘Tab abre o alternador do macOS. Saia de qualquer campo de senha aberto, ou encerre a sessão e entre novamente, para limpá-la.",
+        secureInputSwitcherUnidentified: "Não foi possível identificar o app que a está mantendo ativa. Até ela ser desativada, o macOS esconde do alternador as teclas que você pressiona e o ⌘Tab abre o alternador do macOS.",
         reviewHighlights: "Rever novidades",
         networkIPAddresses: "Endereços IP",
         networkLocalIP: "IPv4 local",
@@ -2896,6 +2912,7 @@ extension Strings {
         invertHorizontalScroll: "Invert horizontal scrolling",
         switcherShowShortcutHints: "Show shortcut hints",
         switcherShowShortcutHintsCaption: "Shows the app and window shortcuts below the icons.",
+        switcherWindowlessAppsLockedFormat: "All running apps stay reachable while “%@” is on. Turn it off to choose.",
         switcherNoOpenWindow: "No open window",
 
         homebrewName: "Homebrew",
@@ -3516,6 +3533,9 @@ extension Strings {
         micUnmutePartialHUD: "Some microphones are still muted",
         switcherTakeOverSystemShortcuts: "Replace macOS ⌘Tab and ⌘`",
         switcherTakeOverSystemShortcutsCaption: "Disables the matching macOS app and window shortcuts only while RyzenStatus’s switcher is active. All running apps stay reachable.",
+        switcherMaxColumns: "Máximo de colunas",
+        switcherMaxColumnsCaption: "Quebra para mais linhas depois desse número de itens. Útil em monitores ultrawide.",
+        switcherMaxColumnsAuto: "Automático",
         switcherInstantSelection: "Instant selection",
         switcherInstantSelectionCaption: "Moves the highlight and scroll position immediately as you browse apps and windows.",
         switcherOtherDesktop: "Other desktop",
@@ -3600,6 +3620,9 @@ extension Strings {
         secureInputUnattributed: "No running app claims it. Log out and back in to clear it.",
         secureInputUnidentified: "The app holding it could not be identified, so RyzenStatus cannot type for you.",
         secureInputRevealFormat: "Show %@",
+        secureInputSwitcherHeldFormat: "%@ was the active app when it turned on and may be holding it. Until it turns off, macOS hides your keystrokes from the switcher and ⌘Tab opens the macOS switcher instead. Dismiss its password field, or quit it, to release it.",
+        secureInputSwitcherUnattributed: "The app holding it cannot be named. Until it turns off, macOS hides your keystrokes from the switcher and ⌘Tab opens the macOS switcher instead. Dismiss any open password field, or log out and back in, to clear it.",
+        secureInputSwitcherUnidentified: "The app holding it could not be identified. Until it turns off, macOS hides your keystrokes from the switcher and ⌘Tab opens the macOS switcher instead.",
         reviewHighlights: "Review highlights",
         networkIPAddresses: "IP addresses",
         networkLocalIP: "Local IPv4",

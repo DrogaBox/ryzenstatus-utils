@@ -334,6 +334,7 @@ enum Defaults {
         DefaultsKey.windowPreviewExcludedApps: [String](),
         DefaultsKey.switcherCurrentSpaceOnly: false,
         DefaultsKey.switcherSearchPinEnabled: false, // S pins the search field open, off by default
+        DefaultsKey.switcherMaxColumns: 0,
         DefaultsKey.dockPreviewEnabled: false,
         DefaultsKey.dockPreviewBackgroundOpacity: 0.85,
         DefaultsKey.dockPreviewOpenDelay: 200,

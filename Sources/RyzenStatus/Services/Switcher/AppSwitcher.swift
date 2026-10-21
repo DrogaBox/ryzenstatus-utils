@@ -109,6 +109,10 @@ final class AppSwitcher: ObservableObject {
     private var pendingStartAfterStop = false
     /// Alive only while the Switcher's tap needs layout labels off main.
     private var keyboardLayoutObserver: NSObjectProtocol?
+    /// Registered only while the switcher takes macOS's keys over.
+    private lazy var secureInputWatch = SecureInputWatch { [weak self] enabled in
+        self?.secureInputChanged(enabled)
+    }
     private var wakeObserver: NSObjectProtocol?
     private var wakeRetry: DispatchWorkItem?
 
@@ -231,8 +235,10 @@ final class AppSwitcher: ObservableObject {
             // A live tap can pick up a shortcut change without rebuilding;
             // apply here so the native hotkeys follow immediately.
             if !UserDefaults.standard.bool(forKey: DefaultsKey.switcherTakeOverSystemShortcuts) {
+                secureInputWatch.stop()
                 restoreNativeHotkeys()
             } else {
+                secureInputWatch.start()
                 applyNativeHotkeySuppressionIfTapLive()
             }
             // Build the panel and its SwiftUI tree now: the first hosting-view
@@ -246,6 +252,7 @@ final class AppSwitcher: ObservableObject {
                 WindowPreviewProvider.shared.startWarming()
             }
         } else {
+            secureInputWatch.stop()
             restoreNativeHotkeys()
             stopObservingKeyboardLayout()
             stopObservingWake()
@@ -258,6 +265,7 @@ final class AppSwitcher: ObservableObject {
     /// resets its own permissions, so a revoked Accessibility grant can never
     /// leave a live tap behind.
     func suspend() {
+        secureInputWatch.stop()
         restoreNativeHotkeys()
         stopObservingWake()
         routeLock.withLock { routeCanStartSession = false }
@@ -451,7 +459,9 @@ final class AppSwitcher: ObservableObject {
 
     /// Dock's ⌘Tab handler is a symbolic hotkey, not an event the session tap
     /// can swallow. Switch those hotkeys off only while this tap is actually
-    /// installed, so a missing Accessibility grant never kills both switchers.
+    /// installed, so a missing Accessibility grant never kills both switchers,
+    /// and only while it can hear the keyboard, so Secure Event Input never
+    /// does either.
     private func applyNativeHotkeySuppression() {
         let (apps, windows) = routeLock.withLock { (routeShortcut, routeWindowShortcut) }
         let takeOver = UserDefaults.standard.bool(
@@ -459,6 +469,7 @@ final class AppSwitcher: ObservableObject {
         SystemShortcutTakeover.setWanted(
             SwitcherSupport.nativeHotkeyIDs(
                 takeOverSystemShortcuts: takeOver,
+                secureInputEnabled: IsSecureEventInputEnabled(),
                 appsShortcut: apps,
                 windowShortcut: windows,
                 liveEntries: SymbolicHotKeys.entries(for: SwitcherNativeSymbolicHotKey.ids) ?? []),
@@ -482,6 +493,7 @@ final class AppSwitcher: ObservableObject {
         else { return [] }
         return SwitcherSupport.nativeHotkeyIDs(
             takeOverSystemShortcuts: true,
+            secureInputEnabled: IsSecureEventInputEnabled(),
             appsShortcut: GlobalShortcut.saved(for: DefaultsKey.switcherShortcut,
                                                fallback: .switcherDefault),
             windowShortcut: GlobalShortcut.saved(for: DefaultsKey.switcherWindowShortcut,
@@ -497,6 +509,19 @@ final class AppSwitcher: ObservableObject {
 
     private func restoreNativeHotkeys() {
         SystemShortcutTakeover.setWanted([], for: SystemShortcutTakeover.switcherSource)
+    }
+
+    /// Secure Event Input stops every key from reaching the tap, so macOS gets
+    /// its keys back for as long as it lasts, and a session already open is
+    /// dropped: the release that would commit it can no longer arrive.
+    private func secureInputChanged(_ enabled: Bool) {
+        guard enabled else {
+            applyNativeHotkeySuppressionIfTapLive()
+            return
+        }
+        routeLock.withLock { routePendingSessionStart = nil }
+        if sessionActive { cancelSession() }
+        restoreNativeHotkeys()
     }
 
     private func clearEventTapThread() -> Bool {
@@ -1142,7 +1167,7 @@ final class AppSwitcher: ObservableObject {
 
         // The icon row steps app by app, so the same rule runs over the groups
         // and lands on the chosen group's representative window.
-        let groups = SwitcherSupport.appGroups(items: items)
+        let groups = SwitcherSupport.appGroups(items: items, currentSpaceOnly: currentSpaceOnly)
         guard !groups.isEmpty else { return 0 }
         let groupIndex = SwitcherSupport.initialSelectionPosition(pids: groups.map(\.pid),
                                                                   hasForegroundEntry: hasForegroundItem,
@@ -1309,7 +1334,8 @@ final class AppSwitcher: ObservableObject {
         selectedIndex = SwitcherSupport.nextAppSelectionIndex(items: windows,
                                                               selectedIndex: selectedIndex,
                                                               delta: delta,
-                                                              wrapping: wrapping)
+                                                              wrapping: wrapping,
+                                                              currentSpaceOnly: currentSpaceOnly)
     }
 
     private func advanceWindowInSelectedApp(by delta: Int) {
@@ -1549,7 +1575,11 @@ final class AppSwitcher: ObservableObject {
     /// the grid edges.
     private func moveSelection(by delta: Int) {
         if usesIconRowLayout {
-            advanceWindowInSelectedApp(by: delta < 0 ? -1 : 1)
+            if iconRowLayout.isWrapped {
+                moveIconRowSelection(movingDown: delta > 0)
+            } else {
+                advanceWindowInSelectedApp(by: delta < 0 ? -1 : 1)
+            }
             return
         }
         guard delta != 0 else { return }
@@ -1560,6 +1590,20 @@ final class AppSwitcher: ObservableObject {
         guard target != selectedIndex else { return }
         userNavigated = true
         selectedIndex = target
+    }
+
+    /// A wrapped icon row has rows to move between, so ↑/↓ step a row there;
+    /// the window shortcut still walks the selected app's windows.
+    private func moveIconRowSelection(movingDown: Bool) {
+        guard let next = SwitcherSupport.iconRowSelectionIndex(after: selectedIndex,
+                                                               items: windows,
+                                                               windowRow: usesWindowRow,
+                                                               columns: iconRowLayout.columns,
+                                                               movingDown: movingDown,
+                                                               currentSpaceOnly: currentSpaceOnly)
+        else { return }
+        userNavigated = true
+        selectedIndex = next
     }
 
     /// Activates the current selection. Also used by the panel on click.
@@ -1740,6 +1784,10 @@ final class AppSwitcher: ObservableObject {
         UserDefaults.standard.bool(forKey: DefaultsKey.switcherSimpleMode)
     }
 
+    private var currentSpaceOnly: Bool {
+        UserDefaults.standard.bool(forKey: DefaultsKey.switcherCurrentSpaceOnly)
+    }
+
     private var usesWindowRow: Bool {
         SwitcherSupport.usesWindowRow(
             simpleMode: simpleModeEnabled,
@@ -1823,7 +1871,8 @@ final class AppSwitcher: ObservableObject {
     private func recomputeLayouts(for items: [SwitcherItem]) {
         guard let screen = placementScreen ?? NSScreen.screens.first else { return }
         sessionPlacementVisibleFrame = screen.visibleFrame
-        grid = SwitcherGrid.compute(count: max(items.count, 1), on: screen)
+        grid = SwitcherGrid.compute(count: max(items.count, 1), on: screen,
+                                    maxColumns: SwitcherSupport.userMaxColumns)
         let appGroups = SwitcherSupport.appGroups(items: items)
         iconRowLayout = SwitcherIconRowLayout.compute(
             appCount: usesWindowRow ? items.count : appGroups.count,
@@ -1833,7 +1882,8 @@ final class AppSwitcher: ObservableObject {
             screenVisibleFrame: screen.visibleFrame,
             showsShortcutHints: showsShortcutHints,
             tileWidth: usesWindowRow ? SwitcherIconRowLayout.windowTileWidth
-                                     : SwitcherIconRowLayout.appTileWidth
+                                     : SwitcherIconRowLayout.appTileWidth,
+            maxColumns: SwitcherSupport.userMaxColumns
         )
     }
 
@@ -1848,7 +1898,8 @@ final class AppSwitcher: ObservableObject {
             screenVisibleFrame: placementVisibleFrame,
             showsShortcutHints: showsShortcutHints,
             tileWidth: usesWindowRow ? SwitcherIconRowLayout.windowTileWidth
-                                     : SwitcherIconRowLayout.appTileWidth
+                                     : SwitcherIconRowLayout.appTileWidth,
+            maxColumns: SwitcherSupport.userMaxColumns
         )
         if iconRowLayout != newLayout {
             iconRowLayout = newLayout
@@ -1871,7 +1922,7 @@ final class AppSwitcher: ObservableObject {
         if usesWindowRow {
             return windows.indices.contains(iconIndex) ? iconIndex : nil
         }
-        let groups = SwitcherSupport.appGroups(items: windows)
+        let groups = SwitcherSupport.appGroups(items: windows, currentSpaceOnly: currentSpaceOnly)
         return groups.indices.contains(iconIndex) ? groups[iconIndex].representativeIndex : nil
     }
 
@@ -2019,12 +2070,13 @@ struct SwitcherGrid: Equatable {
 
     static let empty = SwitcherGrid(columns: 1, rows: 1, visibleRows: 1, panelSize: .zero)
 
-    static func compute(count: Int, on screen: NSScreen) -> SwitcherGrid {
+    static func compute(count: Int, on screen: NSScreen, maxColumns userMax: Int? = nil) -> SwitcherGrid {
         let usableWidth = screen.visibleFrame.width * 0.92
         let usableHeight = screen.visibleFrame.height * 0.85
 
-        let maxColumns = max(1, Int((usableWidth - padding * 2 + spacing) / (cardWidth + spacing)))
-        let columns = SwitcherSupport.gridColumnCount(itemCount: count, maxColumns: maxColumns)
+        let fitByWidth = max(1, Int((usableWidth - padding * 2 + spacing) / (cardWidth + spacing)))
+        let columns = SwitcherSupport.wrappingColumnCount(itemCount: count, fitByWidth: fitByWidth,
+                                                          userMax: userMax)
         let rows = Int(ceil(Double(count) / Double(columns)))
 
         let maxRows = max(1, Int((usableHeight - padding * 2 + spacing) / (cardHeight + spacing)))

@@ -271,9 +271,16 @@ enum SpaceWindowBridge {
                                                      visibleSpaces: visible)
     }
 
-    /// False when the private query is unavailable, preserving the existing
+    /// False when the window server cannot answer, preserving the existing
     /// cross-Space behavior instead of hiding a legitimate window on a guess.
     static func isExcludedFromWindowCycle(_ windowID: CGWindowID) -> Bool {
+        if let tags = windowTags(of: [windowID])?[windowID], tags != 0 {
+            return SpaceHopSupport.isExcludedFromWindowCycle(windowTags: tags)
+        }
+        // The batched query was measured on macOS 27 only. Without its
+        // answer, or with one of zeros, the per-window read keeps the flag
+        // where it answered before; on macOS 27 it reads zeros for other
+        // apps, so nothing hides.
         guard connection != 0, let getWindowTags else { return false }
         var tags = [UInt32](repeating: 0, count: 2)
         return tags.withUnsafeMutableBufferPointer { buffer in
@@ -305,20 +312,25 @@ enum SpaceWindowBridge {
 
     // MARK: - Child windows
 
+    private typealias IteratorParentIDFunction = @convention(c) (CFTypeRef) -> UInt32
+    private static let iteratorParentID: IteratorParentIDFunction? = {
+        guard let symbol = symbol("SLSWindowIteratorGetParentID") else { return nil }
+        return unsafeBitCast(symbol, to: IteratorParentIDFunction.self)
+    }()
     /// The window `windowID` is attached to as a child window, such as the
     /// browser window under its address bar suggestions or the window a
     /// popover hangs from. Accessibility lists a child window as one more
     /// window of the app and cannot tell the two apart. Nil for a window
     /// attached to nothing, and when the window server cannot answer.
     static func parentWindowID(of windowID: CGWindowID) -> CGWindowID? {
-        guard connection != 0, let windowQuery,
+        guard connection != 0, let windowQuery, let iteratorParentID,
               let query = windowQuery.query(connection, [NSNumber(value: windowID)] as CFArray,
                                             0)?.takeRetainedValue(),
               let iterator = windowQuery.windows(query)?.takeRetainedValue()
         else { return nil }
         while windowQuery.advance(iterator) {
             guard windowQuery.windowID(iterator) == windowID else { continue }
-            let parentID = windowQuery.parentID(iterator)
+            let parentID = iteratorParentID(iterator)
             return parentID == kCGNullWindowID ? nil : parentID
         }
         return nil
