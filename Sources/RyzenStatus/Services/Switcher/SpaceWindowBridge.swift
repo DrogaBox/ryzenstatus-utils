@@ -321,6 +321,7 @@ enum SpaceWindowBridge {
             let parentID = windowQuery.parentID(iterator)
             return parentID == kCGNullWindowID ? nil : parentID
         }
+        return nil
     }
 
     // MARK: - Fronting a specific window
