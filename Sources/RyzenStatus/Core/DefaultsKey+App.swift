@@ -548,6 +548,7 @@ extension DefaultsKey {
     static let notchHoverDelay = "notchHoverDelay"
     static let notchCloseDelay = "notchCloseDelay"
     static let notchHideUntilHover = "notchHideUntilHover"
+    static let notchHiddenShowsActivity = "notchHiddenShowsActivity"
     static let notchHideInFullscreen = "notchHideInFullscreen"
     static let notchHapticFeedback = "notchHapticFeedback"
     static let notchIdleContent = "notchIdleContent"

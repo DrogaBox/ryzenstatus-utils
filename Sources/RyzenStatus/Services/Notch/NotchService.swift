@@ -409,6 +409,9 @@ final class NotchService: ObservableObject {
         !hiddenInFullscreen && UserDefaults.standard.bool(forKey: DefaultsKey.notchHideUntilHover)
             && UserDefaults.standard.bool(forKey: DefaultsKey.notchOpenOnHover)
             && !expanded && !peeking && !dragPlaceholder && captureControls == nil
+            // Set to show activity, it comes into sight while one runs or a
+            // notice shows.
+            && !(NotchSupport.hiddenShowsActivity() && (notice != nil || compactActivity != nil))
     }
 
     /// The floating style, closed, with no activity, notice or resting
@@ -1165,7 +1168,7 @@ final class NotchService: ObservableObject {
         acceptsUserInteraction && !hiddenInFullscreen
     }
     var showsSystemFeedback: Bool {
-        acceptsSystemFeedback && !hiddenUntilHover
+        acceptsSystemFeedback && (!hiddenUntilHover || NotchSupport.hiddenShowsActivity())
     }
 
     var protectedWindowIDs: Set<CGWindowID> {
@@ -2762,7 +2765,7 @@ final class NotchService: ObservableObject {
             schedulePointerFollow()
             syncMirrors()
             flushMascotReaction()
-            mascotRestedInView = mascotRestsInView && !expanded
+            mascotRestedInView = mascotRestsInView && !expanded && !hiddenUntilHover
             syncBlurBackdrop()
         }
         if hiddenUntilHover || (captureControls != nil && captureSelectionInProgress) {
@@ -3267,10 +3270,11 @@ final class NotchService: ObservableObject {
             mirror.host.close()
             mirrors[id] = nil
         }
-        // An island hidden until the pointer reaches it hides its copies as well.
-        let hidesAtRest = NotchSupport.hidesUntilHover()
-        let outline = UserDefaults.standard.bool(forKey: DefaultsKey.notchOutlineEnabled)
         let activity = compactActivity
+        // An island hidden until the pointer reaches it hides its copies as
+        // well, unless it shows the activity they would draw.
+        let hidesAtRest = NotchSupport.hidesUntilHover() && (activity == nil || !NotchSupport.hiddenShowsActivity())
+        let outline = UserDefaults.standard.bool(forKey: DefaultsKey.notchOutlineEnabled)
         for screen in screens {
             let id = screen.notchDisplayID
             var base: NotchGeometry?
@@ -3491,7 +3495,10 @@ final class NotchService: ObservableObject {
             }
             return
         }
-        let wanted = running && !suspended && !hiddenUntilHover && !expanded && captureControls == nil
+        // An island hidden until it shows activity measures on, to have its
+        // room when one comes.
+        let wanted = running && !suspended && (!hiddenUntilHover || NotchSupport.hiddenShowsActivity())
+            && !expanded && captureControls == nil
             && (idleContent != .none || compactActivity != nil || !geometry.isNotched || mascotWantsRoom)
         guard wanted else { stopMenuSpaceMonitoring(); return }
         guard menuSpaceTimer == nil else { return }
@@ -4534,7 +4541,8 @@ final class NotchService: ObservableObject {
         }
         let musicWanted = modules.contains(.music) && ((expanded && (selected == .music || (selected == .controls && NotchSupport.controls().contains(.music)))
             && !showingAppPanel && !showingSections && !showingCommandBar)
-            || (!hiddenUntilHover && (NotchSupport.watchesMusicActivity() || NotchSupport.routes(.track))))
+            || ((!hiddenUntilHover || NotchSupport.hiddenShowsActivity())
+                && (NotchSupport.watchesMusicActivity() || NotchSupport.routes(.track))))
         if musicWanted { NowPlayingService.shared.startIslandFeed() } else { NowPlayingService.shared.stopIslandFeed() }
         let needs = expanded && selected == .system && selectedMetric == nil && modules.contains(.system) && !showingAppPanel
             && !showingSections && !showingCommandBar
@@ -4852,8 +4860,8 @@ extension NotchService {
     /// A visit needs the closed island on screen with room for the companion,
     /// whatever it shows. The companion coming back from the bar is not out in it.
     private func canHostMascotVisit(returning: Bool = false) -> Bool {
-        showsSystemFeedback && (returning || (!mascotInBar && !mascotOnDesktop)) && !expanded && !peeking && !dragPlaceholder
-            && notice == nil
+        showsSystemFeedback && !hiddenUntilHover && (returning || (!mascotInBar && !mascotOnDesktop))
+            && !expanded && !peeking && !dragPlaceholder && notice == nil
             && captureControls == nil && !showsCompactActivityPicker && !fullscreenCompact
             && panel?.isVisible == true && mascotHasRoom
     }
