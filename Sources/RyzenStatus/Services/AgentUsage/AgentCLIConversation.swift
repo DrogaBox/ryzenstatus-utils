@@ -7,7 +7,8 @@ import Foundation
 /// One conversation with an agent CLI over its standard input and output,
 /// a JSON message a line. Every answer waits on one deadline, so a server
 /// that stalls costs the conversation's time at most. Blocks its caller:
-/// run it on a work queue of its own.
+/// run it on a work queue of its own. One given a cancellation also ends
+/// as soon as that is cancelled, and is gone once `end()` returns.
 class AgentCLIConversation {
     /// Far above any answer here; a server that writes more is not one.
     private static let maximumBuffer = 4 << 20
@@ -16,13 +17,16 @@ class AgentCLIConversation {
     private let input = Pipe()
     private let output = Pipe()
     private let deadline: DispatchTime
+    private let cancellation: BoundedProcessCancellation?
     private let arrived = DispatchSemaphore(value: 0)
     private let exited = DispatchSemaphore(value: 0)
     private let lock = NSLock()
     private var buffer = Data()
     private var closed = false
 
-    init?(_ executable: URL, arguments: [String], environment: [String: String], timeout: TimeInterval) {
+    init?(_ executable: URL, arguments: [String], environment: [String: String], timeout: TimeInterval,
+          cancellation: BoundedProcessCancellation? = nil) {
+        self.cancellation = cancellation
         deadline = .now() + timeout
         process.executableURL = executable
         process.arguments = arguments
@@ -42,7 +46,8 @@ class AgentCLIConversation {
         }
         process.terminationHandler = { [exited] _ in exited.signal() }
         do {
-            try process.run()
+            // The cancellation holds the server, so cancelling stops it too.
+            if let cancellation { try cancellation.launch(process) } else { try process.run() }
         } catch {
             output.fileHandleForReading.readabilityHandler = nil
             return nil
@@ -53,6 +58,19 @@ class AgentCLIConversation {
     func end() {
         try? input.fileHandleForWriting.close()
         let child = process
+        if let cancellation {
+            // Whoever holds the cancellation starts its servers one after
+            // another, so this one is gone before the next can start.
+            let leaves = ProcessInfo.processInfo.systemUptime + 0.3
+            while child.isRunning, ProcessInfo.processInfo.systemUptime < leaves { usleep(10_000) }
+            if child.isRunning { child.terminate() }
+            let stops = ProcessInfo.processInfo.systemUptime + 0.5
+            while child.isRunning, ProcessInfo.processInfo.systemUptime < stops { usleep(10_000) }
+            if child.isRunning { kill(child.processIdentifier, SIGKILL) }
+            output.fileHandleForReading.readabilityHandler = nil
+            cancellation.release(child)
+            return
+        }
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) {
             guard child.isRunning else { return }
             child.terminate()
@@ -69,6 +87,7 @@ class AgentCLIConversation {
     }
 
     func send(_ message: [String: Any]) -> Bool {
+        if let cancellation, cancellation.isCancelled || DispatchTime.now() >= deadline { return false }
         guard JSONSerialization.isValidJSONObject(message),
               var line = try? JSONSerialization.data(withJSONObject: message, options: .withoutEscapingSlashes)
         else { return false }
@@ -92,6 +111,8 @@ class AgentCLIConversation {
     /// The next message, or nil once the server has ended or time is up.
     func next() -> [String: Any]? {
         while true {
+            // A server that keeps talking still ends a cancellable one on time.
+            if let cancellation, cancellation.isCancelled || DispatchTime.now() >= deadline { return nil }
             let (line, ended): (Data?, Bool) = lock.withLock {
                 guard let newline = buffer.firstIndex(of: 0x0A) else { return (nil, closed) }
                 let line = buffer.subdata(in: buffer.startIndex..<newline)
@@ -102,7 +123,12 @@ class AgentCLIConversation {
                 if let message = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] { return message }
                 continue
             }
-            if ended || arrived.wait(timeout: deadline) == .timedOut { return nil }
+            if ended { return nil }
+            if cancellation != nil {
+                // Looks at the cancellation every tenth of a second instead of
+                // waiting out the whole deadline.
+                _ = arrived.wait(timeout: min(deadline, .now() + 0.1))
+            } else if arrived.wait(timeout: deadline) == .timedOut { return nil }
         }
     }
 }

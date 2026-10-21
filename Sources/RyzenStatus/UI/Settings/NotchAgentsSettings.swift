@@ -49,6 +49,7 @@ struct NotchAgentsSettingsControls: View {
             providerRow(.codex, isOn: $codex)
             providerRow(.opencode, isOn: $opencode)
             providerRow(.copilot, isOn: $copilot)
+            if codex { CodexAccountsSettings() }
 
             Divider()
             Text(text.cardsTitle).font(.subheadline.weight(.medium))
@@ -67,7 +68,7 @@ struct NotchAgentsSettingsControls: View {
                 }
             }
             Text(text.cardsHint).font(.caption).foregroundStyle(.secondary)
-            // The one card that makes Codex ask the account, said where it is chosen.
+            // The card that makes Codex ask the default account, said where it is chosen.
             if codex, cardBinding(.resets).wrappedValue {
                 Text(text.resetsHelp).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

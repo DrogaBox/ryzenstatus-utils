@@ -105,6 +105,9 @@ enum SettingsBackupSupport {
         var keys: Set<String> = [
             DefaultsKey.displaysSwitchedOff,
             DefaultsKey.displaysSwitchedOffFingerprints,
+            // Codex homes are folders on this Mac whose sign-in the cards use,
+            // never settings to bring to another one.
+            DefaultsKey.notchAgentsCodexProfiles,
             DefaultsKey.dockPreviewRestoreAutohide,
             // The Space arrangement setting to put back, and a Dock restart still
             // owed, belong to this Mac's Dock.
@@ -201,7 +204,6 @@ enum SettingsBackupSupport {
 #endif
         return keys
     }()
-
     /// The file's content: an envelope with the format version, the app
     /// version that wrote it, and the filtered settings.
     static func payload(appVersion: String,

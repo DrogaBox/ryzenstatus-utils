@@ -76,6 +76,12 @@ enum AgentCodexServer {
         }
     }
 
+    /// A Terminal window's PATH, which runs the person's shell startup files:
+    /// asked only when they look again for a Codex that was not found.
+    static func loginShellPath() -> String? {
+        HomebrewEnvironment.loginShellExports(shellPath: HomebrewCommandBuilder.currentShellPath)["PATH"]
+    }
+
     /// An app opened from Finder has only the system folders on its PATH,
     /// and a tool installed with npm needs `node`, which sits beside it or
     /// on the shell's PATH.
@@ -184,10 +190,11 @@ enum AgentCodexServer {
 /// Codex's JSON-RPC protocol on the shared bounded CLI transport.
 final class AgentCodexConversation: AgentCLIConversation {
     private var lastID = 0
-    init?(_ executable: URL, environment: [String: String], timeout: TimeInterval) {
+    init?(_ executable: URL, environment: [String: String], timeout: TimeInterval,
+          cancellation: BoundedProcessCancellation? = nil) {
         // Account metadata does not need plugins or marketplace updates.
         super.init(executable, arguments: ["-c", "features.plugins=false", "app-server"],
-                   environment: environment, timeout: timeout)
+                   environment: environment, timeout: timeout, cancellation: cancellation)
     }
 
     /// Introduces the app, as every conversation must begin.
