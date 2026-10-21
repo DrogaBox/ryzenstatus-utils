@@ -617,7 +617,8 @@ final class QuitProtectionService: ObservableObject {
         let targetApp = targetProcessIdentifier.flatMap(NSRunningApplication.init(processIdentifier:))
         let targetBundleIdentifier = targetApp?.bundleIdentifier ?? frontmostBundleIdentifier
         if QuitProtectionSupport.usesNativeQuitRequest(for: shortcut,
-                                                      bundleIdentifier: targetBundleIdentifier),
+                                                      bundleIdentifier: targetBundleIdentifier,
+                                                      confirmedWithExtraModifier: modifier != nil),
            requestQuit(targetProcessIdentifier: targetProcessIdentifier) {
             return
         }

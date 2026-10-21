@@ -8,8 +8,9 @@ import Combine
 /// Quits an app when its last window closes. Each regular app gets an
 /// Accessibility observer that
 /// watches windows being created and destroyed; when an app that had at least
-/// one window drops to zero standard windows, it's asked to quit (a normal
-/// terminate, so unsaved-changes dialogs still appear).
+/// one window drops to zero standard windows and shows nothing else on screen,
+/// it's asked to quit (a normal terminate, so unsaved-changes dialogs still
+/// appear).
 ///
 /// Predictable by design: apps that launch window-less are never touched, and
 /// any app can be kept running through the exception list. Requires
@@ -363,14 +364,7 @@ final class AutoQuitService: ObservableObject {
         // (and with it every event tap) for the default timeout.
         AXUIElementSetMessagingTimeout(appElement, 0.35)
         let hasMinimizedWindow = hasKnownMinimizedWindow(pid: pid, appElement: appElement)
-        // After an explicit close-button click, ignore off-screen titled windows
-        // for ALL apps, not just hidden ones. Chromium/Electron apps especially
-        // keep a titled helper/background window parked off-screen (or on another
-        // Space) after the visible window closes; counting it kept the app alive
-        // forever. Clicking the close button is the clear "I'm done here" signal.
-        let hasVisibleWindow = hasUserFacingWindow(pid: pid,
-                                                   appElement: appElement,
-                                                   includeOffscreenTitled: !recentClose)
+        let hasVisibleWindow = hasUserFacingWindow(pid: pid, appElement: appElement)
         guard AutoQuitSupport.shouldQuitAfterWindowCheck(hadWindows: true,
                                                          appIsTerminated: false,
                                                          appIsExcepted: appIsExcepted,
@@ -396,9 +390,7 @@ final class AutoQuitService: ObservableObject {
         let stillRecentClose = hasRecentCloseButtonRequest(pid: pid)
         let stillHiddenByCloseRequest = app.isHidden && stillRecentClose
         let stillHasKnownMinimizedWindow = hasKnownMinimizedWindow(pid: pid, appElement: appElement)
-        let stillHasUserFacingWindow = hasUserFacingWindow(pid: pid,
-                                                           appElement: appElement,
-                                                           includeOffscreenTitled: !stillRecentClose)
+        let stillHasUserFacingWindow = hasUserFacingWindow(pid: pid, appElement: appElement)
         guard AutoQuitSupport.shouldQuitAfterWindowCheck(hadWindows: true,
                                                          appIsTerminated: app.isTerminated,
                                                          appIsExcepted: appIsExcepted,
@@ -550,7 +542,8 @@ final class AutoQuitService: ObservableObject {
     }
 
     /// A real, user-facing window — not a sheet, palette or system dialog, which
-    /// shouldn't keep an app "alive" for this purpose.
+    /// never makes an app eligible or gets watched. Whether one still on screen
+    /// keeps the app running is the window server check's call.
     private static func isStandardWindow(_ window: AXUIElement) -> Bool {
         if boolAttribute(window, "AXFullScreen") { return true }
         if boolAttribute(window, kAXMinimizedAttribute as String),
@@ -597,45 +590,49 @@ final class AutoQuitService: ObservableObject {
     }
 
     private func hasUserFacingWindow(pid: pid_t,
-                                     appElement: AXUIElement,
-                                     includeOffscreenTitled: Bool = true) -> Bool {
+                                     appElement: AXUIElement) -> Bool {
         let axWindows = standardWindows(of: appElement)
         if axWindows.contains(where: { Self.boolAttribute($0, kAXMinimizedAttribute as String) }) {
             return true
         }
-        if let hasWindowServerWindow = hasWindowServerUserWindow(pid: pid,
-                                                                 includeOffscreenTitled: includeOffscreenTitled) {
-            if !includeOffscreenTitled {
-                return hasWindowServerWindow
-            }
+        if let hasWindowServerWindow = hasWindowServerUserWindow(pid: pid, countsEverythingShown: true) {
             return hasWindowServerWindow
         }
         return !axWindows.isEmpty
     }
 
-    private func hasWindowServerUserWindow(pid: pid_t, includeOffscreenTitled: Bool = true) -> Bool? {
+    /// Whether the window server still knows a window of this app that the user
+    /// has. Apps that keep running with nothing to show are the whole point of
+    /// the feature, and plenty of them do not destroy their window on close:
+    /// they hide it, which leaves the app with no windows for Accessibility but
+    /// a window record here. Those do not count. A window sitting on another
+    /// Space does, and so does a minimized one. The check before a quit also
+    /// counts whatever else the app shows on screen (`countsEverythingShown`);
+    /// see `AutoQuitSupport.windowServerWindowRole`. The decision itself is
+    /// `AutoQuitSupport.windowListHasUserWindow`.
+    private func hasWindowServerUserWindow(pid: pid_t, countsEverythingShown: Bool = false) -> Bool? {
         guard let info = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements],
                                                     kCGNullWindowID) as? [[String: Any]] else { return nil }
+        return AutoQuitSupport.windowListHasUserWindow(
+            info,
+            pid: pid,
+            countsEverythingShown: countsEverythingShown,
+            processDrawsForApp: { Self.process($0, drawsFor: pid) },
+            windowIsMinimized: { SpaceWindowBridge.isMinimized($0) },
+            visibleSpaces: { SpaceWindowBridge.topology()?.visibleSpaces },
+            windowSpaces: { SpaceWindowBridge.spaces(of: $0) })
+    }
 
-        for window in info {
-            guard let ownerPID = (window[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
-                  ownerPID == pid,
-                  let layer = (window[kCGWindowLayer as String] as? NSNumber)?.intValue,
-                  layer == 0,
-                  (window[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1 > 0,
-                  let bounds = window[kCGWindowBounds as String] as? [String: Any],
-                  let width = (bounds["Width"] as? NSNumber)?.doubleValue,
-                  let height = (bounds["Height"] as? NSNumber)?.doubleValue,
-                  width >= 80, height >= 80 else { continue }
-            let title = window[kCGWindowName as String] as? String ?? ""
-            let isOnScreen = (window[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue
-                ?? (window[kCGWindowIsOnscreen as String] as? Bool)
-                ?? false
-            if !isOnScreen && title.isEmpty { continue }
-            if !isOnScreen && !includeOffscreenTitled { continue }
-            return true
-        }
-        return false
+    /// Whether another process's window is this app's own interface drawn
+    /// elsewhere. Since macOS 10.15 every Open and Save panel is drawn in a
+    /// service the system starts for the app that asked, and AutoFill and
+    /// Quick Look work the same way; the system records that app as
+    /// responsible for the service. A regular app never counts, even one this
+    /// app started: a simulator opened from its IDE or a program run from a
+    /// terminal is an app of its own.
+    private static func process(_ processID: pid_t, drawsFor appPID: pid_t) -> Bool {
+        guard ResponsibleProcess.owner(of: processID) == appPID else { return false }
+        return NSRunningApplication(processIdentifier: processID)?.activationPolicy != .regular
     }
 
     // MARK: - Close-request monitor
@@ -831,25 +828,41 @@ final class AutoQuitService: ObservableObject {
 
     private func closeButtonPID(at point: CGPoint, candidate: TrafficLightCandidate) -> pid_t? {
         guard candidate.pid != getpid(), observers[candidate.pid] != nil else { return nil }
-        guard let element = elementAt(point: point),
-              let window = Self.topLevelWindow(from: element)
-        else { return candidate.pid }
+        let element = elementAt(point: point)
+        // When Accessibility cannot confirm the close button, only the click's
+        // place can, and the area that sent it here also covers the minimize
+        // button (issue #3249). An element Accessibility does name as another
+        // window button settles it the other way.
+        func unconfirmedClose() -> pid_t? {
+            guard WindowServerSupport.contains(point, inCloseButtonOf: candidate.frame) else { return nil }
+            if let element, Self.isOtherWindowButton(element) { return nil }
+            return candidate.pid
+        }
+        guard let element, let window = Self.topLevelWindow(from: element) else { return unconfirmedClose() }
 
         var pid: pid_t = 0
         AXUIElementGetPid(window, &pid)
-        if pid == 0 { return candidate.pid }
+        if pid == 0 { return unconfirmedClose() }
         guard pid == candidate.pid else { return nil }
 
         guard Self.isStandardWindow(window),
               let closeButton = Self.windowAttribute(window, kAXCloseButtonAttribute as String),
               Self.boolAttribute(closeButton, kAXEnabledAttribute as String, default: true),
               let buttonFrame = Self.frame(of: closeButton)
-        else { return candidate.pid }
+        else { return unconfirmedClose() }
 
         return buttonFrame.insetBy(dx: -4, dy: -4).contains(point) ? pid : nil
     }
 
     private static let tapAXTimeout: Float = 0.05
+
+    private static func isOtherWindowButton(_ element: AXUIElement) -> Bool {
+        guard !isApplicationElement(element) else { return false }
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &value) == .success
+        else { return false }
+        return AutoQuitSupport.isWindowButtonOtherThanClose(subrole: value as? String)
+    }
 
     private func elementAt(point: CGPoint) -> AXUIElement? {
         let system = AXUIElementCreateSystemWide()

@@ -36,6 +36,62 @@ enum SpaceWindowBridge {
         return unsafeBitCast(symbol, to: GetWindowTagsFunction.self)
     }()
 
+    // MARK: - Window tags
+
+    // The last argument is a set of options, not a window count. Bit 0 asks
+    // for titles, which nothing here reads.
+    private typealias WindowQueryFunction =
+        @convention(c) (ConnectionID, CFArray, UInt64) -> Unmanaged<CFTypeRef>?
+    private typealias WindowQueryResultFunction = @convention(c) (CFTypeRef) -> Unmanaged<CFTypeRef>?
+    private typealias IteratorAdvanceFunction = @convention(c) (CFTypeRef) -> Bool
+    private typealias IteratorWindowIDFunction = @convention(c) (CFTypeRef) -> UInt32
+    private typealias IteratorTagsFunction = @convention(c) (CFTypeRef) -> UInt64
+    private typealias IteratorParentIDFunction = @convention(c) (CFTypeRef) -> UInt32
+
+    private struct WindowQuery {
+        let query: WindowQueryFunction
+        let windows: WindowQueryResultFunction
+        let advance: IteratorAdvanceFunction
+        let windowID: IteratorWindowIDFunction
+        let tags: IteratorTagsFunction
+        let parentID: IteratorParentIDFunction
+    }
+
+    private static let windowQuery: WindowQuery? = {
+        guard let query = symbol("SLSWindowQueryWindows"),
+              let windows = symbol("SLSWindowQueryResultCopyWindows"),
+              let advance = symbol("SLSWindowIteratorAdvance"),
+              let windowID = symbol("SLSWindowIteratorGetWindowID"),
+              let tags = symbol("SLSWindowIteratorGetTags"),
+              let parentID = symbol("SLSWindowIteratorGetParentID")
+        else { return nil }
+        return WindowQuery(query: unsafeBitCast(query, to: WindowQueryFunction.self),
+                           windows: unsafeBitCast(windows, to: WindowQueryResultFunction.self),
+                           advance: unsafeBitCast(advance, to: IteratorAdvanceFunction.self),
+                           windowID: unsafeBitCast(windowID, to: IteratorWindowIDFunction.self),
+                           tags: unsafeBitCast(tags, to: IteratorTagsFunction.self),
+                           parentID: unsafeBitCast(parentID, to: IteratorParentIDFunction.self))
+    }()
+
+    /// The window server's tags for each window among `windowIDs` that still
+    /// exists. On macOS 27 `CGSGetWindowTags` reads zeros for any window of
+    /// another app, so the tags come from one batched window query, which
+    /// still answers for every app. Nil when that query is missing.
+    private static func windowTags(of windowIDs: [CGWindowID]) -> [CGWindowID: UInt64]? {
+        guard connection != 0, let windowQuery else { return nil }
+        // An empty list would answer with unrelated windows.
+        guard !windowIDs.isEmpty else { return [:] }
+        guard let query = windowQuery.query(connection, windowIDs.map { NSNumber(value: $0) } as CFArray,
+                                            0)?.takeRetainedValue(),
+              let iterator = windowQuery.windows(query)?.takeRetainedValue()
+        else { return nil }
+        var tags: [CGWindowID: UInt64] = [:]
+        while windowQuery.advance(iterator) {
+            tags[windowQuery.windowID(iterator)] = windowQuery.tags(iterator)
+        }
+        return tags
+    }
+
     private typealias WindowIsOrderedInFunction =
         @convention(c) (ConnectionID, CGWindowID, UnsafeMutablePointer<UInt8>) -> CGError
     private static let windowIsOrderedIn: WindowIsOrderedInFunction? = {
@@ -225,8 +281,47 @@ enum SpaceWindowBridge {
                   getWindowTags(connection, windowID, base,
                                 MemoryLayout<UnsafeRawPointer>.size * 8) == .success
             else { return false }
-            return SpaceHopSupport.isExcludedFromWindowCycle(windowTagsLow: buffer[0])
+            return SpaceHopSupport.isExcludedFromWindowCycle(
+                windowTags: UInt64(buffer[0]) | UInt64(buffer[1]) << 32)
         }
+    }
+
+    /// The windows among `windowIDs` that the window server hid along with
+    /// their app. Nil when the window query is missing or answers without any
+    /// tag, and before macOS 26, where the tag has not been observed, so
+    /// callers keep their earlier behavior.
+    static func windowsHiddenWithApp(among windowIDs: [CGWindowID]) -> Set<CGWindowID>? {
+        guard #available(macOS 26.0, *), let tags = windowTags(of: windowIDs) else { return nil }
+        return SpaceHopSupport.windowsHiddenWithApp(windowTags: tags)
+    }
+
+    /// Whether the window server holds the window minimized in the Dock, even
+    /// for an app Accessibility cannot read. False when the window query is
+    /// missing, and before macOS 26, where the tag has not been observed.
+    static func isMinimized(_ windowID: CGWindowID) -> Bool {
+        guard #available(macOS 26.0, *), let tags = windowTags(of: [windowID])?[windowID] else { return false }
+        return SpaceHopSupport.isMinimized(windowTags: tags)
+    }
+
+    // MARK: - Child windows
+
+    /// The window `windowID` is attached to as a child window, such as the
+    /// browser window under its address bar suggestions or the window a
+    /// popover hangs from. Accessibility lists a child window as one more
+    /// window of the app and cannot tell the two apart. Nil for a window
+    /// attached to nothing, and when the window server cannot answer.
+    static func parentWindowID(of windowID: CGWindowID) -> CGWindowID? {
+        guard connection != 0, let windowQuery,
+              let query = windowQuery.query(connection, [NSNumber(value: windowID)] as CFArray,
+                                            0)?.takeRetainedValue(),
+              let iterator = windowQuery.windows(query)?.takeRetainedValue()
+        else { return nil }
+        while windowQuery.advance(iterator) {
+            guard windowQuery.windowID(iterator) == windowID else { continue }
+            let parentID = windowQuery.parentID(iterator)
+            return parentID == kCGNullWindowID ? nil : parentID
+        }
+        return nil
     }
 
     // MARK: - Fronting a specific window
