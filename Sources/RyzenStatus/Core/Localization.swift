@@ -1252,6 +1252,11 @@ struct Strings {
     let secureInputUnattributed: String
     let secureInputUnidentified: String
     let secureInputRevealFormat: String
+    // The switcher page's captions: there secure input costs the switcher its
+    // keys rather than typing, and ⌘Tab reaches the macOS switcher until it ends.
+    let secureInputSwitcherHeldFormat: String
+    let secureInputSwitcherUnattributed: String
+    let secureInputSwitcherUnidentified: String
     let reviewHighlights: String
     let networkIPAddresses: String
     let networkLocalIP: String
@@ -2418,6 +2423,9 @@ extension Strings {
         secureInputUnattributed: "Nenhum app em execução a reivindica. Encerre a sessão e entre novamente para limpá-la.",
         secureInputUnidentified: "Não foi possível identificar o app que a está mantendo ativa, então o RyzenStatus não consegue digitar por você.",
         secureInputRevealFormat: "Mostrar %@",
+        secureInputSwitcherHeldFormat: "%@ era o app em primeiro plano quando ela foi ligada e pode estar mantendo-a ativa. Até ela ser desativada, o macOS esconde do alternador as teclas que você pressiona e o ⌘Tab abre o alternador do macOS. Saia do campo de senha do app, ou encerre-o, para liberá-la.",
+        secureInputSwitcherUnattributed: "Não é possível dizer qual app a está mantendo ativa. Até ela ser desativada, o macOS esconde do alternador as teclas que você pressiona e o ⌘Tab abre o alternador do macOS. Saia de qualquer campo de senha aberto, ou encerre a sessão e entre novamente, para limpá-la.",
+        secureInputSwitcherUnidentified: "Não foi possível identificar o app que a está mantendo ativa. Até ela ser desativada, o macOS esconde do alternador as teclas que você pressiona e o ⌘Tab abre o alternador do macOS.",
         reviewHighlights: "Rever novidades",
         networkIPAddresses: "Endereços IP",
         networkLocalIP: "IPv4 local",
@@ -3584,6 +3592,9 @@ extension Strings {
         secureInputUnattributed: "No running app claims it. Log out and back in to clear it.",
         secureInputUnidentified: "The app holding it could not be identified, so RyzenStatus cannot type for you.",
         secureInputRevealFormat: "Show %@",
+        secureInputSwitcherHeldFormat: "%@ was the active app when it turned on and may be holding it. Until it turns off, macOS hides your keystrokes from the switcher and ⌘Tab opens the macOS switcher instead. Dismiss its password field, or quit it, to release it.",
+        secureInputSwitcherUnattributed: "The app holding it cannot be named. Until it turns off, macOS hides your keystrokes from the switcher and ⌘Tab opens the macOS switcher instead. Dismiss any open password field, or log out and back in, to clear it.",
+        secureInputSwitcherUnidentified: "The app holding it could not be identified. Until it turns off, macOS hides your keystrokes from the switcher and ⌘Tab opens the macOS switcher instead.",
         reviewHighlights: "Review highlights",
         networkIPAddresses: "IP addresses",
         networkLocalIP: "Local IPv4",
