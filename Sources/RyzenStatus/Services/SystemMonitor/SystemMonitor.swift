@@ -170,6 +170,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     private var refreshInFlight = false
     private var pendingRefresh = false
     private var pendingRefreshSuppressesGPU = false
+    private var pendingRefreshForcing: Set<MonitorSamplingKind> = []
     private var suppressGPUReadsUntil: TimeInterval = 0
 
     // SMC sensors
@@ -322,7 +323,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             DispatchQueue.main.async {
                 guard monitor.shouldRun,
                       monitor.currentPlan(defaults: .standard).needPower else { return }
-                monitor.refresh()
+                monitor.refresh(forcing: [.power, .powerDraw])
             }
         }, context)?.takeRetainedValue()
         if let powerSourceRunLoopSource {
@@ -792,9 +793,9 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
 
     // MARK: - Refresh
 
-    private func refresh(suppressImmediateGPU: Bool = false) {
+    private func refresh(suppressImmediateGPU: Bool = false, forcing: Set<MonitorSamplingKind> = []) {
         if !Thread.isMainThread {
-            DispatchQueue.main.async { [weak self] in self?.refresh(suppressImmediateGPU: suppressImmediateGPU) }
+            DispatchQueue.main.async { [weak self] in self?.refresh(suppressImmediateGPU: suppressImmediateGPU, forcing: forcing) }
             return
         }
         let defaults = UserDefaults.standard
@@ -806,6 +807,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         if refreshInFlight {
             pendingRefresh = true
             pendingRefreshSuppressesGPU = pendingRefreshSuppressesGPU || suppressImmediateGPU
+            pendingRefreshForcing.formUnion(forcing)
             return
         }
         syncTimerCadence(plan: plan)
@@ -859,7 +861,8 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 let sample = MonitorSamplingPolicy.shouldSample(kind,
                                                                 tick: tick,
                                                                 intervalSeconds: intervalSeconds,
-                                                                foreground: foregroundSampling)
+                                                                foreground: foregroundSampling,
+                                                                forced: forcing)
                 if sample { sampledAnything = true }
                 return sample
             }
@@ -1237,10 +1240,12 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 self.refreshInFlight = false
                 let shouldRunPendingRefresh = self.pendingRefresh
                 let suppressGPU = self.pendingRefreshSuppressesGPU
+                let pendingForcing = self.pendingRefreshForcing
                 self.pendingRefresh = false
                 self.pendingRefreshSuppressesGPU = false
+                self.pendingRefreshForcing = []
                 if shouldRunPendingRefresh, self.shouldRun {
-                    self.refresh(suppressImmediateGPU: suppressGPU)
+                    self.refresh(suppressImmediateGPU: suppressGPU, forcing: pendingForcing)
                 }
             }
         }
