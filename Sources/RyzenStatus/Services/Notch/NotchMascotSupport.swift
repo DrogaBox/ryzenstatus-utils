@@ -23,6 +23,11 @@ enum NotchMascotStyle: String, CaseIterable, Identifiable {
     case ghost
     /// A wobbly slime that jiggles and melts a little as it dozes.
     case slime
+    /// A round, hungry blob that swallows what is thrown to it and spits it
+    /// back as a star, or as the thing itself.
+    case devourer
+    /// An amorphous blob that copies the look of whoever it plays with.
+    case shifter
     /// Cristóbal Sincronía, coffee in hand, from the author's comic: a sprite
     /// figure, as are the companions after him.
     case cristobal
@@ -1395,11 +1400,11 @@ enum NotchMascotSupport {
               let style = NotchMascotStyle(rawValue: defaults.string(forKey: DefaultsKey.notchMascotDesktopFriend) ?? ""),
               NotchMascotStyle.available(name: defaults.string(forKey: DefaultsKey.notchMascotName)).contains(style)
         else { return nil }
-        var friend = look(in: defaults)
+        var friend = undisguisedLook(in: defaults)
         friend.style = style
         friend.accessory = NotchMascotWardrobe.friendAccessory(main: friend.accessory, level: shownLevel(in: defaults),
                                                                style: style, chosen: friendAccessoryChoice(in: defaults))
-        return friend
+        return NotchMascotDisguise.apply(to: friend)
     }
 
     /// The accessory picked for the friend; nil when it picks its own.
@@ -1421,6 +1426,11 @@ enum NotchMascotSupport {
     }
 
     static func look(in defaults: UserDefaults = .standard) -> NotchMascotLook {
+        NotchMascotDisguise.apply(to: undisguisedLook(in: defaults))
+    }
+
+    /// The look as it is stored, whatever the shifter copies for now.
+    static func undisguisedLook(in defaults: UserDefaults = .standard) -> NotchMascotLook {
         NotchMascotLook(
             style: NotchMascotStyle.resolved(defaults.string(forKey: DefaultsKey.notchMascotStyle),
                                              name: defaults.string(forKey: DefaultsKey.notchMascotName)),

@@ -7,6 +7,8 @@ import SwiftUI
 /// bigger than life, and acts out what it does on request; below are how it
 /// looks, how it behaves and whether the Command Bar comes out with it.
 struct NotchMascotSettings: View {
+    /// A purchase in the shop redraws what the wardrobe lists.
+    @ObservedObject private var rpgState = NotchMascotRPGState.shared
     /// Shown as a tab of the Dynamic Island page, which keeps its own margins.
     var embedded = false
     @ObservedObject private var l10n = L10n.shared
@@ -42,6 +44,8 @@ struct NotchMascotSettings: View {
     @AppStorage(DefaultsKey.notchMascotAccessory) private var accessory = NotchMascotAccessory.none.rawValue
     @AppStorage(DefaultsKey.notchMascotName) private var petName = ""
     @AppStorage(DefaultsKey.notchMascotSeasonal) private var seasonal = true
+    @AppStorage(DefaultsKey.notchMascotSound) private var soundOn = true
+    @AppStorage(DefaultsKey.notchMascotSoundVolume) private var soundVolume = NotchMascotSound.defaultVolume
     @AppStorage(DefaultsKey.notchMascotForm) private var formChoice = NotchMascotFormChoice.automatic.rawValue
     @AppStorage(DefaultsKey.notchMascotSpeech) private var speech = true
     @AppStorage(DefaultsKey.notchMascotHardware) private var hardware = true
@@ -105,6 +109,7 @@ struct NotchMascotSettings: View {
                 wardrobeCard
                 transformationsCard
                 behavior
+                soundCard
                 automaticCard
                 commandBarCard
             }
@@ -315,6 +320,12 @@ struct NotchMascotSettings: View {
 
     // MARK: Wardrobe
 
+    /// What a tile not yet worn says: its level, or what it costs in the shop.
+    private func lockedTitle(_ item: NotchMascotAccessory) -> String {
+        guard item.isPurchasable else { return life.locked(at: item.unlockLevel) }
+        return "\(FeatureStrings.notchMascotShop(L10n.shared.language).shopTag) · \(item.price)"
+    }
+
     private var wardrobeCard: some View {
         SettingsCard(title: life.accessories) {
             SettingsRow(symbol: "tshirt", title: life.accessories, caption: life.accessoriesHint) {
@@ -324,7 +335,7 @@ struct NotchMascotSettings: View {
                       alignment: .leading, spacing: 10) {
                 ForEach(NotchMascotAccessory.wardrobe) { item in
                     let unlocked = item.unlockLevel <= level
-                    NotchMascotChoiceTile(title: unlocked ? life.name(of: item) : life.locked(at: item.unlockLevel),
+                    NotchMascotChoiceTile(title: unlocked ? life.name(of: item) : lockedTitle(item),
                                           selected: chosenAccessory == item) {
                         if unlocked { accessory = item.rawValue }
                     } preview: {
@@ -346,6 +357,7 @@ struct NotchMascotSettings: View {
                 }
             }
             .padding(.leading, settingsRowTextInset)
+            .id(rpgState.purchases)
             switchRow("leaf", life.seasonal, caption: life.seasonalHint, isOn: $seasonal)
             switchRow("text.bubble", life.speech, caption: life.speechHint, isOn: $speech)
             switchRow("cpu", life.hardware, caption: life.hardwareHint, isOn: $hardware)
@@ -523,6 +535,26 @@ struct NotchMascotSettings: View {
     }
 
     /// An option with its icon, a line about it and a switch, like the rest of Settings.
+    /// Their sounds: switched off or on, how loud, and a sample to hear it by.
+    private var soundCard: some View {
+        let words = FeatureStrings.notchMascotSound(l10n.language)
+        return SettingsCard(title: words.title) {
+            switchRow("speaker.wave.2", words.toggle, caption: words.toggleHint, isOn: $soundOn)
+            if soundOn {
+                SettingsRow(symbol: "speaker.fill", title: words.volume) {
+                    HStack(spacing: 10) {
+                        Slider(value: $soundVolume, in: 0...1)
+                            .frame(width: 160)
+                        Button(words.test) { NotchMascotSound.shared.preview() }
+                            .controlSize(.small)
+                    }
+                }
+                .padding(.leading, settingsRowTextInset)
+                .transition(.opacity)
+            }
+        }
+    }
+
     private func switchRow(_ symbol: String, _ title: String, caption: String? = nil, isOn: Binding<Bool>) -> some View {
         SettingsRow(symbol: symbol, title: title, caption: caption) {
             Toggle(title, isOn: isOn).labelsHidden().toggleStyle(.switch)
@@ -748,6 +780,7 @@ private struct NotchMascotStageCard: View {
 
     private func stage(_ beat: NotchMascotIslandPlay.Beat) {
         let now = CACurrentMediaTime()
+        NotchMascotSound.play(cues: NotchMascotSoundMap.cues(for: beat), leaderOnLeft: NotchMascotSupport.side() == .left)
         if let mood = beat.leader { reaction = NotchMascotReactionEvent(id: UUID(), reaction: mood, start: now) }
         if let mood = beat.friend { friendReaction = NotchMascotReactionEvent(id: UUID(), reaction: mood, start: now) }
         guard !reduceMotion else { return }

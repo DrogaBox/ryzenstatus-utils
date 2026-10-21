@@ -130,9 +130,9 @@ struct NotchMascotIslandPlayLayer: View {
 
     static func spins(_ thing: NotchMascotIslandPlay.Thing) -> Bool {
         switch thing {
-        case .star, .ball, .coin, .cookie, .flower, .boomerang: return true
+        case .star, .ball, .coin, .cookie, .flower, .boomerang, .pie, .peel: return true
         case .heart, .note, .spark, .snowball, .fireball, .arrow, .key, .potion, .bag, .bolt, .tornado, .sword,
-             .snack: return false
+             .dynamite, .balloon, .duck, .snack: return false
         }
     }
 

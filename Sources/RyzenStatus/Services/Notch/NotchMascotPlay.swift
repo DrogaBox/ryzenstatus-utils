@@ -301,6 +301,8 @@ enum NotchMascotPlay: Equatable {
         case .robot: return Energy(red: 1, green: 0.3, blue: 0.3)
         case .ghost: return Energy(red: 0.72, green: 0.52, blue: 1)
         case .slime: return Energy(red: 0.66, green: 1, blue: 0.3)
+        case .devourer: return Energy(red: 1, green: 0.55, blue: 0.78)
+        case .shifter: return Energy(red: 0.72, green: 0.48, blue: 1)
         case .fan: return Energy(red: 0.35, green: 0.95, blue: 1)
         case .chip: return Energy(red: 1, green: 0.7, blue: 0.25)
         case .minimal: return Energy(red: 0.62, green: 0.8, blue: 1)

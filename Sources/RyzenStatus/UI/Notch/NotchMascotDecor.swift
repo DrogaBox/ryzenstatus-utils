@@ -130,6 +130,14 @@ final class NotchMascotDecor {
         switch style {
         case .minimal, .robot, .cristobal, .whiteRabbit:
             break
+        case .devourer:
+            pins.path = NotchMascotCreatures.devourerLimbs(size: size)
+            pins.fillColor = palette.shade.cgColor
+            show(pins)
+        case .shifter:
+            slimeDrip.path = NotchMascotCreatures.slimeDrip(melted: sleeping, size: size)
+            slimeDrip.fillColor = palette.shade.cgColor
+            show(slimeDrip)
         case .chip:
             pins.path = NotchMascotCreatures.chipPins(size: size)
             pins.fillColor = palette.shade.cgColor
@@ -248,14 +256,14 @@ final class NotchMascotDecor {
                   duration: duration, animated: animated)
             morph(catTail, to: NotchMascotCreatures.catTail(sleeping ? .curl : .rest, size: size),
                   duration: duration, animated: animated)
-        case .slime:
+        case .slime, .shifter:
             morph(slimeDrip, to: NotchMascotCreatures.slimeDrip(melted: sleeping, size: size),
                   duration: duration, animated: animated)
         case .chip:
             fade(pins, to: sleeping ? 0.45 : 1, duration: duration, animated: animated)
         case .ghost:
             fade(fill, to: sleeping ? 0.55 : 0.92, duration: duration, animated: animated)
-        case .fan, .minimal, .robot, .cristobal, .whiteRabbit:
+        case .fan, .minimal, .robot, .cristobal, .whiteRabbit, .devourer:
             break
         }
         applyAmbient()
@@ -548,7 +556,7 @@ final class NotchMascotDecor {
             glow.keyTimes = [0, 0.2, 0.45, 0.7, 1]
             glow.duration = min(1, reaction.length)
             pins.add(glow, forKey: "glow")
-        case .slime, .minimal, .robot, .cristobal, .whiteRabbit:
+        case .slime, .minimal, .robot, .cristobal, .whiteRabbit, .devourer, .shifter:
             break
         }
     }

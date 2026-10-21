@@ -33,6 +33,7 @@ struct NotchMascotIslandPlay: Equatable {
     enum Thing: Equatable {
         case heart, star, note, spark, snowball, flower, cookie, coin, ball
         case fireball, boomerang, arrow, key, potion, bag, bolt, tornado, sword
+        case pie, peel, dynamite, balloon, duck
         case snack(NotchMascotSnack)
     }
 

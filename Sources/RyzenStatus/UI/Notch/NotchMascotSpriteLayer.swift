@@ -243,9 +243,60 @@ final class NotchMascotSpriteLayer: CALayer {
         add(animation, forKey: "run")
     }
 
+    /// Its eyes cannot move, so the whole figure turns to the pointer: it
+    /// faces left when the pointer is left of it, and leans a little toward it,
+    /// settling there or, with `hold`, coming back after that long.
+    func look(toward target: CGPoint, size: CGFloat, hold: TimeInterval? = nil) {
+        let faceLeft = target.x < -0.03
+        var to = CATransform3DMakeTranslation(target.x * size * 0.9, target.y * size * 0.5, 0)
+        if faceLeft { to = CATransform3DScale(to, -1, 1, 1) }
+        turn(to: to, hold: hold)
+    }
+
+    /// Faces front again, after `delay`.
+    func lookAhead(after delay: TimeInterval = 0) {
+        let from = presentation()?.transform ?? transform
+        guard !CATransform3DEqualToTransform(from, CATransform3DIdentity) else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        transform = CATransform3DIdentity
+        let back = CAKeyframeAnimation(keyPath: "transform")
+        let total = max(0, delay) + 0.3
+        back.values = [from, from, CATransform3DIdentity].map { NSValue(caTransform3D: $0) }
+        back.keyTimes = [0, NSNumber(value: max(0, delay) / total), 1]
+        back.timingFunctions = [CAMediaTimingFunction(name: .linear), CAMediaTimingFunction(name: .easeInEaseOut)]
+        back.duration = total
+        add(back, forKey: "gaze")
+        CATransaction.commit()
+    }
+
+    private func turn(to: CATransform3D, hold: TimeInterval?) {
+        let from = presentation()?.transform ?? transform
+        let turn = CAKeyframeAnimation(keyPath: "transform")
+        let settle = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.3, 1)
+        if let hold {
+            let move = 0.16, back = 0.34
+            let total = move + max(0, hold) + back
+            turn.values = [from, to, to, CATransform3DIdentity].map { NSValue(caTransform3D: $0) }
+            turn.keyTimes = [0, move / total, (total - back) / total, 1].map { NSNumber(value: $0) }
+            turn.timingFunctions = [settle, CAMediaTimingFunction(name: .linear), CAMediaTimingFunction(name: .easeInEaseOut)]
+            turn.duration = total
+        } else {
+            turn.values = [from, to].map { NSValue(caTransform3D: $0) }
+            turn.timingFunction = settle
+            turn.duration = 0.18
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        transform = hold == nil ? to : CATransform3DIdentity
+        add(turn, forKey: "gaze")
+        CATransaction.commit()
+    }
+
     /// Takes off what plays over the mood's row.
     func clearOverlays() {
-        for key in ["perform", "walk", "run"] { removeAnimation(forKey: key) }
+        for key in ["perform", "walk", "run", "gaze"] { removeAnimation(forKey: key) }
+        transform = CATransform3DIdentity
     }
 
     private func startLoop() {

@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.55.1] — 2026-10-21 — kexts 3.35.0 (No kext changes)
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.0. Only the application's validation version pin changes.
+
+### Added
+
+- **Companion shop**: the island companion's accessories are now bought with gold in a shop, with a random stock of four, rarities from common to legendary, and a reroll. Levels stay for the transformations; what you already unlocked is kept.
+- **24 new curiosities** with funny, sad and wild interactions, and 55 new combos for them and for the new companions.
+- **Two new companions**: one swallows what is thrown at it and spits it back as stars or powers, the other copies the look of its partner.
+- **Sound for the interactions**: synthesized, switchable off, with a volume control and stereo placement that follows where the interaction happens on screen.
+- **Eyes and pointer-following** for the sprite companions, which now turn toward the cursor.
+
+### Fixed
+
+- Lag on the companion settings page and while dragging a companion: saves are batched, the play layer no longer animates while idle, and the Automation permission query is cached.
+
 ## [1.55.0] — 2026-10-21 — kexts 3.35.0 (No kext changes)
 
 A large pass over the little things: the island opens from the keyboard and shows what happened while it was hidden, updates now say what changed for each feature you use, the screenshot editor gains a spotlight and a canvas that grows, and the switcher, mixer, dock preview and auto-quit stop getting in the way. The companions also grow a Wonder Boy side: hearts and an hourglass to look after, gold, secret doors in the island, thirty-two more things to wear, a catalog of 135 combos for the pair and an arcade card to play them from.

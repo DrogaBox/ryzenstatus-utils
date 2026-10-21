@@ -666,6 +666,11 @@ extension DefaultsKey {
     static let notchMascotVitality = "notchMascotVitality"               // Double, 0...100
     static let notchMascotGold = "notchMascotGold"                       // Int
     static let notchMascotSynergies = "notchMascotSynergies"             // [String], ids of the synergies played
+    static let notchMascotSound = "notchMascotSound"                     // Bool, the companions' sounds (default on)
+    static let notchMascotSoundVolume = "notchMascotSoundVolume"         // Double 0...1 (default 0.35)
+    static let notchMascotOwned = "notchMascotOwned"                     // [String], bought accessories (raw values)
+    static let notchMascotShopStock = "notchMascotShopStock"             // [String], what the shop shows now
+    static let notchMascotShopMigrated = "notchMascotShopMigrated"       // Bool, level unlocks carried over once
     static let notchMascotHardware = "notchMascotHardware"     // Bool, follows the AMD hardware
     static let notchCommandBar = "notchCommandBar"
     static let notchCommandBarStyle = "notchCommandBarStyle"

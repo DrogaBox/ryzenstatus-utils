@@ -19,6 +19,10 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
     case crystalOrb, rangerBow, kingScepter, boomerang, fireballSpell, tornadoSpell, thunderTalisman, goldenKey
     case hourglass, heartPotion, goldBag, iceCreamCone, onigiri, ramenBowl, bobaTea, sleepMask
     case pacifier, bardLute, dumbbells, detectiveLens, laserVisor, jetpack, gameController, angelWings
+    /// The shop's curiosities: funny, sad and mad things to buy with gold.
+    case rubberDuck, bananaPeel, clownNose, creamPie, whoopeeCushion, fakeMustache, trafficCone, piggyBank
+    case alarmClock, stormCloud, wiltedFlower, lonelyBalloon, teddyBear, tissueBox, brokenLocket, tinfoilHat
+    case magicMushroom, discoBall, alienAntenna, dynamiteStick, mimicChest, crystalSkull, cursedMask, unicornHorn
 
     var id: String { rawValue }
 
@@ -26,7 +30,7 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
     static let wardrobe: [NotchMascotAccessory] = [.none, .bow, .glasses, .scarf, .headphones, .beanie,
                                                    .flower, .topHat, .sunglasses, .crown,
                                                    .cap, .bowTie, .monocle, .cowboyHat, .halo, .horns,
-                                                   .chefHat, .eyePatch] + rpgItems
+                                                   .chefHat, .eyePatch] + rpgItems + shopItems
 
     /// The thirty-two of the Wonder Boy wardrobe, in the order they unlock
     /// after the first eighteen: one a level from the nineteenth.
@@ -36,14 +40,27 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
         .hourglass, .heartPotion, .goldBag, .iceCreamCone, .onigiri, .ramenBowl, .bobaTea, .sleepMask,
         .pacifier, .bardLute, .dumbbells, .detectiveLens, .laserVisor, .jetpack, .gameController, .angelWings]
 
+    /// The twenty-four curiosities of the shop.
+    static let shopItems: [NotchMascotAccessory] = [
+        .rubberDuck, .bananaPeel, .clownNose, .creamPie, .whoopeeCushion, .fakeMustache, .trafficCone, .piggyBank,
+        .alarmClock, .stormCloud, .wiltedFlower, .lonelyBalloon, .teddyBear, .tissueBox, .brokenLocket, .tinfoilHat,
+        .magicMushroom, .discoBall, .alienAntenna, .dynamiteStick, .mimicChest, .crystalSkull, .cursedMask, .unicornHorn]
+
     var isRPGItem: Bool { Self.rpgItems.contains(self) }
+    var isShopItem: Bool { Self.shopItems.contains(self) }
+    /// Bought with gold rather than earned by level.
+    var isPurchasable: Bool { isRPGItem || isShopItem }
+
 
     /// The level it unlocks at; zero for the ones that are put on for it.
+    /// What is bought has no level: it is zero once owned, and out of reach
+    /// until then, so every "unlocked at this level" test still reads right.
     var unlockLevel: Int {
-        Self.wardrobe.firstIndex(of: self).map { $0 + 1 } ?? 0
+        if isPurchasable { return NotchMascotShop.owns(self) ? 1 : Int.max }
+        return Self.wardrobe.firstIndex(of: self).map { $0 + 1 } ?? 0
     }
 
-    var isPickable: Bool { unlockLevel > 0 }
+    var isPickable: Bool { Self.wardrobe.contains(self) }
 
     enum Placement { case head, eyes, neck, ears, hand, back, feet }
 
@@ -57,6 +74,11 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
         case .detectiveLens, .laserVisor, .sleepMask, .pacifier: return .eyes
         case .wingBoots: return .feet
         case .jetpack, .angelWings: return .back
+        case .trafficCone, .tinfoilHat, .alienAntenna, .unicornHorn, .stormCloud, .discoBall: return .head
+        case .clownNose, .fakeMustache, .cursedMask: return .eyes
+        case .rubberDuck, .bananaPeel, .creamPie, .whoopeeCushion, .piggyBank, .alarmClock, .wiltedFlower,
+             .lonelyBalloon, .teddyBear, .tissueBox, .brokenLocket, .magicMushroom, .dynamiteStick, .mimicChest,
+             .crystalSkull: return .hand
         case .legendSword, .legendShield, .katana, .wizardStaff, .magicTome, .crystalOrb, .rangerBow, .kingScepter,
              .boomerang, .fireballSpell, .tornadoSpell, .thunderTalisman, .goldenKey, .hourglass, .heartPotion,
              .goldBag, .iceCreamCone, .onigiri, .ramenBowl, .bobaTea, .bardLute, .dumbbells, .gameController:
@@ -372,7 +394,7 @@ final class NotchMascotBondStore: ObservableObject {
         let levels = NotchMascotGrowth.record(event, into: &next, day: NotchMascotGrowth.dayKey(now))
         let gained = next.experience - bond.experience
         save(next)
-        NotchMascotRPG.collect(gold: event == .dayTogether ? 10 : 1)
+        NotchMascotRPG.collect(gold: event == .dayTogether ? 40 : 2)
         if levels.after > levels.before { announceLevel(levels.after) }
         return gained
     }

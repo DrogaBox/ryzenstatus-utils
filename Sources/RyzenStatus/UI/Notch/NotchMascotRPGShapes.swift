@@ -322,6 +322,48 @@ enum NotchMascotRPGShapes {
             return [NotchMascotWearablePart(path: blade, fill: nil, stroke: rgb(0xE6EAF2), lineWidth: max(0.9, s * 0.1)),
                     NotchMascotWearablePart(path: guardBar, fill: nil, stroke: rgb(0xFFC940), lineWidth: max(0.8, s * 0.08)),
                     NotchMascotWearablePart(path: circle(p(-0.34, 0), s * 0.07), fill: rgb(0xB58A5B))]
+        case .pie:
+            let tin = CGMutablePath()
+            tin.move(to: p(-0.4, 0.04)); tin.addLine(to: p(0.4, 0.04)); tin.addLine(to: p(0.3, 0.3)); tin.addLine(to: p(-0.3, 0.3))
+            tin.closeSubpath()
+            let cream = CGMutablePath()
+            cream.addEllipse(in: CGRect(x: c.x - s * 0.4, y: c.y - s * 0.26, width: s * 0.8, height: s * 0.34))
+            return [NotchMascotWearablePart(path: tin, fill: rgb(0xC98B4B)),
+                    NotchMascotWearablePart(path: cream, fill: rgb(0xFFF8EE), stroke: rgb(0xD9CBB5), lineWidth: max(0.5, s * 0.04)),
+                    NotchMascotWearablePart(path: circle(p(0.06, -0.3), s * 0.1), fill: rgb(0xE5384F))]
+        case .peel:
+            let skin = CGMutablePath()
+            skin.move(to: p(-0.44, 0.16))
+            skin.addQuadCurve(to: p(0.44, 0.16), control: p(0, -0.52))
+            skin.addQuadCurve(to: p(-0.44, 0.16), control: p(0, -0.12))
+            return [NotchMascotWearablePart(path: skin, fill: rgb(0xFFE24A), stroke: rgb(0x8A6B00), lineWidth: max(0.5, s * 0.05))]
+        case .dynamite:
+            let stick = CGMutablePath()
+            stick.addRoundedRect(in: CGRect(x: c.x - s * 0.14, y: c.y - s * 0.3, width: s * 0.28, height: s * 0.7),
+                                 cornerWidth: s * 0.06, cornerHeight: s * 0.06)
+            let fuse = CGMutablePath()
+            fuse.move(to: p(0, -0.3)); fuse.addQuadCurve(to: p(0.2, -0.5), control: p(0.02, -0.46))
+            return [NotchMascotWearablePart(path: stick, fill: rgb(0xD83A3A), stroke: rgb(0x7A1B1B), lineWidth: max(0.5, s * 0.04)),
+                    NotchMascotWearablePart(path: fuse, fill: nil, stroke: rgb(0x3A2A1E), lineWidth: max(0.5, s * 0.06)),
+                    NotchMascotWearablePart(path: circle(p(0.22, -0.52), s * 0.1), fill: rgb(0xFFC940))]
+        case .balloon:
+            let string = CGMutablePath()
+            string.move(to: p(0, 0.12)); string.addQuadCurve(to: p(-0.1, 0.5), control: p(0.16, 0.3))
+            let body = CGMutablePath()
+            body.addEllipse(in: CGRect(x: c.x - s * 0.3, y: c.y - s * 0.5, width: s * 0.6, height: s * 0.66))
+            return [NotchMascotWearablePart(path: string, fill: nil, stroke: rgb(0xD9D9D9), lineWidth: max(0.5, s * 0.03)),
+                    NotchMascotWearablePart(path: body, fill: rgb(0x6FA8FF), stroke: rgb(0x2F5FB5), lineWidth: max(0.5, s * 0.04)),
+                    NotchMascotWearablePart(path: circle(p(-0.1, -0.3), s * 0.07), fill: rgb(0xFFFFFF))]
+        case .duck:
+            let body = CGMutablePath()
+            body.addEllipse(in: CGRect(x: c.x - s * 0.36, y: c.y - s * 0.08, width: s * 0.72, height: s * 0.42))
+            let beak = CGMutablePath()
+            beak.move(to: p(0.36, -0.2)); beak.addLine(to: p(0.54, -0.14)); beak.addLine(to: p(0.36, -0.08)); beak.closeSubpath()
+            return [NotchMascotWearablePart(path: body, fill: rgb(0xFFD23F), stroke: rgb(0x16161C), lineWidth: max(0.5, s * 0.04)),
+                    NotchMascotWearablePart(path: circle(p(0.2, -0.18), s * 0.17), fill: rgb(0xFFD23F), stroke: rgb(0x16161C),
+                                            lineWidth: max(0.5, s * 0.04)),
+                    NotchMascotWearablePart(path: beak, fill: rgb(0xFF8A2B)),
+                    NotchMascotWearablePart(path: circle(p(0.22, -0.22), s * 0.03), fill: rgb(0x16161C))]
         default: return nil
         }
     }

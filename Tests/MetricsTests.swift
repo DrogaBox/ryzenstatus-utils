@@ -11528,11 +11528,11 @@ struct MetricsTests {
                 // The Wonder Boy side: the catalog, the state, the wardrobe, the words.
                 do {
                     let all = NotchMascotSynergyCatalog.all
-                    expect(all.count == 135 && NotchMascotSynergyCatalog.total == 135, "the catalog holds 135 combos")
-                    expect(all.map(\.number) == Array(1...135) && Set(all.map(\.id)).count == 135,
-                           "the combos are numbered 1 to 135 with an id each")
+                    expect(all.count == 190 && NotchMascotSynergyCatalog.total == 190, "the catalog holds 190 combos")
+                    expect(all.map(\.number) == Array(1...190) && Set(all.map(\.id)).count == 190,
+                           "the combos are numbered 1 to 190 with an id each")
                     let sizes = SynergyCategory.allCases.map { NotchMascotSynergyCatalog.synergies(in: $0).count }
-                    expect(sizes == [15, 20, 15, 15, 12, 12, 12, 16, 10, 8], "each family holds its share: \(sizes)")
+                    expect(sizes == [15, 20, 15, 15, 12, 12, 12, 16, 10, 8, 32, 23], "each family holds its share: \(sizes)")
                     for synergy in all {
                         for starter in [true, false] {
                             let play = synergy.play(starterIsLeader: starter)
@@ -11612,7 +11612,7 @@ struct MetricsTests {
                         state.hourglassVitality = 25
                         expect(state.isHungry, "under thirty it is hungry")
                         state.feed(.onigiri)
-                        expect(state.hourglassVitality == 55 && state.goldCoins == 45, "a rice ball fills it and pays five")
+                        expect(state.hourglassVitality == 55 && state.goldCoins == 40 + NotchMascotSnack.onigiri.gold, "a rice ball fills it and pays its points in gold")
                         state.hourglassVitality = 25
                         let before = state.currentHearts
                         state.feed(.bobaTea)
@@ -11625,6 +11625,7 @@ struct MetricsTests {
                         expect(state.stepBuffActive, "the shop quickens the steps")
                         state.tick(elapsed: 3600, level: 1)
                         expect(state.hourglassVitality < 100 && state.hourglassVitality > 90, "it runs down very slowly")
+                        state.flush()
                         let again = NotchMascotRPGState(defaults: defaults)
                         expect(again.goldCoins == state.goldCoins && again.discoveredSynergies == ["steelCross"]
                                && again.heartContainers == state.heartContainers
@@ -11638,9 +11639,10 @@ struct MetricsTests {
                            "snacks score in arcade points")
 
                     // The wardrobe: fifty-four, drawn and named in every language.
-                    expect(NotchMascotAccessory.allCases.count == 54 && NotchMascotAccessory.rpgItems.count == 32
-                           && NotchMascotAccessory.wardrobe.count == 50, "fifty-four accessories, fifty to pick")
-                    expect(NotchMascotAccessory.rpgItems.map(\.unlockLevel) == Array(19...50), "one more unlocks each level to fifty")
+                    expect(NotchMascotAccessory.allCases.count == 78 && NotchMascotAccessory.rpgItems.count == 32
+                           && NotchMascotAccessory.shopItems.count == 24
+                           && NotchMascotAccessory.wardrobe.count == 74, "seventy-eight accessories, seventy-four to pick")
+                    expect(NotchMascotAccessory.rpgItems.allSatisfy { $0.isPurchasable }, "the thirty-two are bought in the shop now")
                     let sample = NotchMascotWearableFrame(outline: CGRect(x: 4, y: 6, width: 20, height: 18), size: 28,
                                                           leftEye: CGPoint(x: 11, y: 14), rightEye: CGPoint(x: 18, y: 14))
                     for item in NotchMascotAccessory.rpgItems {
@@ -11671,6 +11673,52 @@ struct MetricsTests {
                                                               thing: 6, figure: 18) > 7,
                            "the arc rises higher than a plain toss")
                 }
+
+            // The shop, the sounds and the two new figures.
+            do {
+                expect(NotchMascotRarity.allCases.reduce(0) { $0 + $1.chance } == 100, "the rarities share a hundred chances")
+                let purchasable = NotchMascotAccessory.rpgItems + NotchMascotAccessory.shopItems
+                expect(purchasable.allSatisfy { $0.price > 0 && $0.rarity.priceRange.contains($0.price) },
+                       "every thing for sale costs what its rarity costs")
+                expect(NotchMascotAccessory.allCases.filter { !$0.isPurchasable }.allSatisfy { $0.price == 0 },
+                       "what is not for sale costs nothing")
+                var counter = 0.0
+                let stock = NotchMascotShop.roll(gold: 0, random: { counter += 0.137; return counter.truncatingRemainder(dividingBy: 1) })
+                expect(stock.count == NotchMascotShop.slots && Set(stock).count == stock.count && stock.allSatisfy(\.isPurchasable),
+                       "the shop shows four different things for sale")
+                expect(NotchMascotShop.draw(random: { 0.0 }) == .common && NotchMascotShop.draw(random: { 0.999 }) == .legendary,
+                       "the lowest roll is common and the highest legendary")
+                let shopWords = FeatureStrings.notchMascotShop(.es)
+                expect(shopWords.isComplete && FeatureStrings.notchMascotShop(.enUS).isComplete
+                       && NotchMascotAccessory.shopItems.allSatisfy { shopWords.name(of: $0) != nil && shopWords.gag(of: $0) != nil },
+                       "the shop is worded for every curiosity")
+                // Sounds: each thing that happens has one, and the pan follows the side.
+                let beat = NotchMascotIslandPlay.Beat(at: 0, flight: .init(thing: .fireball, fromLeader: true),
+                                                      burst: .init(burst: .coins, onLeader: false),
+                                                      marker: .init(text: "BOOM", onLeader: true))
+                let cues = NotchMascotSoundMap.cues(for: beat)
+                expect(cues.count == 4 && cues.first?.effect == .fire && cues.contains { $0.effect == .coin && !$0.onLeader }
+                       && cues.contains { $0.effect == .boom && $0.onLeader }, "a beat sounds out what flies, bursts and is said")
+                expect(NotchMascotSoundMap.pan(x: 0, width: 1000) < -0.9 && NotchMascotSoundMap.pan(x: 1000, width: 1000) > 0.9
+                       && abs(NotchMascotSoundMap.pan(x: 500, width: 1000)) < 0.01, "left, middle and right pan as they are")
+                expect(NotchMascotSoundMap.islandPan(onLeader: true, leaderOnLeft: true) < 0
+                       && NotchMascotSoundMap.islandPan(onLeader: false, leaderOnLeft: true) > 0, "the pair in the island pans apart")
+                // The shifter takes the look of whoever it plays with, and gives it back.
+                var other = NotchMascotLook.standard
+                other.style = .cat
+                other.accessory = .crown
+                NotchMascotDisguise.begin(copying: other)
+                var blob = NotchMascotLook.standard
+                blob.style = .shifter
+                let copied = NotchMascotDisguise.apply(to: blob)
+                expect(copied.style == .cat && copied.accessory == .crown && NotchMascotDisguise.apply(to: other).style == .cat,
+                       "the shifter wears the figure it copies")
+                NotchMascotDisguise.end()
+                expect(NotchMascotDisguise.apply(to: blob).style == .shifter, "and goes back to being a blob")
+                expect(NotchMascotCreatures.body(.devourer, size: 20) != nil && NotchMascotCreatures.body(.shifter, size: 20) != nil
+                       && NotchMascotCreatures.face(.devourer) != nil && NotchMascotCreatures.bounds(.shifter) != nil,
+                       "the two new figures are drawn")
+            }
 
                 let from = CGPoint(x: 10, y: 20), to = CGPoint(x: 110, y: 20)
                 let start = NotchMascotIslandPlayLayer.place(progress: 0, from: from, to: to, lift: 6, falls: false, drop: 10)
@@ -11758,7 +11806,7 @@ struct MetricsTests {
 
             let wardrobe = NotchMascotWardrobe.self
             expect(NotchMascotAccessory.crown.unlockLevel == 10 && NotchMascotAccessory.eyePatch.unlockLevel == 18
-                   && NotchMascotAccessory.wardrobe.count == 18 + NotchMascotAccessory.rpgItems.count
+                   && NotchMascotAccessory.wardrobe.count == 18 + NotchMascotAccessory.rpgItems.count + NotchMascotAccessory.shopItems.count
                    && NotchMascotAccessory.wardrobe.prefix(18).allSatisfy { $0.unlockLevel < NotchMascotForm.golden.unlockLevel },
                    "one accessory unlocks at each of the first eighteen levels, all before the first transformation")
             expect(NotchMascotAccessory.monocle.placement == .eyes && NotchMascotAccessory.eyePatch.placement == .eyes

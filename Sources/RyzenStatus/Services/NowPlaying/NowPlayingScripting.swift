@@ -46,15 +46,36 @@ enum NowPlayingScripting {
         return Availability(target: target, capabilities: capabilities, access: access(to: target))
     }
 
+    /// The answers of the last few seconds, by process. The system call below
+    /// can block for a second or more, and every preference change in the app
+    /// asks again, so a recent answer is reused. A new permission shows within
+    /// the few seconds it takes to ask again.
+    private static let accessLock = NSLock()
+    private static var recentAccess: [Int32: (access: Access, at: CFAbsoluteTime)] = [:]
+    private static let accessLifetime: CFTimeInterval = 8
+
     static func access(to target: Target) -> Access {
         guard target.isCurrent else { return .unavailable }
-        let address = NSAppleEventDescriptor(processIdentifier: target.pid)
-        switch AEDeterminePermissionToAutomateTarget(address.aeDesc, typeWildCard, typeWildCard, false) {
-        case noErr: return .granted
-        case OSStatus(errAEEventWouldRequireUserConsent): return .consent
-        case OSStatus(errAEEventNotPermitted): return .denied
-        default: return .unavailable
+        let now = CFAbsoluteTimeGetCurrent()
+        accessLock.lock()
+        if let known = recentAccess[target.pid], now - known.at < accessLifetime, known.access != .unavailable {
+            accessLock.unlock()
+            return known.access
         }
+        accessLock.unlock()
+        let address = NSAppleEventDescriptor(processIdentifier: target.pid)
+        let answer: Access
+        switch AEDeterminePermissionToAutomateTarget(address.aeDesc, typeWildCard, typeWildCard, false) {
+        case noErr: answer = .granted
+        case OSStatus(errAEEventWouldRequireUserConsent): answer = .consent
+        case OSStatus(errAEEventNotPermitted): answer = .denied
+        default: answer = .unavailable
+        }
+        accessLock.lock()
+        recentAccess[target.pid] = (answer, now)
+        if recentAccess.count > 16 { recentAccess = recentAccess.filter { now - $0.value.at < accessLifetime } }
+        accessLock.unlock()
+        return answer
     }
 
     static func event(_ command: NowPlayingTransportCommand, playback: NowPlayingPlayback,

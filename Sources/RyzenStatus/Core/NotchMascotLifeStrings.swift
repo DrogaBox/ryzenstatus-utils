@@ -106,7 +106,9 @@ struct NotchMascotLifeStrings {
         case .headband: return headband
         default:
             // The Wonder Boy wardrobe is worded in NotchMascotStrings.
-            return FeatureStrings.notchMascotRPG(L10n.shared.language).name(of: accessory) ?? ""
+            let language = L10n.shared.language
+            return FeatureStrings.notchMascotRPG(language).name(of: accessory)
+                ?? FeatureStrings.notchMascotShop(language).name(of: accessory) ?? ""
         }
     }
 }

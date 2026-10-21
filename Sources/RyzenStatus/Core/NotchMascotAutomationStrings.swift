@@ -41,6 +41,9 @@ struct NotchMascotAutomationStrings {
         case .cat: return cat
         case .ghost: return ghost
         case .slime: return slime
+        // Original figures, worded in the language of the app.
+        case .devourer: return L10n.shared.language == .es ? "Tragón" : "Glutton"
+        case .shifter: return L10n.shared.language == .es ? "Metamorfo" : "Shifter"
         // Characters' own names, the same in every language.
         case .cristobal: return "Cristóbal"
         case .whiteRabbit: return "Conejo Blanco"

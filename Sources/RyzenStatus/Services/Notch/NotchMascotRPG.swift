@@ -2,6 +2,7 @@
 // Copyright (C) 2026 RyzenStatus
 
 import Combine
+import AppKit
 import Foundation
 
 // MARK: - Rules
@@ -32,9 +33,9 @@ enum NotchMascotRPG {
     static let buffLength: TimeInterval = 90
     /// The experience and gold the chest of the boss's lair holds.
     static let bossExperience = 50
-    static let bossGold = 25
+    static let bossGold = 120
     /// Gold for a synergy found for the first time.
-    static let discoveryGold = 10
+    static let discoveryGold = 30
 
     /// A heart container for every seven levels, from three to ten.
     static func heartContainers(forLevel level: Int) -> Int {
@@ -198,7 +199,7 @@ enum NotchMascotSnack: String, CaseIterable, Identifiable {
     }
 
     /// Gold in the pocket for it: a coin for every hundred points, one for the boba.
-    var gold: Int { points > 0 ? points / 100 : 1 }
+    var gold: Int { points > 0 ? points / 25 : 5 }
 }
 
 /// What a form can do that the others cannot, drawn on the strip and on
@@ -225,7 +226,8 @@ enum NotchMascotAbility: String, CaseIterable, Identifiable {
         case .cat: return .ceilingWalk
         case .chip, .robot: return .fireballBreath
         case .fan, .ghost: return .glide
-        case .slime: return .dolphinDive
+        case .slime, .shifter: return .dolphinDive
+        case .devourer: return .glide
         case .cristobal, .whiteRabbit: return .pepelogooSpringboard
         case .minimal: return nil
         }
@@ -255,7 +257,7 @@ public final class NotchMascotRPGState: ObservableObject {
         didSet {
             let clamped = min(Double(heartContainers), max(0, currentHearts))
             if clamped != currentHearts { currentHearts = clamped; return }
-            defaults.set(currentHearts, forKey: DefaultsKey.notchMascotCurrentHearts)
+            scheduleSave()
         }
     }
 
@@ -264,7 +266,7 @@ public final class NotchMascotRPGState: ObservableObject {
         didSet {
             let clamped = NotchMascotRPG.clampVitality(hourglassVitality)
             if clamped != hourglassVitality { hourglassVitality = clamped; return }
-            defaults.set(hourglassVitality, forKey: DefaultsKey.notchMascotVitality)
+            scheduleSave()
         }
     }
 
@@ -281,8 +283,35 @@ public final class NotchMascotRPGState: ObservableObject {
         didSet { defaults.set(discoveredSynergies.sorted(), forKey: DefaultsKey.notchMascotSynergies) }
     }
 
+    /// What the shop shows now. Kept in the preferences between visits.
+    @Published private(set) var shopStock: [NotchMascotAccessory]
+    /// Counts the purchases, so a view that lists what is owned redraws.
+    @Published public private(set) var purchases = 0
+
     /// The last hint the tavern gave: the name of a combo not found yet.
     @Published public private(set) var lastHint: String?
+
+    /// The hourglass and the hearts change every few seconds while it rests.
+    /// Writing them each time would wake every preference observer in the app
+    /// (the island syncs its whole state on any change), so they are saved
+    /// together a minute later, and at once when the app quits.
+    private var saveWork: DispatchWorkItem?
+    private static let saveDelay: TimeInterval = 60
+
+    private func scheduleSave() {
+        guard saveWork == nil else { return }
+        let work = DispatchWorkItem { [weak self] in self?.flush() }
+        saveWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.saveDelay, execute: work)
+    }
+
+    /// Writes the hourglass and the hearts now.
+    func flush() {
+        saveWork?.cancel()
+        saveWork = nil
+        defaults.set(currentHearts, forKey: DefaultsKey.notchMascotCurrentHearts)
+        defaults.set(hourglassVitality, forKey: DefaultsKey.notchMascotVitality)
+    }
 
     private var stepBuffUntil: Date = .distantPast
     private var enchantUntil: Date = .distantPast
@@ -303,6 +332,14 @@ public final class NotchMascotRPGState: ObservableObject {
         hourglassVitality = NotchMascotRPG.clampVitality(vitality)
         goldCoins = max(0, defaults.integer(forKey: DefaultsKey.notchMascotGold))
         discoveredSynergies = Set(defaults.stringArray(forKey: DefaultsKey.notchMascotSynergies) ?? [])
+        NotchMascotShop.migrateOnce(level: NotchMascotSupport.shownLevel())
+        shopStock = (defaults.stringArray(forKey: DefaultsKey.notchMascotShopStock) ?? [])
+            .compactMap(NotchMascotAccessory.init(rawValue:))
+            .filter { $0.isPurchasable && !NotchMascotShop.owns($0) }
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil,
+                                               queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.flush() }
+        }
     }
 
     var snapshot: NotchMascotRPGSnapshot {
@@ -349,6 +386,8 @@ public final class NotchMascotRPGState: ObservableObject {
         switch door {
         case .shop:
             stepBuffUntil = Date().addingTimeInterval(NotchMascotRPG.buffLength)
+            // Each visit finds the stall stocked differently.
+            restock()
         case .inn:
             currentHearts = Double(heartContainers)
             hourglassVitality = NotchMascotRPG.maxVitality
@@ -361,6 +400,43 @@ public final class NotchMascotRPGState: ObservableObject {
             collect(gold: NotchMascotRPG.bossGold)
             NotchMascotBondStore.shared.award(experience: NotchMascotRPG.bossExperience)
         }
+    }
+
+    // MARK: The shop
+
+    private func saveStock() {
+        defaults.set(shopStock.map(\.rawValue), forKey: DefaultsKey.notchMascotShopStock)
+    }
+
+    private func restock() {
+        shopStock = NotchMascotShop.roll(gold: goldCoins)
+        saveStock()
+    }
+
+    /// Opens the stall: stocked on the first visit, as it was left after.
+    func openShop() {
+        if shopStock.isEmpty { restock() }
+    }
+
+    /// Pays for something shown. False when it is not shown or the gold falls short.
+    @discardableResult
+    func buy(_ item: NotchMascotAccessory) -> Bool {
+        guard shopStock.contains(item), goldCoins >= item.price else { return false }
+        goldCoins -= item.price
+        NotchMascotShop.grant(item)
+        shopStock.removeAll { $0 == item }
+        saveStock()
+        purchases += 1
+        return true
+    }
+
+    /// Changes the display for a few coins.
+    @discardableResult
+    func rerollShop() -> Bool {
+        guard goldCoins >= NotchMascotShop.rerollPrice else { return false }
+        goldCoins -= NotchMascotShop.rerollPrice
+        restock()
+        return true
     }
 
     /// A combo played. True the first time, which brings a little gold.
@@ -379,5 +455,10 @@ public final class NotchMascotRPGState: ObservableObject {
         goldCoins = 0
         discoveredSynergies = []
         lastHint = nil
+        NotchMascotShop.resetOwned()
+        shopStock = []
+        saveStock()
+        purchases += 1
+        flush()
     }
 }

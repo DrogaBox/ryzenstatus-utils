@@ -4859,7 +4859,7 @@ extension NotchService {
         if now - lastMascotIslandPat >= NotchMascotRPG.islandPatInterval {
             lastMascotIslandPat = now
             NotchMascotBondStore.shared.award(experience: NotchMascotRPG.islandPatExperience)
-            NotchMascotRPG.collect(gold: 1)
+            NotchMascotRPG.collect(gold: 3)
         }
         guard NotchMascotSupport.reacts(), !mascotOnDesktop, !mascotIslandPlaying,
               mascotFriendRests(on: geometry) else { return }
@@ -5405,7 +5405,7 @@ extension NotchService {
         score.marker(0.3 + NotchMascotIslandPlay.flightLength, "+500", onStarter: false)
         score.burst(0.3 + NotchMascotIslandPlay.flightLength, .sparkles, onStarter: false)
         NotchMascotRPG.feed(.apple)
-        NotchMascotRPG.collect(gold: 4)
+        NotchMascotRPG.collect(gold: 8)
         requestMascotPlay(NotchMascotIslandPlay(kind: .snack, beats: score.beats))
     }
 
@@ -5423,6 +5423,9 @@ extension NotchService {
     private func startMascotIslandPlay(_ play: NotchMascotIslandPlay) {
         mascotFriendEchoWork?.cancel(); mascotFriendEchoWork = nil
         mascotIslandPlaying = true
+        // A shifter takes the other's figure while they play.
+        NotchMascotDisguise.beginForPair(leader: NotchMascotSupport.undisguisedLook(),
+                                         friend: NotchMascotSupport.desktopFriend())
         mascotIslandPlaysRecent = Array((mascotIslandPlaysRecent + [play.kind]).suffix(NotchMascotIslandPlay.memory))
         // Under Reduce Motion they still act it out, but nothing flies.
         let moves = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -5444,6 +5447,7 @@ extension NotchService {
         // Something took the island over: the play stops where it is.
         guard mascotIslandPlayFits else { endMascotIslandPlay(); return }
         let now = CACurrentMediaTime()
+        NotchMascotSound.play(cues: NotchMascotSoundMap.cues(for: beat), leaderOnLeft: NotchMascotSupport.side() == .left)
         if let reaction = beat.leader {
             mascotReaction = NotchMascotReactionEvent(id: UUID(), reaction: reaction, start: now)
         }
@@ -5478,6 +5482,7 @@ extension NotchService {
         mascotIslandPlayWork.removeAll()
         if mascotIslandPlaying { lastMascotIslandPlay = CACurrentMediaTime() }
         mascotIslandPlaying = false
+        NotchMascotDisguise.end()
         if mascotTuckDeferred {
             mascotTuckDeferred = false
             if mascotHidesAtSync == true, !mascotTucked { scheduleMascotTuck(after: NotchMascotSupport.hideDelay) }

@@ -16,6 +16,7 @@ struct NotchMascotPocketCard: View {
     @AppStorage(DefaultsKey.notchMascotAccessory) private var accessory = NotchMascotAccessory.none.rawValue
     @AppStorage(DefaultsKey.notchMascotFriendAccessory) private var friendAccessory = ""
     @State private var showsGear = false
+    @State private var showsShop = false
     @State private var flipped = false
 
     private var text: NotchMascotRPGStrings { FeatureStrings.notchMascotRPG(l10n.language) }
@@ -30,6 +31,7 @@ struct NotchMascotPocketCard: View {
             statusBar
             classAndCombo
             actions
+            if showsShop { shop }
             if showsGear { gear }
         }
         .padding(10)
@@ -184,7 +186,15 @@ struct NotchMascotPocketCard: View {
             action("🍎", text.text(.throwFruit)) { service.throwMascotFruit() }
             Menu {
                 ForEach(WonderBoySecretDoor.visitable) { door in
-                    Button("\(text.name(of: door)) — \(text.detail(of: door))") { service.enterMascotDoor(door) }
+                    Button("\(text.name(of: door)) — \(text.detail(of: door))") {
+                        // The shop opens its stall here; the other doors play out in the island.
+                        if door == .shop {
+                            rpg.openShop()
+                            withAnimation(.snappy) { showsShop.toggle() }
+                        } else {
+                            service.enterMascotDoor(door)
+                        }
+                    }
                 }
             } label: {
                 actionLabel("🚪", text.text(.secretDoor))
@@ -215,6 +225,65 @@ struct NotchMascotPocketCard: View {
         .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         .contentShape(Rectangle())
         .accessibilityLabel(title)
+    }
+
+    // MARK: Shop
+
+    private var shopText: NotchMascotShopStrings { FeatureStrings.notchMascotShop(l10n.language) }
+
+    /// The stall: four things at a time, bought with gold, and a new display for a few coins.
+    private var shop: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(shopText.title.uppercased())
+                    .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .foregroundStyle(Self.lit)
+                Spacer()
+                Button { _ = rpg.rerollShop() } label: {
+                    Label("\(shopText.reroll) · \(NotchMascotShop.rerollPrice)", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(rpg.goldCoins >= NotchMascotShop.rerollPrice ? Color.white : Color.gray)
+            }
+            if rpg.shopStock.isEmpty {
+                Text(shopText.soldOut).font(.system(size: 9)).foregroundStyle(.secondary)
+            }
+            ForEach(rpg.shopStock) { item in
+                shopRow(item)
+            }
+        }
+        .padding(6)
+        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+
+    private func shopRow(_ item: NotchMascotAccessory) -> some View {
+        let affordable = rpg.goldCoins >= item.price
+        return HStack(spacing: 6) {
+            NotchMascotView(look: NotchMascotLook(style: NotchMascotSupport.look().style, shape: NotchMascotSupport.look().shape,
+                                                  palette: NotchMascotSupport.look().palette, accessory: item),
+                            size: 24, idles: false)
+                .frame(width: 24, height: 24)
+                .frame(width: 34, height: 28)
+                .background(Color.black, in: Capsule())
+            VStack(alignment: .leading, spacing: 0) {
+                Text(FeatureStrings.notchMascotLife(l10n.language).name(of: item))
+                    .font(.system(size: 9, weight: .semibold)).lineLimit(1)
+                Text("\(shopText.rarity(item.rarity)) · \(shopText.gag(of: item) ?? "")")
+                    .font(.system(size: 7)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 2)
+            Button { _ = rpg.buy(item) } label: {
+                Text("\(item.price)")
+                    .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(affordable ? Self.lit : Color.gray.opacity(0.4), in: Capsule())
+                    .foregroundStyle(affordable ? Color.black : Color.white.opacity(0.6))
+            }
+            .buttonStyle(.plain)
+            .disabled(!affordable)
+            .accessibilityLabel("\(shopText.buy) \(FeatureStrings.notchMascotLife(l10n.language).name(of: item))")
+        }
     }
 
     // MARK: Gear carousel

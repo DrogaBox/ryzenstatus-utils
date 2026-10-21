@@ -41,6 +41,16 @@ enum NotchMascotCreatures {
                                          eyeSize: CGSize(width: 0.10, height: 0.19),
                                          shineCenter: CGPoint(x: 0.35, y: 0.40), shineRadii: CGSize(width: 0.08, height: 0.05),
                                          shineAngle: -0.7)
+        case .devourer:
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.40, y: 0.52), rightEye: CGPoint(x: 0.60, y: 0.52),
+                                         eyeSize: CGSize(width: 0.075, height: 0.21),
+                                         shineCenter: CGPoint(x: 0.37, y: 0.40), shineRadii: CGSize(width: 0.05, height: 0.05),
+                                         shineAngle: 0)
+        case .shifter:
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.42, y: 0.55), rightEye: CGPoint(x: 0.58, y: 0.55),
+                                         eyeSize: CGSize(width: 0.05, height: 0.08),
+                                         shineCenter: CGPoint(x: 0.41, y: 0.52), shineRadii: CGSize(width: 0.02, height: 0.02),
+                                         shineAngle: 0)
         }
     }
 
@@ -54,6 +64,8 @@ enum NotchMascotCreatures {
         case .cat: return CGRect(x: 0.06, y: 0.12, width: 0.94, height: 0.82)
         case .ghost: return CGRect(x: 0.16, y: 0.20, width: 0.68, height: 0.74)
         case .slime: return CGRect(x: 0.07, y: 0.22, width: 0.86, height: 0.76)
+        case .devourer: return CGRect(x: 0.04, y: 0.20, width: 0.92, height: 0.78)
+        case .shifter: return CGRect(x: 0.07, y: 0.30, width: 0.86, height: 0.66)
         }
     }
 
@@ -84,6 +96,16 @@ enum NotchMascotCreatures {
             path.addQuadCurve(to: point(0.273, 0.86), control: point(0.33, 0.99))
             path.addQuadCurve(to: point(0.16, 0.86), control: point(0.216, 0.99))
             path.closeSubpath()
+        case .devourer:
+            path.addEllipse(in: rect(0.12, 0.20, 0.76, 0.70, size))
+        case .shifter:
+            // Lopsided and soft, a blob that has not decided yet.
+            path.move(to: point(0.08, 0.90))
+            path.addCurve(to: point(0.34, 0.34), control1: point(0.05, 0.62), control2: point(0.18, 0.36))
+            path.addCurve(to: point(0.74, 0.40), control1: point(0.50, 0.30), control2: point(0.62, 0.46))
+            path.addCurve(to: point(0.93, 0.90), control1: point(0.90, 0.36), control2: point(0.96, 0.66))
+            path.addQuadCurve(to: point(0.08, 0.90), control: point(0.5, 0.98))
+            path.closeSubpath()
         case .slime:
             path.move(to: point(0.09, 0.88))
             path.addCurve(to: point(0.5, 0.22), control1: point(0.06, 0.54), control2: point(0.28, 0.24))
@@ -91,6 +113,18 @@ enum NotchMascotCreatures {
             path.addQuadCurve(to: point(0.09, 0.88), control: point(0.5, 0.97))
             path.closeSubpath()
         }
+        return path
+    }
+
+    // MARK: Devourer
+
+    /// Stubby arms and two round feet.
+    static func devourerLimbs(size: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        path.addEllipse(in: rect(0.04, 0.46, 0.20, 0.17, size))
+        path.addEllipse(in: rect(0.76, 0.46, 0.20, 0.17, size))
+        path.addEllipse(in: rect(0.14, 0.84, 0.30, 0.14, size))
+        path.addEllipse(in: rect(0.56, 0.84, 0.30, 0.14, size))
         return path
     }
 

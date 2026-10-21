@@ -460,11 +460,14 @@ final class NotchMascotRig: NSObject {
         attention.transform = hold == nil ? to : CATransform3DIdentity
         attention.add(look, forKey: "attention")
         CATransaction.commit()
+        // A sprite has no eyes to move: the figure itself turns to look.
+        if showsSprite { sprite.look(toward: target, size: size, hold: hold) }
     }
 
     /// Its eyes come back to the face it keeps, after `delay`.
     func lookAhead(after delay: TimeInterval = 0) {
         guard size > 0 else { return }
+        if showsSprite { sprite.lookAhead(after: delay) }
         let from = attention.presentation()?.transform ?? attention.transform
         CATransaction.begin()
         CATransaction.setDisableActions(true)

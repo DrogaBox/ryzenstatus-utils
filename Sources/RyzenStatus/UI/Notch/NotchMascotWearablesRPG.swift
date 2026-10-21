@@ -360,7 +360,7 @@ extension NotchMascotWearableShapes {
             return parts
 
         default:
-            return []
+            return shopParts(for: accessory, in: f)
         }
     }
 }
