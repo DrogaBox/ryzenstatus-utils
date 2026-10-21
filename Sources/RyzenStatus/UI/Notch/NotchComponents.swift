@@ -239,6 +239,9 @@ struct NotchArtwork: View {
     let size: CGFloat
     /// The cover's fingerprint. Given one, a new cover turns over into place.
     var identity: String? = nil
+    /// A player that sends no cover, as Firefox and Zen do, shows its own
+    /// icon in its place, so the song still says where it plays.
+    var source: NowPlayingTrack? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -257,6 +260,10 @@ struct NotchArtwork: View {
         Group {
             if let image {
                 Image(nsImage: NotchArtworkLift.image(for: image)).resizable().scaledToFill()
+            } else if let icon = source.flatMap(NowPlayingApplication.icon(for:)) {
+                Color.black.overlay {
+                    Image(nsImage: icon).resizable().interpolation(.high).scaledToFit().padding(size * 0.14)
+                }
             } else {
                 Color.black.overlay {
                     Image(systemName: "music.note")

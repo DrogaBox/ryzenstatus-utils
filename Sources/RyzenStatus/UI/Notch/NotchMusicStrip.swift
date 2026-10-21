@@ -65,7 +65,8 @@ struct NotchMusicStrip: View {
                 HStack(spacing: Layout.spacing) {
                     if named != nil { namedLabel }
                     if wing > 0 {
-                        NotchMusicCover(artwork: artwork, side: artworkSide, radius: artworkRadius)
+                        NotchMusicCover(artwork: artwork, side: artworkSide, radius: artworkRadius,
+                                        source: playback?.track)
                             .background { if live { NotchCoverProbe(role: .strip) } }
                     }
                 }
@@ -211,11 +212,17 @@ struct NotchMusicCover: View {
     let artwork: NSImage?
     let side: CGFloat
     let radius: CGFloat
+    /// The player whose icon stands in for a missing cover; see NotchArtwork.
+    var source: NowPlayingTrack? = nil
 
     var body: some View {
         Group {
             if let artwork {
                 Image(nsImage: NotchArtworkLift.image(for: artwork)).resizable().scaledToFill()
+            } else if let icon = source.flatMap(NowPlayingApplication.icon(for:)) {
+                Color.black.overlay {
+                    Image(nsImage: icon).resizable().interpolation(.high).scaledToFit().padding(side * 0.08)
+                }
             } else {
                 Color.black.overlay { Image(systemName: "music.note").foregroundStyle(.secondary) }
             }

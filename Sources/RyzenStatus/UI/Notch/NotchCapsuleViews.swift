@@ -162,7 +162,10 @@ private struct NotchCapsuleTrackArtwork: View {
     @ObservedObject private var music = NowPlayingService.shared
     let side: CGFloat
 
-    var body: some View { NotchMusicCover(artwork: music.artworkImage, side: side, radius: side * 0.24) }
+    var body: some View {
+        NotchMusicCover(artwork: music.artworkImage, side: side, radius: side * 0.24,
+                        source: music.playback?.track)
+    }
 }
 
 /// The closed capsule at rest: bare, or with the charge in its middle.
@@ -372,7 +375,7 @@ struct NotchCapsuleMusicStrip: View {
                                                                  visualizer: visualizes, geometry: geometry),
                         geometry: geometry, leading: 0, trailing: 0) {
             HStack(spacing: 0) {
-                NotchMusicCover(artwork: artwork, side: side, radius: side / 2)
+                NotchMusicCover(artwork: artwork, side: side, radius: side / 2, source: playback?.track)
                     .padding(.leading, CapsuleLayout.artworkInset(geometry))
                     .frame(maxHeight: .infinity)
                     .contentShape(Rectangle())
@@ -533,7 +536,8 @@ private struct NotchCapsuleCompanionMark: View {
             })
         case .music:
             let side = CapsuleLayout.artworkSide(geometry)
-            NotchMusicCover(artwork: music.artworkImage, side: side, radius: side / 2)
+            NotchMusicCover(artwork: music.artworkImage, side: side, radius: side / 2,
+                            source: music.playback?.track)
         case .calendar:
             if let countdown = calendar.countdown {
                 TimelineView(.periodic(from: .now, by: 1)) { context in

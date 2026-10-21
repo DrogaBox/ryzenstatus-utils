@@ -135,7 +135,7 @@ struct NotchCompanionMark: View {
             }
         case .music:
             NotchMusicCover(artwork: music.artworkImage, side: geometry.compactMusicArtworkSide,
-                            radius: geometry.compactMusicArtworkRadius)
+                            radius: geometry.compactMusicArtworkRadius, source: music.playback?.track)
         case .timer, .keepAwake, .watch:
             EmptyView()
         }

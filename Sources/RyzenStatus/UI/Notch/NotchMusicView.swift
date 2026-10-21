@@ -172,7 +172,8 @@ struct NotchMusicView: View {
         let roomy = height >= 140
         return HStack(spacing: roomy ? 20 : 16) {
             Button { NowPlayingApplication.open(playback.track) } label: {
-                NotchArtwork(image: service.artworkImage, size: height, identity: service.artworkIdentity)
+                NotchArtwork(image: service.artworkImage, size: height, identity: service.artworkIdentity,
+                             source: playback.track)
                     .background { if !preview { NotchCoverProbe(role: .page) } }
                     .scaleEffect(playback.isPlaying || reduceMotion ? 1 : NotchCoverFlight.pausedScale)
                     .shadow(color: halo.opacity(0.42), radius: 20, y: 7)
@@ -549,7 +550,7 @@ struct NotchMusicControlsView: View {
                 if isIdle, NowPlayingPreferredPlayer.open() { return }
                 notch.select(.music)
             } label: {
-                NotchArtwork(image: music.artworkImage, size: max(40, height - 24))
+                NotchArtwork(image: music.artworkImage, size: max(40, height - 24), source: music.playback?.track)
             }
             .buttonStyle(NotchButtonStyle(cornerRadius: 16))
             .accessibilityLabel(idleOpens ? openTitle : text.mediaNowPlaying)
