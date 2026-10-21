@@ -684,6 +684,7 @@ enum MixerRoutingSupport {
         "com.cockos.reaper",
         "com.steinberg.",        // Cubase, Nuendo, Dorico
         "com.presonus.",         // Studio One
+        "com.fender.studioapp",  // Studio Pro
         "com.bitwig.",
         "com.image-line.",       // FL Studio
         "com.motu.",             // Digital Performer
