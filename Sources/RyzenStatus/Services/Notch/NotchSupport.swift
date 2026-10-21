@@ -1646,6 +1646,11 @@ enum NotchSupport {
         isEnabled(in: defaults) && defaults.bool(forKey: DefaultsKey.notchHapticFeedback)
     }
 
+    /// Whether the island's own shortcut should hold its key.
+    static func holdsShortcut(in defaults: UserDefaults = .standard) -> Bool {
+        isEnabled(in: defaults) && defaults.bool(forKey: DefaultsKey.notchShortcutEnabled)
+    }
+
     static func modules(in defaults: UserDefaults = .standard) -> [NotchModule] {
         let hidden = Set((defaults.string(forKey: DefaultsKey.notchHiddenModules) ?? "")
             .split(separator: ",").map(String.init))

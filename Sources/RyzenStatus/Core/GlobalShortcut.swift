@@ -227,6 +227,9 @@ struct GlobalShortcut: Equatable, Hashable {
     // N for notes, on the same free control-option-command layer.
     static let scratchpadDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_N),
                                                   modifiers: [.control, .option, .command])
+    // I for island, on the same free control-option-command layer.
+    static let notchDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_I),
+                                             modifiers: [.control, .option, .command])
     // L for library (S already belongs to the sound output switcher), on the
     // same free control-option-command layer.
     static let snippetLibraryDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_L),
@@ -738,6 +741,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     case pointerNextDisplay
     case nowPlayingPopup
     case nowPlayingDetached
+    case notch
 
     var id: String { storageKey }
 
@@ -774,6 +778,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .pointerNextDisplay: return DefaultsKey.pointerDisplayShortcut
         case .nowPlayingPopup: return DefaultsKey.nowPlayingPopupShortcut
         case .nowPlayingDetached: return DefaultsKey.nowPlayingDetachedShortcut
+        case .notch: return DefaultsKey.notchShortcut
         }
     }
 
@@ -810,6 +815,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .pointerNextDisplay: return .pointerNextDisplayDefault
         case .nowPlayingPopup: return .nowPlayingPopupDefault
         case .nowPlayingDetached: return .nowPlayingDetachedDefault
+        case .notch: return .notchDefault
         }
     }
 
@@ -875,6 +881,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .pointerNextDisplay: return PointerDisplayStrings.localized(L10n.shared.language).title
         case .nowPlayingPopup: return FeatureStrings.nowPlaying(L10n.shared.language).popupShortcutLabel
         case .nowPlayingDetached: return FeatureStrings.nowPlaying(L10n.shared.language).detachedShortcutLabel
+        case .notch: return FeatureStrings.notch(L10n.shared.language).title
         }
     }
 
@@ -943,6 +950,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
                                        DefaultsKey.nowPlayingPopupShortcutEnabled]
         case .nowPlayingDetached: return [DefaultsKey.nowPlayingEnabled,
                                           DefaultsKey.nowPlayingDetachedShortcutEnabled]
+        case .notch: return [DefaultsKey.notchEnabled, DefaultsKey.notchShortcutEnabled]
         }
     }
 
@@ -975,6 +983,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
              .keyboardBrightnessDecrease, .keyboardBrightnessIncrease: return .brightness
         case .pointerNextDisplay: return .windowLayout
         case .nowPlayingPopup, .nowPlayingDetached: return .nowPlaying
+        case .notch: return .notch
         }
     }
 

@@ -528,6 +528,8 @@ extension DefaultsKey {
 
     // Dynamic Island / Notch keys
     static let notchEnabled = "notchEnabled"
+    static let notchShortcutEnabled = "notchShortcutEnabled"
+    static let notchShortcut = "notchShortcut"
     static let notchSize = "notchSize"
     static let notchDisplay = "notchDisplay"
     static let notchSilhouette = "notchSilhouette"
