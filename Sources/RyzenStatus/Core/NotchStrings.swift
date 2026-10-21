@@ -204,7 +204,7 @@ extension NotchStrings {
         floatingShape: "Floating",
         floatingShapeHint: "Floats below the menu bar, leaving it fully visible. With nothing to show, nothing is drawn; point just below the menu bar or click there to open it.",
         withoutNotchUnreached: "With the Display chosen on the Behavior tab, Dynamic Island doesn’t appear on these displays.",
-        showOnAllDisplays: "Show on All Displays",
+        showOnAllDisplays: "Show on all displays",
         capsuleFit: "Capsule fit",
         fromTop: "Distance from top",
         capsuleFitHint: "Resizes the capsule and lowers it from the top of the screen on displays without a notch.",
