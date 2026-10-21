@@ -290,6 +290,7 @@ extension DefaultsKey {
     static let clipboardHistoryEnabled = "clipboardHistoryEnabled"
     static let clipboardHistoryEntries = "clipboardHistoryEntries"
     static let clipboardHistoryLimit = "clipboardHistoryLimit"
+    static let clipboardHistoryRetentionDays = "clipboardHistoryRetentionDays" // 0 keeps items until the limit drops them
     // A separate opt-in from the old, enabled-by-default text heuristic.
     static let clipboardHistoryFilterSensitiveText = "clipboardHistoryFilterSensitiveText"
     static let clipboardHistoryIncludeImagesFiles = "clipboardHistoryIncludeImagesFiles" // capture copied images and files too

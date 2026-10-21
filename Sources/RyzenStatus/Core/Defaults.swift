@@ -215,6 +215,7 @@ enum Defaults {
     static let allowedMonitorMemoryMetrics = ["used", "app"]
     static let allowedPreviewSizes = ["small", "normal", "large", "xlarge"]
     static let allowedClipboardHistoryLimits = [20, 50, 100, 250, 500, 1_000, 10_000, 0]
+    static let allowedClipboardHistoryRetentionDays = [1, 7, 30, 90, 365, 0]
     static let allowedClipboardAutoClearDelayRange = 5...3_600
     static let defaultClipboardAutoClearDelay = 20
     static let allowedClipboardMenuBarPreviewLengthRange = 5...50
@@ -748,6 +749,7 @@ enum Defaults {
         DefaultsKey.clipboardHistoryEnabled: false,
         DefaultsKey.clipboardHistoryLimit: 50,
         DefaultsKey.clipboardHistoryFilterSensitiveText: false,
+        DefaultsKey.clipboardHistoryRetentionDays: 0,
         DefaultsKey.clipboardHistoryIncludeImagesFiles: true,
         DefaultsKey.clipboardHistoryQuickPreview: false,
         DefaultsKey.pastePlainEnabled: false,
@@ -1461,6 +1463,10 @@ enum Defaults {
 
     static func sanitizedClipboardHistoryLimit(_ value: Int) -> Int {
         allowedClipboardHistoryLimits.contains(value) ? value : 50
+    }
+
+    static func sanitizedClipboardHistoryRetentionDays(_ value: Int) -> Int {
+        allowedClipboardHistoryRetentionDays.contains(value) ? value : 0
     }
 
     static func sanitizedMonitorAlertCooldown(_ value: Int) -> Int {
