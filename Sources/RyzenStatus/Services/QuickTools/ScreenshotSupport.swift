@@ -1034,6 +1034,44 @@ enum ScreenshotSupport {
                       height: min(maximum.height, max(minimum.height, preferred.height)))
     }
 
+    /// The footer under the canvas wraps to a second row when a tool's
+    /// controls do not fit beside the info and zoom chips, so its height
+    /// changes with the tool.
+    static let editorWrappedFooterHeight: CGFloat = 76
+
+    /// The height the tool rail plans for: its column, less what a wrapped
+    /// footer would take from it, so picking a tool never reflows the rail
+    /// under the pointer.
+    static func toolRailHeight(column: CGFloat, footer: CGFloat) -> CGFloat {
+        min(column, column + footer - editorWrappedFooterHeight)
+    }
+
+    /// How the tool rail fits its height. Regular rows when every tool fits,
+    /// compact rows when only those fit, and past that the last tools move
+    /// behind an overflow button, as toolbar items that do not fit do.
+    struct ToolRailLayout: Equatable {
+        var rowHeight: CGFloat = 29
+        var spacing: CGFloat = 2
+        /// Tools shown as buttons. The ones after them are in the overflow menu.
+        var visibleTools: Int
+
+        /// The rail's padding and the divider above the gear.
+        static let chromeHeight: CGFloat = 15
+
+        init(toolCount: Int, height: CGFloat) {
+            visibleTools = toolCount
+            // Every tool and the gear.
+            if Self.chromeHeight + CGFloat(toolCount + 1) * (rowHeight + spacing) <= height { return }
+            // Compact rows still hold all of them in the shortest editor.
+            rowHeight = 23
+            spacing = 1
+            let rows = Int(((height - Self.chromeHeight) / (rowHeight + spacing)).rounded(.down))
+            if rows >= toolCount + 1 { return }
+            // The overflow button and the gear take the last two rows.
+            visibleTools = max(0, rows - 2)
+        }
+    }
+
     /// Select-to-copy utilities answer a mouse drag with a posted ⌘C, which in
     /// the editor would copy the capture and close it under a stroke that has
     /// not landed yet. A ⌘C another process posts while the pointer presses or

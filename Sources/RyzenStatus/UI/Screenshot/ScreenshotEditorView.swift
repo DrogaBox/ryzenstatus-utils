@@ -22,6 +22,8 @@ struct ScreenshotEditorView: View {
     @State private var backdropPopoverShown = false
     @State private var watermarkPopoverShown = false
     @State private var hoveredTool: ScreenshotSupport.Tool?
+    @State private var railColumnHeight = CGFloat.infinity
+    @State private var footerHeight = ScreenshotSupport.editorWrappedFooterHeight
     @State private var toolOptionsShown = false
     @State private var sharing = false
     @State private var sharedRecord: ScreenshotShareRecord?
@@ -57,11 +59,13 @@ struct ScreenshotEditorView: View {
                     }
                     .scrollIndicators(.never)
                     .fixedSize(horizontal: true, vertical: false)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { railColumnHeight = $0 }
                     .padding(.leading, 10)
                     canvasArea
                 }
                 .padding(.top, 6)
                 bottomRow
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { footerHeight = $0 }
                     .padding(.horizontal, 12)
                     .padding(.top, 6)
                     .padding(.bottom, 10)
@@ -676,9 +680,16 @@ struct ScreenshotEditorView: View {
     }
 
     private var toolRail: some View {
-        VStack(spacing: 2) {
-            ForEach(orderedTools, id: \.self) { tool in
-                railButton(tool)
+        let tools = orderedTools
+        let layout = ScreenshotSupport.ToolRailLayout(
+            toolCount: tools.count,
+            height: ScreenshotSupport.toolRailHeight(column: railColumnHeight, footer: footerHeight))
+        return VStack(spacing: layout.spacing) {
+            ForEach(tools.prefix(layout.visibleTools), id: \.self) { tool in
+                railButton(tool, height: layout.rowHeight)
+            }
+            if layout.visibleTools < tools.count {
+                railOverflowMenu(Array(tools.dropFirst(layout.visibleTools)), height: layout.rowHeight)
             }
             Divider()
                 .frame(width: 22)
@@ -688,7 +699,7 @@ struct ScreenshotEditorView: View {
             } label: {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 13, weight: .medium))
-                    .frame(width: 33, height: 29)
+                    .frame(width: 33, height: layout.rowHeight)
                     .background(
                         RoundedRectangle(cornerRadius: 9, style: .continuous)
                             .fill(toolOptionsShown
@@ -716,21 +727,25 @@ struct ScreenshotEditorView: View {
         .shadow(color: .black.opacity(0.18), radius: 16, y: 5)
     }
 
-    private func railButton(_ tool: ScreenshotSupport.Tool) -> some View {
+    private func selectTool(_ tool: ScreenshotSupport.Tool) {
+        commitEditingTextIfNeeded()
+        model.tool = tool
+    }
+
+    private func railButton(_ tool: ScreenshotSupport.Tool, height: CGFloat) -> some View {
         let isActive = model.tool == tool
         let isHovered = hoveredTool == tool
         let shortcutLabel = ScreenshotSupport.Tool.shortcutLabel(
             for: tool, orderRaw: toolOrderRaw, bindingsRaw: bindingsRaw, enabled: toolShortcutsEnabled,
             capsLockOn: keyboard.capsLockOn)
         return Button {
-            commitEditingTextIfNeeded()
-            model.tool = tool
+            selectTool(tool)
         } label: {
             ZStack(alignment: .topTrailing) {
                 Image(systemName: tool.screenshotSymbolName)
                     .font(.system(size: 13.5, weight: .medium))
                     .symbolEffect(.bounce, value: isActive)
-                    .frame(width: 33, height: 29)
+                    .frame(width: 33, height: height)
                 if let shortcutLabel {
                     Text(shortcutLabel)
                         .font(.system(size: 8, weight: .bold, design: .rounded))
@@ -760,6 +775,36 @@ struct ScreenshotEditorView: View {
             + (shortcutLabel.map { "  (\($0))" } ?? ""))
         .accessibilityLabel(tool.screenshotTitle(strings)
             + (shortcutLabel.map { "  (\($0))" } ?? ""))
+    }
+
+    /// The tools past the rail's last row, behind the chevron a toolbar shows
+    /// for items that do not fit. It stays lit while one of them is active.
+    private func railOverflowMenu(_ tools: [ScreenshotSupport.Tool], height: CGFloat) -> some View {
+        let holdsActive = tools.contains(model.tool)
+        return Menu {
+            ForEach(tools, id: \.self) { tool in
+                Toggle(isOn: Binding(get: { model.tool == tool }, set: { _ in selectTool(tool) })) {
+                    Label(tool.screenshotTitle(strings), systemImage: tool.screenshotSymbolName)
+                }
+            }
+        } label: {
+            Image(systemName: "chevron.forward.2")
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 33, height: height)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(holdsActive ? Color.accentColor.opacity(0.22) : .clear)
+                )
+                .foregroundStyle(holdsActive ? Color.accentColor : Color.secondary)
+                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        // A borderless menu draws its label as a small pop-up button; a
+        // plain one keeps the whole row as the target, like the other tools.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .screenshotSafeHelp(strings.moreTools)
+        .accessibilityLabel(strings.moreTools)
     }
 
     // MARK: - QR code (shown only when the capture holds one)
