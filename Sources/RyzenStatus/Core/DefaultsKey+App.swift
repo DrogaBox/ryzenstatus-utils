@@ -875,6 +875,7 @@ extension DefaultsKey {
     static let screenshotLastBlurLevel = "screenshotLastBlurLevel"
     static let screenshotLastBlurStyle = "screenshotLastBlurStyle"
     static let screenshotLastBlurTextOnly = "screenshotLastBlurTextOnly"
+    static let screenshotSpotlightDim = "screenshotSpotlightDim"
     static let screenshotLastArrowStyle = "screenshotLastArrowStyle"
     static let screenshotToolShortcuts = "screenshotToolShortcuts"
     static let screenshotWatermarkStyle = "screenshotWatermarkStyle"

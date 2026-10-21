@@ -79,6 +79,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // quitting to relaunch under the new name, so skip the rest of startup.
         if BundleMigration.run() { return }
 
+        DispatchQueue.global(qos: .utility).async {
+            RecorderGIFWorkspace.sweep()
+        }
+
         // Redo a launch at login registration the system lost. The stored
         // choice is the last thing the user expressed in the app; startup
         // never turns the item off.
