@@ -1548,7 +1548,7 @@ final class NotchService: ObservableObject {
         }
         if let mascotFrom { bridgeMascot(from: mascotFrom, opening: false) }
         panel?.acceptsKeyFocus = false
-        panel?.resignKey()
+        resignPanelKey()
         if closesCommandBar { commandBarDidClose() }
         removeEventMonitors()
         syncVisibleConsumers()
@@ -1556,6 +1556,25 @@ final class NotchService: ObservableObject {
     }
 
     func toggle() { expanded ? collapse() : open() }
+
+    /// The island stays on screen, so only a manual resign takes its keyboard.
+    /// While RyzenStatus stays the active app (its Settings window is open, for
+    /// example), that clears just the panel's own flag: AppKit keeps the island
+    /// as its key window, typing still lands there, and a later makeKey()
+    /// changes nothing, so a reopened Scratchpad gets no caret. The keyboard
+    /// goes back to the app's frontmost regular window on this Space, as
+    /// closing a window does.
+    func resignPanelKey() {
+        guard let panel else { return }
+        panel.resignKey()
+        guard NSApp.keyWindow === panel,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier,
+              let next = NSApp.orderedWindows.first(where: {
+                  $0 !== panel && $0.isVisible && $0.isOnActiveSpace && $0.canBecomeMain
+              })
+        else { return }
+        next.makeKey()
+    }
 
     func setMusicDetailsVisible(_ visible: Bool) {
         guard visible != musicDetailVisible else { return }
@@ -1984,8 +2003,11 @@ final class NotchService: ObservableObject {
     @discardableResult
     func showScratchpad(toggle: Bool = false) -> Bool {
         guard NotchSupport.routesScratchpad(), acceptsUserInteraction else { return false }
+        // Without a regular window to take the keyboard back, resignPanelKey()
+        // leaves AppKit keeping the island as its key window while the panel's
+        // own flag is clear. AppKit's record still means the island has the keyboard.
         if toggle, expanded, selected == .scratchpad, !showingAppPanel, !showingSections, !showingCommandBar,
-           selectedMetric == nil, panel?.isKeyWindow == true { collapse() }
+           selectedMetric == nil, let panel, panel.isKeyWindow || NSApp.keyWindow === panel { collapse() }
         else { open(.scratchpad) }
         return true
     }
@@ -2263,7 +2285,7 @@ final class NotchService: ObservableObject {
         removeCaptureControlsClickThrough()
         panel?.level = NotchPanel.normalLevel
         panel?.acceptsKeyFocus = false
-        panel?.resignKey()
+        resignPanelKey()
         refreshPresentation()
         syncVisibleConsumers()
     }
