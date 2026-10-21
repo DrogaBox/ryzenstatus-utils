@@ -16,8 +16,14 @@ struct NotchMascotIslandPlayLayer: View {
     let leaderLook: NotchMascotLook
     let friendLook: NotchMascotLook
 
+    /// Whether something is in the air or on show; the clock only runs then,
+    /// so a resting pair costs no frames.
+    @State private var live = false
+    @State private var settle: DispatchWorkItem?
+    @State private var until: CFTimeInterval = 0
+
     var body: some View {
-        TimelineView(.animation) { _ in
+        TimelineView(.animation(minimumInterval: nil, paused: !live)) { _ in
             let now = CACurrentMediaTime()
             ZStack {
                 if let flight { flying(flight, now: now) }
@@ -26,8 +32,22 @@ struct NotchMascotIslandPlayLayer: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .onChange(of: flight) { _, event in if let event { run(for: event.flight.duration) } }
+        .onChange(of: burst) { _, event in if let event { run(for: event.burst.duration) } }
+        .onChange(of: marker) { _, event in if event != nil { run(for: NotchMascotIslandPlay.markerLength) } }
+        .onDisappear { settle?.cancel(); live = false }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    /// Runs the clock for `length` more seconds, then pauses it on a clean frame.
+    private func run(for length: TimeInterval) {
+        live = true
+        settle?.cancel()
+        until = max(until, CACurrentMediaTime() + length + 0.15)
+        let item = DispatchWorkItem { live = false }
+        settle = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + (until - CACurrentMediaTime()), execute: item)
     }
 
     // MARK: Flight
