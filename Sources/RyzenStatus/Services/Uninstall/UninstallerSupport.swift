@@ -121,13 +121,20 @@ enum UninstallerSupport {
     /// The one answer for "will the uninstaller take this app": the picker
     /// offers only what this accepts, and a drop of anything else is refused.
     static func selection(for appURL: URL) -> Selection? {
-        // Browser links are not bundles on disk and must be refused before
-        // loading one; system apps are SIP-protected and their support data is
-        // live OS state, so removing either would be wrong.
-        guard appURL.isFileURL,
-              let bundle = Bundle(url: appURL),
-              !InstalledApps.isSystemApplication(at: appURL),
-              let bundleID = verifiedBundleID(bundle.bundleIdentifier) else { return nil }
+        // Browser links are not bundles on disk and must be refused before loading one.
+        guard appURL.isFileURL else { return nil }
+        // An app inside another app's bundle, a tool it ships or a helper,
+        // belongs to that app: removing it alone would break the app.
+        guard !appURL.standardizedFileURL.pathComponents.dropLast().contains(where: {
+            $0.lowercased().hasSuffix(".app")
+        }) else { return nil }
+        guard let bundle = Bundle(url: appURL) else { return nil }
+        // System apps are SIP-protected and their support data is live OS
+        // state; removing either would be wrong, so refuse the selection.
+        guard !InstalledApps.isSystemApplication(at: appURL) else { return nil }
+        // Only a verified bundle identifier becomes a path component. A
+        // display name is presentation only and can never claim user data.
+        guard let bundleID = verifiedBundleID(bundle.bundleIdentifier) else { return nil }
         let selectedURL = appURL.standardizedFileURL
         guard selectedURL == selectedURL.resolvingSymlinksInPath(),
               selectedURL != Bundle.main.bundleURL.standardizedFileURL,
