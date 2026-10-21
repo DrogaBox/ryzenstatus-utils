@@ -746,7 +746,7 @@ enum Defaults {
         DefaultsKey.mediaTextLanguageCorrection: true,
         DefaultsKey.clipboardHistoryEnabled: false,
         DefaultsKey.clipboardHistoryLimit: 50,
-        DefaultsKey.clipboardHistorySkipSensitive: true,
+        DefaultsKey.clipboardHistoryFilterSensitiveText: false,
         DefaultsKey.clipboardHistoryIncludeImagesFiles: true,
         DefaultsKey.clipboardHistoryQuickPreview: false,
         DefaultsKey.pastePlainEnabled: false,
@@ -1109,6 +1109,7 @@ enum Defaults {
         let defaults = UserDefaults.standard
         // Upstream runs these before registering, so `object(forKey:)` still
         // tells a saved choice from a registered default.
+        migrateClipboardSensitiveTextOptIn(in: defaults)
         migrateBatteryTemperatureVisibility(in: defaults)
         var defaultValues = registeredDefaults
 #if DEBUG
@@ -1135,6 +1136,13 @@ enum Defaults {
         if lastVersion < 7 { migrateLegacyFanSubsystem(in: defaults) }
 
         defaults.set(currentMigrationVersion, forKey: "_migrationVersion")
+    }
+
+    /// Start text filtering off for existing installations as well. A distinct
+    /// key keeps older backups from re-enabling the previous on-by-default
+    /// heuristic, while preserving choices made after this update.
+    static func migrateClipboardSensitiveTextOptIn(in defaults: UserDefaults) {
+        defaults.removeObject(forKey: "clipboardHistorySkipSensitive")
     }
 
     static func migrateLegacyFanSubsystem(in defaults: UserDefaults) {

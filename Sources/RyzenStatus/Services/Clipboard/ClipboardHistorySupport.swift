@@ -1050,36 +1050,35 @@ enum ClipboardHistorySensitiveText {
         types.contains(where: excludedPasteboardTypes.contains)
     }
 
-    /// Stricter than a plain keyword check: credential words, web links that
-    /// carry a secret in their query, and long unbroken mixed tokens.
+    // A mention of "token" in a command, error or source code is not a
+    // credential. Require a named field with a nonempty value, including
+    // environment variables, quoted JSON keys, Authorization headers and
+    // explicit command-line options such as --password VALUE.
+    // Horizontal whitespace keeps an empty assignment from consuming the
+    // next line of terminal output. Compile once for repeated clipboard reads.
+    private static let credentialName = #"(?:password|passwd|secret|token|api[_-]?key|authorization)"#
+    private static let credentialAssignment = try? NSRegularExpression(
+        pattern: #"(?<![\w-])(?:[\w-]*\#(credentialName)["']?[ \t]*[:=][ \t]*|--[\w-]*\#(credentialName)[ \t]+)["']?[^\s"'`,;{}\[\]]"#,
+        options: [.caseInsensitive]
+    )
+
     static func looksSensitive(_ text: String) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lowered = trimmed.lowercased()
-        let obviousWords = [
-            "password", "passwd", "pwd", "secret", "token", "apikey", "api_key",
-            "authorization", "bearer", "session", "credential", "otp", "private_key",
-            "auth_token", "access_token",
-        ]
-        if obviousWords.contains(where: lowered.contains) { return true }
-        if isWebURL(trimmed) {
-            guard let query = URL(string: trimmed)?.query?.lowercased() else { return false }
-            let sensitiveQueryKeys = ["token", "auth", "key", "secret", "sig", "signature",
-                                      "pwd", "password", "session", "bearer"]
-            return sensitiveQueryKeys.contains { query.hasPrefix($0 + "=") || query.contains("&" + $0 + "=") }
+        if credentialAssignment?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil {
+            return true
         }
+        if isWebURL(text) { return false }
         // An identifier code is nobody's secret, and it fits the shape below
         // exactly: long, unbroken, letters and digits with dashes between
-        // them. Copying one around is ordinary work, so it stays.
-        if isIdentifierCode(trimmed) { return false }
+        // them. Copying one around is ordinary work, so it stays (issue #423).
+        if isIdentifierCode(text) { return false }
 
-        guard trimmed.count >= 12, trimmed.count <= 160,
-              !trimmed.contains(where: { $0.isWhitespace }) else {
+        guard text.count >= 20, text.count <= 160, !text.contains(where: { $0.isWhitespace }) else {
             return false
         }
-        let hasLetter = trimmed.contains { $0.isLetter }
-        let hasDigit = trimmed.contains { $0.isNumber }
-        let hasSymbol = trimmed.contains { !$0.isLetter && !$0.isNumber && !$0.isWhitespace }
-        return hasLetter && hasDigit && (hasSymbol || trimmed.count >= 24)
+        let hasLetter = text.contains { $0.isLetter }
+        let hasDigit = text.contains { $0.isNumber }
+        let hasSymbol = text.contains { !$0.isLetter && !$0.isNumber && !$0.isWhitespace }
+        return hasLetter && hasDigit && hasSymbol
     }
 
     /// The one shape every system uses for a generated identifier: thirty-two
