@@ -330,6 +330,12 @@ struct NotchView: View {
         // Opening the island makes its panel key, so Keyboard navigation would ring
         // the first header button. Show the ring once keyboard input begins.
         .focusEffectDisabled(!service.showsKeyboardFocus)
+        // The island's own actions sit in its secondary-click menu, with no
+        // button of their own in the row; VoiceOver lists them here.
+        .accessibilityElement(children: .contain)
+        .accessibilityAction(named: service.pinned ? text.unpin : text.pin) { service.pinned.toggle() }
+        .accessibilityAction(named: l10n.s.menuSettings) { service.openSettings() }
+        .accessibilityAction(named: text.collapse) { service.collapse() }
     }
 
     /// Keep each page's minimum usable layout reachable when a custom height
