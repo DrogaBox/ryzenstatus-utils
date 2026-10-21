@@ -359,6 +359,7 @@ extension Strings {
         invertHorizontalScroll: "Inverser le défilement horizontal",
         switcherShowShortcutHints: "Afficher les raccourcis",
         switcherShowShortcutHintsCaption: "Affiche les raccourcis des apps et des fenêtres sous les icônes.",
+        switcherWindowlessAppsLockedFormat: "Toutes les apps ouvertes restent accessibles tant que l’option «\u{00A0}%@\u{00A0}» est activée. Désactivez-la pour choisir.",
         switcherNoOpenWindow: "Aucune fenêtre ouverte",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Recherchez, installez et retirez des formules et des casks.",

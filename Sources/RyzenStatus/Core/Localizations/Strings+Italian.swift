@@ -359,6 +359,7 @@ extension Strings {
         invertHorizontalScroll: "Inverti lo scorrimento orizzontale",
         switcherShowShortcutHints: "Mostra suggerimenti scorciatoie",
         switcherShowShortcutHintsCaption: "Mostra le scorciatoie per app e finestre sotto le icone.",
+        switcherWindowlessAppsLockedFormat: "Tutte le app aperte restano raggiungibili finché l’opzione “%@” è attiva. Disattivala per scegliere.",
         switcherNoOpenWindow: "Nessuna finestra aperta",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Cerca, installa e rimuovi formule e cask.",

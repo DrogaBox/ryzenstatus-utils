@@ -360,6 +360,7 @@ extension Strings {
         invertHorizontalScroll: "Инвертировать горизонтальную прокрутку",
         switcherShowShortcutHints: "Показывать подсказки сочетаний клавиш",
         switcherShowShortcutHintsCaption: "Показывает сочетания клавиш для приложений и окон под значками.",
+        switcherWindowlessAppsLockedFormat: "Пока параметр «%@» включён, все запущенные приложения остаются доступны. Чтобы выбрать, выключите параметр.",
         switcherNoOpenWindow: "Нет открытых окон",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Поиск, установка и удаление пакетов Homebrew.",

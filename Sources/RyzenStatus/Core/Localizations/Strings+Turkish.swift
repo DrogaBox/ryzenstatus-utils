@@ -359,6 +359,7 @@ extension Strings {
         invertHorizontalScroll: "Yatay kaydırmayı ters çevir",
         switcherShowShortcutHints: "Kısayol ipuçlarını göster",
         switcherShowShortcutHintsCaption: "Simge sırasının altında uygulama ve pencere kısayollarını gösterir.",
+        switcherWindowlessAppsLockedFormat: "“%@” açıkken çalışan tüm uygulamalara erişim korunur. Seçim yapmak için bu seçeneği kapatın.",
         switcherNoOpenWindow: "Açık pencere yok",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Formülleri ve cask'leri ara, yükle ve kaldır.",

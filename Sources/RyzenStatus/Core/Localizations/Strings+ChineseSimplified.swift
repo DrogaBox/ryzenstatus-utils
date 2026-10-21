@@ -359,6 +359,7 @@ extension Strings {
         invertHorizontalScroll: "反转水平滚动",
         switcherShowShortcutHints: "显示快捷键提示",
         switcherShowShortcutHintsCaption: "在图标下方显示 App 和窗口快捷键。",
+        switcherWindowlessAppsLockedFormat: "开启“%@”时，会保留所有正在运行的 App 入口。如需选择，请关闭此选项。",
         switcherNoOpenWindow: "没有打开的窗口",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "搜索、安装和移除 formula 与 cask。",

@@ -360,6 +360,7 @@ extension Strings {
         invertHorizontalScroll: "反轉水平捲動",
         switcherShowShortcutHints: "顯示快速鍵提示",
         switcherShowShortcutHintsCaption: "在圖示下方顯示 App 和視窗快速鍵。",
+        switcherWindowlessAppsLockedFormat: "開啟「%@」時，會保留所有運行中 App 的入口。如需選擇，請關閉此選項。",
         switcherNoOpenWindow: "沒有開啟的視窗",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "搜尋、安裝和移除 formula 與 cask。",

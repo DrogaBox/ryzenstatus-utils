@@ -359,6 +359,7 @@ extension Strings {
         invertHorizontalScroll: "横スクロールを反転",
         switcherShowShortcutHints: "ショートカットのヒントを表示",
         switcherShowShortcutHintsCaption: "アイコンの下にアプリとウインドウのショートカットを表示します。",
+        switcherWindowlessAppsLockedFormat: "「%@」がオンの間は、実行中のすべてのアプリに切り替えられます。選ぶにはオフにしてください。",
         switcherNoOpenWindow: "開いているウインドウがありません",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "formula と cask を検索、インストール、削除します。",

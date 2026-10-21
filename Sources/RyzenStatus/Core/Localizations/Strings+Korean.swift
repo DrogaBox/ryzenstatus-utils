@@ -360,6 +360,7 @@ extension Strings {
         invertHorizontalScroll: "가로 스크롤 반전",
         switcherShowShortcutHints: "단축키 힌트 보기",
         switcherShowShortcutHintsCaption: "아이콘 아래에 앱 및 윈도우 단축키를 표시합니다.",
+        switcherWindowlessAppsLockedFormat: "‘%@’ 옵션이 켜져 있는 동안에는 실행 중인 모든 앱에 계속 접근할 수 있습니다. 직접 고르려면 이 옵션을 꺼 주세요.",
         switcherNoOpenWindow: "열린 창이 없습니다",
         homebrewName: "Homebrew",
         homebrewEnableCaption: "formula와 cask를 검색, 설치 및 제거합니다.",
