@@ -11528,11 +11528,11 @@ struct MetricsTests {
                 // The Wonder Boy side: the catalog, the state, the wardrobe, the words.
                 do {
                     let all = NotchMascotSynergyCatalog.all
-                    expect(all.count == 190 && NotchMascotSynergyCatalog.total == 190, "the catalog holds 190 combos")
-                    expect(all.map(\.number) == Array(1...190) && Set(all.map(\.id)).count == 190,
-                           "the combos are numbered 1 to 190 with an id each")
+                    expect(all.count == 232 && NotchMascotSynergyCatalog.total == 232, "the catalog holds 232 combos")
+                    expect(all.map(\.number) == Array(1...232) && Set(all.map(\.id)).count == 232,
+                           "the combos are numbered 1 to 232 with an id each")
                     let sizes = SynergyCategory.allCases.map { NotchMascotSynergyCatalog.synergies(in: $0).count }
-                    expect(sizes == [15, 20, 15, 15, 12, 12, 12, 16, 10, 8, 32, 23], "each family holds its share: \(sizes)")
+                    expect(sizes == [15, 20, 15, 15, 12, 12, 12, 16, 10, 8, 50, 47], "each family holds its share: \(sizes)")
                     for synergy in all {
                         for starter in [true, false] {
                             let play = synergy.play(starterIsLeader: starter)
@@ -11750,6 +11750,47 @@ struct MetricsTests {
                    && roam.size(for: .standard) == roam.drawnSize, "a sprite stands taller on the desktop")
         }
 
+        // MARK: Companion — transformations
+        do {
+            expect(NotchMascotFormChoice(rawValue: "random") == .random
+                   && NotchMascotFormChoice(rawValue: "none") == .off
+                   && NotchMascotFormChoice(rawValue: "divine") == .form(.divine)
+                   && NotchMascotFormChoice(rawValue: "nonsense") == .automatic,
+                   "a stored transformation choice reads auto, off, random and each form")
+            expect(NotchMascotTransformation.effective(choice: .automatic, level: 39) == .goldenLightning
+                   && NotchMascotTransformation.effective(choice: .automatic, level: 19) == nil
+                   && NotchMascotTransformation.effective(choice: .off, level: 50) == nil
+                   && NotchMascotTransformation.effective(choice: .form(.divine), level: 25) == .golden,
+                   "automatic takes the newest form, a locked pick the newest unlocked one")
+            let pick = NotchMascotTransformation.effective(choice: .random, level: 50, companion: "test-random")
+            let repeatPick = NotchMascotTransformation.effective(choice: .random, level: 50, companion: "test-random")
+            expect(pick != nil && pick == repeatPick, "random holds its draw between redraws")
+            expect(NotchMascotTransformation.effective(choice: .random, level: 19, companion: "test-low") == nil,
+                   "random has nothing to draw before the first form unlocks")
+
+            let suite = "ryzenstatus.tests.mascot.forms.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suite)!
+            defaults.removePersistentDomain(forName: suite)
+            defer { defaults.removePersistentDomain(forName: suite) }
+            defaults.set(50, forKey: DefaultsKey.notchMascotLevel)
+            defaults.set(NotchMascotFormChoice.form(.divine).rawValue, forKey: DefaultsKey.notchMascotForm)
+            expect(NotchMascotSupport.form(in: defaults) == .divine
+                   && NotchMascotSupport.friendForm(in: defaults) == .divine,
+                   "with no choice of its own the friend wears the companion's transformation")
+            defaults.set(NotchMascotFormChoice.off.rawValue, forKey: DefaultsKey.notchMascotFriendForm)
+            expect(NotchMascotSupport.friendForm(in: defaults) == nil
+                   && NotchMascotSupport.form(in: defaults) == .divine,
+                   "the friend can stay plain while the companion transforms")
+            defaults.set(NotchMascotFormChoice.form(.golden).rawValue, forKey: DefaultsKey.notchMascotFriendForm)
+            expect(NotchMascotSupport.friendForm(in: defaults) == .golden
+                   && NotchMascotSupport.form(in: defaults) == .divine,
+                   "each companion keeps a transformation of its own")
+            expect(AppLanguage.allCases.allSatisfy {
+                       let words = FeatureStrings.notchMascotForms($0)
+                       return !words.random.isEmpty && !words.friendTitle.isEmpty && !words.friendSame.isEmpty
+                   }, "the random and friend transformation labels are worded in every language")
+        }
+
         // MARK: Companion — bond, growth, wardrobe, seasons and hardware
         do {
             var calendar = Calendar(identifier: .gregorian)
@@ -11895,8 +11936,14 @@ struct MetricsTests {
                                       seasonal: true, gaming: false, calendar: calendar) == .glasses,
                    "an unlocked accessory is worn")
             expect(wardrobe.effective(chosen: .glasses, level: 3, date: day(2026, 12, 24), adopted: nil,
+                                      seasonal: true, gaming: false, calendar: calendar) == .glasses,
+                   "the accessory picked wins over the season's costume")
+            expect(wardrobe.effective(chosen: .none, level: 3, date: day(2026, 12, 24), adopted: nil,
                                       seasonal: true, gaming: false, calendar: calendar) == .santaHat,
-                   "a costume wins over the accessory picked")
+                   "with nothing picked, the season's costume dresses it")
+            expect(wardrobe.effective(chosen: .crown, level: 3, date: day(2026, 12, 24), adopted: nil,
+                                      seasonal: true, gaming: false, calendar: calendar) == .santaHat,
+                   "a locked accessory gives way to the season's costume")
             expect(wardrobe.effective(chosen: .glasses, level: 3, date: day(2026, 12, 24), adopted: nil,
                                       seasonal: false, gaming: false, calendar: calendar) == .glasses,
                    "costumes switched off leave the accessory picked")
@@ -11905,6 +11952,32 @@ struct MetricsTests {
                    "Gaming Mode's headband wins over everything")
             expect(wardrobe.unlocked(at: 2) == .bow && wardrobe.unlocked(at: 1) == nil,
                    "a level names what it unlocks")
+
+            // Dress-up play: its own wardrobe, its own choice, its own timing.
+            do {
+                let dress = NotchMascotDressUp.self
+                let owns: (NotchMascotAccessory) -> Bool = { $0 == .rubberDuck || $0 == .discoBall }
+                let closet = dress.wardrobe(level: 3, owns: owns)
+                expect(closet.contains(.bow) && closet.contains(.glasses) && closet.contains(.rubberDuck)
+                       && closet.contains(.discoBall) && !closet.contains(.none) && !closet.contains(.crown),
+                       "the wardrobe to play with holds what the level opened and what was bought")
+                expect(dress.wardrobe(level: 3, owns: { _ in false }) == [.bow, .glasses],
+                       "with nothing bought, the level's own things still play")
+                expect(dress.pick(current: .bow, level: 3, owns: owns, random: 0) != .bow
+                       && dress.pick(current: .bow, level: 3, owns: owns, random: 0.999) != .bow
+                       && dress.pick(current: .none, level: 3, owns: { _ in false }, random: 0.5) != nil,
+                       "it never puts back on the thing it already wears")
+                expect(dress.pick(current: .bow, level: 2, owns: owns, random: 0.5) != nil
+                       && Set(dress.wardrobe(level: 1, owns: owns)).isDisjoint(with: [.bow, .glasses]),
+                       "a young companion plays with less")
+                expect(!dress.shouldStart(sinceLastDig: dress.rest - 1, random: 0)
+                       && dress.shouldStart(sinceLastDig: dress.rest, random: 0)
+                       && !dress.shouldStart(sinceLastDig: dress.rest * 10, random: 0.5),
+                       "it rests between digs, and the roll decides")
+                expect(dress.duration(random: 0) == 30 && dress.duration(random: 1) == 90
+                       && dress.duration(random: .nan) == 60,
+                       "a dress-up lasts half a minute to a minute and a half")
+            }
 
             expect(NotchMascotGreeting.at(hour: 8) == .morning && NotchMascotGreeting.at(hour: 15) == .afternoon
                    && NotchMascotGreeting.at(hour: 21) == .evening && NotchMascotGreeting.at(hour: 2) == .night,
@@ -12259,6 +12332,62 @@ struct MetricsTests {
             for (name, run) in suites { suite.run(name) { run(suite) } }
             checks += suite.checks
             failures += suite.failures
+        }
+
+        // MARK: Security & kext audit invariants
+        do {
+            let repoRoot = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+            let userClientURL = repoRoot.appendingPathComponent(
+                "SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPMUserClient.cpp")
+            let it86URL = repoRoot.appendingPathComponent(
+                "SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/SuperIO/ISSuperIOIT86XXEFamily.cpp")
+            let securityURL = repoRoot.appendingPathComponent("SECURITY.md")
+            let readmeURL = repoRoot.appendingPathComponent("README.md")
+            let makeDmgURL = repoRoot.appendingPathComponent("Tools/make-dmg.sh")
+
+            if let userClientSrc = try? String(contentsOf: userClientURL, encoding: .utf8) {
+                let selectors = AMDKextSelector.allKnownSelectors
+                expect(selectors.count == 64,
+                       "AMDKextSelector enumerates all 64 app-used IOKit selectors (got \(selectors.count))")
+                for selector in selectors.sorted() {
+                    expect(userClientSrc.contains("case \(selector):"),
+                           "AMDRyzenCPUPMUserClient.cpp implements case \(selector):")
+                }
+                expect(userClientSrc.contains("if (numPhyCores > CPUInfo::MaxCpus) numPhyCores = CPUInfo::MaxCpus;"),
+                       "AUD-001: selector 2 clamps numPhyCores to CPUInfo::MaxCpus")
+                expect(userClientSrc.contains("if (numLogicalCores > CPUInfo::MaxCpus) numLogicalCores = CPUInfo::MaxCpus;"),
+                       "AUD-001: selector 21 clamps numLogicalCores to CPUInfo::MaxCpus")
+                expect(userClientSrc.contains("if (fModifiedFanControl && provider && provider->superIOLock)"),
+                       "AUD-002: clientClose only resets fan curves when fModifiedFanControl is set")
+                expect(userClientSrc.contains("hasPrivilege(90, true)"),
+                       "AUD-010: selector 90 uses quiet privilege probe to avoid false-positive DENIED logs")
+            } else {
+                expect(false, "AMDRyzenCPUPMUserClient.cpp is readable from repo root")
+            }
+
+            if let it86Src = try? String(contentsOf: it86URL, encoding: .utf8) {
+                expect(it86Src.contains("if (allowUnlock) {") && it86Src.contains("writeByte(0x0c,"),
+                       "AUD-006: ISSuperIOIT86XXEFamily gates register 0x0c unlock write on allowUnlock")
+            } else {
+                expect(false, "ISSuperIOIT86XXEFamily.cpp is readable from repo root")
+            }
+
+            if let securityDoc = try? String(contentsOf: securityURL, encoding: .utf8) {
+                expect(!securityDoc.contains("signed and notarized with an Apple Developer ID"),
+                       "AUD-003: SECURITY.md accurately documents ad-hoc signing instead of claiming notarization")
+            }
+
+            if let readmeDoc = try? String(contentsOf: readmeURL, encoding: .utf8) {
+                expect(!readmeDoc.contains("`-amdpnopchk` | **(Recommended)**"),
+                       "AUD-004: README.md does not label -amdpnopchk as (Recommended)")
+            }
+
+            if let makeDmgSrc = try? String(contentsOf: makeDmgURL, encoding: .utf8) {
+                expect(makeDmgSrc.contains("ALLOW_LOCAL_KEXTS"),
+                       "AUD-009: Tools/make-dmg.sh requires explicit ALLOW_LOCAL_KEXTS=1 before bypassing pinned kext zip")
+            }
         }
 
         // MARK: Result

@@ -28,10 +28,14 @@ struct NotchMascotSettings: View {
     @AppStorage(DefaultsKey.notchMascotExcursions) private var excursions = true
     @AppStorage(DefaultsKey.notchMascotDesktopFriend) private var friend = ""
     @AppStorage(DefaultsKey.notchMascotDesktopPlay) private var friendsPlay = true
+    @AppStorage(DefaultsKey.notchMascotDressUp) private var dressUp = true
     @AppStorage(DefaultsKey.notchMascotFriendAccessory) private var friendAccessory = ""
     @AppStorage(DefaultsKey.notchMascotStyle) private var style = NotchMascotStyle.minimal.rawValue
     @AppStorage(DefaultsKey.notchMascotShape) private var shape = NotchMascotShape.ball.rawValue
     @AppStorage(DefaultsKey.notchMascotPalette) private var palette = NotchMascotPalette.pearl.rawValue
+    @AppStorage(DefaultsKey.notchMascotCustomColor) private var customColor = ""
+    @AppStorage(DefaultsKey.notchMascotFriendPalette) private var friendPalette = ""
+    @AppStorage(DefaultsKey.notchMascotFriendCustomColor) private var friendCustomColor = ""
     @AppStorage(DefaultsKey.notchMascotSide) private var side = NotchMascotSide.left.rawValue
     @AppStorage(DefaultsKey.notchMascotVisitFrequency) private var frequency = NotchMascotVisitFrequency.normal.rawValue
     @AppStorage(DefaultsKey.notchCommandBar) private var commandBar = true
@@ -50,12 +54,15 @@ struct NotchMascotSettings: View {
     @AppStorage(DefaultsKey.notchMascotSound) private var soundOn = true
     @AppStorage(DefaultsKey.notchMascotSoundVolume) private var soundVolume = NotchMascotSound.defaultVolume
     @AppStorage(DefaultsKey.notchMascotForm) private var formChoice = NotchMascotFormChoice.automatic.rawValue
+    @AppStorage(DefaultsKey.notchMascotFriendForm) private var friendFormChoice = ""
     @AppStorage(DefaultsKey.notchMascotSpeech) private var speech = true
     @AppStorage(DefaultsKey.notchMascotHardware) private var hardware = true
     @AppStorage(DefaultsKey.gamingModeActive) private var gaming = false
     @ObservedObject private var bondStore = NotchMascotBondStore.shared
     @ObservedObject private var router = SettingsRouter.shared
     @State private var confirmingReset = false
+    /// A new draw in random mode, so the page and the island redraw it.
+    @State private var randomTick = 0
     /// The part of the page shown under the stage.
     @State private var section = Part.appearance
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -65,7 +72,18 @@ struct NotchMascotSettings: View {
     private var chosenAccessory: NotchMascotAccessory { NotchMascotAccessory(rawValue: accessory) ?? .none }
     private var forms: NotchMascotFormStrings { FeatureStrings.notchMascotForms(l10n.language) }
     private var choice: NotchMascotFormChoice { NotchMascotFormChoice(rawValue: formChoice) }
-    private var shownForm: NotchMascotForm? { NotchMascotTransformation.effective(choice: choice, level: level) }
+    private var shownForm: NotchMascotForm? {
+        NotchMascotTransformation.effective(choice: choice, level: level, companion: "companion")
+    }
+    /// Nil while the friend keeps whatever the companion wears.
+    private var friendChoice: NotchMascotFormChoice? {
+        friendFormChoice.isEmpty ? nil : NotchMascotFormChoice(rawValue: friendFormChoice)
+    }
+    private var friendShownForm: NotchMascotForm? {
+        guard let friendChoice else { return shownForm }
+        return NotchMascotTransformation.effective(choice: friendChoice, level: level, companion: "friend")
+    }
+    private var hasUnlockedForm: Bool { NotchMascotForm.allCases.contains { $0.unlockLevel <= level } }
 
     /// Its name, shared with the Features page.
     private var mascotTitle: String { FeatureStrings.hub(l10n.language).titleNotchMascot }
@@ -74,13 +92,30 @@ struct NotchMascotSettings: View {
     private var auto: NotchMascotAutomationStrings { FeatureStrings.notchMascotAutomation(l10n.language) }
 
     private var look: NotchMascotLook {
-        NotchMascotLook(style: NotchMascotStyle.resolved(style, name: petName),
+        var look = NotchMascotLook(style: NotchMascotStyle.resolved(style, name: petName),
                         shape: NotchMascotShape(rawValue: shape) ?? .ball,
                         palette: NotchMascotPalette(rawValue: palette) ?? .pearl,
                         accessory: NotchMascotWardrobe.effective(chosen: chosenAccessory, level: level, date: Date(),
                                                                  adopted: bondStore.bond.adopted, seasonal: seasonal,
                                                                  gaming: gaming && hardware),
                         form: shownForm)
+        look.customColor = NotchMascotColor(hex: customColor)
+        return look
+    }
+
+    /// Picks a color by hand; the swatches read it back as the chosen one.
+    private func colorBinding(_ stored: Binding<String>) -> Binding<Color> {
+        Binding(get: {
+            if let picked = NotchMascotColor(hex: stored.wrappedValue) {
+                return Color(red: picked.red, green: picked.green, blue: picked.blue)
+            }
+            return Color(red: 0.98, green: 0.87, blue: 0.72)
+        }, set: { color in
+            guard let ns = NSColor(color).usingColorSpace(.sRGB) else { return }
+            stored.wrappedValue = String(format: "%02X%02X%02X",
+                                         lround(ns.redComponent * 255), lround(ns.greenComponent * 255),
+                                         lround(ns.blueComponent * 255))
+        })
     }
 
     private var restingSide: NotchMascotSide { NotchMascotSide(rawValue: side) ?? .left }
@@ -275,8 +310,8 @@ struct NotchMascotSettings: View {
     private var swatches: some View {
         HStack(spacing: 8) {
             ForEach(NotchMascotPalette.allCases) { item in
-                let selected = look.palette == item
-                Button { palette = item.rawValue } label: {
+                let selected = look.palette == item && customColor.isEmpty
+                Button { palette = item.rawValue; customColor = "" } label: {
                     Circle()
                         .fill(LinearGradient(colors: [Color(cgColor: item.light.cgColor), Color(cgColor: item.shade.cgColor)],
                                              startPoint: .top, endPoint: .bottom))
@@ -292,6 +327,14 @@ struct NotchMascotSettings: View {
                 .accessibilityAddTraits(selected ? .isSelected : [])
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: selected)
             }
+            // Anything at all: a hand-picked color wins over the swatches.
+            ColorPicker(text.customColor, selection: colorBinding($customColor), supportsOpacity: false)
+                .labelsHidden()
+                .frame(width: 22, height: 22)
+                .padding(3)
+                .overlay(Circle().strokeBorder(customColor.isEmpty ? Color.clear : Color.accentColor, lineWidth: 2))
+                .help(text.customColor)
+                .accessibilityLabel(text.customColor)
         }
         .padding(.leading, settingsRowTextInset)
     }
@@ -426,14 +469,21 @@ struct NotchMascotSettings: View {
                 ForEach(NotchMascotForm.allCases) { item in
                     let unlocked = item.unlockLevel <= level
                     NotchMascotChoiceTile(title: unlocked ? forms.name(of: item) : life.locked(at: item.unlockLevel),
-                                          selected: choice != .off && shownForm == item) {
+                                          selected: choice != .random && choice != .off && shownForm == item) {
                         if unlocked { formChoice = NotchMascotFormChoice.form(item).rawValue }
                     } preview: {
                         formPreview(item, unlocked: unlocked)
                     }
                     .disabled(!unlocked)
                 }
+                NotchMascotChoiceTile(title: forms.random, selected: choice == .random) {
+                    drawRandomForm(for: "companion")
+                } preview: {
+                    randomFormPreview(unlocked: hasUnlockedForm)
+                }
+                .disabled(!hasUnlockedForm)
             }
+            .id("forms-\(randomTick)")
             .padding(.leading, settingsRowTextInset)
             if shownForm != nil {
                 HStack {
@@ -443,7 +493,68 @@ struct NotchMascotSettings: View {
                     }
                 }
             }
+            // The friend wears its own form, or the companion's when it has
+            // none of its own, so the two can transform separately.
+            if !friend.isEmpty {
+                SettingsRow(symbol: "person.2", title: forms.friendTitle) {
+                    Text(friendChoice == nil ? forms.friendSame : forms.name(of: friendShownForm))
+                        .foregroundStyle(.secondary)
+                }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 84, maximum: 120), spacing: 10)],
+                          alignment: .leading, spacing: 10) {
+                    NotchMascotChoiceTile(title: forms.friendSame, selected: friendChoice == nil) {
+                        friendFormChoice = ""
+                    } preview: {
+                        formPreview(friendShownForm, unlocked: true)
+                    }
+                    NotchMascotChoiceTile(title: forms.none, selected: friendChoice == .off) {
+                        friendFormChoice = NotchMascotFormChoice.off.rawValue
+                    } preview: {
+                        formPreview(nil, unlocked: true)
+                    }
+                    ForEach(NotchMascotForm.allCases) { item in
+                        let unlocked = item.unlockLevel <= level
+                        NotchMascotChoiceTile(title: unlocked ? forms.name(of: item)
+                                              : life.locked(at: item.unlockLevel),
+                                              selected: friendChoice != nil && friendChoice != .random
+                                                  && friendChoice != .off && friendShownForm == item) {
+                            if unlocked { friendFormChoice = NotchMascotFormChoice.form(item).rawValue }
+                        } preview: {
+                            formPreview(item, unlocked: unlocked)
+                        }
+                        .disabled(!unlocked)
+                    }
+                    NotchMascotChoiceTile(title: forms.random, selected: friendChoice == .random) {
+                        drawRandomForm(for: "friend")
+                    } preview: {
+                        randomFormPreview(unlocked: hasUnlockedForm)
+                    }
+                    .disabled(!hasUnlockedForm)
+                }
+                .id("friend-forms-\(randomTick)")
+                .padding(.leading, settingsRowTextInset)
+            }
         }
+    }
+
+    /// Draws again in random mode: a new form for `companion`, a new aura to
+    /// show it, and the island redrawn around it.
+    private func drawRandomForm(for companion: String) {
+        if companion == "friend" { friendFormChoice = NotchMascotFormChoice.random.rawValue }
+        else { formChoice = NotchMascotFormChoice.random.rawValue }
+        NotchMascotTransformation.rerollRandomForm(for: companion)
+        randomTick += 1
+        NotchService.shared.syncWithPreferences()
+        NotificationCenter.default.post(name: .notchMascotTransforms, object: nil)
+    }
+
+    private func randomFormPreview(unlocked: Bool) -> some View {
+        formPreview(nil, unlocked: unlocked)
+            .overlay {
+                Image(systemName: "dice.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white.opacity(unlocked ? 0.92 : 0.4))
+            }
     }
 
     private func formPreview(_ form: NotchMascotForm?, unlocked: Bool) -> some View {
@@ -500,13 +611,17 @@ struct NotchMascotSettings: View {
                           isOn: $excursions)
                     .padding(.leading, settingsRowTextInset)
                     .transition(.opacity)
+                switchRow("tshirt", desktopText.dressUp, caption: desktopText.dressUpCaption,
+                          isOn: $dressUp)
+                    .padding(.leading, settingsRowTextInset)
+                    .transition(.opacity)
                 SettingsChoiceRow(symbol: "person.2", title: desktopText.friend, selection: $friend) {
                     Text(desktopText.nobody).tag("")
                     ForEach(NotchMascotStyle.available(name: petName)) { Text(auto.style($0, base: text)).tag($0.rawValue) }
                 }
                 .padding(.leading, settingsRowTextInset)
                 .transition(.opacity)
-                if !friend.isEmpty {
+                if !friend.isEmpty, let friendStyle = NotchMascotStyle(rawValue: friend), friendStyle.takesAccessory {
                     SettingsChoiceRow(symbol: "tshirt", title: desktopText.friendItem, selection: $friendAccessory) {
                         Text(desktopText.friendItemOwn).tag("")
                         ForEach(NotchMascotAccessory.wardrobe.filter { $0.unlockLevel <= level }) {
@@ -515,6 +630,21 @@ struct NotchMascotSettings: View {
                     }
                     .padding(.leading, settingsRowTextInset)
                     .transition(.opacity)
+                    if let friendStyle = NotchMascotStyle(rawValue: friend), friendStyle.takesPalette {
+                        SettingsChoiceRow(symbol: "swatchpalette", title: desktopText.friendColors,
+                                          selection: Binding(get: { friendPalette },
+                                                             set: { friendPalette = $0
+                                                                 if !$0.isEmpty { friendCustomColor = "" } })) {
+                            Text(desktopText.friendColorsSame).tag("")
+                            ForEach(NotchMascotPalette.allCases) { Text(text.palette($0)).tag($0.rawValue) }
+                        }
+                        .padding(.leading, settingsRowTextInset)
+                        .transition(.opacity)
+                        ColorPicker(desktopText.friendCustomColor, selection: colorBinding($friendCustomColor),
+                                    supportsOpacity: false)
+                            .padding(.leading, settingsRowTextInset)
+                            .transition(.opacity)
+                    }
                     switchRow("figure.2.and.child.holdinghands", desktopText.plays, caption: desktopText.playsCaption,
                               isOn: $friendsPlay)
                         .padding(.leading, settingsRowTextInset)

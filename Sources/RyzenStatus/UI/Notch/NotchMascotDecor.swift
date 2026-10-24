@@ -38,9 +38,12 @@ final class NotchMascotDecor {
     private let catEars = CAShapeLayer()
     private let catInnerEars = CAShapeLayer()
     private let catNose = CAShapeLayer()
+    private let dogNose = CAShapeLayer()
     private let whiskers = CAShapeLayer()
     private let ghostMouth = CAShapeLayer()
     private let slimeDrip = CAShapeLayer()
+    /// A second creature detail in its own color: a beak, gill tips, a snout.
+    private let plume = CAShapeLayer()
 
     // Props.
     private let sweatDrop = CAShapeLayer()
@@ -59,8 +62,8 @@ final class NotchMascotDecor {
     private var confetti: [CAShapeLayer] = []
 
     private var creatureLayers: [CALayer] {
-        [pins, chipMark, fanHole, bladeHolder, blades, fanHub, fanScrews, catTail, catEars, catInnerEars, catNose,
-         whiskers, ghostMouth, slimeDrip]
+        [pins, plume, chipMark, fanHole, bladeHolder, blades, fanHub, fanScrews, catTail, catEars, catInnerEars, catNose,
+         dogNose, whiskers, ghostMouth, slimeDrip]
     }
 
     private var propLayers: [CALayer] {
@@ -71,7 +74,9 @@ final class NotchMascotDecor {
     init() {
         for layer in [pins, catTail, catEars, catInnerEars, slimeDrip] { back.addSublayer(layer) }
         bladeHolder.addSublayer(blades)
-        for layer in [fanHole, bladeHolder, fanHub, fanScrews, chipMark, catNose, whiskers, ghostMouth] {
+        // A muzzle, a beak or gills sit over the body, where they read; only
+        // the ears and tails they belong to belong behind it.
+        for layer in [plume, fanHole, bladeHolder, fanHub, fanScrews, chipMark, catNose, dogNose, whiskers, ghostMouth] {
             middle.addSublayer(layer)
         }
         for layer in [mugBody, mugCoffee, mugHandle] { mug.addSublayer(layer) }
@@ -122,7 +127,7 @@ final class NotchMascotDecor {
             layer.frame = box
             layer.contentsScale = scale
         }
-        let palette = look.palette
+        let palette = look.bodyPalette
         let style = look.style
         let line = max(0.6, size * 0.06)
 
@@ -134,10 +139,61 @@ final class NotchMascotDecor {
             pins.path = NotchMascotCreatures.devourerLimbs(size: size)
             pins.fillColor = palette.shade.cgColor
             show(pins)
+            plume.path = NotchMascotCreatures.devourerMouth(size: size)
+            plume.fillColor = NotchMascotColor.ink.cgColor
+            show(plume)
         case .shifter:
             slimeDrip.path = NotchMascotCreatures.slimeDrip(melted: sleeping, size: size)
             slimeDrip.fillColor = palette.shade.cgColor
             show(slimeDrip)
+        case .phoenix:
+            // Swept wings behind the body; the beak and talons over it.
+            pins.path = NotchMascotCreatures.phoenixWings(size: size)
+            pins.fillColor = palette.light.cgColor
+            show(pins)
+            plume.path = NotchMascotCreatures.phoenixBeakAndTalons(size: size)
+            plume.fillColor = palette.shade.cgColor
+            show(plume)
+        case .axolotl:
+            // Gill fronds fanning out of the head; feet and smile over the body.
+            pins.path = NotchMascotCreatures.axolotlGills(size: size)
+            pins.fillColor = palette.light.cgColor
+            show(pins)
+            plume.path = NotchMascotCreatures.axolotlFeetAndSmile(size: size)
+            plume.fillColor = palette.shade.cgColor
+            show(plume)
+        case .dog:
+            pins.path = NotchMascotCreatures.dogEarsTail(size: size)
+            pins.fillColor = palette.shade.cgColor
+            show(pins)
+            plume.path = NotchMascotCreatures.dogSnout(size: size)
+            // A soft muzzle a step off the body, so it reads on every palette.
+            plume.fillColor = palette.shade.brightened(0.55).cgColor
+            dogNose.path = NotchMascotCreatures.dogNoseAndMouth(size: size)
+            dogNose.fillColor = NotchMascotColor.ink.cgColor
+            show(plume, dogNose)
+        case .mouse:
+            pins.path = NotchMascotCreatures.mouseInnerEarsTail(size: size)
+            pins.fillColor = palette.shade.cgColor
+            show(pins)
+        case .capybara:
+            pins.path = NotchMascotCreatures.capybaraSnoutAndEars(size: size)
+            pins.fillColor = palette.shade.cgColor
+            show(pins)
+            plume.path = NotchMascotCreatures.capybaraOrange(size: size)
+            plume.fillColor = NotchMascotWearableShapes.rgb(0xFF8C00)
+            show(plume)
+        case .dragon:
+            pins.path = NotchMascotCreatures.dragonWingsAndTail(size: size)
+            pins.fillColor = palette.shade.cgColor
+            show(pins)
+            plume.path = NotchMascotCreatures.dragonHornsAndSnout(size: size)
+            plume.fillColor = palette.light.cgColor
+            show(plume)
+        case .frog:
+            pins.path = NotchMascotCreatures.frogThroatAndPaws(size: size)
+            pins.fillColor = palette.light.cgColor
+            show(pins)
         case .chip:
             pins.path = NotchMascotCreatures.chipPins(size: size)
             pins.fillColor = palette.shade.cgColor
@@ -259,6 +315,10 @@ final class NotchMascotDecor {
         case .slime, .shifter:
             morph(slimeDrip, to: NotchMascotCreatures.slimeDrip(melted: sleeping, size: size),
                   duration: duration, animated: animated)
+        case .phoenix, .axolotl, .dog, .mouse, .capybara, .dragon, .frog:
+            fade(pins, to: sleeping ? 0.55 : 1, duration: duration, animated: animated)
+            fade(plume, to: sleeping ? 0.55 : 1, duration: duration, animated: animated)
+            fade(dogNose, to: sleeping ? 0.55 : 1, duration: duration, animated: animated)
         case .chip:
             fade(pins, to: sleeping ? 0.45 : 1, duration: duration, animated: animated)
         case .ghost:
@@ -337,7 +397,7 @@ final class NotchMascotDecor {
         chipMark.removeAnimation(forKey: "glow")
         guard look.style == .chip, glow > 0 else {
             chipMark.shadowOpacity = 0
-            chipMark.fillColor = look.palette.shade.cgColor
+            chipMark.fillColor = look.bodyPalette.shade.cgColor
             return
         }
         let warm = NotchMascotWearableShapes.rgb(glow >= 0.75 ? 0xFF6A3D : 0xFFC940)
@@ -494,8 +554,8 @@ final class NotchMascotDecor {
                 mug.add(fitted(sip), forKey: "sip")
             }
         case .peek:
-            flash(arrow, for: reaction.length, motion: !reduceMotion,
-                  move: ("transform.translation.y", [0, size * 0.06, 0, size * 0.06]))
+            // Alert face and subtle lean; no disconnected download arrow prop.
+            break
         case .wave:
             flash(paw, for: reaction.length, motion: false, move: nil)
             if !reduceMotion {
@@ -551,12 +611,13 @@ final class NotchMascotDecor {
             ghostMouth.add(show, forKey: "booShow")
         case .chip:
             let glow = CAKeyframeAnimation(keyPath: "fillColor")
-            glow.values = [look.palette.shade.cgColor, look.palette.light.cgColor, look.palette.shade.cgColor,
-                           look.palette.light.cgColor, look.palette.shade.cgColor]
+            glow.values = [look.bodyPalette.shade.cgColor, look.bodyPalette.light.cgColor, look.bodyPalette.shade.cgColor,
+                           look.bodyPalette.light.cgColor, look.bodyPalette.shade.cgColor]
             glow.keyTimes = [0, 0.2, 0.45, 0.7, 1]
             glow.duration = min(1, reaction.length)
             pins.add(glow, forKey: "glow")
-        case .slime, .minimal, .robot, .cristobal, .whiteRabbit, .devourer, .shifter:
+        case .slime, .minimal, .robot, .cristobal, .whiteRabbit, .devourer, .shifter, .phoenix, .axolotl, .dog, .mouse,
+             .capybara, .dragon, .frog:
             break
         }
     }

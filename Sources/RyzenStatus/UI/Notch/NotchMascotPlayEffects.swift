@@ -523,6 +523,80 @@ extension NotchMascotPlayEffects {
         remove(holder, after: duration + 0.1)
     }
 
+    /// A treasure chest that drops onto the desktop floor at `base`, pops open its lid,
+    /// and showers sparkling gold coins for both companions to enjoy.
+    static func treasureChest(in parent: CALayer, at base: CGPoint, size: CGFloat, duration: TimeInterval) {
+        NotchMascotSound.play(.chime, pan: NotchMascotSoundMap.pan(x: base.x, width: parent.bounds.width))
+        let width = size * 1.15
+        let height = size * 0.9
+        let holder = CALayer()
+        holder.bounds = CGRect(x: 0, y: 0, width: width, height: height)
+        holder.position = CGPoint(x: base.x, y: base.y + height / 2)
+        holder.contentsScale = scale(of: parent)
+
+        let rgb = NotchMascotRPGShapes.rgb
+        let body = CAShapeLayer()
+        body.bounds = CGRect(x: 0, y: 0, width: width, height: height * 0.55)
+        body.position = CGPoint(x: width / 2, y: height * 0.28)
+        body.path = CGPath(roundedRect: body.bounds, cornerWidth: width * 0.08, cornerHeight: width * 0.08, transform: nil)
+        body.fillColor = rgb(0x8A5A2B)
+        body.strokeColor = rgb(0x4A2E12)
+        body.lineWidth = max(1, width * 0.04)
+
+        let latch = CAShapeLayer()
+        latch.bounds = CGRect(x: 0, y: 0, width: width * 0.16, height: height * 0.22)
+        latch.position = CGPoint(x: width / 2, y: height * 0.45)
+        latch.path = CGPath(roundedRect: latch.bounds, cornerWidth: 2, cornerHeight: 2, transform: nil)
+        latch.fillColor = rgb(0xFFD23F)
+        latch.strokeColor = rgb(0xB28E10)
+        latch.lineWidth = 1
+
+        let lid = CAShapeLayer()
+        lid.bounds = CGRect(x: 0, y: 0, width: width * 1.04, height: height * 0.45)
+        lid.position = CGPoint(x: width / 2, y: height * 0.72)
+        let lidPath = CGMutablePath()
+        lidPath.move(to: CGPoint(x: 0, y: 0))
+        lidPath.addQuadCurve(to: CGPoint(x: width * 1.04, y: 0), control: CGPoint(x: width * 0.52, y: height * 0.38))
+        lidPath.closeSubpath()
+        lid.path = lidPath
+        lid.fillColor = rgb(0xA06A32)
+        lid.strokeColor = rgb(0x4A2E12)
+        lid.lineWidth = max(1, width * 0.04)
+
+        holder.addSublayer(body)
+        holder.addSublayer(latch)
+        holder.addSublayer(lid)
+
+        let grow = CAKeyframeAnimation(keyPath: "transform.scale")
+        grow.values = [0.1, 1.15, 1, 1, 0.2]
+        grow.keyTimes = [0, 0.15, 0.25, 0.85, 1]
+
+        let appear = CAKeyframeAnimation(keyPath: "opacity")
+        appear.values = [0, 1, 1, 1, 0]
+        appear.keyTimes = [0, 0.08, 0.25, 0.85, 1]
+
+        let openLid = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        openLid.values = [0, 0, -0.45, -0.45, 0]
+        openLid.keyTimes = [0, 0.22, 0.35, 0.85, 1]
+
+        let group = CAAnimationGroup()
+        group.animations = [grow, appear]
+        group.duration = duration
+        holder.add(group, forKey: "chest")
+        lid.add(openLid, forKey: "openLid")
+
+        parent.addSublayer(holder)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            NotchMascotSound.play(.coin, pan: NotchMascotSoundMap.pan(x: base.x, width: parent.bounds.width))
+            goldCoins(in: parent, at: CGPoint(x: base.x, y: base.y + height * 0.4), radius: width * 0.12, count: 8)
+            sparks(in: parent, at: CGPoint(x: base.x, y: base.y + height * 0.5), reach: width * 0.45,
+                   energy: NotchMascotPlay.Energy(red: 1, green: 0.85, blue: 0.25), count: 10)
+        }
+
+        remove(holder, after: duration + 0.1)
+    }
+
     // MARK: Coins
 
     /// Gold coins thrown up from `point` that fall back and bounce twice,
@@ -829,6 +903,8 @@ final class NotchMascotPlayLayerView: NSView {
 
     override var isFlipped: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { false }
+    override var acceptsFirstResponder: Bool { false }
 
     override func layout() {
         super.layout()
@@ -868,6 +944,12 @@ final class NotchMascotPlayLayerView: NSView {
     }
 }
 
+/// A transparent floating panel that NEVER takes or intercepts mouse events under any circumstance.
+private final class NotchMascotPassivePanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
 /// A clear window over the whole screen the companions play on, for what
 /// passes between them: beams, sparks where blades meet, a star handed over.
 /// It takes no clicks and shows only while they play.
@@ -879,11 +961,18 @@ final class NotchMascotPlayStage {
     /// screen's origin; `point(_:)` turns a screen point into its own.
     func layer(over screen: NSScreen) -> CALayer? {
         let panel = self.panel ?? makePanel()
-        if panel.frame != screen.frame { panel.setFrame(screen.frame, display: false) }
+        if panel.frame != screen.frame {
+            panel.setFrame(screen.frame, display: false)
+            panel.ignoresMouseEvents = true
+        }
         view?.frame = CGRect(origin: .zero, size: screen.frame.size)
         view?.layoutSubtreeIfNeeded()
         panel.sharingType = NotchSupport.showsInCaptures() ? .readOnly : .none
-        if !panel.isVisible { panel.orderFrontRegardless() }
+        panel.ignoresMouseEvents = true
+        if !panel.isVisible {
+            panel.orderFrontRegardless()
+        }
+        panel.ignoresMouseEvents = true
         return view?.canvas
     }
 
@@ -895,12 +984,13 @@ final class NotchMascotPlayStage {
     /// Clears it and puts it away.
     func close() {
         view?.clear()
+        panel?.ignoresMouseEvents = true
         panel?.orderOut(nil)
     }
 
     private func makePanel() -> NSPanel {
-        let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered,
-                            defer: true)
+        let panel = NotchMascotPassivePanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered,
+                                           defer: true)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false

@@ -16,6 +16,11 @@ struct NotchMascotFormStrings {
     let divine: String
     let replay: String
     let unlockedFormat: String
+    /// A form drawn at random from the unlocked ones, for each companion.
+    var random: String = "Random"
+    /// The second companion's own transformation, beside the first one's.
+    var friendTitle: String = "Its friend's transformation"
+    var friendSame: String = "The same as its companion"
 
     func name(of form: NotchMascotForm?) -> String {
         switch form {
@@ -62,7 +67,10 @@ extension NotchMascotFormStrings {
         goldenFury: "Golden fury",
         divine: "Divine aura",
         replay: "Watch the transformation",
-        unlockedFormat: "Transformation unlocked: %@")
+        unlockedFormat: "Transformation unlocked: %@",
+        random: "Random",
+        friendTitle: "Its friend's transformation",
+        friendSame: "The same as its companion")
     static let ptBR = NotchMascotFormStrings(
         title: "Transformações",
         hint: "Desbloqueiam nos níveis 20, 30, 40 e 50. Cada uma muda a cor dele e o envolve numa aura; a transformação completa toca assim que uma é desbloqueada.",
@@ -72,7 +80,10 @@ extension NotchMascotFormStrings {
         goldenFury: "Fúria dourada",
         divine: "Aura divina",
         replay: "Ver a transformação",
-        unlockedFormat: "Transformação desbloqueada: %@")
+        unlockedFormat: "Transformação desbloqueada: %@",
+        random: "Aleatória",
+        friendTitle: "Transformação do amigo",
+        friendSame: "A mesma do companheiro")
     static let es = NotchMascotFormStrings(
         title: "Transformaciones",
         hint: "Se desbloquean en los niveles 20, 30, 40 y 50. Cada una le cambia el color y lo envuelve en un aura; la transformación completa se ve en cuanto se desbloquea.",
@@ -82,7 +93,10 @@ extension NotchMascotFormStrings {
         goldenFury: "Furia dorada",
         divine: "Aura divina",
         replay: "Ver la transformación",
-        unlockedFormat: "Transformación desbloqueada: %@")
+        unlockedFormat: "Transformación desbloqueada: %@",
+        random: "Aleatoria",
+        friendTitle: "Transformación de su amigo",
+        friendSame: "La misma que su compañero")
     static let sk = NotchMascotFormStrings(
         title: "Premeny",
         hint: "Odomykajú sa na úrovniach 20, 30, 40 a 50. Každá mu zmení farbu a obalí ho aurou; celá premena sa prehrá hneď, ako sa odomkne.",
@@ -92,7 +106,10 @@ extension NotchMascotFormStrings {
         goldenFury: "Zlatá zúrivosť",
         divine: "Božská aura",
         replay: "Pozrieť premenu",
-        unlockedFormat: "Odomknutá premena: %@")
+        unlockedFormat: "Odomknutá premena: %@",
+        random: "Náhodná",
+        friendTitle: "Premena jeho kamaráta",
+        friendSame: "Rovnaká ako u spoločníka")
     static let de = NotchMascotFormStrings(
         title: "Verwandlungen",
         hint: "Sie werden auf Stufe 20, 30, 40 und 50 freigeschaltet. Jede gibt ihm eine neue Farbe und hüllt es in eine Aura; sobald eine freigeschaltet wird, spielt die ganze Verwandlung.",
@@ -102,7 +119,10 @@ extension NotchMascotFormStrings {
         goldenFury: "Goldene Wut",
         divine: "Göttliche Aura",
         replay: "Verwandlung ansehen",
-        unlockedFormat: "Verwandlung freigeschaltet: %@")
+        unlockedFormat: "Verwandlung freigeschaltet: %@",
+        random: "Zufällig",
+        friendTitle: "Verwandlung seines Freundes",
+        friendSame: "Dieselbe wie bei seinem Gefährten")
     static let fr = NotchMascotFormStrings(
         title: "Transformations",
         hint: "Elles se débloquent aux niveaux 20, 30, 40 et 50. Chacune lui donne une nouvelle couleur et l’enveloppe d’une aura ; la transformation complète se joue dès qu’elle est débloquée.",
@@ -112,7 +132,10 @@ extension NotchMascotFormStrings {
         goldenFury: "Fureur dorée",
         divine: "Aura divine",
         replay: "Voir la transformation",
-        unlockedFormat: "Transformation débloquée : %@")
+        unlockedFormat: "Transformation débloquée : %@",
+        random: "Aléatoire",
+        friendTitle: "Transformation de son ami",
+        friendSame: "La même que son compagnon")
     static let it = NotchMascotFormStrings(
         title: "Trasformazioni",
         hint: "Si sbloccano ai livelli 20, 30, 40 e 50. Ognuna gli cambia colore e lo avvolge in un’aura; la trasformazione completa parte appena se ne sblocca una.",
@@ -122,7 +145,10 @@ extension NotchMascotFormStrings {
         goldenFury: "Furia dorata",
         divine: "Aura divina",
         replay: "Guarda la trasformazione",
-        unlockedFormat: "Trasformazione sbloccata: %@")
+        unlockedFormat: "Trasformazione sbloccata: %@",
+        random: "Casuale",
+        friendTitle: "Trasformazione del suo amico",
+        friendSame: "La stessa del compagno")
     static let ru = NotchMascotFormStrings(
         title: "Превращения",
         hint: "Открываются на уровнях 20, 30, 40 и 50. Каждое меняет его цвет и окутывает аурой; полное превращение проигрывается сразу, как только оно открыто.",
@@ -132,7 +158,10 @@ extension NotchMascotFormStrings {
         goldenFury: "Золотая ярость",
         divine: "Божественная аура",
         replay: "Посмотреть превращение",
-        unlockedFormat: "Открыто превращение: %@")
+        unlockedFormat: "Открыто превращение: %@",
+        random: "Случайная",
+        friendTitle: "Превращение его друга",
+        friendSame: "Та же, что у компаньона")
     static let tr = NotchMascotFormStrings(
         title: "Dönüşümler",
         hint: "20, 30, 40 ve 50. seviyelerde açılır. Her biri rengini değiştirir ve onu bir aurayla sarar; biri açıldığı anda dönüşümün tamamı oynatılır.",
@@ -142,7 +171,10 @@ extension NotchMascotFormStrings {
         goldenFury: "Altın öfke",
         divine: "İlahi aura",
         replay: "Dönüşümü izle",
-        unlockedFormat: "Dönüşüm açıldı: %@")
+        unlockedFormat: "Dönüşüm açıldı: %@",
+        random: "Rastgele",
+        friendTitle: "Arkadaşının dönüşümü",
+        friendSame: "Yoldaşınınkiyle aynı")
     static let ja = NotchMascotFormStrings(
         title: "変身",
         hint: "レベル20、30、40、50で解放されます。それぞれ色が変わり、オーラをまといます。解放された瞬間に変身の全演出が流れます。",
@@ -152,7 +184,10 @@ extension NotchMascotFormStrings {
         goldenFury: "黄金の怒り",
         divine: "神のオーラ",
         replay: "変身を見る",
-        unlockedFormat: "変身が解放されました：%@")
+        unlockedFormat: "変身が解放されました：%@",
+        random: "ランダム",
+        friendTitle: "友だちの変身",
+        friendSame: "相棒と同じ")
     static let ko = NotchMascotFormStrings(
         title: "변신",
         hint: "레벨 20, 30, 40, 50에서 해제됩니다. 변신할 때마다 색이 바뀌고 오라를 두르며, 해제되는 순간 변신 장면 전체가 재생됩니다.",
@@ -162,7 +197,10 @@ extension NotchMascotFormStrings {
         goldenFury: "황금 분노",
         divine: "신성한 오라",
         replay: "변신 보기",
-        unlockedFormat: "변신 해제: %@")
+        unlockedFormat: "변신 해제: %@",
+        random: "무작위",
+        friendTitle: "친구의 변신",
+        friendSame: "동료와 같은 변신")
     static let zhHans = NotchMascotFormStrings(
         title: "变身",
         hint: "在 20、30、40 和 50 级解锁。每次变身都会改变它的颜色并让它笼罩在光环中；解锁的那一刻会播放完整的变身动画。",
@@ -172,7 +210,10 @@ extension NotchMascotFormStrings {
         goldenFury: "金色怒火",
         divine: "神圣光环",
         replay: "观看变身",
-        unlockedFormat: "已解锁变身：%@")
+        unlockedFormat: "已解锁变身：%@",
+        random: "随机",
+        friendTitle: "伙伴的变身",
+        friendSame: "与同伴相同")
     static let zhTW = NotchMascotFormStrings(
         title: "變身",
         hint: "在 20、30、40 和 50 級解鎖。每次變身都會改變牠的顏色並讓牠籠罩在光環中；解鎖的那一刻會播放完整的變身動畫。",
@@ -182,7 +223,10 @@ extension NotchMascotFormStrings {
         goldenFury: "金色怒火",
         divine: "神聖光環",
         replay: "觀看變身",
-        unlockedFormat: "已解鎖變身：%@")
+        unlockedFormat: "已解鎖變身：%@",
+        random: "隨機",
+        friendTitle: "夥伴的變身",
+        friendSame: "與同伴相同")
     static let zhHK = NotchMascotFormStrings(
         title: "變身",
         hint: "在 20、30、40 和 50 級解鎖。每次變身都會改變牠的顏色並讓牠籠罩在光環中；解鎖的那一刻會播放完整的變身動畫。",
@@ -192,7 +236,10 @@ extension NotchMascotFormStrings {
         goldenFury: "金色怒火",
         divine: "神聖光環",
         replay: "觀看變身",
-        unlockedFormat: "已解鎖變身：%@")
+        unlockedFormat: "已解鎖變身：%@",
+        random: "隨機",
+        friendTitle: "夥伴的變身",
+        friendSame: "與同伴相同")
     static let uk = NotchMascotFormStrings(
         title: "Перетворення",
         hint: "Відкриваються на рівнях 20, 30, 40 і 50. Кожне змінює його колір і огортає аурою; щойно перетворення відкривається, воно програється повністю.",
@@ -202,5 +249,8 @@ extension NotchMascotFormStrings {
         goldenFury: "Золота лють",
         divine: "Божественна аура",
         replay: "Переглянути перетворення",
-        unlockedFormat: "Відкрито перетворення: %@")
+        unlockedFormat: "Відкрито перетворення: %@",
+        random: "Випадкове",
+        friendTitle: "Перетворення його друга",
+        friendSame: "Таке саме, як у супутника")
 }

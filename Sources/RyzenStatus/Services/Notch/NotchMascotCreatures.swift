@@ -51,6 +51,41 @@ enum NotchMascotCreatures {
                                          eyeSize: CGSize(width: 0.05, height: 0.08),
                                          shineCenter: CGPoint(x: 0.41, y: 0.52), shineRadii: CGSize(width: 0.02, height: 0.02),
                                          shineAngle: 0)
+        case .phoenix:
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.39, y: 0.48), rightEye: CGPoint(x: 0.61, y: 0.48),
+                                         eyeSize: CGSize(width: 0.07, height: 0.18),
+                                         shineCenter: CGPoint(x: 0.35, y: 0.34), shineRadii: CGSize(width: 0.05, height: 0.03),
+                                         shineAngle: -0.5)
+        case .axolotl:
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.37, y: 0.30), rightEye: CGPoint(x: 0.63, y: 0.30),
+                                         eyeSize: CGSize(width: 0.065, height: 0.14),
+                                         shineCenter: CGPoint(x: 0.34, y: 0.24), shineRadii: CGSize(width: 0.04, height: 0.025),
+                                         shineAngle: -0.3)
+        case .dog:
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.38, y: 0.24), rightEye: CGPoint(x: 0.62, y: 0.24),
+                                         eyeSize: CGSize(width: 0.07, height: 0.15),
+                                         shineCenter: CGPoint(x: 0.34, y: 0.15), shineRadii: CGSize(width: 0.05, height: 0.03),
+                                         shineAngle: -0.4)
+        case .mouse:
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.41, y: 0.30), rightEye: CGPoint(x: 0.59, y: 0.30),
+                                         eyeSize: CGSize(width: 0.06, height: 0.13),
+                                         shineCenter: CGPoint(x: 0.38, y: 0.22), shineRadii: CGSize(width: 0.04, height: 0.025),
+                                         shineAngle: -0.3)
+        case .capybara:
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.35, y: 0.32), rightEye: CGPoint(x: 0.65, y: 0.32),
+                                         eyeSize: CGSize(width: 0.055, height: 0.09),
+                                         shineCenter: CGPoint(x: 0.34, y: 0.30), shineRadii: CGSize(width: 0.03, height: 0.02),
+                                         shineAngle: 0)
+        case .dragon:
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.36, y: 0.30), rightEye: CGPoint(x: 0.64, y: 0.30),
+                                         eyeSize: CGSize(width: 0.07, height: 0.16),
+                                         shineCenter: CGPoint(x: 0.33, y: 0.22), shineRadii: CGSize(width: 0.05, height: 0.03),
+                                         shineAngle: -0.4)
+        case .frog:
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.29, y: 0.17), rightEye: CGPoint(x: 0.71, y: 0.17),
+                                         eyeSize: CGSize(width: 0.08, height: 0.14),
+                                         shineCenter: CGPoint(x: 0.27, y: 0.13), shineRadii: CGSize(width: 0.05, height: 0.03),
+                                         shineAngle: -0.2)
         }
     }
 
@@ -66,6 +101,36 @@ enum NotchMascotCreatures {
         case .slime: return CGRect(x: 0.07, y: 0.22, width: 0.86, height: 0.76)
         case .devourer: return CGRect(x: 0.04, y: 0.20, width: 0.92, height: 0.78)
         case .shifter: return CGRect(x: 0.07, y: 0.30, width: 0.86, height: 0.66)
+        case .phoenix: return CGRect(x: 0.02, y: 0.01, width: 0.96, height: 0.98)
+        case .axolotl: return CGRect(x: 0.02, y: 0.12, width: 0.96, height: 0.82)
+        case .dog: return CGRect(x: 0.04, y: 0.04, width: 0.94, height: 0.88)
+        case .mouse: return CGRect(x: 0.10, y: 0.04, width: 0.88, height: 0.86)
+        case .capybara: return CGRect(x: 0.12, y: 0.05, width: 0.76, height: 0.89)
+        case .dragon: return CGRect(x: 0.04, y: 0.04, width: 0.94, height: 0.90)
+        case .frog: return CGRect(x: 0.12, y: 0.06, width: 0.76, height: 0.86)
+        }
+    }
+
+    /// The head alone, where a hat or glasses belong, for the shapes whose
+    /// body is more than a head. Nil keeps the whole body as the outline, as
+    /// for the minimal companion and the robot.
+    static func headOutline(_ style: NotchMascotStyle, size: CGFloat) -> CGRect? {
+        switch style {
+        case .minimal, .robot, .cristobal, .whiteRabbit: return nil
+        case .chip: return rect(0.18, 0.26, 0.64, 0.64, size)
+        case .fan: return rect(0.10, 0.18, 0.80, 0.80, size)
+        case .cat: return rect(0.20, 0.24, 0.60, 0.40, size)
+        case .ghost: return rect(0.16, 0.20, 0.68, 0.56, size)
+        case .slime: return rect(0.09, 0.22, 0.82, 0.64, size)
+        case .devourer: return rect(0.12, 0.20, 0.76, 0.66, size)
+        case .shifter: return rect(0.10, 0.30, 0.80, 0.60, size)
+        case .phoenix: return rect(0.33, 0.10, 0.34, 0.34, size)
+        case .axolotl: return rect(0.16, 0.14, 0.68, 0.42, size)
+        case .dog: return rect(0.22, 0.08, 0.56, 0.44, size)
+        case .mouse: return rect(0.30, 0.18, 0.40, 0.34, size)
+        case .capybara: return rect(0.24, 0.18, 0.52, 0.44, size)
+        case .dragon: return rect(0.26, 0.12, 0.48, 0.42, size)
+        case .frog: return rect(0.20, 0.08, 0.60, 0.46, size)
         }
     }
 
@@ -112,6 +177,60 @@ enum NotchMascotCreatures {
             path.addCurve(to: point(0.91, 0.88), control1: point(0.72, 0.24), control2: point(0.94, 0.54))
             path.addQuadCurve(to: point(0.09, 0.88), control: point(0.5, 0.97))
             path.closeSubpath()
+        case .phoenix:
+            // A flame bird, front on: a round head under a two-lick crest, a
+            // round chest, and three licks of tail fanning below.
+            path.addEllipse(in: rect(0.33, 0.10, 0.34, 0.34, size))
+            path.addEllipse(in: rect(0.26, 0.36, 0.48, 0.46, size))
+            path.move(to: point(0.46, 0.13))
+            path.addQuadCurve(to: point(0.40, 0.02), control: point(0.38, 0.08))
+            path.addQuadCurve(to: point(0.50, 0.11), control: point(0.44, 0.05))
+            path.closeSubpath()
+            path.move(to: point(0.52, 0.12))
+            path.addQuadCurve(to: point(0.56, 0.01), control: point(0.55, 0.07))
+            path.addQuadCurve(to: point(0.60, 0.14), control: point(0.58, 0.06))
+            path.closeSubpath()
+            path.move(to: point(0.40, 0.74))
+            path.addQuadCurve(to: point(0.28, 0.95), control: point(0.30, 0.86))
+            path.addQuadCurve(to: point(0.46, 0.80), control: point(0.36, 0.86))
+            path.closeSubpath()
+            path.move(to: point(0.46, 0.80))
+            path.addQuadCurve(to: point(0.50, 0.99), control: point(0.44, 0.92))
+            path.addQuadCurve(to: point(0.56, 0.80), control: point(0.54, 0.91))
+            path.closeSubpath()
+            path.move(to: point(0.56, 0.80))
+            path.addQuadCurve(to: point(0.70, 0.94), control: point(0.66, 0.88))
+            path.addQuadCurve(to: point(0.58, 0.74), control: point(0.64, 0.84))
+            path.closeSubpath()
+        case .axolotl:
+            // The wide flat head every axolotl wears, over a slim body that
+            // rounds off into its tail.
+            path.addRoundedRect(in: rect(0.16, 0.14, 0.68, 0.42, size), cornerWidth: 0.21 * size, cornerHeight: 0.21 * size)
+            path.addEllipse(in: rect(0.32, 0.46, 0.36, 0.42, size))
+        case .dog:
+            // A sitting pup, front on: a broad round head over a rounded chest.
+            path.addEllipse(in: rect(0.22, 0.08, 0.56, 0.44, size))
+            path.addEllipse(in: rect(0.17, 0.42, 0.66, 0.50, size))
+        case .mouse:
+            // Big round ears over a pear-sized body and a short muzzle.
+            path.addEllipse(in: rect(0.13, 0.06, 0.30, 0.30, size))
+            path.addEllipse(in: rect(0.57, 0.06, 0.30, 0.30, size))
+            path.addEllipse(in: rect(0.30, 0.18, 0.40, 0.34, size))
+            path.addEllipse(in: rect(0.33, 0.42, 0.34, 0.44, size))
+        case .capybara:
+            // A sitting capybara: rounded rectangular snout and a heavy rounded body.
+            path.addRoundedRect(in: rect(0.24, 0.18, 0.52, 0.44, size), cornerWidth: 0.18 * size, cornerHeight: 0.18 * size)
+            path.addEllipse(in: rect(0.16, 0.44, 0.68, 0.48, size))
+        case .dragon:
+            // A round wyrmling head over a compact pear chest.
+            path.addEllipse(in: rect(0.26, 0.14, 0.48, 0.42, size))
+            path.addEllipse(in: rect(0.22, 0.44, 0.56, 0.48, size))
+        case .frog:
+            // Bulbous crown eyes over a wide plump body.
+            path.addEllipse(in: rect(0.20, 0.08, 0.20, 0.20, size))
+            path.addEllipse(in: rect(0.60, 0.08, 0.20, 0.20, size))
+            path.addEllipse(in: rect(0.20, 0.18, 0.60, 0.42, size))
+            path.addEllipse(in: rect(0.16, 0.42, 0.68, 0.48, size))
         }
         return path
     }
@@ -125,6 +244,238 @@ enum NotchMascotCreatures {
         path.addEllipse(in: rect(0.76, 0.46, 0.20, 0.17, size))
         path.addEllipse(in: rect(0.14, 0.84, 0.30, 0.14, size))
         path.addEllipse(in: rect(0.56, 0.84, 0.30, 0.14, size))
+        return path
+    }
+
+    // MARK: Phoenix
+
+    /// Two wings of three swept feathers each, raised behind the body.
+    static func phoenixWings(size: CGFloat) -> CGPath {
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
+        let path = CGMutablePath()
+        for mirror in [false, true] {
+            func x(_ v: CGFloat) -> CGFloat { mirror ? 1 - v : v }
+            for (baseX, baseY, tipX, tipY, bow) in [(0.34, 0.44, 0.10, 0.16, 0.13),
+                                                    (0.32, 0.50, 0.05, 0.34, 0.15),
+                                                    (0.33, 0.56, 0.10, 0.52, 0.13)] {
+                path.move(to: point(x(baseX), baseY))
+                path.addQuadCurve(to: point(x(tipX), tipY), control: point(x(baseX - bow), baseY - bow * 0.7))
+                path.addQuadCurve(to: point(x(baseX + 0.055), baseY + 0.07), control: point(x(tipX + 0.075), tipY + 0.11))
+                path.closeSubpath()
+            }
+        }
+        return path
+    }
+
+    /// The hooked beak under the eyes, and two talons at the chest's foot.
+    static func phoenixBeakAndTalons(size: CGFloat) -> CGPath {
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
+        let path = CGMutablePath()
+        path.move(to: point(0.5, 0.27))
+        path.addLine(to: point(0.565, 0.335))
+        path.addLine(to: point(0.5, 0.40))
+        path.addLine(to: point(0.435, 0.335))
+        path.closeSubpath()
+        path.addEllipse(in: rect(0.36, 0.80, 0.12, 0.055, size))
+        path.addEllipse(in: rect(0.52, 0.80, 0.12, 0.055, size))
+        return path
+    }
+
+    // MARK: Axolotl
+
+    /// Three gill stalks fanning out of each side of the head, each ending
+    /// in a rounded tip — the fronds that say axolotl.
+    static func axolotlGills(size: CGFloat) -> CGPath {
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
+        let path = CGMutablePath()
+        for mirror in [false, true] {
+            func x(_ v: CGFloat) -> CGFloat { mirror ? 1 - v : v }
+            for (baseX, baseY, tipX, tipY) in [(0.22, 0.26, 0.06, 0.13),
+                                               (0.18, 0.36, 0.02, 0.37),
+                                               (0.21, 0.46, 0.05, 0.61)] {
+                path.move(to: point(x(baseX), baseY))
+                path.addQuadCurve(to: point(x(tipX), tipY), control: point(x(baseX - 0.10), baseY - 0.11))
+                path.addQuadCurve(to: point(x(baseX + 0.03), baseY + 0.06), control: point(x(tipX + 0.07), tipY + 0.08))
+                path.closeSubpath()
+                path.addEllipse(in: CGRect(x: x(tipX) * size - 0.035 * size, y: tipY * size - 0.035 * size,
+                                           width: 0.07 * size, height: 0.07 * size))
+            }
+        }
+        return path
+    }
+
+    /// The wide content smile, and two little front feet.
+    static func axolotlFeetAndSmile(size: CGFloat) -> CGPath {
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
+        let path = CGMutablePath()
+        path.move(to: point(0.36, 0.40))
+        path.addQuadCurve(to: point(0.64, 0.40), control: point(0.5, 0.47))
+        path.addQuadCurve(to: point(0.36, 0.40), control: point(0.5, 0.435))
+        path.closeSubpath()
+        path.addEllipse(in: rect(0.34, 0.82, 0.12, 0.05, size))
+        path.addEllipse(in: rect(0.54, 0.82, 0.12, 0.05, size))
+        return path
+    }
+
+    // MARK: Dog
+
+    /// The long floppy ears that hang clear of the head, a wagging tail,
+    /// and little paws resting at the base.
+    static func dogEarsTail(size: CGFloat) -> CGPath {
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
+        let path = CGMutablePath()
+        // Floppy ears that arch over the crown and droop past the cheeks
+        for mirrored in [false, true] {
+            func x(_ value: CGFloat) -> CGFloat { mirrored ? 1 - value : value }
+            path.move(to: point(x(0.35), 0.10))
+            path.addCurve(to: point(x(0.06), 0.20), control1: point(x(0.26), 0.02), control2: point(x(0.12), 0.04))
+            path.addCurve(to: point(x(0.14), 0.57), control1: point(x(0.01), 0.34), control2: point(x(0.04), 0.50))
+            path.addCurve(to: point(x(0.28), 0.42), control1: point(x(0.22), 0.61), control2: point(x(0.28), 0.54))
+            path.addCurve(to: point(x(0.35), 0.10), control1: point(x(0.28), 0.30), control2: point(x(0.30), 0.18))
+            path.closeSubpath()
+        }
+        // Wagging tail, clear of the right ear
+        path.move(to: point(0.74, 0.70))
+        path.addQuadCurve(to: point(0.96, 0.44), control: point(0.96, 0.64))
+        path.addQuadCurve(to: point(0.73, 0.74), control: point(0.88, 0.54))
+        path.closeSubpath()
+        // Front paws peeking out from under the chest
+        path.addEllipse(in: rect(0.27, 0.85, 0.18, 0.10, size))
+        path.addEllipse(in: rect(0.55, 0.85, 0.18, 0.10, size))
+        return path
+    }
+
+    /// The soft pale muzzle over the head.
+    static func dogSnout(size: CGFloat) -> CGPath {
+        CGPath(ellipseIn: rect(0.37, 0.28, 0.26, 0.19, size), transform: nil)
+    }
+
+    /// The rounded triangular nose, philtrum seam, and happy puppy split lips (:3).
+    static func dogNoseAndMouth(size: CGFloat) -> CGPath {
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
+        let path = CGMutablePath()
+        // Soft rounded inverted triangle nose
+        path.move(to: point(0.445, 0.325))
+        path.addQuadCurve(to: point(0.555, 0.325), control: point(0.50, 0.318))
+        path.addQuadCurve(to: point(0.512, 0.370), control: point(0.565, 0.355))
+        path.addQuadCurve(to: point(0.488, 0.370), control: point(0.50, 0.373))
+        path.addQuadCurve(to: point(0.445, 0.325), control: point(0.435, 0.355))
+        path.closeSubpath()
+        // Philtrum seam & smiling puppy jowls (:3)
+        path.move(to: point(0.495, 0.368))
+        path.addLine(to: point(0.505, 0.368))
+        path.addLine(to: point(0.505, 0.395))
+        path.addQuadCurve(to: point(0.560, 0.395), control: point(0.535, 0.425))
+        path.addQuadCurve(to: point(0.535, 0.440), control: point(0.565, 0.415))
+        path.addQuadCurve(to: point(0.505, 0.405), control: point(0.505, 0.425))
+        path.addLine(to: point(0.495, 0.405))
+        path.addQuadCurve(to: point(0.465, 0.440), control: point(0.495, 0.425))
+        path.addQuadCurve(to: point(0.440, 0.395), control: point(0.435, 0.415))
+        path.addQuadCurve(to: point(0.495, 0.395), control: point(0.465, 0.425))
+        path.closeSubpath()
+        return path
+    }
+
+    // MARK: Mouse
+
+    /// The ears' soft inner half, and a long thin curling tail.
+    static func mouseInnerEarsTail(size: CGFloat) -> CGPath {
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
+        let path = CGMutablePath()
+        path.addEllipse(in: rect(0.19, 0.12, 0.18, 0.18, size))
+        path.addEllipse(in: rect(0.63, 0.12, 0.18, 0.18, size))
+        path.move(to: point(0.66, 0.72))
+        path.addQuadCurve(to: point(0.97, 0.78), control: point(0.88, 0.64))
+        path.addQuadCurve(to: point(0.68, 0.82), control: point(0.84, 0.88))
+        path.closeSubpath()
+        return path
+    }
+
+    // MARK: Capybara
+
+    /// The peaceful little ears, sleepy nostrils and front paws.
+    static func capybaraSnoutAndEars(size: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        path.addEllipse(in: rect(0.18, 0.22, 0.10, 0.10, size))
+        path.addEllipse(in: rect(0.72, 0.22, 0.10, 0.10, size))
+        path.addEllipse(in: rect(0.42, 0.40, 0.05, 0.04, size))
+        path.addEllipse(in: rect(0.53, 0.40, 0.05, 0.04, size))
+        path.addEllipse(in: rect(0.30, 0.84, 0.16, 0.09, size))
+        path.addEllipse(in: rect(0.54, 0.84, 0.16, 0.09, size))
+        return path
+    }
+
+    /// The iconic onsen orange (yuzu/mandarin) with its tiny leaf sitting on its crown.
+    static func capybaraOrange(size: CGFloat) -> CGPath {
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
+        let path = CGMutablePath()
+        path.addEllipse(in: rect(0.43, 0.06, 0.14, 0.13, size))
+        path.move(to: point(0.50, 0.06))
+        path.addQuadCurve(to: point(0.56, 0.02), control: point(0.52, 0.02))
+        path.addQuadCurve(to: point(0.50, 0.06), control: point(0.56, 0.06))
+        path.closeSubpath()
+        return path
+    }
+
+    // MARK: Dragon
+
+    /// Two cute curved horns on the crown, folded wings behind and a spade tail.
+    static func dragonWingsAndTail(size: CGFloat) -> CGPath {
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
+        let path = CGMutablePath()
+        for mirrored in [false, true] {
+            func x(_ v: CGFloat) -> CGFloat { mirrored ? 1 - v : v }
+            path.move(to: point(x(0.32), 0.16))
+            path.addCurve(to: point(x(0.20), 0.04), control1: point(x(0.30), 0.10), control2: point(x(0.24), 0.05))
+            path.addCurve(to: point(x(0.36), 0.18), control1: point(x(0.26), 0.08), control2: point(x(0.34), 0.12))
+            path.closeSubpath()
+        }
+        for mirrored in [false, true] {
+            func x(_ v: CGFloat) -> CGFloat { mirrored ? 1 - v : v }
+            path.move(to: point(x(0.24), 0.44))
+            path.addQuadCurve(to: point(x(0.06), 0.36), control: point(x(0.12), 0.32))
+            path.addQuadCurve(to: point(x(0.12), 0.52), control: point(x(0.08), 0.46))
+            path.addQuadCurve(to: point(x(0.24), 0.56), control: point(x(0.16), 0.54))
+            path.closeSubpath()
+        }
+        path.move(to: point(0.72, 0.70))
+        path.addQuadCurve(to: point(0.94, 0.54), control: point(0.92, 0.68))
+        path.addLine(to: point(0.97, 0.50))
+        path.addLine(to: point(0.91, 0.49))
+        path.addQuadCurve(to: point(0.70, 0.76), control: point(0.86, 0.62))
+        path.closeSubpath()
+        return path
+    }
+
+    /// The soft lighter underbelly and snout for the dragon.
+    static func dragonHornsAndSnout(size: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        path.addEllipse(in: rect(0.38, 0.28, 0.24, 0.16, size))
+        path.addEllipse(in: rect(0.32, 0.52, 0.36, 0.32, size))
+        return path
+    }
+
+    // MARK: Frog
+
+    /// The pale throat patch and wide webbed front feet.
+    static func frogThroatAndPaws(size: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        path.addEllipse(in: rect(0.32, 0.32, 0.36, 0.26, size))
+        path.addEllipse(in: rect(0.16, 0.82, 0.18, 0.08, size))
+        path.addEllipse(in: rect(0.66, 0.82, 0.18, 0.08, size))
+        return path
+    }
+
+    // MARK: Devourer
+
+    /// The wide open mouth that is the glutton's whole character.
+    static func devourerMouth(size: CGFloat) -> CGPath {
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
+        let path = CGMutablePath()
+        path.move(to: point(0.32, 0.60))
+        path.addQuadCurve(to: point(0.68, 0.60), control: point(0.5, 0.84))
+        path.addQuadCurve(to: point(0.32, 0.60), control: point(0.5, 0.68))
+        path.closeSubpath()
         return path
     }
 

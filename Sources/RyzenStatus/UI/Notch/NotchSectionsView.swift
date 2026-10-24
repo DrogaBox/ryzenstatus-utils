@@ -42,33 +42,35 @@ struct NotchSectionsView: View {
         let first = NotchSectionPaging.clamped(service.sectionRow, rows: rows, visible: visible)
         let shown = first..<(first + visible)
         return HStack(spacing: 0) {
-            VStack(spacing: NotchLayout.sectionSpacing) {
-                ForEach(0..<rows, id: \.self) { row in
-                    HStack(spacing: NotchLayout.sectionSpacing) {
-                        ForEach(0..<columns, id: \.self) { column in
-                            let index = row * columns + column
-                            if index < sections.count {
-                                tile(sections[index], visible: shown.contains(row))
-                            } else {
-                                Color.clear.frame(maxWidth: .infinity).frame(height: NotchLayout.sectionTileHeight)
+            HStack(spacing: 0) {
+                VStack(spacing: NotchLayout.sectionSpacing) {
+                    ForEach(0..<rows, id: \.self) { row in
+                        HStack(spacing: NotchLayout.sectionSpacing) {
+                            ForEach(0..<columns, id: \.self) { column in
+                                let index = row * columns + column
+                                if index < sections.count {
+                                    tile(sections[index], visible: shown.contains(row))
+                                } else {
+                                    Color.clear.frame(maxWidth: .infinity).frame(height: NotchLayout.sectionTileHeight)
+                                }
                             }
                         }
+                        .allowsHitTesting(shown.contains(row))
+                        .accessibilityHidden(!shown.contains(row))
                     }
-                    .allowsHitTesting(shown.contains(row))
-                    .accessibilityHidden(!shown.contains(row))
                 }
+                .offset(y: -CGFloat(first) * Self.pitch)
+                .frame(height: NotchLayout.railHeight(rows: visible, rowHeight: NotchLayout.sectionTileHeight,
+                                                      spacing: NotchLayout.sectionSpacing), alignment: .top)
+                .clipped()
+                .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0), value: first)
+                .accessibilityScrollAction { edge in
+                    if edge == .bottom { service.scrollSections(by: 1) }
+                    else if edge == .top { service.scrollSections(by: -1) }
+                }
+                indicator(positions: positions, current: first)
+                    .frame(width: NotchLayout.sectionIndicatorWidth, alignment: .trailing)
             }
-            .offset(y: -CGFloat(first) * Self.pitch)
-            .frame(height: NotchLayout.railHeight(rows: visible, rowHeight: NotchLayout.sectionTileHeight,
-                                                  spacing: NotchLayout.sectionSpacing), alignment: .top)
-            .clipped()
-            .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0), value: first)
-            .accessibilityScrollAction { edge in
-                if edge == .bottom { service.scrollSections(by: 1) }
-                else if edge == .top { service.scrollSections(by: -1) }
-            }
-            indicator(positions: positions, current: first)
-                .frame(width: NotchLayout.sectionIndicatorWidth, alignment: .trailing)
         }
         .accessibilityHint(text.sectionKeyboardHint)
     }

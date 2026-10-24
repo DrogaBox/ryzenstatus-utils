@@ -35,6 +35,8 @@ struct NotchMascotSettingsStrings {
     let previewHint: String
     /// Which side of the camera it rests on.
     let side: String
+    /// A hand-picked body color, which wins over the swatches.
+    var customColor: String = "Hand-picked"
     let left: String
     let right: String
     /// How often it strolls through the island.

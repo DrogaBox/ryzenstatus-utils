@@ -52,8 +52,9 @@ protected:
     AMDRyzenCPUPowerManagement *fProvider;
     void *token;
     task_t fOwningTask;
+    bool fModifiedFanControl = false;
 
-    bool hasPrivilege(uint32_t selector);
+    bool hasPrivilege(uint32_t selector, bool quiet = false);
 
     // KPI for supporting access from both 32-bit and 64-bit user processes beginning with Mac OS X 10.5.
     virtual IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments* arguments,

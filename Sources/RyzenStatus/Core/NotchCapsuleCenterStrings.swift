@@ -12,12 +12,16 @@ struct NotchCapsuleCenterStrings {
     let metric: String
     let rotate: String
     let clock: String
+    var carousel: String = "Trend carousel"
     let metricLabel: String
     let cpuTemperature: String
     let cpuUsage: String
     let gpuTemperature: String
     let memory: String
     let network: String
+    var cpuPower: String = "CPU power (PPT)"
+    var peakFrequency: String = "Peak clock / boost"
+    var fanSpeed: String = "Fan speed"
 
     func title(for center: NotchCapsuleCenter) -> String {
         switch center {
@@ -26,6 +30,7 @@ struct NotchCapsuleCenterStrings {
         case .metric: return metric
         case .rotate: return rotate
         case .clock: return clock
+        case .carousel: return carousel
         }
     }
 
@@ -36,6 +41,9 @@ struct NotchCapsuleCenterStrings {
         case .gpuTemperature: return gpuTemperature
         case .memory: return memory
         case .network: return network
+        case .cpuPower: return cpuPower
+        case .peakFrequency: return peakFrequency
+        case .fanSpeed: return fanSpeed
         }
     }
 }

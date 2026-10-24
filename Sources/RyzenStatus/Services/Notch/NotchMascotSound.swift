@@ -8,7 +8,7 @@ import Foundation
 /// few tones and a little noise, once, the first time it is asked for, so the
 /// app carries no audio files.
 enum NotchMascotSoundEffect: CaseIterable {
-    case coin, boing, squeak, honk, splat, boom, magic, poof, pop, chime, whoosh, creak, sad, zap, munch, fire
+    case coin, boing, squeak, honk, splat, boom, magic, poof, pop, chime, whoosh, creak, sad, zap, munch, fire, clash
 }
 
 /// What each thing that happens in a play sounds like. Pure, so it is tested.
@@ -51,6 +51,7 @@ enum NotchMascotSoundMap {
         case .coin, .bag, .key: return .coin
         case .snack: return .munch
         case .heart, .flower: return .chime
+        case .sword: return .clash
         default: return .pop
         }
     }
@@ -60,13 +61,16 @@ enum NotchMascotSoundMap {
         switch text.uppercased() {
         case "BOOM": return .boom
         case "QUACK": return .squeak
-        case "HONK": return .honk
-        case "SPLAT", "SLAP", "WHOA": return .splat
+        case "HONK", "CROAK": return .honk
+        case "SPLAT", "SLAP", "WHOA", "SPLASH": return .splat
         case "SNIF", "BYE": return .sad
-        case "CHOMP", "YUM", "GULP", "NOM": return .munch
-        case "RING": return .chime
-        case "PFFT": return .poof
-        case "1UP", "COPY": return .magic
+        case "CHOMP", "YUM", "GULP", "NOM", "TOAST", "SLURP": return .munch
+        case "RING", "CHILL", "ZEN", "SWEET": return .chime
+        case "PFFT", "POOF": return .poof
+        case "1UP", "COPY", "HEX", "ORBIT", "SHINY": return .magic
+        case "CLASH", "SLASH", "DUEL", "SPARK": return .clash
+        case "ROAR": return .fire
+        case "AHOY", "GG", "HAIL", "CHEF", "CATCH", "RAIN": return .pop
         default: return nil
         }
     }
@@ -148,7 +152,7 @@ final class NotchMascotSound {
     /// Plays `effect` from `pan` (-1 left, 0 middle, 1 right) after `delay`
     /// seconds, from anywhere on the main thread.
     nonisolated static func play(_ effect: NotchMascotSoundEffect, pan: Float = 0, after delay: TimeInterval = 0) {
-        let run = {
+        let run: @Sendable () -> Void = {
             MainActor.assumeIsolated { shared.play(effect, pan: pan, test: false) }
         }
         if delay > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: run) } else { run() }
@@ -260,7 +264,9 @@ final class NotchMascotSound {
             return [Tone(start: 0, length: 0.5, from: 1047, to: 1047, wave: .sine, level: 0.35, decay: 4),
                     Tone(start: 0.05, length: 0.5, from: 1568, to: 1568, wave: .sine, level: 0.22, decay: 4.5)]
         case .whoosh:
-            return [Tone(start: 0, length: 0.32, from: 0, to: 0, wave: .noise, level: 0.45, cutoff: 2400, decay: 2.5)]
+            return [Tone(start: 0, length: 0.28, from: 0, to: 0, wave: .noise, level: 0.65, cutoff: 3200, decay: 2.2),
+                    Tone(start: 0, length: 0.25, from: 480, to: 120, wave: .sine, level: 0.45, decay: 2.0),
+                    Tone(start: 0.02, length: 0.22, from: 320, to: 90, wave: .saw, level: 0.2, decay: 2.5)]
         case .creak:
             return [Tone(start: 0, length: 0.55, from: 90, to: 150, wave: .saw, level: 0.22, vibrato: 9, decay: 1.4)]
         case .sad:
@@ -275,6 +281,12 @@ final class NotchMascotSound {
         case .fire:
             return [Tone(start: 0, length: 0.45, from: 0, to: 0, wave: .noise, level: 0.5, cutoff: 1100, decay: 2),
                     Tone(start: 0, length: 0.3, from: 120, to: 220, wave: .saw, level: 0.12, decay: 2)]
+        case .clash:
+            return [Tone(start: 0, length: 0.12, from: 0, to: 0, wave: .noise, level: 0.85, cutoff: 5500, decay: 4),
+                    Tone(start: 0, length: 0.42, from: 1175, to: 1140, wave: .triangle, level: 0.7, decay: 1.8),
+                    Tone(start: 0, length: 0.48, from: 740, to: 720, wave: .sine, level: 0.6, decay: 1.6),
+                    Tone(start: 0.01, length: 0.24, from: 1400, to: 280, wave: .saw, level: 0.5, vibrato: 16, decay: 2.6),
+                    Tone(start: 0, length: 0.16, from: 180, to: 55, wave: .sine, level: 0.65, decay: 3.5)]
         }
     }
 

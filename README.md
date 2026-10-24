@@ -24,8 +24,8 @@
   <a href="https://github.com/DrogaBox/ryzenstatus-utils/releases"><img src="https://img.shields.io/github/v/release/DrogaBox/ryzenstatus-utils?label=release&color=4c8dff" alt="Latest release"></a>
   <a href="https://github.com/DrogaBox/ryzenstatus-utils/releases"><img src="https://img.shields.io/github/downloads/DrogaBox/ryzenstatus-utils/total?color=4c8dff" alt="Downloads"></a>
   <a href="https://github.com/DrogaBox/ryzenstatus-utils/actions/workflows/ci.yml"><img src="https://github.com/DrogaBox/ryzenstatus-utils/actions/workflows/ci.yml/badge.svg?branch=main&event=push" alt="CI status"></a>
-  <!-- align advertised OS version with Package.swift/Info.plist minimum macOS 14.0 -->
-  <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-14%20to%2015%20AMD%2FIntel-black" alt="macOS 14 to 15 (Sonoma to Sequoia), AMD/Intel"></a>
+  <!-- align advertised OS version with Package.swift/Info.plist minimum macOS 14.0 through macOS 26 Tahoe -->
+  <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-14%20to%2026%20AMD%2FIntel-black" alt="macOS 14 to 26 (Sonoma to Tahoe), AMD/Intel"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License GPL 3.0 or later"></a>
 </p>
 
@@ -190,16 +190,16 @@ The shelf and almost every quick toggle need no permission at all. Finder cut an
 ## What you need
 
 - A Hackintosh with an **AMD Ryzen CPU** (Zen architecture or newer)
-- macOS 14 Sonoma up to macOS 15 Sequoia
+- **macOS 14 Sonoma through macOS 26 Tahoe** for `RyzenStatus.app` (`AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` support macOS 13 Ventura through macOS 26 Tahoe)
 - **Kernel Extensions (For AMD CPU telemetry & fan curves):** You must have `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` injected via OpenCore in your EFI folder. The source code for these is bundled in the `SMCAMDProcessor_Source` folder for reference.
 
 ### Kernel Extension Boot Arguments & Features
 
-To get the most out of the AMD telemetry and fan control, you can add the following to your OpenCore `boot-args`:
+By default, any local process may read telemetry from the kext, while hardware **writes** (fan curves, EPP, P-States, SMU PBO/OC, and Curve Optimizer) require `root` privileges. You can configure the kext in your OpenCore `boot-args`:
 
-- **`-amdpnopchk`**: (Recommended) Bypasses privilege checks, allowing RyzenStatus to control fans, EPP, P-States, and Curve Optimizer without running as `root`. Without this, the app is read-only.
 - **`-amdcppcactive`**: Enables CPPC Active Mode at boot, allowing the OS to respect EPP (Energy Performance Preference) profiles like Power Save or Performance.
-- **`amdcstate=0` / `amdcstate=1`**: Controls Deep C-States (C6+) — and since kext 3.34.2 / app 1.22.0, the **kext itself honors it at runtime**. At boot the driver parses the boot-arg and only writes `0xF0` to MSR `0xC0010073` (disabling C6) when `amdcstate=1` or when the arg is absent (the default, recommended on desktop PCs to eliminate core wake latency and audio pops). With `amdcstate=0` the write is skipped, keeping C6 deep sleep available for laptops. The resolved policy is logged at start (`log show --predicate 'eventMessage CONTAINS "C-States (C6)"' --last boot`) and exposed live to the app through **UserClient selector 34** (`cStatePolicy`: returns `disableCStates` plus the raw `cstateAddrConfig`, read-only, no privilege required) — RyzenStatus shows the runtime kext policy in the Deep C-States row and warns when NVRAM intent and the running kext disagree (e.g. an old kext that ignores the boot-arg). Can still be toggled with 1-click directly in **RyzenStatus** Settings, which rewrites the boot-arg in NVRAM (a reboot applies it to the kext).
+- **`amdcstate=0` / `amdcstate=1`**: Controls Deep C-States (C6+) — and since kext 3.34.2 / app 1.22.0, the **kext itself honors it at runtime**. At boot the driver parses the boot-arg and only writes `0xF0` to MSR `0xC0010073` (disabling C6) when `amdcstate=1` or when the arg is absent (the default, recommended on desktop PCs to eliminate core wake latency and audio pops). With `amdcstate=0` the write is skipped, keeping C6 deep sleep available for laptops. The resolved policy is logged at start (`log show --predicate 'eventMessage CONTAINS "C-States (C6)"' --last boot`) and exposed live to the app through **UserClient selector 34** (`cStatePolicy`: returns `disableCStates` plus the raw `cstateAddrConfig`, read-only, no privilege required) — RyzenStatus shows the runtime kext policy in the Deep C-States row, warns when NVRAM intent and the running kext disagree, and provides a one-click **Copy AMD Boot-Args** button in **Settings › AMD Ryzen Power** to paste into your OpenCore `config.plist` (reboot required).
+- **`-amdpnopchk`**: *(Optional — Security Trade-off)* Disables UserClient root privilege checks so RyzenStatus can control fans, EPP, P-States, and Curve Optimizer without running as `root`. **Warning:** when `-amdpnopchk` is set, *any* local process on the machine can issue privileged hardware writes through the UserClient; enable only on trusted single-user systems.
 - **`-amdpdbg`**: Enables verbose debug logging (for troubleshooting panics or missing sensors).
 
 #### Supported Sensors & Fan Control

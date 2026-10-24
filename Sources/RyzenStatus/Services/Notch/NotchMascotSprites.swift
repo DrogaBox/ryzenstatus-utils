@@ -180,6 +180,9 @@ extension NotchMascotStyle {
 
     /// Drawn with shapes, so the palette colours it.
     var takesPalette: Bool { sprite == nil }
+
+    /// Drawn companions wear accessories; sprite companions are complete figures.
+    var takesAccessory: Bool { sprite == nil }
 }
 
 /// What a sprite companion plays for the moods and reactions a drawn one

@@ -1484,6 +1484,8 @@ enum NotchEvent: String, CaseIterable {
     case leave
     /// A Focus turning on or off.
     case focus
+    /// Hardware thermal, power or fan alert for AMD Ryzen systems.
+    case hardwareAlert
 
     var preferenceKey: String {
         switch self {
@@ -1505,13 +1507,14 @@ enum NotchEvent: String, CaseIterable {
         case .companion: return DefaultsKey.notchMascotSpeech
         case .leave: return DefaultsKey.notchLeaveAlert
         case .focus: return DefaultsKey.notchFocusEnabled
+        case .hardwareAlert: return DefaultsKey.notchHardwareAlertsEnabled
         }
     }
 
     var priority: Int {
         switch self {
         case .volume, .brightness, .keyboardLight, .microphone, .inputSource: return 3
-        case .capture, .timer, .watch, .leave: return 2
+        case .capture, .timer, .watch, .leave, .hardwareAlert: return 2
         case .battery, .systemNotification, .accessory, .agents, .focus: return 1
         case .clipboard, .download, .track, .companion: return 0
         }
@@ -1529,6 +1532,7 @@ enum NotchEvent: String, CaseIterable {
         case .companion: return 3.5
         case .leave: return 8
         case .focus: return 2.5
+        case .hardwareAlert: return 5
         }
     }
 }
@@ -1953,7 +1957,7 @@ enum NotchSupport {
         case .inputSource: return true
         case .companion: return NotchMascotSupport.isEnabled(in: defaults)
         case .leave: return NotchCalendarSupport.isEnabled(in: defaults)
-        case .focus: return true
+        case .focus, .hardwareAlert: return true
         }
     }
 
@@ -2813,7 +2817,36 @@ enum NotchMotion {
             let spring = spring(from: start, to: end, width: width, steady: steady)
             return max(0, start + (end - start) * CGFloat(spring.progress(at: time)))
         }
-        return CGSize(width: side(from.width, to.width, width: true), height: side(from.height, to.height, width: false))
+        var result = CGSize(width: side(from.width, to.width, width: true), height: side(from.height, to.height, width: false))
+        if !steady, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            let widthDiff = to.width - from.width
+            let heightDiff = to.height - from.height
+            if abs(widthDiff) > 20 && abs(heightDiff) > 10 {
+                let springW = spring(from: from.width, to: to.width, width: true, steady: false)
+                let p = springW.progress(at: time)
+                if widthDiff > 0 {
+                    // Expanding: in-flight squash followed by subtle landing impact
+                    if p > 0.05 && p < 0.85 {
+                        let normalized = (p - 0.05) / 0.80
+                        let squashFactor = sin(normalized * Double.pi) * 0.065
+                        let targetH = result.height * CGFloat(1.0 - squashFactor)
+                        result.height = max(min(from.height, to.height), targetH)
+                    } else if p >= 0.85 && p <= 1.25 {
+                        let impactNorm = (p - 0.85) / 0.40
+                        let impactFactor = sin(impactNorm * Double.pi) * 0.02
+                        result.height = result.height * CGFloat(1.0 + impactFactor)
+                    }
+                } else {
+                    // Contracting / collapsing:
+                    if p > 0.08 && p < 0.85 {
+                        let normalized = (p - 0.08) / 0.77
+                        let stretchFactor = sin(normalized * Double.pi) * 0.035
+                        result.height = result.height * CGFloat(1.0 + stretchFactor)
+                    }
+                }
+            }
+        }
+        return result
     }
 
     /// When every side that moves first comes within 1% of its travel from
@@ -2875,9 +2908,11 @@ enum NotchMotion {
 
     static func envelope(from: CGSize, to: CGSize) -> CGSize {
         func side(_ start: CGFloat, _ end: CGFloat, width: Bool) -> CGFloat {
-            let swing = end > start ? spring(from: start, to: end, width: width).overshoot : 0
+            let baseSpring = spring(from: start, to: end, width: width)
+            let swing = end > start ? baseSpring.overshoot : 0
             guard swing > 0 else { return max(start, end) }
-            return (end + (end - start) * CGFloat(swing)).rounded(.up)
+            let extra: Double = width ? 0 : 0.025
+            return (end + (end - start) * CGFloat(swing + extra)).rounded(.up)
         }
         return CGSize(width: side(from.width, to.width, width: true), height: side(from.height, to.height, width: false))
     }

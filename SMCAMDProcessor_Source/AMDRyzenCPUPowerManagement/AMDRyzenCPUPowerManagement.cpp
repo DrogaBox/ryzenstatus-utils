@@ -2163,7 +2163,8 @@ bool AMDRyzenCPUPowerManagement::initSuperIO(uint16_t *chipIntel, bool allowUnlo
     if(!superIO) superIO = ISSuperIONCT668X::getDevice(&savedSMCChipIntel, allowUnlock);
     // Only privileged callers may clear the NCT67XX I/O-space lock.
     if(!superIO) superIO = ISSuperIONCT67XXFamily::getDevice(&savedSMCChipIntel, allowUnlock);
-    if(!superIO) superIO = ISSuperIOIT86XXEFamily::getDevice(&savedSMCChipIntel);
+    // Only privileged callers may write the IT86XXE 16-bit tachometer enable register (0x0c).
+    if(!superIO) superIO = ISSuperIOIT86XXEFamily::getDevice(&savedSMCChipIntel, allowUnlock);
 
     if (chipIntel) {
         *chipIntel = savedSMCChipIntel;
@@ -2392,6 +2393,6 @@ EXPORT extern "C" kern_return_t amdryzencpupm_kern_start(kmod_info_t *, void *) 
 }
 
 EXPORT extern "C" kern_return_t amdryzencpupm_kern_stop(kmod_info_t *, void *) {
-    // It is not safe to unload VirtualSMC plugins!
+    // It is not safe to hot-unload AMDRyzenCPUPowerManagement while PM dispatch, SMU timers, or SuperIO fan curves are active!
     return KERN_FAILURE;
 }

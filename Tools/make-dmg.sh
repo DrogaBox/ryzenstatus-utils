@@ -48,11 +48,18 @@ xattr -cr "$STAGING/$APP_NAME.app"
 codesign --verify --deep --strict "$STAGING/$APP_NAME.app"
 ln -s /Applications "$STAGING/Applications"
 # Include our kexts for EFI/OC/Kexts/
+# Only use a local kext build directory when ALLOW_LOCAL_KEXTS=1 is explicitly
+# set; otherwise always prefer the pinned ReleaseAssets archive so a leftover
+# gitignored build/dmg-kexts/ folder on a maintainer machine cannot silently
+# bypass KEXT_PIN_* verification during a release build.
 KEXT_DRIVER="SMCAMDProcessor_Source/build/dmg-kexts/AMDRyzenCPUPowerManagement.kext"
 KEXT_PLUGIN="SMCAMDProcessor_Source/build/dmg-kexts/SMCAMDProcessor.kext"
 KEXT_SOURCE_LOCAL=""
-if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
+if [[ "${ALLOW_LOCAL_KEXTS:-0}" == "1" && -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
     KEXT_SOURCE_LOCAL="1"
+else
+    KEXT_DRIVER=""
+    KEXT_PLUGIN=""
 fi
 # Pin what SHIPS, not the container it arrived in.
 #
@@ -68,10 +75,10 @@ fi
 # bytes the kernel loads and the identity it loads them under. They survive any
 # repackaging and they cover BOTH provenance paths, because the check now runs on
 # the staged bundles rather than on the archive.
-KEXT_PIN_DRIVER_MACHO="c9e2f2c42dcfcde8dac5d861095d5eb5cb74b3b54c81105fcc5d19e0ffafaa54"
-KEXT_PIN_DRIVER_PLIST="6d31912106b0f584ff374933d115a97d684e29dd5c4b7d8490026d09663afa2a"
-KEXT_PIN_PLUGIN_MACHO="797d4d387117742c28114f2d120e40599325f85977ef0fca8266c8b651005fc8"
-KEXT_PIN_PLUGIN_PLIST="45e813f9432fc0557bf15e969e0ec5c198f3042f90b2dd1e665639b71f1b8bc7"
+KEXT_PIN_DRIVER_MACHO="45a12257368ed3a4bee79ca6328fa8cbe211998e030c4736271376d480acdcf6"
+KEXT_PIN_DRIVER_PLIST="1fc0b00f3105b044b9d18b8b2a9680843e504b3616549672f5f1868bd476751c"
+KEXT_PIN_PLUGIN_MACHO="4c113ff87b5313dde788cc2ad500981d51cd0bf264a68e2a96b2b3212ab679ee"
+KEXT_PIN_PLUGIN_PLIST="c85801b0bf9f1af7d3c9dde0c106c0c6d30520d44a3f753dd36d106c499df100"
 if [[ ! -d "$KEXT_DRIVER" || ! -d "$KEXT_PLUGIN" ]] && [[ -f "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" ]]; then
     # Structural pre-check: assert the archive's top level is exactly the two
     # kext bundles. Unlike a hash this never needs updating on a rebuild, and it

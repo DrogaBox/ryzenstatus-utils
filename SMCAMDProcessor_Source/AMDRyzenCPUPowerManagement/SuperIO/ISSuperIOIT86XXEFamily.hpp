@@ -41,9 +41,9 @@ class ISSuperIOIT86XXEFamily : public ISSuperIOSMCFamily
         "System 3 Fan",
     };
 
-    static ISSuperIOIT86XXEFamily* getDevice(uint16_t* chipIntel);
+    static ISSuperIOIT86XXEFamily* getDevice(uint16_t* chipIntel, bool allowUnlock = true);
 
-    ISSuperIOIT86XXEFamily(int psel, uint16_t addr, uint16_t chipIntel, uint16_t gpioAddr);
+    ISSuperIOIT86XXEFamily(int psel, uint16_t addr, uint16_t chipIntel, uint16_t gpioAddr, bool allowUnlock = true);
 
     int fanRPMs[IT86XXE_MAX_NUMFAN]{};
     int fanControlMode[IT86XXE_MAX_NUMFAN]{};

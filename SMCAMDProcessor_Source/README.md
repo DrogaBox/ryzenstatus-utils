@@ -54,24 +54,26 @@ SMCAMDProcessor and AMD Power Gadget (Tahoe Edition) represent a complete archit
 ### 5. UserClient privilege model (v3.16.1+ / current: 3.16.2)
 - **Reads** (telemetry, fan RPM, temps): any process may open the UserClient — the menu bar app works without root.
 - **Writes** (fans, EPP, P-States, Curve Optimizer, SuperIO, …): require **root** or the explicit boot-arg **`-amdpnopchk`**.
-- Authorization is **not** based on process name (spoof-resistant). On denial, the dashboard shows a privilege banner (3.16.2). Details: [docs/PRIVILEGE_AND_SECURITY.md](docs/PRIVILEGE_AND_SECURITY.md).
+- Authorization is **not** based on process name (spoof-resistant). On denial, the dashboard shows a privilege banner (3.16.2). Details: [docs/PRIVILEGE_AND_SECURITY.md](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/docs/PRIVILEGE_AND_SECURITY.md).
 
 ---
 
 ## Full documentation
 
+> Note: The standalone kernel extension documentation lives in the upstream [`DrogaBox/SMCAMDProcessor-personal`](https://github.com/DrogaBox/SMCAMDProcessor-personal) repository.
+
 | Topic | Link |
 |-------|------|
-| **Docs index** | **[docs/README.md](docs/README.md)** |
-| Installation | [docs/INSTALLATION.md](docs/INSTALLATION.md) · [ES](docs/INSTALLATION_ES.md) |
-| Boot arguments | [docs/BOOT_ARGS.md](docs/BOOT_ARGS.md) · [ES](docs/BOOT_ARGS_ES.md) |
-| Privilege & security | [docs/PRIVILEGE_AND_SECURITY.md](docs/PRIVILEGE_AND_SECURITY.md) · [ES](docs/PRIVILEGE_AND_SECURITY_ES.md) |
-| Features | [docs/FEATURES.md](docs/FEATURES.md) · [ES](docs/FEATURES_ES.md) |
-| Troubleshooting | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) · [ES](docs/TROUBLESHOOTING_ES.md) |
-| Architecture | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
-| i18n / Crowdin | [docs/I18N_CROWDIN.md](docs/I18N_CROWDIN.md) |
-| User manual | [AMD_Power_Gadget_Manual.md](AMD_Power_Gadget_Manual.md) · [ES](AMD_Power_Gadget_Manual_ES.md) |
-| Changelog | [CHANGELOG.md](CHANGELOG.md) |
+| **Docs index** | **[docs/README.md](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/docs/README.md)** |
+| Installation | [docs/INSTALLATION.md](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/docs/INSTALLATION.md) · [ES](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/docs/INSTALLATION_ES.md) |
+| Boot arguments | [docs/BOOT_ARGS.md](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/docs/BOOT_ARGS.md) · [ES](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/docs/BOOT_ARGS_ES.md) |
+| Privilege & security | [docs/PRIVILEGE_AND_SECURITY.md](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/docs/PRIVILEGE_AND_SECURITY.md) · [ES](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/docs/PRIVILEGE_AND_SECURITY_ES.md) |
+| Features | [docs/FEATURES.md](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/docs/FEATURES.md) · [ES](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/docs/FEATURES_ES.md) |
+| Troubleshooting | [docs/TROUBLESHOOTING.md](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/docs/TROUBLESHOOTING.md) · [ES](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/docs/TROUBLESHOOTING_ES.md) |
+| Architecture | [docs/ARCHITECTURE.md](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/docs/ARCHITECTURE.md) |
+| i18n / Crowdin | [docs/I18N_CROWDIN.md](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/docs/I18N_CROWDIN.md) |
+| User manual | [AMD_Power_Gadget_Manual.md](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/AMD_Power_Gadget_Manual.md) · [ES](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/AMD_Power_Gadget_Manual_ES.md) |
+| Changelog | [CHANGELOG.md](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/CHANGELOG.md) |
 
 ---
 
@@ -80,7 +82,7 @@ SMCAMDProcessor and AMD Power Gadget (Tahoe Edition) represent a complete archit
 This project represents a major evolutionary leap over the original `wtf.spinach.SMCAMDProcessor` implementation by spinach, addressing critical bottlenecks in hardware access latency, power efficiency, UI performance, and memory leak vulnerabilities.
 
 For a detailed comparative breakdown of features, APIs, and low-level improvements, see:
-👉 **[COMPARISON.md](COMPARISON.md)**
+👉 **[COMPARISON.md](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/COMPARISON.md)**
 
 ---
 
@@ -174,7 +176,7 @@ Ensure the kexts are loaded in the exact dependency order in your OpenCore `conf
   - **`-amdpnopchk`** — allow non-root UserClient **writes** (fans, EPP, CO, …). Without it, monitoring still works; controls need root or show the privilege banner.
   - **`-amdpdbg`** — verbose kext debug logging (troubleshooting only).
 
-See [docs/BOOT_ARGS.md](docs/BOOT_ARGS.md) and [docs/INSTALLATION.md](docs/INSTALLATION.md) for NVRAM setup (`Add` + `Delete` for `boot-args`).
+See [docs/BOOT_ARGS.md](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/docs/BOOT_ARGS.md) and [docs/INSTALLATION.md](https://github.com/DrogaBox/SMCAMDProcessor-personal/blob/master/docs/INSTALLATION.md) for NVRAM setup (`Add` + `Delete` for `boot-args`).
 
 > [!WARNING]
 > `-amdpnopchk` is a deliberate security tradeoff: any local process that can open the UserClient may issue privileged hardware writes. Use only on trusted personal systems.

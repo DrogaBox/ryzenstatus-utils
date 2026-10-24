@@ -45,6 +45,8 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchSilhouette) private var silhouette = NotchSilhouette.capsule.rawValue
     @AppStorage(DefaultsKey.notchCapsuleCenter) private var capsuleCenter = NotchCapsuleCenter.song.rawValue
     @AppStorage(DefaultsKey.notchCapsuleMetric) private var capsuleMetric = NotchCapsuleMetric.cpuTemperature.rawValue
+    @AppStorage(DefaultsKey.notchHardwareAlertsEnabled) private var hardwareAlerts = true
+    @AppStorage(DefaultsKey.notchIslandSoundCues) private var soundCues = true
     @AppStorage(DefaultsKey.notchOpenOnHover) private var hover = false
     @AppStorage(DefaultsKey.notchShortcutEnabled) private var shortcutEnabled = false
     @AppStorage(DefaultsKey.notchHideInFullscreen) private var hideInFullscreen = false
@@ -707,7 +709,10 @@ struct NotchSettings: View {
                                available: true, reservesReason: reserves)
                     toggleCard(extras.focus, symbol: "moon.fill", value: $focusEnabled,
                                available: true, reservesReason: reserves)
+                    toggleCard("Hardware Alerts", symbol: "flame.fill", value: $hardwareAlerts,
+                               available: true, reservesReason: reserves)
                 }
+                switchRow("speaker.wave.3", "Sound Cues", caption: "Tactile audio cues on island actions and hardware alerts", isOn: $soundCues)
                 if accessoriesEnabled { Text(FeatureStrings.notchActivities(l10n.language).accessoryDescription).font(.caption).foregroundStyle(.secondary) }
                 if enabled, (volume || brightness || keyboardLight), !permissions.accessibility { PermissionRow(kind: .accessibility) }
             }

@@ -213,8 +213,31 @@ final class NotchMascotPlayDirector {
         if let burst = beat.burst {
             let one = burst.onLeader ? leader : friend
             if burst.burst == .door, let a = leader.feet, let b = friend.feet {
-                NotchMascotPlayEffects.secretDoor(in: canvas, at: onCanvas(middle(a, b)), height: figure * 1.5,
-                                                  duration: burst.duration)
+                let floor = leader.floor
+                let margin = max(70, figure * 1.5)
+                let minX = floor.lowerBound + margin
+                let maxX = floor.upperBound - margin
+                let targetX = (minX < maxX) ? CGFloat.random(in: minX...maxX) : middle(a, b).x
+                let targetPoint = CGPoint(x: targetX, y: a.y)
+
+                leader.face(toward: targetX)
+                friend.face(toward: targetX)
+                let pace: CGFloat = NotchMascotRPG.stepBuffActive ? 2.8 : 2.0
+                _ = leader.stroll(to: targetX - (targetX >= a.x ? figure * 0.8 : -figure * 0.8), pace: pace)
+                _ = friend.stroll(to: targetX + (targetX >= b.x ? figure * 0.8 : -figure * 0.8), pace: pace)
+
+                let isChest = Bool.random()
+                if isChest {
+                    NotchMascotPlayEffects.treasureChest(in: canvas, at: onCanvas(targetPoint), size: figure * 1.15,
+                                                         duration: burst.duration)
+                } else {
+                    NotchMascotPlayEffects.secretDoor(in: canvas, at: onCanvas(targetPoint), height: figure * 1.5,
+                                                      duration: burst.duration)
+                }
+                at(0.4) { [weak self] in
+                    self?.leader.react(.bounce)
+                    self?.friend.react(.bounce)
+                }
             } else {
                 NotchMascotPlayEffects.burst(burst.burst, in: canvas, at: onCanvas(one.head), size: figure * 0.9,
                                              energy: energy(one), duration: burst.duration)
@@ -278,6 +301,7 @@ final class NotchMascotPlayDirector {
             at(time + 0.12) {
                 swing(ownBlade, toward)
                 swing(friendBlade, -toward)
+                NotchMascotSound.play(.whoosh, pan: Float(toward * 0.3))
             }
             at(time + 0.26) { [weak self] in
                 guard let self, let canvas = self.canvas() else { return }
@@ -287,6 +311,7 @@ final class NotchMascotPlayDirector {
                 NotchMascotPlayEffects.sparks(in: canvas, at: point, reach: 26, energy: self.energy(self.leader))
                 NotchMascotPlayEffects.sparks(in: canvas, at: point, reach: 20, energy: self.energy(self.friend), count: 6)
                 NotchMascotPlayEffects.flash(in: canvas, at: point, radius: 16, energy: self.energy(self.leader))
+                NotchMascotSound.play(.clash, pan: 0)
             }
             at(time + 0.46) { [weak self] in
                 guard let self else { return }
@@ -307,6 +332,7 @@ final class NotchMascotPlayDirector {
             at(close + 1.4) { [weak self] in
                 self?.leader.react(.celebrate)
                 self?.friend.react(.celebrate)
+                NotchMascotSound.play(.chime, pan: 0)
             }
             finish(after: close + 3)
         case .leaderWins, .friendWins:
@@ -316,9 +342,10 @@ final class NotchMascotPlayDirector {
             let loserBlade = outcome == .leaderWins ? friendBlade : ownBlade
             let side = direction(from: winner, to: loser)
             at(close) { [weak self] in
-                guard let self else { return }
+                guard self != nil else { return }
                 swing(winnerBlade, side)
                 winner.hop(dx: side * 120, dy: 260)
+                NotchMascotSound.play(.whoosh, pan: Float(side * 0.3))
             }
             at(close + 0.18) { [weak self] in
                 guard let self, let canvas = self.canvas() else { return }
@@ -327,10 +354,12 @@ final class NotchMascotPlayDirector {
                 sheathe(loserBlade)
                 loser.hop(dx: side * 380, dy: 420)
                 loser.react(.surprised)
+                NotchMascotSound.play(.boom, pan: Float(side * 0.4))
             }
             at(close + 1.3) {
                 loser.react(.confused)
                 winner.react(.celebrate)
+                NotchMascotSound.play(.chime, pan: 0)
             }
             at(close + 2.1) { sheathe(winnerBlade) }
             at(close + 2.9) { loser.react(.wave) }

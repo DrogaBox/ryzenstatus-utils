@@ -227,7 +227,7 @@ struct NotchMascotIslandPlay: Equatable {
             let catches: NotchMascotReaction
             switch thing {
             case .heart: (windup, catches) = (.love, .love)
-            case .star: (windup, catches) = (.ready, .celebrate)
+            case .star: (windup, catches) = (.ready, .bounce)
             case .note: (windup, catches) = (.groove, .groove)
             default: (windup, catches) = (.perk, .bounce)
             }
@@ -485,9 +485,9 @@ struct NotchMascotIslandPlay: Equatable {
             // A game of catch.
             score.act(0, starter: .ready)
             score.toss(0.3, .ball, fromStarter: true)
-            score.act(0.3 + lands, other: .celebrate)
+            score.act(0.3 + lands, other: .bounce)
             score.toss(1.7, .ball, fromStarter: false)
-            score.act(1.7 + lands, starter: .celebrate)
+            score.act(1.7 + lands, starter: .bounce)
         case .bowTie:
             // A formal bow, returned.
             score.act(0, starter: .hush)

@@ -1,5 +1,77 @@
 # Changelog
 
+## [1.58.0] — 2026-10-24 — kexts 3.35.1 (No kext changes)
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.
+
+This release introduces three new desktop companions, an anatomical overhaul of the dog companion, independent companion transformations, fixes for music hover interactions, and twenty-five new Tamagotchi-inspired duo synergies and dynamic item interactions.
+
+### Fixed
+
+- **Music hover no longer eclipses companions**: hovering over the island while music plays no longer expands over the companion dancer or collapses its interactive area, preserving smooth drag-and-drop targeting to the desktop.
+- **Dog companion anatomy redesign**: completely remodeled the dog companion with recognizable floppy ears that arch over the crown and droop over the cheeks, an expressive snout, a `:3` smile, front paws, and a wagging tail.
+
+### Added
+
+- **Three new companions**:
+  - **Carpincho (Capybara)**: The zen master of the island, balancing a citrus on its crown and relaxing with onsen bubbles and warm steam.
+  - **Dragón (Pocket Dragon)**: A tiny dragon with golden horns, bat wings, and playful flame breath.
+  - **Ranita (Bouncy Frog)**: A high-leaping frog with swift reflexes, throat-puff croaks, and rain-dancing moves.
+- **Independent companion transformations**: both the leader and friend can now independently choose their transformation form (including "none" / "off", specific unlocked forms, or a rerollable random dice mode).
+- **Twenty-five new synergies & duo interactions (207 → 232)**:
+  - *Species Synergies*: Onsen Nap, Orange Share, Boba Harmony, Hot Spring Duo, Perch of Peace, Tiny Flame, Midnight Ramen, Dragon Hoard, Flame & Jelly, Spark Fetch, Lily Hop, Quick Reflex, Tea on a Leaf, Rain Dance, and Pond Pals.
+  - *Dynamic Wardrobe Combos*: LAN Party (Game Controller + Headphones), Sweet Afternoon (Boba Tea + Ice Cream Cone), Orbital Team (Laser Visor + Jetpack), Mystery Solved (Detective Lens + Top Hat), Flambé Feast (Chef Hat + Fireball), Royal Audience (Crown + King Scepter), Alchemy Duet (Witch Hat + Magic Tome), Disco Grooves (Disco Ball + Sunglasses), Buried Secret (Eye Patch + Golden Key), and Zen Garden (Flower + Onigiri).
+- **Synthesized sound effects for new markers**: procedural audio cues for markers including `ZEN`, `CHILL`, `BOBA`, `WARM`, `PEACE`, `ROAR`, `TOAST`, `SHINY`, `POOF`, `SPARK`, `CROAK`, `CATCH`, `SLURP`, `RAIN`, `SPLASH`, `GG`, `SWEET`, `ORBIT`, `AHA`, `CHEF`, `HAIL`, `HEX`, `FUNK`, and `AHOY`.
+
+## [1.57.0] — 2026-10-24 — kexts 3.35.1 (No kext changes)
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.
+
+The island gains proactive hardware alerts and sound cues, and the companions learn to play with their own wardrobe. Along the way, the island's hand-set length and the companion's picked accessory both hold again.
+
+### Fixed
+
+- **No companion left in the capsule while it plays on the desktop**: the resting capsule now asks the desktop companions themselves whether they are out, so a drag to the desktop can never leave one of them still drawn up in the island — before, a companion out on the desktop could appear twice at once.
+- **The island's hand-set length holds**: the resting capsule no longer grows past the camera housing when the companions rest on it — a width narrowed by hand stays narrowed — and grabbing a companion no longer swallows clicks meant for the capsule beside it. Settings now also says that the size's width shapes the open island, while the resting capsule keeps its own fit.
+- **What you pick is what it wears**: a season's costume (the October witch hat, the December Santa hat) no longer overrides the accessory chosen for the companion. The costume shows when nothing is picked, and an explicit pick always wins.
+
+### Added
+
+- **Hardware alerts in the island**: thermal spikes, PPT saturation and a stalled fan under load now surface through the island as red notices with their own switch, so a Ryzen system's bad moments are seen without opening a monitor.
+- **Sound cues**: short audio cues for island actions and hardware alerts, with their own switch in the island settings.
+- **Dress-up play**: out on the desktop, now and then each companion digs into everything it owns — level unlocks and shop curiosities alike — and wears whatever it feels like for a minute, then goes back to what you picked. A new pick from Settings shows at once, and the play has its own switch.
+- **Four new companions**: Fénix, a flame bird with a two-lick crest, swept wings and a hooked beak; Ajolote, a pink salamander whose six gill fronds fan out of its wide flat head; Perrito, a floppy-eared dog with a wagging tail; and Ratita, a mouse with big round ears and a long thin tail. All four join everything at once — the desk, the island plays, dress-up, the shop's wardrobe and all the combos.
+- **Color for each companion by hand**: a color picker beside the swatches paints any companion any color at all, and the friend can take its own palette or its own hand-picked color instead of its companion's.
+- **The glutton gets its mouth**: Devourer's wide open mouth is drawn at last, where it was only an oval with eyes.
+- **Seventeen new combos (190 → 207)**: Bubble Bath, The Prank Duo, Rude Awakening, Balloon Ride, The Chest Game, Hot & Cold, House Party and First Contact; Ash to Ember, Bubble Lounge, Steam & Spark and Fire Drill for the new figures; and Fetch, Squeak Peek, Cat & Dog, Cat and Mouse and Best Friends for the pets — dog, cat and mouse finally have their classic rows.
+
+## [1.56.0] — 2026-10-23 — kexts 3.35.1
+
+A security and reliability pass across the AMD kernel extensions and release pipeline: fan curves now stay active when read-only tools or secondary clients close their connection, Threadripper CPUs with more than 64 threads are clamped safely in every selector, ITE Super I/O probing stays strictly read-only for unprivileged callers, and release DMGs publish their SHA-256 checksums.
+
+> [!WARNING]
+> **This release updates the kexts.** `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` move from 3.35.0 to **3.35.1**. Copy both kexts from the DMG into `EFI/OC/Kexts/`, replacing the old ones, keep Lilu and VirtualSMC up to date, and reboot so the new kernel hardening takes effect.
+
+### Fixed
+
+- **Companion independent drag-to-desktop**: fixed an issue where dragging one mascot (left companion or right friend) down to the desktop prevented the other mascot from being dragged down due to mismatched capsule coordinate hit-testing and capsule track width shrinkage. Both companions can now be independently dragged down or returned in any order.
+- **Removed confusing placards & text signs**: eliminated nonsensical floating arcade text signs (such as `"THX"` / `"THANKS"` popping up when throwing snowballs, or `"SPEED"`, `"SNIF"`, `"BYE"`, `"DOOR"`, `"GATE"`). Floating arcade markers now strictly show standard game rewards (`+100`, `+200`, `+500`, `1UP`, `♥ +1`) or clean visual effects.
+- **Removed upward arrow during peek**: eliminated the disconnected network download arrow that inappropriately flashed over the mascot during peek or mimic reactions.
+- **Fan curves no longer reset when a read-only client disconnects**: running `RyzenStatus --selftest`, `RyzenStatus --sensors` or any unprivileged monitor alongside the app previously triggered the dead-man fan reset when that second connection closed, dropping active fan curves back to motherboard automatic mode. Only a client connection that actually modified fan control now resets fan state on close.
+- **CPUs with more than 64 cores or threads**: selectors 2 (effective frequencies) and 21 (CPPC preferred-core scores) now clamp physical and logical core counts to `CPUInfo::MaxCpus` (`64`), preventing out-of-bounds reads on 64-core / 128-thread Threadripper systems.
+- **ITE Super I/O probing without root**: probing an `IT86XXE` chip on selector 90 no longer writes to the 16-bit tachometer configuration register (`0x0c`) when the caller is unprivileged, matching the Nuvoton privilege gate.
+- **Spurious `DENIED select 90` kernel log messages**: unprivileged `fanInit` calls no longer emit a false-positive `DENIED` warning in the kernel log while checking whether optional Super I/O unlock writes are permitted.
+
+### Added
+
+- **Dynamic roaming secret doors & treasure chests**: when companions are out on the desktop, secret doors and rare treasure chests now appear dynamically across random coordinates on the screen's floor instead of being locked to the top-center notch position. Both companions dynamically turn, run, and hop toward the target to open it, bursting sparkling gold coins and celebratory reactions.
+- **Sword clash & duel sound effects**: added synthesized sound effects for swordplay in mascot duels, including blade swings (`whoosh`), metal clashes (`clash`), strike impacts (`boom`), and victory chimes.
+
+### Changed
+
+- **Pinned kext packaging and release checksums**: `Tools/make-dmg.sh` now always packages the pinned `ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip` archive unless `ALLOW_LOCAL_KEXTS=1` is set explicitly, and GitHub releases include the `.dmg` SHA-256 checksum in the release notes.
+- **Documentation and selector parity**: `SECURITY.md` and `README.md` accurately document the ad-hoc signing policy, the security trade-off of `-amdpnopchk`, the read-only NVRAM C-state helper, and support for macOS 14 Sonoma through macOS 26 Tahoe; `AMDKextSelector` is now verified against every `case` in `AMDRyzenCPUPMUserClient.cpp` during the test suite.
+
 ## [1.55.2] — 2026-10-21 — kexts 3.35.0 (No kext changes)
 
 > **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.0. Only the application's validation version pin changes.

@@ -562,6 +562,8 @@ extension DefaultsKey {
     static let notchIdleContent = "notchIdleContent"
     static let notchCapsuleCenter = "notchCapsuleCenter"
     static let notchCapsuleMetric = "notchCapsuleMetric"
+    static let notchHardwareAlertsEnabled = "notchHardwareAlertsEnabled"
+    static let notchIslandSoundCues = "notchIslandSoundCues"
     static let notchShowPlayingMusic = "notchShowPlayingMusic"
     static let notchReturnHome = "notchReturnHome"
     static let notchHomeModule = "notchHomeModule"
@@ -641,7 +643,11 @@ extension DefaultsKey {
     static let notchMascotExcursions = "notchMascotExcursions"    // Bool, goes for walks there on its own
     static let notchMascotDesktopFriend = "notchMascotDesktopFriend" // String, style of the friend that comes out with it, empty for none
     static let notchMascotDesktopPlay = "notchMascotDesktopPlay" // Bool, the two out on the desktop play together now and then
+    static let notchMascotDressUp = "notchMascotDressUp"     // Bool, out on the desktop it puts on what it owns by itself
     static let notchMascotFriendAccessory = "notchMascotFriendAccessory" // String, NotchMascotAccessory raw value the friend wears, empty for its own pick
+    static let notchMascotCustomColor = "notchMascotCustomColor"        // String, hand-picked body color as RRGGBB hex, empty for the palette
+    static let notchMascotFriendPalette = "notchMascotFriendPalette"    // String, NotchMascotPalette the friend wears, empty for the companion's
+    static let notchMascotFriendCustomColor = "notchMascotFriendCustomColor" // String, the friend's hand-picked color as RRGGBB hex, empty for its palette
     static let notchMascotBetaInstalled = "notchMascotBetaInstalled"
     /// Automatic reactions to what the Mac does, and each kind of them.
     static let notchMascotAutomatic = "notchMascotAutomatic"
@@ -658,7 +664,8 @@ extension DefaultsKey {
     static let notchMascotName = "notchMascotName"
     static let notchMascotAccessory = "notchMascotAccessory"   // NotchMascotAccessory raw value
     static let notchMascotSeasonal = "notchMascotSeasonal"     // Bool, seasonal costumes
-    static let notchMascotForm = "notchMascotForm"             // "auto", "none" or NotchMascotForm raw value
+    static let notchMascotForm = "notchMascotForm"             // "auto", "none", "random" or NotchMascotForm raw value
+    static let notchMascotFriendForm = "notchMascotFriendForm" // same, empty keeps the companion's
     static let notchMascotSpeech = "notchMascotSpeech"         // Bool, its own notices
     /// The Wonder Boy side of its life: hearts, vitality, gold and the synergies found.
     static let notchMascotHeartContainers = "notchMascotHeartContainers" // Int, 3...10

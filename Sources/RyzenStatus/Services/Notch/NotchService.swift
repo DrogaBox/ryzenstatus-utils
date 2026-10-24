@@ -460,7 +460,18 @@ final class NotchService: ObservableObject {
 
     /// A capsule at rest: bare, or as wide as its center reading or the visualizer.
     private func restingCapsuleSize(on geometry: NotchGeometry) -> CGSize {
-        guard let text = restingCenterText else { return geometry.restingSize(showsContent: false) }
+        guard let text = restingCenterText else {
+            if mascotShows(on: geometry) || mascotFriendAtHome {
+                let track = mascotCapsuleTrack(width: geometry.collapsed.width, on: geometry)
+                let inset = NotchMascotSupport.capsulePairInset(geometry)
+                let pairFloor = (inset + track.size / 2) * 2 + track.size + 16
+                // The mascots may widen a bare pill so both sit at its ends, but
+                // never past the camera housing — a length set by hand still holds.
+                let base = geometry.restingSize(showsContent: false)
+                return CGSize(width: min(max(base.width, pairFloor), geometry.cameraWidth), height: base.height)
+            }
+            return geometry.restingSize(showsContent: false)
+        }
         return NotchCapsuleLayout.restingCenterSurface(text: text, companion: mascotShows(on: geometry),
                                                        friend: mascotFriendAtHome,
                                                        visualizer: restingVisualizes, geometry: geometry)
@@ -537,11 +548,16 @@ final class NotchService: ObservableObject {
     func mascotShows(on geometry: NotchGeometry) -> Bool {
         // Resting means the island has no live activity to occupy its place.
         // Visits remain visible over content as intentional, temporary reactions.
+        // A companion whose desktop self is still out never shows here, even
+        // if a flag and the window ever disagree.
         (mascotRestsInView || mascotVisit != nil) && (geometry.floats || geometry.restingWingWidth > 0)
+            && !mascotDesktop.isOut
     }
 
     /// The friend that lives with it, while it is in the island.
-    var mascotFriendLook: NotchMascotLook? { mascotFriendOut ? nil : NotchMascotSupport.desktopFriend() }
+    var mascotFriendLook: NotchMascotLook? {
+        mascotFriendOut || mascotFriend.isOut ? nil : NotchMascotSupport.desktopFriend()
+    }
 
     /// A friend picked, at home and free to rest in the closed island,
     /// wherever the island finds it room.
@@ -1266,6 +1282,7 @@ final class NotchService: ObservableObject {
         NotchFocusService.shared.syncWithPreferences()
         NotchNotificationService.shared.syncWithPreferences()
         NotchAudioLevelService.shared.syncWithPreferences()
+        NotchHardwareAlertService.shared.start()
         AgentUsageService.shared.syncWithPreferences()
         followsPointer = displayPreference == .pointer || displayPreference == .all
         showsOnAllDisplays = displayPreference == .all
@@ -1376,6 +1393,7 @@ final class NotchService: ObservableObject {
         NotchTimerService.shared.stop()
         NotchAccessoryService.shared.stop()
         NotchWatchService.shared.stop()
+        NotchHardwareAlertService.shared.stop()
         let cancelCapture = captureControlsCancel
         endCaptureControls()
         cancelCapture?()
@@ -3071,7 +3089,10 @@ final class NotchService: ObservableObject {
         if again {
             guard NowPlayingService.shared.playback?.isPlaying == true,
                   NotchMusicVisualizerMode.current() != .title,
-                  compactActivity == .music || restingCenterText != nil else { return }
+                  compactActivity == .music || restingCenterText != nil,
+                  // The dancing companion is the point of the strip now: naming
+                  // the song would fold it away as the pointer arrives.
+                  !musicStripHasDancer else { return }
         }
         musicTitleWork?.cancel()
         // With only the visualizer, the bars come at once.
@@ -3116,7 +3137,8 @@ final class NotchService: ObservableObject {
                                 song: support.song(title: track?.title, artist: track?.artist),
                                 metric: support.metric(NotchCapsuleMetric.current(),
                                                        snapshot: SystemMonitor.shared.snapshot, unit: unit),
-                                clock: support.clock(now, locale: language.formattingLocale()), now: now)
+                                clock: support.clock(now, locale: language.formattingLocale()),
+                                snapshot: SystemMonitor.shared.snapshot, unit: unit, now: now)
         guard text != capsuleCenterText else { return }
         let measure = { (text: String?) in text.map(NotchCapsuleLayout.centerWidth) ?? 0 }
         let resizes = measure(text) != measure(capsuleCenterText)
@@ -3157,6 +3179,9 @@ final class NotchService: ObservableObject {
     func musicStripAnswers(_ part: NotchMusicStripPart) -> Bool {
         guard compactMusicIsVisible, !hiddenUntilHover else { return false }
         if showsCompactActivityPicker { return part == .bars }
+        // The companion dancing at the strip's end keeps it visible: resting
+        // on the cover names nothing, so the bars and the companion stay put.
+        if part == .cover, musicStripHasDancer { return false }
         guard UserDefaults.standard.bool(forKey: DefaultsKey.notchOpenOnHover) else { return true }
         // A preview opens over a strip without wings, as a capsule's is where
         // the menus leave it little room.
@@ -3167,6 +3192,46 @@ final class NotchService: ObservableObject {
     /// The strip shows the song's name for the pointer resting on its cover.
     var musicStripNamesSong: Bool {
         musicStripNamed && musicStripAnswers(.cover)
+    }
+
+    /// Whether the floating capsule's music strip hosts a dancing companion.
+    var musicStripHasDancer: Bool {
+        guard geometry.floats, compactActivity == .music, !expanded, !peeking, !dragPlaceholder,
+              !hiddenUntilHover, !mascotOnDesktop,
+              NotchMascotSupport.isEnabled(), NotchMusicVisualizerSupport.companionDances() else { return false }
+        let mode = NotchMusicVisualizerMode.current()
+        let playback = NowPlayingService.shared.playback
+        let playing = playback?.isPlaying == true
+        return mode != .title && playing && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    /// The companion dancing at the end of the floating capsule's music strip.
+    /// While it is there the song's name stays away: naming it folds the bars
+    /// away, and the companion with them, where the pointer cannot reach it.
+    var musicStripDancerShown: Bool {
+        guard musicStripHasDancer, !musicStripShowsControl else { return false }
+        let mode = NotchMusicVisualizerMode.current()
+        let playback = NowPlayingService.shared.playback
+        let playing = playback?.isPlaying == true
+        // A name from the song's arrival or from the pointer hides the bars,
+        // and so the companion; a paused song is named instead of visualized.
+        let named = capsuleMusicTitleShown || musicStripNamed
+            || NotchMusicVisualizerSupport.namesPaused(mode: mode, playing: playing)
+        return NotchMusicVisualizerSupport.shows(
+            mode: mode, named: named, playing: playing,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+    }
+
+    /// Where the dancing companion stands on screen, while it is there to be
+    /// picked up and taken to the desktop.
+    var musicStripDancerFrame: CGRect? {
+        guard musicStripHasDancer else { return nil }
+        let strip = compactStripSize(for: .music)
+        let side = min(NotchCapsuleLayout.barsWidth, NotchCapsuleLayout.artworkSide(geometry))
+        let inset = NotchCapsuleLayout.side(geometry) + NotchCapsuleLayout.endPadding
+        let center = CGPoint(x: geometry.screen.midX + strip.width / 2 - inset - side / 2,
+                             y: geometry.screen.maxY - geometry.floatingDrop - strip.height / 2)
+        return CGRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side)
     }
 
     /// Beside a camera, the sides of a strip naming its song: the words and
@@ -5129,11 +5194,15 @@ extension NotchService {
                                                  wing: 0, cameraWidth: 0, floats: true,
                                                  bodyHeight: geometry.stripBodyHeight)
             let top = geometry.screen.maxY - geometry.floatingDrop
-            // Beside a friend, it rests at its end of the capsule.
+            let width = restingCapsuleSize(on: geometry).width
+            // Beside a friend configured for the island, it rests at its end of the capsule.
             if let pair = mascotCapsulePair(on: geometry) {
-                let width = restingCapsuleSize(on: geometry).width
                 return (CGPoint(x: geometry.screen.midX + pair.companion.rest - width / 2, y: top - track.baseline),
                         track.size)
+            }
+            if restingCenterText != nil {
+                let rest = NotchCapsuleLayout.restingCenterMascotRest(geometry)
+                return (CGPoint(x: geometry.screen.midX + rest - width / 2, y: top - track.baseline), track.size)
             }
             return (CGPoint(x: geometry.screen.midX, y: top - track.baseline), track.size)
         }
@@ -5159,13 +5228,21 @@ extension NotchService {
     private func mascotGrabTarget(at point: CGPoint) -> MascotGrabTarget? {
         guard NotchMascotSupport.roamsDesktop() else { return nil }
         func reaches(_ rest: (center: CGPoint, size: CGFloat)) -> Bool {
-            let reach = rest.size / 2 + 6
+            // A grab reaches a little past the sprite, not across the island:
+            // clicks between companions still open the capsule.
+            let reach = min(max(rest.size / 2 + 12, 24), 40)
             return abs(point.x - rest.center.x) <= reach && abs(point.y - rest.center.y) <= reach
         }
-        if !mascotOnDesktop, mascotVisit == nil, mascotRestsInView, canHostMascotVisit(), reaches(mascotRestScreenPoint) {
+        // A song's dancing companion is out at the strip's end; with any other
+        // activity the companion is not drawn, so there is nothing to grab.
+        let dancing = musicStripDancerFrame.map { (center: CGPoint(x: $0.midX, y: $0.midY), size: $0.width) }
+        if !mascotOnDesktop, mascotVisit == nil, !expanded, !peeking, !dragPlaceholder,
+           let rest = dancing ?? (mascotRestsInView ? mascotRestScreenPoint : nil),
+           reaches(rest) {
             return .companion
         }
-        if mascotFriendRests(on: geometry), !mascotFriendSteppedAside, compactActivity == nil, !expanded,
+        if !mascotFriendOut, NotchMascotSupport.desktopFriend() != nil, !mascotFriendSteppedAside,
+           compactActivity == nil, !expanded,
            let rest = mascotFriendEntrance(), reaches((rest.center, rest.size)) {
             return .friend
         }
@@ -5198,6 +5275,10 @@ extension NotchService {
     private func beginMascotDesktop(grabbedAt pointer: CGPoint?) {
         guard !mascotOnDesktop, NotchMascotSupport.roamsDesktop() else { return }
         let rest = mascotRestScreenPoint
+        // Pulled out of the music strip, it starts from the size it danced at.
+        let dancer = musicStripDancerFrame
+        let origin = dancer.map { CGPoint(x: $0.midX, y: $0.midY) } ?? rest.center
+        let originSize = dancer.map(\.width) ?? rest.size
         mascotVisitWork?.cancel(); mascotVisitWork = nil
         mascotStepBackWork?.cancel(); mascotStepBackWork = nil
         mutatePresentation {
@@ -5206,7 +5287,7 @@ extension NotchService {
             mascotOnDesktop = true
         }
         noteMascotStirred()
-        mascotDesktop.comeOut(from: rest.center, fromSize: rest.size, look: NotchMascotSupport.look(),
+        mascotDesktop.comeOut(from: origin, fromSize: originSize, look: NotchMascotSupport.look(),
                               mood: mascotRestingMood, grabbedAt: pointer)
         // The friend was already out: now that both are, their first play comes
         // before long, and the friend is no longer alone out there.

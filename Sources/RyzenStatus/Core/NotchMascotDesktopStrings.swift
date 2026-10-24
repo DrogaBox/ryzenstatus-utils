@@ -20,6 +20,14 @@ struct NotchMascotDesktopStrings {
     /// The two out on the desktop playing together now and then.
     let plays: String
     let playsCaption: String
+    /// The friend's own colors, beside its item.
+    var friendColors: String = "The friend's colors"
+    var friendColorsSame: String = "Its companion's"
+    var friendCustomColor: String = "Hand-picked"
+    /// Dress-up play: by itself, it puts on anything it owns for a while.
+    var dressUp: String = "Play with its wardrobe"
+    var dressUpCaption: String =
+        "Out on the desktop, now and then it digs into everything it owns and wears whatever it feels like for a minute — then back to what you picked. What it wears the rest of the day stays your choice."
     let goHome: String
     let stayPut: String
     let settings: String
@@ -59,6 +67,8 @@ extension NotchMascotDesktopStrings {
         friendItemOwn: "Its own pick",
         plays: "They play together",
         playsCaption: "Now and then the two out on the desktop duel with blades of light, throw energy at each other, power up, dance, high-five, play tag, leapfrog, hug, trade gifts or nap side by side. In the island they wave across it, toss hearts, stars and snowballs to each other, and play with what they wear.",
+        dressUp: "Play with its wardrobe",
+        dressUpCaption: "Out on the desktop, now and then it digs into everything it owns and wears whatever it feels like for a minute — then back to what you picked. What it wears the rest of the day stays your choice.",
         goHome: "Back to the Island",
         stayPut: "Stay Put",
         settings: "Companion Settings…")
@@ -115,6 +125,11 @@ extension NotchMascotDesktopStrings {
         friendItemOwn: "Lo elige él",
         plays: "Juegan entre ellos",
         playsCaption: "De vez en cuando los dos en el escritorio se baten en duelo con espadas de luz, se lanzan ondas de energía, se transforman, bailan, chocan los cinco, juegan a pillarse, saltan uno sobre el otro, se abrazan, se hacen regalos o duermen la siesta juntos. En la isla se saludan de lado a lado, se lanzan corazones, estrellas y bolas de nieve, y juegan con lo que llevan puesto.",
+        friendColors: "Los colores del amigo",
+        friendColorsSame: "Los de su compañero",
+        friendCustomColor: "A mano",
+        dressUp: "Jugar con su armario",
+        dressUpCaption: "En el escritorio, de vez en cuando rebusca entre todo lo que tiene y se pone lo que le apetece un ratito — y luego vuelve a lo que tú elegiste. Lo que lleva el resto del día sigue siendo cosa tuya.",
         goHome: "Volver a la isla",
         stayPut: "Quedarse quieto",
         settings: "Ajustes del compañero…")

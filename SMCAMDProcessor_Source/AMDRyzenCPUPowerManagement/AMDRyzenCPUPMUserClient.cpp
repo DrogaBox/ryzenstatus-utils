@@ -99,8 +99,12 @@ IOReturn AMDRyzenCPUPMUserClient::clientClose() {
     // Curve-mode fans are released too — they are re-uploaded and re-mapped on
     // the next client connection (selectors 101/102).
     //
+    // Only reset fan control when this specific client instance actually
+    // modified fan state (cases 95, 96, 97, 101, 102). Otherwise a transient
+    // read-only client (such as --selftest or --sensors) or an unprivileged
+    // process closing its connection would wipe active kernel fan curves.
     AMDRyzenCPUPowerManagement *provider = fProvider;
-    if (provider && provider->superIOLock) {
+    if (fModifiedFanControl && provider && provider->superIOLock) {
         IOLockLock(provider->superIOLock);
         if (provider->superIO) {
             int fanCount = provider->superIO->getNumberOfFans();
@@ -129,7 +133,7 @@ void AMDRyzenCPUPMUserClient::free() {
     IOUserClient::free();
 }
 
-bool AMDRyzenCPUPMUserClient::hasPrivilege(uint32_t selector){
+bool AMDRyzenCPUPMUserClient::hasPrivilege(uint32_t selector, bool quiet){
     // Boot-arg bypass: allow writes without root when -amdpnopchk is present
     if (fProvider && fProvider->disablePrivilegeCheck) return true;
 
@@ -148,8 +152,10 @@ bool AMDRyzenCPUPMUserClient::hasPrivilege(uint32_t selector){
             return true;
     }
 
-    IOLog("AMDRyzenCPUPMUserClient: DENIED select %u pid=%d binary='%s' (need root or -amdpnopchk)\n",
-          selector, proc_selfpid(), taskProcessBinaryName);
+    if (!quiet) {
+        IOLog("AMDRyzenCPUPMUserClient: DENIED select %u pid=%d binary='%s' (need root or -amdpnopchk)\n",
+              selector, proc_selfpid(), taskProcessBinaryName);
+    }
     return false;
 }
 
@@ -268,7 +274,9 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
         }
 
         case 2: {
+            // Clamp to MaxCpus to prevent OOB read from effFreq_perCore[64] on >64-core machines
             uint32_t numPhyCores = provider->totalNumberOfPhysicalCores;
+            if (numPhyCores > CPUInfo::MaxCpus) numPhyCores = CPUInfo::MaxCpus;
 
             arguments->scalarOutputCount = 1;
             arguments->scalarOutput[0] = numPhyCores;
@@ -746,7 +754,9 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
         // Get CPPC Highest Performance values per logical core
         case 21: {
+            // Clamp to MaxCpus to prevent OOB read from cppcHighestPerf_perCore[64] on >64-thread machines
             uint32_t numLogicalCores = provider->totalNumberOfLogicalCores;
+            if (numLogicalCores > CPUInfo::MaxCpus) numLogicalCores = CPUInfo::MaxCpus;
 
             arguments->scalarOutputCount = 1;
             arguments->scalarOutput[0] = provider->cppcSupported ? 1 : 0;
@@ -1076,10 +1086,10 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
         case 90: {
             // The probe itself stays unprivileged so the read-only
             // fan list keeps working, but clearing the NCT67XX I/O-space lock
-            // (a firmware protection write) is now reserved for privileged
-            // callers — hasPrivilege is threaded down to the NCT67XX driver,
-            // which skips the CHIP_IO_SPACE_LOCK write without it.
-            bool allowUnlock = hasPrivilege(90);
+            // or writing the IT86XXE 16-bit counter register is reserved for
+            // privileged callers — hasPrivilege(90, true) checks quietly so
+            // unprivileged monitoring does not spam DENIED in the kernel log.
+            bool allowUnlock = hasPrivilege(90, true);
 
             arguments->scalarOutputCount = 0;
             uint32_t requiredSize = 2 * sizeof(uint64_t);
@@ -1328,6 +1338,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 pwm = kCURVE_MIN_ACTIVE_PWM;
             }
             provider->superIO->overrideFanControl(fanSel, pwm);
+            fModifiedFanControl = true;
             IOLockUnlock(provider->superIOLock);
 
             break;
@@ -1356,6 +1367,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 return kIOReturnBadArgument;
             }
             provider->superIO->setDefaultFanControl(fanSel);
+            fModifiedFanControl = true;
             IOLockUnlock(provider->superIOLock);
 
             break;
@@ -1384,6 +1396,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 else
                     provider->superIO->setDefaultFanControl(i);
             }
+            fModifiedFanControl = true;
             IOLockUnlock(provider->superIOLock);
 
             break;
@@ -1490,6 +1503,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             provider->fanCurves[idx].hysteresis   = hyst;
             provider->fanCurves[idx].rampRate     = ramp;
             memcpy(provider->fanCurves[idx].lut, input->lut, 256);
+            fModifiedFanControl = true;
             IOLockUnlock(provider->superIOLock);
 
             break;
@@ -1527,6 +1541,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             if (curveIdx == -1 && provider->superIO) {
                 provider->superIO->setDefaultFanControl(fanIdx);
             }
+            fModifiedFanControl = true;
             IOLockUnlock(provider->superIOLock);
 
             break;

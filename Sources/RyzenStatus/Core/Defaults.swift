@@ -506,7 +506,11 @@ enum Defaults {
         DefaultsKey.notchMascotExcursions: true,
         DefaultsKey.notchMascotDesktopFriend: "",
         DefaultsKey.notchMascotDesktopPlay: true,
+        DefaultsKey.notchMascotDressUp: true,
         DefaultsKey.notchMascotFriendAccessory: "",
+        DefaultsKey.notchMascotCustomColor: "",
+        DefaultsKey.notchMascotFriendPalette: "",
+        DefaultsKey.notchMascotFriendCustomColor: "",
         DefaultsKey.notchMascotAutomatic: true,
         DefaultsKey.notchMascotAutoLoad: true,
         DefaultsKey.notchMascotAutoMusic: true,
@@ -519,6 +523,7 @@ enum Defaults {
         DefaultsKey.notchMascotName: "",
         DefaultsKey.notchMascotSeasonal: true,
         DefaultsKey.notchMascotForm: "auto",
+        DefaultsKey.notchMascotFriendForm: "",
         DefaultsKey.notchMascotSpeech: true,
         DefaultsKey.notchMascotHardware: true,
         DefaultsKey.notchCommandBar: true,
@@ -952,6 +957,8 @@ enum Defaults {
         DefaultsKey.notchIdleContent: "music", // NotchIdleContent.music
         DefaultsKey.notchCapsuleCenter: "song", // NotchCapsuleCenter.song
         DefaultsKey.notchCapsuleMetric: "cpuTemperature", // NotchCapsuleMetric.cpuTemperature
+        DefaultsKey.notchHardwareAlertsEnabled: true,
+        DefaultsKey.notchIslandSoundCues: true,
         DefaultsKey.notchHiddenControls: "keyboardLight,microphone,screenshot,recording,speedTest,panel,commandBar,scratchpad", // NotchControlItem.defaultHidden
         DefaultsKey.notchScratchpadControlHidden: false,
         DefaultsKey.notchKeyboardLightControlHidden: false,

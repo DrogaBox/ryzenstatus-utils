@@ -7,7 +7,7 @@
 
 #include "ISSuperIOIT86XXEFamily.hpp"
 
-ISSuperIOIT86XXEFamily::ISSuperIOIT86XXEFamily(int psel, uint16_t addr, uint16_t chipIntel, uint16_t gpioAddr)
+ISSuperIOIT86XXEFamily::ISSuperIOIT86XXEFamily(int psel, uint16_t addr, uint16_t chipIntel, uint16_t gpioAddr, bool allowUnlock)
 {
     lpcPortSel = psel;
     chipAddr = addr;
@@ -34,8 +34,11 @@ ISSuperIOIT86XXEFamily::ISSuperIOIT86XXEFamily(int psel, uint16_t addr, uint16_t
             break;
     }
 
-    // Enable 16-bit fan tachometer mode for all 6 fans
-    writeByte(0x0c, static_cast<uint8_t>(readByte(0x0c) | 0x3f));
+    // Enable 16-bit fan tachometer mode for all 6 fans only when the caller
+    // is privileged (same gate as NCT67XX/NCT668X in initSuperIO).
+    if (allowUnlock) {
+        writeByte(0x0c, static_cast<uint8_t>(readByte(0x0c) | 0x3f));
+    }
 
     // backup default ctrl mode
     for (int i = 0; i < activeFansOnSystem; i++)
@@ -68,7 +71,7 @@ static void exitConfig(int portSel)
     outb(ISLPCPort::kVALUE_PORTS[portSel], 0x02);
 }
 
-ISSuperIOIT86XXEFamily* ISSuperIOIT86XXEFamily::getDevice(uint16_t* chipIntel)
+ISSuperIOIT86XXEFamily* ISSuperIOIT86XXEFamily::getDevice(uint16_t* chipIntel, bool allowUnlock)
 {
     IOLog("probe IT86XXE\n");
 
@@ -118,7 +121,7 @@ ISSuperIOIT86XXEFamily* ISSuperIOIT86XXEFamily::getDevice(uint16_t* chipIntel)
         }
 
         exitConfig(portSel);
-        return new ISSuperIOIT86XXEFamily(portSel, devAddr, chipID, gpioAddress);
+        return new ISSuperIOIT86XXEFamily(portSel, devAddr, chipID, gpioAddress, allowUnlock);
     }
 
     return nullptr;

@@ -243,15 +243,18 @@ enum NotchMascotSeason {
 }
 
 enum NotchMascotWardrobe {
-    /// What it wears now: the Gaming Mode headband, then a costume, then the
-    /// accessory picked if it is unlocked.
+    /// What it wears now: the Gaming Mode headband, then what its person
+    /// picked for it once unlocked, then a costume for the season, then none.
+    /// An explicit pick always beats the costume — a hat chosen for it stays
+    /// on even the week it would dress up on its own.
     static func effective(chosen: NotchMascotAccessory, level: Int, date: Date, adopted: Date?,
                           seasonal: Bool, gaming: Bool, calendar: Calendar = .current) -> NotchMascotAccessory {
         if gaming { return .headband }
-        if seasonal, let costume = NotchMascotSeason.accessory(on: date, adopted: adopted, calendar: calendar) {
+        let pick: NotchMascotAccessory? = chosen != .none && chosen.isPickable && chosen.unlockLevel <= level ? chosen : nil
+        if pick == nil, seasonal, let costume = NotchMascotSeason.accessory(on: date, adopted: adopted, calendar: calendar) {
             return costume
         }
-        return chosen.isPickable && chosen.unlockLevel <= level ? chosen : .none
+        return pick ?? .none
     }
 
     /// What the friend wears beside a companion wearing `main`: a costume or
@@ -296,13 +299,15 @@ enum NotchMascotForm: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-/// What Settings keeps: the newest form unlocked, none, or one form.
+/// What Settings keeps: the newest form unlocked, none, one form, or one
+/// picked at random from those unlocked.
 enum NotchMascotFormChoice: Equatable {
-    case automatic, off, form(NotchMascotForm)
+    case automatic, off, random, form(NotchMascotForm)
 
     init(rawValue: String?) {
         switch rawValue {
         case "none": self = .off
+        case "random": self = .random
         case let raw?: self = NotchMascotForm(rawValue: raw).map { .form($0) } ?? .automatic
         case nil: self = .automatic
         }
@@ -312,26 +317,46 @@ enum NotchMascotFormChoice: Equatable {
         switch self {
         case .automatic: return "auto"
         case .off: return "none"
+        case .random: return "random"
         case .form(let form): return form.rawValue
         }
     }
 }
 
 enum NotchMascotTransformation {
+    /// The pick random mode made for each companion at its current level, so
+    /// the form stays put between redraws instead of changing every frame.
+    private static var randomPicks: [String: (level: Int, form: NotchMascotForm)] = [:]
+
     /// The form a level unlocks, if any.
     static func unlocked(at level: Int) -> NotchMascotForm? {
         NotchMascotForm.allCases.first { $0.unlockLevel == level }
     }
 
     /// The form to show at `level`: the newest one for automatic, the one
-    /// picked once it is unlocked, and none before level twenty.
-    static func effective(choice: NotchMascotFormChoice, level: Int) -> NotchMascotForm? {
+    /// picked once it is unlocked, none before level twenty, and in random
+    /// mode a different unlocked form for each named companion.
+    static func effective(choice: NotchMascotFormChoice, level: Int,
+                          companion: String = "companion") -> NotchMascotForm? {
         let unlocked = NotchMascotForm.allCases.filter { $0.unlockLevel <= level }
         switch choice {
         case .off: return nil
         case .automatic: return unlocked.last
         case .form(let form): return unlocked.contains(form) ? form : unlocked.last
+        case .random:
+            guard !unlocked.isEmpty else { return nil }
+            if let picked = randomPicks[companion], picked.level == level, unlocked.contains(picked.form) {
+                return picked.form
+            }
+            let form = unlocked.randomElement() ?? unlocked[unlocked.count - 1]
+            randomPicks[companion] = (level, form)
+            return form
         }
+    }
+
+    /// A new draw for random mode, as when the companion is asked to change.
+    static func rerollRandomForm(for companion: String = "companion") {
+        randomPicks[companion] = nil
     }
 }
 
@@ -473,7 +498,10 @@ final class NotchMascotBondStore: ObservableObject {
             let forms = FeatureStrings.notchMascotForms(L10n.shared.language)
             let choice = NotchMascotFormChoice(rawValue: defaults.string(forKey: DefaultsKey.notchMascotForm))
             // A new form shows at once, unless transformations were turned off.
-            if choice != .off { defaults.set(NotchMascotFormChoice.automatic.rawValue, forKey: DefaultsKey.notchMascotForm) }
+            // Random keeps drawing, now from the wider set.
+            if choice != .off, choice != .random {
+                defaults.set(NotchMascotFormChoice.automatic.rawValue, forKey: DefaultsKey.notchMascotForm)
+            }
             announce(title: text.levelReached(level), detail: forms.unlocked(forms.name(of: form)), reaction: .celebrate)
             if choice != .off {
                 // Once the notice and its companion are on screen.
@@ -501,7 +529,17 @@ extension NotchMascotSupport {
     static func form(in defaults: UserDefaults = .standard) -> NotchMascotForm? {
         NotchMascotTransformation.effective(
             choice: NotchMascotFormChoice(rawValue: defaults.string(forKey: DefaultsKey.notchMascotForm)),
-            level: shownLevel(in: defaults))
+            level: shownLevel(in: defaults), companion: "companion")
+    }
+
+    /// The friend's own transformation; empty keeps whatever the companion
+    /// wears, so the pair can match or transform separately.
+    static func friendForm(in defaults: UserDefaults = .standard) -> NotchMascotForm? {
+        let raw = defaults.string(forKey: DefaultsKey.notchMascotFriendForm) ?? ""
+        guard !raw.isEmpty else { return form(in: defaults) }
+        return NotchMascotTransformation.effective(
+            choice: NotchMascotFormChoice(rawValue: raw),
+            level: shownLevel(in: defaults), companion: "friend")
     }
 
     /// The level stored with its experience, lifted by the name that

@@ -28,6 +28,20 @@ enum NotchMascotStyle: String, CaseIterable, Identifiable {
     case devourer
     /// An amorphous blob that copies the look of whoever it plays with.
     case shifter
+    /// A flame-feathered bird that breathes embers and flares back up.
+    case phoenix
+    /// A pink water salamander whose gill fronds wave; it dives clean.
+    case axolotl
+    /// A floppy-eared dog with a wagging tail that launches off its friend.
+    case dog
+    /// A little mouse with round ears and a long thin tail.
+    case mouse
+    /// A serene capybara sitting with an orange on its head, completely zen.
+    case capybara
+    /// A playful baby dragon with horns, wings and a spade tail that breathes tiny embers.
+    case dragon
+    /// A bouncy round frog with bulbous crown eyes that catches pixel bugs.
+    case frog
     /// Cristóbal Sincronía, coffee in hand, from the author's comic: a sprite
     /// figure, as are the companions after him.
     case cristobal
@@ -78,7 +92,38 @@ struct NotchMascotColor: Equatable {
     let blue: CGFloat
     var alpha: CGFloat = 1
 
+    init(red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat = 1) {
+        self.red = red
+        self.green = green
+        self.blue = blue
+        self.alpha = alpha
+    }
+
     var cgColor: CGColor { CGColor(srgbRed: red, green: green, blue: blue, alpha: alpha) }
+
+    /// From six hex digits, as the hand-picked color stores them.
+    init?(hex: String) {
+        let value = hex.trimmingCharacters(in: .whitespaces)
+        guard value.count == 6, let number = UInt32(value, radix: 16) else { return nil }
+        self.init(red: CGFloat((number >> 16) & 0xFF) / 255,
+                  green: CGFloat((number >> 8) & 0xFF) / 255,
+                  blue: CGFloat(number & 0xFF) / 255)
+    }
+
+    /// Six hex digits, the same form `init?(hex:)` reads back.
+    var hex: String {
+        String(format: "%02X%02X%02X", min(255, lround(red * 255)), min(255, lround(green * 255)), min(255, lround(blue * 255)))
+    }
+
+    /// Mixed toward white by `amount` (0...1), for the body's lit top.
+    func brightened(_ amount: CGFloat) -> NotchMascotColor {
+        NotchMascotColor(red: red + (1 - red) * amount, green: green + (1 - green) * amount, blue: blue + (1 - blue) * amount, alpha: alpha)
+    }
+
+    /// Mixed toward black by `amount` (0...1), for the body's shaded bottom.
+    func darkened(_ amount: CGFloat) -> NotchMascotColor {
+        NotchMascotColor(red: red * (1 - amount), green: green * (1 - amount), blue: blue * (1 - amount), alpha: alpha)
+    }
 
     /// The eyes, a soft black that still reads on the black island's edge.
     static let ink = NotchMascotColor(red: 0.07, green: 0.07, blue: 0.08)
@@ -130,8 +175,18 @@ struct NotchMascotLook: Equatable {
     var accessory: NotchMascotAccessory = .none
     /// The transformation it shows, already resolved against its level.
     var form: NotchMascotForm? = nil
+    /// A hand-picked color. When set it drives the body's light and shade,
+    /// over whatever palette the swatches hold.
+    var customColor: NotchMascotColor? = nil
 
     static let standard = NotchMascotLook(style: .minimal, shape: .ball, palette: .pearl)
+
+    /// The colors the body is drawn in: the hand-picked one lit and shaded,
+    /// else the palette's own pair.
+    var bodyPalette: (light: NotchMascotColor, shade: NotchMascotColor) {
+        if let customColor { return (customColor.brightened(0.24), customColor.darkened(0.18)) }
+        return (palette.light, palette.shade)
+    }
 }
 
 enum NotchMascotMood: String, CaseIterable, Identifiable {
@@ -1402,8 +1457,19 @@ enum NotchMascotSupport {
         else { return nil }
         var friend = undisguisedLook(in: defaults)
         friend.style = style
-        friend.accessory = NotchMascotWardrobe.friendAccessory(main: friend.accessory, level: shownLevel(in: defaults),
-                                                               style: style, chosen: friendAccessoryChoice(in: defaults))
+        // Its own color when one is set: its own hand-picked one, or its own
+        // preset; with neither it wears the companion's.
+        if let hand = friendCustomColor(in: defaults) {
+            friend.customColor = hand
+        } else if let own = NotchMascotPalette(rawValue: defaults.string(forKey: DefaultsKey.notchMascotFriendPalette) ?? "") {
+            friend.palette = own
+            friend.customColor = nil
+        }
+        friend.accessory = style.takesAccessory
+            ? NotchMascotWardrobe.friendAccessory(main: friend.accessory, level: shownLevel(in: defaults),
+                                                  style: style, chosen: friendAccessoryChoice(in: defaults))
+            : .none
+        friend.form = friendForm(in: defaults)
         return NotchMascotDisguise.apply(to: friend)
     }
 
@@ -1431,13 +1497,21 @@ enum NotchMascotSupport {
 
     /// The look as it is stored, whatever the shifter copies for now.
     static func undisguisedLook(in defaults: UserDefaults = .standard) -> NotchMascotLook {
-        NotchMascotLook(
-            style: NotchMascotStyle.resolved(defaults.string(forKey: DefaultsKey.notchMascotStyle),
-                                             name: defaults.string(forKey: DefaultsKey.notchMascotName)),
+        let style = NotchMascotStyle.resolved(defaults.string(forKey: DefaultsKey.notchMascotStyle),
+                                             name: defaults.string(forKey: DefaultsKey.notchMascotName))
+        var look = NotchMascotLook(
+            style: style,
             shape: NotchMascotShape(rawValue: defaults.string(forKey: DefaultsKey.notchMascotShape) ?? "") ?? .ball,
             palette: NotchMascotPalette(rawValue: defaults.string(forKey: DefaultsKey.notchMascotPalette) ?? "") ?? .pearl,
-            accessory: accessory(in: defaults),
+            accessory: style.takesAccessory ? accessory(in: defaults) : .none,
             form: form(in: defaults))
+        look.customColor = NotchMascotColor(hex: defaults.string(forKey: DefaultsKey.notchMascotCustomColor) ?? "")
+        return look
+    }
+
+    /// The hand-picked color stored for the friend, or nil to keep its palette.
+    static func friendCustomColor(in defaults: UserDefaults = .standard) -> NotchMascotColor? {
+        NotchMascotColor(hex: defaults.string(forKey: DefaultsKey.notchMascotFriendCustomColor) ?? "")
     }
 
     /// How the Command Bar comes out of the island, or nil when it opens in

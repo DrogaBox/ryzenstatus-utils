@@ -44,6 +44,13 @@ struct NotchMascotAutomationStrings {
         // Original figures, worded in the language of the app.
         case .devourer: return L10n.shared.language == .es ? "Tragón" : "Glutton"
         case .shifter: return L10n.shared.language == .es ? "Metamorfo" : "Shifter"
+        case .phoenix: return L10n.shared.language == .es ? "Fénix" : "Phoenix"
+        case .axolotl: return L10n.shared.language == .es ? "Ajolote" : "Axolotl"
+        case .dog: return L10n.shared.language == .es ? "Perrito" : "Dog"
+        case .mouse: return L10n.shared.language == .es ? "Ratita" : "Mouse"
+        case .capybara: return L10n.shared.language == .es ? "Carpincho" : "Capybara"
+        case .dragon: return L10n.shared.language == .es ? "Dragón" : "Dragon"
+        case .frog: return L10n.shared.language == .es ? "Ranita" : "Frog"
         // Characters' own names, the same in every language.
         case .cristobal: return "Cristóbal"
         case .whiteRabbit: return "Conejo Blanco"

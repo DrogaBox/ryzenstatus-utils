@@ -102,7 +102,7 @@ if (( TEST )); then
     rm -f build/metrics-tests
     # The whole module (minus the app entry point) so the harness can never go
     # stale when a helper gains a dependency. A hand-kept list drifted here.
-    swiftc -Onone -num-threads 4 -target "$TARGET" -sdk "$SDK" \
+    swiftc -Onone -num-threads 8 -target "$TARGET" -sdk "$SDK" \
         $(find Sources/RyzenStatus -name '*.swift' ! -name main.swift | sort) \
         Tests/Ported/*.swift \
         Tests/MetricsTests.swift \
@@ -176,7 +176,11 @@ if [[ -f Resources/Gifs/dockPreview.gif ]]; then
 fi
 if [[ -d Resources/Images ]]; then
     mkdir -p "$STAGE/Contents/Resources/Images"
-    cp Resources/Images/* "$STAGE/Contents/Resources/Images/"
+    cp -R Resources/Images/* "$STAGE/Contents/Resources/Images/"
+fi
+if [[ -d Resources/Sounds ]]; then
+    mkdir -p "$STAGE/Contents/Resources/Sounds"
+    cp -R Resources/Sounds/* "$STAGE/Contents/Resources/Sounds/"
 fi
 xattr -c -r "$STAGE" 2>/dev/null || true
 

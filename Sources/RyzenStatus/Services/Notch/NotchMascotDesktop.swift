@@ -73,6 +73,13 @@ final class NotchMascotDesktop: NSObject {
     private var mode = Mode.standing
     private var body = NotchMascotRoam.Body(position: .zero)
     private var look = NotchMascotLook.standard
+    /// The look as chosen for it, before any dress-up play puts its own thing on.
+    private var baseLook = NotchMascotLook.standard
+    private var mood: NotchMascotMood = .idle
+    /// The thing it put on by itself while out, and when it last dug into its wardrobe.
+    private var dressUpItem: NotchMascotAccessory?
+    private var dressUpWork: DispatchWorkItem?
+    private var lastDressUp: CFTimeInterval = -.infinity
     private var size = NotchMascotRoam.drawnSize
     private var samples: [NotchMascotRoam.Sample] = []
     private var grabOffset = CGVector.zero
@@ -158,8 +165,14 @@ final class NotchMascotDesktop: NSObject {
         }
     }
 
-    /// Keeps a new look or mood while it is out.
-    func configure(look: NotchMascotLook, mood: NotchMascotMood) {
+    /// Keeps a new look or mood while it is out. A new pick from its person
+    /// ends any dress-up play, so what was chosen shows at once.
+    func configure(look newLook: NotchMascotLook, mood: NotchMascotMood) {
+        if newLook.accessory != baseLook.accessory { endDressUp() }
+        baseLook = newLook
+        self.mood = mood
+        var look = newLook
+        if let dressUpItem { look.accessory = dressUpItem }
         let size = NotchMascotRoam.size(for: look)
         // A window made just now has no size yet, whatever size it was made for.
         let resized = size != self.size || self.stage == nil
@@ -224,6 +237,45 @@ final class NotchMascotDesktop: NSObject {
         greet(toward: CGPoint(x: other.x, y: other.y + size / 2))
         greetNeighbor?(figureCenter)
         return true
+    }
+
+    // MARK: Dress-up play
+
+    /// Standing about with nothing to do, now and then it digs into
+    /// everything it owns and puts on whatever it feels like for a while,
+    /// then goes back to what its person picked. True when it dressed up.
+    private func maybePlayDressUp() -> Bool {
+        guard UserDefaults.standard.bool(forKey: DefaultsKey.notchMascotDressUp),
+              look.style.takesAccessory,
+              dressUpItem == nil, !isDozing,
+              NotchMascotDressUp.shouldStart(sinceLastDig: CACurrentMediaTime() - lastDressUp,
+                                             random: Double.random(in: 0..<1)),
+              let item = NotchMascotDressUp.pick(current: look.accessory,
+                                                 level: NotchMascotSupport.shownLevel(),
+                                                 owns: NotchMascotShop.owns,
+                                                 random: Double.random(in: 0..<1))
+        else { return false }
+        lastDressUp = CACurrentMediaTime()
+        dressUpItem = item
+        configure(look: baseLook, mood: mood)
+        react(.perk)
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.dressUpItem != nil else { return }
+            self.endDressUp()
+        }
+        dressUpWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + NotchMascotDressUp.duration(random: Double.random(in: 0..<1)),
+                                      execute: work)
+        planNext(after: NotchMascotReaction.perk.length + 2)
+        return true
+    }
+
+    /// Back to what was chosen for it. Redraws only while it is still out.
+    private func endDressUp() {
+        dressUpWork?.cancel(); dressUpWork = nil
+        guard dressUpItem != nil else { return }
+        dressUpItem = nil
+        if isOut { configure(look: baseLook, mood: mood) }
     }
 
     // MARK: Playing
@@ -349,6 +401,9 @@ final class NotchMascotDesktop: NSObject {
         guard isOut, !isHoming, let host else { return }
         if inPlay { interrupted?() }
         cancelPlans()
+        // It keeps what it put on for the flight home, but the timer stops:
+        // back out, it wears what was chosen for it.
+        dressUpWork?.cancel(); dressUpWork = nil; dressUpItem = nil
         press = nil
         setRun(nil)
         host.mascot.lean(0)
@@ -372,6 +427,8 @@ final class NotchMascotDesktop: NSObject {
         guard isOut else { return }
         if inPlay { interrupted?() }
         cancelPlans()
+        // Whatever it had put on stays home: out again, it wears what was chosen.
+        dressUpWork?.cancel(); dressUpWork = nil; dressUpItem = nil
         removeMonitors()
         stopTicking()
         panel?.orderOut(nil)
@@ -511,6 +568,7 @@ final class NotchMascotDesktop: NSObject {
         guard isOut, mode == .standing, !inPlay, let host else { return }
         if invitePlay?() == true { return }
         if greetIfNear() { return }
+        if maybePlayDressUp() { return }
         let area = self.area(for: body.position)
         let half = size * figureAspect / 2
         let activity = NotchMascotRoam.nextActivity(x: body.position.x, minX: area.minX + half, maxX: area.maxX - half,
@@ -723,10 +781,14 @@ final class NotchMascotDesktop: NSObject {
     /// where its body is, so the space around it stays the desktop's.
     private func pointerMoved(_ point: CGPoint) {
         guard isOut, let panel, let host else { return }
+        if inPlay {
+            if !panel.ignoresMouseEvents { panel.ignoresMouseEvents = true }
+            return
+        }
         let figure = figureFrame.insetBy(dx: -4, dy: -4)
         let over = figure.contains(point)
         if panel.ignoresMouseEvents == over { panel.ignoresMouseEvents = !over }
-        guard !isHoming, mode != .held, !inPlay else { return }
+        guard !isHoming, mode != .held else { return }
         let near = hypot(point.x - figure.midX, point.y - figure.midY) < 320
         if near {
             watching = true

@@ -162,7 +162,7 @@ final class NotchMascotRig: NSObject {
         }
         root.contentsScale = scale
         let robot = look.style == .robot
-        let palette = look.palette
+        let palette = look.bodyPalette
         fill.colors = bodyColors(for: look)
         fill.startPoint = CGPoint(x: 0.5, y: 0)
         fill.endPoint = CGPoint(x: 0.5, y: 1)
@@ -198,7 +198,12 @@ final class NotchMascotRig: NSObject {
         // A ghost is a little see-through, and fainter still asleep.
         fill.opacity = look.style == .ghost ? (decor.sleeping ? 0.55 : 0.92) : 1
         for layer in [ears, antenna, bulb, visor] { layer.isHidden = !robot }
-        wearables.configure(accessory: look.accessory, body: fillMask.path, face: look.face, size: size, scale: scale)
+        // A hat measures against the head, not the whole figure: on a body
+        // twice as wide as its head, a bow would otherwise hang out in the air.
+        let headOutline = NotchMascotCreatures.headOutline(look.style, size: size)
+        wearables.configure(accessory: look.accessory,
+                            body: headOutline.map { CGPath(rect: $0, transform: nil) } ?? fillMask.path,
+                            face: look.face, size: size, scale: scale)
         aura.configure(form: look.form, size: size, scale: scale, reduceMotion: reduceMotion)
         bodyFlash.frame = box
         bodyFlash.contentsScale = scale
@@ -222,14 +227,18 @@ final class NotchMascotRig: NSObject {
         let drawsSprite = look.style.sprite.map { sprite.configure(sheet: $0, size: size, scale: scale) } ?? false
         showsSprite = drawsSprite
         sprite.isHidden = !drawsSprite
-        for layer in [fill, attention, decor.back, decor.middle, decor.props, wearables.head, wearables.face] {
+        for layer in [fill, attention, decor.back, decor.middle, decor.props] {
             layer.isHidden = drawsSprite
         }
         if drawsSprite {
             for layer in [ears, antenna, bulb, visor, shine] { layer.isHidden = true }
             bodyFlash.path = CGPath(rect: sprite.frame, transform: nil)
+            // Sprite / hidden companions keep their pure pixel-art character;
+            // vector wearables are not placed over animating frames.
             syncSpriteLoop()
         }
+        wearables.head.isHidden = drawsSprite
+        wearables.face.isHidden = drawsSprite
         apply(mood.expression, animated: false)
         applyAmbient()
     }
@@ -492,7 +501,7 @@ final class NotchMascotRig: NSObject {
             let palette = NotchMascotFormPalette(form)
             return [palette.light.cgColor, palette.shade.cgColor]
         }
-        return [look.palette.light.cgColor, look.palette.shade.cgColor]
+        return [look.bodyPalette.light.cgColor, look.bodyPalette.shade.cgColor]
     }
 
     // MARK: Transformation
@@ -540,7 +549,7 @@ final class NotchMascotRig: NSObject {
         hopper.add(leap, forKey: "hop")
 
         // Its own colours until the burst, the form's from then on.
-        let own = [look.palette.light.cgColor, look.palette.shade.cgColor]
+        let own = [look.bodyPalette.light.cgColor, look.bodyPalette.shade.cgColor]
         let recolor = CAKeyframeAnimation(keyPath: "colors")
         recolor.values = [own, own, bodyColors(for: look)]
         recolor.keyTimes = [0, NSNumber(value: burst), NSNumber(value: burst + 0.05)]
@@ -737,7 +746,7 @@ final class NotchMascotRig: NSObject {
     /// it wakes.
     private func lightBulb(_ lit: Bool, animated: Bool) {
         guard look.style == .robot else { return }
-        let color = (lit ? look.palette.light : look.palette.shade).cgColor
+        let color = (lit ? look.bodyPalette.light : look.bodyPalette.shade).cgColor
         if animated {
             let fade = CABasicAnimation(keyPath: "fillColor")
             fade.fromValue = bulb.presentation()?.fillColor ?? bulb.fillColor
@@ -754,9 +763,9 @@ final class NotchMascotRig: NSObject {
     /// Lit already, the bulb shows dark a moment longer, then lights.
     private func relightBulb(after delay: TimeInterval) {
         guard look.style == .robot else { return }
-        let dark = look.palette.shade.cgColor
+        let dark = look.bodyPalette.shade.cgColor
         let light = CAKeyframeAnimation(keyPath: "fillColor")
-        light.values = [dark, dark, look.palette.light.cgColor]
+        light.values = [dark, dark, look.bodyPalette.light.cgColor]
         light.keyTimes = [0, NSNumber(value: delay / (delay + 0.3)), 1]
         light.duration = delay + 0.3
         bulb.add(light, forKey: "light")

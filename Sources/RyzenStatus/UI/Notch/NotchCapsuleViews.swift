@@ -76,6 +76,7 @@ struct NotchCapsuleNoticeView: View {
         // A warning reads as one in any agent's color; other AI notices wear it.
         case .agents: return notice.symbol.hasPrefix("exclamationmark") ? .orange : notice.agent?.tint ?? .white
         case .timer: return .orange
+        case .hardwareAlert: return .red
         default: return .white
         }
     }
@@ -331,7 +332,6 @@ struct NotchCapsuleMusicStrip: View {
     @ObservedObject private var music = NowPlayingService.shared
     @ObservedObject private var l10n = L10n.shared
     @AppStorage(DefaultsKey.notchMusicVisualizer) private var visualizerMode = NotchMusicVisualizerMode.titleThenVisualizer.rawValue
-    @AppStorage(DefaultsKey.notchMascotDances) private var mascotDances = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var geometry: NotchGeometry { snapshot?.geometry ?? displayGeometry ?? service.geometry }
@@ -369,9 +369,9 @@ struct NotchCapsuleMusicStrip: View {
                                                            reduceMotion: reduceMotion)
         // Otherwise the centre preference's reading, which a strip on its way out leaves behind.
         let center = snapshot == nil ? service.capsuleCenterText : nil
-        // The companion dances at the far end while the bars play, unless the
-        // pointer asks there for the play or pause button.
-        let dances = visualizes && mascotDances && NotchMascotSupport.isEnabled()
+        // The companion dances at the far end while the bars play, and stays
+        // there under the pointer so it can be picked up for the desktop.
+        let dances = live && service.musicStripDancerShown
         NotchCapsuleRow(size: size ?? CapsuleLayout.musicSurface(title: named ? title : nil, center: center,
                                                                  visualizer: visualizes, geometry: geometry),
                         geometry: geometry, leading: 0, trailing: 0) {
@@ -401,7 +401,9 @@ struct NotchCapsuleMusicStrip: View {
                 // Resting on the bars names the song, as on the cover, and
                 // leaving gives the bars back.
                 .onHover { entered in
-                    if live && (visualizes || !entered) { service.hoverMusicStrip(.cover, entered: entered) }
+                    if live && !service.musicStripHasDancer && (visualizes || !entered) {
+                        service.hoverMusicStrip(.cover, entered: entered)
+                    }
                 }
                 ZStack {
                     NotchLiveEqualizerBars(isPlaying: playing && !showsControl && !visualizes,

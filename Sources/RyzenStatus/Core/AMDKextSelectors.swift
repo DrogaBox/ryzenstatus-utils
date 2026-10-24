@@ -10,7 +10,7 @@
 ///
 /// - Important: These values MUST match `AMDRyzenCPUPMUserClient.cpp` exactly.
 ///   When bumping a selector in the kext, update this file in the same commit.
-enum AMDKextSelector: UInt32 {
+enum AMDKextSelector: UInt32, CaseIterable {
 
     // MARK: — Telemetry (Read-only)
 
@@ -261,4 +261,26 @@ extension AMDKextSelector {
     static let fanSpeedWrite = UInt32(95)
     /// Fan mode write (selector 96 — auto/manual).
     static let fanModeWrite   = UInt32(96)
+
+    /// Every selector known to `AMDKextSelector` (both enum cases and static constants),
+    /// verified in `MetricsTests` against `AMDRyzenCPUPMUserClient.cpp`.
+    static var allKnownSelectors: Set<UInt32> {
+        var set = Set(allCases.map(\.rawValue))
+        set.formUnion([
+            pStateDef,
+            pStateDefClock,
+            cpbRead,
+            ppmRead,
+            hpCpusRead,
+            lpmRead,
+            c6ResidencyPkg,
+            gpuLoad,
+            fanInit,
+            fanName,
+            fanCtrlRead,
+            fanSpeedWrite,
+            fanModeWrite,
+        ])
+        return set
+    }
 }

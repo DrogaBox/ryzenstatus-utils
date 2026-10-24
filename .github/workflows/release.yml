@@ -143,11 +143,17 @@ jobs:
             echo "CHANGELOG.md entry for $VERSION is empty" >&2
             exit 1
           fi
+          DMG_SHA256="$(cd dist && shasum -a 256 *.dmg)"
           {
             echo "NOTES<<__VRSS_EOF__"
             printf '%s\n' "$NOTES"
             echo ""
             echo "Open the .dmg below and drag RyzenStatus to Applications. This build is ad-hoc signed and not notarized (by design), so bypass Gatekeeper on first launch: right-click → Open, or run: xattr -d com.apple.quarantine /Applications/RyzenStatus.app"
+            echo ""
+            echo "**SHA-256 Checksum:**"
+            echo '```text'
+            printf '%s\n' "$DMG_SHA256"
+            echo '```'
             echo "__VRSS_EOF__"
           } >> "$GITHUB_OUTPUT"
 
