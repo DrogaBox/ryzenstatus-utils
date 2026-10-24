@@ -359,7 +359,10 @@ final class StatusItemController {
         // just its image (which is all that item has). With Dynamic Island
         // standing in, the item goes only when it has no text of its own and
         // no metrics are on their way into it.
-        let hiddenByChoice = MenuBarSpacingSupport.islandHidesMainStatusItem(
+        // Island-Only mode / user hides menu bar: completely hide status item.
+        let islandOnly = defaults.bool(forKey: DefaultsKey.hideMenuBarItem)
+        let hiddenByChoice = islandOnly
+            || MenuBarSpacingSupport.islandHidesMainStatusItem(
                 islandHides: islandHides,
                 separateMetrics: separateMetrics,
                 metricsEnabled: MenuBarMetric.anyEnabled(in: defaults),
@@ -632,6 +635,10 @@ final class StatusItemController {
     private func refreshMetricStatusItems(metrics: [MenuBarMetric],
                                           snapshot: SystemSnapshot,
                                           strings: Strings) {
+        if UserDefaults.standard.bool(forKey: DefaultsKey.hideMenuBarItem) || forceHidden {
+            for item in metricStatusItems.values { item.isVisible = false }
+            return
+        }
         let groups = metricStatusGroups(for: metrics, strings: strings)
         let wanted = Set(groups.map(\.id))
         removeMetricStatusItems(except: wanted)

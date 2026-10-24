@@ -712,7 +712,7 @@ final class NotchMascotDesktop: NSObject {
         }
         guard now - Self.lastPatCounted > NotchMascotGrowth.petInterval else { return }
         Self.lastPatCounted = now
-        let gained = NotchMascotBondStore.shared.record(.petted)
+        let gained = NotchMascotBondStore.shared.record(.petted, for: look.style)
         host.mascot.showPetted(gained: gained)
     }
 
@@ -825,6 +825,14 @@ final class NotchMascotDesktop: NSObject {
 
     private var figureCenter: CGPoint { CGPoint(x: body.position.x, y: body.position.y + size / 2) }
 
+    /// Whether a point in this window falls within the companion's interactive figure.
+    func containsFigure(atWindowPoint point: CGPoint) -> Bool {
+        guard isOut, !inPlay, !isHoming, let panel else { return false }
+        let screenPoint = panel.convertPoint(toScreen: point)
+        let figure = figureFrame.insetBy(dx: -4, dy: -4)
+        return figure.contains(screenPoint)
+    }
+
     private func place() {
         placeFigure(center: figureCenter, scale: 1)
     }
@@ -910,6 +918,13 @@ final class NotchMascotDesktopView: NSView {
 
     override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // Never intercept mouse clicks in the transparent padding around the companion.
+        // Return super only when the click is on the companion figure itself.
+        guard let controller, controller.containsFigure(atWindowPoint: point) else { return nil }
+        return super.hitTest(point)
+    }
 
     override func mouseDown(with event: NSEvent) {
         controller?.pressBegan(at: NSEvent.mouseLocation, clicks: event.clickCount)

@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.59.0] — 2026-10-24 — kexts 3.35.1 (No kext changes)
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.
+
+This release introduces multi-metric trend carousels in the island capsule, island-only pure notch mode, feathered glass backdrops, independent per-companion progression and species affinities, a streamlined companion settings layout, and a compact standalone wardrobe viewer.
+
+### Fixed
+
+- **Companion settings recursion crash**: resolved an issue where evaluating companion level could trigger recursive look resolution, eliminating potential stack exhaustion when navigating companion settings.
+- **Desktop companion hit-testing non-interference**: tightened the hit-testing geometry of the desktop companion window to strictly encompass the figure silhouette, ensuring background windows and controls receive clicks without interference.
+
+### Added
+
+- **Multi-metric trend carousel in the capsule**: the Dynamic Island capsule center can now rotate smoothly between selected metrics (CPU, RAM, Fan, and Temperature) at customizable intervals with trend direction indicators and carousel transitions.
+- **Island-only mode (pure notch)**: added the option to run exclusively with the Dynamic Island, cleanly hiding the menu bar status icon while preserving complete popover navigation and controls through the notch.
+- **Feathered blur backdrop**: integrated a gaussian feathered glass backdrop behind the notch island that blends smoothly with the display bezel curvature.
+- **Independent per-companion progression & species affinities**:
+  - Each companion species now tracks its own level, bond milestones, and experience independently.
+  - Companions have distinct species affinities for gaining experience through care, companionship, and daily activity.
+  - Interactions with a desktop friend credit the friend's own profile, while interactions with the leader companion credit the leader.
+  - The Story tab now provides dedicated progress bars and relationship milestones for both the active companion and the friend.
+- **Reorganized companion settings**:
+  - Friend selection and color customization now live directly in the Appearance section.
+  - Friend accessory customization is now located in the Wardrobe section and respects the friend's unlocked level.
+  - The Behavior section is now focused purely on roam, excursion, dress-up, and pair interaction toggles.
+- **Compact standalone wardrobe viewer**:
+  - Replaced the large capsule tiles in the wardrobe with high-density 44×44pt vector item tiles.
+  - Shows 10+ items per row with unlock badges, level requirements, and instant stage previews, significantly reducing vertical scrolling.
+
 ## [1.58.0] — 2026-10-24 — kexts 3.35.1 (No kext changes)
 
 > **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.

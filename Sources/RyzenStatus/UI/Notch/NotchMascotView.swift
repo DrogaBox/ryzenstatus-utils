@@ -1602,7 +1602,7 @@ final class NotchMascotHostView: NSView {
             self.pettingWork = nil
             self.lastPetting = CACurrentMediaTime()
             self.mascot.react(.love, lift: 0)
-            let gained = NotchMascotBondStore.shared.record(.petted)
+            let gained = NotchMascotBondStore.shared.record(.petted, for: self.mascot.look.style)
             self.mascot.showPetted(gained: gained)
             NotchService.shared.noteMascotPettedInIsland(isFriend: self.isFriend)
             // A soft tick under a finger on the trackpad, as the hearts come.

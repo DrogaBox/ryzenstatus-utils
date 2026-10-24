@@ -1252,6 +1252,7 @@ final class NotchService: ObservableObject {
             running = true
             installObservers()
         }
+        NotchMascotCheats.shared.start()
         scheduleMascotIslandPlayTick()
         syncCapsuleCenter()
         syncShortcut()
@@ -1380,6 +1381,7 @@ final class NotchService: ObservableObject {
 
     func stop(restoreCapture: Bool = true) {
         preferenceSyncWork?.cancel(); preferenceSyncWork = nil
+        NotchMascotCheats.shared.stop()
         NotchLyricsImporter.shared.cancel()
         hotkey.unregister()
         if shortcutRegistrationFailed { shortcutRegistrationFailed = false }
@@ -3133,12 +3135,15 @@ final class NotchService: ObservableObject {
         let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
         let now = Date()
         let support = NotchCapsuleCenterSupport.self
+        let metricText = support.multiMetric(NotchCapsuleMetric.currentList(),
+                                             snapshot: SystemMonitor.shared.snapshot, unit: unit)
         let text = support.text(center: NotchCapsuleCenter.current(),
                                 song: support.song(title: track?.title, artist: track?.artist),
-                                metric: support.metric(NotchCapsuleMetric.current(),
-                                                       snapshot: SystemMonitor.shared.snapshot, unit: unit),
+                                metric: metricText,
                                 clock: support.clock(now, locale: language.formattingLocale()),
-                                snapshot: SystemMonitor.shared.snapshot, unit: unit, now: now)
+                                snapshot: SystemMonitor.shared.snapshot, unit: unit,
+                                carouselMetrics: NotchCapsuleMetric.carouselList(),
+                                now: now)
         guard text != capsuleCenterText else { return }
         let measure = { (text: String?) in text.map(NotchCapsuleLayout.centerWidth) ?? 0 }
         let resizes = measure(text) != measure(capsuleCenterText)
@@ -5998,6 +6003,16 @@ extension NotchService {
         let now = CACurrentMediaTime()
         pendingMascotReaction = (reaction, now + delay + patience, now + delay)
         flushMascotReaction()
+    }
+
+    /// Celebrates on the active companion (desktop or notch).
+    func celebrateCheat() {
+        guard NotchMascotSupport.isEnabled() else { return }
+        if mascotOnDesktop {
+            mascotDesktop.react(.celebrate)
+        } else {
+            reactMascot(.celebrate)
+        }
     }
 
     /// Hands a waiting reaction to the companion once the closed island shows

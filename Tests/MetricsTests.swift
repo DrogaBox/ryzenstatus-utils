@@ -11824,6 +11824,48 @@ struct MetricsTests {
             expect(bond.moments == 30 && bond.momentExperienceToday == growth.dailyMomentCap,
                    "moments are capped each day too")
 
+            // NotchMascotAffinity tests
+            let affinity = NotchMascotAffinity.self
+            expect(affinity.petGain(for: .dog) == (4, 50), "dog pet gain is (4, 50)")
+            expect(affinity.petGain(for: .slime) == (3, 40) && affinity.petGain(for: .frog) == (3, 40), "slime & frog pet gain is (3, 40)")
+            expect(affinity.petGain(for: .dragon) == (3, 35), "dragon pet gain is (3, 35)")
+            expect(affinity.petGain(for: .minimal) == (growth.petExperience, growth.dailyPetCap), "default pet gain is standard")
+
+            expect(affinity.momentGain(for: .cat) == (3, 35) && affinity.momentGain(for: .dragon) == (3, 35), "cat & dragon moment gain is (3, 35)")
+            expect(affinity.momentGain(for: .slime) == (2, 25) && affinity.momentGain(for: .fan) == (2, 25), "slime & fan moment gain is (2, 25)")
+            expect(affinity.momentGain(for: .minimal) == (growth.momentExperience, growth.dailyMomentCap), "default moment gain is standard")
+
+            expect(affinity.dayGain(for: .capybara) == 20, "capybara day gain is 20")
+            expect(affinity.dayGain(for: .minimal) == growth.dayExperience, "default day gain is standard")
+
+            // Per-companion affinity growth recording
+            var dogBond = NotchMascotBond(adopted: day(2026, 10, 1))
+            growth.record(.petted, into: &dogBond, style: .dog, day: "2026-10-01")
+            expect(dogBond.petExperienceToday == 4 && dogBond.experience == 4 + growth.dayExperience, "dog pat earns 4 experience")
+            for _ in 0..<20 { growth.record(.petted, into: &dogBond, style: .dog, day: "2026-10-01") }
+            expect(dogBond.petExperienceToday == 50, "dog daily pat cap is 50")
+
+            var capyBond = NotchMascotBond(adopted: day(2026, 10, 1))
+            growth.record(.dayTogether, into: &capyBond, style: .capybara, day: "2026-10-01")
+            expect(capyBond.experience == 20 && capyBond.daysTogether == 1, "capybara day together earns 20 experience")
+
+            // NotchMascotBondStore multi-companion bonds tests
+            let suiteName = "NotchMascotBondStoreTests-\(UUID().uuidString)"
+            if let mockDefaults = UserDefaults(suiteName: suiteName) {
+                let store = NotchMascotBondStore(defaults: mockDefaults)
+                expect(store.bond(for: .minimal).experience == 0, "fresh companion has 0 experience")
+                store.record(.petted, for: .dog)
+                expect(store.bond(for: .dog).pets == 1 && store.bond(for: .dog).experience > 0, "dog bond records pat")
+                expect(store.bond(for: .cat).pets == 0, "cat bond remains untouched")
+                store.award(experience: 100, for: .cat)
+                expect(store.bond(for: .cat).experience == 100, "cat receives awarded experience")
+                expect(store.level(for: .cat) == growth.level(for: 100), "cat level matches awarded experience")
+                store.reset(for: .cat)
+                expect(store.bond(for: .cat).experience == 0, "cat resets cleanly")
+                expect(store.bond(for: .dog).pets == 1, "dog bond still intact after cat reset")
+                mockDefaults.removePersistentDomain(forName: suiteName)
+            }
+
             expect(growth.age(of: NotchMascotBond(adopted: day(2026, 10, 1, 23)), at: day(2026, 10, 2, 1),
                               calendar: calendar) == 1,
                    "age counts calendar days, not hours")
@@ -12074,6 +12116,22 @@ struct MetricsTests {
                    "capsule network reads the download rate")
             snapshot.memoryTotal = 0
             expect(support.metric(.memory, snapshot: snapshot, unit: .celsius) == nil, "capsule memory needs a total")
+
+            // Multi-metrics & Carousel list tests
+            expect(NotchCapsuleMetric.currentList(defaults) == [.cpuTemperature], "default multi-metric list has cpuTemperature")
+            defaults.set(["cpuTemperature", "memory", "gpuTemperature"], forKey: DefaultsKey.notchCapsuleSelectedMetrics)
+            expect(NotchCapsuleMetric.currentList(defaults) == [.cpuTemperature, .memory, .gpuTemperature], "multi-metric list reads configured metrics")
+            var multiSnapshot = SystemSnapshot()
+            multiSnapshot.cpuTemperature = 50.0
+            multiSnapshot.memoryUsed = 8
+            multiSnapshot.memoryTotal = 16
+            multiSnapshot.gpuTemperature = 55.0
+            let multiText = support.multiMetric([.cpuTemperature, .memory, .gpuTemperature], snapshot: multiSnapshot, unit: .celsius)
+            expect(multiText == "CPU 50° · RAM 50% · GPU 55°", "multiMetric joins multiple metrics with dots")
+
+            expect(NotchCapsuleMetric.carouselList(defaults).count >= 3, "carousel list defaults to telemetry metrics")
+            defaults.set(["cpuTemperature", "cpuPower"], forKey: DefaultsKey.notchCapsuleCarouselMetrics)
+            expect(NotchCapsuleMetric.carouselList(defaults) == [.cpuTemperature, .cpuPower], "carousel list reads configured metrics")
 
             let at = { (seconds: Double) in Date(timeIntervalSinceReferenceDate: seconds) }
             expect(support.text(center: .none, song: "S", metric: "M", clock: "C", now: at(0)) == nil, "Nothing shows nothing")
@@ -12328,6 +12386,7 @@ struct MetricsTests {
             let suites: [(String, (TestSuite) -> Void)] = [
                 ("ClipboardHistoryWriteTests", ClipboardHistoryWriteTests.run),
                 ("NotchAgentTests", NotchAgentTests.run),
+                ("NotchMascotCheatsTests", NotchMascotCheatsTests.run),
             ]
             for (name, run) in suites { suite.run(name) { run(suite) } }
             checks += suite.checks

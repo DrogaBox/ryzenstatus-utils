@@ -108,6 +108,15 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchQuickPanel) private var quickPanel = true
     @AppStorage(DefaultsKey.notchAppPanel) private var appPanel = false
     @AppStorage(DefaultsKey.notchHidesMenuBarIcon) private var hidesMenuBarIcon = false
+    @AppStorage(DefaultsKey.hideMenuBarItem) private var hideMenuBarItem = false
+    @State private var carouselMetricsList: [String] = {
+        UserDefaults.standard.stringArray(forKey: DefaultsKey.notchCapsuleCarouselMetrics)
+            ?? ["cpuTemperature", "cpuPower", "peakFrequency", "fanSpeed", "memory", "gpuTemperature"]
+    }()
+    @State private var multiMetricsList: [String] = {
+        UserDefaults.standard.stringArray(forKey: DefaultsKey.notchCapsuleSelectedMetrics)
+            ?? ["cpuTemperature"]
+    }()
     @AppStorage(DefaultsKey.notchKeepAwakeActivity) private var keepAwakeActivity = false
     @AppStorage(DefaultsKey.notchScratchpad) private var scratchpad = true
     @AppStorage(DefaultsKey.brightnessControlEnabled) private var brightnessControlEnabled = false
@@ -802,6 +811,9 @@ struct NotchSettings: View {
                 Text(editor.appPanelHint).font(.caption).foregroundStyle(.secondary)
                 switchRow("menubar.rectangle", editor.hideMenuBarIcon, caption: editor.hideMenuBarIconHint,
                           isOn: $hidesMenuBarIcon)
+                switchRow("rectangle.badge.minus", l10n.language == .es ? "Modo Solo Dynamic Island" : "Island-Only Mode",
+                          caption: l10n.language == .es ? "Oculta todos los elementos de la barra de menús y usa únicamente la Dynamic Island." : "Hides all menu bar items and operates exclusively through the Dynamic Island.",
+                          isOn: $hideMenuBarItem)
                 destination(text.tools, symbol: NotchModule.tools.symbol, value: $quickPanel, available: AppFeature.quickLauncher.isAvailable)
                 destination(FeatureStrings.clipboard(l10n.language).title, symbol: "doc.on.clipboard", value: $clipboardWindow, available: AppFeature.clipboardHistory.isAvailable)
                 destination(text.files, symbol: "tray.full", value: $shelfWindow, available: AppFeature.shelf.isAvailable)
@@ -909,7 +921,7 @@ struct NotchSettings: View {
                 .labelsHidden()
                 .fixedSize()
             }
-            if center == .metric || center == .rotate {
+            if center == .rotate {
                 SettingsRow(symbol: "gauge.with.dots.needle.33percent", title: strings.metricLabel) {
                     Picker(strings.metricLabel, selection: $capsuleMetric) {
                         ForEach(NotchCapsuleMetric.allCases, id: \.self) { item in
@@ -921,7 +933,100 @@ struct NotchSettings: View {
                 }
                 .padding(.leading, settingsRowTextInset)
             }
+            if center == .metric {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(l10n.language == .es ? "Métricas activas (lado a lado):" : "Active metrics (side by side):")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 8)], spacing: 8) {
+                        ForEach(NotchCapsuleMetric.allCases, id: \.self) { item in
+                            let active = multiMetricsList.contains(item.rawValue)
+                            Button {
+                                toggleMultiMetric(item)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: active ? "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(active ? Color.accentColor : Color.secondary)
+                                    Text(strings.title(for: item))
+                                        .font(.system(size: 11))
+                                        .lineLimit(1)
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(active ? Color.accentColor.opacity(0.12) : Color.secondary.opacity(0.06),
+                                            in: RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(.top, 4)
+                .padding(.leading, settingsRowTextInset)
+            }
+            if center == .carousel {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(l10n.language == .es ? "Métricas en rotación:" : "Metrics in rotation:")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 8)], spacing: 8) {
+                        ForEach(NotchCapsuleMetric.allCases, id: \.self) { item in
+                            let active = carouselMetricsList.contains(item.rawValue)
+                            Button {
+                                toggleCarouselMetric(item)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: active ? "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(active ? Color.accentColor : Color.secondary)
+                                    Text(strings.title(for: item))
+                                        .font(.system(size: 11))
+                                        .lineLimit(1)
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(active ? Color.accentColor.opacity(0.12) : Color.secondary.opacity(0.06),
+                                            in: RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(.top, 4)
+                .padding(.leading, settingsRowTextInset)
+            }
         }
+    }
+
+    private func toggleMultiMetric(_ metric: NotchCapsuleMetric) {
+        var current = multiMetricsList
+        if let idx = current.firstIndex(of: metric.rawValue) {
+            if current.count > 1 {
+                current.remove(at: idx)
+            }
+        } else {
+            current.append(metric.rawValue)
+        }
+        multiMetricsList = current
+        UserDefaults.standard.set(current, forKey: DefaultsKey.notchCapsuleSelectedMetrics)
+        if let first = current.first {
+            capsuleMetric = first
+        }
+    }
+
+    private func toggleCarouselMetric(_ metric: NotchCapsuleMetric) {
+        var current = carouselMetricsList
+        if let idx = current.firstIndex(of: metric.rawValue) {
+            if current.count > 1 {
+                current.remove(at: idx)
+            }
+        } else {
+            current.append(metric.rawValue)
+        }
+        carouselMetricsList = current
+        UserDefaults.standard.set(current, forKey: DefaultsKey.notchCapsuleCarouselMetrics)
     }
 
     private func silhouetteChoice(_ item: NotchSilhouette, title: String) -> some View {

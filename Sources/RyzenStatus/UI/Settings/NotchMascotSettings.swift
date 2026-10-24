@@ -68,7 +68,8 @@ struct NotchMascotSettings: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var life: NotchMascotLifeStrings { FeatureStrings.notchMascotLife(l10n.language) }
-    private var level: Int { NotchMascotGrowth.shownLevel(earned: bondStore.level, name: petName) }
+    private var currentStyle: NotchMascotStyle { NotchMascotStyle.resolved(style, name: petName) }
+    private var level: Int { bondStore.shownLevel(for: currentStyle) }
     private var chosenAccessory: NotchMascotAccessory { NotchMascotAccessory(rawValue: accessory) ?? .none }
     private var forms: NotchMascotFormStrings { FeatureStrings.notchMascotForms(l10n.language) }
     private var choice: NotchMascotFormChoice { NotchMascotFormChoice(rawValue: formChoice) }
@@ -92,11 +93,11 @@ struct NotchMascotSettings: View {
     private var auto: NotchMascotAutomationStrings { FeatureStrings.notchMascotAutomation(l10n.language) }
 
     private var look: NotchMascotLook {
-        var look = NotchMascotLook(style: NotchMascotStyle.resolved(style, name: petName),
+        var look = NotchMascotLook(style: currentStyle,
                         shape: NotchMascotShape(rawValue: shape) ?? .ball,
                         palette: NotchMascotPalette(rawValue: palette) ?? .pearl,
                         accessory: NotchMascotWardrobe.effective(chosen: chosenAccessory, level: level, date: Date(),
-                                                                 adopted: bondStore.bond.adopted, seasonal: seasonal,
+                                                                 adopted: bondStore.bond(for: currentStyle).adopted, seasonal: seasonal,
                                                                  gaming: gaming && hardware),
                         form: shownForm)
         look.customColor = NotchMascotColor(hex: customColor)
@@ -243,7 +244,8 @@ struct NotchMascotSettings: View {
     // MARK: Appearance
 
     private var appearance: some View {
-        SettingsCard(title: text.appearance) {
+        let desktopText = FeatureStrings.notchMascotDesktop(l10n.language)
+        return SettingsCard(title: text.appearance) {
             SettingsRow(symbol: "paintpalette", title: text.style) { EmptyView() }
             // The companions to choose from, in as many rows as the page needs.
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 84, maximum: 120), spacing: 10)],
@@ -251,6 +253,7 @@ struct NotchMascotSettings: View {
                 ForEach(NotchMascotStyle.available(name: petName)) { item in
                     NotchMascotChoiceTile(title: auto.style(item, base: text), selected: look.style == item) {
                         style = item.rawValue
+                        NotchMascotBondStore.shared.syncActiveStyle()
                     } preview: {
                         NotchMascotView(look: NotchMascotLook(style: item, shape: look.shape, palette: look.palette),
                                         size: 30, idles: false)
@@ -278,8 +281,30 @@ struct NotchMascotSettings: View {
                 swatches
                     .transition(.opacity)
             }
+            SettingsChoiceRow(symbol: "person.2", title: desktopText.friend, selection: $friend) {
+                Text(desktopText.nobody).tag("")
+                ForEach(NotchMascotStyle.available(name: petName)) { Text(auto.style($0, base: text)).tag($0.rawValue) }
+            }
+            .padding(.leading, settingsRowTextInset)
+            .transition(.opacity)
+            if !friend.isEmpty, let friendStyle = NotchMascotStyle(rawValue: friend), friendStyle.takesPalette {
+                SettingsChoiceRow(symbol: "swatchpalette", title: desktopText.friendColors,
+                                  selection: Binding(get: { friendPalette },
+                                                     set: { friendPalette = $0
+                                                         if !$0.isEmpty { friendCustomColor = "" } })) {
+                    Text(desktopText.friendColorsSame).tag("")
+                    ForEach(NotchMascotPalette.allCases) { Text(text.palette($0)).tag($0.rawValue) }
+                }
+                .padding(.leading, settingsRowTextInset)
+                .transition(.opacity)
+                ColorPicker(desktopText.friendCustomColor, selection: colorBinding($friendCustomColor),
+                            supportsOpacity: false)
+                    .padding(.leading, settingsRowTextInset)
+                    .transition(.opacity)
+            }
         }
         .animation(animation, value: look.style)
+        .animation(animation, value: friend.isEmpty)
     }
 
     private var shapes: some View {
@@ -342,10 +367,9 @@ struct NotchMascotSettings: View {
     // MARK: Story
 
     private var storyCard: some View {
-        let bond = bondStore.bond
-        // The name that unlocks everything shows it at the top, full bar.
-        let progress = NotchMascotGrowth.unlocksEverything(name: petName)
-            ? nil : NotchMascotGrowth.progress(for: bond.experience)
+        let bond = bondStore.bond(for: currentStyle)
+        let companionLevel = bondStore.shownLevel(for: currentStyle)
+        let progress = bondStore.progress(for: currentStyle)
         return SettingsCard(title: life.bondTitle) {
             Text(life.bondHint).font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -365,7 +389,7 @@ struct NotchMascotSettings: View {
                         }
                     }
             }
-            SettingsRow(symbol: "star.fill", title: life.level(level)) {
+            SettingsRow(symbol: "star.fill", title: life.level(companionLevel)) {
                 Text(progress.map { life.progress($0.done, of: $0.span) } ?? life.maxLevel)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
@@ -381,11 +405,37 @@ struct NotchMascotSettings: View {
                 statTile("sun.max.fill", life.daysTogetherLabel, "\(bond.daysTogether)")
             }
             .padding(.leading, settingsRowTextInset)
+            if !friend.isEmpty, let friendStyle = NotchMascotStyle(rawValue: friend) {
+                let friendBond = bondStore.bond(for: friendStyle)
+                let friendLevel = bondStore.shownLevel(for: friendStyle)
+                let friendProgress = bondStore.progress(for: friendStyle)
+                let friendTitle = "\(auto.style(friendStyle, base: text)) · \(life.level(friendLevel))"
+
+                SettingsRow(symbol: "person.2", title: friendTitle) {
+                    Text(friendProgress.map { life.progress($0.done, of: $0.span) } ?? life.maxLevel)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                .transition(.opacity)
+                ProgressView(value: Double(friendProgress?.done ?? 1), total: Double(max(1, friendProgress?.span ?? 1)))
+                    .tint(.pink)
+                    .padding(.leading, settingsRowTextInset)
+                    .transition(.opacity)
+                HStack(spacing: 10) {
+                    statTile("calendar", life.age,
+                             life.days(NotchMascotGrowth.age(of: friendBond, at: Date())))
+                    statTile("hand.raised.fill", life.pets, "\(friendBond.pets)")
+                    statTile("sparkles", life.moments, "\(friendBond.moments)")
+                    statTile("sun.max.fill", life.daysTogetherLabel, "\(friendBond.daysTogether)")
+                }
+                .padding(.leading, settingsRowTextInset)
+                .transition(.opacity)
+            }
             HStack {
                 Spacer()
                 Button(life.reset, role: .destructive) { confirmingReset = true }
                     .confirmationDialog(life.reset, isPresented: $confirmingReset) {
-                        Button(life.reset, role: .destructive) { bondStore.reset() }
+                        Button(life.reset, role: .destructive) { bondStore.reset(for: currentStyle) }
                     } message: {
                         Text(life.resetConfirm)
                     }
@@ -414,38 +464,35 @@ struct NotchMascotSettings: View {
     }
 
     private var wardrobeCard: some View {
-        SettingsCard(title: life.accessories) {
+        let desktopText = FeatureStrings.notchMascotDesktop(l10n.language)
+        return SettingsCard(title: life.accessories) {
             SettingsRow(symbol: "tshirt", title: life.accessories, caption: life.accessoriesHint) {
                 Text(life.name(of: look.accessory)).foregroundStyle(.secondary)
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 84, maximum: 120), spacing: 10)],
-                      alignment: .leading, spacing: 10) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 44, maximum: 54), spacing: 8)],
+                      alignment: .leading, spacing: 8) {
                 // What the shop sells stays a surprise until it is bought.
                 ForEach(NotchMascotAccessory.wardrobe.filter { !$0.isPurchasable || $0.unlockLevel <= level }) { item in
                     let unlocked = item.unlockLevel <= level
-                    NotchMascotChoiceTile(title: unlocked ? life.name(of: item) : lockedTitle(item),
-                                          selected: chosenAccessory == item) {
+                    NotchMascotAccessoryTile(accessory: item, selected: chosenAccessory == item, unlocked: unlocked,
+                                            title: unlocked ? life.name(of: item) : lockedTitle(item)) {
                         if unlocked { accessory = item.rawValue }
-                    } preview: {
-                        NotchMascotView(look: NotchMascotLook(style: look.style, shape: look.shape,
-                                                              palette: look.palette, accessory: item),
-                                        size: 30, idles: false)
-                            .frame(width: 30, height: 30)
-                            .frame(width: 64, height: 42)
-                            .background(Color.black, in: Capsule())
-                            .opacity(unlocked ? 1 : 0.35)
-                            .overlay {
-                                if !unlocked {
-                                    Image(systemName: "lock.fill").font(.system(size: 12, weight: .bold))
-                                        .foregroundStyle(.white)
-                                }
-                            }
                     }
-                    .disabled(!unlocked)
                 }
             }
             .padding(.leading, settingsRowTextInset)
             .id(purchases)
+            if !friend.isEmpty, let friendStyle = NotchMascotStyle(rawValue: friend), friendStyle.takesAccessory {
+                let friendLevel = bondStore.shownLevel(for: friendStyle)
+                SettingsChoiceRow(symbol: "tshirt", title: desktopText.friendItem, selection: $friendAccessory) {
+                    Text(desktopText.friendItemOwn).tag("")
+                    ForEach(NotchMascotAccessory.wardrobe.filter { $0.unlockLevel <= friendLevel }) {
+                        Text(life.name(of: $0)).tag($0.rawValue)
+                    }
+                }
+                .padding(.leading, settingsRowTextInset)
+                .transition(.opacity)
+            }
             switchRow("leaf", life.seasonal, caption: life.seasonalHint, isOn: $seasonal)
             switchRow("text.bubble", life.speech, caption: life.speechHint, isOn: $speech)
             switchRow("cpu", life.hardware, caption: life.hardwareHint, isOn: $hardware)
@@ -615,46 +662,14 @@ struct NotchMascotSettings: View {
                           isOn: $dressUp)
                     .padding(.leading, settingsRowTextInset)
                     .transition(.opacity)
-                SettingsChoiceRow(symbol: "person.2", title: desktopText.friend, selection: $friend) {
-                    Text(desktopText.nobody).tag("")
-                    ForEach(NotchMascotStyle.available(name: petName)) { Text(auto.style($0, base: text)).tag($0.rawValue) }
-                }
-                .padding(.leading, settingsRowTextInset)
-                .transition(.opacity)
-                if !friend.isEmpty, let friendStyle = NotchMascotStyle(rawValue: friend), friendStyle.takesAccessory {
-                    SettingsChoiceRow(symbol: "tshirt", title: desktopText.friendItem, selection: $friendAccessory) {
-                        Text(desktopText.friendItemOwn).tag("")
-                        ForEach(NotchMascotAccessory.wardrobe.filter { $0.unlockLevel <= level }) {
-                            Text(life.name(of: $0)).tag($0.rawValue)
-                        }
-                    }
+                switchRow("figure.2.and.child.holdinghands", desktopText.plays, caption: desktopText.playsCaption,
+                          isOn: $friendsPlay)
                     .padding(.leading, settingsRowTextInset)
                     .transition(.opacity)
-                    if let friendStyle = NotchMascotStyle(rawValue: friend), friendStyle.takesPalette {
-                        SettingsChoiceRow(symbol: "swatchpalette", title: desktopText.friendColors,
-                                          selection: Binding(get: { friendPalette },
-                                                             set: { friendPalette = $0
-                                                                 if !$0.isEmpty { friendCustomColor = "" } })) {
-                            Text(desktopText.friendColorsSame).tag("")
-                            ForEach(NotchMascotPalette.allCases) { Text(text.palette($0)).tag($0.rawValue) }
-                        }
-                        .padding(.leading, settingsRowTextInset)
-                        .transition(.opacity)
-                        ColorPicker(desktopText.friendCustomColor, selection: colorBinding($friendCustomColor),
-                                    supportsOpacity: false)
-                            .padding(.leading, settingsRowTextInset)
-                            .transition(.opacity)
-                    }
-                    switchRow("figure.2.and.child.holdinghands", desktopText.plays, caption: desktopText.playsCaption,
-                              isOn: $friendsPlay)
-                        .padding(.leading, settingsRowTextInset)
-                        .transition(.opacity)
-                }
             }
         }
         .animation(animation, value: visits)
         .animation(animation, value: desktop)
-        .animation(animation, value: friend.isEmpty)
     }
 
     // MARK: Automatic reactions

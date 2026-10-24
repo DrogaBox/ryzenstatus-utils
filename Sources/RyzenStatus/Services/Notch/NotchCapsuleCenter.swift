@@ -23,6 +23,22 @@ enum NotchCapsuleMetric: String, CaseIterable {
     static func current(_ defaults: UserDefaults = .standard) -> NotchCapsuleMetric {
         NotchCapsuleMetric(rawValue: defaults.string(forKey: DefaultsKey.notchCapsuleMetric) ?? "") ?? .cpuTemperature
     }
+
+    static func currentList(_ defaults: UserDefaults = .standard) -> [NotchCapsuleMetric] {
+        if let stored = defaults.stringArray(forKey: DefaultsKey.notchCapsuleSelectedMetrics), !stored.isEmpty {
+            let parsed = stored.compactMap { NotchCapsuleMetric(rawValue: $0) }
+            if !parsed.isEmpty { return parsed }
+        }
+        return [current(defaults)]
+    }
+
+    static func carouselList(_ defaults: UserDefaults = .standard) -> [NotchCapsuleMetric] {
+        if let stored = defaults.stringArray(forKey: DefaultsKey.notchCapsuleCarouselMetrics), !stored.isEmpty {
+            let parsed = stored.compactMap { NotchCapsuleMetric(rawValue: $0) }
+            if !parsed.isEmpty { return parsed }
+        }
+        return [.cpuTemperature, .cpuPower, .peakFrequency, .fanSpeed, .memory, .gpuTemperature]
+    }
 }
 
 enum NotchCapsuleCenterSupport {
@@ -72,6 +88,12 @@ enum NotchCapsuleCenterSupport {
         }
     }
 
+    /// Formats multiple metrics side by side separated by " · ".
+    static func multiMetric(_ metrics: [NotchCapsuleMetric], snapshot: SystemSnapshot, unit: TemperatureUnit) -> String? {
+        let parts = metrics.compactMap { metric($0, snapshot: snapshot, unit: unit) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     static func clock(_ date: Date, locale: Locale) -> String {
         let formatter = DateFormatter()
         formatter.locale = locale
@@ -90,6 +112,7 @@ enum NotchCapsuleCenterSupport {
 
     static func text(center: NotchCapsuleCenter, song: String?, metric: String?, clock: String,
                      snapshot: SystemSnapshot?, unit: TemperatureUnit,
+                     carouselMetrics: [NotchCapsuleMetric]? = nil,
                      now: Date) -> String? {
         switch center {
         case .none: return nil
@@ -104,26 +127,8 @@ enum NotchCapsuleCenterSupport {
         case .carousel:
             var readings: [String] = []
             if let s = snapshot {
-                if let temp = s.cpuTemperature {
-                    readings.append("CPU " + MetricFormat.temperatureCompact(temp, unit: unit))
-                }
-                if let power = s.cpuPower, power > 0 {
-                    readings.append(String(format: "PPT %.0fW", power))
-                }
-                if let peak = s.peakCPUFreq, peak > 0 {
-                    readings.append(String(format: "Boost %.2f GHz", peak / 1000.0))
-                } else if let last = s.cpuFreqHistory.last, last > 0 {
-                    readings.append(String(format: "Clock %.2f GHz", last))
-                }
-                if let fan = s.gpuFan, fan > 0 {
-                    readings.append(String(format: "Fan %.0f RPM", fan))
-                }
-                if let used = s.memoryUsed, let total = s.memoryTotal, total > 0 {
-                    readings.append("RAM " + MetricFormat.percent(Double(used) / Double(total)))
-                }
-                if let gpuTemp = s.gpuTemperature {
-                    readings.append("GPU " + MetricFormat.temperatureCompact(gpuTemp, unit: unit))
-                }
+                let items = carouselMetrics ?? NotchCapsuleMetric.carouselList()
+                readings = items.compactMap { self.metric($0, snapshot: s, unit: unit) }
             }
             if readings.isEmpty {
                 if let m = metric { readings.append(m) }

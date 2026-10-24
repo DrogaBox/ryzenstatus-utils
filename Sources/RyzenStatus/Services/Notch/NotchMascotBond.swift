@@ -116,6 +116,43 @@ enum NotchMascotBondEvent: Equatable {
     case dayTogether, petted, moment
 }
 
+// MARK: - Affinity
+
+enum NotchMascotAffinity {
+    static func petGain(for style: NotchMascotStyle) -> (perPet: Int, dailyCap: Int) {
+        switch style {
+        case .dog:
+            return (4, 50)
+        case .slime, .devourer, .frog, .axolotl, .mouse:
+            return (3, 40)
+        case .dragon:
+            return (3, 35)
+        default:
+            return (NotchMascotGrowth.petExperience, NotchMascotGrowth.dailyPetCap)
+        }
+    }
+
+    static func momentGain(for style: NotchMascotStyle) -> (perMoment: Int, dailyCap: Int) {
+        switch style {
+        case .cat, .dragon, .robot, .chip, .ghost, .phoenix, .cristobal, .whiteRabbit:
+            return (3, 35)
+        case .slime, .devourer, .fan, .axolotl:
+            return (2, 25)
+        default:
+            return (NotchMascotGrowth.momentExperience, NotchMascotGrowth.dailyMomentCap)
+        }
+    }
+
+    static func dayGain(for style: NotchMascotStyle) -> Int {
+        switch style {
+        case .capybara:
+            return 20
+        default:
+            return NotchMascotGrowth.dayExperience
+        }
+    }
+}
+
 /// How it grows. Pure, so every rule is tested.
 enum NotchMascotGrowth {
     /// Experience each level starts at. Level ten takes a couple of months of
@@ -181,40 +218,50 @@ enum NotchMascotGrowth {
         age > 0 && (milestoneAges.contains(age) || age % 365 == 0)
     }
 
-    /// Applies one event on `day`, and answers the level before and after.
+    /// Applies one event on `day` with companion style affinity rules, and answers the level before and after.
     @discardableResult
     static func record(_ event: NotchMascotBondEvent, into bond: inout NotchMascotBond,
-                       day: String) -> (before: Int, after: Int) {
+                       style: NotchMascotStyle, day: String) -> (before: Int, after: Int) {
         let before = level(for: bond.experience)
         if bond.lastDay != day {
             // A new day resets the caps; the first event of the day counts it.
             bond.petExperienceToday = 0
             bond.momentExperienceToday = 0
         }
+        let pet = NotchMascotAffinity.petGain(for: style)
+        let moment = NotchMascotAffinity.momentGain(for: style)
+        let dayExp = NotchMascotAffinity.dayGain(for: style)
         switch event {
         case .dayTogether:
             if bond.lastDay != day {
                 bond.daysTogether += 1
-                bond.experience += dayExperience
+                bond.experience += dayExp
             }
         case .petted:
             bond.pets += 1
-            let gained = min(petExperience, max(0, dailyPetCap - bond.petExperienceToday))
+            let gained = min(pet.perPet, max(0, pet.dailyCap - bond.petExperienceToday))
             bond.petExperienceToday += gained
             bond.experience += gained
         case .moment:
             bond.moments += 1
-            let gained = min(momentExperience, max(0, dailyMomentCap - bond.momentExperienceToday))
+            let gained = min(moment.perMoment, max(0, moment.dailyCap - bond.momentExperienceToday))
             bond.momentExperienceToday += gained
             bond.experience += gained
         }
         if bond.lastDay != day, event != .dayTogether {
             // Petted before the day was counted: count it now.
             bond.daysTogether += 1
-            bond.experience += dayExperience
+            bond.experience += dayExp
         }
         bond.lastDay = day
         return (before, level(for: bond.experience))
+    }
+
+    /// Applies one event on `day`, delegating to minimal style affinity.
+    @discardableResult
+    static func record(_ event: NotchMascotBondEvent, into bond: inout NotchMascotBond,
+                       day: String) -> (before: Int, after: Int) {
+        record(event, into: &bond, style: .minimal, day: day)
     }
 }
 
@@ -387,26 +434,84 @@ enum NotchMascotGreeting: Equatable {
 final class NotchMascotBondStore: ObservableObject {
     static let shared = NotchMascotBondStore()
 
+    @Published private(set) var bonds: [String: NotchMascotBond] = [:]
     @Published private(set) var bond: NotchMascotBond
 
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        if let data = defaults.data(forKey: DefaultsKey.notchMascotBond),
-           let saved = try? JSONDecoder().decode(NotchMascotBond.self, from: data) {
-            bond = saved
-        } else {
-            // Its first day is the first time anything asks about it.
-            bond = NotchMascotBond(adopted: Date())
-            if let data = try? JSONEncoder().encode(bond) { defaults.set(data, forKey: DefaultsKey.notchMascotBond) }
-        }
+    var activeStyle: NotchMascotStyle {
+        NotchMascotStyle.resolved(defaults.string(forKey: DefaultsKey.notchMascotStyle), name: displayName)
     }
 
-    var level: Int { NotchMascotGrowth.level(for: bond.experience) }
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        var loaded: [String: NotchMascotBond] = [:]
+        if let data = defaults.data(forKey: DefaultsKey.notchMascotBonds),
+           let saved = try? JSONDecoder().decode([String: NotchMascotBond].self, from: data) {
+            loaded = saved
+        }
+        let name = (defaults.string(forKey: DefaultsKey.notchMascotName) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedActive = NotchMascotStyle.resolved(defaults.string(forKey: DefaultsKey.notchMascotStyle), name: name)
+        if loaded.isEmpty {
+            if let legacyData = defaults.data(forKey: DefaultsKey.notchMascotBond),
+               let legacyBond = try? JSONDecoder().decode(NotchMascotBond.self, from: legacyData) {
+                loaded[resolvedActive.rawValue] = legacyBond
+            } else {
+                loaded[resolvedActive.rawValue] = NotchMascotBond(adopted: Date())
+            }
+            if let encoded = try? JSONEncoder().encode(loaded) {
+                defaults.set(encoded, forKey: DefaultsKey.notchMascotBonds)
+            }
+        }
+        self.bonds = loaded
+        let currentBond = loaded[resolvedActive.rawValue] ?? NotchMascotBond(adopted: Date())
+        self.bond = currentBond
+        if defaults.data(forKey: DefaultsKey.notchMascotBond) == nil {
+            if let data = try? JSONEncoder().encode(currentBond) {
+                defaults.set(data, forKey: DefaultsKey.notchMascotBond)
+            }
+        }
+        defaults.set(NotchMascotGrowth.level(for: currentBond.experience), forKey: DefaultsKey.notchMascotLevel)
+    }
+
+    func syncActiveStyle() {
+        let current = bond(for: activeStyle)
+        bond = current
+        if let data = try? JSONEncoder().encode(current) {
+            defaults.set(data, forKey: DefaultsKey.notchMascotBond)
+        }
+        defaults.set(NotchMascotGrowth.level(for: current.experience), forKey: DefaultsKey.notchMascotLevel)
+    }
+
+    func bond(for style: NotchMascotStyle) -> NotchMascotBond {
+        if let existing = bonds[style.rawValue] {
+            return existing
+        }
+        let fresh = NotchMascotBond(adopted: Date())
+        bonds[style.rawValue] = fresh
+        if let data = try? JSONEncoder().encode(bonds) {
+            defaults.set(data, forKey: DefaultsKey.notchMascotBonds)
+        }
+        return fresh
+    }
+
+    func level(for style: NotchMascotStyle) -> Int {
+        NotchMascotGrowth.level(for: bond(for: style).experience)
+    }
+
+    func shownLevel(for style: NotchMascotStyle) -> Int {
+        NotchMascotGrowth.shownLevel(earned: level(for: style), name: displayName)
+    }
+
+    func progress(for style: NotchMascotStyle) -> (done: Int, span: Int)? {
+        if unlocksEverything { return nil }
+        return NotchMascotGrowth.progress(for: bond(for: style).experience)
+    }
+
+    var level: Int { level(for: activeStyle) }
 
     /// The level shown and unlocked with, which the name can lift to the top.
-    var shownLevel: Int { NotchMascotGrowth.shownLevel(earned: level, name: displayName) }
+    var shownLevel: Int { shownLevel(for: activeStyle) }
 
     /// Everything unlocked by its name rather than by growing.
     var unlocksEverything: Bool { NotchMascotGrowth.unlocksEverything(name: displayName) }
@@ -414,13 +519,15 @@ final class NotchMascotBondStore: ObservableObject {
     /// Counts `event` now, announces a new level, and answers the experience
     /// it brought.
     @discardableResult
-    func record(_ event: NotchMascotBondEvent, now: Date = Date()) -> Int {
-        var next = bond
-        let levels = NotchMascotGrowth.record(event, into: &next, day: NotchMascotGrowth.dayKey(now))
-        let gained = next.experience - bond.experience
-        // The company is noted every few seconds; only the first of the day pays.
-        let firstOfDay = next.daysTogether != bond.daysTogether
-        save(next)
+    func record(_ event: NotchMascotBondEvent, for style: NotchMascotStyle? = nil, now: Date = Date()) -> Int {
+        let targetStyle = style ?? activeStyle
+        var targetBond = bond(for: targetStyle)
+        let beforeExp = targetBond.experience
+        let beforeDays = targetBond.daysTogether
+        let levels = NotchMascotGrowth.record(event, into: &targetBond, style: targetStyle, day: NotchMascotGrowth.dayKey(now))
+        let gained = targetBond.experience - beforeExp
+        let firstOfDay = targetBond.daysTogether != beforeDays
+        save(targetBond, for: targetStyle)
         if event != .dayTogether { NotchMascotRPG.collect(gold: 2) }
         else if firstOfDay { NotchMascotRPG.collect(gold: 40) }
         if levels.after > levels.before { announceLevel(levels.after) }
@@ -429,12 +536,13 @@ final class NotchMascotBondStore: ObservableObject {
 
     /// Experience that does not come from a bond event: a pat in the
     /// island, a chest from a lair. It counts toward the level like any other.
-    func award(experience amount: Int) {
+    func award(experience amount: Int, for style: NotchMascotStyle? = nil) {
         guard amount > 0 else { return }
-        var next = bond
+        let targetStyle = style ?? activeStyle
+        var next = bond(for: targetStyle)
         let before = NotchMascotGrowth.level(for: next.experience)
         next.experience += amount
-        save(next)
+        save(next, for: targetStyle)
         let after = NotchMascotGrowth.level(for: next.experience)
         if after > before { announceLevel(after) }
     }
@@ -442,14 +550,15 @@ final class NotchMascotBondStore: ObservableObject {
     /// Once a day, the first time you are around: a greeting for the time of
     /// day, or a celebration on a milestone age.
     func greetIfDue(now: Date = Date(), calendar: Calendar = .current) {
+        let targetStyle = activeStyle
         let day = NotchMascotGrowth.dayKey(now, calendar: calendar)
-        guard bond.greetedDay != day else { return }
-        var next = bond
-        next.greetedDay = day
-        let age = NotchMascotGrowth.age(of: bond, at: now, calendar: calendar)
-        let milestone = NotchMascotGrowth.isMilestone(age: age) && !bond.celebratedAges.contains(age)
-        if milestone { next.celebratedAges.append(age) }
-        save(next)
+        var targetBond = bond(for: targetStyle)
+        guard targetBond.greetedDay != day else { return }
+        targetBond.greetedDay = day
+        let age = NotchMascotGrowth.age(of: targetBond, at: now, calendar: calendar)
+        let milestone = NotchMascotGrowth.isMilestone(age: age) && !targetBond.celebratedAges.contains(age)
+        if milestone { targetBond.celebratedAges.append(age) }
+        save(targetBond, for: targetStyle)
         let text = FeatureStrings.notchMascotLife(L10n.shared.language)
         if milestone {
             announce(title: text.anniversary, detail: signed(text.daysTogether(age)), reaction: .celebrate)
@@ -480,16 +589,28 @@ final class NotchMascotBondStore: ObservableObject {
     }
 
     /// Starts over: a new adoption day, no experience.
-    func reset(now: Date = Date()) {
-        save(NotchMascotBond(adopted: now))
+    func reset(for style: NotchMascotStyle? = nil, now: Date = Date()) {
+        let targetStyle = style ?? activeStyle
+        save(NotchMascotBond(adopted: now), for: targetStyle)
+    }
+
+    func save(_ target: NotchMascotBond, for style: NotchMascotStyle) {
+        bonds[style.rawValue] = target
+        if let data = try? JSONEncoder().encode(bonds) {
+            defaults.set(data, forKey: DefaultsKey.notchMascotBonds)
+        }
+        if style == activeStyle {
+            bond = target
+            if let data = try? JSONEncoder().encode(target) {
+                defaults.set(data, forKey: DefaultsKey.notchMascotBond)
+            }
+            // The level alone, cheap to read on every redraw of the companion.
+            defaults.set(NotchMascotGrowth.level(for: target.experience), forKey: DefaultsKey.notchMascotLevel)
+        }
     }
 
     private func save(_ next: NotchMascotBond) {
-        guard next != bond else { return }
-        bond = next
-        if let data = try? JSONEncoder().encode(next) { defaults.set(data, forKey: DefaultsKey.notchMascotBond) }
-        // The level alone, cheap to read on every redraw of the companion.
-        defaults.set(NotchMascotGrowth.level(for: next.experience), forKey: DefaultsKey.notchMascotLevel)
+        save(next, for: activeStyle)
     }
 
     private func announceLevel(_ level: Int) {

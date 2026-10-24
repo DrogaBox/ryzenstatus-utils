@@ -562,6 +562,9 @@ extension DefaultsKey {
     static let notchIdleContent = "notchIdleContent"
     static let notchCapsuleCenter = "notchCapsuleCenter"
     static let notchCapsuleMetric = "notchCapsuleMetric"
+    static let notchCapsuleCarouselMetrics = "notchCapsuleCarouselMetrics"
+    static let notchCapsuleSelectedMetrics = "notchCapsuleSelectedMetrics"
+    static let hideMenuBarItem = "hideMenuBarItem"
     static let notchHardwareAlertsEnabled = "notchHardwareAlertsEnabled"
     static let notchIslandSoundCues = "notchIslandSoundCues"
     static let notchShowPlayingMusic = "notchShowPlayingMusic"
@@ -660,6 +663,7 @@ extension DefaultsKey {
     static let notchMascotAutoAntics = "notchMascotAutoAntics"
     /// The companion's life: its bond (JSON), level, name and wardrobe.
     static let notchMascotBond = "notchMascotBond"
+    static let notchMascotBonds = "notchMascotBonds" // JSON map of style rawValue -> NotchMascotBond
     static let notchMascotLevel = "notchMascotLevel"
     static let notchMascotName = "notchMascotName"
     static let notchMascotAccessory = "notchMascotAccessory"   // NotchMascotAccessory raw value

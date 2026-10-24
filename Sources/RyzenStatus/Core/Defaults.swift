@@ -957,6 +957,11 @@ enum Defaults {
         DefaultsKey.notchIdleContent: "music", // NotchIdleContent.music
         DefaultsKey.notchCapsuleCenter: "song", // NotchCapsuleCenter.song
         DefaultsKey.notchCapsuleMetric: "cpuTemperature", // NotchCapsuleMetric.cpuTemperature
+        DefaultsKey.notchCapsuleCarouselMetrics: [
+            "cpuTemperature", "cpuPower", "peakFrequency", "fanSpeed", "memory", "gpuTemperature"
+        ],
+        DefaultsKey.notchCapsuleSelectedMetrics: ["cpuTemperature"],
+        DefaultsKey.hideMenuBarItem: false,
         DefaultsKey.notchHardwareAlertsEnabled: true,
         DefaultsKey.notchIslandSoundCues: true,
         DefaultsKey.notchHiddenControls: "keyboardLight,microphone,screenshot,recording,speedTest,panel,commandBar,scratchpad", // NotchControlItem.defaultHidden
