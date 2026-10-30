@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.68.2] — 2026-10-30 — kexts 3.35.1 (No kext changes)
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.
+
+This release stops the desktop companions bouncing on top of windows.
+
+- **Standing still on windows**: up on a window, a companion now stands still on its top edge. Before, it lost track of the window under it many times a second and kept hopping in place, looking as if it floated above the edge; it now rides the window when you move it and drops only when the window closes, hides or is covered.
+
 ## [1.68.1] — 2026-10-30 — kexts 3.35.1 (No kext changes)
 
 > **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.

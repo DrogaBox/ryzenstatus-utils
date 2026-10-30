@@ -11415,6 +11415,10 @@ struct MetricsTests {
                 expect(!hopper.airborne && hopper.position.y == 600 && peak >= 600 + lit.leapClearance - 1,
                        "a leap clears the edge it aims over at any frame rate: peak \(peak)")
             }
+            let onScreen = NotchMascotWindowReader.windows()
+            expect(onScreen.allSatisfy { NotchMascotWindowReader.frame(of: $0.id) != nil }
+                   && NotchMascotWindowReader.frame(of: CGWindowID(UInt32.max - 1)) == nil,
+                   "the window it stands on is found again by its number, and a closed one is not")
             expect(Permissions.promptsBlocked(bootArgs: "keepsyms=1 amfi_get_out_of_my_way=0x1 alcid=7")
                    && Permissions.promptsBlocked(bootArgs: "amfi=0x80")
                    && !Permissions.promptsBlocked(bootArgs: "keepsyms=1 amfi_get_out_of_my_way=0")

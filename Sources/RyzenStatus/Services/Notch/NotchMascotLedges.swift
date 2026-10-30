@@ -219,7 +219,10 @@ enum NotchMascotWindowReader {
     /// Where window `id` is now, or nil once it is closed, minimized or on
     /// another Space.
     static func frame(of id: CGWindowID) -> CGRect? {
-        guard let list = CGWindowListCreateDescriptionFromArray([id] as CFArray) as? [[String: Any]],
+        // Asked for by number alone: `[id] as CFArray` would hand the window
+        // server numbers it does not read as window IDs, and every window
+        // would look gone.
+        guard let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]],
               let info = list.first, (info[kCGWindowIsOnscreen as String] as? Bool) == true
         else { return nil }
         return frame(of: info)
