@@ -34,10 +34,10 @@ final class NotchMascotWearables {
         }
     }
 
-    /// Dresses it for `body`, the outline its fill is cut from, and the eyes
-    /// of `face`, at `size` points.
+    /// Dresses it for `body`, the outline its fill is cut from, the eyes
+    /// of `face` and its `neck`, from 0 to 1 down the figure, at `size` points.
     func configure(accessory: NotchMascotAccessory, body: CGPath?, face eyes: NotchMascotFaceLayout,
-                   size: CGFloat, scale: CGFloat) {
+                   neck: CGFloat? = nil, size: CGFloat, scale: CGFloat) {
         self.accessory = accessory
         let box = CGRect(x: 0, y: 0, width: size, height: size)
         head.frame = box
@@ -48,7 +48,8 @@ final class NotchMascotWearables {
         let outline = body?.boundingBoxOfPath ?? box.insetBy(dx: size * 0.12, dy: size * 0.12)
         let frame = NotchMascotWearableFrame(outline: outline, size: size,
                                              leftEye: CGPoint(x: eyes.leftEye.x * size, y: eyes.leftEye.y * size),
-                                             rightEye: CGPoint(x: eyes.rightEye.x * size, y: eyes.rightEye.y * size))
+                                             rightEye: CGPoint(x: eyes.rightEye.x * size, y: eyes.rightEye.y * size),
+                                             neck: neck.map { $0 * size })
         let parts = NotchMascotWearableShapes.parts(for: accessory, in: frame)
         let target = accessory.placement == .eyes ? face : head
         for part in parts {
@@ -74,6 +75,9 @@ struct NotchMascotWearableFrame: Equatable {
     var size: CGFloat
     var leftEye: CGPoint
     var rightEye: CGPoint
+    /// Where a scarf goes round its neck, for the figures whose head does
+    /// not end where its outline does.
+    var neck: CGFloat? = nil
 
     var center: CGFloat { outline.midX }
     var top: CGFloat { outline.minY }
@@ -245,7 +249,10 @@ enum NotchMascotWearableShapes {
                     NotchMascotWearablePart(path: cups, fill: rgb(0x5AC8FA), stroke: rgb(0x3A3F4B), lineWidth: line)]
 
         case .scarf:
-            let y = f.outline.minY + f.outline.height * 0.66
+            // Round the neck: at the chin where the outline is the head
+            // alone, and well under the eyes where it is the whole body.
+            let eyeY = max(f.leftEye.y, f.rightEye.y)
+            let y = f.neck ?? min(f.outline.maxY - w * 0.08, eyeY + w * 0.34)
             let band = CGRect(x: f.outline.minX + w * 0.03, y: y - w * 0.02, width: w * 0.94, height: w * 0.17)
             let tail = CGRect(x: cx + w * 0.1, y: band.midY, width: w * 0.17, height: w * 0.32)
             let stripe = CGMutablePath()

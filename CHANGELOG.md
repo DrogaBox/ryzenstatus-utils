@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.69.0] — 2026-10-30 — kexts 3.35.1 (No kext changes)
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.
+
+This release brings two new companions, each with a body, gait and routines of its own.
+
+- **Hologram**: a girl made of light, cast by a small projector at her feet. She is drawn in a single hue, with a visor over her eyes and scanlines across her. She skips along lightly, waves with a hand on her hip, raises both arms to cheer and folds them to sleep. Her projection flickers when she reacts.
+- **Android**: a sleek android that floats a hand above the floor on a jet of light and glides instead of walking. The gauge on its chest fills with the real CPU load: one cell at rest, all four flat out, dark while it sleeps. It flashes when the android reacts.
+- **Routines of their own**: out on the desktop, the hologram cuts out and lights up again further along, glitches like a bad signal, and sends you a greeting. The android scans your windows, fires its thrusters and recharges cell by cell.
+- **Items, colours and growing close**: both wear every item and take every colour. Each gains bond its own way, has its own power for the arcade games, longs for its own treat and has its own colour of energy.
+- **Twenty-two new duo combos**: a new "Hologram and Android" family pairs them with each other, with other companions and with items from the wardrobe and the shop.
+- **Named in every language**: both companions are named in all fifteen languages of the app.
+- **Your date of birth**: the birthday setting now takes the date you were born, year included, and on the day the companion shows how many years you turn. A birthday on the 29th of February is celebrated on the 28th in other years. A birthday set before keeps working.
+- **Scarves round the neck**: the scarf now sits round every companion's neck instead of over its mouth and nose.
+- **Markings keep their colour**: a kitsune's brow mark, a penguin's cheeks and a swan's chest no longer turn the plain colour of the body when the companion's mood changes.
+
 ## [1.68.2] — 2026-10-30 — kexts 3.35.1 (No kext changes)
 
 > **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.

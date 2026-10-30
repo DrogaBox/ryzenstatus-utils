@@ -154,6 +154,11 @@ enum NotchMascotAffinity {
             return (4, 45)
         case .kitsune:
             return (3, 40)
+        // A pat goes right through a hologram; an android logs every one.
+        case .hologram:
+            return (2, 30)
+        case .android:
+            return (3, 40)
         default:
             return (NotchMascotGrowth.petExperience, NotchMascotGrowth.dailyPetCap)
         }
@@ -169,6 +174,11 @@ enum NotchMascotAffinity {
         case .kitsune:
             return (4, 50)
         case .penguin:
+            return (3, 40)
+        // What a hologram cannot feel she makes up in moments shared.
+        case .hologram:
+            return (4, 50)
+        case .android:
             return (3, 40)
         case .slime, .devourer, .fan, .axolotl:
             return (2, 25)
@@ -190,6 +200,11 @@ enum NotchMascotAffinity {
             return 18
         case .penguin:
             return 16
+        // Uptime counts: every day running beside you.
+        case .android:
+            return 16
+        case .hologram:
+            return 14
         default:
             return NotchMascotGrowth.dayExperience
         }

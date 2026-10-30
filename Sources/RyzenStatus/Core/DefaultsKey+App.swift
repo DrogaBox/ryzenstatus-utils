@@ -669,7 +669,7 @@ extension DefaultsKey {
     static let notchMascotName = "notchMascotName"
     static let notchMascotAccessory = "notchMascotAccessory"   // NotchMascotAccessory raw value
     static let notchMascotSeasonal = "notchMascotSeasonal"     // Bool, seasonal costumes
-    static let notchMascotBirthday = "notchMascotBirthday"     // String "MM-dd", your birthday; empty when not kept
+    static let notchMascotBirthday = "notchMascotBirthday"     // String "yyyy-MM-dd", the day you were born ("MM-dd" before 1.69.0); empty when not kept
     static let notchMascotDayShown = "notchMascotDayShown"     // String, the last special day it celebrated
     static let notchMascotRoshamboWins = "notchMascotRoshamboWins" // String "day:count", paid rock-paper-scissors wins
     static let notchMascotLuckPaid = "notchMascotLuckPaid" // String "day:count", gold the dice and the cookie paid today

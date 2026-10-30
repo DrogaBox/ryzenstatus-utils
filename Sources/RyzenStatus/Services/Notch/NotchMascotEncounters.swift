@@ -37,6 +37,17 @@ enum NotchMascotEncounter: String, CaseIterable, Equatable {
     case trashCan
     /// A cup of coffee left by it, in the daytime, and what comes after.
     case coffee
+    /// A satellite crossing the night sky, blinking; a hologram or an
+    /// android picks up its signal and answers.
+    case satellite
+    /// A shower of shooting stars late at night: a wish for each.
+    case meteorShower
+    /// A balloon someone let go of, floating up past it in the daytime.
+    case lostBalloon
+    /// A rainbow arching over the screen in the afternoon.
+    case rainbow
+    /// A heart from someone it cannot see, flying in from the edge.
+    case secretAdmirer
 
     /// Whether it can come now: by the hour, and by what it wears.
     func allowed(hour: Int, wearsItem: Bool) -> Bool {
@@ -46,6 +57,11 @@ enum NotchMascotEncounter: String, CaseIterable, Equatable {
         case .fireflies: return hour >= 21 || hour < 5
         case .magpie: return wearsItem
         case .coffee: return hour >= 6 && hour < 14
+        case .satellite: return hour >= 22 || hour < 5
+        case .meteorShower: return hour >= 23 || hour < 4
+        case .lostBalloon: return hour >= 9 && hour < 19
+        case .rainbow: return hour >= 10 && hour < 18
+        case .secretAdmirer: return true
         case .dinosaur, .ufo, .ducklings, .mimic, .merchant, .bubble, .cardboardBox, .glitch, .dockBoat, .trashCan:
             return true
         }
@@ -56,7 +72,8 @@ enum NotchMascotEncounter: String, CaseIterable, Equatable {
     var grounded: Bool {
         switch self {
         case .mimic, .merchant, .cardboardBox, .trashCan, .coffee: return true
-        case .dinosaur, .shootingStar, .ufo, .ghost, .magpie, .fireflies, .ducklings, .bubble, .glitch, .dockBoat:
+        case .dinosaur, .shootingStar, .ufo, .ghost, .magpie, .fireflies, .ducklings, .bubble, .glitch, .dockBoat,
+             .satellite, .meteorShower, .lostBalloon, .rainbow, .secretAdmirer:
             return false
         }
     }
@@ -66,7 +83,7 @@ enum NotchMascotEncounter: String, CaseIterable, Equatable {
         case .ghost: return 4
         case .shootingStar, .fireflies, .coffee: return 2
         case .dinosaur, .ufo, .ducklings, .magpie, .mimic, .merchant, .bubble, .cardboardBox, .glitch, .dockBoat,
-             .trashCan:
+             .trashCan, .satellite, .meteorShower, .lostBalloon, .rainbow, .secretAdmirer:
             return 1
         }
     }
@@ -89,6 +106,11 @@ enum NotchMascotEncounter: String, CaseIterable, Equatable {
         case .dockBoat: return 10
         case .trashCan: return 11
         case .coffee: return 11
+        case .satellite: return 9
+        case .meteorShower: return 8
+        case .lostBalloon: return 7
+        case .rainbow: return 7
+        case .secretAdmirer: return 6
         }
     }
 
@@ -97,6 +119,10 @@ enum NotchMascotEncounter: String, CaseIterable, Equatable {
         switch self {
         case .dinosaur, .ghost: return .panic
         case .shootingStar, .fireflies: return .love
+        case .satellite: return .peek
+        case .meteorShower, .rainbow: return .love
+        case .lostBalloon: return .bounce
+        case .secretAdmirer: return .surprised
         case .ufo, .magpie, .mimic, .glitch: return .surprised
         case .ducklings, .bubble: return .bounce
         case .merchant, .dockBoat: return .wave

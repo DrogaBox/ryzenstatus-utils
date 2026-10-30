@@ -11629,11 +11629,11 @@ struct MetricsTests {
                 // The Wonder Boy side: the catalog, the state, the wardrobe, the words.
                 do {
                     let all = NotchMascotSynergyCatalog.all
-                    expect(all.count == 274 && NotchMascotSynergyCatalog.total == 274, "the catalog holds 274 combos")
-                    expect(all.map(\.number) == Array(1...274) && Set(all.map(\.id)).count == 274,
-                           "the combos are numbered 1 to 274 with an id each")
+                    expect(all.count == 296 && NotchMascotSynergyCatalog.total == 296, "the catalog holds 296 combos")
+                    expect(all.map(\.number) == Array(1...296) && Set(all.map(\.id)).count == 296,
+                           "the combos are numbered 1 to 296 with an id each")
                     let sizes = SynergyCategory.allCases.map { NotchMascotSynergyCatalog.synergies(in: $0).count }
-                    expect(sizes == [15, 20, 15, 15, 12, 12, 12, 16, 10, 8, 50, 47, 14, 12, 16], "each family holds its share: \(sizes)")
+                    expect(sizes == [15, 20, 15, 15, 12, 12, 12, 16, 10, 8, 50, 47, 14, 12, 16, 22], "each family holds its share: \(sizes)")
                     for synergy in all {
                         for starter in [true, false] {
                             let play = synergy.play(starterIsLeader: starter)
@@ -11709,7 +11709,8 @@ struct MetricsTests {
                             seenAtNoon.insert(encounter)
                         }
                     }
-                    expect(seenAtNoon == Set(NotchMascotEncounter.allCases).subtracting([.ghost, .shootingStar, .fireflies, .magpie]),
+                    expect(seenAtNoon == Set(NotchMascotEncounter.allCases).subtracting([.ghost, .shootingStar, .fireflies, .magpie,
+                                                                                         .satellite, .meteorShower]),
                            "at noon with nothing worn: the day's ones only")
                     expect(NotchMascotEncounters.pick(hour: 3, wearsItem: true, recent: [], random: 0.999) != nil
                            && (0..<50).allSatisfy { step in
@@ -11726,7 +11727,18 @@ struct MetricsTests {
                     expect(NotchMascotEncounter.allCases.filter(\.grounded).sorted { $0.rawValue < $1.rawValue }
                                == [.cardboardBox, .coffee, .merchant, .mimic, .trashCan],
                            "those that need the floor are known, the rest can come on a window too")
-                    expect(NotchMascotEncounter.allCases.count == 15, "every rare encounter of the bank is there")
+                    expect(NotchMascotEncounter.allCases.count == 20, "every rare encounter of the bank is there")
+                    expect(NotchMascotEncounter.meteorShower.allowed(hour: 1, wearsItem: false)
+                           && !NotchMascotEncounter.meteorShower.allowed(hour: 21, wearsItem: false)
+                           && NotchMascotEncounter.rainbow.allowed(hour: 15, wearsItem: false)
+                           && !NotchMascotEncounter.rainbow.allowed(hour: 21, wearsItem: false)
+                           && !NotchMascotEncounter.lostBalloon.allowed(hour: 2, wearsItem: false)
+                           && (0..<24).allSatisfy { NotchMascotEncounter.secretAdmirer.allowed(hour: $0, wearsItem: false) },
+                           "the stars fall late at night, the rainbow in the afternoon, a heart can come any time")
+                    expect(NotchMascotEncounter.satellite.allowed(hour: 23, wearsItem: false)
+                           && !NotchMascotEncounter.satellite.allowed(hour: 15, wearsItem: true)
+                           && !NotchMascotEncounter.satellite.grounded,
+                           "the satellite crosses only the night sky")
                     // The Mac's and the calendar's moments, cravings and games.
                     func pixels(_ text: String) -> Bool {
                         NotchMascotRPGShapes.cells(of: text) > 0 && !NotchMascotRPGShapes.pixelPath(text, cell: 1).isEmpty
@@ -11778,10 +11790,30 @@ struct MetricsTests {
                            && !NotchMascotSpecialDays.isNewYearMidnight(day(1, 1, 0, 30), calendar: calendar)
                            && !NotchMascotSpecialDays.isNewYearMidnight(day(12, 31, 23, 59), calendar: calendar),
                            "fireworks in the first minutes of the year")
-                    expect(NotchMascotSpecialDays.birthday(from: "06-09") == DateComponents(month: 6, day: 9)
+                    let born = calendar.date(from: DateComponents(year: 1996, month: 6, day: 9, hour: 12))!
+                    expect(NotchMascotSpecialDays.birthday(from: "1996-06-09") == DateComponents(year: 1996, month: 6, day: 9)
+                           && NotchMascotSpecialDays.birthday(from: "06-09") == DateComponents(month: 6, day: 9)
                            && NotchMascotSpecialDays.birthday(from: "") == nil && NotchMascotSpecialDays.birthday(from: "13-40") == nil
-                           && NotchMascotSpecialDays.birthdayText(from: day(6, 9), calendar: calendar) == "06-09",
-                           "the birthday is kept as month and day")
+                           && NotchMascotSpecialDays.birthday(from: "1996-13-40") == nil
+                           && NotchMascotSpecialDays.birthdayText(from: born, calendar: calendar) == "1996-06-09"
+                           && NotchMascotSpecialDays.date(fromBirthday: "1996-06-09", calendar: calendar)
+                               .map { calendar.component(.year, from: $0) } == 1996,
+                           "the birthday is kept as the date you were born, and an old month and day still reads")
+                    expect(NotchMascotSpecialDays.moment(on: day(6, 9), birthday: DateComponents(year: 1996, month: 6, day: 9),
+                                                         calendar: calendar) == .birthday
+                           && NotchMascotSpecialDays.age(on: day(6, 9), birthday: DateComponents(year: 1996, month: 6, day: 9),
+                                                         calendar: calendar) == 30
+                           && NotchMascotSpecialDays.age(on: day(6, 9), birthday: DateComponents(month: 6, day: 9),
+                                                         calendar: calendar) == nil
+                           && NotchMascotSpecialDays.age(on: day(6, 9), birthday: DateComponents(year: 2026, month: 6, day: 9),
+                                                         calendar: calendar) == nil
+                           && pixels("30!"),
+                           "it knows how old you turn when it knows the year")
+                    expect(NotchMascotSpecialDays.moment(on: day(2, 28), birthday: DateComponents(year: 2004, month: 2, day: 29),
+                                                         calendar: calendar) == .birthday
+                           && NotchMascotSpecialDays.moment(on: day(2, 28), birthday: DateComponents(month: 3, day: 1),
+                                                            calendar: calendar) == nil,
+                           "born on a leap day, it celebrates on the 28th in other years")
                     expect(pixels(NotchMascotSpecialDays.foolsCall(for: .dog))
                            && NotchMascotSpecialDays.foolsCall(for: .dog) != NotchMascotSpecialDays.foolsCall(for: .cat),
                            "on April Fools' the dog and the cat swap their sounds")
@@ -11842,14 +11874,15 @@ struct MetricsTests {
                            && NotchMascotTrampoline.most > 1,
                            "a pointer resting on the title bar it lands on is no trampoline, and bounces stop")
                     let dancers: [NotchMascotStyle] = [.swan, .ballerina, .danseur, .contemporary]
-                    let performers = dancers + [.kitsune, .penguin]
+                    let performers = dancers + [.kitsune, .penguin, .hologram, .android]
                     expect(performers.allSatisfy { !NotchMascotSoloDance.moves(for: $0).isEmpty }
                            && NotchMascotSoloDance.moves(for: .cat).isEmpty
                            && Set(performers.flatMap { NotchMascotSoloDance.moves(for: $0) }) == Set(NotchMascotSoloDance.allCases)
                            && dancers.allSatisfy(NotchMascotSoloDance.restsWithIce)
                            && !NotchMascotSoloDance.restsWithIce(.kitsune) && !NotchMascotSoloDance.restsWithIce(.penguin)
-                           && [NotchMascotStyle.kitsune, .penguin].allSatisfy { style in
-                               NotchMascotSoloDance.moves(for: style).allSatisfy { !$0.leaps && !$0.turns }
+                           && [NotchMascotStyle.kitsune, .penguin, .hologram, .android].allSatisfy { style in
+                               !NotchMascotSoloDance.restsWithIce(style)
+                                   && NotchMascotSoloDance.moves(for: style).allSatisfy { !$0.leaps && !$0.turns }
                            }
                            && NotchMascotSoloDance.allCases.allSatisfy { pixels($0.marker) && $0.length > 1 && $0.length < 10 }
                            && NotchMascotSoloDance.allCases.contains(where: \.leaps)
@@ -11921,6 +11954,68 @@ struct MetricsTests {
                         expect(NotchMascotAffinity.dayGain(for: .kitsune) > NotchMascotGrowth.dayExperience
                                && NotchMascotAffinity.petGain(for: .penguin).perPet == 4,
                                "each grows close in its own way")
+                    }
+                    // The hologram and the android.
+                    do {
+                        func elements(_ path: CGPath) -> [Int32] {
+                            var kinds: [Int32] = []
+                            path.applyWithBlock { kinds.append($0.pointee.type.rawValue) }
+                            return kinds
+                        }
+                        let newcomers: [NotchMascotStyle] = [.hologram, .android]
+                        expect(newcomers.allSatisfy { style in
+                                   !style.isComic && NotchMascotStyle.available(name: "Pip").contains(style)
+                                       && NotchMascotCreatures.face(style) != nil && NotchMascotCreatures.bounds(style) != nil
+                                       && NotchMascotCreatures.headOutline(style, size: 40) != nil
+                                       && NotchMascotCreatures.body(style, size: 40).map { !$0.isEmpty } == true
+                                       && style.takesAccessory
+                               }, "the hologram and the android are drawn figures anyone may pick, and wear items")
+                        let poses = NotchMascotCreatures.ArmsPose.allCases
+                        expect(Set(poses.map { elements(NotchMascotCreatures.hologramArms($0, size: 40)) }).count == 1
+                               && Set(poses.map { elements(NotchMascotCreatures.androidArms($0, size: 40)) }).count == 1
+                               && Set((0...4).map { elements(NotchMascotCreatures.androidGaugeCells(level: $0, size: 40)) }).count == 1,
+                               "their arms and the android's gauge morph between their poses")
+                        let gauge = NotchMascotCreatures.androidGauge(size: 40).boundingBox
+                        // The middle of each cell, from the bottom up.
+                        let cells = (0..<4).map { CGPoint(x: 0.5 * 40, y: (0.606 - CGFloat($0) * 0.027) * 40) }
+                        expect((0...4).allSatisfy { level in
+                                   let lit = NotchMascotCreatures.androidGaugeCells(level: level, size: 40)
+                                   return cells.indices.allSatisfy { lit.contains(cells[$0]) == ($0 < level) }
+                               }
+                               && gauge.contains(NotchMascotCreatures.androidGaugeCells(level: 4, size: 40).boundingBox),
+                               "the gauge fills from empty to full, a cell at a time, inside its frame")
+                        expect(newcomers.allSatisfy { style in
+                                   let box = NotchMascotCreatures.body(style, size: 40)?.boundingBox ?? .null
+                                   return box.minX >= 0 && box.maxX <= 40 && box.minY >= 0 && box.maxY <= 40
+                               }, "both stand inside the figure's square")
+                        expect(NotchMascotGait.of(.android).bob < NotchMascotGait.standard.bob
+                               && NotchMascotGait.of(.hologram).period < NotchMascotGait.standard.period,
+                               "the android glides, the hologram skips along")
+                        expect(NotchMascotAbility.of(.hologram) == .pepelogooSpringboard && NotchMascotAbility.of(.android) == .glide,
+                               "a double jump for the hologram, a glide for the android")
+                        expect(AppLanguage.allCases.allSatisfy { language in
+                                   let names = NotchMascotStyleNames.named.map { NotchMascotStyleNames.name(of: $0, in: language) }
+                                   return names.allSatisfy { !$0.isEmpty } && Set(names).count == names.count
+                               }, "all four are named in every language, each differently")
+                        let signals = NotchMascotSynergyCatalog.synergies(in: .signals)
+                        expect(newcomers.allSatisfy { style in
+                                   signals.filter { synergy in
+                                       switch synergy.match {
+                                       case .styles(let a, let b): return a == style || b == style
+                                       case .styleWears(let a, _), .style(let a): return a == style
+                                       default: return false
+                                       }
+                                   }.count >= 7
+                               }, "each has its own combos")
+                        expect(NotchMascotCraving.pick(hour: 9, style: .hologram, random: 0.1) == .moon
+                               && NotchMascotCraving.pick(hour: 13, style: .android, random: 0.1) == .coffee,
+                               "the hologram longs for the stars, the android for coffee")
+                        expect(NotchMascotAffinity.momentGain(for: .hologram).perMoment > NotchMascotGrowth.momentExperience
+                               && NotchMascotAffinity.petGain(for: .hologram).perPet <= NotchMascotGrowth.petExperience
+                               && NotchMascotAffinity.dayGain(for: .android) > NotchMascotGrowth.dayExperience,
+                               "each grows close in its own way")
+                        expect(NotchMascotSpecialDays.foolsCall(for: .hologram) != NotchMascotSpecialDays.foolsCall(for: .android),
+                               "each makes the wrong sound of its own")
                     }
                     expect(AppLanguage.allCases.allSatisfy { language in
                                let games = FeatureStrings.notchMascotGames(language)

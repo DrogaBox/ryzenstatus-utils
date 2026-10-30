@@ -752,7 +752,8 @@ struct NotchMascotSettings: View {
         }
     }
 
-    /// Your birthday, which it celebrates when kept.
+    /// The day you were born, which it celebrates when kept, knowing how
+    /// many years you turn.
     private var birthdayRow: some View {
         let games = FeatureStrings.notchMascotGames(l10n.language)
         let keeps = Binding(get: { !birthday.isEmpty },
@@ -762,7 +763,7 @@ struct NotchMascotSettings: View {
         return SettingsRow(symbol: "gift", title: games.birthday, caption: games.birthdayHint) {
             HStack(spacing: 8) {
                 if keeps.wrappedValue {
-                    DatePicker(games.birthday, selection: day, displayedComponents: .date).labelsHidden()
+                    DatePicker(games.birthday, selection: day, in: ...Date(), displayedComponents: .date).labelsHidden()
                 }
                 Toggle(games.birthday, isOn: keeps).labelsHidden().toggleStyle(.switch)
             }

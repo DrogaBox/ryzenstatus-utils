@@ -55,6 +55,13 @@ enum NotchMascotStyle: String, CaseIterable, Identifiable {
     case kitsune
     /// An emperor penguin in a tuxedo who waddles, flaps and belly-slides.
     case penguin
+    /// A girl of light cast by a small projector at her feet: one hue from
+    /// head to toe, a visor over her eyes and scanlines across her, and a
+    /// flicker when she comes and goes.
+    case hologram
+    /// A sleek android who floats a hand above the floor, with a load gauge
+    /// at its heart that fills as the CPU works.
+    case android
     /// Cristóbal Sincronía, coffee in hand, from the author's comic: a sprite
     /// figure, as are the companions after him.
     case cristobal
@@ -113,6 +120,10 @@ struct NotchMascotGait: Equatable {
         case .penguin: return NotchMascotGait(period: 0.26, bob: 0.03, rock: 0.16)
         // A light trot, quicker and lower than a hop.
         case .kitsune: return NotchMascotGait(period: 0.22, bob: 0.06, rock: 0)
+        // Light, even steps with a little bounce.
+        case .hologram: return NotchMascotGait(period: 0.26, bob: 0.07, rock: 0)
+        // It glides: no steps at all, only a slow float up and down.
+        case .android: return NotchMascotGait(period: 0.6, bob: 0.025, rock: 0)
         default: return .standard
         }
     }
