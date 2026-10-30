@@ -2642,14 +2642,14 @@ struct MetricsTests {
                                                    engaged: false, disengagedTicks: 1) == 1.10,
                "grace never lifts a factor that had no boost to protect")
         expect(ExtraBrightnessSupport.canReuseSpaceWindows(
-                   sameDisplay: true, overlayOnActiveSpace: true, triggerOnActiveSpace: true),
+                   sameDisplay: true, inOwnSpace: false, overlayOnActiveSpace: true, triggerOnActiveSpace: true),
                "fullscreen handoff keeps the live overlay pair when both windows followed")
         expect(!ExtraBrightnessSupport.canReuseSpaceWindows(
-                   sameDisplay: false, overlayOnActiveSpace: true, triggerOnActiveSpace: true)
+                   sameDisplay: false, inOwnSpace: false, overlayOnActiveSpace: true, triggerOnActiveSpace: true)
                && !ExtraBrightnessSupport.canReuseSpaceWindows(
-                   sameDisplay: true, overlayOnActiveSpace: false, triggerOnActiveSpace: true)
+                   sameDisplay: true, inOwnSpace: false, overlayOnActiveSpace: false, triggerOnActiveSpace: true)
                && !ExtraBrightnessSupport.canReuseSpaceWindows(
-                   sameDisplay: true, overlayOnActiveSpace: true, triggerOnActiveSpace: false),
+                   sameDisplay: true, inOwnSpace: false, overlayOnActiveSpace: true, triggerOnActiveSpace: false),
                "display changes and incomplete Space handoffs still rebuild the overlay pair")
         var ebFactor = 1.48
         var ebLow = 0
@@ -6270,33 +6270,32 @@ struct MetricsTests {
           ]
         }
         """
-        let caskRecords = HomebrewParser.parseInstalledCaskRecords(ownershipJSON)
+        let caskRecords = (try? HomebrewParser.parseInstalledCaskRecords(ownershipJSON)) ?? []
         expect(caskRecords.count == 3,
                "installed cask parser reads app artifact records")
         expect(caskRecords.first(where: { $0.token == "sample-tool" })?.appPaths == ["/Applications/Sample.app"],
                "cask ownership uses declared install target rather than source path")
-        expect(HomebrewOwnershipSupport.packageManagingApplication(
-            atPath: "/Applications/Sample.app", installed: caskRecords)?.id == "cask:sample-tool",
+        func caskOwner(_ path: String, _ records: [HomebrewCaskRecord]) -> HomebrewPackage? {
+            (try? HomebrewOwnershipSupport.packageManagingApplication(atPath: path, installed: records).get()) ?? nil
+        }
+        expect(caskOwner("/Applications/Sample.app", caskRecords)?.id == "cask:sample-tool",
                "cask ownership resolves an exact installed app path")
-        expect(HomebrewOwnershipSupport.packageManagingApplication(
-            atPath: "/opt/homebrew/Caskroom/sample-tool/1.0/Vendor/Sample.app",
-            installed: caskRecords) == nil,
+        expect(caskOwner("/opt/homebrew/Caskroom/sample-tool/1.0/Vendor/Sample.app", caskRecords) == nil,
                "cask source path does not claim the staged app bundle")
-        expect(HomebrewOwnershipSupport.packageManagingApplication(
-            atPath: "/Applications/Renamed.app", installed: caskRecords)?.id == "cask:renamed-tool",
+        expect(caskOwner("/Applications/Renamed.app", caskRecords)?.id == "cask:renamed-tool",
                "cask ownership resolves per-app rename targets")
-        expect(HomebrewOwnershipSupport.packageManagingApplication(
-            atPath: "/Applications/Default.app", installed: caskRecords)?.id == "cask:default-app",
+        expect(caskOwner("/Applications/Default.app", caskRecords)?.id == "cask:default-app",
                "cask ownership uses Homebrew's default Applications destination")
         let conflictingCask = HomebrewCaskRecord(token: "other-cask",
                                                   displayName: "Other Cask",
                                                   installedVersion: "1.0",
                                                   appFileNames: ["Sample.app"],
                                                   appPaths: ["/Applications/Sample.app"])
-        expect(HomebrewOwnershipSupport.packageManagingApplication(
-            atPath: "/Applications/Sample.app",
-            installed: caskRecords + [conflictingCask]) == nil,
-               "ambiguous cask ownership refuses to delegate removal")
+        if case .failure = HomebrewOwnershipSupport.packageManagingApplication(
+            atPath: "/Applications/Sample.app", installed: caskRecords + [conflictingCask]) {
+        } else {
+            expect(false, "ambiguous cask ownership refuses to delegate removal")
+        }
         let outdatedJSON = """
         {
           "formulae": [
@@ -6856,7 +6855,7 @@ struct MetricsTests {
 
         // MARK: Features hub catalog
 
-        expect(AppFeature.allCases.count == 83, "feature catalog has 83 features")
+        expect(AppFeature.allCases.count == 85, "feature catalog has 85 features")
         expect(Set(AppFeature.allCases.map(\.rawValue)).count == AppFeature.allCases.count,
                "feature ids are unique")
         expect(AppFeature.allCases.map(\.rawValue) == [
@@ -6865,14 +6864,14 @@ struct MetricsTests {
             "scrollInverter", "smoothScroll", "mouseNavigation", "middleClick", "keyboardDebounce",
             "textSnippets", "mouseButtonShortcuts", "superKey",
             "quitWindowProtection",
-            "scrollHorizontal", "focusFollowsMouse", "linearScroll", "mouseAcceleration", "mouseClickDebounce",
+            "scrollHorizontal", "scrollZoom", "focusFollowsMouse", "linearScroll", "mouseAcceleration", "mouseClickDebounce",
             "clipboardHistory", "pastePlain", "finderCutPaste", "shelf", "urlCleaner",
             "finderRename", "diskImageInstaller",
             "mixer", "soundOutputSwitcher", "micMute", "musicBlock", "nowPlaying",
             "audioPriority",
             "keepAwake", "brightness", "extraBrightness",
             "bluetoothSleep",
-            "quickLauncher", "quickToggles", "colorPicker", "screenOCR", "cleaningMode", "mediaTools",
+            "quickLauncher", "quickToggles", "quitApps", "colorPicker", "screenOCR", "cleaningMode", "mediaTools",
             "cleaner", "uninstaller", "homebrew", "appUpdates", "whatsAppDownloads", "screenshot", "screenRecorder", "cameraPreview", "radialMenu",
             "scratchpad", "killProcess", "commandBar",
             "wallpaper", "portManager", "worldClock",
@@ -6961,7 +6960,8 @@ struct MetricsTests {
                "finder automation is used by cut and paste, the uninstaller and the quick toggles")
         expect(AppFeature.quickToggles.permissions == [.automationFinder],
                "the quick toggles need no permission beyond the Trash's Finder ask")
-        expect(activeSet(.automationTerminal) == [.homebrew], "homebrew drives the Terminal")
+        expect(AppFeature.homebrew.permissions.isEmpty,
+               "package commands open in the person's own terminal, with no Automation ask")
         expect(activeSet(.audioCapture) == [.mixer], "the mixer is the only audio capture user")
         expect(activeSet(.audioCapture, available: Set(AppFeature.allCases).subtracting([.mixer])) == [],
                "audio capture reads as unused once the mixer is off in the hub")
@@ -11172,6 +11172,11 @@ struct MetricsTests {
                    "automatic provider preserves Homebrew on non-Intel hardware")
             expect(PackageManagerProvider.homebrew.resolved(isIntel: true) == .homebrew,
                    "explicit provider overrides architecture preference")
+            expect(PackageManagerProvider.homebrew.resolved(isIntel: true, homebrewInstalled: false) == .macPorts
+                   && PackageManagerProvider.automatic.resolved(isIntel: true, homebrewInstalled: false) == .macPorts,
+                   "Homebrew cannot be installed on Intel, so without it MacPorts is used")
+            expect(PackageManagerProvider.homebrew.resolved(isIntel: false, homebrewInstalled: false) == .homebrew,
+                   "Apple Silicon still offers the Homebrew installer")
             for name in ["zlib", "python39", "gettext-runtime", "py39-pip", "libc++"] {
                 expect(MacPortsSupport.isPackageName(name),
                        "port name validation is conservative: \(name)")
@@ -11328,6 +11333,22 @@ struct MetricsTests {
             expect(roam.lean(forSpeed: 10_000) == -0.32 && roam.lean(forSpeed: -10_000) == 0.32 && roam.lean(forSpeed: 0) == 0,
                    "it leans into a swing, within limits")
 
+            var shaker = NotchMascotRoam.ShakeTracker()
+            expect(!shaker.isDizzy, "initially not dizzy")
+            shaker.track(deltaX: 10, time: 0.1)
+            shaker.track(deltaX: 15, time: 0.2)
+            expect(!shaker.isDizzy && shaker.reversals == 0, "moving in one direction does not count as shake")
+            shaker.track(deltaX: -30, time: 0.3)
+            expect(shaker.reversals == 1, "first reversal")
+            shaker.track(deltaX: 30, time: 0.45)
+            expect(shaker.reversals == 2, "second reversal")
+            shaker.track(deltaX: -30, time: 0.6)
+            expect(shaker.reversals == 3, "third reversal")
+            shaker.track(deltaX: 30, time: 0.75)
+            expect(shaker.reversals == 4 && shaker.isDizzy, "four quick reversals make it dizzy")
+            shaker.reset()
+            expect(!shaker.isDizzy && shaker.reversals == 0, "reset clears dizziness")
+
             let area = CGRect(x: 0, y: 100, width: 800, height: 600)
             var body = NotchMascotRoam.Body(position: CGPoint(x: 400, y: 500), velocity: .zero, airborne: true)
             var events: [NotchMascotRoam.Event] = []
@@ -11352,6 +11373,62 @@ struct MetricsTests {
             var hidden = NotchMascotRoam.Body(position: CGPoint(x: 100, y: 160), airborne: false)
             _ = roam.step(&hidden, by: 1.0 / 60, in: area, width: 40)
             expect(hidden.airborne, "a floor that drops away lets it fall")
+
+            let lit = NotchMascotLedges.self
+            let screen = CGRect(x: 0, y: 80, width: 1440, height: 795)
+            let back = lit.Window(id: 2, pid: 20, frame: CGRect(x: 100, y: 200, width: 800, height: 400))
+            let front = lit.Window(id: 1, pid: 10, frame: CGRect(x: 600, y: 300, width: 500, height: 330))
+            let tops = lit.ledges(in: [front, back], areas: [screen], headroom: 40)
+            expect(tops.contains { $0.window == 1 && $0.y == 630 && $0.minX == 600 && $0.maxX == 1100 }
+                   && tops.contains { $0.window == 2 && $0.y == 600 && $0.minX == 100 && $0.maxX == 600 }
+                   && !tops.contains { $0.window == 2 && $0.maxX > 600 },
+                   "a window's top is a ledge only where no window in front covers it")
+            let tiny = lit.Window(id: 3, pid: 30, frame: CGRect(x: 0, y: 200, width: 120, height: 60))
+            let tall = lit.Window(id: 4, pid: 40, frame: CGRect(x: 0, y: 100, width: 600, height: 760))
+            expect(lit.ledges(in: [tiny, tall], areas: [screen], headroom: 40).isEmpty,
+                   "small panels and windows up against the menu bar are no place to stand")
+            expect(lit.subtract(40...60, from: [0...100]) == [0...40, 60...100] && lit.subtract(0...200, from: [0...100]).isEmpty,
+                   "a covered stretch of edge is cut out")
+            var climber = NotchMascotRoam.Body(position: CGPoint(x: 300, y: 640), velocity: .zero, airborne: true)
+            for _ in 0..<200 { _ = roam.step(&climber, by: 1.0 / 60, in: screen, width: 40, ledges: tops) }
+            expect(!climber.airborne && climber.position.y == 600, "dropped over a window, it lands on its top")
+            var walker = NotchMascotRoam.Body(position: CGPoint(x: 620, y: 600), airborne: false)
+            _ = roam.step(&walker, by: 1.0 / 60, in: screen, width: 40, ledges: tops)
+            expect(walker.airborne, "past the end of a window's visible top it falls")
+            let leap = lit.leap(from: CGPoint(x: 200, y: 80), to: CGPoint(x: 500, y: 600), gravity: roam.gravity,
+                                drag: roam.airDrag)
+            var jumper = NotchMascotRoam.Body(position: CGPoint(x: 200, y: 80), velocity: leap, airborne: true)
+            for _ in 0..<240 where jumper.airborne {
+                _ = roam.step(&jumper, by: 1.0 / 120, in: screen, width: 40, ledges: tops)
+            }
+            expect(!jumper.airborne && jumper.position.y == 600 && abs(jumper.position.x - 500) < 24,
+                   "a leap carries it from the floor onto the window it aimed for")
+            let shelf = lit.Ledge(window: 9, pid: 9, y: 500, minX: 300, maxX: 700)
+            expect(lit.spot(on: shelf, from: 100, margin: 30, jitter: 0) == 330
+                   && lit.spot(on: shelf, from: 500, margin: 30, jitter: 0) == 500,
+                   "it aims for the nearest spot well inside the edge")
+            expect(lit.climbTarget(from: CGPoint(x: 200, y: 80), in: tops, standingOn: nil, preferring: 10,
+                                   minimumWidth: 60, random: { 0 })?.window == 1
+                   && lit.climbTarget(from: CGPoint(x: 200, y: 700), in: tops, standingOn: nil, preferring: nil,
+                                      minimumWidth: 60, random: { 0 }) == nil,
+                   "it climbs up to the app in front first, never down")
+            expect(lit.hitchable(old: CGRect(x: 600, y: 100, width: 400, height: 100),
+                                 new: CGRect(x: 560, y: 100, width: 400, height: 100), feet: CGPoint(x: 540, y: 80), figure: 46)
+                   && !lit.hitchable(old: CGRect(x: 600, y: 100, width: 400, height: 100),
+                                     new: CGRect(x: 600, y: 100, width: 400, height: 100), feet: CGPoint(x: 540, y: 80),
+                                     figure: 46)
+                   && !lit.hitchable(old: CGRect(x: 0, y: 500, width: 400, height: 100),
+                                     new: CGRect(x: 20, y: 500, width: 400, height: 100), feet: CGPoint(x: 100, y: 80),
+                                     figure: 46),
+                   "a window dragged up close beside it is a ride, one far above or standing still is not")
+            expect(lit.kind(of: "com.apple.Safari") == .browser && lit.kind(of: "com.jetbrains.intellij") == .code
+                   && lit.kind(of: "com.spotify.client") == .music && lit.kind(of: "com.example.nothing") == nil,
+                   "it knows a browser, an editor and a music app when they come to the front")
+            expect(AppLanguage.allCases.allSatisfy { language in
+                       let text = FeatureStrings.notchMascotDesktop(language)
+                       return !text.windows.isEmpty && !text.windowsCaption.isEmpty
+                           && (language == .enUS || text.windows != NotchMascotDesktopStrings.enUS.windows)
+                   }, "climbing onto windows has its words in every language")
 
             var rolls = [0.9, 0.5]
             let walk = roam.nextActivity(x: 5, minX: 0, maxX: 1000, random: { rolls.removeFirst() })
@@ -11528,11 +11605,11 @@ struct MetricsTests {
                 // The Wonder Boy side: the catalog, the state, the wardrobe, the words.
                 do {
                     let all = NotchMascotSynergyCatalog.all
-                    expect(all.count == 232 && NotchMascotSynergyCatalog.total == 232, "the catalog holds 232 combos")
-                    expect(all.map(\.number) == Array(1...232) && Set(all.map(\.id)).count == 232,
-                           "the combos are numbered 1 to 232 with an id each")
+                    expect(all.count == 274 && NotchMascotSynergyCatalog.total == 274, "the catalog holds 274 combos")
+                    expect(all.map(\.number) == Array(1...274) && Set(all.map(\.id)).count == 274,
+                           "the combos are numbered 1 to 274 with an id each")
                     let sizes = SynergyCategory.allCases.map { NotchMascotSynergyCatalog.synergies(in: $0).count }
-                    expect(sizes == [15, 20, 15, 15, 12, 12, 12, 16, 10, 8, 50, 47], "each family holds its share: \(sizes)")
+                    expect(sizes == [15, 20, 15, 15, 12, 12, 12, 16, 10, 8, 50, 47, 14, 12, 16], "each family holds its share: \(sizes)")
                     for synergy in all {
                         for starter in [true, false] {
                             let play = synergy.play(starterIsLeader: starter)
@@ -11547,6 +11624,328 @@ struct MetricsTests {
                         expect(!synergy.name.isEmpty && !synergy.nameES.isEmpty && !synergy.description.isEmpty
                                && !synergy.descriptionES.isEmpty, "\(synergy.id) is named and described in two languages")
                     }
+                    expect(NotchMascotAccessory.allCases.allSatisfy { ($0 == .none) == (NotchMascotItemSignature.of($0) == nil) }
+                           && NotchMascotAccessory.allCases.compactMap(NotchMascotItemSignature.of).allSatisfy { !$0.move.together },
+                           "everything worn has a move of its own, made alone")
+                    // What each thing worn does alone.
+                    expect(NotchMascotAccessory.allCases.allSatisfy { ($0 == .none) == (NotchMascotItemUse.of($0) == nil) },
+                           "everything worn has its own thing to do alone")
+                    let uses = NotchMascotAccessory.allCases.compactMap { item in NotchMascotItemUse.of(item).map { (item, $0) } }
+                    let useFingerprints = Set(uses.map { "\($0.1.steps)" })
+                    expect(useFingerprints.count == uses.count,
+                           "no two things worn are used alike: \(uses.count - useFingerprints.count) repeat")
+                    for (item, use) in uses {
+                        expect(use.steps.allSatisfy { $0.at >= 0 } && use.length > 0.5 && use.length < 15,
+                               "\(item) is used in a few seconds")
+                        let byFriend = use.islandBeats(byLeader: false)
+                        expect(!use.islandBeats(byLeader: true).isEmpty && !byFriend.isEmpty
+                               && byFriend.allSatisfy { $0.leader == nil && $0.burst?.onLeader != true && $0.marker?.onLeader != true },
+                               "\(item) shows in the island, on the one that wears it")
+                        for step in use.steps {
+                            if case .move(let move) = step.action { expect(!move.together, "\(item) moves alone") }
+                            if case .marker(let text) = step.action {
+                                expect(NotchMascotRPGShapes.cells(of: text) == text.count * 4 - 1,
+                                       "\(item) marker \(text) can be drawn in pixels")
+                            }
+                        }
+                    }
+                    let mushroom = NotchMascotItemUse.of(.magicMushroom)?.steps ?? []
+                    let grows = mushroom.compactMap { step -> (TimeInterval, TimeInterval)? in
+                        if case .grow(let length) = step.action { return (step.at, length) } else { return nil }
+                    }.first
+                    let eaten = mushroom.compactMap { step -> (TimeInterval, TimeInterval)? in
+                        if case .hide(let length) = step.action { return (step.at, length) } else { return nil }
+                    }.first
+                    expect(NotchMascotItemUse.growth >= 1.4 && (grows?.1 ?? 0) >= 15
+                           && (eaten.map { $0.0 <= grows?.0 ?? 0 && $0.0 + $0.1 >= (grows?.0 ?? 0) + (grows?.1 ?? 0) } ?? false),
+                           "the mushroom, eaten, makes it grow a while and is back in its hand once it shrinks")
+                    expect(!NotchMascotItemUse.shouldStart(since: 10, interval: 70, chance: 0.4, random: 0)
+                           && NotchMascotItemUse.shouldStart(since: 80, interval: 70, chance: 0.4, random: 0.1)
+                           && !NotchMascotItemUse.shouldStart(since: 80, interval: 70, chance: 0.4, random: 0.9),
+                           "it uses what it wears now and then, not all the time")
+                    expect(AppLanguage.allCases.allSatisfy { !FeatureStrings.notchMascotItemUseButton($0).isEmpty },
+                           "the button to try what it wears is named in every language")
+                    // Rare encounters on the desktop.
+                    expect(NotchMascotEncounter.ghost.allowed(hour: 3, wearsItem: false)
+                           && !NotchMascotEncounter.ghost.allowed(hour: 4, wearsItem: true)
+                           && NotchMascotEncounter.shootingStar.allowed(hour: 22, wearsItem: false)
+                           && !NotchMascotEncounter.shootingStar.allowed(hour: 13, wearsItem: false)
+                           && !NotchMascotEncounter.fireflies.allowed(hour: 12, wearsItem: true)
+                           && !NotchMascotEncounter.magpie.allowed(hour: 12, wearsItem: false)
+                           && NotchMascotEncounter.magpie.allowed(hour: 12, wearsItem: true),
+                           "night ones keep to the night, the ghost to three o'clock, the bird to something worn")
+                    expect(!NotchMascotEncounters.shouldHappen(since: 60, random: 0)
+                           && NotchMascotEncounters.shouldHappen(since: NotchMascotEncounters.interval, random: 0.01)
+                           && !NotchMascotEncounters.shouldHappen(since: NotchMascotEncounters.interval, random: 0.5),
+                           "encounters are rare")
+                    var seenAtNoon = Set<NotchMascotEncounter>()
+                    for step in 0..<100 {
+                        if let encounter = NotchMascotEncounters.pick(hour: 12, wearsItem: false, recent: [],
+                                                                      random: Double(step) / 100) {
+                            seenAtNoon.insert(encounter)
+                        }
+                    }
+                    expect(seenAtNoon == Set(NotchMascotEncounter.allCases).subtracting([.ghost, .shootingStar, .fireflies, .magpie]),
+                           "at noon with nothing worn: the day's ones only")
+                    expect(NotchMascotEncounters.pick(hour: 3, wearsItem: true, recent: [], random: 0.999) != nil
+                           && (0..<50).allSatisfy { step in
+                               let picked = NotchMascotEncounters.pick(hour: 12, wearsItem: false,
+                                                                       recent: [.dinosaur, .ufo, .mimic],
+                                                                       random: Double(step) / 50)
+                               return picked != nil && ![.dinosaur, .ufo, .mimic].contains(picked!)
+                           },
+                           "the last few do not come again while others can")
+                    expect(NotchMascotEncounter.coffee.allowed(hour: 8, wearsItem: false)
+                           && !NotchMascotEncounter.coffee.allowed(hour: 22, wearsItem: false)
+                           && !NotchMascotEncounter.coffee.allowed(hour: 3, wearsItem: true),
+                           "coffee comes in the daytime only")
+                    expect(NotchMascotEncounter.allCases.filter(\.grounded).sorted { $0.rawValue < $1.rawValue }
+                               == [.cardboardBox, .coffee, .merchant, .mimic, .trashCan],
+                           "those that need the floor are known, the rest can come on a window too")
+                    expect(NotchMascotEncounter.allCases.count == 15, "every rare encounter of the bank is there")
+                    // The Mac's and the calendar's moments, cravings and games.
+                    func pixels(_ text: String) -> Bool {
+                        NotchMascotRPGShapes.cells(of: text) > 0 && !NotchMascotRPGShapes.pixelPath(text, cell: 1).isEmpty
+                            && text.uppercased().allSatisfy { $0 == " " || NotchMascotRPGShapes.cells(of: String($0)) == 3 }
+                    }
+                    expect(NotchMascotOccasion.allCases.allSatisfy { pixels($0.marker) && pixels($0.islandMarker)
+                               && !$0.islandBeats(byLeader: true).isEmpty
+                               && $0.islandBeats(byLeader: false).allSatisfy { $0.leader == nil } },
+                           "every occasion has markers drawn in pixels and shows in the island on the one it happens to")
+                    var machine = NotchMascotHardwareWatch()
+                    var cool = NotchMascotHardwareWatch.Reading(load: 0.05, temperature: 33, power: 0.05, battery: 0.8,
+                                                                onBattery: false, online: true)
+                    expect(machine.update(cool, now: 0) == .cold && machine.update(cool, now: 10) == nil,
+                           "a cool idle CPU is cold once, not on every look")
+                    var busy = cool
+                    busy.load = 0.95; busy.temperature = 70
+                    expect(machine.update(busy, now: 20) == nil && machine.update(busy, now: 45) == .boost
+                           && machine.update(busy, now: 60) == nil, "a boost needs a sustained load and comes once")
+                    busy.temperature = 90
+                    expect(machine.update(busy, now: 70) == .hot, "a really hot CPU is hot")
+                    var drained = cool
+                    drained.temperature = 60; drained.battery = 0.1; drained.onBattery = true
+                    expect(machine.update(drained, now: 80) == .lowBattery, "a battery running out on the battery is low")
+                    drained.onBattery = false
+                    expect(machine.update(drained, now: 90) == .charged, "plugged in again it is charged")
+                    var cut = cool
+                    cut.temperature = 60; cut.online = false
+                    expect(machine.update(cut, now: 100) == nil && machine.update(cut, now: 110) == .offline,
+                           "the network gone a while is offline")
+                    cut.online = true
+                    expect(machine.update(cut, now: 115) == .online, "back again it is online")
+                    cool.loadFollowed = false; cool.temperature = 20
+                    var idle = NotchMascotHardwareWatch()
+                    expect(idle.update(cool, now: 0) == nil, "what is not followed brings nothing")
+                    var calendar = Calendar(identifier: .gregorian)
+                    calendar.timeZone = TimeZone(identifier: "UTC")!
+                    func day(_ month: Int, _ day: Int, _ hour: Int = 12, _ minute: Int = 0) -> Date {
+                        calendar.date(from: DateComponents(year: 2026, month: month, day: day, hour: hour, minute: minute))!
+                    }
+                    expect(NotchMascotSpecialDays.moment(on: day(10, 31), birthday: nil, calendar: calendar) == .halloween
+                           && NotchMascotSpecialDays.moment(on: day(12, 25), birthday: nil, calendar: calendar) == .christmas
+                           && NotchMascotSpecialDays.moment(on: day(1, 1), birthday: nil, calendar: calendar) == .newYear
+                           && NotchMascotSpecialDays.moment(on: day(4, 1), birthday: nil, calendar: calendar) == .aprilFools
+                           && NotchMascotSpecialDays.moment(on: day(6, 9), birthday: nil, calendar: calendar) == nil
+                           && NotchMascotSpecialDays.moment(on: day(6, 9), birthday: DateComponents(month: 6, day: 9),
+                                                            calendar: calendar) == .birthday,
+                           "the days of the year it keeps, and your birthday when given")
+                    expect(NotchMascotSpecialDays.isNewYearMidnight(day(1, 1, 0, 3), calendar: calendar)
+                           && !NotchMascotSpecialDays.isNewYearMidnight(day(1, 1, 0, 30), calendar: calendar)
+                           && !NotchMascotSpecialDays.isNewYearMidnight(day(12, 31, 23, 59), calendar: calendar),
+                           "fireworks in the first minutes of the year")
+                    expect(NotchMascotSpecialDays.birthday(from: "06-09") == DateComponents(month: 6, day: 9)
+                           && NotchMascotSpecialDays.birthday(from: "") == nil && NotchMascotSpecialDays.birthday(from: "13-40") == nil
+                           && NotchMascotSpecialDays.birthdayText(from: day(6, 9), calendar: calendar) == "06-09",
+                           "the birthday is kept as month and day")
+                    expect(pixels(NotchMascotSpecialDays.foolsCall(for: .dog))
+                           && NotchMascotSpecialDays.foolsCall(for: .dog) != NotchMascotSpecialDays.foolsCall(for: .cat),
+                           "on April Fools' the dog and the cat swap their sounds")
+                    expect(NotchMascotCraving.pick(hour: 8, style: .cat, random: 0.9) == .coffee
+                           && NotchMascotCraving.pick(hour: 2, style: .cat, random: 0.9) == .moon
+                           && NotchMascotCraving.pick(hour: 16, style: .dog, random: 0.1) == .ball
+                           && !NotchMascotCravings.shouldStart(since: 30, random: 0)
+                           && NotchMascotCravings.shouldStart(since: NotchMascotCravings.interval, random: 0.1),
+                           "cravings follow the hour, a dog wants its ball, and they come now and then")
+                    expect(NotchMascotSnackDrop.classify(text: "🍕", fileNames: []) == .food
+                           && NotchMascotSnackDrop.classify(text: nil, fileNames: ["Pizza Margherita.png"]) == .food
+                           && NotchMascotSnackDrop.classify(text: nil, fileNames: ["manzana.jpg"]) == .food
+                           && NotchMascotSnackDrop.classify(text: nil, fileNames: ["report.pdf"]) == .other
+                           && NotchMascotSnackDrop.classify(text: nil, fileNames: []) == nil,
+                           "food dropped on it is told apart by its name")
+                    expect(NotchMascotRoshambo.allCases.allSatisfy { mine in
+                               NotchMascotRoshambo.allCases.allSatisfy { its in
+                                   mine.outcome(against: its) == (mine == its ? .tie : (mine.beats(its) ? .youWin : .itWins))
+                                       && (mine == its || mine.beats(its) != its.beats(mine))
+                               }
+                           } && NotchMascotRoshambo.rock.beats(.scissors) && NotchMascotRoshambo.paper.beats(.rock)
+                           && NotchMascotRoshambo.scissors.beats(.paper),
+                           "rock, paper, scissors has its rules")
+                    expect(NotchMascotRoshambo.payout(winsToday: 0) == 50
+                           && NotchMascotRoshambo.payout(winsToday: NotchMascotRoshambo.paidWinsPerDay) == 0
+                           && Set((0..<30).map { NotchMascotRoshambo.pick(random: Double($0) / 30) }).count == 3,
+                           "it plays every hand, and only a few wins a day pay")
+                    expect(Set((0..<100).map { NotchMascotCatch.pull(random: Double($0) / 100) }) == Set(NotchMascotCatch.allCases)
+                           && NotchMascotCatch.pull(random: 0.1) == .goldfish && NotchMascotCatch.allCases.allSatisfy { pixels($0.marker) },
+                           "fishing pulls up a fish most often, and now and then something else")
+                    var tickle = NotchMascotTickleTracker()
+                    var tickledAt: Int?
+                    for step in 0..<40 {
+                        let x: CGFloat = step.isMultiple(of: 2) ? 100 : 120
+                        if tickle.track(x: x, over: true, time: Double(step) * 0.1) { tickledAt = step; break }
+                    }
+                    var stroke = NotchMascotTickleTracker()
+                    let slow = (0..<40).contains { step in
+                        stroke.track(x: CGFloat(step.isMultiple(of: 2) ? 100 : 120), over: true, time: Double(step) * 1.0)
+                    }
+                    var away = NotchMascotTickleTracker()
+                    let off = (0..<40).contains { step in
+                        away.track(x: CGFloat(step.isMultiple(of: 2) ? 100 : 120), over: false, time: Double(step) * 0.1)
+                    }
+                    expect(tickledAt != nil && !slow && !off, "quick rubbing over its belly tickles; slow or off it does not")
+                    expect(NotchMascotTrampoline.bounces(feet: CGPoint(x: 100, y: 300), width: 40, velocityY: -800,
+                                                         pointer: CGPoint(x: 105, y: 290))
+                           && !NotchMascotTrampoline.bounces(feet: CGPoint(x: 100, y: 300), width: 40, velocityY: 200,
+                                                             pointer: CGPoint(x: 105, y: 290))
+                           && !NotchMascotTrampoline.bounces(feet: CGPoint(x: 100, y: 300), width: 40, velocityY: -800,
+                                                             pointer: CGPoint(x: 200, y: 290))
+                           && NotchMascotTrampoline.bounce(velocityY: -800) >= NotchMascotTrampoline.lift,
+                           "the pointer under its feet as it falls bounces it up higher")
+                    let titleBar = NotchMascotLedges.Ledge(window: 1, pid: 2, y: 600, minX: 0, maxX: 800)
+                    expect(NotchMascotTrampoline.onLedge(pointer: CGPoint(x: 300, y: 590), ledges: [titleBar])
+                           && !NotchMascotTrampoline.onLedge(pointer: CGPoint(x: 300, y: 400), ledges: [titleBar])
+                           && !NotchMascotTrampoline.onLedge(pointer: CGPoint(x: 900, y: 590), ledges: [titleBar])
+                           && NotchMascotTrampoline.most > 1,
+                           "a pointer resting on the title bar it lands on is no trampoline, and bounces stop")
+                    let dancers: [NotchMascotStyle] = [.swan, .ballerina, .danseur, .contemporary]
+                    let performers = dancers + [.kitsune, .penguin]
+                    expect(performers.allSatisfy { !NotchMascotSoloDance.moves(for: $0).isEmpty }
+                           && NotchMascotSoloDance.moves(for: .cat).isEmpty
+                           && Set(performers.flatMap { NotchMascotSoloDance.moves(for: $0) }) == Set(NotchMascotSoloDance.allCases)
+                           && dancers.allSatisfy(NotchMascotSoloDance.restsWithIce)
+                           && !NotchMascotSoloDance.restsWithIce(.kitsune) && !NotchMascotSoloDance.restsWithIce(.penguin)
+                           && [NotchMascotStyle.kitsune, .penguin].allSatisfy { style in
+                               NotchMascotSoloDance.moves(for: style).allSatisfy { !$0.leaps && !$0.turns }
+                           }
+                           && NotchMascotSoloDance.allCases.allSatisfy { pixels($0.marker) && $0.length > 1 && $0.length < 10 }
+                           && NotchMascotSoloDance.allCases.contains(where: \.leaps)
+                           && NotchMascotSoloDance.allCases.contains(where: \.turns),
+                           "every dancer has solo moves of its own, and every move is danced by someone")
+                    // The kitsune and the penguin.
+                    do {
+                        func elements(_ path: CGPath) -> [Int32] {
+                            var kinds: [Int32] = []
+                            path.applyWithBlock { kinds.append($0.pointee.type.rawValue) }
+                            return kinds
+                        }
+                        let newcomers: [NotchMascotStyle] = [.kitsune, .penguin]
+                        expect(newcomers.allSatisfy { style in
+                                   !style.isComic && NotchMascotStyle.available(name: "Pip").contains(style)
+                                       && NotchMascotCreatures.face(style) != nil && NotchMascotCreatures.bounds(style) != nil
+                                       && NotchMascotCreatures.headOutline(style, size: 40) != nil
+                                       && NotchMascotCreatures.body(style, size: 40).map { !$0.isEmpty } == true
+                                       && style.takesAccessory
+                               }, "the kitsune and the penguin are drawn figures anyone may pick, and wear items")
+                        expect(NotchMascotCreatures.kitsuneTailCount(level: 1) == 1
+                               && NotchMascotCreatures.kitsuneTailCount(level: 6) == 2
+                               && NotchMascotCreatures.kitsuneTailCount(level: 47) == 8
+                               && NotchMascotCreatures.kitsuneTailCount(level: 48) == 9
+                               && NotchMascotCreatures.kitsuneTailCount(level: 120) == 9,
+                               "a kitsune grows a tail every six levels, nine at most")
+                        let poses: [NotchMascotCreatures.TailsPose] = [.rest, .sway, .stream, .fan, .curl]
+                        expect((1...9).allSatisfy { count in
+                                   [false, true].allSatisfy { tips in
+                                       Set(poses.map { elements(NotchMascotCreatures.kitsuneTails(count: count, pose: $0, tips: tips,
+                                                                                                    size: 40)) }).count == 1
+                                   }
+                               }, "every pose of the tails morphs into every other")
+                        let fanned = NotchMascotCreatures.kitsuneTails(count: 9, pose: .fan, tips: false, size: 40).boundingBox
+                        expect(fanned.minX >= -2 && fanned.maxX <= 42 && fanned.minY >= -2,
+                               "nine tails fanned out stay in the figure's square")
+                        let flippers: [NotchMascotCreatures.FlipperPose] = [.rest, .up, .leftUp, .rightUp, .tucked]
+                        expect(Set(flippers.map { elements(NotchMascotCreatures.penguinFlippers($0, size: 40)) }).count == 1
+                               && Set([NotchMascotCreatures.EarPose.up, .twitch, .droop].map {
+                                   elements(NotchMascotCreatures.kitsuneEars($0, inner: false, size: 40))
+                               }).count == 1,
+                               "the flippers and the ears morph between their poses")
+                        let waddle = NotchMascotGait.of(.penguin), trot = NotchMascotGait.of(.kitsune)
+                        expect(waddle.rock > 0 && waddle.bob < NotchMascotGait.standard.bob
+                               && trot.rock == 0 && trot.period < NotchMascotGait.standard.period
+                               && NotchMascotGait.of(.cat) == .standard,
+                               "the penguin waddles, the kitsune trots, the rest walk as before")
+                        expect(NotchMascotAbility.of(.kitsune) == .fireballBreath && NotchMascotAbility.of(.penguin) == .dolphinDive,
+                               "foxfire for the kitsune, a dive for the penguin")
+                        expect(AppLanguage.allCases.allSatisfy { language in
+                                   let fox = NotchMascotStyleNames.name(of: .kitsune, in: language)
+                                   let penguin = NotchMascotStyleNames.name(of: .penguin, in: language)
+                                   return !fox.isEmpty && !penguin.isEmpty && fox != penguin
+                               }, "both are named in every language")
+                        let legends = NotchMascotSynergyCatalog.synergies(in: .legends)
+                        expect(newcomers.allSatisfy { style in
+                                   legends.filter { synergy in
+                                       switch synergy.match {
+                                       case .styles(let a, let b): return a == style || b == style
+                                       case .styleWears(let a, _), .style(let a): return a == style
+                                       default: return false
+                                       }
+                                   }.count >= 7
+                               }, "each has its own combos")
+                        expect(NotchMascotCraving.pick(hour: 9, style: .kitsune, random: 0.1) == .ramen
+                               && NotchMascotCraving.pick(hour: 9, style: .penguin, random: 0.1) == .iceCream
+                               && NotchMascotCraving.pick(hour: 9, style: .kitsune, random: 0.9) == .coffee,
+                               "the kitsune longs for its noodles, the penguin for something cold")
+                        expect(NotchMascotAffinity.dayGain(for: .kitsune) > NotchMascotGrowth.dayExperience
+                               && NotchMascotAffinity.petGain(for: .penguin).perPet == 4,
+                               "each grows close in its own way")
+                    }
+                    expect(AppLanguage.allCases.allSatisfy { language in
+                               let games = FeatureStrings.notchMascotGames(language)
+                               return [games.play, games.roshambo, games.rock, games.paper, games.scissors, games.laser,
+                                       games.fishing, games.hideAndSeek, games.birthday, games.birthdayHint].allSatisfy { !$0.isEmpty }
+                           }, "the games and the birthday are named in every language")
+                    expect(NotchMascotCheatEngine().receive(text: "plugh") == .plugh && !NotchMascotCheat.plugh.badge.isEmpty,
+                           "the hollow voice is heard")
+                    expect(NotchMascotEncounters.pick(hour: 12, wearsItem: false,
+                                                      recent: [.dinosaur, .ufo, .ducklings], random: 0.5) != nil,
+                           "with every one seen lately, one still comes")
+                    expect(NotchMascotEncounter.allCases.allSatisfy { $0.length > 2 && $0.length < 20 && $0.weight > 0 },
+                           "every encounter passes in a few seconds")
+                    expect(NotchMascotCheatEngine().receive(text: "xyzzy") == .xyzzy && !NotchMascotCheat.xyzzy.badge.isEmpty,
+                           "the magic word is heard")
+                    let staged = all.filter { if case .pair = $0.match { return true } else { return false } }
+                    let fingerprints = staged.map { synergy -> String in
+                        synergy.play(starterIsLeader: true).beats.sorted { $0.at < $1.at }.map { beat in
+                            [beat.move.map { $0.move.rawValue + ($0.onLeader ? "L" : "F") },
+                             beat.flight.map { "\($0.thing)" }, beat.burst.map { "\($0.burst)" },
+                             beat.marker?.text].compactMap { $0 }.joined(separator: "+")
+                        }.joined(separator: "|")
+                    }
+                    expect(Set(fingerprints).count == staged.count,
+                           "no two combos of things worn play out alike: \(staged.count - Set(fingerprints).count) repeat")
+                    if let duoPlay = NotchMascotSynergyCatalog.synergy(id: "swordShieldDuo")?.play(starterIsLeader: false) {
+                        let moves = duoPlay.beats.sorted { $0.at < $1.at }.compactMap(\.move)
+                        expect(moves.count == 3 && moves[0] == .init(move: .charge, onLeader: false)
+                               && moves[1] == .init(move: .bow, onLeader: true) && moves[2].move.together,
+                               "the sword's wearer charges, the shield's braces, and they end together")
+                    } else {
+                        expect(false, "the sword and shield combo is in the catalog")
+                    }
+                    expect(all.allSatisfy { synergy in
+                               NotchMascotComboChoreography.finale(id: synergy.id, script: synergy.script)
+                                   == NotchMascotComboChoreography.finale(id: synergy.id, script: synergy.script)
+                           } && NotchMascotComboChoreography.finale(id: "x", script: .door(.shop)) == nil,
+                           "a combo ends the same way every time, and a door has no finale")
+                    let swordPartners = NotchMascotSynergyCatalog.partners(of: .legendSword).map(\.item)
+                    expect(swordPartners.contains(.legendShield) && swordPartners.contains(.legendSword)
+                           && Set(swordPartners).count == swordPartners.count && NotchMascotSynergyCatalog.partners(of: .none).isEmpty,
+                           "the hint knows what the friend can wear to make a combo, each thing once")
+                    expect(AppLanguage.allCases.allSatisfy { language in
+                               let words = FeatureStrings.notchMascotComboHint(language)
+                               let some = words.hint(item: "A", found: ["B", "C"], hidden: 2, suggestion: "D")
+                               let none = words.hint(item: "A", found: [], hidden: 3, suggestion: "D")
+                               return !some.contains("%") && !none.contains("%") && some.contains("B, C")
+                                   && some.contains("D") && none.contains("3")
+                           }, "the combo hint reads in every language")
                     let duo = NotchMascotSynergyCatalog.resolveSynergy(leaderWears: .legendShield, friendWears: .legendSword,
                                                                        leaderStyle: .minimal, friendStyle: .cat)
                     expect(duo?.id == "swordShieldDuo", "sword and shield, in either hand, make the duo")
@@ -11638,14 +12037,15 @@ struct MetricsTests {
                     expect(NotchMascotSnack.allCases.map(\.marker) == ["+100", "+200", "+200", "+500", "+500", "♥ +1"],
                            "snacks score in arcade points")
 
-                    // The wardrobe: fifty-four, drawn and named in every language.
-                    expect(NotchMascotAccessory.allCases.count == 78 && NotchMascotAccessory.rpgItems.count == 32
-                           && NotchMascotAccessory.shopItems.count == 24
-                           && NotchMascotAccessory.wardrobe.count == 74, "seventy-eight accessories, seventy-four to pick")
+                    // The wardrobe: ninety-three, drawn and named in every language.
+                    expect(NotchMascotAccessory.allCases.count == 97 && NotchMascotAccessory.rpgItems.count == 32
+                           && NotchMascotAccessory.shopItems.count == 24 && NotchMascotAccessory.danceItems.count == 7
+                           && NotchMascotAccessory.toyItems.count == 12
+                           && NotchMascotAccessory.wardrobe.count == 93, "ninety-seven accessories, ninety-three to pick")
                     expect(NotchMascotAccessory.rpgItems.allSatisfy { $0.isPurchasable }, "the thirty-two are bought in the shop now")
                     let sample = NotchMascotWearableFrame(outline: CGRect(x: 4, y: 6, width: 20, height: 18), size: 28,
                                                           leftEye: CGPoint(x: 11, y: 14), rightEye: CGPoint(x: 18, y: 14))
-                    for item in NotchMascotAccessory.rpgItems {
+                    for item in NotchMascotAccessory.rpgItems + NotchMascotAccessory.danceItems + NotchMascotAccessory.toyItems {
                         let parts = NotchMascotWearableShapes.parts(for: item, in: sample)
                         expect(!parts.isEmpty && parts.allSatisfy { !$0.path.boundingBoxOfPath.isNull }, "\(item) is drawn")
                     }
@@ -11677,7 +12077,7 @@ struct MetricsTests {
             // The shop, the sounds and the two new figures.
             do {
                 expect(NotchMascotRarity.allCases.reduce(0) { $0 + $1.chance } == 100, "the rarities share a hundred chances")
-                let purchasable = NotchMascotAccessory.rpgItems + NotchMascotAccessory.shopItems
+                let purchasable = NotchMascotAccessory.rpgItems + NotchMascotAccessory.shopItems + NotchMascotAccessory.danceItems + NotchMascotAccessory.toyItems
                 expect(purchasable.allSatisfy { $0.price > 0 && $0.rarity.priceRange.contains($0.price) },
                        "every thing for sale costs what its rarity costs")
                 expect(NotchMascotAccessory.allCases.filter { !$0.isPurchasable }.allSatisfy { $0.price == 0 },
@@ -11692,6 +12092,47 @@ struct MetricsTests {
                 expect(shopWords.isComplete && FeatureStrings.notchMascotShop(.enUS).isComplete
                        && NotchMascotAccessory.shopItems.allSatisfy { shopWords.name(of: $0) != nil && shopWords.gag(of: $0) != nil },
                        "the shop is worded for every curiosity")
+                for language in AppLanguage.allCases {
+                    let toys = FeatureStrings.notchMascotToys(language)
+                    expect(toys.isComplete && Set(toys.items).count == NotchMascotToysStrings.itemCount
+                           && NotchMascotAccessory.toyItems.allSatisfy { toys.name(of: $0) != nil && toys.gag(of: $0) != nil },
+                           "\(language) names every toy apart and says what it does")
+                }
+                let forSale = Set(NotchMascotShop.unowned)
+                expect(NotchMascotAccessory.danceItems.allSatisfy { forSale.contains($0) || NotchMascotShop.owns($0) }
+                       && NotchMascotAccessory.toyItems.allSatisfy { forSale.contains($0) || NotchMascotShop.owns($0) },
+                       "the dance gear and the toys can turn up in the shop")
+                // Luck: the dice roll one to six and a six pays; the cookie reads
+                // one of six fortunes; only a few payouts a day.
+                expect((0..<6).map { NotchMascotLuck.face(random: (Double($0) + 0.5) / 6) } == [1, 2, 3, 4, 5, 6]
+                       && NotchMascotLuck.face(random: 0.9999) == 6 && NotchMascotLuck.face(random: 0) == 1,
+                       "the dice roll every face")
+                let rolls = (1...6).map { NotchMascotLuck.roll(face: $0) }
+                expect(rolls.enumerated().allSatisfy { index, steps in
+                    steps.contains { if case .gold = $0.1 { return true } else { return false } } == (index == 5)
+                }, "only a six pays out")
+                expect(NotchMascotLuck.Fortune.allCases.map { NotchMascotLuck.fortune($0) }.allSatisfy { steps in
+                    steps.compactMap { if case .marker(let text) = $0.1 { return text } else { return nil } }
+                        .allSatisfy { NotchMascotRPGShapes.cells(of: $0) > 0 && !NotchMascotRPGShapes.pixelPath($0, cell: 1).isEmpty }
+                } && NotchMascotLuck.Fortune.pick(random: 0) == .lucky && NotchMascotLuck.Fortune.pick(random: 0.9999) == .gold,
+                       "every fortune can be read in pixels")
+                let luckSuite = "ryzenstatus.tests.luck"
+                if let luck = UserDefaults(suiteName: luckSuite) {
+                    luck.removePersistentDomain(forName: luckSuite)
+                    let day = Date(timeIntervalSince1970: 1_800_000_000)
+                    let paid = (0..<5).map { _ in NotchMascotLuck.pay(30, defaults: luck, now: day) }
+                    expect(paid == [30, 30, 30, 0, 0] && NotchMascotLuck.pay(30, defaults: luck, now: day.addingTimeInterval(86_400)) == 30,
+                           "luck pays three times a day and again the next")
+                    luck.removePersistentDomain(forName: luckSuite)
+                }
+                var credited = 0
+                let six = NotchMascotItemUse.of(.luckyDice, random: { 0.99 })
+                let rich = six?.settled(pay: { $0 }, collect: { credited += $0 })
+                let spent = six?.settled(pay: { _ in 0 }, collect: { credited += $0 })
+                expect(credited == 30
+                       && rich?.steps.contains { $0.action == .gold(30) } == true
+                       && spent?.steps.contains { if case .gold = $0.action { return true } else { return false } } == false,
+                       "a paid six shows its gold and a spent day leaves it out")
                 // Sounds: each thing that happens has one, and the pan follows the side.
                 let beat = NotchMascotIslandPlay.Beat(at: 0, flight: .init(thing: .fireball, fromLeader: true),
                                                       burst: .init(burst: .coins, onLeader: false),
@@ -11889,7 +12330,7 @@ struct MetricsTests {
 
             let wardrobe = NotchMascotWardrobe.self
             expect(NotchMascotAccessory.crown.unlockLevel == 10 && NotchMascotAccessory.eyePatch.unlockLevel == 18
-                   && NotchMascotAccessory.wardrobe.count == 18 + NotchMascotAccessory.rpgItems.count + NotchMascotAccessory.shopItems.count
+                   && NotchMascotAccessory.wardrobe.count == 18 + NotchMascotAccessory.rpgItems.count + NotchMascotAccessory.shopItems.count + NotchMascotAccessory.danceItems.count + NotchMascotAccessory.toyItems.count
                    && NotchMascotAccessory.wardrobe.prefix(18).allSatisfy { $0.unlockLevel < NotchMascotForm.golden.unlockLevel },
                    "one accessory unlocks at each of the first eighteen levels, all before the first transformation")
             expect(NotchMascotAccessory.monocle.placement == .eyes && NotchMascotAccessory.eyePatch.placement == .eyes

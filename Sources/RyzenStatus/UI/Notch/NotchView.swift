@@ -989,20 +989,23 @@ struct NotchRestingStrip: View {
                     .allowsHitTesting(false)
                     .transition(.opacity)
             }
-            // What they toss to each other across the camera as they play.
-            if service.mascotFriendRests(on: geometry), let friend = service.mascotFriendLook,
-               service.mascotIslandFlight != nil || service.mascotIslandBurst != nil || service.mascotIslandMarker != nil {
+            // What they toss to each other across the camera as they play,
+            // or what one does with the thing it wears, alone.
+            if service.mascotIslandFlight != nil || service.mascotIslandBurst != nil || service.mascotIslandMarker != nil {
+                let leaderTrack = NotchMascotSupport.track(stripWidth: geometry.collapsed.width,
+                                                           stripHeight: geometry.stripHeight,
+                                                           wing: geometry.restingWingWidth,
+                                                           cameraWidth: geometry.cameraWidth,
+                                                           floats: false,
+                                                           bodyHeight: geometry.stripBodyHeight,
+                                                           side: service.mascotSide)
+                let friend = service.mascotFriendRests(on: geometry) ? service.mascotFriendLook : nil
                 NotchMascotIslandPlayLayer(flight: service.mascotIslandFlight, burst: service.mascotIslandBurst,
                                            marker: service.mascotIslandMarker,
-                                           leader: NotchMascotSupport.track(stripWidth: geometry.collapsed.width,
-                                                                            stripHeight: geometry.stripHeight,
-                                                                            wing: geometry.restingWingWidth,
-                                                                            cameraWidth: geometry.cameraWidth,
-                                                                            floats: false,
-                                                                            bodyHeight: geometry.stripBodyHeight,
-                                                                            side: service.mascotSide),
-                                           friend: service.mascotFriendTrack(on: geometry),
-                                           leaderLook: NotchMascotSupport.look(), friendLook: friend)
+                                           leader: leaderTrack,
+                                           friend: friend == nil ? leaderTrack : service.mascotFriendTrack(on: geometry),
+                                           leaderLook: NotchMascotSupport.look(),
+                                           friendLook: friend ?? NotchMascotSupport.look())
                     .frame(width: geometry.collapsed.width, height: geometry.stripHeight)
             }
         }

@@ -80,30 +80,34 @@ final class MacPortsManager: ObservableObject {
     }
 
     // This is invoked only by the confirmed button in MacPortsView, never
-    // by lifecycle/preferences. The password stays in Terminal, not this app.
+    // by lifecycle/preferences. The password stays in the terminal, not this
+    // app. The command opens in the person's own terminal, as Homebrew's do
+    // (see `HomebrewTerminalScript`), so no Automation consent is involved.
     func handOff(_ action: MacPortsSupport.Action, package: String?) {
         guard available, !busy,
               let command = MacPortsSupport.shellCommand(action: action, package: package) else { return }
-        busy = true
         error = nil
-        let source = """
-        tell application "Terminal"
-            activate
-            do script \(AppleScriptRunner.literal(command))
-        end tell
-        """
-        queue.async { [weak self] in
-            let result = AppleScriptRunner.run(source)
+        let script: URL
+        do {
+            script = try HomebrewTerminalScript.write(command: command)
+        } catch {
+            self.error = error.localizedDescription
+            return
+        }
+        busy = true
+        NSWorkspace.shared.open(script, configuration: NSWorkspace.OpenConfiguration()) { [weak self] _, error in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.busy = false
-                if result.ok { self.handedOffCommand = command }
-                else {
-                    self.error = result.output.isEmpty
-                        ? FeatureStrings.packageManager(L10n.shared.language).queryFailed : result.output
+                if let error {
+                    // Nothing ran the script, so nothing deleted it.
+                    try? FileManager.default.removeItem(at: script)
+                    self.error = error.localizedDescription
+                } else {
+                    self.handedOffCommand = command
                 }
                 // A successful handoff is NOT a successful package operation.
-                // Refresh is explicit after the user completes Terminal work.
+                // Refresh is explicit after the user completes terminal work.
             }
         }
     }

@@ -35,6 +35,7 @@ enum SettingsSectionAnchor: String, CaseIterable, Hashable {
     case extraBrightness
     case bluetoothSleep
     case scrollDirection
+    case scrollZoom
     case focusFollowsMouse
     case smoothScroll
     case linearScroll
@@ -53,6 +54,7 @@ enum SettingsSectionAnchor: String, CaseIterable, Hashable {
     case pastePlain
     case quickLauncher
     case quickToggles
+    case quitApps
     case screenshot
     case screenRecorder
     case colorPicker
@@ -73,7 +75,7 @@ enum SettingsSectionAnchor: String, CaseIterable, Hashable {
              .soundOutputSwitcher:
             return .general
         case .keepAwake, .brightness, .extraBrightness, .bluetoothSleep: return .energy
-        case .scrollDirection, .focusFollowsMouse, .smoothScroll, .linearScroll, .mouseAcceleration, .mouseNavigation,
+        case .scrollDirection, .scrollZoom, .focusFollowsMouse, .smoothScroll, .linearScroll, .mouseAcceleration, .mouseNavigation,
              .mouseButtonShortcuts, .middleClick, .mouseClickDebounce:
             return .mouse
         case .switcher: return .switcher
@@ -81,7 +83,7 @@ enum SettingsSectionAnchor: String, CaseIterable, Hashable {
         case .windowMaximizer: return .windowLayout
         case .finderCutPaste, .finderRename: return .cutPaste
         case .clipboardHistory, .pastePlain: return .clipboard
-        case .quickLauncher, .quickToggles, .micMute, .cameraPreview, .wallpaper, .worldClock, .scratchpad,
+        case .quickLauncher, .quickToggles, .quitApps, .micMute, .cameraPreview, .wallpaper, .worldClock, .scratchpad,
              .cleaningMode:
             return .quickTools
         // Every tool that starts from the screen shares one page, as upstream.
@@ -158,6 +160,8 @@ extension AppFeature {
 
         case .scrollInverter, .scrollHorizontal:
             return FeatureSettingsDestination(.mouse, sectionAnchor: .scrollDirection)
+        case .scrollZoom:
+            return FeatureSettingsDestination(.mouse, sectionAnchor: .scrollZoom)
         case .focusFollowsMouse:
             return FeatureSettingsDestination(.mouse, sectionAnchor: .focusFollowsMouse)
         case .smoothScroll:
@@ -215,6 +219,8 @@ extension AppFeature {
             return FeatureSettingsDestination(.quickTools, sectionAnchor: .quickLauncher)
         case .quickToggles:
             return FeatureSettingsDestination(.quickTools, sectionAnchor: .quickToggles)
+        case .quitApps:
+            return FeatureSettingsDestination(.quickTools, sectionAnchor: .quitApps)
         case .colorPicker:
             return FeatureSettingsDestination(.screenshot, sectionAnchor: .colorPicker)
         case .screenOCR:
@@ -271,7 +277,7 @@ enum FeatureVisibilitySupport {
         // so those keep the page alive even with every metric switched off.
         case .monitor: return monitorFeatures + [.mixer, .soundOutputSwitcher, .connectedDevices]
         case .mouse: return [.scrollInverter, .smoothScroll, .mouseNavigation, .middleClick,
-                             .scrollHorizontal, .focusFollowsMouse, .linearScroll, .mouseAcceleration,
+                             .scrollHorizontal, .scrollZoom, .focusFollowsMouse, .linearScroll, .mouseAcceleration,
                              .mouseButtonShortcuts, .mouseClickDebounce]
         case .switcher: return [.switcher]
         case .dock: return [.dockPreview, .dockClick, .spacesOrder]
@@ -281,7 +287,7 @@ enum FeatureVisibilitySupport {
         case .cutPaste: return [.finderCutPaste, .finderRename]
         case .shelf: return [.shelf]
         case .media: return [.mediaTools]
-        case .quickTools: return [.quickLauncher, .quickToggles, .micMute,
+        case .quickTools: return [.quickLauncher, .quickToggles, .quitApps, .micMute,
                                   .cameraPreview, .scratchpad, .wallpaper, .worldClock]
         case .urlCleaner: return [.urlCleaner]
         case .homebrew: return [.homebrew]
@@ -335,7 +341,7 @@ extension AppFeature {
         case .windowLayout, .windowMaximizer: return .windowLayout
         case .autoQuit: return .autoQuit
         case .quitWindowProtection: return .quitProtection
-        case .scrollInverter, .smoothScroll, .mouseNavigation, .middleClick, .scrollHorizontal,
+        case .scrollInverter, .smoothScroll, .mouseNavigation, .middleClick, .scrollHorizontal, .scrollZoom,
              .focusFollowsMouse, .linearScroll, .mouseAcceleration, .mouseClickDebounce,
              .mouseButtonShortcuts:
             return .mouse
@@ -351,7 +357,7 @@ extension AppFeature {
         // Inside another page: the Monitor page's panel configuration.
         case .mixer, .soundOutputSwitcher, .connectedDevices: return .monitor
         case .keepAwake, .brightness, .extraBrightness, .bluetoothSleep: return .energy
-        case .quickLauncher, .quickToggles, .micMute, .cameraPreview,
+        case .quickLauncher, .quickToggles, .quitApps, .micMute, .cameraPreview,
              .scratchpad, .wallpaper, .worldClock:
             return .quickTools
         case .colorPicker, .screenOCR: return .screenshot

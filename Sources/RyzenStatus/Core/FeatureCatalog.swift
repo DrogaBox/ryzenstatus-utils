@@ -20,7 +20,7 @@ enum AppFeature: String, CaseIterable {
     case scrollInverter, smoothScroll, mouseNavigation, middleClick, keyboardDebounce, textSnippets,
          mouseButtonShortcuts, superKey
     case quitWindowProtection
-    case scrollHorizontal, focusFollowsMouse, linearScroll, mouseAcceleration, mouseClickDebounce
+    case scrollHorizontal, scrollZoom, focusFollowsMouse, linearScroll, mouseAcceleration, mouseClickDebounce
     // Clipboard and files
     case clipboardHistory, pastePlain, finderCutPaste, shelf, urlCleaner
     case finderRename
@@ -32,7 +32,7 @@ enum AppFeature: String, CaseIterable {
     case keepAwake, brightness, extraBrightness
     case bluetoothSleep
     // Tools
-    case quickLauncher, quickToggles, colorPicker, screenOCR, cleaningMode, mediaTools,
+    case quickLauncher, quickToggles, quitApps, colorPicker, screenOCR, cleaningMode, mediaTools,
          cleaner, uninstaller, homebrew, appUpdates, whatsAppDownloads, screenshot, screenRecorder, cameraPreview, radialMenu, scratchpad, killProcess, commandBar
     case wallpaper
     case portManager
@@ -55,7 +55,7 @@ enum FeatureGroup: String, CaseIterable {
 /// System permissions surfaced by the hub's transparency portal.
 enum AppPermission: String, CaseIterable {
     case accessibility, screenRecording, fullDiskAccess, filesAndFolders, notifications,
-         automationFinder, automationTerminal, audioCapture, microphone, camera, calendar
+         automationFinder, audioCapture, microphone, camera, calendar
 }
 
 extension AppFeature {
@@ -68,7 +68,7 @@ extension AppFeature {
             return .mouseKeyboard
         case .quitWindowProtection:
             return .mouseKeyboard
-        case .scrollHorizontal, .focusFollowsMouse, .linearScroll, .mouseAcceleration, .mouseClickDebounce:
+        case .scrollHorizontal, .scrollZoom, .focusFollowsMouse, .linearScroll, .mouseAcceleration, .mouseClickDebounce:
             return .mouseKeyboard
         case .spacesOrder:
             return .windowsDock
@@ -86,7 +86,7 @@ extension AppFeature {
             return .energyDisplay
         case .bluetoothSleep:
             return .energyDisplay
-        case .quickLauncher, .quickToggles, .colorPicker, .screenOCR, .cleaningMode, .mediaTools,
+        case .quickLauncher, .quickToggles, .quitApps, .colorPicker, .screenOCR, .cleaningMode, .mediaTools,
              .cleaner, .uninstaller, .homebrew, .appUpdates, .whatsAppDownloads, .screenshot, .screenRecorder, .cameraPreview, .radialMenu, .scratchpad, .killProcess, .commandBar:
             return .tools
         case .wallpaper:
@@ -125,6 +125,7 @@ extension AppFeature {
         case .superKey: return "capslock"
         case .quitWindowProtection: return "shield.lefthalf.filled"
         case .scrollHorizontal: return "arrow.triangle.swap"
+        case .scrollZoom: return "plus.magnifyingglass"
         case .focusFollowsMouse: return "cursorarrow.and.square.on.square.dashed"
         case .linearScroll: return "arrow.up.and.down.text.horizontal"
         case .mouseAcceleration: return "cursorarrow.rays"
@@ -149,6 +150,7 @@ extension AppFeature {
         case .bluetoothSleep: return "wave.3.right.circle"
         case .quickLauncher: return "wand.and.rays"
         case .quickToggles: return "togglepower"
+        case .quitApps: return "xmark.app"
         case .colorPicker: return "eyedropper"
         case .screenOCR: return "text.viewfinder"
         case .cleaningMode: return "bubbles.and.sparkles"
@@ -235,6 +237,7 @@ extension AppFeature {
             return [DefaultsKey.quitProtectionQuitEnabled, DefaultsKey.quitProtectionCloseEnabled]
         case .radialMenu: return [DefaultsKey.radialMenuEnabled]
         case .scrollHorizontal: return [DefaultsKey.scrollHorizontalEnabled]
+        case .scrollZoom: return [DefaultsKey.pinchZoomEnabled]
         case .focusFollowsMouse: return [DefaultsKey.focusFollowsMouseEnabled]
         case .linearScroll: return [DefaultsKey.linearScrollEnabled]
         case .mouseAcceleration: return [DefaultsKey.mouseAccelerationDisabled]
@@ -280,7 +283,7 @@ extension AppFeature {
         case .worldClock:
             return []
         case .windowLayout, .mixer, .micMute, .keepAwake,
-             .quickLauncher, .quickToggles, .colorPicker, .screenOCR, .cleaningMode, .mediaTools,
+             .quickLauncher, .quickToggles, .quitApps, .colorPicker, .screenOCR, .cleaningMode, .mediaTools,
              .cleaner, .uninstaller, .homebrew, .appUpdates, .whatsAppDownloads, .screenshot, .screenRecorder, .cameraPreview, .scratchpad, .killProcess,
              .monitorCPU, .monitorGPU, .monitorMemory, .monitorNetwork, .monitorDisk, .monitorPower,
              .monitorInsights, .monitorAnalytics, .monitorEnergy, .monitorNetworkDetails:
@@ -308,7 +311,7 @@ extension AppFeature {
         case .quitWindowProtection: return [.accessibility]
         // Wheel and click taps, and the window under the pointer, all go
         // through Accessibility.
-        case .scrollHorizontal, .focusFollowsMouse, .linearScroll, .mouseClickDebounce:
+        case .scrollHorizontal, .scrollZoom, .focusFollowsMouse, .linearScroll, .mouseClickDebounce:
             return [.accessibility]
         // Pointer acceleration is an IOKit HID property and the Spaces order
         // a Dock preference; neither needs a grant.
@@ -322,6 +325,8 @@ extension AppFeature {
         // Only emptying the Trash asks the Finder; every other quick toggle
         // (dark mode included) works without a permission.
         case .quickToggles: return [.automationFinder]
+        // Each app gets the ordinary quit request it would from its own menu.
+        case .quitApps: return []
         case .switcher: return [.accessibility, .screenRecording]
         case .dockPreview: return [.accessibility, .screenRecording]
         case .screenOCR: return [.screenRecording]
@@ -334,7 +339,8 @@ extension AppFeature {
         case .brightness: return [.accessibility]
         case .cleaner: return [.fullDiskAccess, .filesAndFolders, .notifications]
         case .uninstaller: return [.fullDiskAccess, .automationFinder]
-        case .homebrew: return [.automationTerminal]
+        // Commands open in the default terminal app, which asks nothing of this one.
+        case .homebrew: return []
         case .appUpdates: return [.notifications]
         case .whatsAppDownloads: return [.filesAndFolders, .notifications]
         case .mixer, .notchLiveEqualizer: return [.audioCapture]
@@ -399,7 +405,9 @@ extension AppFeature {
         .worldClock,
         // Upstream ships these opt-in: they change how every window, wheel or
         // Space behaves, so an update must not install them on its own.
-        .focusFollowsMouse, .scrollHorizontal, .linearScroll, .spacesOrder,
+        .focusFollowsMouse, .scrollHorizontal, .scrollZoom, .linearScroll, .spacesOrder,
+        // Quitting apps from a window is asked for, never installed by an update.
+        .quitApps,
         // Without the mixer it would add its own panel section.
         .audioPriority,
     ]
@@ -413,7 +421,7 @@ extension AppFeature {
     static let featuresWithoutRuntimeBinding: Set<AppFeature> = [
         // On-demand tools: they hold no resources and their surfaces simply
         // follow availability in the UI.
-        .uninstaller, .homebrew, .cleaningMode, .quickToggles, .killProcess,
+        .uninstaller, .homebrew, .cleaningMode, .killProcess,
         // Runs `lsof` only while its page or panel row is open.
         .portManager,
         // A view that reads the saved cities when it draws.
@@ -521,7 +529,7 @@ extension AppPermission {
         case .filesAndFolders: return "folder.badge.person.crop"
         case .fullDiskAccess: return "externaldrive.badge.person.crop"
         case .notifications: return "bell.badge"
-        case .automationFinder, .automationTerminal: return "gearshape.2"
+        case .automationFinder: return "gearshape.2"
         case .audioCapture: return "waveform"
         case .microphone: return "mic"
         case .camera: return "camera"
@@ -536,13 +544,14 @@ extension AppPermission {
 extension AppFeature {
     /// Titles reuse the strings users already see across the app; only names
     /// with no clean existing form live in the hub strings.
-    func hubTitle(_ s: Strings, hub: FeatureHubStrings) -> String {
+    func hubTitle(_ s: Strings, hub: FeatureHubStrings,
+                  language: AppLanguage = L10n.shared.language) -> String {
         switch self {
         case .switcher: return s.switcherSection
         case .dockPreview: return s.dockPreviewName
         case .dockClick: return hub.titleDockClick
         case .windowMaximizer: return s.windowMaximizeName
-        case .windowLayout: return FeatureStrings.windowLayout(L10n.shared.language).title
+        case .windowLayout: return FeatureStrings.windowLayout(language).title
         case .autoQuit: return s.autoQuitName
         case .scrollInverter: return s.invertMouseScroll
         case .smoothScroll: return s.smoothScrollName
@@ -551,21 +560,22 @@ extension AppFeature {
         case .keyboardDebounce: return s.keyDebounceName
         case .mouseButtonShortcuts: return hub.titleMouseButtons
         case .superKey: return hub.titleSuperKey
-        case .quitWindowProtection: return FeatureStrings.quitProtection(L10n.shared.language).name
+        case .quitWindowProtection: return FeatureStrings.quitProtection(language).name
         case .scrollHorizontal: return s.scrollHorizontalName
+        case .scrollZoom: return s.zoomSection
         case .focusFollowsMouse: return s.focusFollowsMouseName
         case .linearScroll: return s.linearScrollName
         case .mouseAcceleration: return s.mouseAccelerationName
-        case .mouseClickDebounce: return FeatureStrings.mouseClickDebounce(L10n.shared.language).title
+        case .mouseClickDebounce: return FeatureStrings.mouseClickDebounce(language).title
         case .spacesOrder: return s.spacesOrderName
-        case .textSnippets: return FeatureStrings.snippets(L10n.shared.language).pageTitle
-        case .clipboardHistory: return FeatureStrings.clipboard(L10n.shared.language).title
+        case .textSnippets: return FeatureStrings.snippets(language).pageTitle
+        case .clipboardHistory: return FeatureStrings.clipboard(language).title
         case .pastePlain: return s.pastePlainName
         case .finderCutPaste: return s.cutPasteName
-        case .finderRename: return FeatureStrings.finderRename(L10n.shared.language).hubTitle
+        case .finderRename: return FeatureStrings.finderRename(language).hubTitle
         case .shelf: return s.shelfName
         case .urlCleaner: return s.urlCleanerName
-        case .diskImageInstaller: return FeatureStrings.diskImageInstaller(L10n.shared.language).title
+        case .diskImageInstaller: return FeatureStrings.diskImageInstaller(language).title
         case .mixer: return s.mixerSection
         case .soundOutputSwitcher: return s.soundOutputSwitcherTitle
         case .audioPriority: return hub.titleAudioPriority
@@ -573,50 +583,51 @@ extension AppFeature {
         case .musicBlock: return hub.titleMusicBlock
         case .nowPlaying: return hub.titleNowPlaying
         case .keepAwake: return s.keepAwakeTitle
-        case .brightness: return FeatureStrings.brightness(L10n.shared.language).pageTitle
+        case .brightness: return FeatureStrings.brightness(language).pageTitle
         case .extraBrightness: return s.extraBrightnessName
-        case .bluetoothSleep: return FeatureStrings.bluetoothSleep(L10n.shared.language).pageTitle
+        case .bluetoothSleep: return FeatureStrings.bluetoothSleep(language).pageTitle
         case .quickLauncher: return s.launcherName
-        case .quickToggles: return FeatureStrings.quickToggles(L10n.shared.language).pageTitle
+        case .quickToggles: return FeatureStrings.quickToggles(language).pageTitle
+        case .quitApps: return s.quitAppsName
         case .colorPicker: return s.colorPickerName
         case .screenOCR: return s.ocrName
-        case .screenshot: return FeatureStrings.screenshot(L10n.shared.language).pageTitle
-        case .screenRecorder: return FeatureStrings.recorder(L10n.shared.language).pageTitle
-        case .cameraPreview: return FeatureStrings.cameraPreview(L10n.shared.language).pageTitle
-        case .radialMenu: return FeatureStrings.radialMenu(L10n.shared.language).pageTitle
-        case .scratchpad: return FeatureStrings.scratchpad(L10n.shared.language).pageTitle
-        case .killProcess: return FeatureStrings.killProcess(L10n.shared.language).pageTitle
-        case .wallpaper: return FeatureStrings.wallpaper(L10n.shared.language).pageTitle
-        case .portManager: return FeatureStrings.portManager(L10n.shared.language).title
-        case .worldClock: return FeatureStrings.worldClock(L10n.shared.language).pageTitle
+        case .screenshot: return FeatureStrings.screenshot(language).pageTitle
+        case .screenRecorder: return FeatureStrings.recorder(language).pageTitle
+        case .cameraPreview: return FeatureStrings.cameraPreview(language).pageTitle
+        case .radialMenu: return FeatureStrings.radialMenu(language).pageTitle
+        case .scratchpad: return FeatureStrings.scratchpad(language).pageTitle
+        case .killProcess: return FeatureStrings.killProcess(language).pageTitle
+        case .wallpaper: return FeatureStrings.wallpaper(language).pageTitle
+        case .portManager: return FeatureStrings.portManager(language).title
+        case .worldClock: return FeatureStrings.worldClock(language).pageTitle
         case .cleaningMode: return s.cleaningMenuItem
         case .mediaTools: return s.mediaName
         case .cleaner: return s.cleanerName
         case .uninstaller: return s.uninstallerName
-        case .homebrew: return FeatureStrings.packageManager(L10n.shared.language).title
-        case .appUpdates: return FeatureStrings.appUpdates(L10n.shared.language).pageTitle
+        case .homebrew: return FeatureStrings.packageManager(language).title
+        case .appUpdates: return FeatureStrings.appUpdates(language).pageTitle
         case .monitorCPU: return s.monitorShowCPU
         case .monitorGPU: return s.monitorShowGPU
         case .monitorMemory: return s.monitorShowMemory
         case .monitorNetwork: return s.monitorShowNetwork
         case .monitorDisk: return s.diskSection
         case .monitorPower: return s.powerSection
-        case .whatsAppDownloads: return FeatureStrings.whatsAppDownloads(L10n.shared.language).title
+        case .whatsAppDownloads: return FeatureStrings.whatsAppDownloads(language).title
         case .monitorInsights: return "Smart Performance Insights"
         case .monitorAnalytics: return "Analytics & Trend History"
         case .monitorEnergy: return "Energy Impact & Battery Flow"
         case .monitorNetworkDetails: return "Network Scanner & Details"
-        case .connectedDevices: return FeatureStrings.connectedDevices(L10n.shared.language).title
-        case .commandBar: return FeatureStrings.commandBar(L10n.shared.language).pageTitle
-        case .notch: return NotchStrings.notch(L10n.shared.language).title
-        case .notchCalendar: return FeatureStrings.notchCalendar(L10n.shared.language).title
+        case .connectedDevices: return FeatureStrings.connectedDevices(language).title
+        case .commandBar: return FeatureStrings.commandBar(language).pageTitle
+        case .notch: return NotchStrings.notch(language).title
+        case .notchCalendar: return FeatureStrings.notchCalendar(language).title
         case .notchNotifications: return hub.titleNotchNotifications
         case .notchGestures: return hub.titleNotchGestures
         case .notchTimer: return hub.titleNotchTimer
         case .notchAccessories: return hub.titleNotchAccessories
         case .notchLyrics: return hub.titleNotchLyrics
         case .notchDownloads: return hub.titleNotchDownloads
-        case .notchAgents: return FeatureStrings.notchAgents(L10n.shared.language).title
+        case .notchAgents: return FeatureStrings.notchAgents(language).title
         case .notchWatch: return hub.titleNotchWatch
         case .notchMascot: return hub.titleNotchMascot
         case .notchLiveEqualizer: return hub.titleNotchLiveEqualizer

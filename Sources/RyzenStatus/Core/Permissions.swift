@@ -396,7 +396,6 @@ final class Permissions: ObservableObject {
 
     enum AutomationTarget: String, CaseIterable {
         case finder = "com.apple.finder"
-        case terminal = "com.apple.Terminal"
     }
 
     enum AutomationStatus {

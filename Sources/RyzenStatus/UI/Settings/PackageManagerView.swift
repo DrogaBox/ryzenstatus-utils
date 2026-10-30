@@ -16,11 +16,13 @@ struct PackageManagerView: View {
             Picker(text.title, selection: $provider) {
                 Text(text.automatic).tag(PackageManagerProvider.automatic.rawValue)
                 Text("MacPorts").tag(PackageManagerProvider.macPorts.rawValue)
-                Text("Homebrew").tag(PackageManagerProvider.homebrew.rawValue)
+                if homebrewOffered {
+                    Text("Homebrew").tag(PackageManagerProvider.homebrew.rawValue)
+                }
             }
             .disabled(brew.operation != nil)
             .padding(.horizontal, 12)
-            Text(text.caption)
+            Text(homebrewOffered ? text.caption : text.intelCaption)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 12)
@@ -34,7 +36,16 @@ struct PackageManagerView: View {
             }
         }
         .padding(.top, 8)
+        .onAppear {
+            // A Homebrew choice left from before has no row to show on an
+            // Intel Mac without it; the picker falls back to Automatic.
+            if !homebrewOffered, provider == PackageManagerProvider.homebrew.rawValue {
+                provider = PackageManagerProvider.automatic.rawValue
+            }
+        }
     }
+
+    private var homebrewOffered: Bool { PackageManagerProvider.homebrewOffered }
 }
 
 private struct MacPortsPendingAction: Identifiable {

@@ -31,6 +31,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var popoverKeyboardMonitor: Any?
     private var popoverIsClosing = false
     private var popoverIsSwitchingAnchor = false
+    /// Actions opened from our panel keep the app that was actually active,
+    /// even when it has no ordinary window in the current Space.
+    var panelActivationSourcePID: pid_t? {
+        guard let source = panelActivationSource, !source.isTerminated else { return nil }
+        return source.processIdentifier
+    }
     private var metricAnchorSwitchSerial = 0
     private var popoverCloseCompletions: [() -> Void] = []
     private var isTerminating = false
@@ -201,7 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             .receive(on: DispatchQueue.main)
             .sink { _ in
                 FeatureRuntime.shared.sync([
-                    .scrollInverter, .smoothScroll, .mouseNavigation, .switcher,
+                    .scrollInverter, .scrollZoom, .smoothScroll, .mouseNavigation, .switcher,
                     .dockPreview, .finderCutPaste, .finderRename, .autoQuit, .dockClick,
                     .middleClick, .windowMaximizer, .keyboardDebounce, .windowLayout,
                     .textSnippets, .superKey, .brightness, .radialMenu,
@@ -682,6 +688,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // reopening would make the panel look impossible to close.
         guard allowRecentClose || Date().timeIntervalSince(popoverClosedAt) > 0.35 else { return }
         guard let button = button ?? statusController.button else { return }
+        if let front = NSWorkspace.shared.frontmostApplication,
+           front.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+            panelActivationSource = front
+        }
         // The main panel and the now-playing popup never show together.
         closeNowPlayingPopup()
 

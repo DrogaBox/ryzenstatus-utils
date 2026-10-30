@@ -335,6 +335,23 @@ enum Defaults {
         DefaultsKey.switcherCurrentSpaceOnly: false,
         DefaultsKey.switcherSearchPinEnabled: false, // S pins the search field open, off by default
         DefaultsKey.switcherMaxColumns: 0,
+        DefaultsKey.pinchZoomEnabled: false,
+        DefaultsKey.pinchZoomModifier: ScrollZoomModifier.control.rawValue,
+        DefaultsKey.switcherAllWindowsShortcut: GlobalShortcut.switcherAllWindowsDefault.storageValue,
+        DefaultsKey.switcherAllWindowsShortcutEnabled: false,
+        DefaultsKey.autoQuitDockApps: [String](),
+        DefaultsKey.notchCalendarCountdownLead: NotchCalendarSupport.defaultCountdownLeadMinutes,
+        DefaultsKey.notchAgentsClaudeProfile: "",
+        DefaultsKey.notchHoverInFullscreen: false,
+        DefaultsKey.panelToggleQuitAllApps: true,
+        DefaultsKey.windowReserveStageManagerSpace: false,
+        DefaultsKey.clipboardHistoryShowSourceAppIcons: false,
+        DefaultsKey.quitAppsShortcutEnabled: false,
+        DefaultsKey.quitAppsShortcut: GlobalShortcut.quitAllDefault.storageValue,
+        DefaultsKey.quitAppsExceptFrontShortcutEnabled: false,
+        DefaultsKey.quitAppsExceptFrontShortcut: GlobalShortcut.quitAllExceptFrontDefault.storageValue,
+        DefaultsKey.quitAppsKeptApps: mandatoryAutoQuitExceptionBundleIDs,
+        DefaultsKey.screenshotCopyImageOnly: false,
         DefaultsKey.dockPreviewEnabled: false,
         DefaultsKey.dockPreviewBackgroundOpacity: 0.85,
         DefaultsKey.dockPreviewOpenDelay: 200,
@@ -507,6 +524,7 @@ enum Defaults {
         DefaultsKey.notchMascotDesktopFriend: "",
         DefaultsKey.notchMascotDesktopPlay: true,
         DefaultsKey.notchMascotDressUp: true,
+        DefaultsKey.notchMascotClimbsWindows: true,
         DefaultsKey.notchMascotFriendAccessory: "",
         DefaultsKey.notchMascotCustomColor: "",
         DefaultsKey.notchMascotFriendPalette: "",
@@ -522,6 +540,10 @@ enum Defaults {
         DefaultsKey.notchMascotAccessory: "none",
         DefaultsKey.notchMascotName: "",
         DefaultsKey.notchMascotSeasonal: true,
+        DefaultsKey.notchMascotBirthday: "",
+        DefaultsKey.notchMascotDayShown: "",
+        DefaultsKey.notchMascotRoshamboWins: "",
+        DefaultsKey.notchMascotLuckPaid: "",
         DefaultsKey.notchMascotForm: "auto",
         DefaultsKey.notchMascotFriendForm: "",
         DefaultsKey.notchMascotSpeech: true,
@@ -1517,6 +1539,11 @@ enum Defaults {
 
     static func sanitizedAutoQuitExceptions(_ bundleIDs: [String]) -> [String] {
         sanitizedBundleIdentifierList(mandatoryAutoQuitExceptionBundleIDs + bundleIDs)
+    }
+    static func sanitizedAutoQuitDockApps(_ bundleIDs: [String]) -> [String] {
+        sanitizedBundleIdentifierList(bundleIDs).filter {
+            !mandatoryAutoQuitExceptionBundleIDs.contains($0)
+        }
     }
 
     static func sanitizedDiskExclusionList(_ list: [String]) -> [String] {

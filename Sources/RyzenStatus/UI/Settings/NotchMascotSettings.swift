@@ -29,6 +29,7 @@ struct NotchMascotSettings: View {
     @AppStorage(DefaultsKey.notchMascotDesktopFriend) private var friend = ""
     @AppStorage(DefaultsKey.notchMascotDesktopPlay) private var friendsPlay = true
     @AppStorage(DefaultsKey.notchMascotDressUp) private var dressUp = true
+    @AppStorage(DefaultsKey.notchMascotClimbsWindows) private var climbsWindows = true
     @AppStorage(DefaultsKey.notchMascotFriendAccessory) private var friendAccessory = ""
     @AppStorage(DefaultsKey.notchMascotStyle) private var style = NotchMascotStyle.minimal.rawValue
     @AppStorage(DefaultsKey.notchMascotShape) private var shape = NotchMascotShape.ball.rawValue
@@ -51,6 +52,7 @@ struct NotchMascotSettings: View {
     @AppStorage(DefaultsKey.notchMascotAccessory) private var accessory = NotchMascotAccessory.none.rawValue
     @AppStorage(DefaultsKey.notchMascotName) private var petName = ""
     @AppStorage(DefaultsKey.notchMascotSeasonal) private var seasonal = true
+    @AppStorage(DefaultsKey.notchMascotBirthday) private var birthday = ""
     @AppStorage(DefaultsKey.notchMascotSound) private var soundOn = true
     @AppStorage(DefaultsKey.notchMascotSoundVolume) private var soundVolume = NotchMascotSound.defaultVolume
     @AppStorage(DefaultsKey.notchMascotForm) private var formChoice = NotchMascotFormChoice.automatic.rawValue
@@ -494,6 +496,7 @@ struct NotchMascotSettings: View {
                 .transition(.opacity)
             }
             switchRow("leaf", life.seasonal, caption: life.seasonalHint, isOn: $seasonal)
+            birthdayRow
             switchRow("text.bubble", life.speech, caption: life.speechHint, isOn: $speech)
             switchRow("cpu", life.hardware, caption: life.hardwareHint, isOn: $hardware)
         }
@@ -662,6 +665,10 @@ struct NotchMascotSettings: View {
                           isOn: $dressUp)
                     .padding(.leading, settingsRowTextInset)
                     .transition(.opacity)
+                switchRow("macwindow.on.rectangle", desktopText.windows, caption: desktopText.windowsCaption,
+                          isOn: $climbsWindows)
+                    .padding(.leading, settingsRowTextInset)
+                    .transition(.opacity)
                 switchRow("figure.2.and.child.holdinghands", desktopText.plays, caption: desktopText.playsCaption,
                           isOn: $friendsPlay)
                     .padding(.leading, settingsRowTextInset)
@@ -745,6 +752,22 @@ struct NotchMascotSettings: View {
         }
     }
 
+    /// Your birthday, which it celebrates when kept.
+    private var birthdayRow: some View {
+        let games = FeatureStrings.notchMascotGames(l10n.language)
+        let keeps = Binding(get: { !birthday.isEmpty },
+                            set: { birthday = $0 ? NotchMascotSpecialDays.birthdayText(from: Date()) : "" })
+        let day = Binding(get: { NotchMascotSpecialDays.date(fromBirthday: birthday) ?? Date() },
+                          set: { birthday = NotchMascotSpecialDays.birthdayText(from: $0) })
+        return SettingsRow(symbol: "gift", title: games.birthday, caption: games.birthdayHint) {
+            HStack(spacing: 8) {
+                if keeps.wrappedValue {
+                    DatePicker(games.birthday, selection: day, displayedComponents: .date).labelsHidden()
+                }
+                Toggle(games.birthday, isOn: keeps).labelsHidden().toggleStyle(.switch)
+            }
+        }
+    }
     private func switchRow(_ symbol: String, _ title: String, caption: String? = nil, isOn: Binding<Bool>) -> some View {
         SettingsRow(symbol: symbol, title: title, caption: caption) {
             Toggle(title, isOn: isOn).labelsHidden().toggleStyle(.switch)
@@ -827,6 +850,11 @@ private struct NotchMascotStageCard: View {
                 }
                 .controlSize(.small)
                 .disabled(!awake || visit != nil || !comboWork.isEmpty)
+                Button { playItemUse() } label: {
+                    Label(FeatureStrings.notchMascotItemUseButton(language), systemImage: "hand.raised.fingers.spread")
+                }
+                .controlSize(.small)
+                .disabled(!awake || visit != nil || !comboWork.isEmpty || NotchMascotItemUse.of(look.accessory) == nil)
                 Button {
                     // Out of room in the island just now, it says hello here instead.
                     if !NotchService.shared.greetMascot() { play(.visit) }
@@ -836,6 +864,12 @@ private struct NotchMascotStageCard: View {
                 .controlSize(.small)
                 .disabled(!canGreet)
                 .help(text.sayHiHint)
+            }
+            if let comboHint {
+                Label(comboHint, systemImage: "puzzlepiece.extension")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             // Two dozen moments are there to try, not to read every time.
             DisclosureGroup(isExpanded: $showsMoments) {
@@ -928,6 +962,20 @@ private struct NotchMascotStageCard: View {
 
     private var rpgText: NotchMascotRPGStrings { FeatureStrings.notchMascotRPG(language) }
 
+    /// What the thing it wears pairs with: the combos found by name, the
+    /// rest counted, and the next one to try. Read again as combos are found.
+    private var comboHint: String? {
+        let item = look.accessory
+        let partners = NotchMascotSynergyCatalog.partners(of: item)
+        guard item != .none, !partners.isEmpty else { return nil }
+        _ = combosFound
+        let found = NotchMascotRPGState.shared.discoveredSynergies
+        let names = FeatureStrings.notchMascotLife(language)
+        let known = partners.filter { found.contains($0.synergy.id) }.map { names.name(of: $0.item) }
+        let next = partners.first { !found.contains($0.synergy.id) }.map { names.name(of: $0.item) }
+        return FeatureStrings.notchMascotComboHint(language).hint(item: names.name(of: item), found: known,
+                                                                   hidden: partners.count - known.count, suggestion: next)
+    }
     /// The friend shown beside it: the one picked, or, with none, a stand-in
     /// of another figure so the combos can still be tried.
     private var stageFriend: NotchMascotLook {
@@ -968,6 +1016,26 @@ private struct NotchMascotStageCard: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + play.length + 0.2, execute: end)
     }
 
+    /// What it does with the thing it wears, alone, here on the stage and,
+    /// out on the desktop, there too.
+    private func playItemUse() {
+        guard awake, visit == nil, comboWork.isEmpty, let use = NotchMascotItemUse.of(look.accessory) else { return }
+        NotchService.shared.useMascotItemOnDesktop()
+        comboName = FeatureStrings.notchMascotLife(language).name(of: look.accessory)
+        var work: [DispatchWorkItem] = []
+        for beat in use.islandBeats(byLeader: true) {
+            let item = DispatchWorkItem { stage(beat) }
+            work.append(item)
+            DispatchQueue.main.asyncAfter(deadline: .now() + beat.at, execute: item)
+        }
+        let end = DispatchWorkItem {
+            comboWork = []
+            comboName = nil
+        }
+        work.append(end)
+        comboWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + use.length + 0.2, execute: end)
+    }
     private func stage(_ beat: NotchMascotIslandPlay.Beat) {
         let now = CACurrentMediaTime()
         NotchMascotSound.play(cues: NotchMascotSoundMap.cues(for: beat), leaderOnLeft: NotchMascotSupport.side() == .left)

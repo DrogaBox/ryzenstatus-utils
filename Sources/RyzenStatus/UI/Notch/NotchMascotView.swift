@@ -1165,18 +1165,42 @@ final class NotchMascotRig: NSObject {
         guard size > 0 else { return }
         if showsSprite { sprite.run(toward: reduceMotion ? nil : direction) }
         hopper.removeAnimation(forKey: "stride")
+        hopper.removeAnimation(forKey: "waddle")
+        let gait = NotchMascotGait.of(look.style)
+        decor.setStriding(direction != nil && !reduceMotion, period: gait.period * 2)
         guard let direction, !reduceMotion else {
             if !showsSprite { lookAhead() }
             return
         }
         let bob = CAKeyframeAnimation(keyPath: "transform.translation.y")
-        bob.values = [0, -size * (showsSprite ? 0.03 : 0.1), 0]
+        bob.values = [0, -size * (showsSprite ? 0.03 : gait.bob), 0]
         bob.keyTimes = [0, 0.4, 1]
         bob.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeIn)]
-        bob.duration = 0.3
+        bob.duration = gait.period
         bob.repeatCount = .infinity
         bob.isAdditive = true
         hopper.add(bob, forKey: "stride")
+        if gait.rock > 0, !showsSprite {
+            // A waddle: it rocks from foot to foot about the foot it stands
+            // on, so its feet stay planted while its body sways.
+            let pivot = size * 0.42
+            let angles: [CGFloat] = [0, gait.rock, 0, -gait.rock, 0]
+            let rock = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+            rock.values = angles
+            let shift = CAKeyframeAnimation(keyPath: "transform.translation.x")
+            shift.values = angles.map { pivot * sin($0) }
+            let waddle = CAAnimationGroup()
+            for part in [rock, shift] {
+                part.keyTimes = [0, 0.25, 0.5, 0.75, 1]
+                part.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                part.isAdditive = true
+                part.duration = gait.period * 2
+            }
+            waddle.animations = [rock, shift]
+            waddle.duration = gait.period * 2
+            waddle.repeatCount = .infinity
+            hopper.add(waddle, forKey: "waddle")
+        }
         if !showsSprite { attend(to: CGPoint(x: direction > 0 ? 0.1 : -0.1, y: 0)) }
     }
 
@@ -1198,6 +1222,37 @@ final class NotchMascotRig: NSObject {
         root.add(spring, forKey: "lean")
     }
 
+    /// Turns round `turns` whole times over `duration`, over any lean, for a
+    /// pirouette or a somersault; negative turns go the other way.
+    func spin(turns: CGFloat, duration: TimeInterval) {
+        guard !reduceMotion, turns != 0, duration > 0 else { return }
+        let spin = CABasicAnimation(keyPath: "transform.rotation.z")
+        spin.fromValue = 0
+        spin.toValue = -turns * 2 * .pi
+        spin.duration = duration
+        spin.isAdditive = true
+        spin.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        root.add(spin, forKey: "spin")
+    }
+    /// A kitsune's foxfire flickers up beside it for `duration`.
+    func foxfire(for duration: TimeInterval) {
+        guard !reduceMotion else { return }
+        decor.foxfire(for: duration)
+    }
+    /// Turns it upside down, or rights it again.
+    func setUpsideDown(_ upsideDown: Bool) {
+        guard !reduceMotion || !upsideDown else { return }
+        let flip = CABasicAnimation(keyPath: "transform.rotation.z")
+        let shown = (root.animation(forKey: "flip") as? CABasicAnimation)?.toValue as? CGFloat ?? 0
+        guard (shown != 0) != upsideDown else { return }
+        flip.fromValue = shown
+        flip.toValue = upsideDown ? CGFloat.pi : 0
+        flip.duration = 0.35
+        flip.isAdditive = true
+        flip.fillMode = .forwards
+        flip.isRemovedOnCompletion = !upsideDown
+        root.add(flip, forKey: "flip")
+    }
     /// Lands from a fall: squashed flat for an instant, more the harder it
     /// came down, from 0 to 1.
     func land(impact: CGFloat) {
@@ -1288,7 +1343,7 @@ final class NotchMascotRig: NSObject {
             glance.beginTime = blink.beginTime - 1.1
             attention.add(glance, forKey: "idleGlance")
             // A cat's ears flick toward what it looks at.
-            if look.style == .cat { decor.twitchEars(beginTime: blink.beginTime - 0.9) }
+            if look.style == .cat || look.style == .kitsune { decor.twitchEars(beginTime: blink.beginTime - 0.9) }
         }
         let relay = NotchMascotAnimationRelay(target: self)
         blinkRelay = relay

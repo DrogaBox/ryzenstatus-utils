@@ -1,5 +1,131 @@
 # Changelog
 
+## [1.68.0] — 2026-10-30 — kexts 3.35.1 (No kext changes)
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.
+
+This release brings two new companions, each with a body, gait and routines of its own.
+
+- **Kitsune**: a spirit fox with tall ears, a pale mask and a red mark on its brow. It starts with one tail and grows another every six levels of its bond, up to nine. Its tails sway at rest, stream behind it as it trots, fan out like a crest when it is happy and curl round its paws when it sleeps; its ears flick as it blinks.
+- **Penguin**: an emperor penguin in a tuxedo, with golden cheeks and an orange beak. It waddles from foot to foot, swinging one flipper then the other, flaps hard when excited and sleeps standing with its flippers tucked in.
+- **Routines of their own**: out on the desktop the kitsune calls blue foxfire, pounces nose first like a fox hunting under snow and plays its leaf trick; the penguin belly-slides along the floor, tries very hard to fly and brings you a pebble.
+- **Their own way of growing close**: each gains bond its own way, has its own power for the arcade games, longs for its own food and has its own colour of energy.
+- **Sixteen new duo combos**: a new "Kitsune and Penguin" family pairs them with each other, with other companions and with items from the wardrobe and the shop.
+- **Named in every language**: both companions are named in all fifteen languages of the app.
+
+## [1.67.0] — 2026-10-30 — kexts 3.35.1 (No kext changes)
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.
+
+This release fills the companion shop with toys and a little luck.
+
+- **Twelve new toys**: a propeller cap, a shoulder parrot, spring shoes, a skateboard, an umbrella, a yo-yo, a bubble wand, a magnet, lucky dice, a fortune cookie, a snow globe and an instant camera join the shop, drawn, named in every language and priced by rarity.
+- **Each with its own thing to do**: out on the desktop and in the island, every toy is used in its own way, and opens duo combos with a move of its own.
+- **A little luck**: the dice roll and the cookie reads a fortune, different each time, and now and then they pay out gold, a few times a day at most.
+- **Twelve new duo combos**: a new "Toys and luck" family of combos pairs the toys with each other and with the rest of the wardrobe.
+- **Dance gear in the shop**: the seven dance and rehearsal items can now turn up in the shop; before, they never did, so they could not be bought.
+
+## [1.66.1] — 2026-10-30 — kexts 3.35.1 (No kext changes)
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.
+
+This release fixes two desktop companion issues.
+
+- **No more endless bouncing on windows**: a companion landing on a window no longer keeps bouncing when the pointer rests on that window's title bar, and a run of bounces now always comes to rest.
+- **Grab it at any time**: the desktop companions can be picked up again while they play together; grabbing one ends the play at once.
+
+## [1.66.0] — 2026-10-29 — kexts 3.35.1 (No kext changes)
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.
+
+This release brings a round of new tools and many fixes across the app.
+
+- **Pinch to zoom**: a new mouse option zooms with a modifier and the scroll wheel, as a trackpad pinch does.
+- **Quit apps window**: quit several apps at once from one window, opened from Quick Toggles or the command bar; the app you were using is preselected.
+- **Package commands in your terminal**: Homebrew and MacPorts commands now open in the terminal app you use for scripts, with no Automation permission for Terminal; any password is still typed in the terminal, never in the app.
+- **MacPorts on Intel**: the Homebrew installer now refuses Intel Macs, so without Homebrew already installed the package manager uses MacPorts and no longer offers an installer that cannot run. An existing Homebrew installation can still be chosen.
+- **Command-line backups**: settings backups can be exported and restored from the command line.
+- **Event countdown**: choose how long before an event the island starts counting down.
+- **App switcher**: a shortcut that shows every window of all apps, up to ten columns, and a Liquid Glass look on macOS 26.
+- **Clipboard history**: each entry shows the icon of the app it was copied from.
+- **Claude account**: the AI agents view can follow a chosen Claude account.
+- **Stage Manager**: the window layout can keep room for the Stage Manager strip.
+- **Screen sharing audio**: the mixer protects the call audio while you share your screen in Discord or Teams.
+- **Auto Quit**: menu bar apps that also live in the Dock can be allowed to quit.
+- **Scroll to adjust**: the volume and brightness levels move with the scroll wheel, and keys move them smoothly.
+- **Island**: an option to open the island on hover over full-screen apps, and it stays hidden over full-screen games; it also stays steady while displays are rearranged.
+- **Fixes**: Bluetooth device tracking no longer affects other features, the level bars keep their width, the Monitor settings page no longer freezes, and many smaller fixes in screenshots, the app switcher, the mixer, the command bar, the clipboard and the mouse tools.
+
+## [1.65.0] — 2026-10-29 — kexts 3.35.1 (No kext changes)
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.
+
+This release lets the companion feel what your Mac is doing, keep special days and play with you.
+
+- **Reacts to your Mac**: the companion now shows when the CPU boosts under a sustained load, runs hot or sits cold, when the battery runs low and when it is plugged in again, and when the network drops and comes back, each with a moment of its own on the desktop and in the island. They follow the existing automatic-reaction categories.
+- **Special days**: the companion celebrates a few days of the year, and your birthday if you set it with the new "Celebrate my birthday" option in its settings.
+- **A Play menu**: right-click the desktop companion for Rock, Paper, Scissors (a few wins a day pay out gold), a laser pointer it chases around the screen, a fishing trip by the Dock and a game of hide and seek.
+- **Cravings and feeding**: now and then it shows what it longs for, and minds being ignored; drop food on it from Finder or a browser and it eats it. Only file names are read, never their contents.
+- **More to discover with the pointer**: a few new ways to play with the companion using the pointer, left for you to find.
+- **Dancers dance alone**: the dancer companions now perform solo moves of their own, with the rehearsal habits real dancers know.
+- **New sounds**: a few more synthesized sounds go with these moments.
+
+## [1.64.0] — 2026-10-29 — kexts 3.35.1 (No kext changes)
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.
+
+This release adds more to the desktop's surprises.
+
+- **More rare surprises**: many more unusual things can now happen around the companion while it is out on the desktop — some at any hour, some only at certain times of day. It meets each one in its own way. As before, what they are is for you to discover.
+- **Room to move**: those that need the floor wait until the companion is off the windows, and what passes by now always finishes its way across the screen.
+- **New sounds**: a few more synthesized sounds go with these moments.
+
+## [1.63.0] — 2026-10-29 — kexts 3.35.1 (No kext changes)
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.
+
+This release makes the desktop a little less predictable.
+
+- **Rare surprises on the desktop**: once in a long while, while the companion is out on the desktop, something unusual may happen around it, and it reacts in its own way. Some depend on the time of day. What they are is for you to discover.
+- **The friend notices too**: when both companions are out, the other one reacts to what it sees.
+- **New sounds**: a few new synthesized sounds go with these moments.
+
+## [1.62.0] — 2026-10-29 — kexts 3.35.1 (No kext changes)
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.
+
+This release gives every wearable something of its own to do when the companion is alone.
+
+- **Every item has its own use**: now and then the companion does its own thing with what it wears — the boomerang goes out and comes back, the lute plays, the sword is drawn and swung, the bow fires arrows, the dumbbells get lifted, the rubber duck squeaks, the banana peel slips it up, the ice cream gives it brain freeze, the sleep mask sends it off to doze, and so on for the whole wardrobe. No two items are used alike.
+- **The magic mushroom makes it grow**: eaten, the mushroom makes the companion grow half again its size for a while, flickering big and small as in the old games, and it shrinks back when the effect wears off.
+- **On the desktop and in the island**: out on the desktop it really throws, swings and jumps; resting in the closed island, it shows the same use with its reactions, bursts and markers.
+- **Try it from Settings**: a new "Use item" button under the companion preview plays what it does with the item it wears, and has it do it on the desktop too when it is out.
+
+## [1.61.0] — 2026-10-29 — kexts 3.35.1 (No kext changes)
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.
+
+This release gives every duo combo its own choreography: what each companion wears now opens the combo with a move of its own, and every combo ends with a finale of the two together.
+
+- **A move for everything worn**: each wearable now has its own signature move, prop and burst — the sword charges, the shield braces, the boots leap high, the banana peel slips, the lute struts, the disco ball spins, and so on for the whole wardrobe.
+- **Combos staged move by move**: a combo opens with each companion's signature move, plays its own exchange and closes with a finale of the two together — swapping places mid-air, leaping over each other, bumping heads, chasing, bowing or spinning side by side. No two combos made of different things play out alike, and the same pair always ends the same way.
+- **On the desktop and in the island**: out on the desktop the companions really jump, charge, sneak and spin; in the closed island, where they cannot leave their places, each move shows as its own reaction.
+- **Combo hints in Settings**: under the companion preview, a line tells what the item it wears pairs with, names the combos already found, counts the rest and suggests one to try on the friend.
+
+## [1.60.0] — 2026-10-29 — kexts 3.35.1 (No kext changes)
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.
+
+This release lets the desktop companion live among your windows: it climbs onto them, walks their top edge, rides along when you drag one, hides behind them to peek out and reacts to the app you are using.
+
+- **Companions climb onto windows**: out on the desktop, the companion leaps onto the top edge of other apps' windows, walks along them and jumps across or back down. Dropped or thrown over a window, it lands on top of it.
+- **Rides on dragged windows**: drag the window it stands on and it rides along, leaning into the motion; drag a window up close beside it and it jumps on. When the window closes, is minimized, moves behind another window or leaves it no room, it falls.
+- **Hide and peek**: standing on a window, it now and then ducks down behind it and peeks over the edge, popping back out when the pointer comes close.
+- **Reacts to the app in front**: browsers, editors and terminals, music and video players, chat apps, design tools, Finder and games each get their own reaction, and now and then it goes over and climbs onto the app's window to read along, watch or groove.
+- **New setting**: "Climb onto windows" in the companion's desktop settings, on by default. Only where windows are and which app owns them is read, never their titles or contents, so no extra permission is needed.
+- **Shake to dizzy**: shaking the companion back and forth while carrying it leaves it dizzy for a moment after you let go.
+- **Four dance companions**: a swan, a ballerina, a danseur and a contemporary dancer join the companions, with dance wardrobe items.
+
 ## [1.59.0] — 2026-10-24 — kexts 3.35.1 (No kext changes)
 
 > **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.

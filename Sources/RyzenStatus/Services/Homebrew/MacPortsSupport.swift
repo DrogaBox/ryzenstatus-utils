@@ -7,18 +7,32 @@ enum PackageManagerProvider: String, CaseIterable, Identifiable {
     case automatic, macPorts, homebrew
     var id: String { rawValue }
 
-    func resolved(isIntel: Bool) -> PackageManagerProvider {
-        self == .automatic ? (isIntel ? .macPorts : .homebrew) : self
+    /// Homebrew's installer refuses Intel Macs, so there Homebrew stays a
+    /// choice only while an installation already exists.
+    func resolved(isIntel: Bool, homebrewInstalled: Bool = true) -> PackageManagerProvider {
+        if isIntel && !homebrewInstalled { return .macPorts }
+        return self == .automatic ? (isIntel ? .macPorts : .homebrew) : self
     }
+
+    static var isIntel: Bool {
+#if arch(x86_64)
+        true
+#else
+        false
+#endif
+    }
+
+    static var homebrewInstalled: Bool {
+        HomebrewCommandBuilder.candidatePaths.contains { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    /// Whether Homebrew is offered at all on this Mac.
+    static var homebrewOffered: Bool { !isIntel || homebrewInstalled }
 
     static var current: PackageManagerProvider {
         let saved = PackageManagerProvider(rawValue: UserDefaults.standard.string(
             forKey: DefaultsKey.packageManagerProvider) ?? "automatic") ?? .automatic
-#if arch(x86_64)
-        return saved.resolved(isIntel: true)
-#else
-        return saved.resolved(isIntel: false)
-#endif
+        return saved.resolved(isIntel: isIntel, homebrewInstalled: homebrewInstalled)
     }
 }
 

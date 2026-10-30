@@ -224,11 +224,11 @@ enum NotchMascotAbility: String, CaseIterable, Identifiable {
     static func of(_ style: NotchMascotStyle) -> NotchMascotAbility? {
         switch style {
         case .cat: return .ceilingWalk
-        case .chip, .robot, .phoenix, .dragon: return .fireballBreath
-        case .fan, .ghost, .devourer: return .glide
+        case .chip, .robot, .phoenix, .dragon, .kitsune: return .fireballBreath
+        case .fan, .ghost, .devourer, .swan: return .glide
         case .slime, .shifter, .axolotl, .frog: return .dolphinDive
-        case .mouse: return .dolphinDive
-        case .cristobal, .whiteRabbit, .dog, .capybara: return .pepelogooSpringboard
+        case .mouse, .penguin: return .dolphinDive
+        case .cristobal, .whiteRabbit, .dog, .capybara, .ballerina, .danseur, .contemporary: return .pepelogooSpringboard
         case .minimal: return nil
         }
     }

@@ -28,6 +28,10 @@ struct NotchMascotDesktopStrings {
     var dressUp: String = "Play with its wardrobe"
     var dressUpCaption: String =
         "Out on the desktop, now and then it digs into everything it owns and wears whatever it feels like for a minute — then back to what you picked. What it wears the rest of the day stays your choice."
+    /// It climbs onto other apps' windows, rides them and reacts to the app in front.
+    var windows: String = "Climb onto windows"
+    var windowsCaption: String =
+        "It jumps onto the top of your windows, walks along them, rides along when you drag one, hides behind them to peek out and reacts to the app you are using. Only where the windows are is read, never what they show."
     let goHome: String
     let stayPut: String
     let settings: String
@@ -69,6 +73,8 @@ extension NotchMascotDesktopStrings {
         playsCaption: "Now and then the two out on the desktop duel with blades of light, throw energy at each other, power up, dance, high-five, play tag, leapfrog, hug, trade gifts or nap side by side. In the island they wave across it, toss hearts, stars and snowballs to each other, and play with what they wear.",
         dressUp: "Play with its wardrobe",
         dressUpCaption: "Out on the desktop, now and then it digs into everything it owns and wears whatever it feels like for a minute — then back to what you picked. What it wears the rest of the day stays your choice.",
+        windows: "Climb onto windows",
+        windowsCaption: "It jumps onto the top of your windows, walks along them, rides along when you drag one, hides behind them to peek out and reacts to the app you are using. Only where the windows are is read, never what they show.",
         goHome: "Back to the Island",
         stayPut: "Stay Put",
         settings: "Companion Settings…")
@@ -83,6 +89,8 @@ extension NotchMascotDesktopStrings {
         friendItemOwn: "Escolha dele",
         plays: "Brincam juntos",
         playsCaption: "De vez em quando os dois na mesa duelam com espadas de luz, lançam energia um no outro, se transformam, dançam, batem as mãos, brincam de pega-pega, pulam um sobre o outro, se abraçam, trocam presentes ou cochilam lado a lado. Na ilha eles acenam de um lado ao outro, jogam corações, estrelas e bolas de neve um para o outro e brincam com o que estão usando.",
+        windows: "Subir nas janelas",
+        windowsCaption: "Ele pula no topo das suas janelas, anda por elas, pega carona quando você arrasta uma, se esconde atrás delas para espiar e reage ao app que você está usando. Só é lida a posição das janelas, nunca o que mostram.",
         goHome: "Voltar para a ilha",
         stayPut: "Ficar parado",
         settings: "Ajustes do companheiro…")
@@ -97,6 +105,8 @@ extension NotchMascotDesktopStrings {
         friendItemOwn: "Kendi seçimi",
         plays: "Birlikte oynasınlar",
         playsCaption: "Masaüstündeki ikili ara sıra ışın kılıçlarıyla düello yapar, birbirine enerji fırlatır, güçlenir, dans eder, çak yapar, kovalamaca oynar, birbirinin üstünden atlar, sarılır, hediye verir ya da yan yana kestirir. Adada birbirlerine el sallar, kalpler, yıldızlar ve kartopları atar, giydikleriyle oynarlar.",
+        windows: "Pencerelere tırmansın",
+        windowsCaption: "Pencerelerinin üstüne zıplar, üzerlerinde yürür, birini sürüklediğinde onunla gider, arkalarına saklanıp göz atar ve kullandığın uygulamaya tepki verir. Yalnızca pencerelerin konumu okunur, gösterdikleri asla.",
         goHome: "Adaya dön",
         stayPut: "Yerinde kal",
         settings: "Arkadaş ayarları…")
@@ -111,6 +121,8 @@ extension NotchMascotDesktopStrings {
         friendItemOwn: "Сам выберет",
         plays: "Играют вместе",
         playsCaption: "Время от времени двое на рабочем столе сражаются световыми мечами, бросают друг в друга энергию, набирают силу, танцуют, дают пять, играют в салки и чехарду, обнимаются, дарят подарки или дремлют рядом. На острове они машут друг другу, перебрасываются сердечками, звёздами и снежками и играют с тем, что на них надето.",
+        windows: "Залезать на окна",
+        windowsCaption: "Он запрыгивает на верх окон, гуляет по ним, катается, когда вы перетаскиваете окно, прячется за ними, чтобы выглянуть, и реагирует на приложение, которым вы пользуетесь. Читается только положение окон, но не их содержимое.",
         goHome: "Вернуться на остров",
         stayPut: "Стоять на месте",
         settings: "Настройки компаньона…")
@@ -130,6 +142,8 @@ extension NotchMascotDesktopStrings {
         friendCustomColor: "A mano",
         dressUp: "Jugar con su armario",
         dressUpCaption: "En el escritorio, de vez en cuando rebusca entre todo lo que tiene y se pone lo que le apetece un ratito — y luego vuelve a lo que tú elegiste. Lo que lleva el resto del día sigue siendo cosa tuya.",
+        windows: "Subirse a las ventanas",
+        windowsCaption: "Salta encima de tus ventanas, camina por su borde, se deja llevar cuando arrastras una, se esconde detrás para asomarse y reacciona a la app que estás usando. Solo se lee dónde están las ventanas, nunca lo que muestran.",
         goHome: "Volver a la isla",
         stayPut: "Quedarse quieto",
         settings: "Ajustes del compañero…")
@@ -144,6 +158,8 @@ extension NotchMascotDesktopStrings {
         friendItemOwn: "Vyberie si sám",
         plays: "Hrajú sa spolu",
         playsCaption: "Občas sa tí dvaja na ploche pobijú svetelnými mečmi, hádžu po sebe energiu, nabíjajú sa, tancujú, plesnú si, hrajú naháňačku a skákanie cez seba, objímajú sa, obdarúvajú sa alebo si spolu zdriemnu. Na ostrove si zakývajú, hádžu si srdiečka, hviezdy a snehové gule a hrajú sa s tým, čo majú na sebe.",
+        windows: "Liezť na okná",
+        windowsCaption: "Vyskočí na vrch tvojich okien, prechádza sa po nich, vezie sa, keď okno ťaháš, schováva sa za ne, aby vykukol, a reaguje na aplikáciu, ktorú používaš. Číta sa len poloha okien, nikdy ich obsah.",
         goHome: "Späť na ostrov",
         stayPut: "Zostať na mieste",
         settings: "Nastavenia spoločníka…")
@@ -158,6 +174,8 @@ extension NotchMascotDesktopStrings {
         friendItemOwn: "Sucht es selbst aus",
         plays: "Sie spielen miteinander",
         playsCaption: "Ab und zu duellieren sich die beiden auf dem Schreibtisch mit Lichtklingen, werfen sich Energie zu, laden sich auf, tanzen, klatschen ab, spielen Fangen und Bockspringen, umarmen sich, beschenken sich oder halten nebeneinander ein Nickerchen. In der Insel winken sie sich zu, werfen sich Herzen, Sterne und Schneebälle zu und spielen mit dem, was sie tragen.",
+        windows: "Auf Fenster klettern",
+        windowsCaption: "Es springt auf deine Fenster, läuft oben entlang, fährt mit, wenn du eines ziehst, versteckt sich dahinter, um hervorzulugen, und reagiert auf die App, die du nutzt. Gelesen wird nur, wo die Fenster sind, nie ihr Inhalt.",
         goHome: "Zurück zur Insel",
         stayPut: "Stehen bleiben",
         settings: "Begleiter-Einstellungen …")
@@ -172,6 +190,8 @@ extension NotchMascotDesktopStrings {
         friendItemOwn: "Son propre choix",
         plays: "Ils jouent ensemble",
         playsCaption: "De temps en temps, les deux sur le bureau croisent des lames de lumière, se lancent de l'énergie, se transforment, dansent, se tapent dans la main, jouent à chat et à saute-mouton, se font un câlin, s'offrent des cadeaux ou font la sieste côte à côte. Dans l'île, ils se saluent d'un bout à l'autre, se lancent cœurs, étoiles et boules de neige, et jouent avec ce qu'ils portent.",
+        windows: "Grimper sur les fenêtres",
+        windowsCaption: "Il saute sur le haut de vos fenêtres, s’y promène, se laisse emporter quand vous en déplacez une, se cache derrière pour jeter un œil et réagit à l’app que vous utilisez. Seule la position des fenêtres est lue, jamais leur contenu.",
         goHome: "Retour à l’île",
         stayPut: "Ne pas bouger",
         settings: "Réglages du compagnon…")
@@ -186,6 +206,8 @@ extension NotchMascotDesktopStrings {
         friendItemOwn: "Lo sceglie lui",
         plays: "Giocano insieme",
         playsCaption: "Ogni tanto i due sulla scrivania duellano con spade di luce, si lanciano energia, si potenziano, ballano, si battono il cinque, giocano ad acchiapparella e alla cavallina, si abbracciano, si fanno regali o schiacciano un pisolino vicini. Nell'isola si salutano da un lato all'altro, si lanciano cuori, stelle e palle di neve e giocano con quello che indossano.",
+        windows: "Arrampicarsi sulle finestre",
+        windowsCaption: "Salta in cima alle tue finestre, ci cammina sopra, si fa trasportare quando ne trascini una, si nasconde dietro per sbirciare e reagisce all’app che stai usando. Viene letta solo la posizione delle finestre, mai il loro contenuto.",
         goHome: "Torna all’isola",
         stayPut: "Resta fermo",
         settings: "Impostazioni del compagno…")
@@ -200,6 +222,8 @@ extension NotchMascotDesktopStrings {
         friendItemOwn: "おまかせ",
         plays: "一緒に遊ぶ",
         playsCaption: "デスクトップの2匹がときどき光の剣で決闘したり、エネルギー波を撃ち合ったり、パワーアップしたり、踊ったり、ハイタッチ、鬼ごっこ、馬跳び、ハグ、プレゼント交換、並んでお昼寝をしたりします。アイランドでは端から手を振り合い、ハートや星や雪玉を投げ合い、身につけたもので遊びます。",
+        windows: "ウインドウに登る",
+        windowsCaption: "ウインドウの上に飛び乗って歩き回り、ドラッグすると一緒に移動し、後ろに隠れてのぞき見し、使っているアプリに反応します。読み取るのはウインドウの位置だけで、内容は読みません。",
         goHome: "アイランドに戻る",
         stayPut: "その場にいる",
         settings: "コンパニオン設定…")
@@ -214,6 +238,8 @@ extension NotchMascotDesktopStrings {
         friendItemOwn: "친구가 직접 고름",
         plays: "함께 놀기",
         playsCaption: "데스크톱의 둘이 가끔 빛의 검으로 결투하고, 에너지파를 주고받고, 파워업하고, 춤추고, 하이파이브하고, 술래잡기와 등 짚고 넘기를 하고, 껴안고, 선물을 주고받거나 나란히 낮잠을 잡니다. 아일랜드에서는 양쪽에서 손을 흔들고, 하트와 별과 눈덩이를 주고받으며, 착용한 것으로 놀아요.",
+        windows: "윈도우 위에 오르기",
+        windowsCaption: "윈도우 위로 뛰어올라 걸어 다니고, 윈도우를 끌면 함께 이동하고, 뒤에 숨어서 빼꼼 내다보며, 사용 중인 앱에 반응합니다. 윈도우의 위치만 읽고 내용은 읽지 않습니다.",
         goHome: "아일랜드로 돌아가기",
         stayPut: "가만히 있기",
         settings: "동반자 설정…")
@@ -228,6 +254,8 @@ extension NotchMascotDesktopStrings {
         friendItemOwn: "让它自己选",
         plays: "一起玩耍",
         playsCaption: "桌面上的两个伙伴时不时会用光剑决斗、互相发射能量波、变身、跳舞、击掌、玩捉人和跳山羊、拥抱、互送礼物，或者并排打个盹。在灵动岛里，它们隔着岛挥手，互相抛爱心、星星和雪球，还会拿身上的穿戴玩耍。",
+        windows: "爬上窗口",
+        windowsCaption: "它会跳到窗口顶部，在上面走来走去，拖动窗口时跟着一起走，躲在窗口后面探头张望，并对你正在使用的应用做出反应。只读取窗口的位置，从不读取内容。",
         goHome: "回到岛上",
         stayPut: "待在原地",
         settings: "伙伴设置…")
@@ -242,6 +270,8 @@ extension NotchMascotDesktopStrings {
         friendItemOwn: "讓它自己選",
         plays: "一起玩耍",
         playsCaption: "桌面上的兩個夥伴不時會用光劍決鬥、互相發射能量波、變身、跳舞、擊掌、玩鬼抓人和跳馬背、擁抱、互送禮物，或者並排打個盹。在動態島裡，它們隔著島揮手，互相拋愛心、星星和雪球，還會拿身上的穿戴玩耍。",
+        windows: "爬上視窗",
+        windowsCaption: "它會跳到視窗頂端，在上面走來走去，拖曳視窗時跟著一起移動，躲在視窗後面探頭偷看，並對你正在使用的 App 做出反應。只讀取視窗的位置，從不讀取內容。",
         goHome: "回到島上",
         stayPut: "待在原地",
         settings: "夥伴設定⋯")
@@ -256,6 +286,8 @@ extension NotchMascotDesktopStrings {
         friendItemOwn: "讓它自己揀",
         plays: "一齊玩",
         playsCaption: "桌面上兩個夥伴不時會用光劍決鬥、互相發射能量波、變身、跳舞、擊掌、玩捉迷藏同跳馬、攬住對方、互送禮物，或者並排瞓個晏覺。喺動態島入面，佢哋隔住島揮手，互相拋心心、星星同雪球，仲會拎身上嘅穿戴嚟玩。",
+        windows: "爬上視窗",
+        windowsCaption: "佢會跳上視窗頂部，喺上面行嚟行去，拖動視窗時跟住一齊郁，匿喺視窗後面探頭偷睇，仲會對你用緊嘅 App 有反應。只會讀取視窗嘅位置，從不讀取內容。",
         goHome: "回到島上",
         stayPut: "留在原地",
         settings: "夥伴設定⋯")
@@ -270,6 +302,8 @@ extension NotchMascotDesktopStrings {
         friendItemOwn: "Обере сам",
         plays: "Граються разом",
         playsCaption: "Час від часу двоє на робочому столі б'ються світловими мечами, кидають одне в одного енергію, набирають силу, танцюють, дають п'ять, граються в квача й чехарду, обіймаються, дарують подарунки або дрімають поруч. На острові вони махають одне одному, перекидаються сердечками, зірками й сніжками та граються з тим, що на них вдягнено.",
+        windows: "Залазити на вікна",
+        windowsCaption: "Він застрибує на верх вікон, гуляє ними, їде разом, коли ви перетягуєте вікно, ховається за ними, щоб визирнути, і реагує на застосунок, яким ви користуєтеся. Зчитується лише розташування вікон, ніколи їхній вміст.",
         goHome: "Повернутися на острів",
         stayPut: "Стояти на місці",
         settings: "Параметри компаньйона…")

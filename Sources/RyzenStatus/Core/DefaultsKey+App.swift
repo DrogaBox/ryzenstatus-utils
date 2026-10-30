@@ -647,6 +647,7 @@ extension DefaultsKey {
     static let notchMascotDesktopFriend = "notchMascotDesktopFriend" // String, style of the friend that comes out with it, empty for none
     static let notchMascotDesktopPlay = "notchMascotDesktopPlay" // Bool, the two out on the desktop play together now and then
     static let notchMascotDressUp = "notchMascotDressUp"     // Bool, out on the desktop it puts on what it owns by itself
+    static let notchMascotClimbsWindows = "notchMascotClimbsWindows"     // Bool, out on the desktop it climbs onto other apps' windows
     static let notchMascotFriendAccessory = "notchMascotFriendAccessory" // String, NotchMascotAccessory raw value the friend wears, empty for its own pick
     static let notchMascotCustomColor = "notchMascotCustomColor"        // String, hand-picked body color as RRGGBB hex, empty for the palette
     static let notchMascotFriendPalette = "notchMascotFriendPalette"    // String, NotchMascotPalette the friend wears, empty for the companion's
@@ -668,6 +669,10 @@ extension DefaultsKey {
     static let notchMascotName = "notchMascotName"
     static let notchMascotAccessory = "notchMascotAccessory"   // NotchMascotAccessory raw value
     static let notchMascotSeasonal = "notchMascotSeasonal"     // Bool, seasonal costumes
+    static let notchMascotBirthday = "notchMascotBirthday"     // String "MM-dd", your birthday; empty when not kept
+    static let notchMascotDayShown = "notchMascotDayShown"     // String, the last special day it celebrated
+    static let notchMascotRoshamboWins = "notchMascotRoshamboWins" // String "day:count", paid rock-paper-scissors wins
+    static let notchMascotLuckPaid = "notchMascotLuckPaid" // String "day:count", gold the dice and the cookie paid today
     static let notchMascotForm = "notchMascotForm"             // "auto", "none", "random" or NotchMascotForm raw value
     static let notchMascotFriendForm = "notchMascotFriendForm" // same, empty keeps the companion's
     static let notchMascotSpeech = "notchMascotSpeech"         // Bool, its own notices
@@ -966,4 +971,26 @@ extension DefaultsKey {
     static let radialMenuActivationMode = "radialMenuActivationMode" // RadialMenuActivationMode.rawValue
     static let radialMenuProfiles = "radialMenuProfiles"  // Data: [RadialMenuProfile] JSON
     static let simulateBetaUI = "simulateBetaUI"
+    // Pinch zoom with a modifier and the mouse wheel.
+    static let pinchZoomEnabled = "pinchZoomEnabled"
+    static let pinchZoomModifier = "pinchZoomModifier"
+    // The switcher's shortcut for every window of every app.
+    static let switcherAllWindowsShortcut = "switcherAllWindowsShortcut"
+    static let switcherAllWindowsShortcutEnabled = "switcherAllWindowsShortcutEnabled"
+    static let mixerCallAppVolumeEnabled = "mixerCallAppVolumeEnabled" // bundle ids explicitly allowed to process call audio despite screen-sharing echo
+    static let autoQuitDockApps = "autoQuitDockApps"  // [bundle id] menu bar apps explicitly allowed to quit in the Dock
+    static let panelToggleQuitAllApps = "panelToggleQuitAllApps"
+    static let windowReserveStageManagerSpace = "windowReserveStageManagerSpace"
+    static let clipboardHistoryShowSourceAppIcons = "clipboardHistoryShowSourceAppIcons" // source app icons beside list entries
+    // The Quit apps window and its shortcuts.
+    static let quitAppsShortcutEnabled = "quitAppsShortcutEnabled"
+    static let quitAppsShortcut = "quitAppsShortcut"
+    static let quitAppsExceptFrontShortcutEnabled = "quitAppsExceptFrontShortcutEnabled"
+    static let quitAppsExceptFrontShortcut = "quitAppsExceptFrontShortcut"
+    /// Bundle ids "Quit all apps" leaves running, on top of the mandatory set.
+    static let quitAppsKeptApps = "quitAppsKeptApps"
+    static let screenshotCopyImageOnly = "screenshotCopyImageOnly"
+    static let notchCalendarCountdownLead = "notchCalendarCountdownLead" // minutes before a start, chosen events included
+    static let notchAgentsClaudeProfile = "notchAgentsClaudeProfile"
+    static let notchHoverInFullscreen = "notchHoverInFullscreen"
 }

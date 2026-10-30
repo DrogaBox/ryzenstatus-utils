@@ -101,6 +101,48 @@ enum NotchMascotRoam {
     /// A landing or a bump this hard dizzies it.
     static let dizzySpeed: CGFloat = 1500
 
+    /// Tracks rapid back-and-forth movement while held to dizzy the companion on release.
+    struct ShakeTracker: Equatable {
+        private(set) var reversals: Int = 0
+        private var lastDirection: CGFloat = 0
+        private var lastReversalTime: TimeInterval = 0
+        private var spanSinceReversal: CGFloat = 0
+
+        /// How many rapid direction reversals count as shaken dizzy.
+        static let dizzyReversals: Int = 4
+        /// Maximum time between reversals to count as a shake sequence.
+        static let maxReversalInterval: TimeInterval = 0.45
+        /// Minimum travel distance in one direction before a reversal counts.
+        static let minTravel: CGFloat = 16
+
+        mutating func track(deltaX: CGFloat, time: TimeInterval) {
+            let dir: CGFloat = deltaX > 0.5 ? 1 : (deltaX < -0.5 ? -1 : 0)
+            guard dir != 0 else { return }
+            spanSinceReversal += abs(deltaX)
+            if lastDirection != 0 && dir != lastDirection {
+                if time - lastReversalTime <= Self.maxReversalInterval && spanSinceReversal >= Self.minTravel {
+                    reversals += 1
+                } else {
+                    reversals = 1
+                }
+                lastReversalTime = time
+                spanSinceReversal = 0
+            } else if lastDirection == 0 {
+                lastReversalTime = time
+            }
+            lastDirection = dir
+        }
+
+        var isDizzy: Bool { reversals >= Self.dizzyReversals }
+
+        mutating func reset() {
+            reversals = 0
+            lastDirection = 0
+            lastReversalTime = 0
+            spanSinceReversal = 0
+        }
+    }
+
     struct Body: Equatable {
         var position: CGPoint
         var velocity: CGVector = .zero
@@ -118,9 +160,12 @@ enum NotchMascotRoam {
 
     /// Moves `body` on by `dt` seconds inside `area`, the part of the screen
     /// it may be in: falling, bouncing off its sides and the top, landing on
-    /// its bottom and sliding to a stop there. `width` is the body's.
-    static func step(_ body: inout Body, by dt: TimeInterval, in area: CGRect, width: CGFloat) -> [Event] {
+    /// its bottom or on one of `ledges`, the tops of windows, and sliding to
+    /// a stop there. `width` is the body's.
+    static func step(_ body: inout Body, by dt: TimeInterval, in area: CGRect, width: CGFloat,
+                     ledges: [NotchMascotLedges.Ledge] = []) -> [Event] {
         guard dt > 0 else { return [] }
+        let previous = body.position
         let dt = CGFloat(min(dt, 0.05))
         let frames = dt * 1000 / 16
         var events: [Event] = []
@@ -153,8 +198,10 @@ enum NotchMascotRoam {
             body.position.y = area.maxY
             if body.velocity.dy > 0 { body.velocity.dy = -body.velocity.dy * wallBounce }
         }
-        if body.airborne, body.position.y <= area.minY {
-            body.position.y = area.minY
+        let ledge = body.airborne && body.velocity.dy <= 0
+            ? NotchMascotLedges.landing(from: previous, to: body.position, in: ledges) : nil
+        if body.airborne, let floor = ledge?.y ?? (body.position.y <= area.minY ? area.minY : nil) {
+            body.position.y = floor
             let impact = -body.velocity.dy
             events.append(.landed(impact))
             if impact > bounceSpeed {
@@ -163,8 +210,10 @@ enum NotchMascotRoam {
                 body.velocity.dy = 0
                 body.airborne = false
             }
-        } else if !body.airborne, body.position.y > area.minY {
-            // The floor went away under it, as a Dock that hides.
+        } else if !body.airborne, body.position.y > area.minY,
+                  NotchMascotLedges.ledge(under: body.position, in: ledges) == nil {
+            // The floor went away under it, as a Dock that hides or a window
+            // it stood on that closed or moved off.
             body.airborne = true
         }
         if !body.airborne, abs(body.velocity.dx) < restSpeed {

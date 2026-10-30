@@ -499,6 +499,8 @@ struct NotchMusicTimeline: View {
                 range: 0...playback.duration,
                 tint: tint,
                 valueLabel: timestamp(position),
+                // Each scroll step would seek.
+                scrollable: false,
                 onEditingChanged: { editing in
                     if editing {
                         pendingSeek = nil
