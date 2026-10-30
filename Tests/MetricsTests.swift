@@ -11403,6 +11403,26 @@ struct MetricsTests {
             }
             expect(!jumper.airborne && jumper.position.y == 600 && abs(jumper.position.x - 500) < 24,
                    "a leap carries it from the floor onto the window it aimed for")
+            // At 60 frames a second, and with a frame dropped on the way up, it
+            // still clears the edge and lands on it rather than falling back.
+            for frames in [[Double](repeating: 1.0 / 60, count: 240), [1.0 / 60, 0.05, 0.05] + [Double](repeating: 1.0 / 60, count: 240)] {
+                var hopper = NotchMascotRoam.Body(position: CGPoint(x: 200, y: 80), velocity: leap, airborne: true)
+                var peak = hopper.position.y
+                for dt in frames where hopper.airborne {
+                    _ = roam.step(&hopper, by: dt, in: screen, width: 40, ledges: tops)
+                    peak = max(peak, hopper.position.y)
+                }
+                expect(!hopper.airborne && hopper.position.y == 600 && peak >= 600 + lit.leapClearance - 1,
+                       "a leap clears the edge it aims over at any frame rate: peak \(peak)")
+            }
+            expect(Permissions.promptsBlocked(bootArgs: "keepsyms=1 amfi_get_out_of_my_way=0x1 alcid=7")
+                   && Permissions.promptsBlocked(bootArgs: "amfi=0x80")
+                   && !Permissions.promptsBlocked(bootArgs: "keepsyms=1 amfi_get_out_of_my_way=0")
+                   && !Permissions.promptsBlocked(bootArgs: "-v keepsyms=1")
+                   && !Permissions.promptsBlocked(bootArgs: ""),
+                   "with AMFI out of the way at boot, macOS will not prompt and the app says so")
+            expect(AppLanguage.allCases.allSatisfy { FeatureStrings.hub($0).promptBlocked.contains("AMFI") },
+                   "the blocked prompt is explained in every language")
             let shelf = lit.Ledge(window: 9, pid: 9, y: 500, minX: 300, maxX: 700)
             expect(lit.spot(on: shelf, from: 100, margin: 30, jitter: 0) == 330
                    && lit.spot(on: shelf, from: 500, margin: 30, jitter: 0) == 500,

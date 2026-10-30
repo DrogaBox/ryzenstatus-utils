@@ -51,10 +51,10 @@ enum AgentClaudeServer {
     /// pnpm keep global tools. The Claude app's own copy is left out: it has
     /// no sign-in of its own to check with.
     static func candidates(home: URL, searchPath: String? = nil) -> [URL] {
-        let folders = [home.appending(path: ".local/bin").path,
-                       home.appending(path: ".claude/local").path, "/opt/homebrew/bin", "/usr/local/bin"]
-            + (searchPath ?? "").split(separator: ":").map(String.init).filter { $0.hasPrefix("/") }
-            + toolFolders(home: home)
+        let fixed: [String] = [home.appending(path: ".local/bin").path,
+                               home.appending(path: ".claude/local").path, "/opt/homebrew/bin", "/usr/local/bin"]
+        let searched: [String] = (searchPath ?? "").split(separator: ":").map(String.init).filter { $0.hasPrefix("/") }
+        let folders: [String] = fixed + searched + toolFolders(home: home)
         return folders.map { URL(fileURLWithPath: $0, isDirectory: true).appending(path: "claude") }
     }
 
@@ -62,14 +62,17 @@ enum AgentClaudeServer {
     /// them, each manager's newest Node first, and Volta's, Bun's and pnpm's
     /// own. A Claude Code that needs Node finds it on this list too.
     static func toolFolders(home: URL) -> [String] {
-        let path = { (relative: String) in home.appending(path: relative).path }
-        let fnm = ["Library/Application Support/fnm", ".local/share/fnm", ".fnm"].map(path)
-        return [path(".volta/bin")] + fnm.map { $0 + "/aliases/default/bin" }
-            + newest(in: path(".nvm/versions/node")).map { $0 + "/bin" }
-            + fnm.flatMap { newest(in: $0 + "/node-versions").map { $0 + "/installation/bin" } }
-            + newest(in: path(".asdf/installs/nodejs")).map { $0 + "/bin" }
-            + newest(in: path(".local/share/mise/installs/node")).map { $0 + "/bin" }
-            + [path(".bun/bin"), path("Library/pnpm"), path(".local/share/pnpm"), path(".npm-global/bin")]
+        let path = { (relative: String) -> String in home.appending(path: relative).path }
+        let bins = { (folders: [String], suffix: String) -> [String] in folders.map { $0 + suffix } }
+        let fnm: [String] = ["Library/Application Support/fnm", ".local/share/fnm", ".fnm"].map(path)
+        var folders: [String] = [path(".volta/bin")]
+        folders += bins(fnm, "/aliases/default/bin")
+        folders += bins(newest(in: path(".nvm/versions/node")), "/bin")
+        folders += fnm.flatMap { bins(newest(in: $0 + "/node-versions"), "/installation/bin") }
+        folders += bins(newest(in: path(".asdf/installs/nodejs")), "/bin")
+        folders += bins(newest(in: path(".local/share/mise/installs/node")), "/bin")
+        folders += [path(".bun/bin"), path("Library/pnpm"), path(".local/share/pnpm"), path(".npm-global/bin")]
+        return folders
     }
 
     /// The folders in `folder` named for a version, as `v22.11.0` or

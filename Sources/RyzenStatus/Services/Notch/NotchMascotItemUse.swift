@@ -398,7 +398,7 @@ enum NotchMascotLuck {
         var text: String {
             switch self {
             case .lucky: return "LUCKY!"
-            case .love: return "LOVE ♥"
+            case .love: return "LOVE♥"
             case .soon: return "SOON..."
             case .yes: return "YES!"
             case .beware: return "BEWARE"

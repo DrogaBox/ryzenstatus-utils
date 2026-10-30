@@ -166,6 +166,10 @@ final class NotchMascotDesktop: NSObject {
     private var tickles = NotchMascotTickleTracker()
     private var lastBounce: CFTimeInterval = -.infinity
     private var bounces = 0
+    /// In the air since the user let go of it, until it comes to rest.
+    private var dropped = false
+    /// The window edge a leap is aimed at, to catch hold of if it comes up short.
+    private var leapTarget: (window: CGWindowID, y: CGFloat)?
     private var laserTimer: DispatchSourceTimer?
     private var laserDot: CALayer?
     private var rosinUntil: CFTimeInterval = -.infinity
@@ -1580,7 +1584,9 @@ final class NotchMascotDesktop: NSObject {
     /// Falling, it lands on the pointer held under its feet and bounces off
     /// it, higher, with a somersault.
     private func checkTrampoline() {
-        guard !inPlay, !leaping, press == nil, occasion != .laser else { return }
+        // Only a fall the user started: dropping down a window on its own,
+        // it passes a pointer busy in that window by.
+        guard dropped, !inPlay, !leaping, press == nil, occasion != .laser else { return }
         let pointer = NSEvent.mouseLocation
         let now = CACurrentMediaTime()
         guard now - lastBounce > 0.25, bounces < NotchMascotTrampoline.most,
@@ -2477,6 +2483,7 @@ final class NotchMascotDesktop: NSObject {
         body.velocity = CGVector(dx: dx, dy: dy)
         body.airborne = true
         thrown = false
+        dropped = false
         mode = .flying
         resumeTicking()
     }
@@ -2654,6 +2661,7 @@ final class NotchMascotDesktop: NSObject {
         let events = NotchMascotRoam.step(&body, by: dt, in: area, width: size * figureAspect,
                                           ledges: inPlay ? [] : currentLedges())
         place()
+        if body.airborne, leaping { catchEdge() }
         if !body.airborne {
             // A leap ends where it was aimed, not sliding on past it.
             if leaping { body.velocity.dx = 0 }
@@ -2674,6 +2682,8 @@ final class NotchMascotDesktop: NSObject {
                 if speed >= NotchMascotRoam.dizzySpeed { react(.confused); thrown = false; landedHard?() }
             case .settled:
                 bounces = 0
+                dropped = false
+                leapTarget = nil
                 setRun(nil)
                 host?.mascot.lean(0)
                 mode = .standing
@@ -2692,6 +2702,19 @@ final class NotchMascotDesktop: NSObject {
         }
     }
 
+    /// A leap that comes up a little short, past its peak and just under the
+    /// edge it was aimed at, catches hold of it and pulls itself up.
+    private func catchEdge() {
+        guard let target = leapTarget, body.velocity.dy <= 0, body.position.y < target.y,
+              body.position.y >= target.y - size * 0.5,
+              let ledge = ledges.first(where: { $0.window == target.window && $0.holds(body.position.x) })
+        else { return }
+        body.position.y = ledge.y
+        body.velocity = .zero
+        body.airborne = false
+        place()
+        host?.mascot.land(impact: 0.1)
+    }
     private func walk(_ direction: CGFloat, until: CFTimeInterval, by dt: TimeInterval, now: CFTimeInterval) {
         let area = self.area(for: body.position)
         let half = size * figureAspect / 2
@@ -2937,7 +2960,15 @@ final class NotchMascotDesktop: NSObject {
             }
         }
         let ledges = currentLedges(maxAge: 0.4)
-        if !ledges.contains(where: { $0.window == current.window && $0.holds(body.position.x) }) { loseFooting() }
+        guard let under = ledges.first(where: { $0.window == current.window && $0.holds(body.position.x) }) else {
+            loseFooting()
+            return
+        }
+        // Its feet stay on the edge, never a hair above it in the air.
+        if peekDepth == 0, abs(body.position.y - under.y) > 1 {
+            body.position.y = under.y
+            place()
+        }
     }
 
     /// The window under it is gone: it drops.
@@ -3062,6 +3093,7 @@ final class NotchMascotDesktop: NSObject {
                                                   gravity: NotchMascotRoam.gravity, drag: NotchMascotRoam.airDrag)
             self.perch = nil
             self.leaping = true
+            self.leapTarget = (ledge.window, ledge.y)
             self.hop(dx: velocity.dx, dy: velocity.dy)
         }
         climbWork = work
@@ -3141,6 +3173,7 @@ final class NotchMascotDesktop: NSObject {
         climbWork?.cancel(); climbWork = nil
         leavesLedge = false
         leaping = false
+        leapTarget = nil
         endPeek()
     }
 
@@ -3267,6 +3300,7 @@ final class NotchMascotDesktop: NSObject {
         body.velocity = velocity
         body.airborne = true
         thrown = hypot(velocity.dx, velocity.dy) > 600
+        dropped = true
         mode = .flying
         if shaken {
             isDizzy = true

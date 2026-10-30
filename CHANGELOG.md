@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.68.1] — 2026-10-30 — kexts 3.35.1 (No kext changes)
+
+> **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.
+
+This release fixes how the desktop companions climb onto windows and explains permissions macOS will not ask for.
+
+- **Leaps that land**: a companion leaping onto a window now clears its edge at any refresh rate, 60 Hz included, and across a stuttered frame; a leap that comes up just short catches the edge and pulls itself up instead of hanging in the air and dropping back.
+- **No more bouncing off windows**: falling or jumping down from a window on its own, a companion no longer bounces off the pointer while you work in the window below; the pointer only catches it when you drop or throw it yourself.
+- **Feet on the edge**: standing on a window, a companion always stays on its top edge, never a little above it.
+- **Clear permissions on systems that block prompts**: when the Mac boots with AMFI turned off, macOS never asks for the camera, the microphone or the calendar on behalf of an app Apple did not sign; Settings now says so instead of offering a Request button that does nothing.
+- **Microphone and calendar under the hardened runtime**: builds signed with the hardened runtime now carry the microphone and calendar entitlements, so those prompts can appear there.
+
 ## [1.68.0] — 2026-10-30 — kexts 3.35.1 (No kext changes)
 
 > **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.

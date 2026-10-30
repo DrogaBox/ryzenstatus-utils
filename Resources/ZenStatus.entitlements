@@ -5,13 +5,19 @@
 	<!-- Hardened runtime is required for notarization. The app is NOT sandboxed
 	     (its features need system-wide access gated by TCC at runtime, not by
 	     entitlements). Hardened runtime blocks two capabilities the app uses:
-	     sending Apple Events (cut & paste and the uninstaller drive the Finder)
-	     and the camera (the preview mirror); these entitlements restore them,
-	     as does the location one for the Dynamic Island's time-to-leave alert.
+	     sending Apple Events (cut & paste and the uninstaller drive the Finder),
+	     the camera (the preview mirror), the microphone (voice in screen
+	     recordings) and the calendar (upcoming events in the Dynamic Island);
+	     these entitlements restore them, as does the location one for the
+	     Dynamic Island's time-to-leave alert.
 	     The user still grants each one through the normal TCC prompts. -->
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
 	<key>com.apple.security.device.camera</key>
+	<true/>
+	<key>com.apple.security.personal-information.calendars</key>
 	<true/>
 	<key>com.apple.security.personal-information.location</key>
 	<true/>

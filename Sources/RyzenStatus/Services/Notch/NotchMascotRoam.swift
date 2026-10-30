@@ -169,6 +169,7 @@ enum NotchMascotRoam {
         let dt = CGFloat(min(dt, 0.05))
         let frames = dt * 1000 / 16
         var events: [Event] = []
+        let rising = body.velocity.dy
         if body.airborne {
             body.velocity.dy -= gravity * dt
             let drag = pow(airDrag, frames)
@@ -179,7 +180,10 @@ enum NotchMascotRoam {
             body.velocity.dy = 0
         }
         body.position.x += body.velocity.dx * dt
-        body.position.y += body.velocity.dy * dt
+        // The mean of the speeds before and after: exact under gravity, so a
+        // leap peaks as high at 60 frames a second, or across a dropped
+        // frame, as at 120, and still clears the edge it was aimed over.
+        body.position.y += (body.airborne ? (rising + body.velocity.dy) / 2 : body.velocity.dy) * dt
         let half = width / 2
         if body.position.x < area.minX + half {
             body.position.x = area.minX + half

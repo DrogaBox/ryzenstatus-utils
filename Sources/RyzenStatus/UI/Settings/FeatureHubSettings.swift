@@ -997,6 +997,12 @@ private struct PermissionPortalRow: View {
                 if status == .granted, activeFeatures.isEmpty {
                     unusedCard
                 }
+                if status != .granted, promptBlocked {
+                    Text(hub.promptBlocked)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 HStack(spacing: 8) {
                     if status != .granted, hasRequestFlow {
                         Button(hub.requestButton) { request() }
@@ -1062,7 +1068,16 @@ private struct PermissionPortalRow: View {
             )
     }
 
+    /// macOS would answer the request without asking.
+    private var promptBlocked: Bool {
+        switch permission {
+        case .camera, .microphone, .calendar: return Permissions.promptsBlocked
+        default: return false
+        }
+    }
+
     private var hasRequestFlow: Bool {
+        guard !promptBlocked else { return false }
         switch permission {
         case .accessibility, .screenRecording, .fullDiskAccess: return true
         case .notifications: return Permissions.shared.notifications == .undetermined
