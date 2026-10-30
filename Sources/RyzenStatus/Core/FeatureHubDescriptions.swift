@@ -44,6 +44,7 @@ extension AppFeature {
         case .bluetoothSleep: return FeatureStrings.bluetoothSleep(language).hubDescription
         case .quickLauncher: return hub.descQuickLauncher
         case .quickToggles: return FeatureStrings.quickToggles(language).hubDescription
+        case .quitApps: return s.quitAppsCaption
         case .colorPicker: return hub.descColorPicker
         case .screenOCR: return hub.descScreenOCR
         case .screenshot: return FeatureStrings.screenshot(language).hubDescription
@@ -70,6 +71,7 @@ extension AppFeature {
         case .superKey: return hub.descSuperKey
         case .quitWindowProtection: return FeatureStrings.quitProtection(language).description
         case .scrollHorizontal: return s.scrollHorizontalCaption
+        case .scrollZoom: return s.pinchZoom
         case .focusFollowsMouse: return s.focusFollowsMouseCaption
         case .linearScroll: return s.linearScrollCaption
         case .mouseAcceleration: return s.mouseAccelerationCaption

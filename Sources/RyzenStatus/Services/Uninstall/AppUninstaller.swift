@@ -70,6 +70,7 @@ final class AppUninstaller: ObservableObject {
     @Published private(set) var phase: Phase = .empty
     @Published private(set) var target: Target?
     @Published private(set) var homebrewPackage: HomebrewPackage?
+    @Published private(set) var homebrewCheckFailed = false
     /// The app the last selection turned down, so the empty state can say
     /// why instead of springing back in silence (#1582). An accepted
     /// selection or a reset clears it.
@@ -114,8 +115,13 @@ final class AppUninstaller: ObservableObject {
         phase == .removing || isRemovingWithHomebrew
     }
 
-    /// What the Homebrew confirmation showed, since Settings and the panel share
-    /// this uninstaller and can change it while the alert is open.
+    var canRemoveSelected: Bool {
+        phase == .results && !isRemoving && !homebrewCheckFailed
+            && items.contains(where: \.include)
+    }
+
+    /// What the Homebrew confirmation showed, since the panel, Settings and the
+    /// command bar share this uninstaller and can change it while it is open.
     struct HomebrewRemovalConfirmation {
         let package: HomebrewPackage
         let targetURL: URL
@@ -123,7 +129,7 @@ final class AppUninstaller: ObservableObject {
     }
 
     var homebrewRemovalConfirmation: HomebrewRemovalConfirmation? {
-        guard phase == .results, !isRemoving,
+        guard canRemoveSelected,
               let package = selectedHomebrewPackage, let target else { return nil }
         return HomebrewRemovalConfirmation(package: package, targetURL: target.url,
                                            selectedIDs: Set(items.filter(\.include).map(\.id)))
@@ -156,6 +162,7 @@ final class AppUninstaller: ObservableObject {
         targetFileIdentity = selectedIdentity
         targetInfoIdentity = selectedInfoIdentity
         homebrewPackage = nil
+        homebrewCheckFailed = false
         homebrewRemovalSize = 0
         homebrewRemovedApplication = false
         homebrewRemovalObservation?.cancel()
@@ -206,7 +213,7 @@ final class AppUninstaller: ObservableObject {
                     self.reset()
                     return
                 }
-                HomebrewManager.shared.packageManagingApplication(at: selectedURL) { [weak self] package in
+                HomebrewManager.shared.packageManagingApplication(at: selectedURL) { [weak self] result in
                     // Drop the result if the user picked a different app (or reset)
                     // while this scan was running — never show A's files under B.
                     guard let self, !cancellation.isCancelled,
@@ -218,7 +225,14 @@ final class AppUninstaller: ObservableObject {
                         return
                     }
                     self.items = found
-                    self.homebrewPackage = package
+                    switch result {
+                    case let .success(package):
+                        self.homebrewPackage = package
+                        self.homebrewCheckFailed = false
+                    case .failure:
+                        self.homebrewPackage = nil
+                        self.homebrewCheckFailed = true
+                    }
                     self.allowedRemovalPaths = Set(found.map { $0.url.standardizedFileURL.path })
                     self.scanCancellation = nil
                     self.phase = .results
@@ -232,6 +246,11 @@ final class AppUninstaller: ObservableObject {
         guard !isRemoving else { return }
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].include = include
+    }
+
+    func retryHomebrewCheck() {
+        guard phase == .results, homebrewCheckFailed, let target else { return }
+        select(appURL: target.url)
     }
 
     /// Drops the refusal note, for an uninstaller view that opens or closes.
@@ -248,6 +267,7 @@ final class AppUninstaller: ObservableObject {
         targetFileIdentity = nil
         targetInfoIdentity = nil
         homebrewPackage = nil
+        homebrewCheckFailed = false
         homebrewRemovalSize = 0
         homebrewRemovedApplication = false
         homebrewRemovalObservation?.cancel()
@@ -260,7 +280,7 @@ final class AppUninstaller: ObservableObject {
     // MARK: - Removal
 
     func removeSelected() {
-        guard phase == .results, !isRemoving else { return }
+        guard canRemoveSelected, selectedHomebrewPackage == nil else { return }
         let chosen = items.filter(\.include)
         guard !chosen.isEmpty else { return }
         phase = .removing
@@ -417,7 +437,7 @@ final class AppUninstaller: ObservableObject {
     /// only the other items the person selected. The app itself is excluded so
     /// this flow never tries to remove the same bundle twice.
     func removeSelectedWithHomebrew(confirmation: HomebrewRemovalConfirmation) {
-        guard phase == .results, !isRemoving,
+        guard canRemoveSelected,
               target?.url == confirmation.targetURL,
               target.map({ UninstallerSupport.applicationIdentityMatches(
                   $0.url, appIdentity: targetFileIdentity,

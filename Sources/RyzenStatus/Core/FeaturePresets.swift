@@ -98,7 +98,7 @@ extension AppFeature {
              .monitorInsights, .monitorAnalytics, .monitorEnergy, .monitorNetworkDetails:
             return .periodic
         case .pastePlain, .mixer, .soundOutputSwitcher, .micMute,
-             .musicBlock, .keepAwake, .quickLauncher, .quickToggles, .colorPicker,
+             .musicBlock, .keepAwake, .quickLauncher, .quickToggles, .quitApps, .colorPicker,
              .screenOCR, .cleaningMode, .mediaTools, .cleaner, .uninstaller, .homebrew,
              .whatsAppDownloads, .screenshot, .screenRecorder,
              .cameraPreview, .scratchpad, .killProcess, .commandBar,
@@ -129,7 +129,7 @@ extension AppFeature {
         case .quitWindowProtection:
             return .keyboard
         // Wheel, pointer and click taps.
-        case .scrollHorizontal, .focusFollowsMouse, .linearScroll, .mouseClickDebounce:
+        case .scrollHorizontal, .scrollZoom, .focusFollowsMouse, .linearScroll, .mouseClickDebounce:
             return .mouse
         // One system setting written when switched; nothing runs at rest.
         case .mouseAcceleration, .spacesOrder:

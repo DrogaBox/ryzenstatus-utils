@@ -854,6 +854,7 @@ struct Strings {
     // MARK: Settings — monitor / menu bar metrics
     let tabMonitor: String
     let monitorMenuBarSection: String
+    let monitorMenuBarPreview: String
     let monitorMenuBarCaption: String
     let monitorCombineTemperatures: String
     let monitorCombineTemperaturesCaption: String
@@ -1335,10 +1336,14 @@ struct Strings {
     let urlCleanerRulesRestoreSiteButton: String
     let urlCleanerRemovedFormat: String
     let scrollHorizontalName: String
+    let zoomSection: String
+    let zoomControlNote: String
+    let pinchZoom: String
     let scrollHorizontalModifierLabel: String
     let scrollHorizontalCommandKey: String
     let scrollHorizontalCaption: String
     let uninstallerHomebrewPackageFormat: String
+    let uninstallerHomebrewCheckFailed: String
     let shelfEdgeToggle: String
     let shelfEdgeCaption: String
     let focusFollowsMouseName: String
@@ -1372,6 +1377,8 @@ struct Strings {
     let shelfShortcutFinderSelectionCaption: String
     let spacesOrderName: String
     let spacesOrderCaption: String
+    let quitAppsName: String
+    let quitAppsCaption: String
 }
 
 // MARK: - Português (Brasil)
@@ -1564,10 +1571,10 @@ extension Strings {
         colorPickerPickNow: "Capturar cor",
         micMuteName: "Silenciar microfone",
         micUnmuteName: "Reativar microfone",
-        micMuteCaption: "Corta o microfone do Mac com um clique ou atalho, valendo para qualquer app.",
-        micMutedHUD: "Microfone silenciado",
+        micMuteCaption: "Usa os controles de silenciamento ou volume de entrada de cada microfone. A Siri e alguns apps ainda podem ouvir você. Não bloqueia todo acesso ao microfone.",
+        micMutedHUD: "Silenciamento ativado",
         micUnmutedHUD: "Microfone reativado",
-        micMuteMenuBarToggle: "Mostrar na barra de menus enquanto silenciado",
+        micMuteMenuBarToggle: "Mostrar na barra de menus enquanto ativo",
         micMuteMenuBarCaption: "Um microfone cortado em vermelho aparece ao lado do ícone do app na barra de menus.",
         pastePlainName: "Colar como texto puro",
         pastePlainCaption: "Cola o que foi copiado sem cores, fontes ou formatação. O conteúdo original continua no clipboard.",
@@ -1655,7 +1662,7 @@ extension Strings {
         autoQuitHowTitle: "Como funciona",
         autoQuitStep1: "Feche a última janela de um app (⌘W ou o botão vermelho).",
         autoQuitStep2: "O app é encerrado sozinho. Diálogos de “salvar?” continuam aparecendo.",
-        autoQuitPredictableNote: "Apps que normalmente rodam sem janela nunca são encerrados.",
+        autoQuitPredictableNote: "Apps que ainda não abriram uma janela continuam abertos. Apps da barra de menus continuam abertos, a menos que você autorize seu encerramento.",
         autoQuitExceptionsTitle: "Exceções",
         autoQuitExceptionsCaption: "Apps nesta lista continuam abertos mesmo sem nenhuma janela.",
         autoQuitExceptionsEmpty: "Nenhuma exceção",
@@ -1746,14 +1753,14 @@ extension Strings {
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Pesquise, instale e remova fórmulas e casks.",
         homebrewMissingTitle: "Homebrew não encontrado",
-        homebrewMissingBody: "O RyzenStatus pode abrir o Terminal com o instalador oficial do Homebrew. O Terminal mostra os passos e pede sua senha se precisar.",
+        homebrewMissingBody: "O RyzenStatus pode abrir o instalador oficial do Homebrew no seu terminal. Ele mostra os passos e pede sua senha se precisar.",
         homebrewInstallHomebrew: "Instalar Homebrew",
-        homebrewInstallHomebrewCaption: "Depois que terminar no Terminal, volte aqui e clique em Atualizar.",
-        homebrewInstallHomebrewOpened: "Instalador aberto no Terminal.",
-        homebrewShellSetupTitle: "Finalizar configuração do Terminal",
-        homebrewShellSetupBody: "O Homebrew está instalado, mas o Terminal ainda pode não encontrar o comando brew. O RyzenStatus pode abrir o Terminal com o comando de configuração.",
-        homebrewShellSetupButton: "Configurar Terminal",
-        homebrewShellSetupOpened: "Comando aberto no Terminal. Depois volte aqui e clique em Atualizar.",
+        homebrewInstallHomebrewCaption: "Depois que o instalador terminar, volte aqui e clique em Atualizar.",
+        homebrewInstallHomebrewOpened: "Instalador aberto no seu terminal.",
+        homebrewShellSetupTitle: "Finalizar configuração do terminal",
+        homebrewShellSetupBody: "O Homebrew está instalado, mas o seu terminal ainda pode não encontrar o comando brew. O RyzenStatus pode abrir o comando de configuração no seu terminal.",
+        homebrewShellSetupButton: "Configurar terminal",
+        homebrewShellSetupOpened: "Comando aberto no seu terminal. Depois volte aqui e clique em Atualizar.",
         homebrewRefresh: "Atualizar",
         homebrewCheckPackages: "Verificar pacotes",
         homebrewTrustTitle: "Tap ainda não confiável",
@@ -1776,7 +1783,7 @@ extension Strings {
         homebrewUpgradeAll: "Atualizar tudo",
         homebrewUpdateHomebrew: "Atualizar Homebrew",
         homebrewAllPackages: "pacotes",
-        homebrewOpenTerminal: "Abrir Terminal",
+        homebrewOpenTerminal: "Abrir terminal",
         homebrewCancelOperation: "Cancelar",
         homebrewClearLog: "Limpar log",
         homebrewSourceBuildWarning: "Compilando do código-fonte: isso pode levar horas neste Mac.",
@@ -1803,7 +1810,7 @@ extension Strings {
         homebrewConfirmUpgradeAllBody: "O Homebrew vai baixar e aplicar as versões mais recentes dos pacotes com atualização disponível. Dependências também podem ser atualizadas.",
         homebrewConfirmUpdateHomebrewTitle: "Atualizar Homebrew?",
         homebrewConfirmUpdateHomebrewBody: "O Homebrew vai buscar as informações mais recentes e depois recarregar seus pacotes.",
-        homebrewTerminalFallback: "Esta operação precisa do Terminal para pedir a senha de administrador. O RyzenStatus não captura senhas.",
+        homebrewTerminalFallback: "Esta operação precisa do seu terminal para pedir a senha de administrador. O RyzenStatus não captura senhas.",
         homebrewLoading: "Carregando…",
         homebrewSearchEmpty: "Nenhum resultado",
         homebrewOperationInstallFormat: "Instalando %@",
@@ -1825,7 +1832,7 @@ extension Strings {
         homebrewOperationUpgrading: "Atualizando arquivos...",
         homebrewOperationFinalizing: "Finalizando...",
         homebrewOperationRefreshing: "Atualizando lista...",
-        homebrewOperationTerminal: "Continue no Terminal.",
+        homebrewOperationTerminal: "Continue no seu terminal.",
         homebrewOperationElapsedFormat: "%@ decorridos",
         homebrewOperationShowDetails: "Mostrar detalhes",
         homebrewOperationHideDetails: "Ocultar detalhes",
@@ -2052,6 +2059,7 @@ extension Strings {
 
         tabMonitor: "Monitor",
         monitorMenuBarSection: "Na barra de menus",
+        monitorMenuBarPreview: "Prévia da barra de menus",
         monitorMenuBarCaption: "Escolha o que aparece ao lado do ícone na barra de menus.",
         monitorCombineTemperatures: "Combinar uso e temperatura",
         monitorCombineTemperaturesCaption: "Quando uso e temperatura do mesmo item estiverem ativos, mostra tudo em um bloco só.",
@@ -2513,10 +2521,14 @@ extension Strings {
         urlCleanerRulesRestoreSiteButton: "Ativar todas as regras deste site",
         urlCleanerRemovedFormat: "Removidos %@",
         scrollHorizontalName: "Rolar na horizontal segurando uma tecla",
+        zoomSection: "Zoom",
+        zoomControlNote: "Control + rolagem amplia o conteúdo do app em vez da tela do macOS.",
+        pinchZoom: "Zoom por pinça",
         scrollHorizontalModifierLabel: "Tecla modificadora",
         scrollHorizontalCommandKey: "Command",
         scrollHorizontalCaption: "Mantenha apenas a tecla escolhida pressionada para rolar a roda vertical do mouse na horizontal. Outras combinações de teclas não são alteradas.",
         uninstallerHomebrewPackageFormat: "%@ também será removido do Homebrew.",
+        uninstallerHomebrewCheckFailed: "Não foi possível verificar se o Homebrew gerencia este aplicativo. Atualize para tentar novamente ou desinstale pelo Homebrew.",
         shelfEdgeToggle: "Abrir perto de uma borda da tela",
         shelfEdgeCaption: "Ao arrastar um arquivo para perto da borda da tela, a área espia para dentro. Solte ali, ou puxe de volta e ela recua.",
         focusFollowsMouseName: "Foco ao passar o mouse",
@@ -2550,6 +2562,8 @@ extension Strings {
         shelfShortcutFinderSelectionCaption: "Com o Finder em primeiro plano, o atalho abre a área temporária já com os arquivos selecionados. Sem seleção, ela abre como sempre.",
         spacesOrderName: "Manter os Espaços em ordem fixa",
         spacesOrderCaption: "Impede que o macOS reorganize os Espaços pelo uso mais recente, para que fiquem na ordem que você definiu. A configuração anterior volta ao desligar esta opção. O Dock pode reiniciar uma vez para aplicar a mudança.",
+        quitAppsName: "Encerrar apps",
+        quitAppsCaption: "Lista seus apps abertos para encerrar um por um, todos de uma vez ou todos exceto o da frente. Sempre mostra a lista antes de encerrar qualquer um."
     )
 }
 
@@ -2744,9 +2758,9 @@ extension Strings {
         micMuteName: "Mute microphone",
         micUnmuteName: "Unmute microphone",
         micMuteCaption: "Cuts the Mac's microphone with a click or shortcut, across every app.",
-        micMutedHUD: "Microphone muted",
+        micMutedHUD: "Mic Mute on",
         micUnmutedHUD: "Microphone back on",
-        micMuteMenuBarToggle: "Show in the menu bar while muted",
+        micMuteMenuBarToggle: "Show in the menu bar while Mic Mute is on",
         micMuteMenuBarCaption: "A red crossed-out mic appears beside the app's icon in the menu bar.",
         pastePlainName: "Paste as plain text",
         pastePlainCaption: "Pastes what you copied without colors, fonts or formatting. The original stays on the clipboard.",
@@ -2834,7 +2848,7 @@ extension Strings {
         autoQuitHowTitle: "How it works",
         autoQuitStep1: "Close an app's last window (⌘W or the red button).",
         autoQuitStep2: "The app quits on its own. “Save changes?” dialogs still appear.",
-        autoQuitPredictableNote: "Apps that normally run without a window are never quit.",
+        autoQuitPredictableNote: "Apps that have not opened a window stay open. Menu bar apps stay open unless you explicitly allow them to quit.",
         autoQuitExceptionsTitle: "Exceptions",
         autoQuitExceptionsCaption: "Apps on this list stay open even with no windows.",
         autoQuitExceptionsEmpty: "No exceptions",
@@ -2926,14 +2940,14 @@ extension Strings {
         homebrewName: "Homebrew",
         homebrewEnableCaption: "Search, install and remove formulae and casks.",
         homebrewMissingTitle: "Homebrew not found",
-        homebrewMissingBody: "RyzenStatus can open Terminal with the official Homebrew installer. Terminal shows the steps and asks for your password if needed.",
+        homebrewMissingBody: "RyzenStatus can open the official Homebrew installer in your terminal. It shows the steps and asks for your password if needed.",
         homebrewInstallHomebrew: "Install Homebrew",
-        homebrewInstallHomebrewCaption: "When Terminal finishes, come back here and click Refresh.",
-        homebrewInstallHomebrewOpened: "Installer opened in Terminal.",
-        homebrewShellSetupTitle: "Finish Terminal setup",
-        homebrewShellSetupBody: "Homebrew is installed, but Terminal may not find the brew command yet. RyzenStatus can open Terminal with the setup command.",
-        homebrewShellSetupButton: "Set up Terminal",
-        homebrewShellSetupOpened: "Command opened in Terminal. Then come back here and click Refresh.",
+        homebrewInstallHomebrewCaption: "When the installer finishes, come back here and click Refresh.",
+        homebrewInstallHomebrewOpened: "Installer opened in your terminal.",
+        homebrewShellSetupTitle: "Finish terminal setup",
+        homebrewShellSetupBody: "Homebrew is installed, but your terminal may not find the brew command yet. RyzenStatus can open the setup command in your terminal.",
+        homebrewShellSetupButton: "Set up terminal",
+        homebrewShellSetupOpened: "Command opened in your terminal. Then come back here and click Refresh.",
         homebrewRefresh: "Refresh",
         homebrewCheckPackages: "Check packages",
         homebrewTrustTitle: "Tap not trusted yet",
@@ -2956,7 +2970,7 @@ extension Strings {
         homebrewUpgradeAll: "Update all",
         homebrewUpdateHomebrew: "Update Homebrew",
         homebrewAllPackages: "packages",
-        homebrewOpenTerminal: "Open Terminal",
+        homebrewOpenTerminal: "Open terminal",
         homebrewCancelOperation: "Cancel",
         homebrewClearLog: "Clear log",
         homebrewSourceBuildWarning: "Building from source: this can take hours on this Mac.",
@@ -2983,7 +2997,7 @@ extension Strings {
         homebrewConfirmUpgradeAllBody: "Homebrew will download and apply the latest versions for packages with updates available. Dependencies may also be updated.",
         homebrewConfirmUpdateHomebrewTitle: "Update Homebrew?",
         homebrewConfirmUpdateHomebrewBody: "Homebrew will fetch the latest information and then reload your packages.",
-        homebrewTerminalFallback: "This operation needs Terminal to ask for the administrator password. RyzenStatus does not capture passwords.",
+        homebrewTerminalFallback: "This operation needs your terminal to ask for the administrator password. RyzenStatus does not capture passwords.",
         homebrewLoading: "Loading…",
         homebrewSearchEmpty: "No results",
         homebrewOperationInstallFormat: "Installing %@",
@@ -3005,7 +3019,7 @@ extension Strings {
         homebrewOperationUpgrading: "Updating files...",
         homebrewOperationFinalizing: "Finishing...",
         homebrewOperationRefreshing: "Refreshing list...",
-        homebrewOperationTerminal: "Continue in Terminal.",
+        homebrewOperationTerminal: "Continue in your terminal.",
         homebrewOperationElapsedFormat: "%@ elapsed",
         homebrewOperationShowDetails: "Show details",
         homebrewOperationHideDetails: "Hide details",
@@ -3232,6 +3246,7 @@ extension Strings {
 
         tabMonitor: "Monitor",
         monitorMenuBarSection: "In the menu bar",
+        monitorMenuBarPreview: "Menu bar preview",
         monitorMenuBarCaption: "Choose what appears next to the icon in the menu bar.",
         monitorCombineTemperatures: "Combine usage and temperature",
         monitorCombineTemperaturesCaption: "When usage and temperature for the same item are enabled, show them in one block.",
@@ -3693,10 +3708,14 @@ extension Strings {
         urlCleanerRulesRestoreSiteButton: "Turn on every rule for this site",
         urlCleanerRemovedFormat: "Removed %@",
         scrollHorizontalName: "Scroll sideways while holding a key",
+        zoomSection: "Zoom",
+        zoomControlNote: "Control + scroll performs app zoom instead of macOS screen zoom.",
+        pinchZoom: "Pinch Zoom",
         scrollHorizontalModifierLabel: "Modifier key",
         scrollHorizontalCommandKey: "Command",
         scrollHorizontalCaption: "Hold only the selected modifier to scroll the vertical mouse wheel horizontally. Other key combinations are unchanged.",
         uninstallerHomebrewPackageFormat: "%@ will also be removed from Homebrew.",
+        uninstallerHomebrewCheckFailed: "Could not verify whether Homebrew manages this app. Refresh to try again, or uninstall it from Homebrew.",
         shelfEdgeToggle: "Open near a screen edge",
         shelfEdgeCaption: "Drag a file toward the screen edge to peek the shelf in. Drop it there, or pull back and it retreats.",
         focusFollowsMouseName: "Focus follows mouse",
@@ -3730,5 +3749,7 @@ extension Strings {
         shelfShortcutFinderSelectionCaption: "With Finder in front, the shortcut opens the shelf with the selected files already in it. With nothing selected, it opens as usual.",
         spacesOrderName: "Keep Spaces in a fixed order",
         spacesOrderCaption: "Stops macOS from rearranging Spaces by most recent use, so they stay in the order you set. Your previous setting returns when this is turned off. The Dock may restart once to apply the change.",
+        quitAppsName: "Quit apps",
+        quitAppsCaption: "Lists your open apps to quit one by one, all at once, or all but the one in front. Always shows the list before anything quits."
     )
 }

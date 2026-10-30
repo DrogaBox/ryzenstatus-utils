@@ -9,6 +9,7 @@ import Foundation
 /// app carries no audio files.
 enum NotchMascotSoundEffect: CaseIterable {
     case coin, boing, squeak, honk, splat, boom, magic, poof, pop, chime, whoosh, creak, sad, zap, munch, fire, clash
+    case thud, warble, hoot, chirp, alert, bleep, toot, slurp, giggle, crunch
 }
 
 /// What each thing that happens in a play sounds like. Pure, so it is tested.
@@ -281,6 +282,42 @@ final class NotchMascotSound {
         case .fire:
             return [Tone(start: 0, length: 0.45, from: 0, to: 0, wave: .noise, level: 0.5, cutoff: 1100, decay: 2),
                     Tone(start: 0, length: 0.3, from: 120, to: 220, wave: .saw, level: 0.12, decay: 2)]
+        case .thud:
+            return [Tone(start: 0, length: 0.45, from: 62, to: 34, wave: .sine, level: 0.9, decay: 3.5),
+                    Tone(start: 0, length: 0.2, from: 0, to: 0, wave: .noise, level: 0.45, cutoff: 260, decay: 4)]
+        case .warble:
+            return [Tone(start: 0, length: 0.9, from: 620, to: 980, wave: .sine, level: 0.32, vibrato: 11, decay: 0.8),
+                    Tone(start: 0, length: 0.9, from: 930, to: 1470, wave: .triangle, level: 0.14, vibrato: 11, decay: 0.8)]
+        case .hoot:
+            return [Tone(start: 0, length: 0.7, from: 330, to: 262, wave: .sine, level: 0.38, vibrato: 5, decay: 1.2),
+                    Tone(start: 0.75, length: 0.8, from: 294, to: 220, wave: .sine, level: 0.32, vibrato: 5, decay: 1.5)]
+        case .chirp:
+            return [Tone(start: 0, length: 0.06, from: 2600, to: 3400, wave: .sine, level: 0.32, decay: 2),
+                    Tone(start: 0.09, length: 0.06, from: 2900, to: 3700, wave: .sine, level: 0.3, decay: 2),
+                    Tone(start: 0.2, length: 0.1, from: 3300, to: 2500, wave: .sine, level: 0.28, decay: 2.5)]
+        case .alert:
+            return [Tone(start: 0, length: 0.09, from: 1320, to: 1320, wave: .square, level: 0.22, decay: 1),
+                    Tone(start: 0.1, length: 0.32, from: 1760, to: 1760, wave: .square, level: 0.22, decay: 1.4)]
+        case .bleep:
+            return [Tone(start: 0, length: 0.05, from: 988, to: 988, wave: .square, level: 0.2, decay: 1),
+                    Tone(start: 0.06, length: 0.05, from: 1319, to: 1319, wave: .square, level: 0.2, decay: 1),
+                    Tone(start: 0.12, length: 0.05, from: 659, to: 659, wave: .square, level: 0.2, decay: 1),
+                    Tone(start: 0.18, length: 0.14, from: 1976, to: 247, wave: .square, level: 0.18, decay: 2)]
+        case .toot:
+            return [Tone(start: 0, length: 0.55, from: 196, to: 196, wave: .saw, level: 0.22, vibrato: 3, decay: 0.9),
+                    Tone(start: 0, length: 0.55, from: 247, to: 247, wave: .triangle, level: 0.2, decay: 0.9)]
+        case .giggle:
+            return [Tone(start: 0, length: 0.08, from: 880, to: 1100, wave: .triangle, level: 0.3, decay: 2),
+                    Tone(start: 0.11, length: 0.08, from: 820, to: 1050, wave: .triangle, level: 0.3, decay: 2),
+                    Tone(start: 0.22, length: 0.08, from: 760, to: 990, wave: .triangle, level: 0.28, decay: 2),
+                    Tone(start: 0.33, length: 0.12, from: 700, to: 940, wave: .triangle, level: 0.26, decay: 2)]
+        case .crunch:
+            return [Tone(start: 0, length: 0.06, from: 0, to: 0, wave: .noise, level: 0.55, cutoff: 3200, decay: 6),
+                    Tone(start: 0.09, length: 0.06, from: 0, to: 0, wave: .noise, level: 0.5, cutoff: 2800, decay: 6),
+                    Tone(start: 0.2, length: 0.09, from: 0, to: 0, wave: .noise, level: 0.6, cutoff: 4200, decay: 5)]
+        case .slurp:
+            return [Tone(start: 0, length: 0.35, from: 0, to: 0, wave: .noise, level: 0.3, cutoff: 900, decay: 1.5),
+                    Tone(start: 0.05, length: 0.3, from: 300, to: 620, wave: .sine, level: 0.25, vibrato: 14, decay: 2)]
         case .clash:
             return [Tone(start: 0, length: 0.12, from: 0, to: 0, wave: .noise, level: 0.85, cutoff: 5500, decay: 4),
                     Tone(start: 0, length: 0.42, from: 1175, to: 1140, wave: .triangle, level: 0.7, decay: 1.8),

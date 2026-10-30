@@ -39,38 +39,48 @@ struct MonitorSettings: View {
     @AppStorage("menuBarMetricAppearance_diskUsage") private var appDisk = "values"
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 20, pinnedViews: [.sectionHeaders]) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(l10n.s.tabMonitor).font(.title2.bold())
-                    Text(FeatureStrings.settingsPages(l10n.language).monitorDescription)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                groupHeading(l10n.s.monitorMenuBarSection, symbol: "menubar.rectangle")
-                // Everything under this header changes what the header
-                // shows, so it stays in view until the section ends.
-                Section {
+        // A plain stack, not a lazy one: a lazy stack estimates the rows it
+        // has not built yet, and with the taller Bars options this page kept
+        // it re-measuring and re-anchoring without ever settling, which hung
+        // Settings on the first scroll. Pinned headers exist only on lazy
+        // stacks, so the preview sits above the scroll view instead, where it
+        // also stays in view for the shared units further down that change it.
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(l10n.s.monitorMenuBarPreview)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                MenuBarMetricsPreview()
+            }
+            .frame(maxWidth: 760, alignment: .leading)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 22)
+            .padding(.vertical, 10)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(l10n.s.tabMonitor).font(.title2.bold())
+                        Text(FeatureStrings.settingsPages(l10n.language).monitorDescription)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    groupHeading(l10n.s.monitorMenuBarSection, symbol: "menubar.rectangle")
                     menuBarCard
                     menuBarStyleCard
                     menuBarLayoutCard
-                } header: {
-                    MenuBarMetricsPreview()
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(nsColor: .windowBackgroundColor))
+                    groupHeading(l10n.s.monitorPanelSection, symbol: "macwindow")
+                    panelCard
+                    graphsCard
+                    groupHeading(FeatureStrings.monitorLayout(l10n.language).shared, symbol: "slider.horizontal.3")
+                    readingsCard
+                    alertsCard
                 }
-                groupHeading(l10n.s.monitorPanelSection, symbol: "macwindow")
-                panelCard
-                graphsCard
-                groupHeading(FeatureStrings.monitorLayout(l10n.language).shared, symbol: "slider.horizontal.3")
-                readingsCard
-                alertsCard
+                .frame(maxWidth: 760)
+                .frame(maxWidth: .infinity)
+                .padding(22)
             }
-            .frame(maxWidth: 760)
-            .frame(maxWidth: .infinity)
-            .padding(22)
         }
         .toggleStyle(.switch)
         .onAppear {

@@ -3,9 +3,10 @@
 
 import Foundation
 
-/// The twelve families the combos are grouped in.
+/// The families the combos are grouped in.
 enum SynergyCategory: Int, CaseIterable, Identifiable {
-    case wonderBoy = 1, combat, magic, tavern, music, rogues, sciFi, twin, species, quests, curiosities, mascots
+    case wonderBoy = 1, combat, magic, tavern, music, rogues, sciFi, twin, species, quests, curiosities, mascots, dance
+    case toys, legends
 
     var id: Int { rawValue }
 
@@ -23,6 +24,9 @@ enum SynergyCategory: Int, CaseIterable, Identifiable {
         case .quests: return "Mini-quests and your input"
         case .curiosities: return "Shop curiosities"
         case .mascots: return "Glutton and Shifter"
+        case .dance: return "Ballet and stage dance"
+        case .toys: return "Toys and luck"
+        case .legends: return "Kitsune and Penguin"
         }
     }
 
@@ -40,6 +44,9 @@ enum SynergyCategory: Int, CaseIterable, Identifiable {
         case .quests: return "Mini-quests e interacción"
         case .curiosities: return "Curiosidades de la tienda"
         case .mascots: return "Tragón y Metamorfo"
+        case .dance: return "Ballet y danza escénica"
+        case .toys: return "Juguetes y suerte"
+        case .legends: return "Kitsune y Pingüino"
         }
     }
 }
@@ -237,7 +244,7 @@ struct NotchMascotSynergy: Identifiable, Equatable {
     /// The play it makes, started by the companion or by its friend.
     func play(starterIsLeader: Bool) -> NotchMascotIslandPlay {
         var score = NotchMascotIslandPlay.Score(byLeader: starterIsLeader)
-        script.write(into: &score)
+        NotchMascotComboChoreography.write(id: id, script: script, match: match, into: &score)
         return NotchMascotIslandPlay(kind: .synergy(id), beats: score.beats)
     }
 
@@ -247,7 +254,7 @@ struct NotchMascotSynergy: Identifiable, Equatable {
     func detail(in language: AppLanguage) -> String { language == .es ? descriptionES : description }
 }
 
-/// The hundred and ninety-eight combos, and how a pair finds theirs.
+/// The combos, and how a pair finds theirs.
 enum NotchMascotSynergyCatalog {
     private static func S(_ number: Int, _ id: String, _ category: SynergyCategory, _ name: String, _ nameES: String,
                           _ description: String, _ descriptionES: String, _ match: NotchMascotSynergyMatch,
@@ -257,7 +264,7 @@ enum NotchMascotSynergyCatalog {
     }
 
     static let all: [NotchMascotSynergy] = wonderBoy + combat + magic + tavern + music + rogues + sciFi + twin
-        + species + quests + curiosities + mascots
+        + species + quests + curiosities + mascots + dance + toys + legends
 
     static var total: Int { all.count }
 
@@ -281,6 +288,22 @@ enum NotchMascotSynergyCatalog {
         return best >= 3 ? fits.filter { $0.match.specificity >= 3 } : fits
     }
 
+    /// What the friend can wear to make a combo with `item`, each thing once,
+    /// with the combo it makes; the same thing for a twin combo.
+    static func partners(of item: NotchMascotAccessory) -> [(item: NotchMascotAccessory, synergy: NotchMascotSynergy)] {
+        var seen = Set<NotchMascotAccessory>()
+        return all.compactMap { synergy -> (item: NotchMascotAccessory, synergy: NotchMascotSynergy)? in
+            let partner: NotchMascotAccessory
+            switch synergy.match {
+            case .pair(let a, let b) where a == item: partner = b
+            case .pair(let a, let b) where b == item: partner = a
+            case .twin(let a) where a == item: partner = a
+            default: return nil
+            }
+            guard seen.insert(partner).inserted else { return nil }
+            return (partner, synergy)
+        }
+    }
     /// The combo that best fits this pair, if any.
     static func resolveSynergy(leaderWears: NotchMascotAccessory, friendWears: NotchMascotAccessory,
                                leaderStyle: NotchMascotStyle, friendStyle: NotchMascotStyle) -> NotchMascotSynergy? {
@@ -1268,5 +1291,188 @@ enum NotchMascotSynergyCatalog {
           "A great gate opens for the two.",
           "Se abre un gran portón para los dos.",
           .quest, .ritual(.ready, .celebrate, .door, nil)),
+    ]
+
+    // MARK: Ballet and stage dance
+
+    private static let dance: [NotchMascotSynergy] = [
+        S(233, "grandPasDeDeux", .dance, "Grand Pas de Deux", "Grand Pas de Deux",
+          "An imperial adagio, 360 promenade and overhead press lift.",
+          "Un adagio imperial, promenade a 360 y alzada sobre la cabeza.",
+          .styles(.ballerina, .danseur), .ritual(.groove, .celebrate, .confetti, "BRAVO!")),
+        S(234, "donQBattle", .dance, "Don Quixote Coda", "Coda de Don Quijote",
+          "Spanish fan snaps, double saut de basque and grand pirouettes.",
+          "Chasquidos de abanico, double saut de basque y giros a la segunda.",
+          .pair(.spanishFan, .pointeShoes), .ritual(.ready, .groove, .sparkles, "DON Q!")),
+        S(235, "swanLakeDuet", .dance, "Dance of the Little Swans", "Danza de los cuatro cisnes",
+          "Linked arms, rapid bourrées and synchronized head tilts.",
+          "Brazos cruzados, bourrées rápidos y cabecitas al unísono.",
+          .styles(.swan, .ballerina), .ritual(.bounce, .bounce, .sparkles, "LAKE")),
+        S(236, "fouetteShowdown", .dance, "32 Fouettés en Tournant", "32 Fouettés en tournant",
+          "Fierce spotting and whip turns right in place.",
+          "Spotting veloz y latigazos de pierna clavados en el centro.",
+          .styleWears(.ballerina, .pointeShoes), .chorus(.star, .groove, "32X!")),
+        S(237, "sharedRosinBox", .dance, "Rosin Box Ritual", "Ritual de la caja de resina",
+          "Crunching crystals in the wings before a grand jump.",
+          "Triturando cristales en bastidores antes de un gran salto.",
+          .wears(.rosinBox), .calm(.perk, .celebrate, .smoke, "CRUNCH!")),
+        S(238, "dancerRecovery", .dance, "Ice Pack & Tendinitis", "Hielo y recuperación",
+          "Resting weary arches with cold packs and deep sighs.",
+          "Alivio frío en los empeines cansados con un hondo suspiro.",
+          .wears(.icePack), .calm(.relax, .love, .hearts, "SORE FEET")),
+        S(239, "plantarMassage", .dance, "Plantar Fascia Release", "Masaje de fascia plantar",
+          "Rolling a tennis ball under tired feet to soothe the arch.",
+          "Rodando una pelota de tenis para calmar el arco del pie.",
+          .wears(.plantarBall), .calm(.sip, .relax, .sparkles, "RELIEF")),
+        S(240, "warmUpBootiesShuffle", .dance, "Warm-Up Booties Shuffle", "Carrerita en botitas",
+          "Fluffy neon booties shuffling around between rehearsals.",
+          "Botitas acolchadas flúor trotando entre ensayo y ensayo.",
+          .wears(.warmUpBooties), .ritual(.bounce, .groove, .confetti, "BOOTIES!")),
+        S(241, "princeAndSwan", .dance, "Siegfried and Odette", "Sigfrido y Odette",
+          "A tender bow as the swan rests its curved neck on his shoulder.",
+          "Una reverencia mientras el cisne apoya su cuello en el hombro.",
+          .styles(.swan, .danseur), .calm(.love, .love, .hearts, "ODETTE")),
+        S(242, "theCatchPanic", .dance, "Fish Dive Catch", "Pánico en el Fish Dive",
+          "A daring dive caught just inches above the floor.",
+          "Una zambullida acrobática atrapada a milímetros del suelo.",
+          .pair(.pointeShoes, .rosinBox), .give(.heart, .surprised, .smoke, "CAUGHT!")),
+        S(243, "contactWave", .dance, "Contact Wave", "Ola de contact",
+          "One rolls over the other's back in a seamless liquid transfer.",
+          "Uno rueda sobre la espalda del otro en una transición líquida.",
+          .styles(.contemporary, .contemporary), .ritual(.relax, .groove, .sparkles, "FLOW")),
+        S(244, "elevationVsGravity", .dance, "Elevation vs Gravity", "Elevación contra gravedad",
+          "Classical tours en l'air meet contemporary floorwork.",
+          "Tours en l'air clásicos contra espirales de suelo contemporáneo.",
+          .styles(.danseur, .contemporary), .ritual(.bounce, .relax, .confetti, "DANCE!")),
+        S(245, "swanCrownGaze", .dance, "Swan Lake Tiara", "Corona del Lago",
+          "The feathered crown glistens with enchanted moonlight.",
+          "La diadema de plumas destella bajo la luna encantada.",
+          .wears(.swanCrown), .chorus(.star, .love, "PURE")),
+        S(246, "standingOvation", .dance, "Standing Ovation", "Ovación de pie",
+          "Roses rain across the stage as the curtain falls.",
+          "Lluvia de rosas en el escenario al caer el telón.",
+          .pair(.swanCrown, .spanishFan), .ritual(.celebrate, .celebrate, .confetti, "BRAVO!")),
+    ]
+
+    // MARK: Toys and luck
+
+    private static let toys: [NotchMascotSynergy] = [
+        S(247, "propellerRace", .toys, "Propeller Race", "Carrera de hélices",
+          "A propeller cap and a jetpack race each other to the clouds.",
+          "Una gorra con hélice y una mochila cohete se pican hasta las nubes.",
+          .pair(.propellerCap, .jetpack), .ritual(.perk, .bounce, .sparkles, "LIFTOFF")),
+        S(248, "pirateParrot", .toys, "Pirate's Parrot", "El loro del pirata",
+          "The parrot squawks orders and the pirate hands out doubloons.",
+          "El loro grita órdenes y el pirata reparte doblones.",
+          .pair(.parrot, .eyePatch), .give(.coin, .celebrate, .coins, "ARRR!")),
+        S(249, "springDuel", .toys, "Spring Duel", "Duelo de muelles",
+          "Two pairs of spring shoes bounce a ball back and forth.",
+          "Dos pares de zapatos de muelle se pasan una pelota a botes.",
+          .twin(.springShoes), .volley(.ball, 3, .confetti, "BOING")),
+        S(250, "skateTrick", .toys, "Skate Session", "Sesión de skate",
+          "Caps backwards, one kickflips while the other films it.",
+          "Gorra hacia atrás, uno hace un kickflip y el otro lo graba.",
+          .pair(.skateboard, .cap), .ritual(.ready, .celebrate, .smoke, "KICKFLIP")),
+        S(251, "rainyDay", .toys, "Rainy Day", "Día de lluvia",
+          "The storm cloud pours and the umbrella makes room for two.",
+          "La nube descarga y el paraguas hace sitio para dos.",
+          .pair(.umbrella, .stormCloud), .calm(.relax, .love, .sparkles, "COZY")),
+        S(252, "yoyoBattle", .toys, "Yo-yo Battle", "Batalla de yoyós",
+          "Walk the dog, around the world: the yo-yos clash in mid-air.",
+          "Paseo del perro, vuelta al mundo: los yoyós chocan en el aire.",
+          .twin(.yoyo), .duel(.ball, .sparkles, "YO-YO!")),
+        S(253, "bubbleRegatta", .toys, "Bubble Regatta", "Regata de pompas",
+          "Bubbles float up and the rubber duck sails right through them.",
+          "Suben las pompas y el pato de goma navega entre ellas.",
+          .pair(.bubbleWand, .rubberDuck), .ritual(.bounce, .groove, .sparkles, "REGATTA")),
+        S(254, "magnetHeist", .toys, "Magnet Heist", "El golpe del imán",
+          "The magnet coaxes every coin out of the piggy bank.",
+          "El imán saca de la hucha hasta la última moneda.",
+          .pair(.horseshoeMagnet, .piggyBank), .give(.coin, .surprised, .coins, "CLINK!")),
+        S(255, "highRollers", .toys, "High Rollers", "Apuesta fuerte",
+          "Dice against a bag of gold: winner takes the lot.",
+          "Dados contra una bolsa de oro: el que gana se lo lleva todo.",
+          .pair(.luckyDice, .goldBag), .duel(.star, .coins, "JACKPOT")),
+        S(256, "fortuneTeller", .toys, "Fortune Teller", "La pitonisa",
+          "The crystal orb and the cookie agree on what the future holds.",
+          "La bola de cristal y la galleta coinciden en lo que viene.",
+          .pair(.fortuneCookie, .crystalOrb), .chorus(.cookie, .peek, "DESTINY")),
+        S(257, "winterWonder", .toys, "Snow Day", "Día de nieve",
+          "One shakes the snow globe and the other catches snowflakes.",
+          "Uno agita la bola de nieve y el otro atrapa copos.",
+          .pair(.snowGlobe, .beanie), .chorus(.snowball, .love, "SNOW DAY")),
+        S(258, "photoBooth", .toys, "Photo Booth", "Fotomatón",
+          "Squeeze in, pull a face, flash: a snapshot for the album.",
+          "Juntitos, una mueca y flash: una foto para el álbum.",
+          .wears(.instantCamera), .ritual(.flash, .celebrate, .confetti, "CHEESE!")),
+    ]
+
+    // MARK: Kitsune and Penguin
+
+    private static let legends: [NotchMascotSynergy] = [
+        S(259, "fireAndIce", .legends, "Fire and Ice", "Fuego y hielo",
+          "Blue foxfire meets polar frost, and neither melts the other.",
+          "El fuego zorruno se cruza con la escarcha polar y ninguno derrite al otro.",
+          .styles(.kitsune, .penguin), .calm(.perk, .relax, .magic, "FIRE N ICE")),
+        S(260, "foxWedding", .legends, "Fox Wedding", "Boda de zorros",
+          "Two kitsune walk under a sun shower, the old sign of a fox wedding.",
+          "Dos kitsune pasean bajo la lluvia con sol, la señal de una boda de zorros.",
+          .styles(.kitsune, .kitsune), .ritual(.love, .love, .sparkles, "SUN SHOWER")),
+        S(261, "emperorHuddle", .legends, "Emperor Huddle", "Abrazo emperador",
+          "Two penguins huddle close and take turns at the warm middle.",
+          "Dos pingüinos se apiñan y se turnan para estar en el medio calentito.",
+          .styles(.penguin, .penguin), .calm(.relax, .love, .hearts, "HUDDLE")),
+        S(262, "foxAndHound", .legends, "Fox and Hound", "El zorro y el sabueso",
+          "A chase round and round until both flop down, best friends again.",
+          "Una persecución en círculos hasta que caen rendidos, amigos otra vez.",
+          .styles(.kitsune, .dog), .volley(.ball, 3, .confetti, "TALLY HO")),
+        S(263, "nightProwlers", .legends, "Night Prowlers", "Merodeadores nocturnos",
+          "Fox and cat stalk the same moonbeam; the fox pounces first.",
+          "Zorro y gato acechan el mismo rayo de luna; el zorro salta antes.",
+          .styles(.kitsune, .cat), .duel(.star, .sparkles, "PROWL")),
+        S(264, "spiritFlames", .legends, "Spirit Flames", "Llamas espirituales",
+          "Blue foxfire against dragon fire: the sky lights up twice.",
+          "Fuego zorruno azul contra fuego de dragón: el cielo se enciende dos veces.",
+          .styles(.kitsune, .dragon), .duel(.fireball, .magic, "KITSUNEBI")),
+        S(265, "nightParade", .legends, "Night Parade", "Desfile nocturno",
+          "A ghost and a fox spirit lead a parade of lanterns through the dark.",
+          "Un fantasma y un espíritu zorro guían un desfile de farolillos en la noche.",
+          .styles(.kitsune, .ghost), .ritual(.surprised, .celebrate, .smoke, "BOO")),
+        S(266, "shrineFortune", .legends, "Shrine Fortune", "La suerte del santuario",
+          "The kitsune reads the fortune slip aloud: the very best luck.",
+          "El kitsune lee en voz alta el papelito de la suerte: la mejor de todas.",
+          .styleWears(.kitsune, .fortuneCookie), .give(.cookie, .celebrate, .coins, "DAIKICHI")),
+        S(267, "kitsuneUdon", .legends, "Kitsune Udon", "Udon de zorro",
+          "Noodles with fried tofu on top, a fox spirit's favourite bowl.",
+          "Fideos con tofu frito encima, el cuenco favorito de un espíritu zorro.",
+          .styleWears(.kitsune, .ramenBowl), .give(.snack(.ramen), .love, .hearts, "SLURP")),
+        S(268, "starPearl", .legends, "Star Pearl", "La perla estrella",
+          "The orb glows like the pearl a kitsune keeps its magic in.",
+          "La esfera brilla como la perla donde un kitsune guarda su magia.",
+          .styleWears(.kitsune, .crystalOrb), .chorus(.star, .peek, "HOSHI")),
+        S(269, "blackTieBall", .legends, "Black Tie Ball", "Baile de etiqueta",
+          "A swan and a penguin in full tuxedo waltz across the stage.",
+          "Un cisne y un pingüino de riguroso frac bailan un vals por el escenario.",
+          .styles(.penguin, .swan), .chorus(.note, .groove, "WALTZ")),
+        S(270, "hotSpringVisit", .legends, "Hot Spring Visit", "Visita a las termas",
+          "The capybara offers the warm spring; the penguin dips one toe in.",
+          "El carpincho ofrece las termas; el pingüino mete un dedito.",
+          .styles(.penguin, .capybara), .calm(.relax, .surprised, .sparkles, "ONSEN")),
+        S(271, "deepDive", .legends, "Deep Dive", "Inmersión profunda",
+          "Penguin and axolotl race to the bottom of the pond and back.",
+          "Pingüino y ajolote echan una carrera al fondo del estanque y vuelta.",
+          .styles(.penguin, .axolotl), .volley(.duck, 2, .sparkles, "SPLASH")),
+        S(272, "tuxedoGala", .legends, "Tuxedo Gala", "Gala de frac",
+          "Bow tie straightened, the penguin greets every guest at the door.",
+          "Con la pajarita en su sitio, el pingüino recibe a cada invitado.",
+          .styleWears(.penguin, .bowTie), .ritual(.perk, .celebrate, .confetti, "BLACK TIE")),
+        S(273, "toboggan", .legends, "Toboggan Run", "Tobogán helado",
+          "Belly down on the board, it slides farther than anyone ever has.",
+          "Panza abajo sobre la tabla, se desliza más lejos que nadie jamás.",
+          .styleWears(.penguin, .skateboard), .ritual(.ready, .celebrate, .smoke, "WHEEE")),
+        S(274, "homeSweetHome", .legends, "Home, Sweet Home", "Hogar, dulce hogar",
+          "It shakes the snow globe and gazes at the little icy world inside.",
+          "Agita la bola de nieve y contempla el mundito helado de adentro.",
+          .styleWears(.penguin, .snowGlobe), .calm(.love, .relax, .sparkles, "HOME")),
     ]
 }

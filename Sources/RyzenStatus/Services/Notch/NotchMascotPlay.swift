@@ -310,6 +310,13 @@ enum NotchMascotPlay: Equatable {
         case .capybara: return Energy(red: 0.95, green: 0.65, blue: 0.22)
         case .dragon: return Energy(red: 1, green: 0.35, blue: 0.15)
         case .frog: return Energy(red: 0.35, green: 0.92, blue: 0.42)
+        case .swan: return Energy(red: 0.95, green: 0.95, blue: 1)
+        case .ballerina: return Energy(red: 1, green: 0.72, blue: 0.84)
+        case .danseur: return Energy(red: 0.88, green: 0.22, blue: 0.28)
+        case .contemporary: return Energy(red: 0.32, green: 0.78, blue: 0.76)
+        // Blue foxfire, and polar ice.
+        case .kitsune: return Energy(red: 0.45, green: 0.82, blue: 1)
+        case .penguin: return Energy(red: 0.7, green: 0.92, blue: 1)
         case .fan: return Energy(red: 0.35, green: 0.95, blue: 1)
         case .chip: return Energy(red: 1, green: 0.7, blue: 0.25)
         case .minimal: return Energy(red: 0.62, green: 0.8, blue: 1)

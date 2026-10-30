@@ -23,6 +23,11 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
     case rubberDuck, bananaPeel, clownNose, creamPie, whoopeeCushion, fakeMustache, trafficCone, piggyBank
     case alarmClock, stormCloud, wiltedFlower, lonelyBalloon, teddyBear, tissueBox, brokenLocket, tinfoilHat
     case magicMushroom, discoBall, alienAntenna, dynamiteStick, mimicChest, crystalSkull, cursedMask, unicornHorn
+    /// The dance and backstage gear: rosin, pointe shoes, booties, ice and props.
+    case rosinBox, pointeShoes, warmUpBooties, icePack, plantarBall, spanishFan, swanCrown
+    /// Toys and luck: playthings, a pet on the shoulder and a little fortune.
+    case propellerCap, parrot, springShoes, skateboard, umbrella, yoyo, bubbleWand, horseshoeMagnet
+    case luckyDice, fortuneCookie, snowGlobe, instantCamera
 
     var id: String { rawValue }
 
@@ -30,7 +35,7 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
     static let wardrobe: [NotchMascotAccessory] = [.none, .bow, .glasses, .scarf, .headphones, .beanie,
                                                    .flower, .topHat, .sunglasses, .crown,
                                                    .cap, .bowTie, .monocle, .cowboyHat, .halo, .horns,
-                                                   .chefHat, .eyePatch] + rpgItems + shopItems
+                                                   .chefHat, .eyePatch] + rpgItems + shopItems + danceItems + toyItems
 
     /// The thirty-two of the Wonder Boy wardrobe, in the order they unlock
     /// after the first eighteen: one a level from the nineteenth.
@@ -46,10 +51,21 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
         .alarmClock, .stormCloud, .wiltedFlower, .lonelyBalloon, .teddyBear, .tissueBox, .brokenLocket, .tinfoilHat,
         .magicMushroom, .discoBall, .alienAntenna, .dynamiteStick, .mimicChest, .crystalSkull, .cursedMask, .unicornHorn]
 
+    /// The seven dance and rehearsal accessories.
+    static let danceItems: [NotchMascotAccessory] = [
+        .rosinBox, .pointeShoes, .warmUpBooties, .icePack, .plantarBall, .spanishFan, .swanCrown]
+
     var isRPGItem: Bool { Self.rpgItems.contains(self) }
     var isShopItem: Bool { Self.shopItems.contains(self) }
+    /// The twelve toys and charms of luck.
+    static let toyItems: [NotchMascotAccessory] = [
+        .propellerCap, .parrot, .springShoes, .skateboard, .umbrella, .yoyo, .bubbleWand, .horseshoeMagnet,
+        .luckyDice, .fortuneCookie, .snowGlobe, .instantCamera]
+
+    var isDanceItem: Bool { Self.danceItems.contains(self) }
+    var isToyItem: Bool { Self.toyItems.contains(self) }
     /// Bought with gold rather than earned by level.
-    var isPurchasable: Bool { isRPGItem || isShopItem }
+    var isPurchasable: Bool { isRPGItem || isShopItem || isDanceItem || isToyItem }
 
 
     /// The level it unlocks at; zero for the ones that are put on for it.
@@ -70,15 +86,19 @@ enum NotchMascotAccessory: String, CaseIterable, Identifiable, Codable {
         case .scarf, .bowTie: return .neck
         case .headphones: return .ears
         case .none, .bow, .beanie, .flower, .topHat, .crown, .cap, .cowboyHat, .halo, .horns, .chefHat,
-             .witchHat, .santaHat, .partyHat, .headband, .knightHelm, .vikingHelm: return .head
+             .witchHat, .santaHat, .partyHat, .headband, .knightHelm, .vikingHelm, .swanCrown: return .head
         case .detectiveLens, .laserVisor, .sleepMask, .pacifier: return .eyes
-        case .wingBoots: return .feet
-        case .jetpack, .angelWings: return .back
+        case .wingBoots, .rosinBox, .pointeShoes, .warmUpBooties, .icePack: return .feet
+        case .jetpack, .angelWings, .parrot: return .back
+        case .propellerCap: return .head
+        case .springShoes, .skateboard: return .feet
+        case .umbrella, .yoyo, .bubbleWand, .horseshoeMagnet, .luckyDice, .fortuneCookie, .snowGlobe, .instantCamera:
+            return .hand
         case .trafficCone, .tinfoilHat, .alienAntenna, .unicornHorn, .stormCloud, .discoBall: return .head
         case .clownNose, .fakeMustache, .cursedMask: return .eyes
         case .rubberDuck, .bananaPeel, .creamPie, .whoopeeCushion, .piggyBank, .alarmClock, .wiltedFlower,
              .lonelyBalloon, .teddyBear, .tissueBox, .brokenLocket, .magicMushroom, .dynamiteStick, .mimicChest,
-             .crystalSkull: return .hand
+             .crystalSkull, .plantarBall, .spanishFan: return .hand
         case .legendSword, .legendShield, .katana, .wizardStaff, .magicTome, .crystalOrb, .rangerBow, .kingScepter,
              .boomerang, .fireballSpell, .tornadoSpell, .thunderTalisman, .goldenKey, .hourglass, .heartPotion,
              .goldBag, .iceCreamCone, .onigiri, .ramenBowl, .bobaTea, .bardLute, .dumbbells, .gameController:
@@ -127,6 +147,13 @@ enum NotchMascotAffinity {
             return (3, 40)
         case .dragon:
             return (3, 35)
+        case .swan, .ballerina, .danseur, .contemporary:
+            return (3, 45)
+        // A penguin loves a pat; a kitsune lets you, now and then.
+        case .penguin:
+            return (4, 45)
+        case .kitsune:
+            return (3, 40)
         default:
             return (NotchMascotGrowth.petExperience, NotchMascotGrowth.dailyPetCap)
         }
@@ -136,6 +163,13 @@ enum NotchMascotAffinity {
         switch style {
         case .cat, .dragon, .robot, .chip, .ghost, .phoenix, .cristobal, .whiteRabbit:
             return (3, 35)
+        case .swan, .ballerina, .danseur, .contemporary:
+            return (4, 45)
+        // A kitsune lives for the moments you share.
+        case .kitsune:
+            return (4, 50)
+        case .penguin:
+            return (3, 40)
         case .slime, .devourer, .fan, .axolotl:
             return (2, 25)
         default:
@@ -147,6 +181,15 @@ enum NotchMascotAffinity {
         switch style {
         case .capybara:
             return 20
+        case .swan:
+            return 18
+        case .ballerina, .danseur, .contemporary:
+            return 16
+        // Patient as the old stories: every day together counts.
+        case .kitsune:
+            return 18
+        case .penguin:
+            return 16
         default:
             return NotchMascotGrowth.dayExperience
         }

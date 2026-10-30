@@ -4,6 +4,7 @@
 import AppKit
 import Combine
 import CoreGraphics
+import Network
 
 /// The companion's automatic reactions. It listens to what the app already
 /// publishes (the system monitor's snapshot, Now Playing, the island's audio
@@ -26,6 +27,10 @@ final class NotchMascotAutomation: ObservableObject {
     static let freshness: TimeInterval = 30
 
     private var engine = MascotMoodEngine()
+    /// The Mac's moments: a boost, heat and cold, the battery, the network.
+    private var hardwareWatch = NotchMascotHardwareWatch()
+    private var pathMonitor: NWPathMonitor?
+    private var online: Bool?
     private var running = false
     private var cancellables = Set<AnyCancellable>()
     private var checkTimer: Timer?
@@ -130,6 +135,18 @@ final class NotchMascotAutomation: ObservableObject {
         }
         timer.tolerance = Self.checkInterval / 3
         RunLoop.main.add(timer, forMode: .common)
+        hardwareWatch = NotchMascotHardwareWatch()
+        let paths = NWPathMonitor()
+        paths.pathUpdateHandler = { [weak self] path in
+            let up = path.status == .satisfied
+            DispatchQueue.main.async {
+                guard let self, self.running else { return }
+                self.online = up
+                self.evaluate()
+            }
+        }
+        paths.start(queue: DispatchQueue(label: "RyzenStatus.mascot.network", qos: .utility))
+        pathMonitor = paths
         checkTimer = timer
         startedAt = CACurrentMediaTime()
         wasGaming = UserDefaults.standard.bool(forKey: DefaultsKey.gamingModeActive)
@@ -147,6 +164,8 @@ final class NotchMascotAutomation: ObservableObject {
         cpuLoad = nil; cpuTemperature = nil; downloadRate = nil; power = nil
         musicPlaying = false; musicLevel = nil
         hardwareRead?.cancel(); hardwareRead = nil
+        pathMonitor?.cancel(); pathMonitor = nil
+        online = nil
         fanShare = nil; powerShare = nil
         if state != MascotMoodState() { state = MascotMoodState() }
     }
@@ -241,6 +260,16 @@ final class NotchMascotAutomation: ObservableObject {
                                     random: Double.random(in: 0..<1))
         if engine.state != state { state = engine.state }
         if let impulse { play(impulse) }
+        let categories = Self.categories()
+        var reading = NotchMascotHardwareWatch.Reading(load: signals.cpuLoad, temperature: signals.cpuTemperature,
+                                                       power: signals.powerShare, battery: signals.batteryLevel,
+                                                       onBattery: signals.onBattery, online: online)
+        reading.loadFollowed = categories.load
+        reading.batteryFollowed = categories.events
+        reading.networkFollowed = categories.network
+        if let occasion = hardwareWatch.update(reading, now: CACurrentMediaTime()) {
+            NotchService.shared.playMascotOccasion(occasion)
+        }
     }
 
     /// Plays a reaction through the island, which brings the companion out

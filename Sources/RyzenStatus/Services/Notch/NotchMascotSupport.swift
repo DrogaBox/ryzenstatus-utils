@@ -42,6 +42,19 @@ enum NotchMascotStyle: String, CaseIterable, Identifiable {
     case dragon
     /// A bouncy round frog with bulbous crown eyes that catches pixel bugs.
     case frog
+    /// An elegant swan gliding with silent bourrée steps, white or black.
+    case swan
+    /// A prima ballerina with platter tutu and satin pointe shoes.
+    case ballerina
+    /// A premier danseur with noble tunic, grand pirouettes and double tours en l'air.
+    case danseur
+    /// A contemporary dancer with fluid drapes, floorwork spirals and dynamic contact.
+    case contemporary
+    /// A spirit fox with tall ears and a forehead mark, whose tails multiply
+    /// as the bond grows, up to nine, and who calls blue foxfire.
+    case kitsune
+    /// An emperor penguin in a tuxedo who waddles, flaps and belly-slides.
+    case penguin
     /// Cristóbal Sincronía, coffee in hand, from the author's comic: a sprite
     /// figure, as are the companions after him.
     case cristobal
@@ -83,6 +96,26 @@ enum NotchMascotShape: String, CaseIterable, Identifiable {
     case ball, egg, squircle, pill
 
     var id: String { rawValue }
+}
+
+/// How a drawn companion walks: how long each step takes, how high it bobs
+/// in shares of its size, and how far it rocks from foot to foot in radians.
+struct NotchMascotGait: Equatable {
+    var period: TimeInterval
+    var bob: CGFloat
+    var rock: CGFloat
+
+    static let standard = NotchMascotGait(period: 0.3, bob: 0.1, rock: 0)
+
+    static func of(_ style: NotchMascotStyle) -> NotchMascotGait {
+        switch style {
+        // Short legs under a big body: small quick steps, rocking side to side.
+        case .penguin: return NotchMascotGait(period: 0.26, bob: 0.03, rock: 0.16)
+        // A light trot, quicker and lower than a hop.
+        case .kitsune: return NotchMascotGait(period: 0.22, bob: 0.06, rock: 0)
+        default: return .standard
+        }
+    }
 }
 
 /// sRGB components, so the model needs no AppKit.

@@ -104,11 +104,19 @@ struct NotchMascotLifeStrings {
         case .santaHat: return santaHat
         case .partyHat: return partyHat
         case .headband: return headband
+        case .rosinBox: return L10n.shared.language == .es ? "Caja de resina" : (L10n.shared.language == .ptBR ? "Caixa de breu" : "Rosin box")
+        case .pointeShoes: return L10n.shared.language == .es ? "Zapatillas de punta" : (L10n.shared.language == .ptBR ? "Sapatilhas de ponta" : "Pointe shoes")
+        case .warmUpBooties: return L10n.shared.language == .es ? "Botitas de descanso" : (L10n.shared.language == .ptBR ? "Botinhas de aquecimento" : "Warm-up booties")
+        case .icePack: return L10n.shared.language == .es ? "Bolsa de hielo" : (L10n.shared.language == .ptBR ? "Bolsa de gelo" : "Ice pack")
+        case .plantarBall: return L10n.shared.language == .es ? "Pelota para fascia" : (L10n.shared.language == .ptBR ? "Bolinha de massagem" : "Plantar ball")
+        case .spanishFan: return L10n.shared.language == .es ? "Abanico español" : (L10n.shared.language == .ptBR ? "Leque espanhol" : "Spanish fan")
+        case .swanCrown: return L10n.shared.language == .es ? "Corona del Cisne" : (L10n.shared.language == .ptBR ? "Coroa do Cisne" : "Swan crown")
         default:
             // The Wonder Boy wardrobe is worded in NotchMascotStrings.
             let language = L10n.shared.language
             return FeatureStrings.notchMascotRPG(language).name(of: accessory)
-                ?? FeatureStrings.notchMascotShop(language).name(of: accessory) ?? ""
+                ?? FeatureStrings.notchMascotShop(language).name(of: accessory)
+                ?? FeatureStrings.notchMascotToys(language).name(of: accessory) ?? ""
         }
     }
 }

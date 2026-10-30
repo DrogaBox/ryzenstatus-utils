@@ -234,6 +234,7 @@ final class FeatureRuntime: ObservableObject {
         },
         .autoQuit: { AutoQuitService.shared.syncWithPreferences() },
         .scrollInverter: { ScrollInverter.shared.syncWithPreferences() },
+        .scrollZoom: { ScrollInverter.shared.syncWithPreferences() },
         .smoothScroll: { SmoothScrollService.shared.syncWithPreferences() },
         // Sideways and linear scrolling share the inverter's wheel tap; the
         // glide applies them too while smooth scrolling swallows the wheel.
@@ -297,6 +298,8 @@ final class FeatureRuntime: ObservableObject {
             AudioPriorityService.shared.syncWithPreferences()
         },
         .micMute: { MicMuteService.shared.syncWithPreferences() },
+        .quickToggles: { QuickTogglesService.shared.syncWithPreferences() },
+        .quitApps: { QuickTogglesService.shared.syncWithPreferences() },
         .musicBlock: { MusicLaunchBlocker.shared.syncWithPreferences() },
         .nowPlaying: { NowPlayingService.shared.syncWithPreferences() },
         .keepAwake: {

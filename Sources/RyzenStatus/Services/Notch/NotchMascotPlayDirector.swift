@@ -34,6 +34,7 @@ final class NotchMascotPlayDirector {
         for (one, other) in [(leader, friend), (friend, leader)] {
             one.invitePlay = { [weak self] in self?.invite() ?? false }
             one.interrupted = { [weak self] in self?.cancel() }
+            one.sawEncounter = { [weak other] encounter in other?.witness(encounter) }
             one.patted = { [weak self, weak one, weak other] in
                 guard let self, let one, let other else { return }
                 self.patted(one, other: other)
@@ -200,6 +201,10 @@ final class NotchMascotPlayDirector {
         guard leader.isOut, friend.isOut else { return }
         if let reaction = beat.leader { leader.react(reaction) }
         if let reaction = beat.friend { friend.react(reaction) }
+        if let move = beat.move {
+            let one = move.onLeader ? leader : friend
+            perform(move.move, by: one, with: one === leader ? friend : leader)
+        }
         guard let canvas = canvas() else { return }
         let figure = leader.figureSize
         if let flight = beat.flight {
@@ -252,6 +257,90 @@ final class NotchMascotPlayDirector {
         }
     }
 
+    /// A combo's body move, made from where they stand.
+    private func perform(_ move: NotchMascotBodyMove, by one: NotchMascotDesktop, with other: NotchMascotDesktop) {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        let side = direction(from: one, to: other)
+        let x = one.feet?.x ?? one.screenCenter.x
+        let otherX = other.feet?.x ?? other.screenCenter.x
+        let gap = abs(otherX - x)
+        let figure = one.figureSize
+        switch move {
+        case .hop: one.hop(dx: 0, dy: 480)
+        case .highJump: one.hop(dx: 0, dy: 820)
+        case .float: one.hop(dx: 0, dy: 980)
+        case .spin:
+            one.sway(amplitude: 0.55, speed: 26, duration: 0.7)
+            at(0.7) { one.hop(dx: 0, dy: 300) }
+        case .charge:
+            one.stroll(to: x + side * min(90, gap * 0.45), pace: 3.2)
+            at(0.7) { one.stroll(to: x, pace: 2) }
+        case .backflip: one.hop(dx: -side * 150, dy: 640)
+        case .stomp:
+            for step in 0..<3 { at(Double(step) * 0.32) { one.hop(dx: 0, dy: 230) } }
+        case .bow: one.tilt(-side * 0.35, for: 0.8)
+        case .sneak:
+            one.stroll(to: x - side * 46, pace: 0.9)
+            at(1.0) { one.stroll(to: x, pace: 1.4) }
+        case .slip:
+            one.stroll(to: x + side * 36, pace: 2.6)
+            at(0.35) {
+                one.hop(dx: side * 140, dy: 200)
+                one.react(.confused)
+            }
+        case .shiver: one.sway(amplitude: 0.1, speed: 45, duration: 0.9)
+        case .strut:
+            one.stroll(to: x + side * min(60, gap * 0.35), pace: 1.6)
+            at(0.85) { one.stroll(to: x, pace: 1.6) }
+        case .jumpTogether:
+            one.hop(dx: 0, dy: 640)
+            other.hop(dx: 0, dy: 640)
+        case .swap:
+            leap(one, to: otherX)
+            leap(other, to: x)
+        case .leapOver:
+            leap(one, to: otherX + side * figure * 1.2)
+            other.react(.hush)
+        case .bump:
+            let middle = (x + otherX) / 2
+            let meet = max(one.stroll(to: middle - side * figure * 0.45, pace: 3),
+                           other.stroll(to: middle + side * figure * 0.45, pace: 3))
+            at(meet) { [weak self] in
+                guard let self else { return }
+                if let canvas = self.canvas() {
+                    let point = self.onCanvas(self.middle(one.head, other.head))
+                    let gold = NotchMascotPlay.Energy(red: 1, green: 0.88, blue: 0.4)
+                    NotchMascotPlayEffects.sparks(in: canvas, at: point, reach: 24, energy: gold)
+                }
+                one.hop(dx: -side * 240, dy: 320)
+                other.hop(dx: side * 240, dy: 320)
+                one.react(.confused)
+                other.react(.confused)
+            }
+        case .bowTogether:
+            one.tilt(-side * 0.35, for: 1.0)
+            other.tilt(side * 0.35, for: 1.0)
+        case .spinTogether:
+            one.sway(amplitude: 0.55, speed: 26, duration: 1.0)
+            other.sway(amplitude: 0.55, speed: 26, duration: 1.0)
+        case .chase:
+            let floor = other.floor
+            let away = min(floor.upperBound, max(floor.lowerBound, otherX + side * 170))
+            other.stroll(to: away, pace: 2.4)
+            at(0.25) { one.stroll(to: away - side * figure, pace: 2.6) }
+        case .hopRound:
+            for step in 0..<4 { at(Double(step) * 0.3) { (step % 2 == 0 ? one : other).hop(dx: 0, dy: 380) } }
+        }
+    }
+    /// A leap along the floor to `x`, over whatever stands between.
+    private func leap(_ one: NotchMascotDesktop, to x: CGFloat) {
+        guard let feet = one.feet else { return }
+        let floor = one.floor
+        let target = CGPoint(x: min(floor.upperBound, max(floor.lowerBound, x)), y: feet.y)
+        let velocity = NotchMascotLedges.leap(from: feet, to: target, gravity: NotchMascotRoam.gravity,
+                                              drag: NotchMascotRoam.airDrag, clearance: 110)
+        one.hop(dx: velocity.dx, dy: velocity.dy)
+    }
     /// What an ability asks of the body: the one that has it springs, glides,
     /// dives or climbs, where the strip only shows it.
     private func abilityMoves(_ ability: NotchMascotAbility) {

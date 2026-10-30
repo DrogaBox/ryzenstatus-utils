@@ -44,6 +44,14 @@ final class NotchMascotDecor {
     private let slimeDrip = CAShapeLayer()
     /// A second creature detail in its own color: a beak, gill tips, a snout.
     private let plume = CAShapeLayer()
+    /// The pale ends of a kitsune's tails.
+    private let tailTips = CAShapeLayer()
+    /// A kitsune's foxfire, two blue wisps that show in a flourish.
+    private let wisps = CAShapeLayer()
+    /// How many tails a kitsune has grown.
+    private var tails = 1
+    /// Walking: a kitsune's tails stream behind, a penguin's flippers swing.
+    private var striding = false
 
     // Props.
     private let sweatDrop = CAShapeLayer()
@@ -63,7 +71,7 @@ final class NotchMascotDecor {
 
     private var creatureLayers: [CALayer] {
         [pins, plume, chipMark, fanHole, bladeHolder, blades, fanHub, fanScrews, catTail, catEars, catInnerEars, catNose,
-         dogNose, whiskers, ghostMouth, slimeDrip]
+         dogNose, whiskers, ghostMouth, slimeDrip, tailTips, wisps]
     }
 
     private var propLayers: [CALayer] {
@@ -72,7 +80,7 @@ final class NotchMascotDecor {
     }
 
     init() {
-        for layer in [pins, catTail, catEars, catInnerEars, slimeDrip] { back.addSublayer(layer) }
+        for layer in [pins, tailTips, catTail, catEars, catInnerEars, slimeDrip] { back.addSublayer(layer) }
         bladeHolder.addSublayer(blades)
         // A muzzle, a beak or gills sit over the body, where they read; only
         // the ears and tails they belong to belong behind it.
@@ -80,7 +88,7 @@ final class NotchMascotDecor {
             middle.addSublayer(layer)
         }
         for layer in [mugBody, mugCoffee, mugHandle] { mug.addSublayer(layer) }
-        for layer in [sweatDrop, heat, note, mug, steam, zee, arrow, battery, batteryLevel, paw] { props.addSublayer(layer) }
+        for layer in [wisps, sweatDrop, heat, note, mug, steam, zee, arrow, battery, batteryLevel, paw] { props.addSublayer(layer) }
         confetti = (0..<NotchMascotCreatures.confettiFlights.count).map { _ in CAShapeLayer() }
         confetti.forEach(props.addSublayer)
         for layer in [back, middle, props] + creatureLayers + propLayers {
@@ -194,6 +202,75 @@ final class NotchMascotDecor {
             pins.path = NotchMascotCreatures.frogThroatAndPaws(size: size)
             pins.fillColor = palette.light.cgColor
             show(pins)
+        case .swan:
+            pins.path = NotchMascotCreatures.swanWings(size: size)
+            pins.fillColor = palette.light.cgColor
+            catEars.path = NotchMascotCreatures.swanTiara(size: size)
+            catEars.fillColor = NotchMascotWearableShapes.rgb(0xFFD700)
+            plume.path = NotchMascotCreatures.swanBeak(size: size)
+            plume.fillColor = NotchMascotWearableShapes.rgb(0xFF921E)
+            dogNose.path = NotchMascotCreatures.swanMask(size: size)
+            dogNose.fillColor = NotchMascotWearableShapes.rgb(0x18181B)
+            chipMark.path = NotchMascotCreatures.swanChestDetails(size: size)
+            chipMark.fillColor = palette.shade.cgColor
+            show(pins, catEars, plume, dogNose, chipMark)
+        case .ballerina:
+            pins.path = NotchMascotCreatures.ballerinaArmsEnHaut(size: size)
+            pins.fillColor = palette.light.cgColor
+            plume.path = NotchMascotCreatures.ballerinaBodice(size: size)
+            plume.fillColor = palette.shade.cgColor
+            dogNose.path = NotchMascotCreatures.ballerinaPointesRibbons(size: size)
+            dogNose.fillColor = palette.shade.cgColor
+            show(pins, plume, dogNose)
+        case .danseur:
+            pins.path = NotchMascotCreatures.danseurTunicTrim(size: size)
+            pins.fillColor = NotchMascotWearableShapes.rgb(0xD4AF37)
+            show(pins)
+        case .contemporary:
+            pins.path = NotchMascotCreatures.contemporarySash(size: size)
+            pins.fillColor = palette.shade.cgColor
+            show(pins)
+        case .kitsune:
+            // Tails behind the haunch, more of them as the bond grows; tall
+            // ears with pale insides; a pale mask and bib, a black nose and
+            // the red mark on its brow; foxfire waiting out of sight.
+            tails = NotchMascotCreatures.kitsuneTailCount(level: NotchMascotBondStore.shared.shownLevel(for: .kitsune))
+            let held = tailPaths(tailsPose)
+            pins.path = held.tails
+            pins.fillColor = palette.shade.cgColor
+            tailTips.path = held.tips
+            tailTips.fillColor = NotchMascotWearableShapes.rgb(0xFFF6EA)
+            catEars.path = NotchMascotCreatures.kitsuneEars(sleeping ? .droop : .up, inner: false, size: size)
+            catEars.fillColor = palette.shade.cgColor
+            catInnerEars.path = NotchMascotCreatures.kitsuneEars(sleeping ? .droop : .up, inner: true, size: size)
+            catInnerEars.fillColor = NotchMascotWearableShapes.rgb(0xFFF1E2)
+            plume.path = NotchMascotCreatures.kitsuneMuzzleAndBib(size: size)
+            plume.fillColor = NotchMascotWearableShapes.rgb(0xFFF6EA)
+            dogNose.path = NotchMascotCreatures.kitsuneNose(size: size)
+            dogNose.fillColor = NotchMascotColor.ink.cgColor
+            chipMark.path = NotchMascotCreatures.kitsuneMark(size: size)
+            chipMark.fillColor = NotchMascotWearableShapes.rgb(0xE5383B)
+            let fire = NotchMascotWearableShapes.rgb(0x7FDBFF)
+            wisps.path = NotchMascotCreatures.foxfire(size: size)
+            wisps.fillColor = fire
+            wisps.shadowColor = fire
+            wisps.shadowOffset = .zero
+            wisps.shadowRadius = max(1, size * 0.08)
+            wisps.shadowOpacity = 0.9
+            wisps.opacity = 0
+            show(pins, tailTips, catEars, catInnerEars, plume, dogNose, chipMark, wisps)
+        case .penguin:
+            // Flippers at its sides, a white face and belly, an orange beak
+            // and feet, and an emperor's golden cheeks.
+            pins.path = NotchMascotCreatures.penguinFlippers(sleeping ? .tucked : .rest, size: size)
+            pins.fillColor = palette.shade.cgColor
+            plume.path = NotchMascotCreatures.penguinBelly(size: size)
+            plume.fillColor = NotchMascotWearableShapes.rgb(0xFBFBFD)
+            dogNose.path = NotchMascotCreatures.penguinBeakAndFeet(size: size)
+            dogNose.fillColor = NotchMascotWearableShapes.rgb(0xFF9F1C)
+            chipMark.path = NotchMascotCreatures.penguinCheeks(size: size)
+            chipMark.fillColor = NotchMascotWearableShapes.rgb(0xFFC83D)
+            show(pins, plume, dogNose, chipMark)
         case .chip:
             pins.path = NotchMascotCreatures.chipPins(size: size)
             pins.fillColor = palette.shade.cgColor
@@ -245,7 +322,8 @@ final class NotchMascotDecor {
             slimeDrip.fillColor = palette.shade.cgColor
             show(slimeDrip)
         }
-        pins.opacity = sleeping ? 0.45 : 1
+        // A kitsune curls its tails and a penguin tucks its flippers instead.
+        pins.opacity = sleeping && style != .kitsune && style != .penguin ? 0.45 : 1
 
         // Props, the same for every style.
         sweatDrop.path = NotchMascotCreatures.sweatDrop(size: size)
@@ -315,10 +393,23 @@ final class NotchMascotDecor {
         case .slime, .shifter:
             morph(slimeDrip, to: NotchMascotCreatures.slimeDrip(melted: sleeping, size: size),
                   duration: duration, animated: animated)
-        case .phoenix, .axolotl, .dog, .mouse, .capybara, .dragon, .frog:
+        case .kitsune:
+            // It curls its tails round its paws and lays its ears back.
+            poseTails(tailsPose, duration: duration * 1.4, animated: animated)
+            morph(catEars, to: NotchMascotCreatures.kitsuneEars(sleeping ? .droop : .up, inner: false, size: size),
+                  duration: duration, animated: animated)
+            morph(catInnerEars, to: NotchMascotCreatures.kitsuneEars(sleeping ? .droop : .up, inner: true, size: size),
+                  duration: duration, animated: animated)
+        case .penguin:
+            // It sleeps standing, flippers tucked in tight.
+            morph(pins, to: NotchMascotCreatures.penguinFlippers(sleeping ? .tucked : .rest, size: size),
+                  duration: duration, animated: animated)
+        case .phoenix, .axolotl, .dog, .mouse, .capybara, .dragon, .frog, .swan, .ballerina, .danseur, .contemporary:
             fade(pins, to: sleeping ? 0.55 : 1, duration: duration, animated: animated)
             fade(plume, to: sleeping ? 0.55 : 1, duration: duration, animated: animated)
             fade(dogNose, to: sleeping ? 0.55 : 1, duration: duration, animated: animated)
+            fade(catEars, to: sleeping ? 0.55 : 1, duration: duration, animated: animated)
+            fade(chipMark, to: sleeping ? 0.55 : 1, duration: duration, animated: animated)
         case .chip:
             fade(pins, to: sleeping ? 0.45 : 1, duration: duration, animated: animated)
         case .ghost:
@@ -389,6 +480,7 @@ final class NotchMascotDecor {
         CATransaction.commit()
         setSpin(look.style == .fan && motion && !sleeping ? Self.spinRate(effort: ambient.effort, mood: mood) : 0)
         applyGlow(sleeping ? 0 : ambient.glow)
+        applyIdleTails()
     }
 
     /// The chip's pin-one mark lights up with the package's power: dark at
@@ -616,19 +708,43 @@ final class NotchMascotDecor {
             glow.keyTimes = [0, 0.2, 0.45, 0.7, 1]
             glow.duration = min(1, reaction.length)
             pins.add(glow, forKey: "glow")
+        case .kitsune:
+            twitchEars(beginTime: now)
+            let length = min(1.6, max(0.8, reaction.length))
+            if Self.fansTails.contains(reaction) {
+                // The tails fan out behind it like a crest, and fold back.
+                playTails([tailsPose, .fan, .fan, tailsPose], times: [0, 0.25, 0.7, 1], duration: length, key: "flourish")
+            } else {
+                playTails([tailsPose, .sway, tailsPose], times: [0, 0.5, 1], duration: length, key: "flourish")
+            }
+            if Self.callsFoxfire.contains(reaction) { foxfire(for: max(1.2, reaction.length)) }
+        case .penguin:
+            let length = min(1.2, max(0.6, reaction.length))
+            if Self.flaps.contains(reaction) {
+                // Both flippers beat fast, as if it could fly after all.
+                playFlippers([.rest, .up, .rest, .up, .rest, .up, .rest], duration: length, key: "flourish")
+            } else {
+                playFlippers([.rest, .leftUp, .rest], duration: length * 0.7, key: "flourish")
+            }
         case .slime, .minimal, .robot, .cristobal, .whiteRabbit, .devourer, .shifter, .phoenix, .axolotl, .dog, .mouse,
-             .capybara, .dragon, .frog:
+             .capybara, .dragon, .frog, .swan, .ballerina, .danseur, .contemporary:
             break
         }
     }
 
-    /// A cat's ears flick once, on their own now and then or as it reacts.
+    private static let fansTails: Set<NotchMascotReaction> = [.celebrate, .surprised, .perk, .bounce, .love, .ready]
+    private static let callsFoxfire: Set<NotchMascotReaction> = [.celebrate, .love, .surprised, .ready]
+    private static let flaps: Set<NotchMascotReaction> = [.celebrate, .surprised, .perk, .bounce, .ready]
+
+    /// A cat's or a kitsune's ears flick once, on their own now and then or
+    /// as it reacts.
     func twitchEars(beginTime: CFTimeInterval? = nil) {
-        guard look.style == .cat, size > 0, !sleeping else { return }
+        guard look.style == .cat || look.style == .kitsune, size > 0, !sleeping else { return }
+        let ears = look.style == .cat ? NotchMascotCreatures.catEars : NotchMascotCreatures.kitsuneEars
         for (layer, inner) in [(catEars, false), (catInnerEars, true)] {
             let twitch = CAKeyframeAnimation(keyPath: "path")
-            let up = NotchMascotCreatures.catEars(.up, inner: inner, size: size)
-            let flick = NotchMascotCreatures.catEars(.twitch, inner: inner, size: size)
+            let up = ears(.up, inner, size)
+            let flick = ears(.twitch, inner, size)
             twitch.values = [up, flick, up, flick, up]
             twitch.keyTimes = [0, 0.2, 0.45, 0.65, 1]
             twitch.duration = 0.5
@@ -678,5 +794,88 @@ final class NotchMascotDecor {
     func removeAllAnimations() {
         for layer in creatureLayers + propLayers where layer !== blades { layer.removeAllAnimations() }
         applyAmbient()
+    }
+
+    // MARK: Kitsune and penguin
+
+    private var tailsPose: NotchMascotCreatures.TailsPose { sleeping ? .curl : striding ? .stream : .rest }
+
+    private func tailPaths(_ pose: NotchMascotCreatures.TailsPose) -> (tails: CGPath, tips: CGPath) {
+        (NotchMascotCreatures.kitsuneTails(count: tails, pose: pose, tips: false, size: size),
+         NotchMascotCreatures.kitsuneTails(count: tails, pose: pose, tips: true, size: size))
+    }
+
+    private func poseTails(_ pose: NotchMascotCreatures.TailsPose, duration: TimeInterval, animated: Bool) {
+        let held = tailPaths(pose)
+        morph(pins, to: held.tails, duration: duration, animated: animated)
+        morph(tailTips, to: held.tips, duration: duration, animated: animated)
+    }
+
+    /// Runs the tails through `poses` once over `duration`, or for ever.
+    private func playTails(_ poses: [NotchMascotCreatures.TailsPose], times: [Double], duration: TimeInterval,
+                           key: String, repeats: Bool = false, after delay: TimeInterval = 0) {
+        for (layer, tips) in [(pins, false), (tailTips, true)] {
+            let move = CAKeyframeAnimation(keyPath: "path")
+            move.values = poses.map { NotchMascotCreatures.kitsuneTails(count: tails, pose: $0, tips: tips, size: size) }
+            move.keyTimes = times.map { NSNumber(value: $0) }
+            move.duration = duration
+            move.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            if repeats { move.repeatCount = .infinity }
+            if delay > 0 { move.beginTime = CACurrentMediaTime() + delay }
+            layer.add(move, forKey: key)
+        }
+    }
+
+    /// Runs the flippers through `poses`, evenly spaced, once or for ever.
+    private func playFlippers(_ poses: [NotchMascotCreatures.FlipperPose], duration: TimeInterval, key: String,
+                              repeats: Bool = false) {
+        let move = CAKeyframeAnimation(keyPath: "path")
+        move.values = poses.map { NotchMascotCreatures.penguinFlippers($0, size: size) }
+        move.keyTimes = poses.indices.map { NSNumber(value: Double($0) / Double(max(1, poses.count - 1))) }
+        move.duration = duration
+        move.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        if repeats { move.repeatCount = .infinity }
+        pins.add(move, forKey: key)
+    }
+
+    /// Two wisps of foxfire flicker up beside its head and go out.
+    func foxfire(for duration: TimeInterval) {
+        guard look.style == .kitsune, size > 0, !sleeping else { return }
+        let show = keyframes("opacity", [0, 1, 0.55, 1, 0.65, 1, 0], [0, 0.12, 0.3, 0.45, 0.65, 0.85, 1])
+        let float = keyframes("transform.translation.y", [size * 0.05, -size * 0.04, size * 0.01, -size * 0.07],
+                              [0, 0.35, 0.7, 1], additive: true)
+        let group = CAAnimationGroup()
+        group.animations = [show, float]
+        group.duration = duration
+        wisps.add(fitted(group), forKey: "foxfire")
+    }
+
+    /// At rest, with motion welcome, a kitsune's tails sway slowly.
+    private func applyIdleTails() {
+        for layer in [pins, tailTips] { layer.removeAnimation(forKey: "idleSway") }
+        guard look.style == .kitsune, motion, !sleeping, !striding else { return }
+        // After any change of pose has played out.
+        playTails([.rest, .sway, .rest], times: [0, 0.5, 1], duration: 3.6, key: "idleSway", repeats: true, after: 0.9)
+    }
+
+    /// Walking or stopping: a kitsune's tails stream out behind it as it
+    /// trots and settle when it stops; a penguin swings one flipper out
+    /// then the other, in time with its waddle.
+    func setStriding(_ striding: Bool, period: TimeInterval) {
+        guard striding != self.striding else { return }
+        self.striding = striding
+        guard size > 0 else { return }
+        switch look.style {
+        case .kitsune:
+            poseTails(tailsPose, duration: 0.3, animated: true)
+        case .penguin:
+            pins.removeAnimation(forKey: "stride")
+            if striding, !sleeping {
+                playFlippers([.rest, .leftUp, .rest, .rightUp, .rest], duration: period, key: "stride", repeats: true)
+            }
+        default:
+            break
+        }
+        applyIdleTails()
     }
 }

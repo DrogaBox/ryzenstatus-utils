@@ -13,6 +13,10 @@ enum NotchMascotCheat: String, CaseIterable, Equatable {
     case idclip
     case roll
     case motherlode
+    /// The old adventure's magic word: something rare comes by.
+    case xyzzy
+    /// Its echo in the same old cave: the Mac's and the calendar's moments, one by one.
+    case plugh
 
     var badge: String {
         switch self {
@@ -22,6 +26,8 @@ enum NotchMascotCheat: String, CaseIterable, Equatable {
         case .idclip: return "👻 NO CLIP"
         case .roll: return "🔄 BARREL ROLL"
         case .motherlode: return "💸 +10,000 GOLD"
+        case .xyzzy: return "✨ SOMETHING STIRS"
+        case .plugh: return "🪄 A HOLLOW VOICE"
         }
     }
 
@@ -33,6 +39,8 @@ enum NotchMascotCheat: String, CaseIterable, Equatable {
         case .idclip: return .poof
         case .roll: return .whoosh
         case .motherlode: return .coin
+        case .xyzzy: return .magic
+        case .plugh: return .chime
         }
     }
 }
@@ -147,6 +155,26 @@ final class NotchMascotCheatEngine {
                 .char("o", keycode: 31),
                 .char("d", keycode: 2),
                 .char("e", keycode: 14)
+            ]
+        ),
+        (
+            .xyzzy,
+            [
+                .char("x", keycode: 7),
+                .char("y", keycode: 16),
+                .char("z", keycode: 6),
+                .char("z", keycode: 6),
+                .char("y", keycode: 16)
+            ]
+        ),
+        (
+            .plugh,
+            [
+                .char("p", keycode: 35),
+                .char("l", keycode: 37),
+                .char("u", keycode: 32),
+                .char("g", keycode: 5),
+                .char("h", keycode: 4)
             ]
         )
     ]
@@ -326,6 +354,8 @@ final class NotchMascotCheatToast {
 
         // Mascot celebration if active
         NotchService.shared.celebrateCheat()
+        if cheat == .xyzzy { NotchService.shared.summonMascotEncounter() }
+        if cheat == .plugh { NotchService.shared.previewMascotOccasion() }
 
         dismissWorkItem?.cancel()
         dismissWorkItem = nil

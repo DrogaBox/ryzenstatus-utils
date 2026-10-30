@@ -14,7 +14,7 @@ enum AgentClaudeServer {
     }
     struct Summary: Equatable {
         let limits: AgentLimits
-        let organization: String?
+        let identity: ClaudeAccountProfile.Identity?
     }
     static let timeout: TimeInterval = 25
     /// While the AI page is on screen a reading this old is asked again.
@@ -51,10 +51,10 @@ enum AgentClaudeServer {
     /// pnpm keep global tools. The Claude app's own copy is left out: it has
     /// no sign-in of its own to check with.
     static func candidates(home: URL, searchPath: String? = nil) -> [URL] {
-        let folders = [home.appending(path: ".local/bin").path,
-                       home.appending(path: ".claude/local").path, "/opt/homebrew/bin", "/usr/local/bin"]
-            + (searchPath ?? "").split(separator: ":").map(String.init).filter { $0.hasPrefix("/") }
-            + toolFolders(home: home)
+        let fixed: [String] = [home.appending(path: ".local/bin").path,
+                               home.appending(path: ".claude/local").path, "/opt/homebrew/bin", "/usr/local/bin"]
+        let searched: [String] = (searchPath ?? "").split(separator: ":").map(String.init).filter { $0.hasPrefix("/") }
+        let folders: [String] = fixed + searched + toolFolders(home: home)
         return folders.map { URL(fileURLWithPath: $0, isDirectory: true).appending(path: "claude") }
     }
 
@@ -62,14 +62,17 @@ enum AgentClaudeServer {
     /// them, each manager's newest Node first, and Volta's, Bun's and pnpm's
     /// own. A Claude Code that needs Node finds it on this list too.
     static func toolFolders(home: URL) -> [String] {
-        let path = { (relative: String) in home.appending(path: relative).path }
-        let fnm = ["Library/Application Support/fnm", ".local/share/fnm", ".fnm"].map(path)
-        return [path(".volta/bin")] + fnm.map { $0 + "/aliases/default/bin" }
-            + newest(in: path(".nvm/versions/node")).map { $0 + "/bin" }
-            + fnm.flatMap { newest(in: $0 + "/node-versions").map { $0 + "/installation/bin" } }
-            + newest(in: path(".asdf/installs/nodejs")).map { $0 + "/bin" }
-            + newest(in: path(".local/share/mise/installs/node")).map { $0 + "/bin" }
-            + [path(".bun/bin"), path("Library/pnpm"), path(".local/share/pnpm"), path(".npm-global/bin")]
+        let path = { (relative: String) -> String in home.appending(path: relative).path }
+        let bins = { (folders: [String], suffix: String) -> [String] in folders.map { $0 + suffix } }
+        let fnm: [String] = ["Library/Application Support/fnm", ".local/share/fnm", ".fnm"].map(path)
+        var folders: [String] = [path(".volta/bin")]
+        folders += bins(fnm, "/aliases/default/bin")
+        folders += bins(newest(in: path(".nvm/versions/node")), "/bin")
+        folders += fnm.flatMap { bins(newest(in: $0 + "/node-versions"), "/installation/bin") }
+        folders += bins(newest(in: path(".asdf/installs/nodejs")), "/bin")
+        folders += bins(newest(in: path(".local/share/mise/installs/node")), "/bin")
+        folders += [path(".bun/bin"), path("Library/pnpm"), path(".local/share/pnpm"), path(".npm-global/bin")]
+        return folders
     }
 
     /// The folders in `folder` named for a version, as `v22.11.0` or
@@ -101,31 +104,21 @@ enum AgentClaudeServer {
         }
     }
 
-    static func organization(home: URL) -> String? {
-        profile(home: home).organization
-    }
-
-    /// The organization Claude Code signs in to, and when it last fetched
-    /// the account's usage. After a failed fetch, get_usage answers from
-    /// that saved copy, up to an hour old, with nothing to say so.
-    static func profile(home: URL) -> (organization: String?, usageFetched: Date?) {
-        guard let data = try? Data(contentsOf: home.appending(path: ".claude.json")),
-              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return (nil, nil) }
-        let organization = (json["oauthAccount"] as? [String: Any])?["organizationUuid"] as? String
-        guard let number = (json["cachedUsageUtilization"] as? [String: Any])?["fetchedAtMs"] as? NSNumber,
-              CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite,
-              number.doubleValue > 0 else { return (organization, nil) }
-        return (organization, Date(timeIntervalSince1970: number.doubleValue / 1_000))
-    }
-
     /// The app's environment for a check: Claude Code never updates itself
     /// from one, and the opt-outs and the proxy the person keeps in its user
-    /// settings apply as in their own sessions. Nothing else is turned off.
-    static func environment(_ base: [String: String], home: URL) -> [String: String] {
-        var environment = base
+    /// settings apply as in their own sessions. The profile owns the sign-in.
+    static func environment(_ base: [String: String], home: URL,
+                            profile: ClaudeAccountProfile = ClaudeAccountProfile()) -> [String: String] {
+        // The app may itself have been launched by another agent or account.
+        // Its tokens, provider routing and config overrides must not replace
+        // the chosen profile's own sign-in. Network settings still apply.
+        var environment = base.filter {
+            optOuts.contains($0.key) || (!$0.key.hasPrefix("CLAUDE_") && !$0.key.hasPrefix("ANTHROPIC_"))
+        }
         environment.removeValue(forKey: "CLAUDECODE")
+        if !profile.isDefault { environment["CLAUDE_CONFIG_DIR"] = profile.directory }
         environment["DISABLE_AUTOUPDATER"] = "1"
-        guard let data = try? Data(contentsOf: home.appending(path: ".claude/settings.json")),
+        guard let data = try? Data(contentsOf: profile.configurationURL(home: home).appending(path: "settings.json")),
               let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let settings = json["env"] as? [String: Any] else { return environment }
         // Claude Code lets its settings override the environment, and reads
@@ -196,11 +189,13 @@ enum AgentClaudeServer {
         }
 
         func run(_ executable: URL, home: URL, environment: [String: String],
+                 profile: ClaudeAccountProfile = ClaudeAccountProfile(),
                  timeout: TimeInterval = AgentClaudeServer.timeout) -> Result<Summary, Failure> {
             guard !lock.withLock({ cancelled }) else { return .failure(.unreachable) }
+            guard profile.isAvailable(home: home) else { return .failure(.needsSignIn) }
             let started = Date()
-            let organization = AgentClaudeServer.organization(home: home)
-            let environment = AgentClaudeServer.environment(environment, home: home)
+            let identity = profile.read(home: home).identity
+            let environment = AgentClaudeServer.environment(environment, home: home, profile: profile)
             let arguments = ["--print", "--input-format", "stream-json", "--output-format", "stream-json",
                 "--verbose", "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--mcp-config",
                 "{\"mcpServers\":{}}", "--setting-sources", "", "--settings", "{\"disableAllHooks\":true}"]
@@ -228,9 +223,9 @@ enum AgentClaudeServer {
                     // what it fetched for this answer is on disk.
                     channel.end()
                     channel.waitForExit(timeout: 3)
-                    let saved = AgentClaudeServer.profile(home: home)
+                    let saved = profile.read(home: home)
                     guard !self.lock.withLock({ self.cancelled }),
-                          organization == saved.organization else { return .failure(.unreachable) }
+                          identity == saved.identity, profile.isAvailable(home: home) else { return .failure(.unreachable) }
                     // A copy saved before this check began was answered in place
                     // of the account, which was not reached.
                     if let fetched = saved.usageFetched, started.timeIntervalSince(fetched) > AgentClaudeServer.reuse {
@@ -238,7 +233,7 @@ enum AgentClaudeServer {
                     }
                     guard let reading = AgentClaudeServer.limits(result, observed: min(Date(), saved.usageFetched ?? Date()))
                     else { return .failure(.unreachable) }
-                    return .success(Summary(limits: reading, organization: organization))
+                    return .success(Summary(limits: reading, identity: identity))
                 }
         }
 

@@ -27,6 +27,8 @@ struct NotchMascotIslandPlay: Equatable {
         case door(WonderBoySecretDoor)
         /// What the figure can do that the others cannot.
         case ability(NotchMascotAbility)
+        /// Something the Mac or the calendar brought, shown alone.
+        case occasion(NotchMascotOccasion)
     }
 
     /// What flies from one to the other.
@@ -62,6 +64,12 @@ struct NotchMascotIslandPlay: Equatable {
         var duration: TimeInterval = NotchMascotIslandPlay.burstLength
     }
 
+    /// A body move one of them makes, or both for a move made together.
+    struct MoveAt: Equatable {
+        var move: NotchMascotBodyMove
+        /// The one that makes it, or starts it when both take part.
+        var onLeader: Bool
+    }
     /// What each of them does `at` seconds in, and what flies or bursts.
     struct Beat: Equatable {
         var at: TimeInterval
@@ -70,6 +78,8 @@ struct NotchMascotIslandPlay: Equatable {
         var flight: Flight? = nil
         var burst: BurstAt? = nil
         var marker: Marker? = nil
+        /// Out on the desktop, where they can leave their places.
+        var move: MoveAt? = nil
     }
 
     /// How long it lasts: until its last beat has played out.
@@ -77,7 +87,7 @@ struct NotchMascotIslandPlay: Equatable {
         beats.map { beat in
             beat.at + max(beat.leader?.length ?? 0, beat.friend?.length ?? 0,
                           beat.flight?.duration ?? 0, beat.burst?.duration ?? 0,
-                          beat.marker == nil ? 0 : Self.markerLength)
+                          beat.marker == nil ? 0 : Self.markerLength, beat.move?.move.length ?? 0)
         }.max() ?? 0
     }
 
@@ -172,6 +182,8 @@ struct NotchMascotIslandPlay: Equatable {
         case .ability(let ability):
             guard abilityKinds(in: context).contains(.ability(ability)) else { return 0 }
             weight = 1.6
+        // Brought by the Mac or the calendar, never picked.
+        case .occasion: return 0
         }
         if context.recent.suffix(memory).contains(kind) { weight *= 0.3 }
         return weight
@@ -326,6 +338,8 @@ struct NotchMascotIslandPlay: Equatable {
             let friendHas = NotchMascotAbility.of(context.friendStyle) == ability
             score = Score(byLeader: leaderHas && friendHas ? byLeader : leaderHas)
             writeAbility(ability, into: &score)
+        case .occasion(let occasion):
+            return NotchMascotIslandPlay(kind: kind, beats: occasion.islandBeats(byLeader: byLeader))
         }
         return NotchMascotIslandPlay(kind: kind, beats: score.beats)
     }
@@ -580,6 +594,17 @@ struct NotchMascotIslandPlay: Equatable {
 
         mutating func marker(_ at: TimeInterval, _ text: String, onStarter: Bool) {
             beats.append(Beat(at: at, marker: Marker(text: text, onLeader: onStarter == byLeader)))
+        }
+        mutating func move(_ at: TimeInterval, _ move: NotchMascotBodyMove, onStarter: Bool) {
+            beats.append(Beat(at: at, move: MoveAt(move: move, onLeader: onStarter == byLeader)))
+        }
+        /// The beats of `other`, written for the same starter, `offset` seconds on.
+        mutating func append(_ other: Score, after offset: TimeInterval) {
+            beats += other.beats.map { beat in
+                var beat = beat
+                beat.at += offset
+                return beat
+            }
         }
     }
 }

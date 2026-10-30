@@ -51,9 +51,45 @@ struct NotchMascotAutomationStrings {
         case .capybara: return L10n.shared.language == .es ? "Carpincho" : "Capybara"
         case .dragon: return L10n.shared.language == .es ? "Dragón" : "Dragon"
         case .frog: return L10n.shared.language == .es ? "Ranita" : "Frog"
+        case .swan: return L10n.shared.language == .es ? "Cisne" : "Swan"
+        case .ballerina: return L10n.shared.language == .es ? "Bailarina" : "Ballerina"
+        case .danseur: return L10n.shared.language == .es ? "Bailarín" : "Danseur"
+        case .contemporary: return L10n.shared.language == .es ? "Contemporáneo" : "Contemporary"
+        // Named in every language of the app.
+        case .kitsune, .penguin: return NotchMascotStyleNames.name(of: style, in: L10n.shared.language)
         // Characters' own names, the same in every language.
         case .cristobal: return "Cristóbal"
         case .whiteRabbit: return "Conejo Blanco"
+        }
+    }
+}
+
+/// The names of the kitsune and the penguin in each language of the app.
+enum NotchMascotStyleNames {
+    static let named: [NotchMascotStyle] = [.kitsune, .penguin]
+
+    static func name(of style: NotchMascotStyle, in language: AppLanguage) -> String {
+        let names = pair(in: language)
+        return style == .penguin ? names.penguin : names.kitsune
+    }
+
+    private static func pair(in language: AppLanguage) -> (kitsune: String, penguin: String) {
+        switch language {
+        case .enUS: return ("Kitsune", "Penguin")
+        case .ptBR: return ("Kitsune", "Pinguim")
+        case .tr: return ("Kitsune", "Penguen")
+        case .ru: return ("Кицунэ", "Пингвин")
+        case .es: return ("Kitsune", "Pingüino")
+        case .de: return ("Kitsune", "Pinguin")
+        case .fr: return ("Kitsune", "Manchot")
+        case .it: return ("Kitsune", "Pinguino")
+        case .ja: return ("キツネ", "ペンギン")
+        case .ko: return ("키츠네", "펭귄")
+        case .zhHans: return ("狐仙", "企鹅")
+        case .zhTW: return ("狐仙", "企鵝")
+        case .zhHK: return ("狐仙", "企鵝")
+        case .sk: return ("Kitsune", "Tučniak")
+        case .uk: return ("Кіцуне", "Пінгвін")
         }
     }
 }

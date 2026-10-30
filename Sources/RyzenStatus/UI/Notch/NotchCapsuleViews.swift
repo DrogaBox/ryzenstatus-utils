@@ -213,13 +213,15 @@ struct NotchCapsuleRestingView: View {
                         .allowsHitTesting(false)
                         .transition(.opacity)
                 }
-                // What they toss to each other as they play.
-                if let pair, let friend = service.mascotFriendLook,
-                   service.mascotIslandFlight != nil || service.mascotIslandBurst != nil || service.mascotIslandMarker != nil {
+                // What they toss to each other as they play, or what one
+                // does with the thing it wears, alone.
+                if service.mascotIslandFlight != nil || service.mascotIslandBurst != nil || service.mascotIslandMarker != nil {
+                    let friend = pair == nil ? nil : service.mascotFriendLook
                     NotchMascotIslandPlayLayer(flight: service.mascotIslandFlight, burst: service.mascotIslandBurst,
-                                           marker: service.mascotIslandMarker,
-                                               leader: pair.companion, friend: pair.friend,
-                                               leaderLook: NotchMascotSupport.look(), friendLook: friend)
+                                               marker: service.mascotIslandMarker,
+                                               leader: mascotTrack, friend: friend == nil ? mascotTrack : pair?.friend ?? mascotTrack,
+                                               leaderLook: NotchMascotSupport.look(),
+                                               friendLook: friend ?? NotchMascotSupport.look())
                         .frame(width: size.width, height: geometry.stripHeight)
                 }
             }

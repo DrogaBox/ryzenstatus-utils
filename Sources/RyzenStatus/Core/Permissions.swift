@@ -15,6 +15,32 @@ import UserNotifications
 final class Permissions: ObservableObject {
     static let shared = Permissions()
 
+    /// With AMFI out of the way at boot, macOS counts every process as part
+    /// of the system and never prompts for one Apple did not sign, so the
+    /// camera, the microphone and the calendar cannot be asked for.
+    static let promptsBlocked = promptsBlocked(bootArgs: bootArgs())
+
+    static func promptsBlocked(bootArgs: String) -> Bool {
+        bootArgs.split(separator: " ").contains { argument in
+            let parts = argument.split(separator: "=", maxSplits: 1)
+            let value = parts.count > 1 ? String(parts[1]) : "1"
+            let number = value.lowercased().hasPrefix("0x") ? Int(value.dropFirst(2), radix: 16) : Int(value)
+            switch parts.first {
+            case "amfi_get_out_of_my_way": return (number ?? 1) != 0
+            case "amfi": return (number ?? 0) & 0x80 != 0
+            default: return false
+            }
+        }
+    }
+
+    private static func bootArgs() -> String {
+        var size = 0
+        guard sysctlbyname("kern.bootargs", nil, &size, nil, 0) == 0, size > 0 else { return "" }
+        var buffer = [CChar](repeating: 0, count: size)
+        guard sysctlbyname("kern.bootargs", &buffer, &size, nil, 0) == 0 else { return "" }
+        return String(cString: buffer)
+    }
+
     @Published private(set) var accessibility = false
     @Published private(set) var screenRecording = false
     /// Optional — only used to make the uninstaller's scan more thorough by
@@ -396,7 +422,6 @@ final class Permissions: ObservableObject {
 
     enum AutomationTarget: String, CaseIterable {
         case finder = "com.apple.finder"
-        case terminal = "com.apple.Terminal"
     }
 
     enum AutomationStatus {
