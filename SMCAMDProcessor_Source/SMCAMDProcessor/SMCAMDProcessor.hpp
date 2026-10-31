@@ -55,6 +55,8 @@ class SMCAMDProcessor : public IOService {
      *
      *  - TC0D/E/F/J/P/T/p: package temperature (SP78)
      *  - PCPR, PSTR: package power (SP96)
+     *  - PC0C, PCPC: summed CPU core power (SP96), only where
+     *    CORE_ENERGY_STAT reads
      *  - TCxC/TCxc: per-CCD temperature (SP78), x = CCD index
      *  - TGxD/P/d/p, TGDD: GPU temperature (SP78), x = GPU index
      *  - PGxR/PGxC: GPU power (SP96), only for GPUs that report it

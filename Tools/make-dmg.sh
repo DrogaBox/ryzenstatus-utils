@@ -75,7 +75,7 @@ fi
 # bytes the kernel loads and the identity it loads them under. They survive any
 # repackaging and they cover BOTH provenance paths, because the check now runs on
 # the staged bundles rather than on the archive.
-KEXT_PIN_DRIVER_MACHO="971c06cd2c88497fc59cd14893b39db15fdcac2181ada8b5d09d153067f94da6"
+KEXT_PIN_DRIVER_MACHO="53f6083a71a875c32b2e5b311af2bfd02f37f876a488cd07896cdc298a03ae8a"
 KEXT_PIN_DRIVER_PLIST="96e77ea556d9be848b820cdb8c50a2a51d1c86cdf958b5c9e1c7834d18def285"
 KEXT_PIN_PLUGIN_MACHO="fc6152e543525ba4f8d8d85eb8d90cbd69b9c412bb61645864ddd386d9a3c2b1"
 KEXT_PIN_PLUGIN_PLIST="a4fb6a83ca08ba605f2eb608a7691e103a8dd6ea9c767a69135b97476f439833"
@@ -156,6 +156,12 @@ if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
             echo "    $signed.kext: code signature does not verify" >&2
         fi
     done
+    # Strict on both paths: floating point in a rendezvous handler corrupts
+    # the registers of whatever program that CPU interrupted, whoever built it.
+    if ! python3 -B Tools/check-kext-fpu.py "$STAGING/Kexts/AMDRyzenCPUPowerManagement.kext/Contents/MacOS/AMDRyzenCPUPowerManagement" >&2; then
+        echo "✗ Error: the driver uses the FPU in interrupt context (Tools/check-kext-fpu.py)." >&2
+        exit 1
+    fi
     if [[ -n "$KEXT_SOURCE_LOCAL" ]]; then
         echo "  ⚠ Source: LOCAL BUILD (SMCAMDProcessor_Source/build/dmg-kexts/) — content pins NOT enforced."
         echo "    These binaries are unverified. Do not publish this DMG until the"

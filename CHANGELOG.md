@@ -13,12 +13,13 @@ This release makes the driver safer for every other app on the system and lets t
 
 ### Fixed
 
+- **Instruction counts no longer freeze**: when a core's instructions-retired counter wrapped, its count stopped updating for hours; the driver now carries the wrap.
 - **Floating-point registers of other apps**: the driver's once-a-second sample interrupts every CPU, and it did some of its math with floating-point registers while there. xnu does not save an interrupted program's floating-point registers for that, so a busy app could find one of its values changed. All of that math now runs afterwards on the driver's own thread, and a new check on the built kext fails if floating point ever comes back to those paths.
 - **Load alert no longer freezes the app**: when the driver reported problems at load, the alert held the app's sampling until it was dismissed. It now opens on its own thread.
 
 ### Changed
 
-- **The CPU rests when nothing is watching**: with no app reading the per-core data for 10 seconds, the driver stops interrupting every core. Package temperature, power and fan control keep running, and the full sampling comes back at once when an app asks again.
+- **The CPU rests when nothing is watching**: with no app reading the per-core data for 10 seconds, the driver stops interrupting every core. Package temperature, power and fan control keep running, and full sampling is back within half a second when an app asks again. The first reading after a pause is a fresh one, never an average over the pause.
 - **Less busy waiting**: SMU and GPU mailbox commands that take longer than a millisecond now wait with the CPU free instead of spinning for up to 25 ms.
 - **Timers that coalesce**: the driver's periodic timers allow a small leeway, so macOS can group them with other wakeups.
 - **Fan speeds for SMC readers come from a lock-free cache**, so an SMC read never waits behind the fan chip.

@@ -246,8 +246,13 @@ public:
     bool write_msr(uint32_t addr, uint64_t value);
 
 
-    void calculateEffectiveFrequency(uint32_t physical);
-    void updateInstructionDelta(uint32_t cpu);
+    // Per-CPU samplers run inside the main rendezvous. With seedOnly they
+    // only store fresh baselines: the first window after the sampler was
+    // idle would span the pause, so it is dropped instead of published.
+    void calculateEffectiveFrequency(uint32_t physical, bool seedOnly);
+    void updateInstructionDelta(uint32_t cpu, bool seedOnly);
+    // IRPerfCount (MSR C000_00E9) is 48 bits wide.
+    static constexpr uint64_t kIRPERF_MASK = (1ULL << 48) - 1;
     void applyPowerControl();
     void applyEPPControl();
 
@@ -443,7 +448,7 @@ public:
     uint64_t lastTSCResidency_perCpu[CPUInfo::MaxCpus] {};
     uint8_t  idlePercent_perCpu[CPUInfo::MaxCpus] {};
     bool     idleResidencySampled {false};
-    void updateC0Residency(uint32_t cpu_num);
+    void updateC0Residency(uint32_t cpu_num, bool seedOnly);
 
     // Per-core power from CORE_ENERGY_STAT (MSR 0xC001029A), the counter
     // Linux turbostat (CorWatt) and zenpower read: energy in the RAPL unit
@@ -457,12 +462,12 @@ public:
     uint64_t coreEnergyTSCDelta_perCore[CPUInfo::MaxCpus] {};
     float    corePowerW_perCore[CPUInfo::MaxCpus] {};
     // Sum of corePowerW_perCore[] for the PC0C / PCPC SMC keys. Reading
-    // them stamps smcCoreDemandMs, which keeps the main timer out of its
-    // idle cadence like a selector call does (without the immediate kick).
+    // them stamps smcCoreDemandMs, which counts as demand for the main
+    // sampler like a selector call does.
     bool     coreEnergySupported {false};
     volatile float corePowerTotalW {0};
     volatile uint64_t smcCoreDemandMs {0};
-    void updateCoreEnergy(uint32_t physical);
+    void updateCoreEnergy(uint32_t physical, bool seedOnly);
 
     uint8_t PStateCur_perCore[CPUInfo::MaxCpus] {};
     uint8_t PStateCtl = 0;
@@ -809,14 +814,25 @@ private:
     static constexpr uint64_t kREQUEST_BURST_GAP_MS = 25;
     static constexpr uint64_t kREQUEST_STREAM_MS = 250;
     uint64_t requestBurstStartMs = 0;
-    // With no selector call for kCLIENT_IDLE_MS the main timer stops the
-    // per-CPU rendezvous, which pulls every core out of its C-state, and
-    // only refreshes the package temperature and energy behind the SMC keys
-    // and the thermal interlocks, every kIDLE_TICK_MS. The next selector
-    // call (registerRequest) brings the timer back at once.
+    // Demand-driven main sampler. With no selector call and no PC0C/PCPC
+    // read for kCLIENT_IDLE_MS, the main timer stops re-arming: no more
+    // rendezvous interrupting every CPU. The package temperature and energy
+    // behind the SMC keys and the thermal interlocks come from the sensor
+    // timer either way, and that timer restarts the main one once demand is
+    // back (both run on the work loop, so nothing else touches the timer).
+    // The first rendezvous after a pause only seeds the counter windows
+    // (seedNextSample) and the real sample follows kSEED_WINDOW_MS later,
+    // so no published window ever spans the pause.
     static constexpr uint64_t kCLIENT_IDLE_MS = 10000;
-    static constexpr uint32_t kIDLE_TICK_MS = 1200;
-    volatile bool mainSamplingIdle = false;
+    static constexpr uint32_t kSEED_WINDOW_MS = 100;
+    bool mainSamplingIdle = false;
+    bool seedNextSample = false;
+    bool hasRecentDemand(uint64_t nowMs) const {
+        uint64_t last = timeOfLastMissedRequest;
+        uint64_t smc = smcCoreDemandMs;
+        if (smc > last) last = smc;
+        return last > nowMs || nowMs - last <= kCLIENT_IDLE_MS;
+    }
 
     int tempNextSample = 0;
     float tempSamples[HF_TEMP_SAMPLE_LEN] {};

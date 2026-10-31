@@ -267,10 +267,12 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
         // so reinitHwState() runs here on the workLoop thread, not the PM thread.
         if (provider->pendingReinit) {
             provider->pendingReinit = false;
-            provider->reinitHwState();
-            // Firmware re-initialised the cores during resume: put the
-            // per-core MSR programming back and restart the counter windows.
+            // reinitHwState() rewrites the P-state tables writePstate()
+            // also writes, so it runs under the same lock. Firmware
+            // re-initialised the cores during resume: put the per-core MSR
+            // programming back and restart the counter windows.
             IOLockLock(provider->rendezvousLock);
+            provider->reinitHwState();
             provider->reapplyPerCoreConfig();
             IOLockUnlock(provider->rendezvousLock);
             provider->resumeSuperIO();
@@ -278,48 +280,47 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
             return;
         }
 
-        // Nobody has asked for per-CPU data lately. timeOfLastUpdate stays
-        // put, so the first window after this spans the whole pause, like
-        // the counters it is divided against.
+        // Nobody has asked for per-CPU data lately: stop here without
+        // re-arming. The SMU caches the app reads first are refreshed once
+        // on the way (boost telemetry is throttled, the other two are
+        // one-shot), so a client that connects later, including the first
+        // one after boot, never starts from empty values.
         uint64_t tickMs = getCurrentTimeNs() / 1000000;
-        uint64_t lastAsk = provider->timeOfLastMissedRequest;
-        uint64_t lastSmcAsk = provider->smcCoreDemandMs;
-        if (lastSmcAsk > lastAsk) lastAsk = lastSmcAsk;
-        if (tickMs >= lastAsk && tickMs - lastAsk > kCLIENT_IDLE_MS) {
+        if (!provider->hasRecentDemand(tickMs)) {
             IOLockLock(provider->rendezvousLock);
-            provider->updatePackageTemp();
-            provider->updatePackageEnergy();
+            provider->pollBoostTelemetry();
+            provider->pollProcessorParameters();
+            provider->pollSmuVersion();
             IOLockUnlock(provider->rendezvousLock);
             provider->mainSamplingIdle = true;
-            armCoalescedTimeout(sender, kIDLE_TICK_MS);
+            provider->seedNextSample = true;
             return;
         }
-        provider->mainSamplingIdle = false;
 
+        bool seedOnly = provider->seedNextSample;
         IOLockLock(provider->rendezvousLock);
         mp_rendezvous_no_intrs([](void *obj) {
             auto provider = static_cast<AMDRyzenCPUPowerManagement*>(obj);
             uint32_t cpu_num = (uint32_t)cpu_number();
+            bool seed = provider->seedNextSample;
 
-            provider->updateInstructionDelta(cpu_num);
-            provider->updateC0Residency(cpu_num);
+            provider->updateInstructionDelta(cpu_num, seed);
+            provider->updateC0Residency(cpu_num, seed);
 
             // Ignore hyper-threaded cores
             if(!pmRyzen_cpu_primary_in_core(cpu_num)) return;
             uint32_t physical = pmRyzen_cpu_phys_num(cpu_num);
 
 
-            provider->calculateEffectiveFrequency(physical);
-            provider->updateCoreEnergy(physical);
+            provider->calculateEffectiveFrequency(physical, seed);
+            provider->updateCoreEnergy(physical, seed);
 
         }, provider);
-        provider->finishCoreSamples();
-        // Every CPU has now closed one window since reapplyPerCoreConfig().
-        provider->idleResidencySampled = true;
-
-        //Read stats from package.
-        provider->updatePackageTemp();
-        provider->updatePackageEnergy();
+        if (!seedOnly) {
+            provider->finishCoreSamples();
+            // Every CPU has now closed one window since reapplyPerCoreConfig().
+            provider->idleResidencySampled = true;
+        }
 
         // Refresh cached boost telemetry (Vermeer RSMU 0x6E/0x59 reads)
         // From the same command gate — never from user threads.
@@ -341,6 +342,13 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
         IOLockUnlock(provider->rendezvousLock);
 
         uint64_t now = getCurrentTimeNs() / 1000000; //ms
+        if (seedOnly) {
+            // Baselines are fresh on every CPU; sample a short window now.
+            provider->seedNextSample = false;
+            provider->timeOfLastUpdate = now;
+            sender->setTimeoutMS(kSEED_WINDOW_MS);
+            return;
+        }
         uint64_t deltaMissed = (now >= provider->timeOfLastMissedRequest) ? (now - provider->timeOfLastMissedRequest) : 0;
         uint64_t newInt = deltaMissed > provider->estimatedRequestTimeInterval
             ? deltaMissed : provider->estimatedRequestTimeInterval;
@@ -375,6 +383,19 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
             provider->tempSamples[next_samp] = t;
         }
         provider->tempNextSample = (next_samp + 1) % HF_TEMP_SAMPLE_LEN;
+
+        // Package temperature (the average of the ring above) and package
+        // power feed the SMC keys and the thermal interlocks, so they are
+        // refreshed here whether or not the main sampler runs.
+        provider->updatePackageTemp();
+        provider->updatePackageEnergy();
+
+        // A consumer is back while the main sampler is stopped: restart it.
+        // Its first tick seeds the counter windows (seedNextSample).
+        if (provider->mainSamplingIdle && provider->hasRecentDemand(getCurrentTimeNs() / 1000000)) {
+            provider->mainSamplingIdle = false;
+            if (provider->timerEvent_main) provider->timerEvent_main->setTimeoutMS(1);
+        }
 
         for (uint8_t i = 0; i < provider->ccdCount; i++) {
             provider->ccdTemperatures[i] = provider->getCCDTemp(provider->ccdSlot[i]);
@@ -435,6 +456,10 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
 }
 
 void AMDRyzenCPUPowerManagement::stopWorkLoop() {
+    // The post-wake tick (pendingReinit) re-seeds every window; nothing may
+    // restart the main timer before it.
+    mainSamplingIdle = false;
+    seedNextSample = false;
     if (timerEvent_main) timerEvent_main->cancelTimeout();
     if (timerEvent_tempe) timerEvent_tempe->cancelTimeout();
     if (workLoop) workLoop->disableAllEventSources();
@@ -835,6 +860,7 @@ void AMDRyzenCPUPowerManagement::stop(IOService *provider){
             delete superIO;
             superIO = nullptr;
         }
+        for (size_t i = 0; i < kMAX_FANS; i++) fanRPMCache[i] = 0;
         IOLockUnlock(superIOLock);
     } else if (superIO) {
         delete superIO;
@@ -1047,16 +1073,11 @@ void AMDRyzenCPUPowerManagement::registerRequest(){
     uint64_t gap = (now >= timeOfLastMissedRequest) ? (now - timeOfLastMissedRequest) : 0;
     timeOfLastMissedRequest = now;
 
-    // The timer is in its idle cadence: sample now rather than up to
-    // kIDLE_TICK_MS later. A disabled timer (sleep) ignores this.
-    if (mainSamplingIdle && serviceInitialized && timerEvent_main) {
-        mainSamplingIdle = false;
-        timerEvent_main->setTimeoutMS(1);
-    }
-
-    // A client back after a pause is a fresh one: its first period must
-    // not average in the pause, which would hold the timer at its
-    // 1.2 s ceiling for the next twenty-odd refreshes.
+    // While the main sampler is stopped, this timestamp is all it needs:
+    // the sensor timer restarts it within one period. A client back after
+    // a pause is a fresh one: its first period must not average in the
+    // pause, which would hold the timer at its 1.2 s ceiling for the next
+    // twenty-odd refreshes.
     if (gap > kCLIENT_IDLE_MS) {
         requestBurstStartMs = now;
         estimatedRequestTimeInterval = 0;
@@ -1079,7 +1100,7 @@ void AMDRyzenCPUPowerManagement::registerRequest(){
 
 #pragma mark - Frequency & Clock Management
 
-void AMDRyzenCPUPowerManagement::calculateEffectiveFrequency(uint32_t physical){
+void AMDRyzenCPUPowerManagement::calculateEffectiveFrequency(uint32_t physical, bool seedOnly){
     // Guard physical core index on >64 core systems
     if (physical >= CPUInfo::MaxCpus) return;
 
@@ -1097,6 +1118,7 @@ void AMDRyzenCPUPowerManagement::calculateEffectiveFrequency(uint32_t physical){
     lastMPERF_perCore[physical] = MPERF;
     freqDeltaAPERF_perCore[physical] = 0;
     freqDeltaMPERF_perCore[physical] = 0;
+    if (seedOnly) return;
     //If an overflow of either the MPERF or APERF register occurs between read of last MPERF and
     //read of last APERF, the effective frequency calculated in is invalid.
     if(APERF <= lastAPERF || MPERF <= lastMPERF) {
@@ -1110,10 +1132,12 @@ void AMDRyzenCPUPowerManagement::calculateEffectiveFrequency(uint32_t physical){
 
 // Runs inside the main rendezvous on each core's primary thread, so it
 // only reads one MSR and the TSC and writes this core's slots. The counter
-// is 32 bits wide and wraps (about every 70 s at 1 W per 15.3 uJ unit,
-// minutes at real loads); unsigned subtraction handles one wrap, and a
-// delta past 2^31 is taken as a reset and skipped like the package path.
-void AMDRyzenCPUPowerManagement::updateCoreEnergy(uint32_t physical){
+// is 32 bits wide: with the usual 15.3 uJ unit it wraps after about 65 kJ,
+// some 18 h at 1 W or 30 min at 35 W. Unsigned subtraction handles one
+// wrap, a delta past 2^31 is taken as a reset and skipped like the package
+// path, and windows stay far below one wrap because the first window after
+// an idle pause is only a seed (seedOnly) and wake restarts them.
+void AMDRyzenCPUPowerManagement::updateCoreEnergy(uint32_t physical, bool seedOnly){
     if (physical >= CPUInfo::MaxCpus) return;
 
     uint64_t raw = 0;
@@ -1128,7 +1152,7 @@ void AMDRyzenCPUPowerManagement::updateCoreEnergy(uint32_t physical){
     coreEnergyDelta_perCore[physical] = 0;
     coreEnergyTSCDelta_perCore[physical] = 0;
 
-    if (lastTsc == 0 || tsc <= lastTsc) return;
+    if (seedOnly || lastTsc == 0 || tsc <= lastTsc) return;
     uint32_t delta = energy - lastEnergy;
     if (delta > 0x80000000u) return;
 
@@ -1251,7 +1275,7 @@ void AMDRyzenCPUPowerManagement::reapplyPerCoreConfig() {
 
 // C0 share of one logical CPU since its previous sample, integer math only
 // (rendezvous handler: no FPU). A wrapped or reset counter skips the window.
-void AMDRyzenCPUPowerManagement::updateC0Residency(uint32_t cpu_num){
+void AMDRyzenCPUPowerManagement::updateC0Residency(uint32_t cpu_num, bool seedOnly){
     if (cpu_num >= CPUInfo::MaxCpus) return;
 
     uint64_t mperf = 0;
@@ -1263,7 +1287,7 @@ void AMDRyzenCPUPowerManagement::updateC0Residency(uint32_t cpu_num){
     lastMPERFResidency_perCpu[cpu_num] = mperf;
     lastTSCResidency_perCpu[cpu_num] = tsc;
 
-    if (lastTsc == 0 || tsc <= lastTsc || mperf < lastMperf) return;
+    if (seedOnly || lastTsc == 0 || tsc <= lastTsc || mperf < lastMperf) return;
     uint64_t dTsc = tsc - lastTsc;
     uint64_t dMperf = mperf - lastMperf;
     if (dMperf > dTsc) dMperf = dTsc;   // MPERF never outruns the TSC; clamp noise
@@ -1272,7 +1296,7 @@ void AMDRyzenCPUPowerManagement::updateC0Residency(uint32_t cpu_num){
     idlePercent_perCpu[cpu_num] = (uint8_t)(100 - busyPercent);
 }
 
-void AMDRyzenCPUPowerManagement::updateInstructionDelta(uint32_t cpu_num){
+void AMDRyzenCPUPowerManagement::updateInstructionDelta(uint32_t cpu_num, bool seedOnly){
     // Guard logical CPU index on >64 CPU systems
     if (cpu_num >= CPUInfo::MaxCpus) return;
 
@@ -1282,11 +1306,13 @@ void AMDRyzenCPUPowerManagement::updateInstructionDelta(uint32_t cpu_num){
         return;
     }
 
-    // Skip the sample in which the counter wrapped.
-    if(lastInstructionDelta_perCore[cpu_num] > insCount) return;
-
-    instructionDelta_perCore[cpu_num] = insCount - lastInstructionDelta_perCore[cpu_num];
+    // The counter is 48 bits wide: modular subtraction carries a wrap, and
+    // the baseline always moves on (keeping the old one after a wrap froze
+    // the delta until the counter climbed back past it).
+    uint64_t last = lastInstructionDelta_perCore[cpu_num];
     lastInstructionDelta_perCore[cpu_num] = insCount;
+    if (seedOnly) return;
+    instructionDelta_perCore[cpu_num] = (insCount - last) & kIRPERF_MASK;
 }
 
 #pragma mark - Power & EPP Control
@@ -2496,6 +2522,9 @@ bool AMDRyzenCPUPowerManagement::initSuperIO(uint16_t *chipIntel, bool allowUnlo
 
     IOLockLock(superIOLock);
     if (superIO) { delete superIO; superIO = nullptr; }
+    // The FxAc keys read this cache without the lock; until the new chip
+    // (if any) is read, they report 0 like the old locked read did.
+    for (size_t i = 0; i < kMAX_FANS; i++) fanRPMCache[i] = 0;
     // Pass allowUnlock to NCT668X to prevent unprivileged firmware unlock
     if(!superIO) superIO = ISSuperIONCT668X::getDevice(&savedSMCChipIntel, allowUnlock);
     // Only privileged callers may clear the NCT67XX I/O-space lock.

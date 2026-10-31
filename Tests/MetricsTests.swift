@@ -13064,7 +13064,7 @@ struct MetricsTests {
                        "registerRequest folds back-to-back selector calls into one burst")
                 expect(driverSrc.contains("provider->resumeSuperIO();"),
                        "the post-wake path re-applies the Super I/O setup")
-                expect(driverSrc.contains("provider->updateCoreEnergy(physical);")
+                expect(driverSrc.contains("provider->updateCoreEnergy(physical, seed);")
                        && driverSrc.contains("provider->lastCoreEnergyTSC_perCore[physical] = 0;"),
                        "per-core energy is sampled in the rendezvous and its window restarts after wake")
                 expect(driverSrc.contains("!svi.socIgnoresTfn && (tfn & kSVI_TFN_SOC_PLANE_OFF) != 0"),
@@ -13075,13 +13075,24 @@ struct MetricsTests {
                        && driverSrc.components(separatedBy: "provider->readPstateDefs(false);").count == 3
                        && !driverSrc.contains("provider->dumpPstate(false)"),
                        "rendezvous handlers capture raw counters and P-state words; floats are computed afterwards")
-                expect(driverSrc.contains("tickMs - lastAsk > kCLIENT_IDLE_MS")
-                       && driverSrc.contains("if (mainSamplingIdle && serviceInitialized && timerEvent_main)"),
-                       "the main timer idles without a client and a selector call wakes it")
+                expect(driverSrc.contains("if (!provider->hasRecentDemand(tickMs)) {")
+                       && driverSrc.contains("if (provider->mainSamplingIdle && provider->hasRecentDemand(")
+                       && !driverSrc.contains("timerEvent_main->setTimeoutMS(1);\n    }\n\n    // A client back"),
+                       "the main sampler stops without demand and only the sensor timer restarts it, on the work loop")
+                expect(driverSrc.contains("if (!seedOnly) {\n            provider->finishCoreSamples();")
+                       && driverSrc.contains("sender->setTimeoutMS(kSEED_WINDOW_MS);"),
+                       "the first rendezvous after a pause only seeds; no published window spans the pause")
+                expect(driverSrc.contains("instructionDelta_perCore[cpu_num] = (insCount - last) & kIRPERF_MASK;"),
+                       "the 48-bit instructions-retired counter wraps without freezing its delta")
+                expect(driverSrc.contains("mainSamplingIdle = false;\n    seedNextSample = false;\n    if (timerEvent_main) timerEvent_main->cancelTimeout();"),
+                       "sleep clears the idle state so nothing restarts the sampler before the post-wake tick")
+                expect(driverSrc.contains("IOLockLock(provider->rendezvousLock);\n            provider->reinitHwState();"),
+                       "the post-wake reinit holds rendezvousLock like writePstate")
                 expect(driverSrc.contains("else IOSleep(1);"),
                        "the SMU mailbox sleeps instead of spinning once a command runs past 1 ms")
-                expect(driverSrc.contains("return fanRPMCache[fan];"),
-                       "the FxAc SMC keys read a lock-free RPM cache")
+                expect(driverSrc.contains("return fanRPMCache[fan];")
+                       && driverSrc.components(separatedBy: "fanRPMCache[i] = 0;").count == 3,
+                       "the FxAc SMC keys read a lock-free RPM cache that is cleared with the chip object")
                 expect(driverSrc.contains("timer->setTimeout(kIOTimeOptionsWithLeeway, interval, leeway);"),
                        "periodic timers are armed with leeway for coalescing")
             } else {
@@ -13092,7 +13103,20 @@ struct MetricsTests {
                        && !clientSrc.contains("(*(provider->kunc_alert))"),
                        "the load-problem alert never blocks a selector call")
             } else {
-                expect(false, "AMDRyzenCPUPowerManagement.cpp is readable from repo root")
+                expect(false, "AMDRyzenCPUPMUserClient.cpp is readable from repo root")
+            }
+            if let gpuSrc = try? String(contentsOf: kextRoot.appendingPathComponent("AMDRyzenCPUPowerManagement/AMDGPU.cpp"), encoding: .utf8) {
+                expect(gpuSrc.contains("else IOSleep(1);")
+                       && gpuSrc.components(separatedBy: "waited = smuWaitStep(sentNs);").count == 3,
+                       "both GPU SMU mailboxes sleep instead of spinning once a reply runs past 1 ms")
+            } else {
+                expect(false, "AMDGPU.cpp is readable from repo root")
+            }
+            if let dmgScript = try? String(contentsOf: repoRoot.appendingPathComponent("Tools/make-dmg.sh"), encoding: .utf8) {
+                expect(dmgScript.contains("python3 -B Tools/check-kext-fpu.py"),
+                       "the release script refuses a driver that uses the FPU in interrupt context")
+            } else {
+                expect(false, "Tools/make-dmg.sh is readable from repo root")
             }
             if let it86Resume = try? String(contentsOf: it86URL, encoding: .utf8) {
                 expect(it86Resume.contains("void ISSuperIOIT86XXEFamily::resume()")
