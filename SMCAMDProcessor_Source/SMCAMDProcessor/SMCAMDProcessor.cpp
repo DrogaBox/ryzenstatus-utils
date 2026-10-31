@@ -93,6 +93,13 @@ bool SMCAMDProcessor::setupKeysVsmc(){
         IOLog("SMCAMDProcessor::setupKeysVsmc: registered %zu VirtualSMC keys\n", keyCount);
     }
 
+    // VirtualSMC merges a plugin's keys into its sorted store and looks them
+    // up by binary search, so they must arrive sorted; keys added out of
+    // order (the fan keys after the T* ones) land in the index but answer
+    // no key-info request. acidanthera's plugins sort here too.
+    qsort(const_cast<VirtualSMCKeyValue *>(vsmcPlugin.data.data()), vsmcPlugin.data.size(),
+          sizeof(VirtualSMCKeyValue), VirtualSMCKeyValue::compare);
+
     // Only now ask for VirtualSMC: when it is already published the handler
     // runs inside this call and submits vsmcPlugin as it stands, so the keys
     // have to be in it first (acidanthera's own plugins use the same order).

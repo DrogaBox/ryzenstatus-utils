@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.70.1] — 2026-10-31 — kexts 3.36.1
+
+This release makes the fan speeds and the SoC voltage that came with kexts 3.36.0 show up where they should.
+
+> [!WARNING]
+> **This release updates the kexts.** `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` move from 3.36.0 to **3.36.1**. Replace both together in `EFI/OC/Kexts/` and reboot.
+
+### Fixed
+
+- **Fan speeds missing from the SMC**: `SMCAMDProcessor.kext` handed its keys to VirtualSMC in the order it created them, but VirtualSMC finds a key by binary search and needs them sorted. The fan keys (`F0Ac`, `F1Ac`, …) and some temperature keys were listed but could not be read by name, so iStat Menus, Stats, HWMonitor and the Sensors page never saw the fans. The plugin now sorts its keys before registering, as acidanthera's own plugins do.
+- **No SoC voltage on Raven, Rome, Matisse and Vermeer**: these chips report the SoC plane with its telemetry-off bit set even though the reading is valid, so the driver discarded it. It now reads the SoC plane on those models regardless, as LibreHardwareMonitor does, and the Sensors page shows "SoC Voltage" next to the core voltage.
+- **"6 RPM" fan**: the Sensors page listed the fan count key (`FNum`) as a fan spinning at as many RPM as there are fans. The fan list now shows only the speed of each fan.
+
 ## [1.70.0] — 2026-10-31 — kexts 3.36.0
 
 This release updates both kernel extensions, with per-core idle residency on every Zen generation, core and SoC voltages, fan speeds in the SMC and driver settings that survive sleep. It also brings every companion into the same wardrobe and puts the process lists back in order.

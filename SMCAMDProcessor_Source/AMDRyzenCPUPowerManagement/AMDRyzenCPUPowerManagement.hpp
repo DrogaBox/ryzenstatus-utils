@@ -610,6 +610,10 @@ public:
         uint32_t coreReg;
         uint32_t socReg;
         bool     supported;
+        // Raven (17h 0x11), Castle Peak/Rome (0x31), Matisse (0x71) and
+        // Vermeer (19h 0x21) report the SoC plane with its TFN bit set;
+        // LibreHardwareMonitor reads it regardless on those models.
+        bool     socIgnoresTfn;
     };
     SviTelemetry svi{};
     uint32_t sviTfnRaw {0};
