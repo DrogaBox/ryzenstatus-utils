@@ -202,16 +202,41 @@ struct FansSettingsView: View {
                             controller.disableCurves()
                         }
                     }
+                }
+            }
 
-                    // MARK: - GPU Hardware Guide
-                    Section {
+            // MARK: - GPU fan and hardware guide
+            // The card's fan comes from its own driver, not the kext, so it
+            // shows even when the SMC side has no fans to offer.
+            let gpuFan = monitor.snapshot.gpuFan.flatMap { $0 > 0 ? $0 : nil }
+            let showsGuide = !controller.kextMissing && !controller.fans.isEmpty
+            if gpuFan != nil || showsGuide {
+                Section {
+                    if let gpuFan {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Image(systemName: "fanblades")
+                                    .foregroundColor(.orange)
+                                Text(FeatureStrings.notchCapsuleCenter(l10n.language).fanSpeed)
+                                Spacer()
+                                Text(String(format: "%.0f RPM", gpuFan))
+                                    .font(.system(.body, design: .monospaced))
+                            }
+                            Text(l10n.fanControl.gpuFanReadOnly)
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    if showsGuide {
                         GPUFanControlGuideView()
                             .padding(.vertical, 4)
-                    } header: {
-                        Text(l10n.fanControl.gpuHeader)
-                            .font(.system(size: 11, weight: .semibold))
-                            .textCase(nil)
                     }
+                } header: {
+                    Text(l10n.fanControl.gpuHeader)
+                        .font(.system(size: 11, weight: .semibold))
+                        .textCase(nil)
                 }
             }
         }

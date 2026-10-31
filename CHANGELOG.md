@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.73.2] — 2026-10-31 — kexts 3.38.0 (No kext changes)
+
+### Added
+
+- **GPU fan on the Fans page**: Fans and cooling now shows the speed your graphics card's driver reports for its fan, read-only, with a note that macOS cannot change it. It shows even when no motherboard fans are found.
+
+### Fixed
+
+- **Sensors and processor details are translated**: the Sensors page, its sensor names and the processor details sheet were still in English. They now follow the app's language in all 15 languages.
+- **Performance insights are translated**: the memory leak, CPU load, memory pressure and temperature cards now follow the app's language.
+- **One decimal mark everywhere**: watts, volts and amps on the Sensors page now use your region's decimal mark, like the temperatures already did.
+
 ## [1.73.1] — 2026-10-31 — kexts 3.38.0 (No kext changes)
 
 ### Fixed

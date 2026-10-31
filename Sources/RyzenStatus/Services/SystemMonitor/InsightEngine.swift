@@ -50,8 +50,10 @@ final class InsightEngine: @unchecked Sendable {
     private init() {}
 
     /// Evaluates current system snapshot and process stats to produce active diagnostic insight cards.
-    func evaluate(snapshot: SystemSnapshot, processes: [ProcessUsage]) -> [InsightCard] {
+    /// The caller reads the language on the main actor, since this runs on a background task.
+    func evaluate(snapshot: SystemSnapshot, processes: [ProcessUsage], language: AppLanguage) -> [InsightCard] {
         var cards: [InsightCard] = []
+        let s = FeatureStrings.insights(language)
 
         // 1. Memory Leak Detection Insights (Critical)
         let leaks = ProcessUsageService.shared.leakingPIDsCopy()
@@ -60,11 +62,11 @@ final class InsightEngine: @unchecked Sendable {
             
             cards.append(InsightCard(
                 id: "leak-\(pid)",
-                title: "\(procName) Memory Leak Warning",
-                detail: "Continuous memory growth detected over 20+ minutes with sustained slope and high confidence (R² ≥ 0.85).",
+                title: String(format: s.leakTitleFormat, procName),
+                detail: s.leakDetail,
                 severity: .critical,
-                categoryName: "Memory",
-                actionHint: "Inspect or force-quit process",
+                categoryName: s.categoryMemory,
+                actionHint: s.leakHint,
                 pid: pid
             ))
         }
@@ -73,11 +75,11 @@ final class InsightEngine: @unchecked Sendable {
         if let topProc = processes.filter({ $0.value > 90.0 }).first {
             cards.append(InsightCard(
                 id: "cpu-runaway-\(topProc.pid)",
-                title: "\(topProc.name) High CPU Load",
-                detail: "Consuming \(String(format: "%.1f%%", topProc.value)) CPU on the system.",
+                title: String(format: s.cpuTitleFormat, topProc.name),
+                detail: String(format: s.cpuDetailFormat, MetricFormat.fixed(topProc.value, decimals: 1, unit: "%")),
                 severity: topProc.value > 200.0 ? .critical : .warning,
-                categoryName: "CPU",
-                actionHint: "Check if application is responsive",
+                categoryName: s.categoryCPU,
+                actionHint: s.cpuHint,
                 pid: topProc.pid
             ))
         }
@@ -87,11 +89,11 @@ final class InsightEngine: @unchecked Sendable {
         if pressure == .warning || pressure == .critical {
             cards.append(InsightCard(
                 id: "mem-pressure-\(pressure)",
-                title: pressure == .critical ? "Critical Memory Pressure" : "Elevated Memory Pressure",
-                detail: "macOS is compressing memory pages or swapping to disk. Close unused applications to restore speed.",
+                title: pressure == .critical ? s.criticalPressure : s.elevatedPressure,
+                detail: s.pressureDetail,
                 severity: pressure == .critical ? .critical : .warning,
-                categoryName: "Memory",
-                actionHint: "Purge or close heavy apps"
+                categoryName: s.categoryMemory,
+                actionHint: s.pressureHint
             ))
         }
 
@@ -106,11 +108,12 @@ final class InsightEngine: @unchecked Sendable {
         if !rosettaProcesses.isEmpty {
             cards.append(InsightCard(
                 id: "rosetta-apps",
-                title: "Rosetta 2 Translation Running",
-                detail: "\(rosettaProcesses.count) x86_64 application(s) running via emulation (\(rosettaProcesses.prefix(3).joined(separator: ", "))).",
+                title: s.rosettaTitle,
+                detail: String(format: s.rosettaDetailFormat, rosettaProcesses.count,
+                               rosettaProcesses.prefix(3).joined(separator: ", ")),
                 severity: .warning,
-                categoryName: "Architecture",
-                actionHint: "Upgrade to native Apple Silicon / Universal builds if available"
+                categoryName: s.categoryArchitecture,
+                actionHint: s.rosettaHint
             ))
         }
         #endif
@@ -121,11 +124,11 @@ final class InsightEngine: @unchecked Sendable {
             let tempStr = MetricFormat.temperatureCompact(cpuTemp, unit: unit)
             cards.append(InsightCard(
                 id: "cpu-temp-high",
-                title: "High CPU Temperature (\(tempStr))",
-                detail: "Thermal throttling may occur if temperatures remain high under sustained load.",
+                title: String(format: s.tempTitleFormat, tempStr),
+                detail: s.tempDetail,
                 severity: cpuTemp > 92.0 ? .critical : .warning,
-                categoryName: "Thermal",
-                actionHint: "Ensure proper airflow or reduce heavy workload"
+                categoryName: s.categoryThermal,
+                actionHint: s.tempHint
             ))
         }
 
