@@ -9278,62 +9278,6 @@ struct MetricsTests {
             checks += 31
         }
 
-        // MARK: C6 residency sampling
-
-        // No counter (raw == 0) → pct nil, baseline zeroed
-        do {
-            let (pct, lr, lt) = C6Sampling.sample(raw: 0, now: 1.0, lastRaw: 0, lastTimestamp: 0)
-            expect(pct == nil, "C6: raw=0 yields nil pct")
-            expect(lr == 0, "C6: raw=0 zeros lastRaw")
-            expect(lt == 0, "C6: raw=0 zeros lastTimestamp")
-            checks += 3
-        }
-
-        // First sample (no baseline) → nil pct, baseline becomes (raw, now)
-        do {
-            let (pct, lr, lt) = C6Sampling.sample(raw: 1_000_000, now: 10.0, lastRaw: 0, lastTimestamp: 0)
-            expect(pct == nil, "C6: first sample yields nil pct")
-            expect(lr == 1_000_000, "C6: first sample anchors lastRaw")
-            expectClose(lt, 10.0, "C6: first sample anchors lastTimestamp")
-            checks += 3
-        }
-
-        // Counter reset (raw < lastRaw, lastRaw > 0) → nil pct, re-anchored
-        do {
-            let (pct, lr, lt) = C6Sampling.sample(raw: 500, now: 20.0, lastRaw: 1_000_000, lastTimestamp: 10.0)
-            expect(pct == nil, "C6: counter reset yields nil pct")
-            expect(lr == 500, "C6: counter reset re-anchors lastRaw to raw")
-            expectClose(lt, 20.0, "C6: counter reset re-anchors lastTimestamp to now")
-            checks += 3
-        }
-
-        // Normal delta: 500 000 µs over 1.0 s → 50%
-        do {
-            let base: UInt64 = 1_000_000
-            let (pct, lr, _) = C6Sampling.sample(raw: base + 500_000, now: 11.0, lastRaw: base, lastTimestamp: 10.0)
-            expect(pct != nil, "C6: normal delta yields non-nil pct")
-            expectClose(pct ?? -1, 50.0, "C6: 500_000µs / 1s = 50%")
-            expect(lr == base + 500_000, "C6: normal delta advances lastRaw")
-            checks += 3
-        }
-
-        // Clamp upper: delta > elapsed → 100%
-        do {
-            let base: UInt64 = 1_000_000
-            // delta = 2_000_000µs over 1.0 s (1_000_000µs) → would be 200% → clamped to 100%
-            let (pct, _, _) = C6Sampling.sample(raw: base + 2_000_000, now: 11.0, lastRaw: base, lastTimestamp: 10.0)
-            expect(pct != nil, "C6: over-full delta yields non-nil pct")
-            expectClose(pct ?? -1, 100.0, "C6: delta > elapsed clamps to 100%")
-            checks += 2
-        }
-
-        // Non-positive elapsed (now <= lastTimestamp) → nil pct
-        do {
-            let (pct, _, _) = C6Sampling.sample(raw: 2_000_000, now: 10.0, lastRaw: 1_000_000, lastTimestamp: 10.0)
-            expect(pct == nil, "C6: zero elapsed yields nil pct")
-            checks += 1
-        }
-
         // MARK: AMDPowerPreset.snapEPP bucket edges
 
         // Below midpoint of [0, 85): snaps to 0
@@ -12992,6 +12936,7 @@ struct MetricsTests {
                 ("ClipboardHistoryWriteTests", ClipboardHistoryWriteTests.run),
                 ("NotchAgentTests", NotchAgentTests.run),
                 ("NotchMascotCheatsTests", NotchMascotCheatsTests.run),
+                ("HardwareLayerTests", HardwareLayerTests.run),
             ]
             for (name, run) in suites { suite.run(name) { run(suite) } }
             checks += suite.checks

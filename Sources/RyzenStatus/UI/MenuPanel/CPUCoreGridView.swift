@@ -142,6 +142,9 @@ public struct CPUCoreGridView: View {
                 }
             }
         }
+        // The residency dots are polled only while a grid is on screen.
+        .onAppear { C6ResidencyService.shared.startPolling() }
+        .onDisappear { C6ResidencyService.shared.stopPolling() }
     }
 
     // MARK: - Load (kext metric array, per logical thread)

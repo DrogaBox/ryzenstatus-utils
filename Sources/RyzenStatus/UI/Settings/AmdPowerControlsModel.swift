@@ -131,6 +131,10 @@ final class AmdPowerControlsModel: ObservableObject {
             let res = await ProcessorModel.shared.setCPPCEPPValue(epp: value)
             if res == ProcessorModel.kIOReturnNotPrivilegedCode {
                 self.privilegeWarning = "Root privileges required (-amdpnopchk) to set EPP."
+            } else if res == kIOReturnUnsupported {
+                // The kext would store the value and change nothing; say so
+                // instead of letting the picker look applied.
+                self.privilegeWarning = L10n.shared.amdPower.eppNotApplied
             }
         }
     }
@@ -177,11 +181,19 @@ final class AmdPowerControlsModel: ObservableObject {
 
     func setPState(_ pstate: Int) {
         guard !isSyncingFromKext else { return }
+        let previous = selectedPState
         selectedPState = pstate
         Task {
             let res = await ProcessorModel.shared.setPState(state: pstate)
+            guard res != KERN_SUCCESS else { return }
+            // A refused or ignored write must not stay shown as applied.
+            if self.selectedPState == pstate { self.selectedPState = previous }
             if res == ProcessorModel.kIOReturnNotPrivilegedCode {
                 self.privilegeWarning = "Root privileges required (-amdpnopchk) to lock P-State."
+            } else if res == kIOReturnUnsupported {
+                self.privilegeWarning = L10n.shared.amdPower.pstateNotApplied
+            } else {
+                self.privilegeWarning = ProcessorModel.privilegeHint(for: res)
             }
         }
     }

@@ -428,6 +428,7 @@ struct SensorsView: View {
             // Full monitor surface: register as a panel client (depth counter)
             // so opening/closing the menu popover cannot wipe these needs.
             SystemMonitor.shared.panelDidAppear()
+            smcDump.rediscoverKeys()
             smcDump.refresh()
             loadTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
                 Task { @MainActor in

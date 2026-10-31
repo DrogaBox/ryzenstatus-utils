@@ -22,7 +22,13 @@ struct SMCSensorReading: Identifiable {
 private final class SMCDumpReader: @unchecked Sendable {
     private var smcClient: SMCClient?
     private var keys: [SMCClient.Key] = []
-    private var lastKeyDiscovery = Date.distantPast
+    /// The key set does not change while the system runs, so it is listed
+    /// (two SMC calls per key) once each time the Sensors page opens.
+    private var needsDiscovery = true
+
+    func invalidateKeys() {
+        needsDiscovery = true
+    }
 
     func readAll() -> [SMCSensorReading] {
         if smcClient == nil {
@@ -30,10 +36,9 @@ private final class SMCDumpReader: @unchecked Sendable {
         }
         guard let smc = smcClient else { return [] }
 
-        let now = Date()
-        if keys.isEmpty || now.timeIntervalSince(lastKeyDiscovery) >= 30 {
+        if needsDiscovery || keys.isEmpty {
             keys = smc.keys { name in !name.isEmpty }
-            lastKeyDiscovery = now
+            needsDiscovery = false
         }
 
         var newReadings: [SMCSensorReading] = []
@@ -66,6 +71,13 @@ class SMCDumpService: ObservableObject {
     private var refreshInFlight = false
 
     private init() {}
+
+    /// Lists the SMC keys again on the next refresh. The Sensors page calls
+    /// this when it opens.
+    func rediscoverKeys() {
+        let reader = self.reader
+        workQueue.async { reader.invalidateKeys() }
+    }
 
     func refresh() {
         guard !refreshInFlight else { return }

@@ -105,6 +105,7 @@ if (( TEST )); then
     swiftc -Onone -num-threads 8 -target "$TARGET" -sdk "$SDK" \
         $(find Sources/RyzenStatus -name '*.swift' ! -name main.swift | sort) \
         Tests/Ported/*.swift \
+        Tests/HardwareLayerTests.swift \
         Tests/MetricsTests.swift \
         -o build/metrics-tests
     ./build/metrics-tests

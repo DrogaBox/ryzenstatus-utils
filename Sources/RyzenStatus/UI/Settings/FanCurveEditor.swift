@@ -46,9 +46,8 @@ struct InteractiveFanCurveEditor: View {
             let gpuTemp = kextGPUTemp > 0 ? kextGPUTemp : fallback
             if gpuTemp > 0 { return gpuTemp }
         }
-        if let packet = ProcessorModel.shared.getTelemetry(), packet.packageTempC > 0 {
-            return Double(packet.packageTempC)
-        }
+        // The fan poll's last reading: a SwiftUI body must not call the kext.
+        if let temp = controller.lastPackageTempC { return temp }
         return monitor.snapshot.cpuTemperature ?? 45.0
     }
 

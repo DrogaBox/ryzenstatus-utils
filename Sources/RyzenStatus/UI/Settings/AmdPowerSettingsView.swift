@@ -14,7 +14,6 @@ struct AmdPowerSettingsView: View {
     @State private var pmStatusIsError = false
     @State private var isLoading = false
     @ObservedObject private var gaming = GamingModeService.shared
-    @ObservedObject private var c6Service = C6ResidencyService.shared
 
     @ObservedObject private var autoEpp = AutoEppService.shared
     @ObservedObject private var presetCtrl = AmdPresetController.shared
@@ -435,6 +434,14 @@ struct AmdPowerSettingsView: View {
                         }
                         .padding(.vertical, 8)
                         .opacity(autoEpp.isActive || gaming.isActive ? 0.5 : 1.0)
+
+                        // Neither the picker, Auto EPP nor a preset's EPP
+                        // reaches the CPU while the kext ignores EPP writes.
+                        if !ProcessorModel.eppWritesTakeEffect {
+                            Label(l10n.amdPower.eppNotApplied, systemImage: "exclamationmark.triangle")
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                        }
                     } header: {
                         Text(l10n.amdPower.cppcSectionHeader)
                     } footer: {
@@ -577,21 +584,6 @@ struct AmdPowerSettingsView: View {
                                     .background(Capsule().fill(Color.secondary.opacity(0.12)))
                             }
                         }
-
-                        // Visual bar for C6 residency
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                RoundedRectangle(cornerRadius: 3)
-                                    .fill(Color.secondary.opacity(0.15))
-                                    .frame(height: 6)
-                                if c6Service.percentage > 0 {
-                                    RoundedRectangle(cornerRadius: 3)
-                                        .fill(c6Service.percentage > 10 ? Color.green : Color.orange)
-                                        .frame(width: max(2, geo.size.width * CGFloat(min(c6Service.percentage / 100.0, 1.0))), height: 6)
-                                }
-                            }
-                        }
-                        .frame(height: 6)
 
                         // S2-T4: kext-resolved runtime policy + NVRAM drift warning.
                         HStack {
@@ -896,19 +888,26 @@ struct AmdPowerSettingsView: View {
         panel.nameFieldStringValue = "pmtable_\(versionPart)_size\(controls.pmTableSizeBytes).bin"
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
-            let captured = ProcessorModel.shared.forcePMTableCapture()
-            guard captured == KERN_SUCCESS, let data = ProcessorModel.shared.getPMTableSnapshot() else {
-                pmStatusIsError = true
-                pmStatusMessage = "PM table capture failed"
-                return
-            }
-            do {
-                try data.write(to: url)
-                pmStatusIsError = false
-                pmStatusMessage = nil
-            } catch {
-                pmStatusIsError = true
-                pmStatusMessage = "Export failed"
+            Task { @MainActor in
+                // The forced capture waits for an SMU transfer behind the
+                // kext's locks: off the main thread, like every kext call.
+                let data: Data? = await Task.detached(priority: .userInitiated) {
+                    guard ProcessorModel.shared.forcePMTableCapture() == KERN_SUCCESS else { return nil }
+                    return ProcessorModel.shared.getPMTableSnapshot()
+                }.value
+                guard let data else {
+                    pmStatusIsError = true
+                    pmStatusMessage = "PM table capture failed"
+                    return
+                }
+                do {
+                    try data.write(to: url)
+                    pmStatusIsError = false
+                    pmStatusMessage = nil
+                } catch {
+                    pmStatusIsError = true
+                    pmStatusMessage = "Export failed"
+                }
             }
         }
     }

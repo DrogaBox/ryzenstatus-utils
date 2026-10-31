@@ -181,12 +181,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // One binding per feature: only available features are touched, so a
         // feature switched off in the hub never even instantiates here.
         FeatureRuntime.shared.syncAtLaunch()
-        // Start global AMD Auto EPP monitoring — runs continuously in the
-        // background so the CPU throttles down even when Settings are closed.
+        // Auto EPP runs in the background while it is on, so the CPU throttles
+        // down even when Settings are closed; it stays off while the kext
+        // ignores EPP writes.
         AutoEppService.shared.start()
-        // C6 residency sampling (kext selector 31) feeds the dashboard bar and
-        // the AMD settings page from one shared poller.
-        C6ResidencyService.shared.start()
         // Fans mapped to curves get them back now (the app hands every fan to
         // the BIOS when it quits), not when Settings › Fans is next opened.
         FanCurveController.startIfConfigured()

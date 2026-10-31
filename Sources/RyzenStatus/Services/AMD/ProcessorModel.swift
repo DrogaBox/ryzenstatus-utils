@@ -31,7 +31,7 @@ actor ProcessorModel {
     final class ConnectBox: @unchecked Sendable {
         private let lock = NSLock()
         private var _handle: io_connect_t = 0
-        /// Consecutive transport failures on a non-zero handle.
+        /// Consecutive suspect failures (`KextTransportHealth`) on a non-zero handle.
         private var _consecutiveFailures: Int = 0
 
         var handle: io_connect_t {
@@ -77,8 +77,8 @@ actor ProcessorModel {
         fileprivate func noteFailure() {
             if _consecutiveFailures < Int.max { _consecutiveFailures += 1 }
         }
-        /// True when the handle looks alive-but-dead: non-zero yet failing every
-        /// call. The watchdog uses this to force a reopen.
+        /// True when the handle may be alive-but-dead: non-zero yet failing
+        /// every call. The watchdog confirms it with a probe before reopening.
         var isLikelyStale: Bool {
             lock.lock(); defer { lock.unlock() }
             return _handle != 0 && _consecutiveFailures >= 5
@@ -132,16 +132,13 @@ actor ProcessorModel {
         return connectBox.withHandle { handle in
             if handle == 0 { return kIOReturnNoDevice }
             let kr = IOConnectCallMethod(handle, selector, scalarInput, scalarInputCount, structureInput, structureInputSize, scalarOutput, scalarOutputCount, structureOutput, structureOutputSize)
-            // Track consecutive transport-level failures so a
-            // stale-but-non-zero handle can be recovered by the watchdog.
-            // kIOReturnBadArgument and kIOReturnNotPrivileged are deliberately
-            // NOT counted: they are the kext's normal answers to a size or
-            // privilege mismatch and say nothing about port health. Counting
-            // them would cause spurious reconnects on unprivileged sessions.
+            // Count suspect failures so a stale-but-non-zero handle can be
+            // recovered by the watchdog, which probes before it reopens. A
+            // call on an open handle runs against a matched service; the
+            // watchdog's unload branch handles the service going away.
             if kr == KERN_SUCCESS {
                 connectBox.noteSuccess()
-            } else if kr == kIOReturnNoDevice || kr == kIOReturnNotResponding
-                        || kr == kIOReturnNotAttached {
+            } else if KextTransportHealth.isSuspectFailure(kr, serviceMatches: true) {
                 connectBox.noteFailure()
             }
             return kr
@@ -279,6 +276,13 @@ actor ProcessorModel {
             _cpuTemp = max(0, t)
             lock.unlock()
         }
+        func reset() {
+            lock.lock()
+            _cpuWatts = 0
+            _gpuWatts = 0
+            _cpuTemp = 0
+            lock.unlock()
+        }
     }
     nonisolated let powerCache = PowerCache()
 
@@ -290,29 +294,42 @@ actor ProcessorModel {
     final class PMTableBox: @unchecked Sendable {
         private let lock = NSLock()
         private var _decoded: AMDSmuPMTable.Decoded?
-        private var _ageMs: UInt64 = 0
+        /// When the kext captured `_decoded`, on the uptime clock (0 = none).
+        /// The age is worked out when a value is read, so a decode nobody
+        /// refreshed goes stale instead of keeping the age it was read with.
+        private var _capturedAtUptime: TimeInterval = 0
         var decoded: AMDSmuPMTable.Decoded? {
             lock.lock(); defer { lock.unlock() }; return _decoded
         }
-        var ageMs: UInt64 {
-            lock.lock(); defer { lock.unlock() }; return _ageMs
+        var capturedAtUptime: TimeInterval {
+            lock.lock(); defer { lock.unlock() }; return _capturedAtUptime
         }
-        func update(_ decoded: AMDSmuPMTable.Decoded?, ageMs: UInt64) {
+        func update(_ decoded: AMDSmuPMTable.Decoded?, capturedAtUptime: TimeInterval) {
             lock.lock()
             _decoded = decoded
-            _ageMs = ageMs
+            _capturedAtUptime = capturedAtUptime
             lock.unlock()
+        }
+        /// Snapshot age at `now` in ms; nil while nothing was captured.
+        func ageMs(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> UInt64? {
+            let captured = capturedAtUptime
+            guard captured > 0 else { return nil }
+            return UInt64(max(0, (now - captured) * 1000))
+        }
+        private var isFresh: Bool {
+            guard let age = ageMs() else { return false }
+            return AMDSmuPMTable.isFresh(ageMs: age)
         }
         /// Cached SMU-native socket power (SOCKET_POWER), valid only while
         /// the snapshot is fresh (kext timer alive). 0 when absent/stale.
         var freshSocketPowerW: Double {
-            guard let d = decoded, AMDSmuPMTable.isFresh(ageMs: ageMs) else { return 0 }
+            guard let d = decoded, isFresh else { return 0 }
             return max(0, Double(d.summary.socketPowerW))
         }
         /// Cached per-slot SMU effective clocks in MHz (index = table slot,
         /// value 0 for disabled slots). Empty when absent/stale.
         var freshCoreClocksMHz: [Int: Double] {
-            guard let d = decoded, AMDSmuPMTable.isFresh(ageMs: ageMs) else { return [:] }
+            guard let d = decoded, isFresh else { return [:] }
             var out: [Int: Double] = [:]
             for row in d.cores where row.isPresent { out[row.slot] = Double(row.freqMHz) }
             return out
@@ -542,6 +559,9 @@ actor ProcessorModel {
                     let wasConnected = self.connectBox.closeIfOpen()
                     if wasConnected {
                         self.terminationState.isTerminating = true
+                        // Awaited here, in the loop, so the clear cannot land
+                        // after a reload's _finishInit below.
+                        await self.forgetUnloadedKext()
                         NSLog("ProcessorModel: AMDRyzenCPUPowerManagement was unloaded!")
                         NotificationCenter.default.post(name: ProcessorModel.kextUnloadedNotification, object: nil)
                     }
@@ -558,8 +578,13 @@ actor ProcessorModel {
                     // matched, the handle stayed non-zero, isConnected stayed
                     // true, attemptReconnect() was never reached, and every
                     // selector failed forever with no recovery path.
-                    if self.connectBox.isLikelyStale {
-                        NSLog("ProcessorModel: handle appears stale (5+ consecutive failures); forcing reopen")
+                    // The count also includes the kext's ordinary "no device"
+                    // answers (a board without a Super I/O), so a call that
+                    // a live connection always answers decides; its success
+                    // resets the count. A failed reopen leaves the handle at
+                    // 0, which the branch below retries on every tick.
+                    if self.connectBox.isLikelyStale, !self.probeConnection() {
+                        NSLog("ProcessorModel: handle appears stale (5+ suspect failures, probe failed); forcing reopen")
                         self.connectBox.closeIfOpen()
                         if self.attemptReconnect() {
                             NSLog("ProcessorModel: stale-handle reconnect succeeded")
@@ -585,6 +610,32 @@ actor ProcessorModel {
     }
 
     private(set) var isKextAvailable: Bool = false
+
+    /// Forgets everything read from a kext that went away, so no view keeps
+    /// showing its last values; `_finishInit()` reads them again on reload.
+    private func forgetUnloadedKext() {
+        isKextAvailable = false
+        cachedMetric = []
+        numberOfCores = 0
+        cpuProfile = CPUProfile()
+        powerCache.reset()
+        pmTableBox.update(nil, capturedAtUptime: 0)
+        gpuCache.update(count: 0, temperatures: [], powers: [])
+        identityCache.reset()
+        favoriteThreadsCache.set([])
+    }
+
+    /// One call a live connection always answers: selector 8 (the version
+    /// string) fails only on a bad buffer, which this one is not.
+    nonisolated private func probeConnection() -> Bool {
+        var scalarOut: UInt64 = 0
+        var scalarOutCount: UInt32 = 0
+        var output = [CChar](repeating: 0, count: 64)
+        var outputSize = output.count
+        return safeIOConnectCallMethod(AMDKextSelector.kextVersion.id, nil, 0, nil, 0,
+                                       &scalarOut, &scalarOutCount,
+                                       &output, &outputSize) == KERN_SUCCESS
+    }
 
     /// Re-opens a user-client connection to a (re)loaded
     /// AMDRyzenCPUPowerManagement service. Called only from the detached
@@ -753,7 +804,8 @@ actor ProcessorModel {
     // MARK: - Kernel IOKit Calls
 
     nonisolated private func logKernelError(_ status: kern_return_t) {
-        if status != KERN_SUCCESS {
+        // The kext already logs every selector it does not implement.
+        if status != KERN_SUCCESS && status != kIOReturnUnsupported {
             NSLog("ProcessorModel: selector failed with %@", String(cString: mach_error_string(status)))
         }
     }
@@ -899,6 +951,11 @@ actor ProcessorModel {
 
         if res != KERN_SUCCESS {
             logKernelError(res)
+            // A failed read clears what it owns, so a stale value lasts at
+            // most one tick instead of staying on screen.
+            cachedMetric = []
+            powerCache.setCPU(0)
+            powerCache.setCPUTemp(0)
             return
         }
 
@@ -927,22 +984,21 @@ actor ProcessorModel {
         lastMLoad = ProcessInfo.processInfo.systemUptime
     }
 
-    /// Refresh the PM-table box from the kext's timer caches. All calls
-    /// Are cache-only; the decode is a few hundred float loads. The
-    /// box keeps the last good decode with its snapshot age, so a transient
-    /// IPC failure degrades to "stale" (freshness-gated) rather than
-    /// clearing the promoted values outright.
+    /// Refresh the PM-table box from the kext's timer caches: one selector
+    /// 56 call, then the chunks. The decode is a few hundred float loads.
+    /// A failed chunk read keeps the last good decode with its own capture
+    /// time, so a transient IPC failure ages into "stale" (freshness-gated)
+    /// rather than clearing the promoted values outright.
     nonisolated private func refreshPMTableBox() {
+        let now = ProcessInfo.processInfo.systemUptime
         guard let info = getPMTableInfo(), info.snapshotValid else {
-            pmTableBox.update(nil, ageMs: 0)
+            pmTableBox.update(nil, capturedAtUptime: 0)
             return
         }
-        guard let data = getPMTableSnapshot() else {
-            pmTableBox.update(pmTableBox.decoded, ageMs: info.snapshotAgeMs)
-            return
-        }
-        let decoded = AMDSmuPMTable.decode(version: info.versionRaw, data: data)
-        pmTableBox.update(decoded, ageMs: info.snapshotAgeMs)
+        let capturedAt = max(0.001, now - Double(info.snapshotAgeMs) / 1000)
+        guard let data = getPMTableSnapshot(info: info) else { return }
+        pmTableBox.update(AMDSmuPMTable.decode(version: info.versionRaw, data: data),
+                          capturedAtUptime: capturedAt)
     }
 
     private func loadLoadIndex() {
@@ -1153,10 +1209,37 @@ actor ProcessorModel {
         return o.count > 0 ? Int(o[0]) : 0
     }
 
+    /// Where a P-state write goes. One rule for `setPState(state:)` and
+    /// `getPState()`, so the table the UI shows and the write always agree.
+    enum PStateRoute: Equatable {
+        /// The 5-step table built by `loadPStateDefClock()`, mapped to CPB/LPM/PPM.
+        case emulated
+        /// Selector 10 on the hardware P-state MSRs.
+        case legacyMSR
+        /// The loaded profile forbids legacy P-states: the kext would ignore
+        /// selector 10 and still answer success.
+        case unsupported
+    }
+
+    nonisolated static func pStateRoute(isEmulating: Bool, profileKnown: Bool,
+                                        legacyAllowed: Bool) -> PStateRoute {
+        if isEmulating { return .emulated }
+        if profileKnown && !legacyAllowed { return .unsupported }
+        return .legacyMSR
+    }
+
+    private var pStateRoute: PStateRoute {
+        Self.pStateRoute(isEmulating: isEmulatingPStates,
+                         profileKnown: !cpuProfile.archName.isEmpty,
+                         legacyAllowed: cpuProfile.legacyPstateAllowed)
+    }
+
     @discardableResult
     func setPState(state : Int) -> kern_return_t {
-        // If we are in emulation mode (hardware reports only 1 P-state but we expose 5 in the GUI)
-        if PStateDef.count > 1 && (PStateDef[1] & 0x8000000000000000) == 0 {
+        switch pStateRoute {
+        case .unsupported:
+            return kIOReturnUnsupported
+        case .emulated:
             // Smart mapping to real hardware controls in Zen 3 — surface first privilege failure
             var status: kern_return_t = KERN_SUCCESS
             switch state {
@@ -1184,21 +1267,21 @@ actor ProcessorModel {
                 logKernelError(status)
             }
             return status
-        }
+        case .legacyMSR:
+            var input: [UInt64] = [UInt64(state)]
+            let res = safeIOConnectCallMethod( AMDKextSelector.pStateWrite.id, &input, 1, nil, 0,
+                                          nil, nil,
+                                          nil, nil)
 
-        var input: [UInt64] = [UInt64(state)]
-        let res = safeIOConnectCallMethod( AMDKextSelector.pStateWrite.id, &input, 1, nil, 0,
-                                      nil, nil,
-                                      nil, nil)
-
-        if res != KERN_SUCCESS {
-            logKernelError(res)
+            if res != KERN_SUCCESS {
+                logKernelError(res)
+            }
+            return res
         }
-        return res
     }
 
     func getPState() -> Int {
-        if PStateDef.count > 1 && (PStateDef[1] & 0x8000000000000000) == 0 {
+        if pStateRoute == .emulated {
             let lpm = getLPM()
             let cpb = getCPB() // devuelve [cpbSupported, cpbEnabled]
 
@@ -1226,12 +1309,28 @@ actor ProcessorModel {
         return (output[0] == 1, UInt8(output[1]))
     }
 
+    /// Whether the loaded kext programs the EPP it is sent. Its
+    /// `applyEPPControl()` is still a stub that only logs: selectors 24 and
+    /// 25 store the value and answer success with no effect on the CPU.
+    /// While this is false those writes are not sent and report
+    /// `kIOReturnUnsupported`, for every caller. Flip it in the release whose
+    /// kext implements `applyEPPControl()`.
+    nonisolated static let eppWritesTakeEffect = false
+
+    /// The status an EPP write (selector 24 or 25) answers without IPC, or nil
+    /// when it goes to the kext.
+    nonisolated static func eppWriteRefusal(writesTakeEffect: Bool) -> kern_return_t? {
+        writesTakeEffect ? nil : kIOReturnUnsupported
+    }
+
     nonisolated func setCPPCActiveMode(active: Bool) -> kern_return_t {
+        if let refusal = Self.eppWriteRefusal(writesTakeEffect: Self.eppWritesTakeEffect) { return refusal }
         var input: [UInt64] = [active ? 1 : 0]
         return safeIOConnectCallMethod( AMDKextSelector.cppcActiveMode.id, &input, 1, nil, 0, nil, nil, nil, nil)
     }
 
     func setCPPCEPPValue(epp: UInt8) -> kern_return_t {
+        if let refusal = Self.eppWriteRefusal(writesTakeEffect: Self.eppWritesTakeEffect) { return refusal }
         var input: [UInt64] = [UInt64(epp)]
         return safeIOConnectCallMethod( AMDKextSelector.eppValue.id, &input, 1, nil, 0, nil, nil, nil, nil)
     }
@@ -1326,27 +1425,6 @@ actor ProcessorModel {
     nonisolated func getInstructionDelta() -> [UInt64]{
         let o = kernelGetUInt64(count: 1, selector: AMDKextSelector.deltaInstructions.id)
         return o.count > 0 ? [o[0]] : [0]
-    }
-
-    func setPState(def : [UInt64]) -> Int{
-        if def.count != 8 {
-            return -1
-        }
-
-        var input: [UInt64] = def
-        let res = safeIOConnectCallMethod( AMDKextSelector.pStateManual.id, &input, 8, nil, 0,
-                                      nil, nil,
-                                      nil, nil)
-
-
-        if res != KERN_SUCCESS {
-            logKernelError(res)
-            return Int(res)
-        }
-
-        loadPStateDef()
-        loadPStateDefClock()
-        return 0
     }
 
     static func sysctlString(key : String) -> String {
@@ -1589,23 +1667,11 @@ actor ProcessorModel {
         ))
     }
 
-    nonisolated func getPackageC6Residency() -> UInt64 {
-        let o = kernelGetUInt64(count: 1, selector: AMDKextSelector.c6ResidencyPkg)
-        return o.first ?? 0
-    }
-
     /// Per-core C6 residency percentage (kext 1.20.0+, selector 32).
     /// One entry per logical core, 0–100. Empty array = kext without the
     /// selector (pre-3.34.2) or kext absent.
     nonisolated func getCoreC6Residency(logicalCores: Int = 64) -> [UInt16] {
         return kernelGetUInt16s(count: logicalCores, selector: AMDKextSelector.coreC6Residency.id)
-    }
-
-    /// Per-core instructions-retired delta (kext 1.20.0+, selector 33).
-    /// Units: instructions retired in the kext's last telemetry window, per
-    /// logical core. Divide by the window length × effFreq to derive IPC.
-    nonisolated func getCoreInstRetired(logicalCores: Int = 64) -> [UInt32] {
-        return kernelGetUInt32s(count: logicalCores, selector: AMDKextSelector.coreInstRetired.id)
     }
 
     /// UInt32 variant of the kernelGet* family. Same guard/clamp semantics as
@@ -1863,19 +1929,20 @@ actor ProcessorModel {
 
     // MARK: - SMC Fan Control
 
-    nonisolated func setFanMode(auto: Bool, fanIndex: Int = 0) -> Bool {
+    /// Returns the kext's own status, so callers can say why a write failed.
+    @discardableResult
+    nonisolated func setFanMode(auto: Bool, fanIndex: Int = 0) -> kern_return_t {
         if auto {
             // Selector 96 = setDefaultFanControl(fanSel)
-            let res = kernelSetUInt64Status(selector: AMDKextSelector.fanModeWrite, args: [UInt64(fanIndex)])
-            return res == KERN_SUCCESS
+            return kernelSetUInt64Status(selector: AMDKextSelector.fanModeWrite, args: [UInt64(fanIndex)])
         }
-        return true
+        return KERN_SUCCESS
     }
 
-    nonisolated func setFanSpeed(pwm: Int, fanIndex: Int = 0) -> Bool {
+    @discardableResult
+    nonisolated func setFanSpeed(pwm: Int, fanIndex: Int = 0) -> kern_return_t {
         // Selector 95 = overrideFanControl(fanSel, pwm)
-        let res = kernelSetUInt64Status(selector: AMDKextSelector.fanSpeedWrite, args: [UInt64(fanIndex), UInt64(pwm)])
-        return res == KERN_SUCCESS
+        kernelSetUInt64Status(selector: AMDKextSelector.fanSpeedWrite, args: [UInt64(fanIndex), UInt64(pwm)])
     }
 
     // MARK: - Kext Fan Curves (selectors 101/102)
@@ -2179,17 +2246,19 @@ actor ProcessorModel {
 
     // MARK: — SMU PM-table plumbing (selectors 56/57)
 
+    typealias PMTableInfo = (versionRaw: UInt32,
+                             versionPolled: Bool,
+                             sizeBytes: UInt32,
+                             dramBase: UInt64,
+                             snapshotValid: Bool,
+                             snapshotAgeMs: UInt64)
+
     /// Read the kext's PM-table info (selector 56): version word + polled
     /// flag, documented size for that version (0 = unknown — fail closed),
     /// physical base, snapshot validity and age. Cache only — no SMU
     /// Traffic. Returns nil on pre-1.30 kexts or when the connection
     /// is down.
-    nonisolated func getPMTableInfo() -> (versionRaw: UInt32,
-                                          versionPolled: Bool,
-                                          sizeBytes: UInt32,
-                                          dramBase: UInt64,
-                                          snapshotValid: Bool,
-                                          snapshotAgeMs: UInt64)? {
+    nonisolated func getPMTableInfo() -> PMTableInfo? {
         var output = [UInt64](repeating: 0, count: 8)
         var outputCount: UInt32 = 8
         let res = safeIOConnectCallMethod(AMDKextSelector.pmTableInfo.id, nil, 0, nil, 0,
@@ -2222,8 +2291,9 @@ actor ProcessorModel {
 
     /// Read the whole snapshot through chunked calls (selector 57 op 1).
     /// Stops when the kext reports fewer bytes than requested (end of table).
-    nonisolated func getPMTableSnapshot() -> Data? {
-        guard let info = getPMTableInfo(), info.snapshotValid, info.sizeBytes > 0 else { return nil }
+    /// `info` saves the selector 56 call when the caller just made it.
+    nonisolated func getPMTableSnapshot(info known: PMTableInfo? = nil) -> Data? {
+        guard let info = known ?? getPMTableInfo(), info.snapshotValid, info.sizeBytes > 0 else { return nil }
         var out = Data()
         let chunkSize = 4096
         var offset: UInt32 = 0
@@ -2283,10 +2353,43 @@ struct AMDPowerPresetApplyResult {
     }
 
     /// Localized, human-readable reason for the first failed component.
+    /// A privilege denial wins: it is the one the user can act on, and EPP,
+    /// first in line, answers `kIOReturnUnsupported` on every preset while
+    /// the kext ignores EPP writes.
     var firstFailureMessage: String? {
+        if privilegeDenied {
+            return ProcessorModel.privilegeHint(for: ProcessorModel.kIOReturnNotPrivilegedCode)
+        }
         for status in [epp, cpb, ppm, lpm] where status != KERN_SUCCESS {
             return ProcessorModel.privilegeHint(for: status)
         }
         return nil
+    }
+}
+
+/// Which IOConnectCallMethod results make the connection suspect. The
+/// watchdog acts only after five in a row, and only when a probe fails too,
+/// so a normal kext answer that shares a code never reopens a live handle.
+enum KextTransportHealth {
+    /// MACH_SEND_* failures: the message never reached the user client.
+    private static let machSendFailures: ClosedRange<kern_return_t> =
+        kern_return_t(MACH_SEND_INVALID_DATA)...0x1000_00FF
+
+    /// - Parameter serviceMatches: whether the kext service is still in the
+    ///   registry. `kIOReturnNoDevice` is the kext's ordinary "no such
+    ///   device" answer (a board without a Super I/O), and the app's own
+    ///   answer for a closed handle; it is suspect only while the service
+    ///   still matches.
+    static func isSuspectFailure(_ kr: kern_return_t, serviceMatches: Bool) -> Bool {
+        switch kr {
+        case kIOReturnNoDevice:
+            return serviceMatches
+        case kIOReturnNotReady, kIOReturnNotResponding, kIOReturnNotAttached,
+             kern_return_t(MIG_SERVER_DIED):
+            // NotReady: a user client whose provider has stopped.
+            return true
+        default:
+            return machSendFailures.contains(kr)
+        }
     }
 }

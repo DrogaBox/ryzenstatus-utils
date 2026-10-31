@@ -284,6 +284,15 @@ struct AmdControlSection: View {
                         }
                         .opacity(autoEpp.isActive || gaming.isActive ? 0.4 : 1.0)
 
+                        // The picker, Auto EPP and the presets' EPP do not
+                        // reach the CPU while the kext ignores EPP writes.
+                        if !ProcessorModel.eppWritesTakeEffect {
+                            Text(L10n.shared.amdPower.eppNotApplied)
+                                .font(.system(size: 9))
+                                .foregroundColor(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
                         if gaming.isActive {
                             Text(L10n.shared.amdPower.panelManagedByGamingMode)
                                 .font(.system(size: 9, weight: .medium))
