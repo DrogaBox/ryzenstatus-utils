@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.73.0] — 2026-10-31 — kexts 3.38.0 (No kext changes)
+
+This release is a full review of the app around the driver: fan and power writes run in order and report what really happened, the dashboards stop sampling when nobody is looking, and the island, the companions and Now Playing use less energy and work better with Reduce Motion, VoiceOver and a locked screen.
+
+### Added
+
+- **Repair permissions** (Settings > Advanced): after an update, macOS can leave the microphone, system audio, camera, calendars or Automation switched on but no longer working for the new version. This ties the permissions you already gave back to the installed version, without granting anything new. It needs Full Disk Access.
+- **GPU fan speed**: the speed your graphics card's driver reports for its fan now shows on the Sensors page and in the panel's GPU details. It cannot be set from macOS; the card's firmware runs it.
+
+### Fixed
+
+- **Manual fans stay manual**: a fan you set by hand no longer falls back to the BIOS curve after a curve upload or a reconnect, and it gets its duty back after one.
+- **Fan, power and overclocking writes run in order**: mode switches, manual duties, curves and fan mappings go through one ordered chain off the main thread, and so do PBO, cHTC, overclocking and Curve Optimizer writes. A write is never dropped because a sync was running, and every failure is reported and followed by a fresh read.
+- **Curve Optimizer**: Apply all and Reset write only the cores that differ from the last good readback, and a failed read shows "—" instead of zeros.
+- **Honest results**: EPP is no longer sent to a driver that ignores it, and the settings say so. P-state writes that are refused or ignored are reverted and reported.
+- **Fan curve editor**: points stay between their neighbours, unsaved edits and curves in use ask before they are thrown away, and a curve that was not saved says so.
+- **Process inspector**: Force Quit checks that it is still the same process before it acts, and says when the process could not be stopped. The path, the CPU reading and the description no longer show invented values, and the inspector is now translated.
+- **Missing values show "—"**: the dashboards no longer invent a CPU percentage, clocks, power or 16 GB of VRAM when a reading is missing.
+- **Hardware alerts**: the thermal and power alerts play their sound only when the island shows them, the power alert needs three readings in a row, and the fan stall alert can now fire.
+- **Now Playing**: scripts to the music apps run one at a time, lyrics and animated artwork no longer race, and the animated cover pauses when it cannot be seen. A leave reminder that could not show is tried again.
+- **The island opens smoothly**, without the small jump at the end.
+- **Companions**: saved progress and gold survive damaged or older preferences and are written at once when spent, and a display change that briefly leaves no screen no longer trips up a companion out on the desktop.
+
+### Changed
+
+- **Less work in the background**: the Settings pages, the dashboard and the panel's core grid sample only while they are on screen, and one shared 3 s driver poll serves all of them. Now Playing polling and the companions' background life pause while the screen is locked or asleep. Network rates use 64-bit counters.
+- **One process listing**: the process manager and the rankings share one `ps` run, and memory is the resident size everywhere.
+- **Reduce Motion and Low Power Mode**: the companions hold still, the animated cover and the title marquee stop, and the popup snaps instead of animating.
+- **Accessibility**: labels and values for the core rings, the AMD pickers, the column toggles, the charts and the fan curve points; the Now Playing popup has actions, and Esc closes the detached window.
+- **Collapsible sections open from their whole header**, not just the small arrow.
+- **Monitor intervals** are 1, 2 and 5 seconds; a shorter saved interval becomes 1 s.
+- **Translations**: the new and changed texts are in all 15 languages.
+
 ## [1.72.0] — 2026-10-31 — kexts 3.38.0
 
 This release makes the driver safer for every other app on the system and lets the CPU rest while nobody is watching. It also publishes the power of the CPU cores to other apps.
