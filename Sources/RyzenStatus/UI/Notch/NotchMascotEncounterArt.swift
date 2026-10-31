@@ -168,6 +168,66 @@ enum NotchMascotEncounterArt {
         NotchMascotPlayEffects.remove(head, after: duration + 0.1)
     }
 
+    // MARK: The rainbow
+
+    /// A rainbow standing on `center`, `radius` to its outer band, that
+    /// draws itself up from both feet, stays a while and fades, `duration`
+    /// in all.
+    static func rainbow(in parent: CALayer, center: CGPoint, radius: CGFloat, duration: TimeInterval) {
+        let colors: [UInt32] = [0xFF5A5A, 0xFF9F43, 0xFFD93D, 0x6BCB77, 0x4D96FF, 0x9B5DE5]
+        let band = max(4, radius * 0.045)
+        let bow = CALayer()
+        for (index, color) in colors.enumerated() {
+            let r = radius - CGFloat(index) * band
+            let arc = CGMutablePath()
+            arc.addArc(center: center, radius: r, startAngle: .pi, endAngle: 0, clockwise: true)
+            let layer = shape(arc, fill: nil, stroke: rgb(color, 0.7), width: band)
+            layer.strokeEnd = 1
+            layer.add(keyframes("strokeEnd", [0, 1, 1], times: [0, 0.25, 1], duration: duration), forKey: "draw")
+            bow.addSublayer(layer)
+        }
+        bow.add(keyframes("opacity", [0, 1, 1, 0], times: [0, 0.1, 0.75, 1], duration: duration), forKey: "fade")
+        parent.addSublayer(bow)
+        NotchMascotPlayEffects.remove(bow, after: duration + 0.1)
+    }
+
+    // MARK: The satellite
+
+    /// A little satellite `size` wide drifting from `start` to `end` over
+    /// `duration`: a gold body between two blue panels, its light blinking
+    /// and a ring of signal going out from its dish now and then.
+    static func satellite(in parent: CALayer, from start: CGPoint, to end: CGPoint, size: CGFloat, duration: TimeInterval) {
+        let craft = holder(at: start)
+        let unit = size / 10
+        let panel = rgb(0x3B6FD8)
+        for side in [-1.0, 1.0] as [CGFloat] {
+            let wing = CGRect(x: side < 0 ? -5 * unit : 1.6 * unit, y: -1.1 * unit, width: 3.4 * unit, height: 2.2 * unit)
+            craft.addSublayer(shape(CGPath(rect: wing, transform: nil), fill: panel, stroke: rgb(0x9CC2FF), width: 0.6))
+            let strut = CGRect(x: side < 0 ? -1.6 * unit : 1.0 * unit, y: -0.2 * unit, width: 0.6 * unit, height: 0.4 * unit)
+            craft.addSublayer(shape(CGPath(rect: strut, transform: nil), fill: rgb(0xB8BCC6)))
+        }
+        let body = CGPath(roundedRect: CGRect(x: -unit, y: -1.4 * unit, width: 2 * unit, height: 2.8 * unit),
+                          cornerWidth: 0.4 * unit, cornerHeight: 0.4 * unit, transform: nil)
+        craft.addSublayer(shape(body, fill: rgb(0xE8B64C), stroke: rgb(0x8A6420), width: 0.6))
+        craft.addSublayer(shape(ellipse(CGPoint(x: 0, y: 2.0 * unit), 1.1 * unit, 0.5 * unit), fill: rgb(0xDADDE3)))
+        let light = shape(ellipse(CGPoint(x: 0, y: -1.9 * unit), 0.45 * unit, 0.45 * unit), fill: rgb(0xFF5A5A))
+        light.shadowColor = rgb(0xFF5A5A)
+        light.shadowOpacity = 1
+        light.shadowRadius = 4
+        light.shadowOffset = .zero
+        light.add(keyframes("opacity", [1, 0.1, 1], times: [0, 0.5, 1], duration: 1, repeats: .infinity), forKey: "blink")
+        craft.addSublayer(light)
+        let ring = shape(ellipse(CGPoint(x: 0, y: 2.0 * unit), 2 * unit, 2 * unit), fill: nil, stroke: rgb(0x9CF2FF, 0.8), width: 1)
+        ring.add(keyframes("opacity", [0, 0.9, 0], times: [0, 0.2, 1], duration: 2.2, repeats: .infinity), forKey: "ping")
+        ring.add(keyframes("transform.scale", [0.4, 2.2], duration: 2.2, repeats: .infinity), forKey: "spread")
+        craft.addSublayer(ring)
+        craft.add(keyframes("position", points([start, end]), duration: duration), forKey: "drift")
+        craft.add(keyframes("transform.rotation.z", [-0.12, 0.12, -0.12], duration: duration), forKey: "tumble")
+        craft.position = end
+        parent.addSublayer(craft)
+        NotchMascotPlayEffects.remove(craft, after: duration + 0.1)
+    }
+
     // MARK: The saucer
 
     /// A flying saucer `size` across, flying through `stops` at `times`

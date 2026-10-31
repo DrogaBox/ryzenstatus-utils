@@ -6,7 +6,7 @@ import Foundation
 /// The families the combos are grouped in.
 enum SynergyCategory: Int, CaseIterable, Identifiable {
     case wonderBoy = 1, combat, magic, tavern, music, rogues, sciFi, twin, species, quests, curiosities, mascots, dance
-    case toys, legends
+    case toys, legends, signals
 
     var id: Int { rawValue }
 
@@ -27,6 +27,7 @@ enum SynergyCategory: Int, CaseIterable, Identifiable {
         case .dance: return "Ballet and stage dance"
         case .toys: return "Toys and luck"
         case .legends: return "Kitsune and Penguin"
+        case .signals: return "Hologram and Android"
         }
     }
 
@@ -47,6 +48,7 @@ enum SynergyCategory: Int, CaseIterable, Identifiable {
         case .dance: return "Ballet y danza escénica"
         case .toys: return "Juguetes y suerte"
         case .legends: return "Kitsune y Pingüino"
+        case .signals: return "Holograma y Androide"
         }
     }
 }
@@ -264,7 +266,7 @@ enum NotchMascotSynergyCatalog {
     }
 
     static let all: [NotchMascotSynergy] = wonderBoy + combat + magic + tavern + music + rogues + sciFi + twin
-        + species + quests + curiosities + mascots + dance + toys + legends
+        + species + quests + curiosities + mascots + dance + toys + legends + signals
 
     static var total: Int { all.count }
 
@@ -1474,5 +1476,98 @@ enum NotchMascotSynergyCatalog {
           "It shakes the snow globe and gazes at the little icy world inside.",
           "Agita la bola de nieve y contempla el mundito helado de adentro.",
           .styleWears(.penguin, .snowGlobe), .calm(.love, .relax, .sparkles, "HOME")),
+    ]
+
+    // MARK: Hologram and Android
+
+    private static let signals: [NotchMascotSynergy] = [
+        S(275, "signalAndSteel", .signals, "Signal and Steel", "Señal y acero",
+          "Light and metal fall into step, their clocks ticking as one.",
+          "La luz y el metal se acompasan, con los relojes latiendo a la vez.",
+          .styles(.hologram, .android), .calm(.perk, .relax, .magic, "SYNC")),
+        S(276, "mirrorFeed", .signals, "Mirror Feed", "Señal en espejo",
+          "Two holograms on the same channel wave at once, a beat apart.",
+          "Dos hologramas en el mismo canal saludan a la vez, con un pelín de retraso.",
+          .styles(.hologram, .hologram), .ritual(.wave, .wave, .sparkles, "ECHO")),
+        S(277, "firmwareUpdate", .signals, "Firmware Update", "Actualización",
+          "One android shares its newest patch, and both reboot a little smarter.",
+          "Un androide comparte su último parche y los dos reinician un poco más listos.",
+          .styles(.android, .android), .calm(.ready, .celebrate, .sparkles, "UPDATE")),
+        S(278, "projectorRepair", .signals, "Projector Repair", "El técnico",
+          "The robot tightens one bolt and the hologram comes through crystal clear.",
+          "El robot aprieta un tornillo y el holograma se ve nítido como nunca.",
+          .styles(.hologram, .robot), .give(.bolt, .love, .sparkles, "FIXED")),
+        S(279, "spectralCousins", .signals, "Spectral Cousins", "Primos espectrales",
+          "A ghost and a hologram compare who is harder to see through.",
+          "Un fantasma y un holograma comparan quién es más transparente.",
+          .styles(.hologram, .ghost), .calm(.surprised, .love, .smoke, "BOO?")),
+        S(280, "liveFeed", .signals, "Live Feed", "En directo",
+          "The chip streams the signal and the hologram dances to it.",
+          "El chip emite la señal y el holograma baila al ritmo.",
+          .styles(.hologram, .chip), .chorus(.spark, .groove, "STREAM")),
+        S(281, "generations", .signals, "Generations", "Generaciones",
+          "Old robot and new android trade beeps, each in its own dialect.",
+          "El robot de siempre y el androide nuevo se cruzan pitidos, cada uno en su dialecto.",
+          .styles(.android, .robot), .volley(.bolt, 2, .sparkles, "BEEP BOOP")),
+        S(282, "redline", .signals, "Redline", "A tope",
+          "The chip pushes the clocks and the android's gauge runs all the way up.",
+          "El chip sube las frecuencias y el medidor del androide se llena hasta arriba.",
+          .styles(.android, .chip), .ritual(.ready, .sweat, .smoke, "REDLINE")),
+        S(283, "coolingLoop", .signals, "Cooling Loop", "Refrigeración",
+          "The fan blows cool air over the android until it hums happily again.",
+          "El ventilador sopla aire fresco sobre el androide hasta que vuelve a ronronear.",
+          .styles(.android, .fan), .calm(.panic, .relax, .sparkles, "COOL")),
+        S(284, "synthwave", .signals, "Synthwave", "Synthwave",
+          "Headphones on, the hologram glows in time with the bassline.",
+          "Con los auriculares puestos, el holograma brilla al ritmo del bajo.",
+          .styleWears(.hologram, .headphones), .chorus(.note, .groove, "SYNTH")),
+        S(285, "lightShow", .signals, "Light Show", "Espectáculo de luces",
+          "The disco ball splits her light into a hundred dancing beams.",
+          "La bola de discoteca parte su luz en cien rayos que bailan.",
+          .styleWears(.hologram, .discoBall), .ritual(.groove, .celebrate, .confetti, "LASERS")),
+        S(286, "glitchedSelfie", .signals, "Glitched Selfie", "Selfi con glitch",
+          "Every photo of a hologram comes out a little scrambled, and she loves it.",
+          "Cada foto de un holograma sale un poco revuelta, y a ella le encanta.",
+          .styleWears(.hologram, .instantCamera), .ritual(.flash, .confused, .sparkles, "GLITCH")),
+        S(287, "doubleThrust", .signals, "Double Thrust", "Doble propulsión",
+          "Jetpack and hover jet together: the android has never flown so high.",
+          "Mochila cohete y chorro propio a la vez: el androide nunca voló tan alto.",
+          .styleWears(.android, .jetpack), .ritual(.ready, .celebrate, .smoke, "BOOST")),
+        S(288, "targetLock", .signals, "Target Lock", "Blanco fijado",
+          "The visor sweeps the room and locks onto the nearest friend.",
+          "El visor barre la sala y fija al amigo más cercano.",
+          .styleWears(.android, .laserVisor), .ritual(.peek, .ready, .sparkles, "LOCKED")),
+        S(289, "playerTwo", .signals, "Player Two", "Jugador dos",
+          "Controller in hand, the android challenges anyone to a rematch.",
+          "Mando en mano, el androide reta a cualquiera a la revancha.",
+          .styleWears(.android, .gameController), .volley(.ball, 3, .coins, "P2")),
+        S(290, "deepSpace", .signals, "Deep Space", "Espacio profundo",
+          "Antennae up, the hologram picks up a faint signal from very far away.",
+          "Con las antenas en alto, el holograma capta una señal débil desde muy lejos.",
+          .styleWears(.hologram, .alienAntenna), .calm(.peek, .surprised, .magic, "PING")),
+        S(291, "illusionists", .signals, "Illusionists", "Ilusionistas",
+          "A fox spirit and a girl of light trade tricks: which one is really there?",
+          "Un espíritu zorro y una chica de luz se cruzan trucos: ¿cuál está ahí de verdad?",
+          .styles(.hologram, .kitsune), .duel(.star, .magic, "ILLUSION")),
+        S(292, "coldBoot", .signals, "Cold Boot", "Arranque en frío",
+          "The penguin lends the android a little polar air, and it starts up first time.",
+          "El pingüino le presta un poco de aire polar al androide y arranca a la primera.",
+          .styles(.android, .penguin), .calm(.sweat, .relax, .sparkles, "COLD BOOT")),
+        S(293, "fetchProtocol", .signals, "Fetch Protocol", "Protocolo: buscar",
+          "The dog explains fetch; the android runs it a thousand times without a bug.",
+          "El perro explica cómo traer la pelota; el androide lo ejecuta mil veces sin un error.",
+          .styles(.android, .dog), .volley(.ball, 3, .confetti, "FETCH.EXE")),
+        S(294, "lightBallet", .signals, "Light Ballet", "Ballet de luz",
+          "The ballerina dances and the hologram copies every step in light.",
+          "La bailarina baila y el holograma copia cada paso hecho de luz.",
+          .styles(.hologram, .ballerina), .chorus(.note, .groove, "PAS DE DEUX")),
+        S(295, "powerSaving", .signals, "Power Saving", "Ahorro de energía",
+          "Beside the calmest capybara, even an android learns to idle.",
+          "Junto al carpincho más tranquilo, hasta un androide aprende a estar en reposo.",
+          .styles(.android, .capybara), .calm(.relax, .relax, .sparkles, "IDLE")),
+        S(296, "crystalProjection", .signals, "Crystal Projection", "Proyección de cristal",
+          "Light passes through the orb and the hologram sees what is to come.",
+          "La luz atraviesa la esfera y el holograma ve lo que está por venir.",
+          .styleWears(.hologram, .crystalOrb), .ritual(.peek, .surprised, .magic, "VISION")),
     ]
 }

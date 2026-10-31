@@ -530,6 +530,7 @@ enum NotchPresentationProbe {
         case previewNotice = "--preview-notice"
         case profileOnly = "--profile-only"
         case quickAccessClicks = "--quick-access-clicks"
+        case mascotGallery = "--mascot-gallery"
     }
 
     /// Any mode selects the probe on its own, so none of them falls through
@@ -552,6 +553,11 @@ enum NotchPresentationProbe {
                 previewNoticeAndExit(title: arguments[index + 1])
             case .profileOnly: runProfileAndExit()
             case .quickAccessClicks: runQuickAccessClicksAndExit()
+            case .mascotGallery:
+                guard arguments.indices.contains(index + 1) else {
+                    print("MASCOT GALLERY FAILED: --mascot-gallery needs a file"); exit(1)
+                }
+                mascotGalleryAndExit(to: arguments[index + 1])
             }
         }
         let app = NSApplication.shared

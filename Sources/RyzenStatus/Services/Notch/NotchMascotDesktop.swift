@@ -647,6 +647,11 @@ final class NotchMascotDesktop: NSObject {
         case .dockBoat: busy = dockBoat(on: canvas)
         case .trashCan: busy = trashCan(on: canvas)
         case .coffee: busy = coffee(on: canvas)
+        case .satellite: busy = satellite(on: canvas)
+        case .meteorShower: busy = meteorShower(on: canvas)
+        case .lostBalloon: busy = lostBalloon(on: canvas)
+        case .rainbow: busy = rainbow(on: canvas)
+        case .secretAdmirer: busy = secretAdmirer(on: canvas)
         }
         encounterStep(after: busy) { [weak self] in
             guard let self else { return }
@@ -1228,6 +1233,150 @@ final class NotchMascotDesktop: NSObject {
         }
         visitorsLeave = duration
         return min(duration, passes + 3)
+    }
+    /// A satellite drifts across the top of the screen, blinking. Most
+    /// watch it go and wave; a hologram flickers as its signal reaches her,
+    /// and an android beeps back and fills its gauge.
+    private func satellite(on canvas: CALayer) -> TimeInterval {
+        let area = self.area(for: body.position)
+        let fromLeft = Bool.random()
+        let fromX = fromLeft ? area.minX - 40 : area.maxX + 40
+        let toX = fromLeft ? area.maxX + 40 : area.minX - 40
+        let y = area.maxY - area.height * CGFloat.random(in: 0.08...0.18)
+        let duration: TimeInterval = 11
+        NotchMascotEncounterArt.satellite(in: canvas, from: onStage(CGPoint(x: fromX, y: y)), to: onStage(CGPoint(x: toX, y: y)),
+                                          size: max(26, size * 0.6), duration: duration)
+        let above = TimeInterval(abs(body.position.x - fromX) / abs(toX - fromX)) * duration
+        for at in stride(from: 0.8, to: duration, by: 2.2) {
+            NotchMascotSound.play(.bleep, pan: pan(fromX + (toX - fromX) * CGFloat(at / duration)), after: at)
+        }
+        let style = look.style
+        encounterStep(after: 0.6) { [weak self] in
+            self?.react(.peek)
+            self?.face(toward: fromX)
+        }
+        encounterStep(after: max(1.2, above - 0.6)) { [weak self] in
+            guard let self else { return }
+            self.face(toward: toX)
+            switch style {
+            case .hologram:
+                self.host?.mascot.phase(for: 1.2)
+                NotchMascotPlayEffects.burst(.sparkles, in: canvas, at: self.onStage(self.head), size: self.size, energy: self.energy)
+            case .android:
+                self.host?.mascot.charge(for: 2)
+                NotchMascotSound.play(.bleep, pan: self.pan(self.body.position.x), after: 0.3)
+                NotchMascotSound.play(.bleep, pan: self.pan(self.body.position.x), after: 0.6)
+            default:
+                self.react(.surprised)
+            }
+            self.occasionMarkerOnStage(style == .hologram || style == .android ? "PING!" : "?", canvas: canvas)
+        }
+        encounterStep(after: above + 1.6) { [weak self] in self?.react(.wave) }
+        visitorsLeave = duration
+        return min(duration, above + 3.2)
+    }
+    /// Star after star streaks over the top of the screen: it watches each
+    /// one, makes a wish, and its eyes shine.
+    private func meteorShower(on canvas: CALayer) -> TimeInterval {
+        let area = self.area(for: body.position)
+        let way: CGFloat = Bool.random() ? 1 : -1
+        for (index, at) in [0.2, 1.0, 1.5, 2.4, 2.8, 3.6].enumerated() {
+            let startX = area.minX + area.width * CGFloat.random(in: 0.1...0.9)
+            let start = CGPoint(x: startX, y: area.maxY - CGFloat.random(in: 10...60))
+            let end = CGPoint(x: startX + way * area.width * CGFloat.random(in: 0.2...0.35),
+                              y: start.y - area.height * CGFloat.random(in: 0.2...0.3))
+            later(at) { [weak self] in
+                guard let self else { return }
+                NotchMascotEncounterArt.shootingStar(in: canvas, from: self.onStage(start), to: self.onStage(end),
+                                                     duration: 0.9)
+                if index % 2 == 0 { NotchMascotSound.play(.magic, pan: self.pan(end.x), after: 0.7) }
+            }
+        }
+        encounterStep(after: 0.3) { [weak self] in self?.react(.perk) }
+        encounterStep(after: 1.4) { [weak self] in self?.react(.surprised) }
+        encounterStep(after: 3.0) { [weak self] in
+            guard let self else { return }
+            self.react(.love)
+            self.occasionMarkerOnStage("WISH!", canvas: canvas)
+        }
+        encounterStep(after: 4.6) { [weak self] in
+            guard let self else { return }
+            NotchMascotPlayEffects.float("✦", in: canvas, at: self.onStage(self.head), size: max(9, self.size * 0.22),
+                                         color: CGColor(srgbRed: 1, green: 0.88, blue: 0.4, alpha: 1), count: 4)
+        }
+        encounterStep(after: 6.6) { [weak self] in self?.react(.relax) }
+        return 7.6
+    }
+    /// A balloon somebody let go of drifts up past it: it jumps for the
+    /// string, misses, and waves it goodbye.
+    private func lostBalloon(on canvas: CALayer) -> TimeInterval {
+        let feet = body.position
+        let area = self.area(for: feet)
+        let side = roomier
+        let from = CGPoint(x: feet.x + side * size * 2.4, y: area.minY - 30)
+        let to = CGPoint(x: feet.x - side * size * 0.6, y: area.maxY + 60)
+        NotchMascotPlayEffects.fly(.balloon, in: canvas, from: onStage(from), to: onStage(to), duration: 6,
+                                   side: max(18, size * 0.45))
+        encounterStep(after: 0.6) { [weak self] in
+            self?.react(.perk)
+            self?.face(toward: from.x)
+        }
+        encounterStep(after: 1.8) { [weak self] in
+            guard let self else { return }
+            self.react(.bounce)
+            if self.perch == nil { self.hop(dx: side * 120, dy: 720) }
+        }
+        encounterStep(after: 3.0) { [weak self] in self?.react(.sweat) }
+        encounterStep(after: 4.4) { [weak self] in self?.react(.wave) }
+        visitorsLeave = 6
+        return 6.4
+    }
+    /// A rainbow arches over the screen and fades: it stares, and is glad.
+    private func rainbow(on canvas: CALayer) -> TimeInterval {
+        let area = self.area(for: body.position)
+        let span = min(area.width * 0.7, 900)
+        let center = CGPoint(x: min(area.maxX - span / 2, max(area.minX + span / 2, body.position.x)), y: area.minY)
+        NotchMascotEncounterArt.rainbow(in: canvas, center: onStage(center), radius: span / 2, duration: 6.5)
+        NotchMascotSound.play(.chime, pan: pan(center.x), after: 0.5)
+        encounterStep(after: 0.6) { [weak self] in self?.react(.surprised) }
+        encounterStep(after: 1.8) { [weak self] in
+            guard let self else { return }
+            self.react(.love)
+            NotchMascotPlayEffects.burst(.sparkles, in: canvas, at: self.onStage(self.head), size: self.size, energy: self.energy)
+        }
+        encounterStep(after: 4.0) { [weak self] in self?.sway(amplitude: 0.08, speed: 4, duration: 2) }
+        visitorsLeave = 6.5
+        return 6.8
+    }
+    /// A heart flies in from someone off the edge of the screen: it looks
+    /// round for who sent it, and blushes.
+    private func secretAdmirer(on canvas: CALayer) -> TimeInterval {
+        let area = self.area(for: body.position)
+        let fromRight = Bool.random()
+        let from = CGPoint(x: fromRight ? area.maxX + 30 : area.minX - 30, y: area.minY + area.height * 0.3)
+        later(0.4) { [weak self] in
+            guard let self else { return }
+            NotchMascotPlayEffects.fly(.heart, in: canvas, from: self.onStage(from), to: self.onStage(self.head),
+                                       duration: 1.6, side: max(14, self.size * 0.34))
+        }
+        encounterStep(after: 0.3) { [weak self] in self?.face(toward: from.x) }
+        encounterStep(after: 2.1) { [weak self] in
+            guard let self else { return }
+            self.react(.surprised)
+            NotchMascotPlayEffects.burst(.hearts, in: canvas, at: self.onStage(self.head), size: self.size, energy: self.energy)
+        }
+        encounterStep(after: 3.0) { [weak self] in
+            guard let self else { return }
+            self.react(.lookAround)
+            self.occasionMarkerOnStage("♥?", canvas: canvas)
+        }
+        encounterStep(after: 4.8) { [weak self] in self?.react(.love) }
+        return 6
+    }
+    /// An arcade marker over its head on the encounter's stage.
+    private func occasionMarkerOnStage(_ text: String, canvas: CALayer) {
+        NotchMascotPlayEffects.arcadeMarker(text, in: canvas, at: onStage(CGPoint(x: head.x, y: head.y + size * 0.35)),
+                                            cell: max(1.6, size * 0.05))
     }
     /// A waste bin waddles up and spits its paper round it; it throws each
     /// ball back in, and the bin goes off pleased.
@@ -2013,6 +2162,10 @@ final class NotchMascotDesktop: NSObject {
             NotchMascotOccasionArt.cake(in: canvas, x: onOccasion(CGPoint(x: onFloor(feet.x + side * size * 1.3), y: 0)).x,
                                         floor: onOccasion(CGPoint(x: 0, y: feet.y)).y, size: size * 0.7, duration: length)
             celebrate(on: canvas, for: length, fanfare: true)
+            // It knows how many you turn when it knows the year you were born.
+            if let age = NotchMascotSpecialDays.ageMarker(on: Date()) {
+                occasionStep(after: 3) { [weak self] in self?.occasionMarker(age) }
+            }
         case .halloween:
             length = 9
             NotchMascotOccasionArt.bats(in: canvas, area: onOccasionRect(area), count: 6, duration: 7)
@@ -2147,12 +2300,14 @@ final class NotchMascotDesktop: NSObject {
         finishOccasion(after: start + move.length)
     }
     /// The sound a move opens with: a chime on stage, a spell for the fox,
-    /// a honk for the penguin.
+    /// a honk for the penguin, a bleep for the hologram and a zap for the android.
     private static func cue(for move: NotchMascotSoloDance) -> NotchMascotSoundEffect {
         switch move {
         case .foxfire, .leafTrick: return .magic
         case .pounce: return .whoosh
         case .bellySlide, .flightAttempt, .pebbleGift: return .honk
+        case .phaseShift, .glitch, .greeting: return .bleep
+        case .scan, .boost, .recharge: return .zap
         default: return .chime
         }
     }
@@ -2379,6 +2534,85 @@ final class NotchMascotDesktop: NSObject {
                 self.react(.love)
                 NotchMascotPlayEffects.burst(.hearts, in: canvas, at: self.onOccasion(self.head), size: self.size,
                                              energy: self.energy)
+            }
+        case .phaseShift:
+            // The projection cuts out, and while it is dark she runs on; she
+            // lights up again further along.
+            mascot?.phase(for: 1.6)
+            NotchMascotPlayEffects.burst(.sparkles, in: canvas, at: onOccasion(head), size: size, energy: energy)
+            occasionStep(after: 0.4) { [weak self] in
+                guard let self else { return }
+                self.stroll(to: self.body.position.x + way * self.size * 3, pace: 4)
+            }
+            occasionStep(after: 1.6) { [weak self] in
+                guard let self else { return }
+                NotchMascotPlayEffects.burst(.sparkles, in: canvas, at: self.onOccasion(self.head), size: self.size,
+                                             energy: self.energy)
+                self.react(.perk)
+            }
+        case .glitch:
+            // A bad signal: she shakes, breaks up and comes back clear.
+            mascot?.phase(for: 0.9)
+            sway(amplitude: 0.12, speed: 60, duration: 0.9)
+            occasionStep(after: 0.5) { [weak self] in
+                guard let self else { return }
+                NotchMascotPlayEffects.burst(.magic, in: canvas, at: self.onOccasion(self.head), size: self.size,
+                                             energy: self.energy)
+                NotchMascotSound.play(.zap, pan: self.pan(self.body.position.x))
+            }
+            occasionStep(after: 1.3) { [weak self] in self?.react(.confused) }
+            occasionStep(after: 2.1) { [weak self] in self?.react(.love) }
+        case .greeting:
+            // A message for you: she waves, then sends a heart.
+            react(.wave)
+            occasionStep(after: 1.4) { [weak self] in
+                guard let self else { return }
+                NotchMascotPlayEffects.burst(.hearts, in: canvas, at: self.onOccasion(self.head), size: self.size,
+                                             energy: self.energy)
+                self.react(.love)
+            }
+        case .scan:
+            // It looks over the windows one way and the other, and finds
+            // everything in order.
+            react(.peek)
+            tilt(way * 0.25, for: 1.2)
+            occasionStep(after: 1.4) { [weak self] in
+                guard let self else { return }
+                self.tilt(-way * 0.25, for: 1.2)
+                NotchMascotSound.play(.bleep, pan: self.pan(self.body.position.x))
+            }
+            occasionStep(after: 2.8) { [weak self] in
+                guard let self else { return }
+                NotchMascotSound.play(.bleep, pan: self.pan(self.body.position.x))
+                self.occasionMarker("ALL OK")
+                self.react(.ready)
+            }
+        case .boost:
+            // Its jet flares, it shoots up and comes down soft.
+            react(.ready)
+            occasionStep(after: 0.4) { [weak self] in
+                guard let self else { return }
+                NotchMascotPlayEffects.magicSmoke(in: canvas, at: self.onOccasion(self.body.position), radius: self.size * 0.4,
+                                                  energy: self.energy, count: 6)
+                NotchMascotSound.play(.whoosh, pan: self.pan(self.body.position.x))
+                self.hop(dx: way * 160, dy: 1000)
+            }
+            occasionStep(after: 2.2) { [weak self] in self?.react(.celebrate) }
+        case .recharge:
+            // It powers down a moment while its gauge fills, cell by cell.
+            react(.relax)
+            mascot?.charge(for: 3.4)
+            for (index, at) in [0.9, 1.75, 2.6, 3.4].enumerated() {
+                occasionStep(after: at) { [weak self] in
+                    guard let self else { return }
+                    NotchMascotSound.play(.bleep, pan: self.pan(self.body.position.x))
+                    if index == 3 {
+                        self.occasionMarker("FULL!")
+                        NotchMascotPlayEffects.burst(.sparkles, in: canvas, at: self.onOccasion(self.head), size: self.size,
+                                                     energy: self.energy)
+                        self.react(.perk)
+                    }
+                }
             }
         }
     }

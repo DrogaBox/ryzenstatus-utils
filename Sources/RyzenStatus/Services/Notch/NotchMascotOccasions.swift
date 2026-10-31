@@ -246,6 +246,9 @@ enum NotchMascotSpecialDays {
         let parts = calendar.dateComponents([.month, .day], from: date)
         guard let month = parts.month, let day = parts.day else { return nil }
         if let birthday, birthday.month == month, birthday.day == day { return .birthday }
+        // Born on the 29th of February: the 28th in the years without one.
+        if birthday?.month == 2, birthday?.day == 29, month == 2, day == 28,
+           calendar.range(of: .day, in: .month, for: date)?.count == 28 { return .birthday }
         switch (month, day) {
         case (10, 31): return .halloween
         case (12, 24), (12, 25): return .christmas
@@ -255,22 +258,41 @@ enum NotchMascotSpecialDays {
         }
     }
 
-    /// The birthday kept as "MM-dd", if any.
+    /// The birthday kept, if any: "yyyy-MM-dd", the date you were born, or
+    /// "MM-dd" as kept before the year was asked for.
     static func birthday(from text: String?) -> DateComponents? {
         let parts = (text ?? "").split(separator: "-").compactMap { Int($0) }
-        guard parts.count == 2, (1...12).contains(parts[0]), (1...31).contains(parts[1]) else { return nil }
-        return DateComponents(month: parts[0], day: parts[1])
+        let (year, month, day): (Int?, Int, Int)
+        switch parts.count {
+        case 3: (year, month, day) = (parts[0], parts[1], parts[2])
+        case 2: (year, month, day) = (nil, parts[0], parts[1])
+        default: return nil
+        }
+        guard (1...12).contains(month), (1...31).contains(day) else { return nil }
+        return DateComponents(year: year, month: month, day: day)
     }
-    /// `date`'s month and day as a birthday is kept.
+    /// The date you were born as a birthday is kept.
     static func birthdayText(from date: Date, calendar: Calendar = .current) -> String {
-        let parts = calendar.dateComponents([.month, .day], from: date)
-        return String(format: "%02d-%02d", parts.month ?? 1, parts.day ?? 1)
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 2000, parts.month ?? 1, parts.day ?? 1)
     }
-    /// A date in this year on the birthday kept, for a date picker.
+    /// The date you were born, for a date picker; this year's when only the
+    /// day and month were kept.
     static func date(fromBirthday text: String, calendar: Calendar = .current) -> Date? {
         guard var parts = birthday(from: text) else { return nil }
-        parts.year = calendar.component(.year, from: Date())
+        if parts.year == nil { parts.year = calendar.component(.year, from: Date()) }
         return calendar.date(from: parts)
+    }
+    /// How many years you turn on `date`, when the year you were born is
+    /// kept and it is a believable age.
+    static func age(on date: Date, birthday: DateComponents?, calendar: Calendar = .current) -> Int? {
+        guard let born = birthday?.year else { return nil }
+        let age = calendar.component(.year, from: date) - born
+        return (1...130).contains(age) ? age : nil
+    }
+    /// The age turned today, as a marker: "30!".
+    static func ageMarker(on date: Date, defaults: UserDefaults = .standard) -> String? {
+        age(on: date, birthday: birthday(from: defaults.string(forKey: DefaultsKey.notchMascotBirthday))).map { "\($0)!" }
     }
     /// The first minutes of a new year, for the fireworks.
     static func isNewYearMidnight(_ date: Date, calendar: Calendar = .current) -> Bool {
@@ -294,6 +316,8 @@ enum NotchMascotSpecialDays {
         case .dragon: return "SQUEAK?"
         case .kitsune: return "OINK?"
         case .penguin: return "ROAR?"
+        case .hologram: return "MEOW?"
+        case .android: return "QUACK?"
         default: return "MOO?"
         }
     }
@@ -311,6 +335,9 @@ enum NotchMascotCraving: String, CaseIterable, Equatable {
         // Fried tofu in broth is what a fox spirit dreams of; ice for a penguin.
         if style == .kitsune, random < 0.5 { return .ramen }
         if style == .penguin, random < 0.5 { return .iceCream }
+        // A hologram gazes at the stars she was beamed past; an android runs on coffee.
+        if style == .hologram, random < 0.5 { return .moon }
+        if style == .android, random < 0.5 { return .coffee }
         switch hour {
         case 6..<11: return .coffee
         case 11..<15: return random < 0.5 ? .pizza : .ramen
@@ -551,7 +578,8 @@ enum NotchMascotLaser {
 }
 // MARK: - Dancing alone
 /// The moves the dancers make on their own, out on the desktop, and the
-/// routines of the kitsune and the penguin, played the same way.
+/// routines of the kitsune, the penguin, the hologram and the android,
+/// played the same way.
 enum NotchMascotSoloDance: String, CaseIterable, Equatable {
     // The swan.
     case bourree, portDeBras, dyingSwan
@@ -565,6 +593,10 @@ enum NotchMascotSoloDance: String, CaseIterable, Equatable {
     case foxfire, pounce, leafTrick
     // The penguin: a belly slide, a try at flying, and a pebble for you.
     case bellySlide, flightAttempt, pebbleGift
+    // The hologram: she cuts out and turns up further on, glitches, and waves hello.
+    case phaseShift, glitch, greeting
+    // The android: it scans the windows, fires its thrusters, and recharges.
+    case scan, boost, recharge
     /// At least this long between two, and the chance of one after.
     static let interval: TimeInterval = 4 * 60
     static let chance = 0.35
@@ -580,6 +612,8 @@ enum NotchMascotSoloDance: String, CaseIterable, Equatable {
         case .contemporary: return [.floorwork, .contractRelease, .fallRecovery, .handstand]
         case .kitsune: return [.foxfire, .pounce, .leafTrick]
         case .penguin: return [.bellySlide, .flightAttempt, .pebbleGift]
+        case .hologram: return [.phaseShift, .glitch, .greeting]
+        case .android: return [.scan, .boost, .recharge]
         default: return []
         }
     }
@@ -613,6 +647,12 @@ enum NotchMascotSoloDance: String, CaseIterable, Equatable {
         case .bellySlide: return "WHEEE!"
         case .flightAttempt: return "FLAP FLAP!"
         case .pebbleGift: return "FOR YOU ♥"
+        case .phaseShift: return "BLINK"
+        case .glitch: return "GLITCH!"
+        case .greeting: return "HELLO!"
+        case .scan: return "SCANNING..."
+        case .boost: return "BOOST!"
+        case .recharge: return "CHARGING"
         }
     }
     /// A great jump, which wants fresh rosin under the feet first.
@@ -634,6 +674,12 @@ enum NotchMascotSoloDance: String, CaseIterable, Equatable {
         case .leafTrick: return 3.6
         case .bellySlide: return 3.8
         case .pebbleGift: return 3.2
+        case .phaseShift: return 2.8
+        case .glitch: return 2.4
+        case .greeting: return 2.6
+        case .scan: return 4.4
+        case .boost: return 3.0
+        case .recharge: return 4.6
         }
     }
 }

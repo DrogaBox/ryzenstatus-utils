@@ -26,77 +26,77 @@ extension FeatureStrings {
             return .init(play: "Play", roshambo: "Rock, Paper, Scissors", rock: "Rock", paper: "Paper", scissors: "Scissors",
                          laser: "Laser Pointer", fishing: "Go Fishing", hideAndSeek: "Hide and Seek",
                          birthday: "Celebrate my birthday",
-                         birthdayHint: "On this day the companion throws you a little party.")
+                         birthdayHint: "Your date of birth: on the day, the companion throws you a little party and knows how old you turn.")
         case .ptBR:
             return .init(play: "Brincar", roshambo: "Pedra, papel e tesoura", rock: "Pedra", paper: "Papel", scissors: "Tesoura",
                          laser: "Ponteiro laser", fishing: "Ir pescar", hideAndSeek: "Esconde-esconde",
                          birthday: "Comemorar meu aniversário",
-                         birthdayHint: "Neste dia o companheiro faz uma festinha para você.")
+                         birthdayHint: "Sua data de nascimento: nesse dia o companheiro faz uma festinha e sabe quantos anos você completa.")
         case .tr:
             return .init(play: "Oyna", roshambo: "Taş, Kâğıt, Makas", rock: "Taş", paper: "Kâğıt", scissors: "Makas",
                          laser: "Lazer işaretçi", fishing: "Balığa çık", hideAndSeek: "Saklambaç",
                          birthday: "Doğum günümü kutla",
-                         birthdayHint: "Bu gün arkadaşın sana küçük bir parti verir.")
+                         birthdayHint: "Doğum tarihin: o gün arkadaşın sana küçük bir parti verir ve kaç yaşına girdiğini bilir.")
         case .ru:
             return .init(play: "Играть", roshambo: "Камень, ножницы, бумага", rock: "Камень", paper: "Бумага",
                          scissors: "Ножницы", laser: "Лазерная указка", fishing: "На рыбалку", hideAndSeek: "Прятки",
                          birthday: "Отмечать мой день рождения",
-                         birthdayHint: "В этот день компаньон устраивает для вас маленький праздник.")
+                         birthdayHint: "Дата вашего рождения: в этот день компаньон устраивает маленький праздник и знает, сколько вам исполняется.")
         case .es:
             return .init(play: "Jugar", roshambo: "Piedra, papel o tijera", rock: "Piedra", paper: "Papel", scissors: "Tijera",
                          laser: "Puntero láser", fishing: "Ir a pescar", hideAndSeek: "Escondite",
                          birthday: "Celebrar mi cumpleaños",
-                         birthdayHint: "Ese día el compañero te monta una pequeña fiesta.")
+                         birthdayHint: "Tu fecha de nacimiento: ese día el compañero te monta una pequeña fiesta y sabe cuántos cumples.")
         case .de:
             return .init(play: "Spielen", roshambo: "Schere, Stein, Papier", rock: "Stein", paper: "Papier", scissors: "Schere",
                          laser: "Laserpointer", fishing: "Angeln gehen", hideAndSeek: "Verstecken",
                          birthday: "Meinen Geburtstag feiern",
-                         birthdayHint: "An diesem Tag schmeißt der Begleiter dir eine kleine Party.")
+                         birthdayHint: "Dein Geburtsdatum: an dem Tag schmeißt der Begleiter dir eine kleine Party und weiß, wie alt du wirst.")
         case .fr:
             return .init(play: "Jouer", roshambo: "Pierre, feuille, ciseaux", rock: "Pierre", paper: "Feuille",
                          scissors: "Ciseaux", laser: "Pointeur laser", fishing: "Aller pêcher", hideAndSeek: "Cache-cache",
                          birthday: "Fêter mon anniversaire",
-                         birthdayHint: "Ce jour-là, le compagnon vous organise une petite fête.")
+                         birthdayHint: "Votre date de naissance : ce jour-là, le compagnon vous organise une petite fête et sait quel âge vous avez.")
         case .it:
             return .init(play: "Gioca", roshambo: "Sasso, carta, forbici", rock: "Sasso", paper: "Carta", scissors: "Forbici",
                          laser: "Puntatore laser", fishing: "Vai a pescare", hideAndSeek: "Nascondino",
                          birthday: "Festeggia il mio compleanno",
-                         birthdayHint: "Quel giorno il compagno ti organizza una piccola festa.")
+                         birthdayHint: "La tua data di nascita: quel giorno il compagno ti organizza una piccola festa e sa quanti anni compi.")
         case .ja:
             return .init(play: "遊ぶ", roshambo: "じゃんけん", rock: "グー", paper: "パー", scissors: "チョキ",
                          laser: "レーザーポインター", fishing: "釣りに行く", hideAndSeek: "かくれんぼ",
                          birthday: "誕生日を祝う",
-                         birthdayHint: "その日はコンパニオンが小さなパーティーを開いてくれます。")
+                         birthdayHint: "生年月日：その日はコンパニオンが小さなパーティーを開き、何歳になるかも知っています。")
         case .ko:
             return .init(play: "놀기", roshambo: "가위바위보", rock: "바위", paper: "보", scissors: "가위",
                          laser: "레이저 포인터", fishing: "낚시하기", hideAndSeek: "숨바꼭질",
                          birthday: "내 생일 축하하기",
-                         birthdayHint: "그날에는 동반자가 작은 파티를 열어 줍니다.")
+                         birthdayHint: "생년월일: 그날 동반자가 작은 파티를 열어 주고 몇 살이 되는지도 압니다.")
         case .zhHans:
             return .init(play: "玩耍", roshambo: "石头剪刀布", rock: "石头", paper: "布", scissors: "剪刀",
                          laser: "激光笔", fishing: "去钓鱼", hideAndSeek: "捉迷藏",
                          birthday: "庆祝我的生日",
-                         birthdayHint: "这一天伙伴会为你办一场小派对。")
+                         birthdayHint: "你的出生日期：这一天伙伴会为你办一场小派对，还知道你几岁了。")
         case .zhTW:
             return .init(play: "玩耍", roshambo: "剪刀石頭布", rock: "石頭", paper: "布", scissors: "剪刀",
                          laser: "雷射筆", fishing: "去釣魚", hideAndSeek: "捉迷藏",
                          birthday: "慶祝我的生日",
-                         birthdayHint: "這一天夥伴會為你辦一場小派對。")
+                         birthdayHint: "你的出生日期：這一天夥伴會為你辦一場小派對，還知道你幾歲了。")
         case .zhHK:
             return .init(play: "玩", roshambo: "包剪揼", rock: "揼", paper: "包", scissors: "剪",
                          laser: "激光筆", fishing: "去釣魚", hideAndSeek: "捉迷藏",
                          birthday: "慶祝我嘅生日",
-                         birthdayHint: "呢日夥伴會幫你搞個小派對。")
+                         birthdayHint: "你嘅出生日期：呢日夥伴會幫你搞個小派對，仲知道你幾多歲。")
         case .sk:
             return .init(play: "Hrať sa", roshambo: "Kameň, papier, nožnice", rock: "Kameň", paper: "Papier",
                          scissors: "Nožnice", laser: "Laserové ukazovadlo", fishing: "Ísť na ryby", hideAndSeek: "Schovávačka",
                          birthday: "Osláviť moje narodeniny",
-                         birthdayHint: "V tento deň ti spoločník pripraví malú oslavu.")
+                         birthdayHint: "Tvoj dátum narodenia: v ten deň ti spoločník pripraví malú oslavu a vie, koľko rokov oslavuješ.")
         case .uk:
             return .init(play: "Грати", roshambo: "Камінь, ножиці, папір", rock: "Камінь", paper: "Папір",
                          scissors: "Ножиці", laser: "Лазерна указка", fishing: "На риболовлю", hideAndSeek: "Хованки",
                          birthday: "Святкувати мій день народження",
-                         birthdayHint: "Цього дня компаньйон влаштовує для вас маленьке свято.")
+                         birthdayHint: "Дата вашого народження: цього дня компаньйон влаштовує маленьке свято і знає, скільки вам виповнюється.")
         }
     }
 }

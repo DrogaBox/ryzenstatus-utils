@@ -56,7 +56,7 @@ struct NotchMascotAutomationStrings {
         case .danseur: return L10n.shared.language == .es ? "Bailarín" : "Danseur"
         case .contemporary: return L10n.shared.language == .es ? "Contemporáneo" : "Contemporary"
         // Named in every language of the app.
-        case .kitsune, .penguin: return NotchMascotStyleNames.name(of: style, in: L10n.shared.language)
+        case .kitsune, .penguin, .hologram, .android: return NotchMascotStyleNames.name(of: style, in: L10n.shared.language)
         // Characters' own names, the same in every language.
         case .cristobal: return "Cristóbal"
         case .whiteRabbit: return "Conejo Blanco"
@@ -64,36 +64,40 @@ struct NotchMascotAutomationStrings {
     }
 }
 
-/// The names of the kitsune and the penguin in each language of the app.
+/// The names of the figures newer than the settings page, in each language
+/// of the app: the kitsune, the penguin, the hologram and the android.
 enum NotchMascotStyleNames {
-    static let named: [NotchMascotStyle] = [.kitsune, .penguin]
-
+    static let named: [NotchMascotStyle] = [.kitsune, .penguin, .hologram, .android]
     static func name(of style: NotchMascotStyle, in language: AppLanguage) -> String {
-        let names = pair(in: language)
-        return style == .penguin ? names.penguin : names.kitsune
+        let names = names(in: language)
+        switch style {
+        case .penguin: return names.penguin
+        case .hologram: return names.hologram
+        case .android: return names.android
+        default: return names.kitsune
+        }
     }
-
-    private static func pair(in language: AppLanguage) -> (kitsune: String, penguin: String) {
+    private static func names(in language: AppLanguage)
+        -> (kitsune: String, penguin: String, hologram: String, android: String) {
         switch language {
-        case .enUS: return ("Kitsune", "Penguin")
-        case .ptBR: return ("Kitsune", "Pinguim")
-        case .tr: return ("Kitsune", "Penguen")
-        case .ru: return ("Кицунэ", "Пингвин")
-        case .es: return ("Kitsune", "Pingüino")
-        case .de: return ("Kitsune", "Pinguin")
-        case .fr: return ("Kitsune", "Manchot")
-        case .it: return ("Kitsune", "Pinguino")
-        case .ja: return ("キツネ", "ペンギン")
-        case .ko: return ("키츠네", "펭귄")
-        case .zhHans: return ("狐仙", "企鹅")
-        case .zhTW: return ("狐仙", "企鵝")
-        case .zhHK: return ("狐仙", "企鵝")
-        case .sk: return ("Kitsune", "Tučniak")
-        case .uk: return ("Кіцуне", "Пінгвін")
+        case .enUS: return ("Kitsune", "Penguin", "Hologram", "Android")
+        case .ptBR: return ("Kitsune", "Pinguim", "Holograma", "Androide")
+        case .tr: return ("Kitsune", "Penguen", "Hologram", "Android")
+        case .ru: return ("Кицунэ", "Пингвин", "Голограмма", "Андроид")
+        case .es: return ("Kitsune", "Pingüino", "Holograma", "Androide")
+        case .de: return ("Kitsune", "Pinguin", "Hologramm", "Android")
+        case .fr: return ("Kitsune", "Manchot", "Hologramme", "Androïde")
+        case .it: return ("Kitsune", "Pinguino", "Ologramma", "Androide")
+        case .ja: return ("キツネ", "ペンギン", "ホログラム", "アンドロイド")
+        case .ko: return ("키츠네", "펭귄", "홀로그램", "안드로이드")
+        case .zhHans: return ("狐仙", "企鹅", "全息影像", "仿生人")
+        case .zhTW: return ("狐仙", "企鵝", "全像投影", "仿生人")
+        case .zhHK: return ("狐仙", "企鵝", "全息影像", "仿生人")
+        case .sk: return ("Kitsune", "Tučniak", "Hologram", "Android")
+        case .uk: return ("Кіцуне", "Пінгвін", "Голограма", "Андроїд")
         }
     }
 }
-
 extension FeatureStrings {
     static func notchMascotAutomation(_ language: AppLanguage) -> NotchMascotAutomationStrings {
         switch language {

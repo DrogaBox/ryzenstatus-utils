@@ -203,7 +203,7 @@ final class NotchMascotRig: NSObject {
         let headOutline = NotchMascotCreatures.headOutline(look.style, size: size)
         wearables.configure(accessory: look.accessory,
                             body: headOutline.map { CGPath(rect: $0, transform: nil) } ?? fillMask.path,
-                            face: look.face, size: size, scale: scale)
+                            face: look.face, neck: NotchMascotCreatures.neck(look.style), size: size, scale: scale)
         aura.configure(form: look.form, size: size, scale: scale, reduceMotion: reduceMotion)
         bodyFlash.frame = box
         bodyFlash.contentsScale = scale
@@ -1238,6 +1238,21 @@ final class NotchMascotRig: NSObject {
     func foxfire(for duration: TimeInterval) {
         guard !reduceMotion else { return }
         decor.foxfire(for: duration)
+    }
+    /// A hologram's projection cuts out for most of `duration` and comes
+    /// back, flickering both ways.
+    func phase(for duration: TimeInterval) {
+        guard !reduceMotion, duration > 0 else { return }
+        let cut = CAKeyframeAnimation(keyPath: "opacity")
+        cut.values = [1, 0.3, 0.9, 0, 0, 0.6, 0.2, 1]
+        cut.keyTimes = [0, 0.08, 0.14, 0.22, 0.76, 0.84, 0.9, 1]
+        cut.duration = duration
+        root.add(cut, forKey: "phase")
+    }
+    /// An android's gauge fills cell by cell over `duration`.
+    func charge(for duration: TimeInterval) {
+        guard !reduceMotion else { return }
+        decor.charge(for: duration)
     }
     /// Turns it upside down, or rights it again.
     func setUpsideDown(_ upsideDown: Bool) {

@@ -117,6 +117,17 @@ enum NotchMascotCreatures {
                                          eyeSize: CGSize(width: 0.055, height: 0.11),
                                          shineCenter: CGPoint(x: 0.40, y: 0.18), shineRadii: CGSize(width: 0.05, height: 0.03),
                                          shineAngle: -0.4)
+        case .hologram:
+            // Small eyes, seen through the band of her visor.
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.43, y: 0.307), rightEye: CGPoint(x: 0.57, y: 0.307),
+                                         eyeSize: CGSize(width: 0.05, height: 0.07),
+                                         shineCenter: CGPoint(x: 0.41, y: 0.19), shineRadii: CGSize(width: 0.04, height: 0.02),
+                                         shineAngle: -0.4)
+        case .android:
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.43, y: 0.28), rightEye: CGPoint(x: 0.57, y: 0.28),
+                                         eyeSize: CGSize(width: 0.055, height: 0.10),
+                                         shineCenter: CGPoint(x: 0.62, y: 0.17), shineRadii: CGSize(width: 0.03, height: 0.015),
+                                         shineAngle: -0.4)
         }
     }
 
@@ -145,6 +156,8 @@ enum NotchMascotCreatures {
         case .contemporary: return CGRect(x: 0.10, y: 0.08, width: 0.80, height: 0.88)
         case .kitsune: return CGRect(x: 0.06, y: 0.03, width: 0.92, height: 0.94)
         case .penguin: return CGRect(x: 0.04, y: 0.09, width: 0.92, height: 0.88)
+        case .hologram: return CGRect(x: 0.17, y: 0.04, width: 0.70, height: 0.95)
+        case .android: return CGRect(x: 0.18, y: 0.035, width: 0.64, height: 0.945)
         }
     }
 
@@ -174,6 +187,22 @@ enum NotchMascotCreatures {
         case .contemporary: return rect(0.30, 0.16, 0.40, 0.34, size)
         case .kitsune: return rect(0.20, 0.20, 0.60, 0.42, size)
         case .penguin: return rect(0.28, 0.10, 0.44, 0.34, size)
+        case .hologram: return rect(0.32, 0.11, 0.36, 0.33, size)
+        case .android: return rect(0.31, 0.10, 0.38, 0.32, size)
+        }
+    }
+
+    /// Where a scarf goes, from 0 to 1 down the figure, for those whose neck
+    /// is not just under the head outline nor well under the eyes: a cat that
+    /// is all head, a phoenix whose eyes sit low, a frog with no neck at all
+    /// and a swan with a long one.
+    static func neck(_ style: NotchMascotStyle) -> CGFloat? {
+        switch style {
+        case .cat: return 0.78
+        case .phoenix: return 0.6
+        case .frog: return 0.5
+        case .swan: return 0.4
+        default: return nil
         }
     }
 
@@ -350,6 +379,10 @@ enum NotchMascotCreatures {
             path.addCurve(to: point(0.24, 0.40), control1: point(0.20, 0.80), control2: point(0.20, 0.62))
             path.addCurve(to: point(0.50, 0.10), control1: point(0.26, 0.24), control2: point(0.34, 0.10))
             path.closeSubpath()
+        case .hologram:
+            path.addPath(hologramBody(size: size))
+        case .android:
+            path.addPath(androidBody(size: size))
         }
         return path
     }

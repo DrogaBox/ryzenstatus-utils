@@ -225,10 +225,11 @@ enum NotchMascotAbility: String, CaseIterable, Identifiable {
         switch style {
         case .cat: return .ceilingWalk
         case .chip, .robot, .phoenix, .dragon, .kitsune: return .fireballBreath
-        case .fan, .ghost, .devourer, .swan: return .glide
+        case .fan, .ghost, .devourer, .swan, .android: return .glide
         case .slime, .shifter, .axolotl, .frog: return .dolphinDive
         case .mouse, .penguin: return .dolphinDive
-        case .cristobal, .whiteRabbit, .dog, .capybara, .ballerina, .danseur, .contemporary: return .pepelogooSpringboard
+        case .cristobal, .whiteRabbit, .dog, .capybara, .ballerina, .danseur, .contemporary, .hologram:
+            return .pepelogooSpringboard
         case .minimal: return nil
         }
     }

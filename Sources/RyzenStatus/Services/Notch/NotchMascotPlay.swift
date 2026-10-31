@@ -317,6 +317,9 @@ enum NotchMascotPlay: Equatable {
         // Blue foxfire, and polar ice.
         case .kitsune: return Energy(red: 0.45, green: 0.82, blue: 1)
         case .penguin: return Energy(red: 0.7, green: 0.92, blue: 1)
+        // The visor's pink light, and the glow of a full load gauge.
+        case .hologram: return Energy(red: 1, green: 0.36, blue: 0.72)
+        case .android: return Energy(red: 1, green: 0.78, blue: 0.38)
         case .fan: return Energy(red: 0.35, green: 0.95, blue: 1)
         case .chip: return Energy(red: 1, green: 0.7, blue: 0.25)
         case .minimal: return Energy(red: 0.62, green: 0.8, blue: 1)
