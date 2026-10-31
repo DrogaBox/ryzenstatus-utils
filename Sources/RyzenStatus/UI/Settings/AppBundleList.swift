@@ -122,6 +122,7 @@ struct AppBundleList<Accessory: View>: View {
                         .monospacedDigit()
                 }
             }
+            .disclosureHeader(isExpanded: $isExpanded)
         }
         .sheet(isPresented: $showingAppPicker) {
             appPickerSheet

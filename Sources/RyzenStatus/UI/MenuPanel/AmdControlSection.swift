@@ -97,6 +97,7 @@ struct AmdControlSection: View {
                         Text(L10n.shared.amdPower.panelSmcFanControl)
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.secondary)
+                            .disclosureHeader(isExpanded: $showFansInAmdPower)
                     }
                     Divider().padding(.top, -6).padding(.bottom, -6)
                 }

@@ -73,6 +73,7 @@ struct QuitAllExceptionsList: View {
                         .monospacedDigit()
                 }
             }
+            .disclosureHeader(isExpanded: $isExpanded)
         }
         .sheet(isPresented: $showingAppPicker) {
             appPickerSheet

@@ -113,7 +113,7 @@ struct CommandBarSettings: View {
                 if secureInput.holder != .off {
                     SecureInputRow()
                 }
-                DisclosureGroup(FeatureStrings.recorder(l10n.language).moreOptions,
+                HeaderDisclosureGroup(FeatureStrings.recorder(l10n.language).moreOptions,
                                 isExpanded: $showsLayoutOptions) {
                     // Like compact mode this needs no callback: the bar reads
                     // the toggle on every open, so there is no live state to
@@ -185,7 +185,7 @@ struct CommandBarSettings: View {
                 } label: {
                     Label(text.filesAddFolder, systemImage: "plus")
                 }
-                DisclosureGroup(FeatureStrings.recorder(l10n.language).moreOptions,
+                HeaderDisclosureGroup(FeatureStrings.recorder(l10n.language).moreOptions,
                                 isExpanded: $showsFileOptions) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(text.filesIgnoreCaption)

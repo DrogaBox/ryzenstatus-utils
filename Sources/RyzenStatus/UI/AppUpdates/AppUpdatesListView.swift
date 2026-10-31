@@ -191,7 +191,7 @@ struct AppUpdatesListView: View {
     // MARK: - Rules
 
     private var rulesSection: some View {
-        DisclosureGroup(text.rulesTitle) {
+        HeaderDisclosureGroup(text.rulesTitle) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .top, spacing: 8) {
                     Text(text.rulesHint)

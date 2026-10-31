@@ -370,6 +370,7 @@ struct EnergySettings: View {
                 } label: {
                     Text(FeatureStrings.recorder(l10n.language).moreOptions)
                         .font(.subheadline.weight(.medium))
+                        .disclosureHeader(isExpanded: $brightnessOptionsExpanded)
                 }
             }
         }

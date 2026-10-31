@@ -782,7 +782,7 @@ struct CleanerView: View {
 
     private func groupRow(_ group: DisplayGroup) -> some View {
         let group_items = items(for: group)
-        return DisclosureGroup {
+        return HeaderDisclosureGroup {
             if group == .leftovers {
                 Text(l10n.s.cleanerLeftoversNote)
                     .font(.caption2)

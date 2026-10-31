@@ -215,6 +215,7 @@ struct SensorsView: View {
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
+                        .disclosureHeader(isExpanded: $cpuExpanded)
                     }
                 }
                 
@@ -266,7 +267,12 @@ struct SensorsView: View {
                                 SensorRow(name: "GPU Power", value: String(format: "%.1f W", power), icon: "bolt")
                             }
                         }
-                        
+                        // The card's own fan, as its driver reports it; it cannot be set from macOS.
+                        if let fan = monitor.snapshot.gpuFan, fan > 0 {
+                            SensorRow(name: FeatureStrings.notchCapsuleCenter(L10n.shared.language).fanSpeed,
+                                      value: String(format: "%.0f RPM", fan), icon: "fanblades")
+                        }
+
                         // Supplemental SMC TGxx sensors (Hotspot, VRAM, or fallback die)
                         ForEach(gpuSensors) { sensor in
                             SensorRow(name: sensorDisplayName(for: sensor.key), value: formatValue(sensor), icon: "thermometer.snowflake")
@@ -279,11 +285,13 @@ struct SensorsView: View {
                                 .font(.headline)
                             Spacer()
                             let kextCount = monitor.snapshot.gpuDevices.count
-                            let totalGpuCount = kextCount > 0 ? (kextCount + gpuSensors.count) : (gpuSensors.count + (monitor.snapshot.gpuTemperature != nil ? 1 : 0))
+                            let fanCount = (monitor.snapshot.gpuFan ?? 0) > 0 ? 1 : 0
+                            let totalGpuCount = fanCount + (kextCount > 0 ? (kextCount + gpuSensors.count) : (gpuSensors.count + (monitor.snapshot.gpuTemperature != nil ? 1 : 0)))
                             Text("\(totalGpuCount) items")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
+                        .disclosureHeader(isExpanded: $gpuExpanded)
                     }
                 }
                 
@@ -305,6 +313,7 @@ struct SensorsView: View {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
+                            .disclosureHeader(isExpanded: $disksExpanded)
                         }
                     }
                 }
@@ -327,6 +336,7 @@ struct SensorsView: View {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
+                            .disclosureHeader(isExpanded: $ramExpanded)
                         }
                     }
                 }
@@ -349,6 +359,7 @@ struct SensorsView: View {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
+                            .disclosureHeader(isExpanded: $fansExpanded)
                         }
                     }
                 }
@@ -377,6 +388,7 @@ struct SensorsView: View {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
+                            .disclosureHeader(isExpanded: $powerExpanded)
                         }
                     }
                 }
@@ -402,6 +414,7 @@ struct SensorsView: View {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
+                            .disclosureHeader(isExpanded: $systemExpanded)
                         }
                     }
                 }

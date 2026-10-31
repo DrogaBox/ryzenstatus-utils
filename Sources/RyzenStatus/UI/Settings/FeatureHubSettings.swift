@@ -305,7 +305,7 @@ struct FeatureHubSettings: View {
     /// click away in the list below.
     private var presetsCard: some View {
         SettingsCard {
-            DisclosureGroup(hub.presetsTitle, isExpanded: $presetsExpanded) {
+            HeaderDisclosureGroup(hub.presetsTitle, isExpanded: $presetsExpanded) {
                 if presetsExpanded {
                     HStack(alignment: .top, spacing: 10) {
                         ForEach(FeaturePreset.allCases) { preset in
@@ -352,7 +352,7 @@ struct FeatureHubSettings: View {
             FeatureHubRow(feature: .notch, hub: hub,
                           isHighlighted: highlightedFeature == .notch)
                 .id(AppFeature.notch)
-            DisclosureGroup(
+            HeaderDisclosureGroup(
                 FeatureStrings.notch(l10n.language).modules,
                 isExpanded: $islandExtensionsExpanded
             ) {
@@ -379,7 +379,7 @@ struct FeatureHubSettings: View {
         let members = AppFeature.features(in: group)
         let installed = members.filter(\.isAvailable).count
         return SettingsCard {
-            DisclosureGroup(isExpanded: Binding(
+            HeaderDisclosureGroup(isExpanded: Binding(
                 get: { expandedGroups.contains(group) },
                 set: { expanded in
                     if expanded { expandedGroups.insert(group) }

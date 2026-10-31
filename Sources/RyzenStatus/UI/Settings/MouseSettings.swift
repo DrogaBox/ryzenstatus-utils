@@ -392,6 +392,7 @@ struct MouseSettings: View {
                     } label: {
                         Text(mouseClickDebounceText.moreOptions)
                             .font(.subheadline.weight(.medium))
+                            .disclosureHeader(isExpanded: $smoothScrollMoreOptionsExpanded)
                     }
                     MouseExceptionsList(scope: .smoothScroll)
                 }

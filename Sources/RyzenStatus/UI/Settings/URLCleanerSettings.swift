@@ -58,7 +58,7 @@ struct URLCleanerSettings: View {
 
             Section(l10n.s.urlCleanerRulesTitle) {
                 ForEach(URLCleaning.ruleGroups(rules: rules)) { group in
-                    DisclosureGroup {
+                    HeaderDisclosureGroup {
                         parameterGrid(for: group)
                         addParameterRow(site: group.site)
                     } label: {
