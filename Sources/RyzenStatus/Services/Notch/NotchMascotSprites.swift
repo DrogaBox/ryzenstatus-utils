@@ -169,14 +169,10 @@ struct NotchMascotSpriteSigns: Equatable {
 }
 
 extension NotchMascotStyle {
-    /// The sheet a sprite companion is drawn from; nil for a drawn one.
-    var sprite: NotchMascotSpriteSheet? {
-        switch self {
-        case .cristobal: return .cristobal
-        case .whiteRabbit: return .whiteRabbit
-        default: return nil
-        }
-    }
+    /// The sheet a sprite companion is drawn from. None is any more: the
+    /// comic's two are drawn with shapes like the rest, so they take a
+    /// colour and wear items; the sheets stay for a figure that comes whole.
+    var sprite: NotchMascotSpriteSheet? { nil }
 
     /// Drawn with shapes, so the palette colours it.
     var takesPalette: Bool { sprite == nil }

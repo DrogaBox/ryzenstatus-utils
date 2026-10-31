@@ -15,7 +15,18 @@ enum NotchMascotCreatures {
 
     static func face(_ style: NotchMascotStyle) -> NotchMascotFaceLayout? {
         switch style {
-        case .minimal, .robot, .cristobal, .whiteRabbit: return nil
+        case .minimal, .robot: return nil
+        case .cristobal:
+            // Small eyes, behind his glasses.
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.428, y: 0.301), rightEye: CGPoint(x: 0.572, y: 0.301),
+                                         eyeSize: CGSize(width: 0.04, height: 0.055),
+                                         shineCenter: CGPoint(x: 0.39, y: 0.53), shineRadii: CGSize(width: 0.04, height: 0.02),
+                                         shineAngle: -0.4)
+        case .whiteRabbit:
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.44, y: 0.36), rightEye: CGPoint(x: 0.56, y: 0.36),
+                                         eyeSize: CGSize(width: 0.04, height: 0.06),
+                                         shineCenter: CGPoint(x: 0.41, y: 0.69), shineRadii: CGSize(width: 0.035, height: 0.018),
+                                         shineAngle: -0.4)
         case .chip:
             return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.39, y: 0.59), rightEye: CGPoint(x: 0.61, y: 0.59),
                                          eyeSize: CGSize(width: 0.085, height: 0.17),
@@ -135,7 +146,9 @@ enum NotchMascotCreatures {
     /// included, so it can be centred by what shows.
     static func bounds(_ style: NotchMascotStyle) -> CGRect? {
         switch style {
-        case .minimal, .robot, .cristobal, .whiteRabbit: return nil
+        case .minimal, .robot: return nil
+        case .cristobal: return CGRect(x: 0.29, y: 0.03, width: 0.58, height: 0.91)
+        case .whiteRabbit: return CGRect(x: 0.27, y: 0.0, width: 0.56, height: 0.91)
         case .chip: return CGRect(x: 0.09, y: 0.17, width: 0.82, height: 0.82)
         case .fan: return CGRect(x: 0.10, y: 0.18, width: 0.80, height: 0.80)
         case .cat: return CGRect(x: 0.06, y: 0.12, width: 0.94, height: 0.82)
@@ -166,7 +179,9 @@ enum NotchMascotCreatures {
     /// for the minimal companion and the robot.
     static func headOutline(_ style: NotchMascotStyle, size: CGFloat) -> CGRect? {
         switch style {
-        case .minimal, .robot, .cristobal, .whiteRabbit: return nil
+        case .minimal, .robot: return nil
+        case .cristobal: return rect(0.335, 0.10, 0.33, 0.36, size)
+        case .whiteRabbit: return rect(0.335, 0.215, 0.33, 0.29, size)
         case .chip: return rect(0.18, 0.26, 0.64, 0.64, size)
         case .fan: return rect(0.10, 0.18, 0.80, 0.80, size)
         case .cat: return rect(0.20, 0.24, 0.60, 0.40, size)
@@ -194,14 +209,15 @@ enum NotchMascotCreatures {
 
     /// Where a scarf goes, from 0 to 1 down the figure, for those whose neck
     /// is not just under the head outline nor well under the eyes: a cat that
-    /// is all head, a phoenix whose eyes sit low, a frog with no neck at all
-    /// and a swan with a long one.
+    /// is all head, a phoenix whose eyes sit low, a frog with no neck at all,
+    /// a swan with a long one and Cristóbal, whose stubble wants showing.
     static func neck(_ style: NotchMascotStyle) -> CGFloat? {
         switch style {
         case .cat: return 0.78
         case .phoenix: return 0.6
         case .frog: return 0.5
         case .swan: return 0.4
+        case .cristobal: return 0.465
         default: return nil
         }
     }
@@ -213,7 +229,7 @@ enum NotchMascotCreatures {
         func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
         let path = CGMutablePath()
         switch style {
-        case .minimal, .robot, .cristobal, .whiteRabbit: return nil
+        case .minimal, .robot: return nil
         case .chip:
             path.addRoundedRect(in: rect(0.18, 0.26, 0.64, 0.64, size), cornerWidth: 0.12 * size, cornerHeight: 0.12 * size)
         case .fan:
@@ -383,6 +399,10 @@ enum NotchMascotCreatures {
             path.addPath(hologramBody(size: size))
         case .android:
             path.addPath(androidBody(size: size))
+        case .cristobal:
+            path.addPath(cristobalJumper(size: size))
+        case .whiteRabbit:
+            path.addPath(rabbitApron(size: size))
         }
         return path
     }

@@ -161,6 +161,19 @@ public:
     static constexpr uint32_t kZEN_CUR_TEMP_TJ_SEL_MASK = 3u << 16;
     // SMN index/data pair in the root complex's configuration space.
     static constexpr uint8_t kSMN_INDEX_REGISTER = 0x60;
+
+    // SVI2 voltage telemetry (LibreHardwareMonitor Amd17Cpu.cs, zenpower):
+    // the SMU mirrors the VRM's serial-VID interface at SMN 0x5A000. 0x5A008
+    // holds the per-plane telemetry-function bits (bit 0 core plane off,
+    // bit 1 SoC plane off); the plane registers carry the requested VID in
+    // bits [23:16], 1.550 V - VID * 6.25 mV. Which plane register is core and
+    // which is SoC depends on the model (see probeSviTelemetry). Zen 4/5 use
+    // SVI3 with a different encoding, so they get no voltage from this path.
+    static constexpr uint32_t kF17H_M01H_SVI = 0x0005A000;
+    static constexpr uint32_t kF17H_M01H_SVI_TFN = kF17H_M01H_SVI + 0x8;
+    static constexpr uint32_t kSVI_TFN_CORE_PLANE_OFF = 1u << 0;
+    static constexpr uint32_t kSVI_TFN_SOC_PLANE_OFF = 1u << 1;
+
     static constexpr uint16_t kAMD_HOST_BRIDGE_VENDOR = 0x1022;
 
     // Per-CCD temperature registers live at 0x59800 + offset + 4 * ccd; the
@@ -207,16 +220,22 @@ public:
     virtual IOReturn setPowerState(unsigned long powerStateOrdinal, IOService* whatDevice) override;
 
     void fetchOEMBaseBoardInfo();
-    volatile SInt32 fanUpdateCounter = 0;
-    // Selector 94 needs its OWN counter. Sharing fanUpdateCounter with
-    // selector 93 was not merely a cadence quirk — it made 94's rate-limit gate
-    // unreachable. getFans() calls 93 then 94, so each pass consumes exactly two
-    // values and the parity each selector sees never changes. The counter starts
-    // at 0, OSIncrementAtomic returns the PRE-increment value, so 93 always reads
-    // an even value and 94 always reads an odd one — and `% 4 == 0` can only ever
-    // be true of an even value. updateFanControl() was therefore never called at
-    // all, from boot, which is why every fan reported pwm 0.
-    volatile SInt32 fanCtrlUpdateCounter = 0;
+
+    // Fan telemetry (tachometers + control mode) is re-read from the Super
+    // I/O at most once per kFAN_TELEMETRY_MIN_INTERVAL_MS, from the sensor
+    // timer and on demand by selectors 93/94; everything else (SMC fan keys,
+    // the selectors' output) is served from the driver's cache, so the port
+    // traffic stays bounded however many readers there are. The limit is the
+    // cadence SMCSuperIO polls at. Caller holds superIOLock.
+    static constexpr uint64_t kFAN_TELEMETRY_MIN_INTERVAL_MS = 1000;
+    uint64_t fanTelemetryLastMs {0};
+    void refreshFanTelemetryIfStale();
+
+    // Cached fan readings for the SMC plugin: each takes superIOLock briefly
+    // (the chip object can be replaced by a re-probe) and never touches the
+    // hardware. fanCount() is 0 without a detected chip.
+    int fanCount();
+    uint32_t fanRPM(int fan);
 
     bool read_msr(uint32_t addr, uint64_t *value);
     bool write_msr(uint32_t addr, uint64_t value);
@@ -245,7 +264,9 @@ public:
 
     void registerRequest();
 
-    void dumpPstate();
+    // canLog = false inside mp_rendezvous handlers: IOLog takes locks that an
+    // interrupted thread may hold, and every CPU is parked in the rendezvous.
+    void dumpPstate(bool canLog = true);
     void reinitHwState();
     void writePstate(const uint64_t *buf);
 
@@ -311,10 +332,6 @@ public:
     // PPT/TDC/EDC/scalar; negative return maps like setCurveOptimizer.
     int setPBOLimit(uint32_t smuCmd, uint32_t arg, uint32_t &cacheSlot);
 
-    // One RSMU read command polled from the main timer (no arg in,
-    // result arrives in the mailbox arg register after SMU_RSP_OK). Returns
-    // the raw result word, or 0 on failure / unsupported silicon.
-    uint32_t pollSmuRead(uint32_t smuCmd);
     // Refresh both boost-telemetry caches; throttled to one SMU round trip
     // per kSMU_BOOST_POLL_MIN_INTERVAL_MS (the main timer cadence is shorter).
     void pollBoostTelemetry();
@@ -335,12 +352,6 @@ public:
     // command 0x02, works on every mailbox). Returns the raw byte-packed
     // version word on OK, else 0. Timer command gate only.
     uint32_t pollSmuVersion();
-
-    // Read of the SMU's active PBO scalar (Vermeer RSMU 0x6C — response
-    // is an IEEE-754 float, unlike the 0x58 write encoding). Returns the raw
-    // word on OK, else 0. Rides the boost-telemetry throttle window; timer
-    // command gate only.
-    uint32_t pollSmuPBOScalar();
 
     // Enable/disable Vermeer OC mode (RSMU 0x5A / 0x5B, Arg0 0). Writes are
     // blocked under the same thermal interlock as the PBO/CO/cHTC paths. On
@@ -400,6 +411,20 @@ public:
 
     uint64_t instructionDelta_perCore[CPUInfo::MaxCpus] {};
     uint64_t lastInstructionDelta_perCore[CPUInfo::MaxCpus] {};
+
+    // Per-logical-CPU C0 residency from MPERF against the TSC: MPERF counts
+    // at the P0 reference rate only while the CPU is in C0, the TSC always,
+    // so dMPERF / dTSC over one sampling window is the share of time the CPU
+    // was running (Linux turbostat Busy%). Works on every Zen family and
+    // needs no PM-dispatch takeover, unlike the pmAMDRyzen idle accounting,
+    // which only runs where this driver owns the idle loop (Zen 1/2).
+    // idlePercent_perCpu[] = 100 - C0 share, refreshed from the main timer
+    // rendezvous; idleResidencySampled is set once a full window exists.
+    uint64_t lastMPERFResidency_perCpu[CPUInfo::MaxCpus] {};
+    uint64_t lastTSCResidency_perCpu[CPUInfo::MaxCpus] {};
+    uint8_t  idlePercent_perCpu[CPUInfo::MaxCpus] {};
+    bool     idleResidencySampled {false};
+    void updateC0Residency(uint32_t cpu_num);
 
     uint8_t PStateCur_perCore[CPUInfo::MaxCpus] {};
     uint8_t PStateCtl = 0;
@@ -466,6 +491,18 @@ public:
     // === Family 19h+ profiles: telemetry-only (macOS AMD Vanilla handles CPPC) ===
 
     // Model ranges follow Linux k10temp and ryzen_smu's codename table.
+    // Zen 3 Milan (EPYC 7003) and Chagall (Threadripper 5000, model 0x08)
+    static constexpr ZenCpuFeatureMap ZEN3_MILAN_PROFILE = {
+        0x19, 0x00, 0x0F, "Zen 3 Milan", 3,
+        true, false,
+        false, false
+    };
+    // Zen 4 Genoa (EPYC 9004) and Storm Peak (Threadripper 7000, model 0x18)
+    static constexpr ZenCpuFeatureMap ZEN4_GENOA_PROFILE = {
+        0x19, 0x10, 0x1F, "Zen 4 Genoa", 4,
+        true, false,
+        false, false
+    };
     // Zen 3 Vermeer (desktop)
     static constexpr ZenCpuFeatureMap ZEN3_VERMEER_PROFILE = {
         0x19, 0x21, 0x2F, "Zen 3 Vermeer", 3,
@@ -487,6 +524,12 @@ public:
     // Zen 4 (Raphael, Phoenix)
     static constexpr ZenCpuFeatureMap ZEN4_PROFILE = {
         0x19, 0x60, 0x7F, "Zen 4", 4,
+        true, false,
+        false, false
+    };
+    // Zen 4c Bergamo / Siena (EPYC 8004/97x4)
+    static constexpr ZenCpuFeatureMap ZEN4C_PROFILE = {
+        0x19, 0xA0, 0xAF, "Zen 4c", 4,
         true, false,
         false, false
     };
@@ -557,6 +600,29 @@ public:
     // nothing outside it touches GPU registers.
     uint32_t getGPUCount() { return gpuCount; }
     bool gpuSupportsPower(uint32_t index);
+
+    // SVI2 voltage telemetry, refreshed by the sensor timer every
+    // HF_TEMP_SAMPLE_PERIOD from three SMN reads (selector 59). Millivolts
+    // are decoded here from the VID so the app only formats; the raw words
+    // are kept beside them for diagnostics. supported is false on silicon
+    // whose plane layout is not in the reference tables (SVI3 parts).
+    struct SviTelemetry {
+        uint32_t coreReg;
+        uint32_t socReg;
+        bool     supported;
+    };
+    SviTelemetry svi{};
+    uint32_t sviTfnRaw {0};
+    uint32_t sviCoreRaw {0};
+    uint32_t sviSocRaw {0};
+    uint16_t sviCoreMillivolts {0};
+    uint16_t sviSocMillivolts {0};
+    bool     sviCoreValid {false};
+    bool     sviSocValid {false};
+    void probeSviTelemetry();
+    void updateSviTelemetry();
+    // Decodes one plane word; false when the plane is off or has no VID.
+    static bool sviDecodeMillivolts(uint32_t word, bool planeOff, uint16_t &millivolts);
 
     // Cached boost telemetry (Vermeer RSMU read commands 0x6E/0x59).
     // Refreshed from the main command-gate timer; 0 = unknown / never read
@@ -678,6 +744,10 @@ private:
     float tempOffset = 0;
     double pwrEnergyUnit = 0;
     uint64_t pwrLastTSC = 0;
+    // The first energy read after boot or wake only seeds the counter: a
+    // delta against 0 (or against a counter the SMU reset during S3) would
+    // publish one absurd wattage sample.
+    bool pwrEnergySeeded = false;
 
     uint64_t xnuTSCFreq = 1;
     int (*wrmsr_carefully)(uint32_t, uint32_t, uint32_t) {nullptr};
@@ -691,6 +761,12 @@ private:
     /// Set by resumeWorkLoop() on S3 wake. The main timer processes it on its
     /// first tick (workLoop thread) so reinitHwState() never runs on the PM thread.
     bool pendingReinit{false};
+    // S3 hands the cores back with firmware MSR values: the C-state policy
+    // and the IRPerf enable written at the first tick are gone, and the
+    // APERF/MPERF/IRPerf baselines describe counters that were reset.
+    // Runs the same per-core programming as the first tick, from the work
+    // loop, once the wake sequence has settled.
+    void reapplyPerCoreConfig();
 
     uint32_t smnRead32(uint32_t addr);
     void smnWrite32(uint32_t addr, uint32_t val);

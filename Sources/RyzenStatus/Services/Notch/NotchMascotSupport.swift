@@ -124,6 +124,8 @@ struct NotchMascotGait: Equatable {
         case .hologram: return NotchMascotGait(period: 0.26, bob: 0.07, rock: 0)
         // It glides: no steps at all, only a slow float up and down.
         case .android: return NotchMascotGait(period: 0.6, bob: 0.025, rock: 0)
+        // The White Rabbit hops along, always in a hurry.
+        case .whiteRabbit: return NotchMascotGait(period: 0.2, bob: 0.11, rock: 0)
         default: return .standard
         }
     }

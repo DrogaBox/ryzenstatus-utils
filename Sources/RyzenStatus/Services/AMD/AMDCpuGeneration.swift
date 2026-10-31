@@ -15,16 +15,22 @@ enum AMDCpuGeneration: Equatable {
     case zen4
     case zen5
 
-    /// Classification ranges (Family 0x19):
-    /// - Zen 3:      model 0x01–0x5F (Vermeer 0x21, Cezanne 0x50, …)
-    /// - Zen 4:      model 0x60–0x7F (Raphael 0x61, Phoenix 0x74, …)
-    /// - Zen 5:      model ≥ 0x90 (Granite Ridge 0xA0+, Strix Point family 0x1A)
+    /// Classification ranges (family 0x19, the same table as the kext's CPU
+    /// profiles and Linux k10temp):
+    /// - Zen 3: model 0x00–0x0F (Milan, Chagall), 0x20–0x5F (Vermeer 0x21,
+    ///   Rembrandt 0x44, Cezanne 0x50, …)
+    /// - Zen 4: model 0x10–0x1F (Genoa, Storm Peak), 0x60–0x7F (Raphael 0x61,
+    ///   Phoenix 0x74, …), 0xA0–0xAF (Bergamo, Siena: Zen 4c)
+    /// - Zen 5: family 0x1A (Granite Ridge 0x44, Strix Point 0x24, …); family
+    ///   0x19 has no Zen 5 part.
     static func classify(family: Int, model: Int) -> AMDCpuGeneration {
         guard family == 0x19 else {
             return family >= 0x1A ? .zen5 : .zen2AndOlder
         }
-        if model >= 0x90 { return .zen5 }
-        if model >= 0x60 && model <= 0x7F { return .zen4 }
+        if (0x10...0x1F).contains(model) || (0x60...0x7F).contains(model)
+            || (0xA0...0xAF).contains(model) {
+            return .zen4
+        }
         return .zen3
     }
 

@@ -73,7 +73,10 @@ enum AMDKextSelector: UInt32, CaseIterable {
 
     /// C6 residency percentage (package-level).
     case c6Residency       = 31
-    /// Per-core C6 residency %% — one UInt16 (0…100) per logical core (kext 1.20.0+).
+    /// Per-core idle residency %% — one UInt16 (0…100) per logical core
+    /// (kext 1.20.0+). Since kext 3.36.0 it is 100 minus the CPU's C0 share
+    /// (MPERF against the TSC), live on every Zen generation; older kexts
+    /// only filled it where the driver owns the idle loop (Zen 1/2).
     case coreC6Residency   = 32
     /// Per-core instructions-retired delta — one UInt32 per logical core (kext 1.20.0+).
     case coreInstRetired   = 33
@@ -190,6 +193,14 @@ enum AMDKextSelector: UInt32, CaseIterable {
     /// Privileged: adds SMU mailbox traffic on demand (same policy as 57 op 2).
     /// Unsupported on pre-3.34.13 kexts.
     case smuDiagnostics = 58
+    /// Read-only SVI2 voltage telemetry (kext 3.36.0+): [0] = 1 when the
+    /// silicon has a known SVI2 plane layout (family 17h, family 19h up to
+    /// model 0x5F; 0 on the SVI3 Zen 4/5 parts, where every other field is
+    /// 0), [1] = core reading trusted, [2] = core voltage in mV, [3] = SoC
+    /// reading trusted, [4] = SoC voltage in mV, [5..7] = raw TFN / core /
+    /// SoC plane words. Cache only, refreshed by the kext's sensor timer.
+    /// Unsupported on pre-3.36.0 kexts.
+    case sviVoltage = 59
 
     // MARK: — Fan Control (via SuperIO)
 

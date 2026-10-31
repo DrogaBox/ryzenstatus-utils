@@ -19,8 +19,18 @@ enum Shell {
         -> (status: Int32, output: String) {
         let result = BoundedProcessRunner.run(path, args,
                                               timeout: timeout,
-                                              maxOutputBytes: maxOutputBytes)
+                                              maxOutputBytes: maxOutputBytes,
+                                              environment: parsingEnvironment)
         return (result.status, String(decoding: result.output, as: UTF8.self))
+    }
+
+    /// The app's environment in the C locale. Every caller parses what the
+    /// tool prints, and under a Spanish or German locale `ps` writes "98,7"
+    /// for 98.7, which reads as zero: every process at 0% in pid order.
+    static var parsingEnvironment: [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["LC_ALL"] = "C"
+        return environment
     }
 }
 

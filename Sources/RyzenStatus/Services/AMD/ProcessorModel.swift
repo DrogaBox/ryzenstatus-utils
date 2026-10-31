@@ -1629,6 +1629,21 @@ actor ProcessorModel {
         return Array(output.prefix(valid))
     }
 
+    /// SVI2 core / SoC voltages (kext 3.36.0+, selector 59). Nil when the
+    /// kext predates the selector, the connection is down, or this silicon
+    /// has no SVI2 layout (Zen 4/5). A plane the kext does not trust is nil
+    /// inside the tuple.
+    nonisolated func getSviVoltages() -> (coreVolts: Double?, socVolts: Double?)? {
+        var output = [UInt64](repeating: 0, count: 8)
+        var outputCount: UInt32 = 8
+        let res = safeIOConnectCallMethod(AMDKextSelector.sviVoltage.id, nil, 0, nil, 0,
+                                          &output, &outputCount, nil, nil)
+        guard res == KERN_SUCCESS, outputCount >= 5, output[0] == 1 else { return nil }
+        let core: Double? = output[1] == 1 ? Double(output[2]) / 1000.0 : nil
+        let soc: Double? = output[3] == 1 ? Double(output[4]) / 1000.0 : nil
+        return (core, soc)
+    }
+
     /// Reads the zero-copy telemetry packet (selector 100) — a packed
     /// `CPUSensorPacket` of exactly 304 bytes. Returns nil when the kext does
     /// not answer or the buffer comes back short.

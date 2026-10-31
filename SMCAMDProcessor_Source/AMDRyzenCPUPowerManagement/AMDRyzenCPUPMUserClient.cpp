@@ -995,10 +995,15 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // Per-CPU idle residency (%), one UInt16 per logical CPU: the share of
-        // the decayed pmRyzen accounting window spent in the idle loop
-        // (pmAMDRyzen.c eff_idleaccd / eff_timeaccd). It counts idle time, not
-        // a hardware C6 counter. Read-only; the counters are per-CPU.
+        // Per-CPU idle residency (%), one UInt16 per logical CPU. Since kext
+        // 3.36.0 the figure is 100 - C0 share, measured as MPERF against the
+        // TSC over the last main-timer window (idlePercent_perCpu), which
+        // works on every Zen family. Before, and as a fallback until the
+        // first window closes, it is the share of the pmRyzen accounting
+        // window spent in the idle loop (pmAMDRyzen.c eff_idleaccd /
+        // eff_timeaccd), which only counts where this driver owns the idle
+        // loop (Zen 1/2). Neither is a hardware C6 counter: idle here is any
+        // non-C0 state. Read-only; the counters are per-CPU.
         case 32: {
             arguments->scalarOutputCount = 0;
             uint32_t n = pmRyzen_num_logi;
@@ -1017,13 +1022,41 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             UInt16 *dataOut = (UInt16*) arguments->structureOutput;
             uint32_t copyCount = (maxLen / sizeof(UInt16) < n) ? (maxLen / sizeof(UInt16)) : n;
 
+            const bool mperfReady = provider->idleResidencySampled;
             for (uint32_t c = 0; c < copyCount; c++) {
+                if (mperfReady && c < CPUInfo::MaxCpus) {
+                    dataOut[c] = provider->idlePercent_perCpu[c];
+                    continue;
+                }
                 pmProcessor_t *p = pmRyzen_get_processor(c);
                 if (!p) { dataOut[c] = 0; continue; }
                 uint64_t idle = p->eff_idleaccd;
                 uint64_t tot  = p->eff_timeaccd;
                 dataOut[c] = (tot > 0) ? (UInt16)((idle * 100) / tot) : 0;
             }
+            break;
+        }
+
+        // SVI2 voltage telemetry (read-only, no privilege, kext 3.36.0+):
+        // [0] = 1 when this silicon has a known SVI2 plane layout (family
+        //       17h, family 19h up to model 0x5F); 0 on SVI3 parts (Zen 4/5),
+        //       where every other field is 0,
+        // [1] = core plane reading trusted, [2] = core voltage in mV,
+        // [3] = SoC plane reading trusted,  [4] = SoC voltage in mV,
+        // [5] = raw TFN word (SMN 0x5A008), [6] = raw core plane word,
+        // [7] = raw SoC plane word.
+        // Served from the sensor timer's cache: no SMN traffic on the
+        // caller's thread.
+        case 59: {
+            arguments->scalarOutputCount = 8;
+            arguments->scalarOutput[0] = provider->svi.supported ? 1 : 0;
+            arguments->scalarOutput[1] = provider->sviCoreValid ? 1 : 0;
+            arguments->scalarOutput[2] = provider->sviCoreValid ? provider->sviCoreMillivolts : 0;
+            arguments->scalarOutput[3] = provider->sviSocValid ? 1 : 0;
+            arguments->scalarOutput[4] = provider->sviSocValid ? provider->sviSocMillivolts : 0;
+            arguments->scalarOutput[5] = provider->sviTfnRaw;
+            arguments->scalarOutput[6] = provider->sviCoreRaw;
+            arguments->scalarOutput[7] = provider->sviSocRaw;
             break;
         }
 
@@ -1084,11 +1117,14 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
         //Try load SMC driver
         case 90: {
-            // The probe itself stays unprivileged so the read-only
-            // fan list keeps working, but clearing the NCT67XX I/O-space lock
-            // or writing the IT86XXE 16-bit counter register is reserved for
-            // privileged callers — hasPrivilege(90, true) checks quietly so
-            // unprivileged monitoring does not spam DENIED in the kernel log.
+            // Since kext 3.36.0 the provider probes the Super I/O at start, so
+            // this normally returns the chip it already drives. The re-probe
+            // below only runs when that probe found nothing; it stays
+            // unprivileged so the read-only fan list keeps working, but
+            // clearing the NCT67XX I/O-space lock or writing the IT86XXE
+            // 16-bit counter register is reserved for privileged callers —
+            // hasPrivilege(90, true) checks quietly so unprivileged
+            // monitoring does not spam DENIED in the kernel log.
             bool allowUnlock = hasPrivilege(90, true);
 
             arguments->scalarOutputCount = 0;
@@ -1228,10 +1264,9 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             }
             arguments->structureOutputSize = requiredSize;
 
-            UInt32 currentCount = (UInt32)OSIncrementAtomic(&provider->fanUpdateCounter);
-            if ((currentCount % 4) == 0) {
-                provider->superIO->updateFanRPMS();
-            }
+            // Tachometers come from the shared cache, re-read at most once a
+            // second (the sensor timer usually did it already).
+            provider->refreshFanTelemetryIfStale();
             uint32_t copyCount = (maxLen / sizeof(uint64_t) < numFans) ? (maxLen / sizeof(uint64_t)) : numFans;
             for (uint32_t i = 0; i < copyCount; i++) {
                 dataOut[i] = provider->superIO->getRPMForFan((int)i);
@@ -1268,16 +1303,9 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             }
             arguments->structureOutputSize = requiredSize;
 
-            // Refresh the tachometers and the duty estimate together, under the
-            // same lock: under BIOS SmartFan control the PWM register reads 0,
-            // and updateFanControl() estimates the duty from the RPM data that
-            // updateFanRPMS() just wrote. Every fourth call, to limit Super I/O
-            // port traffic, which the firmware shares.
-            UInt32 snap94 = (UInt32)OSIncrementAtomic(&provider->fanCtrlUpdateCounter);
-            if ((snap94 % 4) == 0) {
-                provider->superIO->updateFanRPMS();
-                provider->superIO->updateFanControl();
-            }
+            // Same shared cache as selector 93: tachometers and duty estimate
+            // are refreshed together, at most once a second.
+            provider->refreshFanTelemetryIfStale();
             // One uint64_t per fan: bits 15:8 throttle, bit 1 tachometer
             // reading trusted (the driver holds the last good RPM otherwise),
             // bit 0 BIOS auto control. All other bits are zero.

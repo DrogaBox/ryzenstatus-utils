@@ -75,10 +75,10 @@ fi
 # bytes the kernel loads and the identity it loads them under. They survive any
 # repackaging and they cover BOTH provenance paths, because the check now runs on
 # the staged bundles rather than on the archive.
-KEXT_PIN_DRIVER_MACHO="45a12257368ed3a4bee79ca6328fa8cbe211998e030c4736271376d480acdcf6"
-KEXT_PIN_DRIVER_PLIST="1fc0b00f3105b044b9d18b8b2a9680843e504b3616549672f5f1868bd476751c"
-KEXT_PIN_PLUGIN_MACHO="4c113ff87b5313dde788cc2ad500981d51cd0bf264a68e2a96b2b3212ab679ee"
-KEXT_PIN_PLUGIN_PLIST="c85801b0bf9f1af7d3c9dde0c106c0c6d30520d44a3f753dd36d106c499df100"
+KEXT_PIN_DRIVER_MACHO="2d43c3e7fd8f4642dab992347cd1c12e3eb0fb1a9da8b6a69a11eab1600d4df0"
+KEXT_PIN_DRIVER_PLIST="37aa658bf04efe9278871585b442becb9e5aefa408183a978e059b7a170bb9c1"
+KEXT_PIN_PLUGIN_MACHO="88cee3eb2106c8ad7c3a1132a3f9535589b88c241f49e961732907ee625c818f"
+KEXT_PIN_PLUGIN_PLIST="7023135aa06e201f28be589f5be24715103be8e38b4dc80e7b56dabe49d212fd"
 if [[ ! -d "$KEXT_DRIVER" || ! -d "$KEXT_PLUGIN" ]] && [[ -f "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" ]]; then
     # Structural pre-check: assert the archive's top level is exactly the two
     # kext bundles. Unlike a hash this never needs updating on a rebuild, and it
