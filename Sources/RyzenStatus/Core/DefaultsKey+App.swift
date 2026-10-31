@@ -486,6 +486,22 @@ extension DefaultsKey {
     static let showPmCoreVoltage = "showPmCoreVoltage"           // Bool, per-core SMU voltage column in the panel rows
     static let showPmCoreC0 = "showPmCoreC0"                     // Bool, per-core C0 residency column in the panel rows
     static let showPmCoreCC6 = "showPmCoreCC6"                   // Bool, per-core CC6 residency column in the panel rows
+    // Settings page preferences that used raw key literals. The values stay
+    // the same strings, so stored preferences survive.
+    static let panelViewStyle = "panelViewStyle"                 // String, "cards" or the list style of the monitor panel
+    static let menuBarMetricAppearanceCPU = "menuBarMetricAppearance_cpu"
+    static let menuBarMetricAppearanceGPU = "menuBarMetricAppearance_gpu"
+    static let menuBarMetricAppearanceMemory = "menuBarMetricAppearance_memory"
+    static let menuBarMetricAppearanceNetwork = "menuBarMetricAppearance_network"
+    static let menuBarMetricAppearanceDiskUsage = "menuBarMetricAppearance_diskUsage"
+    static let curveOptimizerUnlocked = "coUnlocked"             // Bool, Curve Optimizer controls shown
+    static let pboUnlocked = "pboUnlocked"                       // Bool, PBO limit controls shown
+    static let pboLastPPTWatts = "pboLastPPTWatts"               // Double, last applied PPT (slider seed)
+    static let pboLastTDCAmps = "pboLastTDCAmps"                 // Double, last applied TDC (slider seed)
+    static let pboLastEDCAmps = "pboLastEDCAmps"                 // Double, last applied EDC (slider seed)
+    static let pboLastScalarTenths = "pboLastScalarTenths"       // Double, last applied PBO scalar ×10
+    static let showPreciseTemperature = "showPreciseTemperature" // Bool, Sensors page shows one decimal
+    static let showRawSMCSensors = "showRawSMCSensors"           // Bool, Sensors page lists every SMC key
     static let fanCurvesEditorEnabled = "fanCurvesEditorEnabled"   // Bool, Fans & Cooling curve editor toggle (persisted)
     static let customCurvesV2 = "customCurves_v2"                 // Data: [FanCurveDefinition] JSON
     static let fanMappingsV2 = "fanMappings_v2"                   // Data: [Int: Int] JSON (fanId -> curveSlot, -1 = auto)

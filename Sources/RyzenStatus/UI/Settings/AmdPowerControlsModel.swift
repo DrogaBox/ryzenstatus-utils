@@ -26,11 +26,31 @@ final class AmdPowerControlsModel: ObservableObject {
     @Published var privilegeWarning: String?
     @Published var isLoading: Bool = false
 
-    // Rolling history for the AMD panel graphs — 60 samples ≈ 3 min
-    // at the 3 s panel poll. Sampled inside syncFromKext, so no new timers.
+    // Rolling history for the AMD panel graphs — 60 samples, at least 2.5 s
+    // apart (about 3 min at the 3 s poll) however many surfaces call
+    // syncFromKext. Sampled inside syncFromKext, so no new timers.
     @Published private(set) var packagePowerHistory: [Double] = []
     @Published private(set) var packageTempHistory: [Double] = []
     private static let historyCapacity = 60
+    private var lastHistorySampleAt: TimeInterval?
+
+    // One 3 s kext poll shared by every surface that shows live AMD state,
+    // reference-counted so two open surfaces do not poll twice.
+    private var liveSyncDemand = AmdLiveSyncDemand()
+    private var liveSyncTask: Task<Void, Never>?
+
+    /// True while a hardware write is queued or running; the Apply buttons
+    /// disable on it. Writes themselves wait their turn on `writeTail`.
+    @Published private(set) var isWriting = false
+    private var pendingWrites = 0
+    private var writeTail: Task<kern_return_t, Never>?
+
+    /// Bumped by every user write. A sync that started before the write
+    /// carries the old value and must not put it back on the control.
+    private var userWriteGeneration = 0
+    /// A sync asked for while one was in flight (after a failed write)
+    /// runs once the current one finishes instead of being dropped.
+    private var resyncRequested = false
 
     // SMU boost telemetry (selector 43) — refreshed inside syncFromKext's
     // detached kext batch. `fastestCoreIndex` is nil while the kext cache is
@@ -97,10 +117,9 @@ final class AmdPowerControlsModel: ObservableObject {
     @Published private(set) var smuDiagnostics: AMDSmuDiagnostics.Report?
     @Published private(set) var smuDiagnosticsDenied = false
 
-    /// Guard flag: true when updating published properties from kext reads
-    /// to avoid trigger loops from `.onChange` handlers.
-    /// Writes arriving while a sync is in flight are intentionally dropped;
-    /// the 3 s panel timer re-syncs and reconciles published state.
+    /// Re-entrancy guard for `syncFromKext`. User writes no longer check it:
+    /// every caller binds through `Binding(get:set:)`, so a sync never reaches
+    /// a setter, and `userWriteGeneration` keeps a write from being undone.
     private(set) var isSyncingFromKext: Bool = false
 
     private var cancellables = Set<AnyCancellable>()
@@ -125,94 +144,118 @@ final class AmdPowerControlsModel: ObservableObject {
     // MARK: - Actions
 
     func setEPP(_ value: UInt8) {
-        guard !isSyncingFromKext else { return }
+        userWriteGeneration &+= 1
         selectedEpp = value
         Task {
-            let res = await ProcessorModel.shared.setCPPCEPPValue(epp: value)
-            if res == ProcessorModel.kIOReturnNotPrivilegedCode {
-                self.privilegeWarning = "Root privileges required (-amdpnopchk) to set EPP."
-            } else if res == kIOReturnUnsupported {
+            let res = await perform { await ProcessorModel.shared.setCPPCEPPValue(epp: value) }
+            if res == kIOReturnUnsupported {
                 // The kext would store the value and change nothing; say so
                 // instead of letting the picker look applied.
                 self.privilegeWarning = L10n.shared.amdPower.eppNotApplied
+            } else {
+                await self.reportWriteFailure(res)
             }
         }
     }
 
     func setCPB(_ enabled: Bool) {
-        guard !isSyncingFromKext else { return }
+        userWriteGeneration &+= 1
         corePerformanceBoost = enabled
         UserDefaults.standard.set(enabled, forKey: DefaultsKey.amdCpbEnabled)
         Task {
-            let res = await ProcessorModel.shared.setCPB(enabled: enabled)
-            if res == ProcessorModel.kIOReturnNotPrivilegedCode {
-                self.privilegeWarning = "Root privileges required (-amdpnopchk) to change CPB."
-            }
+            let res = await perform { await ProcessorModel.shared.setCPB(enabled: enabled) }
+            await self.reportWriteFailure(res)
         }
     }
 
     func setPPM(_ enabled: Bool) {
-        guard !isSyncingFromKext else { return }
+        userWriteGeneration &+= 1
         ppmEnabled = enabled
         if enabled { lpmEnabled = false }
         UserDefaults.standard.set(enabled, forKey: DefaultsKey.amdPpmEnabled)
         UserDefaults.standard.set(lpmEnabled, forKey: DefaultsKey.amdLpmEnabled)
         Task {
-            let res = await ProcessorModel.shared.setPPM(enabled: enabled)
-            if res == ProcessorModel.kIOReturnNotPrivilegedCode {
-                self.privilegeWarning = "Root privileges required (-amdpnopchk) to change PPM."
-            }
+            let res = await perform { await ProcessorModel.shared.setPPM(enabled: enabled) }
+            await self.reportWriteFailure(res)
         }
     }
 
     func setLPM(_ enabled: Bool) {
-        guard !isSyncingFromKext else { return }
+        userWriteGeneration &+= 1
         lpmEnabled = enabled
         if enabled { ppmEnabled = false }
         UserDefaults.standard.set(enabled, forKey: DefaultsKey.amdLpmEnabled)
         UserDefaults.standard.set(ppmEnabled, forKey: DefaultsKey.amdPpmEnabled)
         Task {
-            let res = await ProcessorModel.shared.setLPM(enabled: enabled)
-            if res == ProcessorModel.kIOReturnNotPrivilegedCode {
-                self.privilegeWarning = "Root privileges required (-amdpnopchk) to change LPM."
-            }
+            let res = await perform { await ProcessorModel.shared.setLPM(enabled: enabled) }
+            await self.reportWriteFailure(res)
         }
     }
 
     func setPState(_ pstate: Int) {
-        guard !isSyncingFromKext else { return }
+        userWriteGeneration &+= 1
         let previous = selectedPState
         selectedPState = pstate
         Task {
-            let res = await ProcessorModel.shared.setPState(state: pstate)
+            let res = await perform { await ProcessorModel.shared.setPState(state: pstate) }
             guard res != KERN_SUCCESS else { return }
             // A refused or ignored write must not stay shown as applied.
             if self.selectedPState == pstate { self.selectedPState = previous }
-            if res == ProcessorModel.kIOReturnNotPrivilegedCode {
-                self.privilegeWarning = "Root privileges required (-amdpnopchk) to lock P-State."
-            } else if res == kIOReturnUnsupported {
+            if res == kIOReturnUnsupported {
                 self.privilegeWarning = L10n.shared.amdPower.pstateNotApplied
             } else {
-                self.privilegeWarning = ProcessorModel.privilegeHint(for: res)
+                self.privilegeWarning = AmdWriteStatus.text(res, strings: L10n.shared.dashboard)
             }
         }
     }
 
-    func clearPrivilegeWarning() {
-        privilegeWarning = nil
+    /// Runs one kext write off the main thread, after every write queued
+    /// before it. A second click waits its turn instead of being turned away
+    /// as busy, so writes reach the kext in the order the user made them.
+    func perform(_ write: @escaping @Sendable () async -> kern_return_t) async -> kern_return_t {
+        let previous = writeTail
+        pendingWrites += 1
+        isWriting = true
+        let task = Task.detached(priority: .userInitiated) { () -> kern_return_t in
+            _ = await previous?.value
+            return await write()
+        }
+        writeTail = task
+        let status = await task.value
+        pendingWrites -= 1
+        if pendingWrites == 0 {
+            isWriting = false
+            writeTail = nil
+        }
+        return status
     }
 
-    // MARK: - State Sync
+    /// A failed write says why and puts the control back to what the kext
+    /// really holds, instead of showing the new value until the next poll.
+    private func reportWriteFailure(_ status: kern_return_t) async {
+        guard status != KERN_SUCCESS else { return }
+        privilegeWarning = AmdWriteStatus.text(status, strings: L10n.shared.dashboard)
+        if isSyncingFromKext {
+            resyncRequested = true
+        } else {
+            await syncFromKext()
+        }
+    }
 
-    /// Views showing live readings (the AMD panel section, the panel's core
-    /// grid, the dashboard) while they are on screen. One 3 s loop serves
-    /// them all: two of them on screen at once neither double the kext
-    /// traffic nor squeeze the history graphs into half their span.
-    private var liveSyncDemand = AmdLiveSyncDemand()
-    private var liveSyncTask: Task<Void, Never>?
+    // MARK: - Live sync
 
+    /// A surface that shows live AMD state (the panel's AMD section and core
+    /// grid, the dashboard, the settings pages) starts the shared 3 s poll;
+    /// the last one to leave stops it.
     func beginLiveSync() {
         guard liveSyncDemand.begin() else { return }
+        // The histories are indexed by sample, not by time: a graph must not
+        // join samples from both sides of a pause.
+        packagePowerHistory = []
+        packageTempHistory = []
+        pmCoreClockHistory = [:]
+        pmCoreTempHistory = [:]
+        lastHistorySampleAt = nil
         liveSyncTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.syncFromKext()
@@ -227,12 +270,43 @@ final class AmdPowerControlsModel: ObservableObject {
         liveSyncTask = nil
     }
 
+    /// Whether a history sample is due: at most one per `minimumSpacing`,
+    /// however many surfaces call `syncFromKext`.
+    nonisolated static func historySampleDue(last: TimeInterval?, now: TimeInterval,
+                                             minimumSpacing: TimeInterval = 2.5) -> Bool {
+        guard let last else { return true }
+        return now - last >= minimumSpacing
+    }
+
+    /// The PM-table decode is shown as live only while the kext reports a
+    /// valid snapshot whose age, read in this same sync, is fresh. The box's
+    /// own age is frozen at its last refresh and cannot tell.
+    nonisolated static func pmDecodeIsLive(snapshotValid: Bool, snapshotAgeMs: UInt64) -> Bool {
+        snapshotValid && AMDSmuPMTable.isFresh(ageMs: snapshotAgeMs)
+    }
+
+    func clearPrivilegeWarning() {
+        privilegeWarning = nil
+    }
+
+    // MARK: - State Sync
+
     // Move blocking kext IPC off MainActor
     func syncFromKext() async {
         guard !isSyncingFromKext else { return }
         isSyncingFromKext = true
-        defer { isSyncingFromKext = false }
+        await syncOnce()
+        isSyncingFromKext = false
+        // A failed write asked for the real state while this sync was in
+        // flight; this sync read the kext before the failure, so read again.
+        if resyncRequested {
+            resyncRequested = false
+            await syncFromKext()
+        }
+    }
 
+    private func syncOnce() async {
+        let generation = userWriteGeneration
         let (kernelAnswered, telemetry, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
              smuVersion, activeScalar, ocCap, ocFreq, pmInfo) = await Task.detached(priority: .userInitiated) {
             // Thread-safe connection check to avoid data races
@@ -263,7 +337,13 @@ final class AmdPowerControlsModel: ObservableObject {
             return (kernelAnswered, telemetry, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
                     smuVersion, activeScalar, ocCap, ocFreq, pmInfo)
         }.value
-        recordTelemetrySample(telemetry)
+        // One history sample per 2.5 s at most, whoever calls this.
+        let now = ProcessInfo.processInfo.systemUptime
+        let appendHistory = Self.historySampleDue(last: lastHistorySampleAt, now: now)
+        if appendHistory {
+            lastHistorySampleAt = now
+            recordTelemetrySample(telemetry)
+        }
         let profile = await ProcessorModel.shared.cpuProfile
         // S8.2 fallback for the per-CCD row count when the kext's register
         // probe has not run (0): Vermeer packs 8 cores per CCD.
@@ -272,17 +352,22 @@ final class AmdPowerControlsModel: ObservableObject {
         cppcSupported = kernelAnswered
         legacyPstateAllowed = profile.legacyPstateAllowed
 
-        let target = AMDPowerPreset.snapEPP(cppcState.epp)
-        if selectedEpp != target { selectedEpp = target }
+        // A user write made while this sync was reading carries the newer
+        // intent; the values read here would put the old state back.
+        let userWroteMeanwhile = generation != userWriteGeneration
+        if !userWroteMeanwhile {
+            let target = AMDPowerPreset.snapEPP(cppcState.epp)
+            if selectedEpp != target { selectedEpp = target }
 
-        if kernelAnswered {
-            if ppmEnabled != ppm { ppmEnabled = ppm }
-            if lpmEnabled != lpm { lpmEnabled = lpm }
+            if kernelAnswered {
+                if ppmEnabled != ppm { ppmEnabled = ppm }
+                if lpmEnabled != lpm { lpmEnabled = lpm }
+            }
         }
 
         if cpb.count > 1 {
             cpbSupported = cpb[0]
-            if corePerformanceBoost != cpb[1] { corePerformanceBoost = cpb[1] }
+            if !userWroteMeanwhile, corePerformanceBoost != cpb[1] { corePerformanceBoost = cpb[1] }
         }
 
         // Publish the boost telemetry snapshot (or clear it when the kext
@@ -369,17 +454,23 @@ final class AmdPowerControlsModel: ObservableObject {
         // decoding here — the box is refreshed on loadMetric's telemetry
         // tick (one fetch+decode app-wide; the settings section, the panel
         // and the dashboard all read the same instance). Nil for unknown
-        // table versions — the layout must never be guessed.
-        let boxDecoded = ProcessorModel.shared.pmTableBox.decoded
+        // table versions — the layout must never be guessed. The decode is
+        // only as live as the kext snapshot this sync just read: a stopped
+        // kext timer must not leave old numbers on screen as current.
+        let pmLive = pmInfo.map { Self.pmDecodeIsLive(snapshotValid: $0.snapshotValid,
+                                                      snapshotAgeMs: $0.snapshotAgeMs) } ?? false
+        let boxDecoded = pmLive ? ProcessorModel.shared.pmTableBox.decoded : nil
         if boxDecoded != pmTableDecoded { pmTableDecoded = boxDecoded }
         // The diagnostics report is deliberately NOT refreshed here —
         // the kext adds real SMU mailbox traffic to answer, so it only
         // updates when the user asks (runMailboxDiagnostics).
         // Feed the per-core sparkline windows from the same decode.
         if let decoded = pmTableDecoded {
-            for row in decoded.cores where row.isPresent {
-                appendPmCoreHistory(&pmCoreClockHistory, slot: row.slot, value: Double(row.freqMHz))
-                appendPmCoreHistory(&pmCoreTempHistory, slot: row.slot, value: Double(row.tempC))
+            if appendHistory {
+                for row in decoded.cores where row.isPresent {
+                    appendPmCoreHistory(&pmCoreClockHistory, slot: row.slot, value: Double(row.freqMHz))
+                    appendPmCoreHistory(&pmCoreTempHistory, slot: row.slot, value: Double(row.tempC))
+                }
             }
         } else {
             pmCoreClockHistory = [:]
@@ -388,7 +479,7 @@ final class AmdPowerControlsModel: ObservableObject {
 
         if profile.legacyPstateAllowed {
             let currentPState = await ProcessorModel.shared.getPState()
-            if selectedPState != currentPState { selectedPState = currentPState }
+            if generation == userWriteGeneration, selectedPState != currentPState { selectedPState = currentPState }
             if validPStateLabels.isEmpty {
                 let clocks = await ProcessorModel.shared.getValidPStateClocks()
                 validPStateLabels = clocks.enumerated().map { index, clock in

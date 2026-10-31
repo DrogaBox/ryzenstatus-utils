@@ -166,8 +166,10 @@ enum IslandPanelTests {
                      && section.contains("controls.beginLiveSync()") && section.contains("controls.endLiveSync()"),
                      "the AMD section shares the model's one loop")
         let dashboard = text("Sources/RyzenStatus/UI/Dashboard/PerformanceSuiteView.swift", suite)
-        suite.expect(!dashboard.contains("amdSyncTimer") && dashboard.contains("amdControls.beginLiveSync()"),
-                     "the dashboard shares it too")
+        let pages = text("Sources/RyzenStatus/UI/Settings/SettingsPageActivity.swift", suite)
+        suite.expect(!dashboard.contains("amdSyncTimer") && dashboard.contains(".settingsPageActivity(.performanceSuite")
+                     && pages.contains("AmdPowerControlsModel.shared.beginLiveSync()"),
+                     "the dashboard shares it too, through its page activity")
         let grid = text("Sources/RyzenStatus/UI/MenuPanel/CPUCoreGridView.swift", suite)
         suite.expect(grid.contains("beginLiveSync()") && grid.contains("endLiveSync()"),
                      "the grid keeps the model live itself")

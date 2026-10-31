@@ -1,11 +1,15 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 RyzenStatus
+
 import SwiftUI
 import UniformTypeIdentifiers
 
 struct SensorsView: View {
     @ObservedObject private var smcDump = SMCDumpService.shared
     @State private var loadTimer: Timer?
-    @AppStorage("showPreciseTemperature") private var showPreciseTemperature = true
-    @AppStorage("showRawSMCSensors") private var showRawSMCSensors = false
+    @AppStorage(DefaultsKey.showPreciseTemperature) private var showPreciseTemperature = true
+    @AppStorage(DefaultsKey.showRawSMCSensors) private var showRawSMCSensors = false
+    @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnitRaw = TemperatureUnit.celsius.rawValue
     @ObservedObject private var monitor = SystemMonitor.shared
     
     @State private var showingCPUDetails = false
@@ -133,8 +137,9 @@ struct SensorsView: View {
                         }
                         .buttonStyle(.plain)
                         
-                        SensorRow(name: "CPU Package Temp", value: formatTemp(monitor.snapshot.cpuTemperature ?? 0), icon: "thermometer")
-                        SensorRow(name: "CPU Package Power", value: String(format: "%.1f W", monitor.snapshot.cpuPower ?? 0), icon: "bolt.fill")
+                        // A missing reading shows a dash, never 0 °C or 0 W.
+                        SensorRow(name: "CPU Package Temp", value: monitor.snapshot.cpuTemperature.map(formatTemp) ?? "—", icon: "thermometer")
+                        SensorRow(name: "CPU Package Power", value: monitor.snapshot.cpuPower.map { String(format: "%.1f W", $0) } ?? "—", icon: "bolt.fill")
                         // SVI2 planes read by the kext (selector 59); Zen 4/5 report none.
                         if let coreVolts = monitor.snapshot.cpuCoreVoltage {
                             SensorRow(name: "CPU Core Voltage (SVI2)", value: String(format: "%.3f V", coreVolts), icon: "bolt.horizontal")
@@ -234,7 +239,8 @@ struct SensorsView: View {
                                             .foregroundColor(.secondary)
                                         Text("Temperature")
                                         Spacer()
-                                        Text(formatTemp(gpu.temperature))
+                                        // The kext reports 0 for a reading it does not have.
+                                        Text(gpu.temperature > 0 ? formatTemp(gpu.temperature) : "—")
                                             .font(.system(.body, design: .monospaced))
                                     }
                                     if gpu.supportsPower {
@@ -244,7 +250,7 @@ struct SensorsView: View {
                                                 .foregroundColor(.secondary)
                                             Text("Power")
                                             Spacer()
-                                            Text(String(format: "%.1f W", gpu.power))
+                                            Text(gpu.power > 0 ? String(format: "%.1f W", gpu.power) : "—")
                                                 .font(.system(.body, design: .monospaced))
                                         }
                                     }
@@ -424,23 +430,24 @@ struct SensorsView: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear {
-            // Full monitor surface: register as a panel client (depth counter)
-            // so opening/closing the menu popover cannot wipe these needs.
-            SystemMonitor.shared.panelDidAppear()
+        // The monitor client (a depth-counted panel client, so the popover
+        // cannot wipe these needs) and the 1 s SMC sweep run only while the
+        // page is on screen in a visible Settings window.
+        .settingsPageActivity(.sensors, activate: {
             smcDump.rediscoverKeys()
             smcDump.refresh()
-            loadTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            loadTimer?.invalidate()
+            let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
                 Task { @MainActor in
                     smcDump.refresh()
                 }
             }
-        }
-        .onDisappear {
-            SystemMonitor.shared.panelDidDisappear()
+            timer.tolerance = 0.2
+            loadTimer = timer
+        }, deactivate: {
             loadTimer?.invalidate()
             loadTimer = nil
-        }
+        })
         .sheet(isPresented: $showingCPUDetails) {
             VStack {
                 HStack {
@@ -464,8 +471,12 @@ struct SensorsView: View {
     @State private var powerExpanded = false
     @State private var systemExpanded = false
     
+    /// Follows the app's temperature unit; the precise option adds one decimal.
     private func formatTemp(_ value: Double) -> String {
-        return showPreciseTemperature ? String(format: "%.1f °C", value) : String(format: "%.0f °C", value)
+        let unit = TemperatureUnit(rawValue: temperatureUnitRaw) ?? .celsius
+        return showPreciseTemperature
+            ? MetricFormat.temperaturePrecise(value, unit: unit)
+            : MetricFormat.temperature(value, unit: unit)
     }
     
     private func formatValue(_ sensor: SMCSensorReading) -> String {

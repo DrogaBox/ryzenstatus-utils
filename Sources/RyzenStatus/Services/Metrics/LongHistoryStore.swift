@@ -208,13 +208,29 @@ final class LongHistoryStore {
                   end: TimeInterval = Date().timeIntervalSince1970) -> [Double] {
         lock.lock()
         defer { lock.unlock() }
-        let tier = range.duration <= Self.fineStep * Double(Self.fineCapacity)
-            ? fine[metric.rawValue] : coarse[metric.rawValue]
-        return tier.averages(end: end, duration: range.duration, buckets: Self.bucketCount)
+        let coarseValues = coarse[metric.rawValue].averages(end: end, duration: range.duration,
+                                                            buckets: Self.bucketCount)
+        guard range.duration <= Self.fineStep * Double(Self.fineCapacity) else { return coarseValues }
+        let fineValues = fine[metric.rawValue].averages(end: end, duration: range.duration,
+                                                        buckets: Self.bucketCount)
+        return Self.filledFromCoarse(fine: fineValues, coarse: coarseValues)
+    }
+
+    /// The five-second ring lives only in memory, so after a relaunch it
+    /// holds just the minutes since launch. Each bucket it has no sample
+    /// for takes the minute ring's value, so a short graph is not empty for
+    /// time the month ring kept.
+    static func filledFromCoarse(fine: [Double], coarse: [Double]) -> [Double] {
+        fine.indices.map { index in
+            fine[index].isNaN && index < coarse.count ? coarse[index] : fine[index]
+        }
     }
 
     /// Writes the minute ring off the caller's thread. `synchronously` is for
-    /// quitting, when there is no later turn of the queue.
+    /// quitting, when there is no later turn of the queue: the caller waits,
+    /// but the file is still built on the I/O queue. Only a copy of the
+    /// rings is taken under the lock (copy-on-write, so it is cheap); the
+    /// 1.7 MB encode runs outside it and never stalls a monitor tick.
     func save(synchronously: Bool = false) {
         lock.lock()
         guard dirty, let fileURL else {
@@ -222,9 +238,10 @@ final class LongHistoryStore {
             return
         }
         dirty = false
-        let data = Self.encode(coarse)
+        let tiers = coarse
         lock.unlock()
         let write: () -> Void = {
+            let data = Self.encode(tiers)
             PrivateFileStore.createDirectory(at: fileURL.deletingLastPathComponent())
             PrivateFileStore.write(data, to: fileURL)
         }

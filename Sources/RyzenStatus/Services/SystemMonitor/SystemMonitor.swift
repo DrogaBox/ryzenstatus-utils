@@ -77,7 +77,6 @@ struct SystemSnapshot {
     // History (oldest → newest) for the graphs
     var cpuHistory: [Double] = []          // 0...1
     var cpuSystemHistory: [Double] = []    // 0...1, aligned with cpuHistory
-    var ipsHistory: [Double] = []          // 0...500 GIPS
     var gpuHistory: [Double] = []          // 0...1
     var memoryHistory: [Double] = []       // 0...1
     var memoryAppHistory: [Double] = []    // 0...1
@@ -87,11 +86,6 @@ struct SystemSnapshot {
     var diskWriteHistory: [Double] = []    // bytes/sec
     var systemPowerHistory: [Double] = []  // watts
     var batteryHistory: [Double] = []      // 0...1 charge level
-    var gpuMemoryHistory: [Double] = []    // 0...1
-    var cpuTempHistory: [Double] = []      // °C
-    var gpuTempHistory: [Double] = []      // °C
-    var cpuPowerHistory: [Double] = []     // watts
-    var gpuPowerHistory: [Double] = []     // watts
     var cpuFreqHistory: [Double] = []      // GHz
 
     // Detailed AMD Telemetry
@@ -153,6 +147,36 @@ struct SystemMonitorPanelNeeds: Equatable {
         system || network || disk || power || cpu || gpu || memory || battery ||
             peripheralBattery || cpuTemperature || gpuTemperature || batteryTemperature
     }
+
+    /// The families the enabled monitor alerts read, with the availability
+    /// rule MonitorAlertService applies. Any active alert also keeps CPU load
+    /// and temperature: the thermal-throttle notice runs whenever an alert is
+    /// on and reads both, so an alerts-only plan must not starve it.
+    static func alerts(boolFor: (String) -> Bool,
+                       isAvailable: (AppFeature) -> Bool,
+                       hasInternalBattery: Bool) -> SystemMonitorPanelNeeds {
+        var needs = SystemMonitorPanelNeeds()
+        for pair in AppFeature.monitorAlertPairs where boolFor(pair.key) && isAvailable(pair.feature) {
+            if pair.feature == .monitorPower && !hasInternalBattery { continue }
+            switch pair.key {
+            case DefaultsKey.monitorAlertCPU: needs.cpu = true
+            case DefaultsKey.monitorAlertCPUTemperature: needs.cpuTemperature = true
+            case DefaultsKey.monitorAlertMemory: needs.memory = true
+            case DefaultsKey.monitorAlertDisk: needs.disk = true
+            case DefaultsKey.monitorAlertBattery: needs.battery = true
+            case DefaultsKey.monitorAlertGPUTemperature: needs.gpuTemperature = true
+            // The GPU power reading comes with the kext power read, which
+            // GPU usage switches on.
+            case DefaultsKey.monitorAlertGPUPower: needs.gpu = true
+            default: break
+            }
+        }
+        if needs.any {
+            needs.cpu = true
+            needs.cpuTemperature = true
+        }
+        return needs
+    }
 }
 
 /// Reads temperatures (SMC), CPU/GPU usage, memory, network and power on a
@@ -205,6 +229,15 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     private var previousCPUTicks: CPUTickSample?
     private var previousCPUTicksAt: TimeInterval?
     private var previousCoreTicks: [CPUTickSample] = []
+    private var previousCoreTicksAt: TimeInterval?
+    /// Main-thread flag: at most one kext refresh task runs at a time, so a
+    /// slow kext cannot pile tasks up that land out of order.
+    private var amdRefreshInFlight = false
+    /// Queue-owned: when the empty-cache temperature seed last read the SMC.
+    /// On a machine where no key answers, the cache stays nil and the seed
+    /// would otherwise sweep the SMC on every tick.
+    private var lastCPUTemperatureSeed: TimeInterval = -.infinity
+    private var lastGPUTemperatureSeed: TimeInterval = -.infinity
     /// Wake observer token — see invalidateTickBaseline().
     private var wakeObserver: Any?
     private var tickCount = 0
@@ -253,13 +286,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     private var diskWriteHistory: MetricHistory
     private var systemPowerHistory: MetricHistory
     private var batteryHistory: MetricHistory
-    private var gpuMemoryHistory: MetricHistory
-    private var cpuTempHistory: MetricHistory
-    private var gpuTempHistory: MetricHistory
-    private var cpuPowerHistory: MetricHistory
-    private var gpuPowerHistory: MetricHistory
     private var cpuFreqHistory: MetricHistory
-    private var ipsHistory: MetricHistory
     private var lastPeakCPUFreq: Double = 0
     private var powerSourceRunLoopSource: CFRunLoopSource?
 
@@ -275,13 +302,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         diskWriteHistory = MetricHistory(capacity: historyCapacity)
         systemPowerHistory = MetricHistory(capacity: historyCapacity)
         batteryHistory = MetricHistory(capacity: historyCapacity)
-        gpuMemoryHistory = MetricHistory(capacity: historyCapacity)
-        cpuTempHistory = MetricHistory(capacity: historyCapacity)
-        gpuTempHistory = MetricHistory(capacity: historyCapacity)
-        cpuPowerHistory = MetricHistory(capacity: historyCapacity)
-        gpuPowerHistory = MetricHistory(capacity: historyCapacity)
         cpuFreqHistory = MetricHistory(capacity: historyCapacity)
-        ipsHistory = MetricHistory(capacity: historyCapacity)
         // A desktop has no battery to watch: the power-source notification
         // would only wake the monitor for nothing.
         if PowerSampler.hasInternalBattery {
@@ -303,10 +324,54 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
 
     /// Drops the CPU/core tick baselines so the first post-wake sample
     /// is skipped rather than computed across the sleep discontinuity.
+    /// The baselines are queue state, so the wake observer (main) hops there.
     private func invalidateTickBaseline() {
-        previousCPUTicks = nil
-        previousCPUTicksAt = nil
-        previousCoreTicks = []
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.previousCPUTicks = nil
+            self.previousCPUTicksAt = nil
+            self.previousCoreTicks = []
+            self.previousCoreTicksAt = nil
+        }
+    }
+
+    /// Longest pause over which two tick samples still give a current load.
+    /// Shared by the total and the per-core readings so both treat a gap the
+    /// same way: past it, the old ticks only serve as a baseline.
+    static let maximumTickGap: TimeInterval = 12.5
+
+    /// Per-core busy/system shares, or nil when there is no usable baseline:
+    /// none yet, a different CPU count, or a gap over `maximumTickGap`. A
+    /// single core whose counters went backwards gets a nil entry.
+    static func coreLoads(current: [CPUTickSample], previous: [CPUTickSample],
+                          elapsed: TimeInterval?) -> [(busy: Double, system: Double)?]? {
+        guard let elapsed, elapsed <= maximumTickGap,
+              !current.isEmpty, previous.count == current.count else { return nil }
+        return zip(current, previous).map { $0.load(since: $1) }
+    }
+
+    /// Physical cores the kernel reports: the topology before the first kext
+    /// snapshot arrives and on machines without the kext.
+    static let hostPhysicalCoreCount = max(1, Int(ProcessorModel.sysctlInt64(key: "hw.physicalcpu")))
+
+    /// Maps each logical CPU to its physical core. With SMT the kernel
+    /// numbers the two threads of a core next to each other; without it every
+    /// logical CPU is a core.
+    static func coreTopology(logicalCount: Int, physicalCount: Int) -> [(physicalIndex: Int, isLogical: Bool)] {
+        guard logicalCount > 0 else { return [] }
+        let physical = max(1, physicalCount)
+        let hasSMT = logicalCount == 2 * physical
+        return (0..<logicalCount).map { logicalIdx in
+            (physicalIndex: hasSMT ? logicalIdx / 2 : logicalIdx % physical,
+             isLogical: hasSMT ? logicalIdx % 2 != 0 : logicalIdx >= physical)
+        }
+    }
+
+    /// The anti-glitch bridge for temperatures spans a couple of temperature
+    /// sampling gaps, never less than 12 s, so one bad SMC read on the slow
+    /// background stride does not blank the reading.
+    static func temperatureBridge(stride: Int, intervalSeconds: Double) -> TimeInterval {
+        max(12, TimeInterval(stride) * intervalSeconds * 2.2)
     }
 
     deinit {
@@ -518,7 +583,6 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     self.systemPowerHistory = MetricHistory(capacity: self.historyCapacity)
                     self.batteryHistory = MetricHistory(capacity: self.historyCapacity)
                 }
-                if !oldPlan.needCPUTemperature && plan.needCPUTemperature { self.cpuTempHistory = MetricHistory(capacity: self.historyCapacity) }
             }
         }
         syncTimerCadence(plan: plan)
@@ -622,10 +686,17 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
 
     private func currentPlan(defaults: UserDefaults) -> SamplingPlan {
         var plan = SamplingPlan()
-        let effectiveNeeds = menuPanelNeeds.merging(notchDetailNeeds)
-        if fullMonitorVisible || effectiveNeeds.system || alertsActive {
+        var effectiveNeeds = menuPanelNeeds.merging(notchDetailNeeds)
+        if fullMonitorVisible || effectiveNeeds.system {
             enableAll(&plan)
         } else {
+            // Alerts sample only the families they watch, not every sampler.
+            if alertsActive {
+                effectiveNeeds = effectiveNeeds.merging(.alerts(
+                    boolFor: { defaults.bool(forKey: $0) },
+                    isAvailable: { defaults.bool(forKey: $0.availabilityKey) },
+                    hasInternalBattery: PowerSampler.hasInternalBattery))
+            }
             apply(effectiveNeeds, to: &plan)
             if notchVisible {
                 plan.needCPU = true
@@ -831,7 +902,14 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         tickCount &+= scheduledWakeTicks
         // If AMD power metrics are needed, trigger a fresh kext read on the actor
         // so the nonisolated PowerCache is populated before the queue reads it.
-        if plan.needAMDPower || plan.needCPU || plan.needCPUTemperature {
+        // The read is kext IPC, so it follows the CPU and temperature strides
+        // instead of every tick, and a slow kext never has two reads queued.
+        let amdRefreshDue = [MonitorSamplingKind.cpu, .temperature].contains {
+            MonitorSamplingPolicy.shouldSample($0, tick: tick, intervalSeconds: intervalSeconds,
+                                               foreground: foregroundSampling, forced: forcing)
+        }
+        if (plan.needAMDPower || plan.needCPU || plan.needCPUTemperature), amdRefreshDue, !amdRefreshInFlight {
+            amdRefreshInFlight = true
             // BUG-07 fix: the queue.async that reads lastAmdSnapshot / isKextAvailable
             // was dispatched at the same time as the Task, so the queue would race with
             // the Task and read stale values from the previous tick.
@@ -845,6 +923,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     self?.lastAmdSnapshot = snap
                     self?.isKextAvailable = avail
                 }
+                DispatchQueue.main.async { self?.amdRefreshInFlight = false }
             }
             // NOTE: The main queue.async below still fires concurrently with the AMD Task.
             // It uses the *previous tick's* AMD values which is acceptable — AMD reads are
@@ -879,13 +958,15 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             if plan.needCPU {
                 if take(.cpu) {
                     // Fetch per-core metrics only when CPU is actually being sampled (F3.2)
-                    let (cores, ccdTemps) = self.readCoreUsageAndTelemetry()
+                    let (cores, ccdTemps) = self.readCoreUsageAndTelemetry(now: now)
                     self.cores = cores
                     self.ccdTemperatures = ccdTemps.map { Double($0) }
                     let volts = ProcessorModel.shared.getSviVoltages()
                     self.cpuVoltages = (volts?.coreVolts, volts?.socVolts)
                     self.cpuCorePowers = ProcessorModel.shared.getCorePowers() ?? []
 
+                    // No baseline (launch, wake, a long gap) is a missed sample,
+                    // never a 0 % or a gap-long average in the history.
                     if let load = self.readCPUUsage(now: now) {
                         let cpu = load.busy
                         self.lastCPUUsage = cpu
@@ -894,31 +975,6 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                         self.cpuHistory.push(cpu)
                         LongHistoryStore.shared.record(.cpu, cpu)
                         self.cpuSystemHistory.push(load.system)
-
-                        let freqs = self.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
-                        let rawAvg = freqs.isEmpty ? 0 : freqs.reduce(0, +) / Double(freqs.count)
-                        let freq = rawAvg / 1000.0
-                        let logicalCores = ProcessInfo.processInfo.activeProcessorCount
-                        let ips = cpu * Double(logicalCores) * freq
-                        self.ipsHistory.push(ips)
-                    } else if !self.cores.isEmpty {
-                        let physicalCores = self.cores.filter { !$0.isLogical }
-                        let avgPct = physicalCores.reduce(0.0) { $0 + Double($1.loadPct) } / Double(max(1, physicalCores.count))
-                        let avgSystemPct = physicalCores.reduce(0.0) { $0 + Double($1.systemPct) } / Double(max(1, physicalCores.count))
-                        let cpuLoad = avgPct / 100.0
-                        self.lastCPUUsage = cpuLoad
-                        self.lastCPUSystemUsage = avgSystemPct / 100.0
-                        self.missedCPUUsageSamples = 0
-                        self.cpuHistory.push(cpuLoad)
-                        LongHistoryStore.shared.record(.cpu, cpuLoad)
-                        self.cpuSystemHistory.push(avgSystemPct / 100.0)
-
-                        let freqs = self.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
-                        let rawAvg = freqs.isEmpty ? 0 : freqs.reduce(0, +) / Double(freqs.count)
-                        let freq = rawAvg / 1000.0
-                        let logicalCores = ProcessInfo.processInfo.activeProcessorCount
-                        let ips = cpuLoad * Double(logicalCores) * freq
-                        self.ipsHistory.push(ips)
                     } else if self.missedCPUUsageSamples < 3 {
                         self.missedCPUUsageSamples += 1
                     } else {
@@ -971,16 +1027,18 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
 
             if plan.needMemory || plan.needGPUUsage {
                 if take(.memory) {
+                    // The kext fallback is read here, on the queue that writes it.
+                    let kextVramMB = self.lastAmdSnapshot?.gpuVram
                     Task { [weak self] in
                         guard let self else { return }
-                        let vramUsed = await self.readGPUVRAM()
-                        let totalVram = await self.readGPUVRAMTotal() ?? UInt64(16 * 1024 * 1024 * 1024)
+                        let vramUsed = await self.readGPUVRAM(kextVramMB: kextVramMB)
+                        let totalVram = await self.readGPUVRAMTotal()
                         self.queue.async {
                             if let vramUsed {
                                 self.lastGPUVRAMUsed = vramUsed
-                                self.lastGPUVRAMTotal = totalVram
-                                self.gpuMemoryHistory.push(Double(vramUsed) / Double(totalVram))
                             }
+                            // Nil clears a total the accelerator stopped reporting.
+                            self.lastGPUVRAMTotal = totalVram
                         }
                     }
                 }
@@ -1062,9 +1120,10 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 let suppressGPUForUI = suppressImmediateGPU || now < suppressGPUReadsUntil
                 let shouldSampleGPU = !suppressGPUForUI && take(.gpuUsage)
                 if shouldSampleGPU {
+                    let kextUtil = self.lastAmdSnapshot?.gpuUtil
                     Task { [weak self] in
                         guard let self else { return }
-                        let rawGPU = await self.readGPUUsage()
+                        let rawGPU = await self.readGPUUsage(kextUtil: kextUtil)
                         self.queue.async {
                             if let rawGPU {
                                 self.lastGPUUsage = MetricFormat.stabilizedGPUUsage(previous: self.lastGPUUsage,
@@ -1084,11 +1143,23 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 }
                 next.gpuUsage = self.lastGPUUsage
             }
-            // The anti-glitch bridge must span a couple of sampling gaps or it
-            // is useless on the slow background cadence (15 s): one bad SMC
-            let temperatureBridge: TimeInterval = 10.0
+            // The anti-glitch bridge spans a couple of temperature sampling
+            // gaps, never less than 12 s.
+            let temperatureBridge = Self.temperatureBridge(
+                stride: MonitorSamplingPolicy.sampleStride(for: .temperature,
+                                                           intervalSeconds: intervalSeconds,
+                                                           foreground: foregroundSampling),
+                intervalSeconds: intervalSeconds)
+            let temperatureDue = plan.needTemperature && take(.temperature)
+            // A temperature reaches the long history only on a tick where a
+            // sensor was actually read, never as a bridged or carried value.
+            var cpuTemperatureRead = false
+            var gpuTemperatureRead = false
             if plan.needCPUTemperature {
-                if take(.temperature) || self.cpuTemperatureCache == nil {
+                // An empty cache seeds between strides, at most every 5 s so
+                // a machine where no key answers is not swept every tick.
+                if temperatureDue || (self.cpuTemperatureCache == nil && now - self.lastCPUTemperatureSeed >= 5) {
+                    self.lastCPUTemperatureSeed = now
                     var temp = self.cpuTemperature()
                     if temp == nil || temp == 0 {
                         let amdTemp = ProcessorModel.shared.lastCPUTemperature
@@ -1102,6 +1173,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                         now: now,
                         maxAge: temperatureBridge,
                         minimum: TemperatureSensorSelector.minimumChipTemperature)
+                    cpuTemperatureRead = self.cpuTemperatureCache?.updatedAt == now
                     if next.cpuTemperature != nil {
                         sampledAnything = true
                     }
@@ -1110,13 +1182,15 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 }
             }
             if plan.needGPUTemperature {
-                if take(.temperature) || self.gpuTemperatureCache == nil {
+                if temperatureDue || (self.gpuTemperatureCache == nil && now - self.lastGPUTemperatureSeed >= 5) {
+                    self.lastGPUTemperatureSeed = now
                     next.gpuTemperature = TemperatureSensorSelector.stabilizedTemperature(
                         self.maxTemperature(of: self.gpuKeys),
                         cache: &self.gpuTemperatureCache,
                         now: now,
                         maxAge: temperatureBridge,
                         minimum: TemperatureSensorSelector.minimumChipTemperature)
+                    gpuTemperatureRead = self.gpuTemperatureCache?.updatedAt == now
                     if next.gpuTemperature != nil {
                         sampledAnything = true
                     }
@@ -1125,7 +1199,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 }
             }
             if plan.needBatteryTemperature {
-                if take(.temperature) {
+                if temperatureDue {
                     next.batteryTemperature = TemperatureSensorSelector.stabilizedTemperature(
                         self.maxTemperature(of: self.batteryKeys),
                         cache: &self.batteryTemperatureCache,
@@ -1138,12 +1212,14 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     next.batteryTemperature = self.batteryTemperatureCache?.value
                 }
             }
-            // AMD kext power — read from the nonisolated PowerCache (zero async overhead)
+            // AMD kext power — read from the nonisolated PowerCache (zero async
+            // overhead). These are cached kext values, not a sample taken on
+            // this tick, so they never make a carry-over tick publish.
             if plan.needAMDPower {
                 let cpuW = ProcessorModel.shared.lastCPUPowerWatts
                 let gpuW = ProcessorModel.shared.lastGPUPowerWatts
-                if cpuW > 0 { next.cpuPower = cpuW; sampledAnything = true }
-                if gpuW > 0 { next.gpuPower = gpuW; sampledAnything = true }
+                if cpuW > 0 { next.cpuPower = cpuW }
+                if gpuW > 0 { next.gpuPower = gpuW }
 
                 // Build GPU device snapshots from kext (selectors 27-30)
                 let gpuCount = ProcessorModel.shared.lastKextGPUCount
@@ -1167,14 +1243,18 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     next.gpuDevices = devices
 
                     // Use kext GPU temp/power as primary source (overrides IOAccelerator)
-                    if devices.count > 0 {
-                        let d0 = devices[0]
-                        if d0.temperature > 0 { next.gpuTemperature = d0.temperature }
+                    if let d0 = devices.first {
+                        if d0.temperature > 0 {
+                            next.gpuTemperature = d0.temperature
+                            gpuTemperatureRead = temperatureDue
+                        }
                         if d0.power > 0 { next.gpuPower = d0.power }
-                        sampledAnything = true
                     }
                 }
             }
+            // The last kext snapshot fills a missing temperature for display,
+            // but it is not a reading taken on this tick: it neither publishes
+            // nor reaches the long history.
             if plan.needCPUTemperature || plan.needGPUTemperature, let amd = self.lastAmdSnapshot {
                 if plan.needCPUTemperature && amd.metric.count > 1 && (next.cpuTemperature == nil || next.cpuTemperature == 0) {
                     let rawTemp = Double(amd.metric[1])
@@ -1185,29 +1265,23 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                             now: now,
                             maxAge: temperatureBridge,
                             minimum: TemperatureSensorSelector.minimumChipTemperature)
-                        sampledAnything = true
                     }
                 }
                 // Only set GPU temp from lastAmdSnapshot if it reports a real GPU temperature
                 if plan.needGPUTemperature && (next.gpuTemperature == nil || next.gpuTemperature == 0) {
                     if amd.gpuTemp > 0 {
                         next.gpuTemperature = Double(amd.gpuTemp)
-                        sampledAnything = true
                     }
                 }
                 if amd.gpuFreq > 0 { next.gpuFreq = Double(amd.gpuFreq) }
                 if amd.gpuFan > 0 { next.gpuFan = Double(amd.gpuFan) }
             }
-            if let temp = next.cpuTemperature {
-                self.cpuTempHistory.push(temp)
+            if cpuTemperatureRead, let temp = next.cpuTemperature {
                 LongHistoryStore.shared.record(.cpuTemperature, temp)
             }
-            if let temp = next.gpuTemperature {
-                self.gpuTempHistory.push(temp)
+            if gpuTemperatureRead, let temp = next.gpuTemperature {
                 LongHistoryStore.shared.record(.gpuTemperature, temp)
             }
-            if let pwr = next.cpuPower { self.cpuPowerHistory.push(pwr) }
-            if let pwr = next.gpuPower { self.gpuPowerHistory.push(pwr) }
             let freqs = next.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
             if !freqs.isEmpty {
                 let rawMax = freqs.max() ?? 0
@@ -1222,10 +1296,13 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 next.avgCPUFreq = rawAvg
                 self.cpuFreqHistory.push(rawAvg / 1000.0)
             }
-            next.numPhysicalCores = self.lastAmdSnapshot?.numPhysicalCores ?? max(1, ProcessInfo.processInfo.processorCount / 2)
+            if let kextCores = self.lastAmdSnapshot?.numPhysicalCores, kextCores > 0 {
+                next.numPhysicalCores = kextCores
+            } else {
+                next.numPhysicalCores = Self.hostPhysicalCoreCount
+            }
             next.cpuHistory = plan.needCPU ? self.cpuHistory.values : []
             next.cpuSystemHistory = plan.needCPU ? self.cpuSystemHistory.values : []
-            next.ipsHistory = plan.needCPU ? self.ipsHistory.values : []
             next.gpuHistory = plan.needGPUUsage ? self.gpuHistory.values : []
             next.memoryHistory = plan.needMemory ? self.memoryHistory.values : []
             next.memoryAppHistory = plan.needMemory ? self.memoryAppHistory.values : []
@@ -1235,11 +1312,6 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             next.diskWriteHistory = plan.needDisk ? self.diskWriteHistory.values : []
             next.systemPowerHistory = plan.needPower ? self.systemPowerHistory.values : []
             next.batteryHistory = plan.needPower ? self.batteryHistory.values : []
-            next.gpuMemoryHistory = (plan.needMemory || plan.needGPUUsage) ? self.gpuMemoryHistory.values : []
-            next.cpuTempHistory = self.cpuTempHistory.values
-            next.gpuTempHistory = self.gpuTempHistory.values
-            next.cpuPowerHistory = self.cpuPowerHistory.values
-            next.gpuPowerHistory = self.gpuPowerHistory.values
             next.cpuFreqHistory = self.cpuFreqHistory.values
 
             DispatchQueue.main.async {
@@ -1406,15 +1478,18 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             previousCPUTicksAt = now
         }
         guard let previous = previousCPUTicks else { return nil }
-        if let previousAt, now - previousAt > 12.5 { return nil }
+        if let previousAt, now - previousAt > Self.maximumTickGap { return nil }
         return sample.load(since: previous)
     }
 
     /// Fetches per-core load using host_processor_info and combines it with
     /// AMD telemetry (frequencies, temperatures) from ProcessorModel.
-    private func readCoreUsageAndTelemetry() -> (cores: [CoreSnapshot], ccdTemps: [Float]) {
-        let amdSnap = self.lastAmdSnapshot ?? ProcessorModel.TelemetrySnapshot(metric: [], loadIndex: [], numPhysicalCores: 16, gpuTemp: 0, gpuPower: 0, gpuUtil: 0, gpuVram: 0, gpuFan: 0, gpuFreq: 0, ccdTemperatures: [])
-        let numPhysical = amdSnap.numPhysicalCores > 0 ? amdSnap.numPhysicalCores : 16 // fallback
+    /// Publishes no cores until a per-core baseline exists: a load computed
+    /// without one (launch, wake, a long gap) would read 0 % or the average
+    /// over the whole gap.
+    private func readCoreUsageAndTelemetry(now: TimeInterval) -> (cores: [CoreSnapshot], ccdTemps: [Float]) {
+        let amdSnap = self.lastAmdSnapshot ?? ProcessorModel.TelemetrySnapshot(metric: [], loadIndex: [], numPhysicalCores: Self.hostPhysicalCoreCount, gpuTemp: 0, gpuPower: 0, gpuUtil: 0, gpuVram: 0, gpuFan: 0, gpuFreq: 0, ccdTemperatures: [])
+        let numPhysical = amdSnap.numPhysicalCores > 0 ? amdSnap.numPhysicalCores : Self.hostPhysicalCoreCount
 
         // Get Host Processor Info for per-core load
         var cpuCount: natural_t = 0
@@ -1435,20 +1510,22 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
             var newTicks: [CPUTickSample] = []
             for i in 0..<Int(cpuCount) {
                 let offset = i * Int(CPU_STATE_MAX)
-                let sample = CPUTickSample(machUser: cpuLoadInfo[offset + Int(CPU_STATE_USER)],
-                                           system: cpuLoadInfo[offset + Int(CPU_STATE_SYSTEM)],
-                                           idle: cpuLoadInfo[offset + Int(CPU_STATE_IDLE)],
-                                           nice: cpuLoadInfo[offset + Int(CPU_STATE_NICE)])
-                newTicks.append(sample)
-
-                let load = previousCoreTicks.count > i ? sample.load(since: previousCoreTicks[i]) : nil
-                coreLoads.append(Float(load?.busy ?? 0) * 100.0)
-                coreSystemLoads.append(Float(load?.system ?? 0) * 100.0)
+                newTicks.append(CPUTickSample(machUser: cpuLoadInfo[offset + Int(CPU_STATE_USER)],
+                                              system: cpuLoadInfo[offset + Int(CPU_STATE_SYSTEM)],
+                                              idle: cpuLoadInfo[offset + Int(CPU_STATE_IDLE)],
+                                              nice: cpuLoadInfo[offset + Int(CPU_STATE_NICE)]))
             }
-
+            let loads = Self.coreLoads(current: newTicks, previous: previousCoreTicks,
+                                       elapsed: previousCoreTicksAt.map { now - $0 })
             previousCoreTicks = newTicks
+            previousCoreTicksAt = now
             let deallocSize = vm_size_t(numCpuInfo) * vm_size_t(MemoryLayout<integer_t>.size)
             vm_deallocate(mach_task_self_, vm_address_t(bitPattern: cpuInfo), deallocSize)
+
+            guard let loads else { return ([], amdSnap.ccdTemperatures) }
+            // A single core whose counters wrapped reads 0 % for this tick.
+            coreLoads = loads.map { Float($0?.busy ?? 0) * 100.0 }
+            coreSystemLoads = loads.map { Float($0?.system ?? 0) * 100.0 }
         }
 
         // Build CoreSnapshots in natural hardware processor order (interleaved)
@@ -1464,29 +1541,23 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         // disclosure (AmdPowerControlsModel) which renders them per-core with
         // Sleeping-core semantics; the SMU socket POWER promotion is
         // unaffected and stays in ProcessorModel.lastCPUPowerWatts.
-        let numLogical = Int(cpuCount)
-        if numLogical > 0 {
-            let hasSMT = (numLogical == 2 * numPhysical)
-            for logicalIdx in 0..<numLogical {
-                let physicalIdx = hasSMT ? (logicalIdx / 2) : (logicalIdx % max(1, numPhysical))
-                let isLogical = hasSMT ? (logicalIdx % 2 != 0) : (logicalIdx >= numPhysical)
+        let topology = Self.coreTopology(logicalCount: Int(cpuCount), physicalCount: numPhysical)
+        for (logicalIdx, place) in topology.enumerated() {
+            let freqIdx = place.physicalIndex + 3
+            let freq = amdSnap.metric.count > freqIdx ? amdSnap.metric[freqIdx] : 0.0
+            let load = coreLoads.count > logicalIdx ? coreLoads[logicalIdx] : 0.0
+            let systemLoad = coreSystemLoads.count > logicalIdx ? coreSystemLoads[logicalIdx] : 0.0
 
-                let freqIdx = physicalIdx + 3
-                let freq = amdSnap.metric.count > freqIdx ? amdSnap.metric[freqIdx] : 0.0
-                let load = coreLoads.count > logicalIdx ? coreLoads[logicalIdx] : 0.0
-                let systemLoad = coreSystemLoads.count > logicalIdx ? coreSystemLoads[logicalIdx] : 0.0
-
-                cores.append(CoreSnapshot(
-                    id: logicalIdx,
-                    freqMHz: freq,
-                    loadPct: load,
-                    isLogical: isLogical,
-                    cppcScore: nil,
-                    cppcScoreEstimated: false,
-                    coreRank: nil,
-                    systemPct: systemLoad
-                ))
-            }
+            cores.append(CoreSnapshot(
+                id: logicalIdx,
+                freqMHz: freq,
+                loadPct: load,
+                isLogical: place.isLogical,
+                cppcScore: nil,
+                cppcScoreEstimated: false,
+                coreRank: nil,
+                systemPct: systemLoad
+            ))
         }
 
         let ccdTemps = amdSnap.ccdTemperatures
@@ -1521,29 +1592,34 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
         return nil
     }
 
-    private func readGPUUsage() async -> Double? {
+    /// `kextUtil` is the last kext snapshot's GPU utilisation, captured on the
+    /// monitor queue by the caller: the snapshot is queue state and this runs
+    /// on the global executor.
+    private func readGPUUsage(kextUtil: Float?) async -> Double? {
         // Delegate to the shared IOAcceleratorCache — avoids a second IOKit registry walk.
         if let util = await IOAcceleratorCache.shared.utilization() {
             return util
         }
         // Fallback: last AMD kext snapshot if the accelerator dict has no utilisation key.
-        if let amdUtil = self.lastAmdSnapshot?.gpuUtil, amdUtil > 0 {
+        if let amdUtil = kextUtil, amdUtil > 0 {
             return Double(amdUtil) / 100.0
         }
         return nil
     }
 
-    private func readGPUVRAM() async -> UInt64? {
+    /// `kextVramMB` is captured on the monitor queue, like `kextUtil` above.
+    private func readGPUVRAM(kextVramMB: Float?) async -> UInt64? {
         if let v = await IOAcceleratorCache.shared.vramUsed() { return v }
-        if let vramMB = self.lastAmdSnapshot?.gpuVram, vramMB > 0 {
+        if let vramMB = kextVramMB, vramMB > 0 {
             return UInt64(vramMB * 1024 * 1024)
         }
         return nil
     }
 
+    /// Nil when the accelerator does not report its size: an unknown total
+    /// stays unknown rather than borrowing one card's 16 GB.
     private func readGPUVRAMTotal() async -> UInt64? {
-        if let v = await IOAcceleratorCache.shared.vramTotal() { return v }
-        return UInt64(16 * 1024 * 1024 * 1024) // RX 6800 XT fallback: 16 GB
+        await IOAcceleratorCache.shared.vramTotal()
     }
 
     // MARK: - Memory pressure

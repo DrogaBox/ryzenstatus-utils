@@ -112,7 +112,7 @@ struct AmdValidationSettingsView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 12)
-                    Picker("", selection: statusBinding(for: probe)) {
+                    Picker(probeLabel(probe), selection: statusBinding(for: probe)) {
                         Text(s.statusPending).tag(HardwareValidation.ProbeStatus.pending)
                         Text(s.statusPass).tag(HardwareValidation.ProbeStatus.pass)
                         Text(s.statusFail).tag(HardwareValidation.ProbeStatus.fail)
@@ -134,7 +134,7 @@ struct AmdValidationSettingsView: View {
     private var samplesSection: some View {
         Section {
             HStack(spacing: 10) {
-                Picker("", selection: $sampleProbe) {
+                Picker(s.sampleButton, selection: $sampleProbe) {
                     ForEach(HardwareValidation.Probe.allCases, id: \.self) { probe in
                         Text("\(probe.rawValue) — \(probeLabel(probe))").tag(probe)
                     }

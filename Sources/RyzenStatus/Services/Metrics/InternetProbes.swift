@@ -100,6 +100,8 @@ final class PingService: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: Self.interval, repeats: true) { [weak self] _ in
             self?.probe()
         }
+        // Lets the system coalesce the probe's wakeups with others.
+        timer?.tolerance = 0.5
     }
 
     func endWatching() {

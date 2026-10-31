@@ -28,7 +28,16 @@ final class NetworkScannerService: @unchecked Sendable {
     private struct InterfaceSample {
         var ibytes: UInt64
         var obytes: UInt64
-        var time: Date
+        /// Monotonic seconds (system uptime): a wall-clock change must not
+        /// stretch or shrink an interval.
+        var time: TimeInterval
+    }
+
+    /// Bytes per second between two counter reads; 0 for no time elapsed
+    /// or a counter that went backwards (an interface reset).
+    static func rate(previous: UInt64, current: UInt64, elapsed: TimeInterval) -> Double {
+        guard elapsed > 0, current >= previous else { return 0 }
+        return Double(current - previous) / elapsed
     }
 
     private let lock = NSLock()
@@ -45,8 +54,10 @@ final class NetworkScannerService: @unchecked Sendable {
         defer { freeifaddrs(ifaddr) }
 
         var ipMap: [String: (ip: String, isUp: Bool)] = [:]
-        var byteMap: [String: (ibytes: UInt64, obytes: UInt64, isUp: Bool)] = [:]
-        let now = Date()
+        let now = ProcessInfo.processInfo.systemUptime
+        // 64-bit counters; nil when the read failed, which then stores no
+        // baseline rather than a zero one that would read as a burst later.
+        let counters = NetworkSampler.interfaceByteCounters()
 
         var ptr: UnsafeMutablePointer<ifaddrs>? = firstAddr
         while let current = ptr {
@@ -65,11 +76,6 @@ final class NetworkScannerService: @unchecked Sendable {
                             ipMap[name] = (ip: ip, isUp: isUp)
                         }
                     }
-                } else if family == UInt8(AF_LINK), let data = current.pointee.ifa_data {
-                    let ifd = data.assumingMemoryBound(to: if_data.self)
-                    let ibytes = UInt64(ifd.pointee.ifi_ibytes)
-                    let obytes = UInt64(ifd.pointee.ifi_obytes)
-                    byteMap[name] = (ibytes: ibytes, obytes: obytes, isUp: isUp)
                 }
             }
             ptr = current.pointee.ifa_next
@@ -79,25 +85,21 @@ final class NetworkScannerService: @unchecked Sendable {
         var adapters: [NetworkAdapterInfo] = []
         lock.lock()
         for (name, ipInfo) in ipMap {
-            let (ibytes, obytes, isUp) = byteMap[name] ?? (0, 0, ipInfo.isUp)
             var rxRate: Double = 0.0
             var txRate: Double = 0.0
 
-            if let prev = previousSamples[name] {
-                let dt = max(now.timeIntervalSince(prev.time), 0.001)
-                if ibytes >= prev.ibytes {
-                    rxRate = Double(ibytes - prev.ibytes) / dt
+            if let bytes = counters?[name] {
+                if let prev = previousSamples[name] {
+                    rxRate = Self.rate(previous: prev.ibytes, current: bytes.received, elapsed: now - prev.time)
+                    txRate = Self.rate(previous: prev.obytes, current: bytes.sent, elapsed: now - prev.time)
                 }
-                if obytes >= prev.obytes {
-                    txRate = Double(obytes - prev.obytes) / dt
-                }
+                previousSamples[name] = InterfaceSample(ibytes: bytes.received, obytes: bytes.sent, time: now)
             }
-            previousSamples[name] = InterfaceSample(ibytes: ibytes, obytes: obytes, time: now)
 
             adapters.append(NetworkAdapterInfo(
                 name: name,
                 ipAddress: ipInfo.ip,
-                isUp: isUp,
+                isUp: ipInfo.isUp,
                 rxBytesPerSec: rxRate,
                 txBytesPerSec: txRate
             ))
@@ -106,7 +108,9 @@ final class NetworkScannerService: @unchecked Sendable {
         // Drop samples for interfaces that vanished (USB tethering,
         // dock adapters, VPN churn) so the dictionary cannot grow without bound
         // and a reused interface name never pairs with a stale baseline.
-        previousSamples = previousSamples.filter { byteMap[$0.key] != nil }
+        if let counters {
+            previousSamples = previousSamples.filter { counters[$0.key] != nil }
+        }
         lock.unlock()
 
         return adapters.sorted { $0.name < $1.name }

@@ -12937,6 +12937,7 @@ struct MetricsTests {
                 ("NotchAgentTests", NotchAgentTests.run),
                 ("NotchMascotCheatsTests", NotchMascotCheatsTests.run),
                 ("HardwareLayerTests", HardwareLayerTests.run),
+                ("DashboardMetricsTests", DashboardMetricsTests.run),
                 ("NotchMascotRuntimeTests", NotchMascotRuntimeTests.run),
                 ("IslandPanelTests", IslandPanelTests.run),
             ]

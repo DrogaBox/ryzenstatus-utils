@@ -107,6 +107,7 @@ if (( TEST )); then
         Tests/Ported/*.swift \
         Tests/HardwareLayerTests.swift \
         Tests/IslandPanelTests.swift \
+        Tests/DashboardMetricsTests.swift \
         Tests/MetricsTests.swift \
         -o build/metrics-tests
     ./build/metrics-tests

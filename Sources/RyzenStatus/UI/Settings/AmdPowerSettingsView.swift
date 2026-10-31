@@ -245,11 +245,15 @@ struct AmdPowerSettingsView: View {
                             // paste-able diagnostics bundle. Privileged — the
                             // kext refuses without root/-amdpnopchk.
                             Button {
-                                Task { await controls.runMailboxDiagnostics() }
-                                let bundle = controls.buildDiagnosticsBundle()
-                                GeneralPasteboardAccess.shared.copyString(bundle, ownCopy: false)
-                                pmStatusMessage = l10n.amdPower.diagBundleCopied
-                                pmStatusIsError = false
+                                // The bundle carries the report this click
+                                // asked for, so it is built after the run.
+                                Task {
+                                    await controls.runMailboxDiagnostics()
+                                    let bundle = controls.buildDiagnosticsBundle()
+                                    GeneralPasteboardAccess.shared.copyString(bundle, ownCopy: false)
+                                    pmStatusMessage = l10n.amdPower.diagBundleCopied
+                                    pmStatusIsError = false
+                                }
                             } label: {
                                 Label(l10n.amdPower.diagBundleButton, systemImage: "stethoscope")
                             }
@@ -413,7 +417,7 @@ struct AmdPowerSettingsView: View {
                                     .foregroundColor(.cyan)
                             }
 
-                            Picker("", selection: Binding(
+                            Picker(l10n.amdPower.energyProfileHeader, selection: Binding(
                                 get: {
                                     if autoEpp.isActive {
                                         return AMDPowerPreset.snapEPP(autoEpp.currentEPP)
@@ -518,7 +522,7 @@ struct AmdPowerSettingsView: View {
                 } else if controls.legacyPstateAllowed {
                     Section {
                         if !controls.validPStateLabels.isEmpty {
-                            Picker("", selection: Binding(
+                            Picker(l10n.amdPower.legacyPstatesHeader, selection: Binding(
                                 get: { controls.selectedPState },
                                 set: { controls.setPState($0) }
                             )) {
@@ -732,9 +736,6 @@ struct AmdPowerSettingsView: View {
         }
         .formStyle(.grouped)
         .task {
-            // Full monitor surface: register as a panel client (depth counter)
-            // so opening/closing the menu popover cannot wipe these needs.
-            SystemMonitor.shared.panelDidAppear()
             await fetchState()
             if let policy = ProcessorModel.shared.getCStatePolicy() {
                 c6RuntimeDisabled = policy.disabled
@@ -742,15 +743,10 @@ struct AmdPowerSettingsView: View {
             } else {
                 c6RuntimeDisabled = nil
             }
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                guard !Task.isCancelled else { break }
-                await controls.syncFromKext()
-            }
         }
-        .onDisappear {
-            SystemMonitor.shared.panelDidDisappear()
-        }
+        // The monitor client and the shared kext poll run only while the
+        // page is on screen in a visible Settings window.
+        .settingsPageActivity(.amdPower)
         // Gaming Mode applies the Extreme preset and restores the previous one
         // on deactivation; re-read the applied preset so the cards highlight
         // what the kext is really running instead of a stale @State value.
@@ -897,7 +893,7 @@ struct AmdPowerSettingsView: View {
                 }.value
                 guard let data else {
                     pmStatusIsError = true
-                    pmStatusMessage = "PM table capture failed"
+                    pmStatusMessage = l10n.dashboard.pmCaptureFailed
                     return
                 }
                 do {
@@ -906,7 +902,7 @@ struct AmdPowerSettingsView: View {
                     pmStatusMessage = nil
                 } catch {
                     pmStatusIsError = true
-                    pmStatusMessage = "Export failed"
+                    pmStatusMessage = l10n.dashboard.exportFailed
                 }
             }
         }
@@ -1066,19 +1062,19 @@ private struct AmdLiveTelemetrySection: View {
     @ObservedObject private var monitor = SystemMonitor.shared
     @ObservedObject private var l10n = L10n.shared
 
-    private var minFrequency: Double {
-        let freqs = monitor.snapshot.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
-        return freqs.min() ?? 0
+    /// Nil when no core reports a clock: a missing reading shows a dash,
+    /// never 0 MHz.
+    private var minFrequency: Double? {
+        monitor.snapshot.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }.min()
     }
 
-    private var maxFrequency: Double {
-        let freqs = monitor.snapshot.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
-        return freqs.max() ?? 0
+    private var maxFrequency: Double? {
+        monitor.snapshot.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }.max()
     }
 
-    private var averageFrequency: Double {
+    private var averageFrequency: Double? {
         let freqs = monitor.snapshot.cores.map { Double($0.freqMHz) }.filter { $0 > 0 }
-        guard !freqs.isEmpty else { return 0 }
+        guard !freqs.isEmpty else { return nil }
         return freqs.reduce(0, +) / Double(freqs.count)
     }
 
@@ -1087,7 +1083,7 @@ private struct AmdLiveTelemetrySection: View {
             HStack {
                 Text(l10n.amdPower.packagePowerLabel)
                 Spacer()
-                Text(String(format: "%.1f W", monitor.snapshot.cpuPower ?? 0))
+                Text(monitor.snapshot.cpuPower.map { String(format: "%.1f W", $0) } ?? "—")
                     .font(.system(.body, design: .monospaced))
             }
             HStack {
@@ -1095,7 +1091,7 @@ private struct AmdLiveTelemetrySection: View {
                 Spacer()
                 let tempVal = monitor.snapshot.cpuTemperature
                 let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
-                Text(tempVal.map { MetricFormat.temperature($0, unit: unit) } ?? "--")
+                Text(tempVal.map { MetricFormat.temperature($0, unit: unit) } ?? "—")
                     .font(.system(.body, design: .monospaced))
             }
             // S2-T5: source caption — this section reads SystemMonitor's poll.
@@ -1107,19 +1103,19 @@ private struct AmdLiveTelemetrySection: View {
                 HStack {
                     Text(l10n.s.amdMinFrequency)
                     Spacer()
-                    Text(String(format: "%.0f MHz", minFrequency))
+                    Text(minFrequency.map { String(format: "%.0f MHz", $0) } ?? "—")
                         .font(.system(.body, design: .monospaced))
                 }
                 HStack {
                     Text(l10n.s.amdMaxFrequency)
                     Spacer()
-                    Text(String(format: "%.0f MHz", maxFrequency))
+                    Text(maxFrequency.map { String(format: "%.0f MHz", $0) } ?? "—")
                         .font(.system(.body, design: .monospaced))
                 }
                 HStack {
                     Text(l10n.s.amdAvgFrequency)
                     Spacer()
-                    Text(String(format: "%.0f MHz", averageFrequency))
+                    Text(averageFrequency.map { String(format: "%.0f MHz", $0) } ?? "—")
                         .font(.system(.body, design: .monospaced))
                 }
             }

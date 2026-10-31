@@ -437,27 +437,24 @@ final class KillProcessService: ObservableObject {
     /// `ps`, or zero rows parsed - never legitimately true on a running Mac),
     /// so a transient hiccup can be told apart from an actually-empty list.
     private static func snapshot(grouped: Bool) -> [KillProcessEntry]? {
-        let result = Shell.run("/bin/ps", ["-eo", "pid,ppid,pcpu,rss,comm"])
+        let result = Shell.run("/bin/ps", ProcessTable.psArguments)
         guard result.status == 0 else { return nil }
-        let rows = parsePS(result.output)
+        let rows = entries(from: ProcessTable.parse(result.output))
         guard !rows.isEmpty else { return nil }
         return (grouped ? groupedByApp(rows) : rows).sorted { $0.cpuPercent > $1.cpuPercent }
     }
 
-    /// Lines look like "  437     1  12.5  20480 /System/Library/.../WindowServer".
-    private static func parsePS(_ output: String) -> [KillProcessEntry] {
+    /// Enriches the shared `ps` rows with what only this list needs: the
+    /// running app, the kernel start time and the responsible app's name.
+    /// Too costly for the once-a-second rankings, so it stays here.
+    private static func entries(from table: [PSProcessRow]) -> [KillProcessEntry] {
         var rows: [KillProcessEntry] = []
-        for line in output.split(separator: "\n").dropFirst() {
-            let columns = line.split(separator: " ", maxSplits: 4, omittingEmptySubsequences: true)
-            guard columns.count == 5,
-                  let pid = pid_t(columns[0]), pid > 0,
-                  let ppid = pid_t(columns[1]),
-                  let cpu = Double(columns[2])
-            else { continue }
-            let rss = Double(columns[3]) ?? 0
-            let commandPath = String(columns[4]).trimmingCharacters(in: .whitespaces)
-            let shortName = commandPath.contains("/")
-                ? (commandPath as NSString).lastPathComponent : commandPath
+        for row in table {
+            let pid = row.pid
+            let ppid = row.ppid
+            let cpu = row.cpuPercent
+            let commandPath = row.commandPath
+            let shortName = row.shortName
             let running = NSRunningApplication(processIdentifier: pid)
             let startedAt = currentStartTime(pid: pid,
                                              expectedParent: ppid,
@@ -470,7 +467,7 @@ final class KillProcessService: ObservableObject {
                 name: ResponsibleProcess.displayName(pid: pid, fallback: shortName),
                 path: commandPath,
                 cpuPercent: cpu,
-                memoryBytes: rss * 1024,
+                memoryBytes: row.rssBytes,
                 isRegularApp: running?.activationPolicy == .regular,
                 bundleURL: running?.bundleURL,
                 groupedCount: 1,

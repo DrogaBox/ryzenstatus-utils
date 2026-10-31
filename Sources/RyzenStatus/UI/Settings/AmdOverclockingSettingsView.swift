@@ -15,6 +15,16 @@ struct AmdOverclockingSettingsView: View {
     @State private var coSupported = false
     @State private var coCoreCount = 16
     @State private var curveOffsets: [Int8] = []
+    /// The offsets the kext last reported, or nil when that read failed or
+    /// was invalid: an unknown offset is never shown or written as 0.
+    @State private var curveReadback: [Int8]?
+    /// Cores written this session while the readback is unknown; their
+    /// value is known again, so the grid shows it.
+    @State private var coWrittenCores: Set<Int> = []
+    /// Cores with a tap write queued but not started: the queued write sends
+    /// the latest value, so quick taps on one core coalesce.
+    @State private var coQueuedCores: Set<Int> = []
+    @State private var coWriteTail: Task<Void, Never>?
     @State private var coStatusMessage: String?
     @State private var coStatusIsError = false
 
@@ -50,12 +60,12 @@ struct AmdOverclockingSettingsView: View {
 
     @State private var showCopiedToast = false
 
-    @AppStorage("coUnlocked") private var coUnlocked: Bool = false
-    @AppStorage("pboUnlocked") private var pboUnlocked: Bool = false
-    @AppStorage("pboLastPPTWatts") private var pboLastPPTWatts: Double = 142
-    @AppStorage("pboLastTDCAmps") private var pboLastTDCAmps: Double = 95
-    @AppStorage("pboLastEDCAmps") private var pboLastEDCAmps: Double = 140
-    @AppStorage("pboLastScalarTenths") private var pboLastScalarTenths: Double = 10
+    @AppStorage(DefaultsKey.curveOptimizerUnlocked) private var coUnlocked: Bool = false
+    @AppStorage(DefaultsKey.pboUnlocked) private var pboUnlocked: Bool = false
+    @AppStorage(DefaultsKey.pboLastPPTWatts) private var pboLastPPTWatts: Double = 142
+    @AppStorage(DefaultsKey.pboLastTDCAmps) private var pboLastTDCAmps: Double = 95
+    @AppStorage(DefaultsKey.pboLastEDCAmps) private var pboLastEDCAmps: Double = 140
+    @AppStorage(DefaultsKey.pboLastScalarTenths) private var pboLastScalarTenths: Double = 10
 
     var body: some View {
         Form {
@@ -104,13 +114,15 @@ struct AmdOverclockingSettingsView: View {
                             Label(l10n.amdPower.ocEnable, systemImage: "lock.open")
                         }
                         .buttonStyle(.borderedProminent)
+                        .disabled(controls.isWriting)
 
                         Button {
-                            applyOcMode(enable: false)
+                            Task { await applyOcMode(enable: false) }
                         } label: {
                             Label(l10n.amdPower.ocDisable, systemImage: "lock")
                         }
                         .buttonStyle(.bordered)
+                        .disabled(controls.isWriting)
 
                         Spacer()
 
@@ -175,18 +187,20 @@ struct AmdOverclockingSettingsView: View {
 
                         HStack(spacing: 10) {
                             Button {
-                                applyPBOLimits()
+                                Task { await applyPBOLimits() }
                             } label: {
                                 Label(l10n.amdPower.pboApplyLimits, systemImage: "bolt.fill")
                             }
                             .buttonStyle(.borderedProminent)
+                            .disabled(controls.isWriting)
 
                             Button {
-                                applyPBOScalar()
+                                Task { await applyPBOScalar() }
                             } label: {
                                 Label(l10n.amdPower.pboApplyScalar, systemImage: "gauge.with.needle")
                             }
                             .buttonStyle(.bordered)
+                            .disabled(controls.isWriting)
 
                             Spacer()
 
@@ -310,11 +324,12 @@ struct AmdOverclockingSettingsView: View {
 
                     HStack(spacing: 10) {
                         Button {
-                            applyCHTCLimit()
+                            Task { await applyCHTCLimit() }
                         } label: {
                             Label(l10n.amdPower.chtcApply, systemImage: "thermometer.sun.fill")
                         }
                         .buttonStyle(.borderedProminent)
+                        .disabled(controls.isWriting)
 
                         Spacer()
 
@@ -375,17 +390,23 @@ struct AmdOverclockingSettingsView: View {
                             }
                         }
                         HStack(spacing: 10) {
+                            // Writes only the cores that differ from what the
+                            // kext reports; nothing to write without a readback.
                             Button {
                                 applyAllCurveOffsets()
                             } label: {
                                 Label(l10n.amdPower.coApplyAll, systemImage: "bolt.fill")
                             }
                             .buttonStyle(.borderedProminent)
+                            .disabled(controls.isWriting
+                                      || CurveOptimizerWritePlan.changedCores(draft: curveOffsets, readback: curveReadback).isEmpty)
 
                             Button(l10n.amdPower.coResetZero) {
                                 resetCurveOffsets()
                             }
                             .buttonStyle(.bordered)
+                            .disabled(controls.isWriting
+                                      || CurveOptimizerWritePlan.coresToReset(readback: curveReadback, coreCount: coCoreCount).isEmpty)
 
                             Spacer()
 
@@ -435,11 +456,12 @@ struct AmdOverclockingSettingsView: View {
                     .padding(.bottom, 4)
 
                     Button {
-                        applyOcFreqAllCores()
+                        Task { await applyOcFreqAllCores() }
                     } label: {
                         Label(l10n.amdPower.ocFreqApply, systemImage: "bolt.horizontal")
                     }
                     .buttonStyle(.borderedProminent)
+                    .disabled(controls.isWriting)
 
                     ForEach(0..<controls.kextCcdCount, id: \.self) { ccd in
                         if ccd < ocFreqPerCcdDrafts.count {
@@ -457,11 +479,12 @@ struct AmdOverclockingSettingsView: View {
                                        step: 25)
                                     .labelsHidden()
                                 Button {
-                                    applyOcFreqCcd(ccd)
+                                    Task { await applyOcFreqCcd(ccd) }
                                 } label: {
                                     Label(l10n.amdPower.ocFreqApply, systemImage: "bolt.horizontal")
                                 }
                                 .buttonStyle(.bordered)
+                                .disabled(controls.isWriting)
                             }
                             .padding(.top, 2)
                         }
@@ -500,12 +523,16 @@ struct AmdOverclockingSettingsView: View {
             // Diagnostics: Copy SMU Mailbox Diagnostics bundle for troubleshooting
             Section {
                 Button {
-                    Task { await controls.runMailboxDiagnostics() }
-                    let bundle = controls.buildDiagnosticsBundle()
-                    GeneralPasteboardAccess.shared.copyString(bundle, ownCopy: false)
-                    showCopiedToast = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                        showCopiedToast = false
+                    // The bundle carries the report this click asked for, so
+                    // it is built after the run.
+                    Task {
+                        await controls.runMailboxDiagnostics()
+                        let bundle = controls.buildDiagnosticsBundle()
+                        GeneralPasteboardAccess.shared.copyString(bundle, ownCopy: false)
+                        showCopiedToast = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                            showCopiedToast = false
+                        }
                     }
                 } label: {
                     Label(l10n.amdPower.diagBundleButton, systemImage: "stethoscope")
@@ -534,19 +561,15 @@ struct AmdOverclockingSettingsView: View {
         .onAppear {
             seedState()
         }
-        .task {
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                guard !Task.isCancelled else { break }
-                await controls.syncFromKext()
-            }
-        }
+        // The shared kext poll runs only while the page is on screen in a
+        // visible Settings window.
+        .settingsPageActivity(.amdOverclocking)
         .alert(
             l10n.amdPower.ocRiskConfirmTitle,
             isPresented: $showOcRiskConfirm
         ) {
             Button(l10n.amdPower.ocRiskConfirmAccept, role: .destructive) {
-                applyOcMode(enable: true)
+                Task { await applyOcMode(enable: true) }
             }
             Button(l10n.amdPower.ocRiskConfirmCancel, role: .cancel) {}
         } message: {
@@ -563,17 +586,18 @@ struct AmdOverclockingSettingsView: View {
             let physicalCores = await ProcessorModel.shared.physicalCoreCount
 
             coGeneration = AMDCpuGeneration.classify(family: family, model: model)
-            let supportsCO = ProcessorModel.shared.getCurveOptimizerCapability()?.supported
-                ?? AMDCurveOptimizer.supported(family: family, model: model)
-            coSupported = supportsCO
+            // Capability reads are kext IPC: off the main thread.
+            let (coCapability, pboCapability) = await Task.detached(priority: .userInitiated) {
+                (ProcessorModel.shared.getCurveOptimizerCapability()?.supported,
+                 ProcessorModel.shared.getPBOCapability()?.supported)
+            }.value
+            coSupported = coCapability ?? AMDCurveOptimizer.supported(family: family, model: model)
             coCoreCount = physicalCores > 0 ? min(physicalCores, 32) : 16
+            pboSupported = pboCapability ?? AMDPBOLimits.supported(family: family, model: model)
 
-            let supportsPBO = ProcessorModel.shared.getPBOCapability()?.supported
-                ?? AMDPBOLimits.supported(family: family, model: model)
-            pboSupported = supportsPBO
-
-            reloadCurveOffsets()
-            refreshPBOReadback()
+            // The sliders seed from the readbacks, so they are awaited first.
+            await reloadCurveOffsets()
+            await refreshPBOReadback()
 
             pboPPTWatts = pboCacheMilli.map { Double($0.ppt / 1000) } ?? pboLastPPTWatts
             pboTDCAmps = pboCacheMilli.map { Double($0.tdc / 1000) } ?? pboLastTDCAmps
@@ -607,8 +631,10 @@ struct AmdOverclockingSettingsView: View {
 
     private func curveOptimizerCell(_ core: Int) -> some View {
         let offset = core < curveOffsets.count ? curveOffsets[core] : 0
+        let known = curveReadback != nil || coWrittenCores.contains(core)
+        let coreLabel = String(format: l10n.dashboard.coreLabelFormat, core + 1)
         return VStack(spacing: 3) {
-            Text("Core \(core + 1)")
+            Text(coreLabel)
                 .font(.caption2)
                 .foregroundColor(.secondary)
             HStack(spacing: 8) {
@@ -621,10 +647,11 @@ struct AmdOverclockingSettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(offset <= AMDCurveOptimizer.minOffset)
+                .accessibilityLabel(String(format: l10n.dashboard.coLowerFormat, core + 1))
 
-                Text("\(offset)")
+                Text(known ? "\(offset)" : "—")
                     .font(.system(size: 13, weight: .bold, design: .monospaced))
-                    .foregroundColor(curveOffsetColor(offset))
+                    .foregroundColor(known ? curveOffsetColor(offset) : .secondary)
                     .frame(minWidth: 24)
 
                 Button {
@@ -636,6 +663,7 @@ struct AmdOverclockingSettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(offset >= AMDCurveOptimizer.maxOffset)
+                .accessibilityLabel(String(format: l10n.dashboard.coRaiseFormat, core + 1))
             }
         }
         .padding(.vertical, 6)
@@ -654,78 +682,112 @@ struct AmdOverclockingSettingsView: View {
         let candidate = AMDCurveOptimizer.clamp(Int(curveOffsets[core]) + delta)
         guard candidate != curveOffsets[core] else { return }
         curveOffsets[core] = candidate
-        writeCurveOffset(core: core, offset: candidate)
+        enqueueCurveWrite(core: core)
     }
 
-    private func writeCurveOffset(core: Int, offset: Int8) {
-        Task.detached(priority: .userInitiated) {
-            let status = ProcessorModel.shared.setCurveOptimizerOffset(core: UInt8(core), offset: offset)
-            await MainActor.run {
-                if status == KERN_SUCCESS {
-                    coStatusMessage = "Core \(core + 1) → \(offset)"
-                    coStatusIsError = false
-                } else {
-                    reloadCurveOffsets()
-                    coStatusMessage = curveOptimizerError(status)
-                    coStatusIsError = true
-                }
+    /// Each tap joins one ordered chain on this page, so two quick taps on a
+    /// core can never land out of order. The write sends the core's latest
+    /// value when it runs, and the status names the write that finished.
+    private func enqueueCurveWrite(core: Int) {
+        guard !coQueuedCores.contains(core) else { return }
+        coQueuedCores.insert(core)
+        let previous = coWriteTail
+        coWriteTail = Task {
+            await previous?.value
+            coQueuedCores.remove(core)
+            guard core < curveOffsets.count else { return }
+            let offset = curveOffsets[core]
+            let status = await controls.perform {
+                ProcessorModel.shared.setCurveOptimizerOffset(core: UInt8(core), offset: offset)
             }
+            if status == KERN_SUCCESS {
+                coWrittenCores.insert(core)
+                if var readback = curveReadback, core < readback.count {
+                    readback[core] = offset
+                    curveReadback = readback
+                }
+                coStatusMessage = String(format: l10n.dashboard.coreOffsetAppliedFormat, core + 1, Int(offset))
+                coStatusIsError = false
+            } else {
+                coStatusMessage = curveOptimizerError(status)
+                coStatusIsError = true
+                await reloadCurveOffsets()
+            }
+        }
+    }
+
+    /// Writes the given cores' current values in core order, after any tap
+    /// still queued, and stops at the first failure.
+    private func writeCurveCores(_ cores: [Int]) {
+        guard !cores.isEmpty else { return }
+        coStatusMessage = nil
+        let offsets = cores.map { (core: $0, offset: curveOffsets[$0]) }
+        let previous = coWriteTail
+        coWriteTail = Task {
+            await previous?.value
+            var applied = 0
+            var failure: kern_return_t = KERN_SUCCESS
+            for item in offsets {
+                let status = await controls.perform {
+                    ProcessorModel.shared.setCurveOptimizerOffset(core: UInt8(item.core), offset: item.offset)
+                }
+                guard status == KERN_SUCCESS else {
+                    failure = status
+                    break
+                }
+                applied += 1
+                coWrittenCores.insert(item.core)
+            }
+            if failure == KERN_SUCCESS {
+                coStatusMessage = String(format: l10n.dashboard.coresAppliedFormat, applied)
+                coStatusIsError = false
+            } else {
+                coStatusMessage = curveOptimizerError(failure)
+                coStatusIsError = true
+            }
+            // The grid shows what the kext holds after the batch.
+            await reloadCurveOffsets()
         }
     }
 
     private func applyAllCurveOffsets() {
-        let offsets = curveOffsets
-        coStatusMessage = nil
-        Task.detached(priority: .userInitiated) {
-            var firstError: kern_return_t = KERN_SUCCESS
-            var applied = 0
-            for (core, offset) in offsets.enumerated() {
-                let status = ProcessorModel.shared.setCurveOptimizerOffset(core: UInt8(core), offset: offset)
-                if status == KERN_SUCCESS {
-                    applied += 1
-                } else if firstError == KERN_SUCCESS {
-                    firstError = status
-                }
-            }
-            let reportError = firstError
-            let reportApplied = applied
-            await MainActor.run {
-                if reportError == KERN_SUCCESS {
-                    coStatusMessage = "Applied \(reportApplied) cores"
-                    coStatusIsError = false
-                } else {
-                    reloadCurveOffsets()
-                    coStatusMessage = curveOptimizerError(reportError)
-                    coStatusIsError = true
-                }
-            }
-        }
+        writeCurveCores(CurveOptimizerWritePlan.changedCores(draft: curveOffsets, readback: curveReadback))
     }
 
+    /// Zero is the stock direction, so no confirmation; only cores the kext
+    /// reports as non-zero are written, or every core when that is unknown.
     private func resetCurveOffsets() {
-        curveOffsets = [Int8](repeating: 0, count: coCoreCount)
-        applyAllCurveOffsets()
+        let cores = CurveOptimizerWritePlan.coresToReset(readback: curveReadback, coreCount: coCoreCount)
+        if curveOffsets.count != coCoreCount {
+            curveOffsets = [Int8](repeating: 0, count: coCoreCount)
+        }
+        for core in cores where core < curveOffsets.count {
+            curveOffsets[core] = 0
+        }
+        writeCurveCores(cores)
     }
 
-    private func reloadCurveOffsets() {
-        let raw = ProcessorModel.shared.getCurveOptimizerOffsets()
+    /// A failed or invalid read leaves the readback unknown instead of
+    /// pretending every core holds 0.
+    private func reloadCurveOffsets() async {
+        let raw = await Task.detached(priority: .userInitiated) {
+            ProcessorModel.shared.getCurveOptimizerOffsets()
+        }.value
         if AMDCurveOptimizer.validOffsets(raw, coreCount: coCoreCount) {
-            curveOffsets = Array(raw.prefix(coCoreCount))
+            let offsets = Array(raw.prefix(coCoreCount))
+            curveOffsets = offsets
+            curveReadback = offsets
+            coWrittenCores = []
         } else {
-            curveOffsets = [Int8](repeating: 0, count: coCoreCount)
+            curveReadback = nil
+            if curveOffsets.count != coCoreCount {
+                curveOffsets = [Int8](repeating: 0, count: coCoreCount)
+            }
         }
     }
 
     private func curveOptimizerError(_ status: kern_return_t) -> String {
-        if status == ProcessorModel.kIOReturnNotPrivilegedCode {
-            return "Requires root or -amdpnopchk"
-        }
-        if status == kIOReturnUnsupported { return "Not supported by the kext on this CPU (Vermeer only)" }
-        if status == kIOReturnNotReady { return "Blocked: package temperature above 75 °C" }
-        if status == kIOReturnBadArgument { return "Invalid core index" }
-        if status == kIOReturnTimeout { return "SMU timeout — try again" }
-        if status == kIOReturnBusy { return "SMU busy — try again" }
-        return ProcessorModel.privilegeHint(for: status) ?? "Failed (0x\(String(status, radix: 16)))"
+        AmdWriteStatus.text(status, strings: l10n.dashboard, badArgument: l10n.dashboard.statusInvalidCore)
     }
 
     // MARK: - PBO Controls
@@ -745,35 +807,42 @@ struct AmdOverclockingSettingsView: View {
         }
     }
 
-    private func applyPBOLimits() {
-        let status = ProcessorModel.shared.setPBOLimits(
-            pptMilliwatts: AMDPBOLimits.milliFromBase(Int(pboPPTWatts)),
-            tdcMilliamps: AMDPBOLimits.milliFromBase(Int(pboTDCAmps)),
-            edcMilliamps: AMDPBOLimits.milliFromBase(Int(pboEDCAmps)))
+    private func applyPBOLimits() async {
+        let ppt = AMDPBOLimits.milliFromBase(Int(pboPPTWatts))
+        let tdc = AMDPBOLimits.milliFromBase(Int(pboTDCAmps))
+        let edc = AMDPBOLimits.milliFromBase(Int(pboEDCAmps))
+        let status = await controls.perform {
+            ProcessorModel.shared.setPBOLimits(pptMilliwatts: ppt, tdcMilliamps: tdc, edcMilliamps: edc)
+        }
         handlePBOResult(status)
         if status == KERN_SUCCESS {
             pboLastPPTWatts = pboPPTWatts
             pboLastTDCAmps = pboTDCAmps
             pboLastEDCAmps = pboEDCAmps
-            refreshPBOReadback()
+            await refreshPBOReadback()
         }
     }
 
-    private func applyPBOScalar() {
+    private func applyPBOScalar() async {
         let percentX100 = Int((pboScalarTenths * 10).rounded())
-        let status = ProcessorModel.shared.setPBOScalar(percentX100: percentX100)
+        let status = await controls.perform {
+            ProcessorModel.shared.setPBOScalar(percentX100: percentX100)
+        }
         handlePBOResult(status)
         if status == KERN_SUCCESS {
             pboLastScalarTenths = pboScalarTenths
-            refreshPBOReadback()
+            await refreshPBOReadback()
         }
     }
 
-    private func refreshPBOReadback() {
-        if let limits = ProcessorModel.shared.getPBOLimits() {
+    private func refreshPBOReadback() async {
+        let (limits, scalar) = await Task.detached(priority: .userInitiated) {
+            (ProcessorModel.shared.getPBOLimits(), ProcessorModel.shared.getPBOScalar())
+        }.value
+        if let limits {
             pboCacheMilli = (Int(limits.pptMilliwatts), Int(limits.tdcMilliamps), Int(limits.edcMilliamps))
         }
-        if let scalar = ProcessorModel.shared.getPBOScalar() {
+        if let scalar {
             pboScalarCacheX100 = Int(scalar)
         }
     }
@@ -785,21 +854,8 @@ struct AmdOverclockingSettingsView: View {
             return
         }
         pboStatusIsError = true
-        if status == ProcessorModel.kIOReturnNotPrivilegedCode {
-            pboStatusMessage = "Requires root or -amdpnopchk"
-        } else if status == kIOReturnUnsupported {
-            pboStatusMessage = "Not supported by the kext on this CPU (Vermeer only)"
-        } else if status == kIOReturnNotReady {
-            pboStatusMessage = "Blocked: package temperature above 75 °C"
-        } else if status == kIOReturnBadArgument {
-            pboStatusMessage = "Value outside the safe range"
-        } else if status == kIOReturnTimeout {
-            pboStatusMessage = "SMU timeout — try again"
-        } else if status == kIOReturnBusy {
-            pboStatusMessage = "SMU busy — try again"
-        } else {
-            pboStatusMessage = "SMU command failed"
-        }
+        pboStatusMessage = AmdWriteStatus.text(status, strings: l10n.dashboard,
+                                               badArgument: l10n.dashboard.statusOutOfRange)
     }
 
     private func capabilityBadge(_ title: String, enabled: Bool) -> some View {
@@ -815,104 +871,77 @@ struct AmdOverclockingSettingsView: View {
 
     // MARK: - cHTC Limit
 
-    private func applyCHTCLimit() {
-        let status = ProcessorModel.shared.setCHTCLimit(celsius: Int(chtcDraftCelsius.rounded()))
+    private func applyCHTCLimit() async {
+        let celsius = Int(chtcDraftCelsius.rounded())
+        let status = await controls.perform {
+            ProcessorModel.shared.setCHTCLimit(celsius: celsius)
+        }
         if status == KERN_SUCCESS {
             chtcStatusIsError = false
             chtcStatusMessage = nil
-            chtcAppliedCelsius = Int(chtcDraftCelsius.rounded())
+            chtcAppliedCelsius = celsius
         } else {
             chtcStatusIsError = true
-            if status == ProcessorModel.kIOReturnNotPrivilegedCode {
-                chtcStatusMessage = "Requires root or -amdpnopchk"
-            } else if status == kIOReturnUnsupported {
-                chtcStatusMessage = "Not supported by the kext on this CPU (Vermeer only)"
-            } else if status == kIOReturnNotReady {
-                chtcStatusMessage = "Blocked: package temperature above 75 °C"
-            } else if status == kIOReturnBadArgument {
-                chtcStatusMessage = "Value outside the safe range"
-            } else if status == kIOReturnTimeout {
-                chtcStatusMessage = "SMU timeout — try again"
-            } else if status == kIOReturnBusy {
-                chtcStatusMessage = "SMU busy — try again"
-            } else {
-                chtcStatusMessage = "SMU command failed"
-            }
+            chtcStatusMessage = AmdWriteStatus.text(status, strings: l10n.dashboard,
+                                                    badArgument: l10n.dashboard.statusOutOfRange)
         }
     }
 
     // MARK: - OC Mode & Frequency Overrides
 
-    private func applyOcMode(enable: Bool) {
-        let status = ProcessorModel.shared.setOcMode(enable: enable,
-                                                     resetScalar: !enable && ocResetScalarDraft)
+    private func applyOcMode(enable: Bool) async {
+        let resetScalar = !enable && ocResetScalarDraft
+        let status = await controls.perform {
+            ProcessorModel.shared.setOcMode(enable: enable, resetScalar: resetScalar)
+        }
         if status == KERN_SUCCESS {
             ocStatusIsError = false
             ocStatusMessage = nil
         } else {
             ocStatusIsError = true
-            if status == ProcessorModel.kIOReturnNotPrivilegedCode {
-                ocStatusMessage = "Requires root or -amdpnopchk"
-            } else if status == kIOReturnUnsupported {
-                ocStatusMessage = "Not supported by the kext on this CPU (Vermeer only)"
-            } else if status == kIOReturnNotReady {
-                ocStatusMessage = "Blocked: package temperature above 75 °C"
-            } else if status == kIOReturnBadArgument {
-                ocStatusMessage = "Invalid OC mode request"
-            } else if status == kIOReturnTimeout {
-                ocStatusMessage = "SMU timeout — try again"
-            } else if status == kIOReturnBusy {
-                ocStatusMessage = "SMU busy — try again"
-            } else {
-                ocStatusMessage = "SMU command failed"
-            }
+            ocStatusMessage = AmdWriteStatus.text(status, strings: l10n.dashboard,
+                                                  badArgument: l10n.dashboard.statusInvalidOcMode)
         }
     }
 
-    private func applyOcFreqAllCores() {
+    private func applyOcFreqAllCores() async {
         let mhz = Int(ocFreqAllDraft.rounded())
         guard AMDOcFreq.isValidMHz(mhz) else {
             ocFreqStatusIsError = true
-            ocFreqStatusMessage = "Invalid frequency request"
+            ocFreqStatusMessage = l10n.dashboard.statusInvalidFrequency
             return
         }
-        let status = ProcessorModel.shared.setOverclockFreq(allCoresMHz: mhz)
-        if status == KERN_SUCCESS {
-            ocFreqStatusIsError = false
-            ocFreqStatusMessage = nil
-        } else {
-            ocFreqStatusIsError = true
-            ocFreqStatusMessage = ocFreqError(status)
+        let status = await controls.perform {
+            ProcessorModel.shared.setOverclockFreq(allCoresMHz: mhz)
         }
+        reportOcFreq(status)
     }
 
-    private func applyOcFreqCcd(_ ccd: Int) {
+    private func applyOcFreqCcd(_ ccd: Int) async {
         guard ccd < ocFreqPerCcdDrafts.count else { return }
         let mhz = Int(ocFreqPerCcdDrafts[ccd].rounded())
         guard AMDOcFreq.isValidMHz(mhz) else {
             ocFreqStatusIsError = true
-            ocFreqStatusMessage = "Invalid frequency request"
+            ocFreqStatusMessage = l10n.dashboard.statusInvalidFrequency
             return
         }
-        let status = ProcessorModel.shared.setOverclockFreq(perCcdMHz: [ccd: mhz])
+        let status = await controls.perform {
+            ProcessorModel.shared.setOverclockFreq(perCcdMHz: [ccd: mhz])
+        }
+        reportOcFreq(status)
+    }
+
+    private func reportOcFreq(_ status: kern_return_t) {
         if status == KERN_SUCCESS {
             ocFreqStatusIsError = false
             ocFreqStatusMessage = nil
         } else {
             ocFreqStatusIsError = true
-            ocFreqStatusMessage = ocFreqError(status)
+            // Here a refusal means this driver has not opened the OC gate.
+            ocFreqStatusMessage = AmdWriteStatus.text(status, strings: l10n.dashboard,
+                                                      badArgument: l10n.dashboard.statusInvalidFrequency,
+                                                      notPermitted: l10n.dashboard.statusEnableOcFirst)
         }
-    }
-
-    private func ocFreqError(_ status: kern_return_t) -> String {
-        if status == ProcessorModel.kIOReturnNotPrivilegedCode { return "Requires root or -amdpnopchk" }
-        if status == kIOReturnNotPermitted { return "Enable OC mode first (this driver must open the gate itself)" }
-        if status == kIOReturnUnsupported { return "Not supported by the kext on this CPU (Vermeer only)" }
-        if status == kIOReturnNotReady { return "Blocked: package temperature above 75 °C" }
-        if status == kIOReturnBadArgument { return "Invalid frequency request" }
-        if status == kIOReturnTimeout { return "SMU timeout — try again" }
-        if status == kIOReturnBusy { return "SMU busy — try again" }
-        return "SMU command failed"
     }
 
     private var ocFreqCacheSummary: String {
@@ -925,5 +954,23 @@ struct AmdOverclockingSettingsView: View {
             parts.append(String(format: l10n.amdPower.ocFreqPerCcdFormat, ccd) + " \(mhz) MHz")
         }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// Which Curve Optimizer cores a bulk action writes. Offsets the user did not
+/// change are never written, and a failed readback never turns into zeros.
+enum CurveOptimizerWritePlan {
+    /// Cores whose value differs from the last valid readback; none without
+    /// one, since a difference cannot be known.
+    static func changedCores(draft: [Int8], readback: [Int8]?) -> [Int] {
+        guard let readback else { return [] }
+        return draft.indices.filter { $0 < readback.count && draft[$0] != readback[$0] }
+    }
+
+    /// "Reset to 0": cores the readback reports as non-zero, or every core
+    /// when the readback is unknown (the user asked for all of them).
+    static func coresToReset(readback: [Int8]?, coreCount: Int) -> [Int] {
+        guard let readback else { return Array(0..<max(0, coreCount)) }
+        return readback.indices.filter { $0 < coreCount && readback[$0] != 0 }
     }
 }
