@@ -68,6 +68,7 @@ class ISSuperIOIT86XXEFamily : public ISSuperIOSMCFamily
 
     void overrideFanControl(int fan, uint8_t thr) override;
     void setDefaultFanControl(int fan) override;
+    void resume() override;
 
     uint8_t readReg(uint16_t reg) override { return readByte(reg); }
     void writeReg(uint16_t reg, uint8_t val) override { writeByte(reg, val); }
@@ -111,6 +112,10 @@ class ISSuperIOIT86XXEFamily : public ISSuperIOSMCFamily
     const uint16_t* regPwmCtrl = kFAN_PWM_CTRL_REGS;
 
     int lpcPortSel = 0;
+
+    // The probe switched the tachometers to 16-bit mode (privileged callers
+    // only); resume() switches them back on if firmware turned them off.
+    bool tach16BitRequested = false;
 
     uint16_t chipAddr = 0;
     uint16_t gpioAddr = 0;

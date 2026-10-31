@@ -77,10 +77,24 @@ ISSuperIONCT668X* ISSuperIONCT668X::getDevice(uint16_t *chipIntel, bool allowUnl
         }
 
         superioExit(portSel);
-        return new ISSuperIONCT668X(portSel, devAddr, chipID);
+        ISSuperIONCT668X *device = new ISSuperIONCT668X(portSel, devAddr, chipID);
+        if (device) device->ecEnableRequested = allowUnlock;
+        return device;
     }
 
     return nullptr;
+}
+
+// The probe's EC enable again, after a wake.
+void ISSuperIONCT668X::resume(){
+    if (!ecEnableRequested) return;
+    superioEnter(ISLPCPort::kREGISTER_PORTS[lpcPortSel]);
+    ISLPCPort::select(lpcPortSel, CHIP_HWM_LDN);
+    const uint8_t enable = ISLPCPort::readByte(lpcPortSel, NCT668X_SIO_REG_ENABLE);
+    if (!(enable & 0x01)) {
+        ISLPCPort::writeByte(lpcPortSel, NCT668X_SIO_REG_ENABLE, enable | 0x01);
+    }
+    superioExit(lpcPortSel);
 }
 
 uint8_t ISSuperIONCT668X::readByte(uint16_t addr){

@@ -112,6 +112,7 @@ IOReturn AMDRyzenCPUPMUserClient::clientClose() {
                 provider->fanToCurveMap[i] = -1;
                 provider->superIO->setDefaultFanControl(i);
                 provider->lastAppliedPWM[i] = 0;
+                provider->lastPWMAssertMs[i] = 0;
             }
             IOLog("AMDRyzenCPUPMUserClient: clientClose released %d fan(s) to BIOS control\n", fanCount);
         }
@@ -1565,6 +1566,9 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 return kIOReturnBadArgument;
             }
             provider->fanToCurveMap[fanIdx] = (int8_t)curveIdx;
+            // Whatever the fan held (a manual duty, another curve), the next
+            // curve tick writes it.
+            provider->lastPWMAssertMs[fanIdx] = 0;
             // If mapping to Auto, restore default fan control
             if (curveIdx == -1 && provider->superIO) {
                 provider->superIO->setDefaultFanControl(fanIdx);
@@ -2080,6 +2084,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             if(!provider)
                 return kIOReturnNoDevice;
 
+            provider->pmTableLastDemandMs = getCurrentTimeNs() / 1000000;
             if (provider->rendezvousLock) IOLockLock(provider->rendezvousLock);
             arguments->scalarOutputCount = 8;
             arguments->scalarOutput[0] = provider->pmTableVersionRaw;
@@ -2144,6 +2149,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             // op 1: chunked snapshot read. Serialize against the timer's
             // capture path so callers never observe a partially-copied buffer.
+            provider->pmTableLastDemandMs = getCurrentTimeNs() / 1000000;
             arguments->scalarOutputCount = 0;
             if (provider->rendezvousLock) IOLockLock(provider->rendezvousLock);
 

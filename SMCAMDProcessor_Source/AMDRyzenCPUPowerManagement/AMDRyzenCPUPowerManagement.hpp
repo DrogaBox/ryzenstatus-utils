@@ -573,6 +573,15 @@ public:
     int8_t fanToCurveMap[kMAX_FANS] {}; // Maps each physical fan index to a curve index (-1 = Auto; set in start())
     uint8_t lastAppliedPWM[kMAX_FANS] {};
     uint64_t lastPWMUpdateTime[kMAX_FANS] {};
+    // When a curve fan's duty last reached the chip (ms, 0 = write on the
+    // next tick). An unchanged duty is written again only every
+    // kFAN_REASSERT_MS, in case firmware took the header back, instead of
+    // on every 500 ms tick; fewer index/data cycles on the LPC ports that
+    // ACPI and SMM firmware also use. Zeroed wherever the chip state stops
+    // being known: probe, curve mapping, client close, wake.
+    uint64_t lastPWMAssertMs[kMAX_FANS] {};
+    static constexpr uint64_t kFAN_REASSERT_MS = 5000;
+    void resumeSuperIO();
 
     static_assert(sizeof(fanToCurveMap) / sizeof(fanToCurveMap[0]) == kMAX_FANS, "fan array size mismatch");
     static_assert(sizeof(lastAppliedPWM) / sizeof(lastAppliedPWM[0]) == kMAX_FANS, "fan array size mismatch");
@@ -688,6 +697,12 @@ public:
     static constexpr uint32_t kPM_TABLE_MAX_SIZE = 0x2000;   // covers every documented Vermeer size (max 0x1BB0)
     static constexpr uint64_t kPM_REFRESH_MIN_INTERVAL_MS = 1000; // one 0x05 + re-map check per second, worst case
     uint64_t pmRefreshLastPollMs {0};
+    // Last time a client read the PM table or its info (selectors 56/57).
+    // Once a first snapshot exists, the 1 s capture only runs while someone
+    // asked within kPM_DEMAND_WINDOW_MS: each capture costs an SMU transfer
+    // and an uncached mapping, and only the AMD Power page reads it.
+    volatile uint64_t pmTableLastDemandMs {0};
+    static constexpr uint64_t kPM_DEMAND_WINDOW_MS = 15000;
     uint32_t pmTableVersionRaw {0};          // 0x08 response (BCD-style, e.g. 0x380904 → 38.09.04)
     bool     pmTableVersionPolled {false};
     uint64_t pmDramBase {0};                 // physical base from 0x06 (0 = unknown)
@@ -740,8 +755,14 @@ private:
     uint32_t updateTimeInterval = 1000;
     uint32_t actualUpdateTimeInterval = 1;
     uint64_t timeOfLastUpdate = 0;
+    // How often user space polls, as the smoothed gap between bursts of
+    // calls: one app refresh is a dozen selectors back to back, and calls
+    // closer than kREQUEST_BURST_GAP_MS belong to the same burst.
     uint64_t estimatedRequestTimeInterval = 0;
     uint64_t timeOfLastMissedRequest = 0;
+    static constexpr uint64_t kREQUEST_BURST_GAP_MS = 25;
+    static constexpr uint64_t kREQUEST_STREAM_MS = 250;
+    uint64_t requestBurstStartMs = 0;
 
     int tempNextSample = 0;
     float tempSamples[HF_TEMP_SAMPLE_LEN] {};

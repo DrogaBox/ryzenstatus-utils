@@ -260,6 +260,7 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
             IOLockLock(provider->rendezvousLock);
             provider->reapplyPerCoreConfig();
             IOLockUnlock(provider->rendezvousLock);
+            provider->resumeSuperIO();
             sender->setTimeoutMS(provider->updateTimeInterval);
             return;
         }
@@ -962,11 +963,32 @@ bool AMDRyzenCPUPowerManagement::write_msr(uint32_t addr, uint64_t value){
     return false;
 }
 
+// Every selector call lands here. Measuring the gap between single calls
+// read a refresh of a dozen back-to-back selectors as a client polling
+// every few milliseconds, so the timer kept dropping to its 50 ms floor and
+// climbed back geometrically between refreshes: about five rendezvous of
+// every CPU a second for an app asking once a second. The estimate now
+// follows the period between burst starts, smoothed over the last few; a
+// client that never pauses for kREQUEST_BURST_GAP_MS is a fast poller and
+// gets the 50 ms floor as before.
 void AMDRyzenCPUPowerManagement::registerRequest(){
     uint64_t now = getCurrentTimeNs() / 1000000;
 
-    estimatedRequestTimeInterval = (now >= timeOfLastMissedRequest) ? (now - timeOfLastMissedRequest) : 0;
+    uint64_t gap = (now >= timeOfLastMissedRequest) ? (now - timeOfLastMissedRequest) : 0;
     timeOfLastMissedRequest = now;
+
+    if (gap < kREQUEST_BURST_GAP_MS) {
+        if (now - requestBurstStartMs > kREQUEST_STREAM_MS) {
+            estimatedRequestTimeInterval = 0;
+            requestBurstStartMs = now;
+        }
+        return;
+    }
+
+    uint64_t period = (requestBurstStartMs != 0 && now > requestBurstStartMs) ? (now - requestBurstStartMs) : gap;
+    requestBurstStartMs = now;
+    uint64_t est = estimatedRequestTimeInterval;
+    estimatedRequestTimeInterval = (est == 0) ? period : (est * 3 + period) / 4;
 }
 
 #pragma mark - Frequency & Clock Management
@@ -1690,6 +1712,13 @@ void AMDRyzenCPUPowerManagement::pollPMTable() {
         now - pmRefreshLastPollMs < kPM_REFRESH_MIN_INTERVAL_MS) {
         return;
     }
+    // Nobody has looked lately: keep the last snapshot and leave the SMU
+    // alone (see pmTableLastDemandMs). The first capture still runs, so the
+    // version and base are known from boot.
+    const uint64_t demand = pmTableLastDemandMs;
+    if (pmMapValid && (demand == 0 || now - demand > kPM_DEMAND_WINDOW_MS)) {
+        return;
+    }
     pmRefreshLastPollMs = now;
 
     (void)forcePMTableCapture();
@@ -2099,7 +2128,12 @@ void AMDRyzenCPUPowerManagement::updatePackageEnergy(){
 
     uint64_t msr_value_buf = 0;
     if (!read_msr(kMSR_PKG_ENERGY_STAT, &msr_value_buf)) {
-        IOLog("AMDRyzenCPUPowerManagement::updatePackageEnergy: failed to read MSR 0xC001029B\n");
+        // Once per boot: this runs on every tick, up to 20 times a second.
+        static bool loggedEnergyReadFailure = false;
+        if (!loggedEnergyReadFailure) {
+            loggedEnergyReadFailure = true;
+            IOLog("AMDRyzenCPUPowerManagement::updatePackageEnergy: failed to read MSR 0xC001029B\n");
+        }
         return;
     }
 
@@ -2307,6 +2341,7 @@ bool AMDRyzenCPUPowerManagement::initSuperIO(uint16_t *chipIntel, bool allowUnlo
     for (size_t i = 0; i < kMAX_FANS; i++) {
         lastAppliedPWM[i] = 0;
         lastPWMUpdateTime[i] = 0;
+        lastPWMAssertMs[i] = 0;
     }
     fanTelemetryLastMs = 0;
     // Reset per-curve hysteresis state on re-probe
@@ -2336,6 +2371,24 @@ void AMDRyzenCPUPowerManagement::setPMPStateLimit(uint32_t state){
 
 uint32_t AMDRyzenCPUPowerManagement::getHPcpus(){
     return pmRyzen_hpcpus;
+}
+
+// After a wake: the chip re-applies what its probe set up (16-bit
+// tachometers, I/O-space lock, EC enable), the tachometers are read afresh
+// and every curve fan is written on the next tick whatever it held before
+// sleep, since firmware may have taken the headers back. Manual duties come
+// back with the app's next selector 95 write.
+void AMDRyzenCPUPowerManagement::resumeSuperIO() {
+    if (!superIOLock) return;
+    IOLockLock(superIOLock);
+    if (superIO) {
+        superIO->resume();
+        fanTelemetryLastMs = 0;
+        for (size_t i = 0; i < kMAX_FANS; i++) {
+            lastPWMAssertMs[i] = 0;
+        }
+    }
+    IOLockUnlock(superIOLock);
 }
 
 void AMDRyzenCPUPowerManagement::refreshFanTelemetryIfStale() {
@@ -2440,6 +2493,7 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
         if (!curveSmoothedValid[curveIdx]) {
             superIO->overrideFanControl(fanIdx, kFAILSAFE_PWM);
             lastAppliedPWM[fanIdx] = kFAILSAFE_PWM;
+            lastPWMAssertMs[fanIdx] = 0;
             lastAppliedTempSeeded[curveIdx] = false;
             lastPWMUpdateTime[fanIdx] = now;
             continue;
@@ -2519,13 +2573,24 @@ void AMDRyzenCPUPowerManagement::evaluateFanCurves() {
             targetPWM = (targetPWM < kTHERMAL_GUARD_PWM) ? kTHERMAL_GUARD_PWM : targetPWM;
         }
 
-        // 8. Apply PWM override to the Super I/O chip
+        // 8. Apply PWM override to the Super I/O chip. An unchanged duty
+        // is only written again every kFAN_REASSERT_MS (see lastPWMAssertMs).
+        const uint64_t nowMs = now / 1000000;
+        const bool mustWrite = lastPWMAssertMs[fanIdx] == 0
+            || targetPWM != lastAppliedPWM[fanIdx]
+            || nowMs - lastPWMAssertMs[fanIdx] >= kFAN_REASSERT_MS;
         if (targetPWM == 0) {
-            superIO->setDefaultFanControl(fanIdx);
+            if (mustWrite) {
+                superIO->setDefaultFanControl(fanIdx);
+                lastPWMAssertMs[fanIdx] = nowMs ? nowMs : 1;
+            }
             lastAppliedPWM[fanIdx] = 0;
             lastAppliedTempSeeded[curveIdx] = false;
         } else {
-            superIO->overrideFanControl(fanIdx, targetPWM);
+            if (mustWrite) {
+                superIO->overrideFanControl(fanIdx, targetPWM);
+                lastPWMAssertMs[fanIdx] = nowMs ? nowMs : 1;
+            }
             if (lastAppliedPWM[fanIdx] != targetPWM) {
                 lastAppliedTemp[curveIdx] = smoothed;
                 lastAppliedTempSeeded[curveIdx] = true;
