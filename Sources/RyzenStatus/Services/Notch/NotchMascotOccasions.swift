@@ -578,7 +578,7 @@ enum NotchMascotLaser {
 }
 // MARK: - Dancing alone
 /// The moves the dancers make on their own, out on the desktop, and the
-/// routines of the kitsune, the penguin, the hologram and the android,
+/// routines of the kitsune, the penguin, the hologram, the android and the comic's two,
 /// played the same way.
 enum NotchMascotSoloDance: String, CaseIterable, Equatable {
     // The swan.
@@ -597,6 +597,10 @@ enum NotchMascotSoloDance: String, CaseIterable, Equatable {
     case phaseShift, glitch, greeting
     // The android: it scans the windows, fires its thrusters, and recharges.
     case scan, boost, recharge
+    // Cristóbal: a sip of his coffee, and an idea.
+    case coffeeSip, eureka
+    // The White Rabbit: it is late, and it hops.
+    case imLate, bunnyHops
     /// At least this long between two, and the chance of one after.
     static let interval: TimeInterval = 4 * 60
     static let chance = 0.35
@@ -614,6 +618,8 @@ enum NotchMascotSoloDance: String, CaseIterable, Equatable {
         case .penguin: return [.bellySlide, .flightAttempt, .pebbleGift]
         case .hologram: return [.phaseShift, .glitch, .greeting]
         case .android: return [.scan, .boost, .recharge]
+        case .cristobal: return [.coffeeSip, .eureka]
+        case .whiteRabbit: return [.imLate, .bunnyHops]
         default: return []
         }
     }
@@ -653,6 +659,10 @@ enum NotchMascotSoloDance: String, CaseIterable, Equatable {
         case .scan: return "SCANNING..."
         case .boost: return "BOOST!"
         case .recharge: return "CHARGING"
+        case .coffeeSip: return "AHH..."
+        case .eureka: return "EUREKA!"
+        case .imLate: return "LATE!"
+        case .bunnyHops: return "HOP HOP!"
         }
     }
     /// A great jump, which wants fresh rosin under the feet first.
@@ -680,6 +690,10 @@ enum NotchMascotSoloDance: String, CaseIterable, Equatable {
         case .scan: return 4.4
         case .boost: return 3.0
         case .recharge: return 4.6
+        case .coffeeSip: return 3.4
+        case .eureka: return 3.0
+        case .imLate: return 4.2
+        case .bunnyHops: return 3.4
         }
     }
 }

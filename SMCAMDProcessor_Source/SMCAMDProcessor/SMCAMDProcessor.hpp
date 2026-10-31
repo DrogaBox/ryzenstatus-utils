@@ -58,6 +58,7 @@ class SMCAMDProcessor : public IOService {
      *  - TCxC/TCxc: per-CCD temperature (SP78), x = CCD index
      *  - TGxD/P/d/p, TGDD: GPU temperature (SP78), x = GPU index
      *  - PGxR/PGxC: GPU power (SP96), only for GPUs that report it
+     *  - FNum, FxAc: Super I/O fan count and tachometers (fpe2), x = header
      */
     static constexpr SMC_KEY KeyPCPR = SMC_MAKE_IDENTIFIER('P','C','P','R');
     static constexpr SMC_KEY KeyPSTR = SMC_MAKE_IDENTIFIER('P','S','T','R');
@@ -84,6 +85,13 @@ class SMCAMDProcessor : public IOService {
     // === GPU power keys (PGxx) ===
     static constexpr SMC_KEY KeyPGxR(size_t i) { return SMC_MAKE_IDENTIFIER('P','G',KeyIndexes[i < MaxGPUIndexCount ? i : 0],'R'); }
     static constexpr SMC_KEY KeyPGxC(size_t i) { return SMC_MAKE_IDENTIFIER('P','G',KeyIndexes[i < MaxGPUIndexCount ? i : 0],'C'); }
+
+    // === Fan keys (FNum ui8, FxAc fpe2) ===
+    // The SMCSuperIO convention (acidanthera/VirtualSMC, NuvotonDevice::setupKeys),
+    // which is what iStat Menus, Stats and HWMonitor read. Up to 16 headers.
+    static constexpr size_t MaxFanIndexCount = 16;
+    static constexpr SMC_KEY KeyFNum = SMC_MAKE_IDENTIFIER('F','N','u','m');
+    static constexpr SMC_KEY KeyFxAc(size_t i) { return SMC_MAKE_IDENTIFIER('F',KeyIndexes[i < MaxFanIndexCount ? i : 0],'A','c'); }
     
 public:
     

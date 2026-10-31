@@ -140,9 +140,89 @@ final class NotchMascotDecor {
         let line = max(0.6, size * 0.06)
 
         for layer in creatureLayers { layer.isHidden = true }
+        // Only the comic's two are outlined; no outline is carried over to
+        // the next figure that uses the same layer.
+        for case let layer as CAShapeLayer in creatureLayers where ![whiskers, catTail, fanHub].contains(layer) {
+            layer.strokeColor = nil
+            layer.lineWidth = 0
+        }
+        // The cat's whiskers are lines; Cristóbal's hands, drawn in the same
+        // layer, are filled.
+        whiskers.fillColor = nil
+        catTail.fillColor = nil
         switch style {
-        case .minimal, .robot, .cristobal, .whiteRabbit:
+        case .minimal, .robot:
             break
+        case .cristobal:
+            // The palette dyes his jumper and sleeves; skin, black hair, the
+            // day's stubble, glasses, dark trousers and his coffee mug keep
+            // their colours, outlined in ink as in the comic.
+            let ink = NotchMascotWearableShapes.rgb(NotchMascotCreatures.comicInk)
+            let outline = max(0.4, size * 0.014)
+            let skin = NotchMascotWearableShapes.rgb(0xEDB98F)
+            catEars.path = NotchMascotCreatures.cristobalTrousers(size: size)
+            catEars.fillColor = NotchMascotWearableShapes.rgb(0x2C2E3B)
+            catInnerEars.path = NotchMascotCreatures.cristobalShoes(size: size)
+            catInnerEars.fillColor = NotchMascotWearableShapes.rgb(0x16161C)
+            catTail.path = NotchMascotCreatures.cristobalNeck(size: size)
+            catTail.fillColor = skin
+            plume.path = NotchMascotCreatures.cristobalSkin(size: size)
+            plume.fillColor = skin
+            chipMark.path = NotchMascotCreatures.cristobalStubble(size: size)
+            chipMark.fillColor = NotchMascotWearableShapes.rgb(0x6B5446).copy(alpha: 0.32)
+            catNose.path = NotchMascotCreatures.cristobalSmile(size: size)
+            catNose.fillColor = NotchMascotWearableShapes.rgb(0x6A3C2E)
+            fanHub.path = NotchMascotCreatures.cristobalSleeves(armsPose, size: size)
+            fanHub.fillColor = palette.light.cgColor
+            dogNose.path = NotchMascotCreatures.cristobalMug(size: size)
+            dogNose.fillColor = NotchMascotWearableShapes.rgb(0xF6F6F8)
+            whiskers.path = NotchMascotCreatures.cristobalHands(armsPose, size: size)
+            whiskers.fillColor = skin
+            fanScrews.path = NotchMascotCreatures.cristobalGlasses(size: size)
+            fanScrews.fillColor = nil
+            fanScrews.strokeColor = ink
+            fanScrews.lineWidth = max(0.5, size * 0.02)
+            ghostMouth.path = NotchMascotCreatures.cristobalHair(size: size)
+            ghostMouth.fillColor = NotchMascotWearableShapes.rgb(0x1C1B22)
+            ghostMouth.opacity = 1
+            for layer in [catEars, catInnerEars, plume, fanHub, dogNose, whiskers] {
+                layer.strokeColor = ink
+                layer.lineWidth = outline
+            }
+            show(catEars, catInnerEars, catTail, plume, chipMark, catNose, fanHub, dogNose, whiskers, fanScrews, ghostMouth)
+        case .whiteRabbit:
+            // The palette dyes its apron; white fur, pink ears and nose, all
+            // outlined in ink as in the comic.
+            let ink = NotchMascotWearableShapes.rgb(NotchMascotCreatures.comicInk)
+            let outline = max(0.4, size * 0.014)
+            let fur = NotchMascotWearableShapes.rgb(0xF8F4F0)
+            catEars.path = NotchMascotCreatures.rabbitEars(inner: false, size: size)
+            catEars.fillColor = fur
+            catInnerEars.path = NotchMascotCreatures.rabbitEars(inner: true, size: size)
+            catInnerEars.fillColor = NotchMascotWearableShapes.rgb(0xF2A7B6)
+            tailTips.path = NotchMascotCreatures.rabbitBody(size: size)
+            tailTips.fillColor = fur
+            plume.path = NotchMascotCreatures.rabbitHead(size: size)
+            plume.fillColor = fur
+            fanHole.path = NotchMascotCreatures.rabbitPocket(size: size)
+            fanHole.fillColor = palette.shade.cgColor
+            // Its arms go unlined, a touch greyer than the rest of its fur,
+            // so they read over its body without seams at the joints.
+            fanHub.path = NotchMascotCreatures.rabbitArms(armsPose, size: size)
+            fanHub.fillColor = NotchMascotWearableShapes.rgb(0xE9E3DD)
+            dogNose.path = NotchMascotCreatures.rabbitNose(size: size)
+            dogNose.fillColor = NotchMascotWearableShapes.rgb(0xF08AA2)
+            whiskers.path = NotchMascotCreatures.rabbitMouth(size: size)
+            whiskers.fillColor = nil
+            whiskers.strokeColor = ink
+            whiskers.lineWidth = max(0.4, size * 0.012)
+            for layer in [catEars, tailTips, plume] {
+                layer.strokeColor = ink
+                layer.lineWidth = outline
+            }
+            fanHub.strokeColor = nil
+            fanHub.lineWidth = 0
+            show(catEars, catInnerEars, tailTips, plume, fanHole, fanHub, dogNose, whiskers)
         case .devourer:
             pins.path = NotchMascotCreatures.devourerLimbs(size: size)
             pins.fillColor = palette.shade.cgColor
@@ -439,6 +519,13 @@ final class NotchMascotDecor {
             // It sleeps standing, flippers tucked in tight.
             morph(pins, to: NotchMascotCreatures.penguinFlippers(sleeping ? .tucked : .rest, size: size),
                   duration: duration, animated: animated)
+        case .cristobal, .whiteRabbit:
+            // Arms folded for a nap; Cristóbal keeps hold of his mug.
+            morph(fanHub, to: armsPath(armsPose), duration: duration, animated: animated)
+            if look.style == .cristobal {
+                morph(whiskers, to: NotchMascotCreatures.cristobalHands(armsPose, size: size), duration: duration,
+                      animated: animated)
+            }
         case .hologram, .android:
             // Arms folded; the projection, or the light it floats on, dims.
             morph(pins, to: armsPath(armsPose), duration: duration, animated: animated)
@@ -454,7 +541,7 @@ final class NotchMascotDecor {
             fade(pins, to: sleeping ? 0.45 : 1, duration: duration, animated: animated)
         case .ghost:
             fade(fill, to: sleeping ? 0.55 : 0.92, duration: duration, animated: animated)
-        case .fan, .minimal, .robot, .cristobal, .whiteRabbit, .devourer:
+        case .fan, .minimal, .robot, .devourer:
             break
         }
         applyAmbient()
@@ -770,6 +857,13 @@ final class NotchMascotDecor {
             } else {
                 playFlippers([.rest, .leftUp, .rest], duration: length * 0.7, key: "flourish")
             }
+        case .cristobal, .whiteRabbit:
+            let length = min(1.4, max(0.7, reaction.length))
+            if Self.cheers.contains(reaction) {
+                playArms([.rest, .up, .up, .rest], duration: length, key: "flourish")
+            } else if Self.waves.contains(reaction) {
+                playArms([.rest, .wave, .waveOut, .wave, .waveOut, .rest], duration: length, key: "flourish")
+            }
         case .hologram, .android:
             let length = min(1.4, max(0.7, reaction.length))
             if Self.cheers.contains(reaction) {
@@ -795,7 +889,7 @@ final class NotchMascotDecor {
                 jet.duration = flare.duration
                 wisps.add(jet, forKey: "flare")
             }
-        case .slime, .minimal, .robot, .cristobal, .whiteRabbit, .devourer, .shifter, .phoenix, .axolotl, .dog, .mouse,
+        case .slime, .minimal, .robot, .devourer, .shifter, .phoenix, .axolotl, .dog, .mouse,
              .capybara, .dragon, .frog, .swan, .ballerina, .danseur, .contemporary:
             break
         }
@@ -920,17 +1014,33 @@ final class NotchMascotDecor {
     private var gaugeLevel: Int { sleeping ? 0 : min(4, 1 + Int(ambient.effort * 4)) }
 
     private func armsPath(_ pose: NotchMascotCreatures.ArmsPose) -> CGPath {
-        look.style == .android ? NotchMascotCreatures.androidArms(pose, size: size)
-            : NotchMascotCreatures.hologramArms(pose, size: size)
+        switch look.style {
+        case .android: return NotchMascotCreatures.androidArms(pose, size: size)
+        case .cristobal: return NotchMascotCreatures.cristobalSleeves(pose, size: size)
+        case .whiteRabbit: return NotchMascotCreatures.rabbitArms(pose, size: size)
+        default: return NotchMascotCreatures.hologramArms(pose, size: size)
+        }
     }
 
+    /// The comic's two hold their arms in front, over the jumper or the
+    /// apron; the hologram and the android behind.
+    private var armsLayer: CAShapeLayer { [.cristobal, .whiteRabbit].contains(look.style) ? fanHub : pins }
+
     private func playArms(_ poses: [NotchMascotCreatures.ArmsPose], duration: TimeInterval, key: String) {
-        let move = CAKeyframeAnimation(keyPath: "path")
-        move.values = poses.map(armsPath)
-        move.keyTimes = poses.indices.map { NSNumber(value: Double($0) / Double(max(1, poses.count - 1))) }
-        move.duration = duration
-        move.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        pins.add(move, forKey: key)
+        let times = poses.indices.map { NSNumber(value: Double($0) / Double(max(1, poses.count - 1))) }
+        func move(_ paths: [CGPath]) -> CAKeyframeAnimation {
+            let move = CAKeyframeAnimation(keyPath: "path")
+            move.values = paths
+            move.keyTimes = times
+            move.duration = duration
+            move.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            return move
+        }
+        armsLayer.add(move(poses.map(armsPath)), forKey: key)
+        // Cristóbal's hands go with his sleeves.
+        if look.style == .cristobal {
+            whiskers.add(move(poses.map { NotchMascotCreatures.cristobalHands($0, size: size) }), forKey: key)
+        }
     }
 
     /// The android's gauge follows the CPU as the load changes.

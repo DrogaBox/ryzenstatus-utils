@@ -8797,19 +8797,23 @@ struct MetricsTests {
         }
 
 
-        // Classification ranges (family 0x19: Zen 3 < 0x60, Zen 4 0x60–0x7F,
-        // Zen 5 ≥ 0x90; family 0x1A = Zen 5 mobile).
+        // Classification ranges (family 0x19: Zen 3 0x00–0x0F and 0x20–0x5F,
+        // Zen 4 0x10–0x1F, 0x60–0x7F and 0xA0–0xAF; family 0x1A = Zen 5), the
+        // same table as the kext's CPU profiles.
         expect(AMDCpuGeneration.classify(family: 0x19, model: 0x21) == .zen3, "Vermeer is Zen 3")
         expect(AMDCpuGeneration.classify(family: 0x19, model: 0x50) == .zen3, "Cezanne is Zen 3")
+        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x08) == .zen3, "Chagall (Threadripper 5000) is Zen 3")
+        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x18) == .zen4, "Storm Peak (Threadripper 7000) is Zen 4")
         expect(AMDCpuGeneration.classify(family: 0x19, model: 0x61) == .zen4, "Raphael is Zen 4")
         expect(AMDCpuGeneration.classify(family: 0x19, model: 0x74) == .zen4, "Phoenix is Zen 4")
         expect(AMDCpuGeneration.classify(family: 0x19, model: 0x7F) == .zen4, "upper Zen 4 model bound")
-        expect(AMDCpuGeneration.classify(family: 0x19, model: 0xA0) == .zen5, "Granite Ridge is Zen 5")
-        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x90) == .zen5, "lower Zen 5 model bound")
+        expect(AMDCpuGeneration.classify(family: 0x19, model: 0xA0) == .zen4, "Bergamo (Zen 4c) is Zen 4")
+        expect(AMDCpuGeneration.classify(family: 0x1A, model: 0x44) == .zen5, "Granite Ridge (family 0x1A) is Zen 5")
         expect(AMDCpuGeneration.classify(family: 0x1A, model: 0x24) == .zen5, "Strix Point family 0x1A is Zen 5")
-        // The 0x80–0x8F band on family 0x19 is unpopulated silicon; it classifies
+        // The 0x80–0x9F band on family 0x19 is unpopulated silicon; it classifies
         // as Zen 3 today. Harmless: the CO grid is still gated on Vermeer below.
-        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x85) == .zen3, "unpopulated 0x80–0x8F band classifies as zen3")
+        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x85) == .zen3, "unpopulated 0x80–0x9F band classifies as zen3")
+        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x90) == .zen3, "unpopulated 0x90 classifies as zen3")
         expect(AMDCpuGeneration.classify(family: 0x17, model: 0x71) == .zen2AndOlder, "Matisse is Zen 2")
         expect(AMDCpuGeneration.classify(family: 0x0F, model: 0x08) == .zen2AndOlder, "family below 0x19 is older")
         expect(AMDCpuGeneration.classify(family: 0, model: 0) == .zen2AndOlder,
@@ -11107,6 +11111,12 @@ struct MetricsTests {
             let capped = BoundedProcessRunner.run("/bin/sh", ["-c", "printf 123456789"], timeout: 2, maxOutputBytes: 4)
             expect(capped.status == 0 && String(decoding: capped.output, as: UTF8.self) == "1234",
                    "bounded process retains only the configured output prefix")
+            let parsed = Shell.run("/bin/sh", ["-c", "printf '%s|%s' \"$LC_ALL\" \"$HOME\""])
+            expect(parsed.status == 0 && parsed.output == "C|\(ProcessInfo.processInfo.environment["HOME"] ?? "")",
+                   "tools whose output is parsed run in the C locale, keeping the rest of the environment")
+            let ps = Shell.run("/bin/ps", ["-o", "pcpu=", "-p", String(ProcessInfo.processInfo.processIdentifier)])
+            expect(ps.status == 0 && !ps.output.contains(","),
+                   "ps writes a decimal point, never a comma, whatever the Mac's language")
         }
 
         // MARK: Login-shell environment and until-time contracts
@@ -11252,10 +11262,8 @@ struct MetricsTests {
         // MARK: Companion — sprite figures and the desktop
         do {
             let rabbit = NotchMascotSpriteSheet.whiteRabbit
-            expect(NotchMascotStyle.cristobal.sprite == NotchMascotSpriteSheet.cristobal && NotchMascotStyle.whiteRabbit.sprite == rabbit
-                   && NotchMascotStyle.cat.sprite == nil && !NotchMascotStyle.cristobal.takesPalette
-                   && NotchMascotStyle.minimal.takesPalette,
-                   "the comic's characters are sprite companions and keep their own colours")
+            expect(NotchMascotStyle.allCases.allSatisfy { $0.sprite == nil && $0.takesPalette && $0.takesAccessory },
+                   "every companion is drawn now, the comic's two included: all take a colour and wear items")
             expect(NotchMascotSpriteState.allCases.count == 9 && rabbit.frameCounts.count == 9
                    && NotchMascotSpriteState.review.rawValue == 8 && NotchMascotSpriteState.runLeft.rawValue == 2,
                    "a sheet has the nine rows of the Codex pet layout, in its order")
@@ -11310,7 +11318,8 @@ struct MetricsTests {
                            && words.text(for: .runLeft).hasPrefix("<")
                    }, "the sign has words for every row in every language, done over take a look")
             expect(NotchMascotRoam.size(for: NotchMascotLook(style: .whiteRabbit, shape: .ball, palette: .pearl))
-                   == (NotchMascotRoam.spriteSize / 2).rounded(), "on the desktop the rabbit stands half Cristóbal's height")
+                   == NotchMascotRoam.size(for: NotchMascotLook(style: .cat, shape: .ball, palette: .pearl)),
+                   "drawn, the comic's two stand on the desktop at every figure's size")
             expect(NotchMascotSpriteChoreography.walking(dx: 3) == .runRight
                    && NotchMascotSpriteChoreography.walking(dx: -3) == .runLeft
                    && NotchMascotSpriteChoreography.walking(dx: 0.2) == .idle,
@@ -11874,13 +11883,13 @@ struct MetricsTests {
                            && NotchMascotTrampoline.most > 1,
                            "a pointer resting on the title bar it lands on is no trampoline, and bounces stop")
                     let dancers: [NotchMascotStyle] = [.swan, .ballerina, .danseur, .contemporary]
-                    let performers = dancers + [.kitsune, .penguin, .hologram, .android]
+                    let performers = dancers + [.kitsune, .penguin, .hologram, .android, .cristobal, .whiteRabbit]
                     expect(performers.allSatisfy { !NotchMascotSoloDance.moves(for: $0).isEmpty }
                            && NotchMascotSoloDance.moves(for: .cat).isEmpty
                            && Set(performers.flatMap { NotchMascotSoloDance.moves(for: $0) }) == Set(NotchMascotSoloDance.allCases)
                            && dancers.allSatisfy(NotchMascotSoloDance.restsWithIce)
                            && !NotchMascotSoloDance.restsWithIce(.kitsune) && !NotchMascotSoloDance.restsWithIce(.penguin)
-                           && [NotchMascotStyle.kitsune, .penguin, .hologram, .android].allSatisfy { style in
+                           && [NotchMascotStyle.kitsune, .penguin, .hologram, .android, .cristobal, .whiteRabbit].allSatisfy { style in
                                !NotchMascotSoloDance.restsWithIce(style)
                                    && NotchMascotSoloDance.moves(for: style).allSatisfy { !$0.leaps && !$0.turns }
                            }
@@ -11954,6 +11963,42 @@ struct MetricsTests {
                         expect(NotchMascotAffinity.dayGain(for: .kitsune) > NotchMascotGrowth.dayExperience
                                && NotchMascotAffinity.petGain(for: .penguin).perPet == 4,
                                "each grows close in its own way")
+                    }
+                    // The comic's two, drawn.
+                    do {
+                        func elements(_ path: CGPath) -> [Int32] {
+                            var kinds: [Int32] = []
+                            path.applyWithBlock { kinds.append($0.pointee.type.rawValue) }
+                            return kinds
+                        }
+                        let comic: [NotchMascotStyle] = [.cristobal, .whiteRabbit]
+                        expect(comic.allSatisfy { style in
+                                   style.isComic && style.takesAccessory && style.takesPalette
+                                       && NotchMascotCreatures.face(style) != nil && NotchMascotCreatures.bounds(style) != nil
+                                       && NotchMascotCreatures.headOutline(style, size: 40) != nil
+                                       && NotchMascotCreatures.body(style, size: 40).map { !$0.isEmpty } == true
+                               }, "Cristóbal and the White Rabbit are drawn figures that wear items and take a colour")
+                        let poses = NotchMascotCreatures.ArmsPose.allCases
+                        expect(Set(poses.map { elements(NotchMascotCreatures.cristobalSleeves($0, size: 40)) }).count == 1
+                               && Set(poses.map { elements(NotchMascotCreatures.cristobalHands($0, size: 40)) }).count == 1
+                               && Set(poses.map { elements(NotchMascotCreatures.rabbitArms($0, size: 40)) }).count == 1,
+                               "their arms and hands morph between every pose")
+                        let mug = NotchMascotCreatures.cristobalMug(size: 40).boundingBox
+                        expect(poses.allSatisfy { pose in
+                                   let hands = NotchMascotCreatures.cristobalHands(pose, size: 40)
+                                   return hands.boundingBox.intersects(mug.insetBy(dx: -4, dy: -4))
+                               }, "whatever he does with his other hand, Cristóbal keeps hold of his mug")
+                        expect(comic.allSatisfy { style in
+                                   let box = NotchMascotCreatures.body(style, size: 40)?.boundingBox ?? .null
+                                   return box.minX >= 0 && box.maxX <= 40 && box.minY >= 0 && box.maxY <= 40
+                               }
+                               && NotchMascotCreatures.rabbitEars(inner: false, size: 40).boundingBox.minY >= -1,
+                               "both stand inside the figure's square, ears and all")
+                        expect(NotchMascotGait.of(.whiteRabbit).bob > NotchMascotGait.standard.bob
+                               && NotchMascotGait.of(.cristobal) == .standard,
+                               "the White Rabbit hops along, Cristóbal walks")
+                        expect(NotchMascotStyle.available(name: "Pip").allSatisfy { !$0.isComic },
+                               "they stay a secret for anyone else")
                     }
                     // The hologram and the android.
                     do {
@@ -12306,8 +12351,8 @@ struct MetricsTests {
             let start = CGPoint(x: 0, y: 0), end = CGPoint(x: 100, y: 500)
             expect(roam.homeArc(from: start, to: end, at: 0) == start && roam.homeArc(from: start, to: end, at: 1) == end
                    && roam.homeArc(from: start, to: end, at: 0.5).y > 250, "the way home arcs up into the island")
-            expect(roam.size(for: NotchMascotLook(style: .cristobal, shape: .ball, palette: .pearl)) == roam.spriteSize
-                   && roam.size(for: .standard) == roam.drawnSize, "a sprite stands taller on the desktop")
+            expect(roam.size(for: NotchMascotLook(style: .cristobal, shape: .ball, palette: .pearl)) == roam.drawnSize
+                   && roam.size(for: .standard) == roam.drawnSize, "drawn, every companion stands the same size on the desktop")
         }
 
         // MARK: Companion — transformations
@@ -12968,8 +13013,8 @@ struct MetricsTests {
 
             if let userClientSrc = try? String(contentsOf: userClientURL, encoding: .utf8) {
                 let selectors = AMDKextSelector.allKnownSelectors
-                expect(selectors.count == 64,
-                       "AMDKextSelector enumerates all 64 app-used IOKit selectors (got \(selectors.count))")
+                expect(selectors.count == 65,
+                       "AMDKextSelector enumerates all 65 app-used IOKit selectors (got \(selectors.count))")
                 for selector in selectors.sorted() {
                     expect(userClientSrc.contains("case \(selector):"),
                            "AMDRyzenCPUPMUserClient.cpp implements case \(selector):")

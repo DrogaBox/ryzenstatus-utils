@@ -60,6 +60,15 @@ SMC_RESULT RGPUTempValue::readAccess() {
     return SmcSuccess;
 }
 
+SMC_RESULT FanSpeedValue::readAccess() {
+    if (!provider) return SmcError;
+    uint32_t rpm = provider->fanRPM((int)package);
+    // fpe2 carries 14 integer bits.
+    if (rpm > 16383) rpm = 16383;
+    *reinterpret_cast<uint16_t *>(data) = VirtualSMCAPI::encodeIntFp(SmcKeyTypeFpe2, (uint16_t)rpm);
+    return SmcSuccess;
+}
+
 SMC_RESULT RGPUPowerValue::readAccess() {
     if (!provider) return SmcError;
     // Cached read — see RGPUTempValue::readAccess() above for

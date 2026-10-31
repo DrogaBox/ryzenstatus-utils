@@ -2308,6 +2308,9 @@ final class NotchMascotDesktop: NSObject {
         case .bellySlide, .flightAttempt, .pebbleGift: return .honk
         case .phaseShift, .glitch, .greeting: return .bleep
         case .scan, .boost, .recharge: return .zap
+        case .coffeeSip: return .slurp
+        case .eureka: return .chime
+        case .imLate, .bunnyHops: return .boing
         default: return .chime
         }
     }
@@ -2614,6 +2617,49 @@ final class NotchMascotDesktop: NSObject {
                     }
                 }
             }
+        case .coffeeSip:
+            // A long sip from the mug he never puts down, and a happy sigh.
+            react(.sip)
+            occasionStep(after: 1.2) { [weak self] in
+                guard let self else { return }
+                NotchMascotPlayEffects.float("~", in: canvas, at: self.onOccasion(self.head), size: max(9, self.size * 0.22),
+                                             color: NotchMascotRPGShapes.rgb(0xFFFFFF), count: 3)
+            }
+            occasionStep(after: 2.4) { [weak self] in self?.react(.relax) }
+        case .eureka:
+            // He stops, thinks, and has it: up he jumps.
+            react(.lookAround)
+            occasionStep(after: 1.0) { [weak self] in
+                guard let self else { return }
+                NotchMascotPlayEffects.burst(.sparkles, in: canvas, at: self.onOccasion(self.head), size: self.size,
+                                             energy: self.energy)
+                self.react(.perk)
+                self.hop(dx: 0, dy: 560)
+            }
+            occasionStep(after: 2.2) { [weak self] in self?.react(.celebrate) }
+        case .imLate:
+            // It is late, it is late: off it dashes, and back again.
+            react(.surprised)
+            occasionStep(after: 0.5) { [weak self] in
+                guard let self else { return }
+                self.react(.sweat)
+                self.stroll(to: self.body.position.x + way * self.size * 3, pace: 3.6)
+            }
+            occasionStep(after: 2.2) { [weak self] in
+                guard let self else { return }
+                self.stroll(to: self.body.position.x - way * self.size * 3, pace: 3.6)
+            }
+            occasionStep(after: 3.6) { [weak self] in self?.react(.confused) }
+        case .bunnyHops:
+            // Three hops, each a little higher.
+            for (index, at) in [0.2, 1.0, 1.8].enumerated() {
+                occasionStep(after: at) { [weak self] in
+                    guard let self else { return }
+                    self.react(.bounce)
+                    self.hop(dx: way * 90, dy: 420 + CGFloat(index) * 140)
+                }
+            }
+            occasionStep(after: 2.9) { [weak self] in self?.react(.love) }
         }
     }
     /// With fresh rosin, its steps leave little white prints that fade.

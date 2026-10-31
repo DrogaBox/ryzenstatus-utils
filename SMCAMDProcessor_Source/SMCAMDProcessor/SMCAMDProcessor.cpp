@@ -65,6 +65,24 @@ bool SMCAMDProcessor::setupKeysVsmc(){
         }
         
         IOLog("SMCAMDProcessor::setupKeysVsmc: registering %u GPUs\n", gpuCountLocal);
+
+        // === Fan keys (FNum ui8 const, FxAc fpe2) ===
+        // Read-only mirrors of the tachometers the provider re-reads every
+        // second; there is no SMC write path, fan control stays behind the
+        // user client's privilege model. Absent without a detected chip, so
+        // a board SMCSuperIO drives instead keeps its own keys.
+        int fanCountLocal = fProvider->fanCount();
+        if (fanCountLocal > (int)MaxFanIndexCount) fanCountLocal = (int)MaxFanIndexCount;
+        if (fanCountLocal > 0) {
+            suc &= VirtualSMCAPI::addKey(KeyFNum, vsmcPlugin.data,
+                VirtualSMCAPI::valueWithUint8((uint8_t)fanCountLocal, nullptr,
+                                              SMC_KEY_ATTRIBUTE_CONST | SMC_KEY_ATTRIBUTE_READ)); keyCount++;
+            for (int i = 0; i < fanCountLocal; i++) {
+                suc &= VirtualSMCAPI::addKey(KeyFxAc((size_t)i), vsmcPlugin.data,
+                    VirtualSMCAPI::valueWithFp(0, SmcKeyTypeFpe2, new FanSpeedValue(fProvider, (size_t)i))); keyCount++;
+            }
+        }
+        IOLog("SMCAMDProcessor::setupKeysVsmc: registering %d fan(s)\n", fanCountLocal);
     } else {
         IOLog("SMCAMDProcessor::setupKeysVsmc: fProvider is null, skipping key registration\n");
     }

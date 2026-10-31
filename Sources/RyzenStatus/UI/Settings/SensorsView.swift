@@ -125,6 +125,13 @@ struct SensorsView: View {
                         
                         SensorRow(name: "CPU Package Temp", value: formatTemp(monitor.snapshot.cpuTemperature ?? 0), icon: "thermometer")
                         SensorRow(name: "CPU Package Power", value: String(format: "%.1f W", monitor.snapshot.cpuPower ?? 0), icon: "bolt.fill")
+                        // SVI2 planes read by the kext (selector 59); Zen 4/5 report none.
+                        if let coreVolts = monitor.snapshot.cpuCoreVoltage {
+                            SensorRow(name: "CPU Core Voltage (SVI2)", value: String(format: "%.3f V", coreVolts), icon: "bolt.horizontal")
+                        }
+                        if let socVolts = monitor.snapshot.cpuSocVoltage {
+                            SensorRow(name: "SoC Voltage (SVI2)", value: String(format: "%.3f V", socVolts), icon: "bolt.horizontal.circle")
+                        }
                         
                         Divider()
                             .padding(.vertical, 4)
@@ -470,14 +477,17 @@ struct SensorsView: View {
         case "TA0P", "TA0S": return "Ambient Air Intake"
         case "TA1P", "TA1S": return "Ambient Exhaust"
         case "TW0P": return "Wi-Fi / PCIe Card"
-        case "F0Ac", "F0ID": return "Fan 1 Speed"
-        case "F1Ac", "F1ID": return "Fan 2 Speed"
-        case "F2Ac", "F2ID": return "Fan 3 Speed"
         case "VC0C": return "CPU Core Voltage (VCore)"
         case "VG0C": return "GPU Voltage"
         case "PC0C": return "CPU Power Consumed"
         case "PG0C": return "GPU Power Consumed"
         default:
+            // FxAc / FxID: one Super I/O header each, x = 0-9, A-Z (the kext
+            // publishes FNum + FxAc from 3.36.0; SMCSuperIO uses the same keys).
+            if key.count == 4, key.hasPrefix("F"), key.hasSuffix("Ac") || key.hasSuffix("ID"),
+               let fan = Int(String(key[key.index(key.startIndex, offsetBy: 1)]), radix: 36) {
+                return "Fan \(fan + 1) Speed"
+            }
             if key.hasPrefix("TC") { return "CPU Sensor (\(key))" }
             if key.hasPrefix("TG") { return "GPU Sensor (\(key))" }
             if key.hasPrefix("TH") { return "SSD Sensor (\(key))" }

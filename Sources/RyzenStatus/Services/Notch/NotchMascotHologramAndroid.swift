@@ -227,7 +227,7 @@ extension NotchMascotCreatures {
 
     /// An arm: a rounded segment from joint to joint, and a round hand at its
     /// end. Always the same commands, whatever the points.
-    private static func limb(into path: CGMutablePath, _ joints: [CGPoint], width: CGFloat, hand: CGFloat, size: CGFloat) {
+    static func limb(into path: CGMutablePath, _ joints: [CGPoint], width: CGFloat, hand: CGFloat, size: CGFloat) {
         for (from, to) in zip(joints, joints.dropFirst()) {
             let dx = to.x - from.x, dy = to.y - from.y
             let length = max(0.0001, (dx * dx + dy * dy).squareRoot())
@@ -243,17 +243,21 @@ extension NotchMascotCreatures {
                               control: point(from.x - ux * width * 0.7, from.y - uy * width * 0.7))
             path.closeSubpath()
         }
+        // The hand turns the same way round as the segments, so where they
+        // overlap it fills rather than cancels out.
         if let end = joints.last {
-            path.addEllipse(in: CGRect(x: (end.x - hand) * size, y: (end.y - hand) * size, width: hand * 2 * size,
-                                       height: hand * 2 * size))
+            let center = CGPoint(x: end.x * size, y: end.y * size)
+            path.move(to: CGPoint(x: center.x + hand * size, y: center.y))
+            path.addArc(center: center, radius: hand * size, startAngle: 0, endAngle: 2 * .pi, clockwise: true)
+            path.closeSubpath()
         }
     }
 
-    private static func box(_ x: CGFloat, _ y: CGFloat, _ width: CGFloat, _ height: CGFloat, _ size: CGFloat) -> CGRect {
+    static func box(_ x: CGFloat, _ y: CGFloat, _ width: CGFloat, _ height: CGFloat, _ size: CGFloat) -> CGRect {
         CGRect(x: x * size, y: y * size, width: width * size, height: height * size)
     }
 
-    private static func polygonPath(_ points: [(CGFloat, CGFloat)], size: CGFloat) -> CGPath {
+    static func polygonPath(_ points: [(CGFloat, CGFloat)], size: CGFloat) -> CGPath {
         let path = CGMutablePath()
         path.addLines(between: points.map { CGPoint(x: $0.0 * size, y: $0.1 * size) })
         path.closeSubpath()

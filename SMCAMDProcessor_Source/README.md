@@ -96,11 +96,14 @@ Each processor family has a dedicated CPU profile defining available power manag
 | **Zen 1** | 17h | 01h–0Fh | Ryzen 1000, Threadripper 1000 | ✅ | ✅ | ❌ |
 | **Zen+** | 17h | 10h–2Fh | Ryzen 2000, Threadripper 2000 | ✅ | ✅ | ❌ |
 | **Zen 2** | 17h | 30h+ | Ryzen 3000, Threadripper 3000 | ✅ | ✅ | ❌ |
-| **Zen 3 (Cezanne)** | 19h | 10h–1Fh | Ryzen 5000 APU | ❌ | ❌ | ✅ |
+| **Zen 3 (Milan, Chagall)** | 19h | 00h–0Fh | EPYC 7003, Threadripper 5000 | ❌ | ❌ | ✅ |
+| **Zen 4 (Genoa, Storm Peak)** | 19h | 10h–1Fh | EPYC 9004, Threadripper 7000 | ❌ | ❌ | ✅ |
 | **Zen 3 (Vermeer)** | 19h | 21h–2Fh | Ryzen 5000 desktop | ❌ | ❌ | ✅ |
-| **Zen 3+ (Rembrandt)** | 19h | 40h–5Fh | Ryzen 6000 Mobile | ❌ | ❌ | ✅ |
-| **Zen 4** | 19h | 60h–7Fh | Ryzen 7000, Threadripper 7000 | ❌ | ❌ | ✅ |
-| **Zen 5** | 1Ah | 40h–4Fh | Ryzen 9000 Granite Ridge | ❌ | ❌ | ✅ |
+| **Zen 3+ (Rembrandt)** | 19h | 40h–4Fh | Ryzen 6000 Mobile | ❌ | ❌ | ✅ |
+| **Zen 3 (Cezanne, Barcelo)** | 19h | 50h–5Fh | Ryzen 5000 APU | ❌ | ❌ | ✅ |
+| **Zen 4** | 19h | 60h–7Fh | Ryzen 7000, Ryzen 7040/8040 | ❌ | ❌ | ✅ |
+| **Zen 4c** | 19h | A0h–AFh | EPYC 8004 / 97x4 | ❌ | ❌ | ✅ |
+| **Zen 5** | 1Ah | 00h–FFh | Ryzen 9000 Granite Ridge, Strix Point, Turin | ❌ | ❌ | ✅ |
 
 *Note: Zen 1/2 use direct P-state and PM dispatch controls. Zen 3+ rely on CPPC for power management, with the kext operating in telemetry-only mode.*
 

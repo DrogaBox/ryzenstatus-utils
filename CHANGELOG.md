@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.70.0] — 2026-10-31 — kexts 3.36.0
+
+This release updates both kernel extensions, with per-core idle residency on every Zen generation, core and SoC voltages, fan speeds in the SMC and driver settings that survive sleep. It also brings every companion into the same wardrobe and puts the process lists back in order.
+
+> [!WARNING]
+> **This release updates the kexts.** `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` move from 3.35.1 to **3.36.0**. The provider's class layout changed, so both must be replaced together: copy both kexts from the DMG into `EFI/OC/Kexts/`, replacing the old ones, keep Lilu and VirtualSMC up to date, and reboot.
+
+### Added
+
+- **Per-core idle residency on Zen 3 and newer**: the per-core idle dots in the CPU grid (selector 32) were only ever filled on Zen 1 and Zen 2, where the driver owns the idle loop; on every newer CPU they stayed empty. The driver now measures each logical CPU's C0 share from the MPERF counter against the TSC in every sampling window, the way Linux turbostat does, so the figure is live on Vermeer, Cezanne, Raphael, Granite Ridge and every other Zen, at the cost of one register read per CPU per tick.
+- **Core and SoC voltages**: the driver reads the VRM's SVI2 telemetry planes, the registers LibreHardwareMonitor and zenpower read, on Zen, Zen+, Zen 2 and Zen 3 (new read-only selector 59), and the Sensors page shows "CPU Core Voltage" and "SoC Voltage" under the CPU. Zen 4 and Zen 5 use SVI3, which is not decoded, so they show no voltage rows.
+- **Fans in the SMC**: `SMCAMDProcessor.kext` now publishes the Super I/O fan headers as SMC keys (`FNum`, `F0Ac`, `F1Ac`, …, the same keys SMCSuperIO uses), so iStat Menus, Stats, HWMonitor and the app's own Sensors page see fan speeds without any extra kext. The keys are read-only: fan control stays behind the driver's privilege model. The driver now probes the Super I/O chip itself at load, instead of waiting for the app, and re-reads the tachometers at most once a second whoever asks.
+- **Every family 19h part has a profile**: Milan and Chagall (Threadripper 5000), Genoa and Storm Peak (Threadripper 7000) and the Zen 4c parts are now named in the boot log and the app instead of "Unknown", and the app's generation table follows the same ranges (family 19h model 0xA0 is Zen 4c, not Zen 5).
+- **Every companion dresses up**: a few companions that used to come as fixed figures are now drawn like the rest. They take any colour, wear every item, join the duo combos that need an item, wave and cheer with their arms, and have desktop routines of their own.
+
+### Fixed
+
+- **Driver settings lost after sleep**: on wake, firmware hands the cores back with its own MSR values, so the deep C-state policy from `amdcstate` and the instructions-retired counter enable written at boot were gone until the next reboot, and the per-core instruction and frequency counters resumed from reset baselines. The driver now re-applies the per-core programming on its first tick after wake and restarts every counter window.
+- **No logging inside CPU rendezvous**: the first sampling tick and the P-state table dump logged from inside `mp_rendezvous_no_intrs`, with interrupts off on every CPU; a thread interrupted while holding the log lock would have hung the machine. Failures are now counted inside and logged afterwards from the work loop.
+- **Package power spike at start and after wake**: the first energy sample after boot or wake compared the counter against zero, or against a value the SMU reset during sleep, and published one absurd wattage; the first read now only seeds the counter.
+- **Driver init order**: the IOKit superclass is initialised before symbol resolution, so a failed init tears down a fully constructed object.
+- **One SMU round trip less at boot**: the firmware version read by the boot diagnostic is kept instead of being asked again by the timer.
+- **Process lists back in order**: with the Mac in a language that writes decimals with a comma, such as Spanish, the top processes in the menu panel and the Process Manager showed every process at 0% in the order they started. They show real usage again, heaviest first.
+- **Whole hands**: the hologram's and the android's hands no longer show a gap where they meet the arm.
+
+### Changed
+
+- **Fan readings every second**: the app's fan list used to get fresh tachometer and duty readings only every fourth poll (about every six seconds); the driver now keeps one shared cache refreshed at most once a second, which is also what the SMC keys serve.
+- Removed two SMU read helpers nothing called.
+
 ## [1.69.0] — 2026-10-30 — kexts 3.35.1 (No kext changes)
 
 > **Kext Note**: No changes to `AMDRyzenCPUPowerManagement.kext` or `SMCAMDProcessor.kext`. Both remain at 3.35.1. Only the application changes.

@@ -52,4 +52,13 @@ protected:
     SMC_RESULT readAccess() override;
 };
 
+// FanSpeedValue: Super I/O tachometer in RPM (fpe2); `package` is the fan
+// header index. Served from the provider's cache (refreshFanTelemetryIfStale),
+// an untrusted reading reports 0.
+class FanSpeedValue : public AMDSupportVsmcValue {
+    using AMDSupportVsmcValue::AMDSupportVsmcValue;
+protected:
+    SMC_RESULT readAccess() override;
+};
+
 #endif /* KeyImplementations_hpp */

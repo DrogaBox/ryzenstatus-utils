@@ -20,9 +20,11 @@ final class C6ResidencyService: ObservableObject {
     /// Percentage of time in C6 over the last polling window (0–100).
     @Published private(set) var percentage: Double = 0
 
-    /// Per-core C6 residency snapshot (KEXT_WAVE 1.20.0 C-1, selector 32).
-    /// Index = logical core; value = % of the decayed accounting window spent
-    /// idling (C6-ish). Empty when the kext predates selector 32.
+    /// Per-core idle residency snapshot (KEXT_WAVE 1.20.0 C-1, selector 32).
+    /// Index = logical core; value = % of the last window the CPU spent out of
+    /// C0 (kext 3.36.0+: MPERF against the TSC, every Zen; older kexts: the
+    /// driver's own idle-loop accounting, Zen 1/2 only). Empty when the kext
+    /// predates selector 32.
     @Published private(set) var coreResidency: [UInt16] = []
 
     /// Per-core instructions-retired delta (KEXT_WAVE 1.20.0 C-2, selector 33).
