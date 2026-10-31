@@ -229,7 +229,7 @@ enum NowPlayingAutomation {
         }
 
         var error: NSDictionary?
-        let desc = script.executeAndReturnError(&error)
+        let desc = AppleScriptRunner.execute(script, error: &error)
         guard error == nil, desc.numberOfItems >= 7 else {
             return .empty
         }
@@ -289,7 +289,7 @@ enum NowPlayingAutomation {
     private static func fetchMusicArtwork() -> Data? {
         guard let script = musicArtworkScript else { return nil }
         var error: NSDictionary?
-        let desc = script.executeAndReturnError(&error)
+        let desc = AppleScriptRunner.execute(script, error: &error)
         guard error == nil else { return nil }
         return desc.data
     }
@@ -303,7 +303,7 @@ enum NowPlayingAutomation {
         }
 
         var error: NSDictionary?
-        let desc = script.executeAndReturnError(&error)
+        let desc = AppleScriptRunner.execute(script, error: &error)
         guard error == nil, desc.numberOfItems >= 7 else {
             return .empty
         }
@@ -441,7 +441,7 @@ enum NowPlayingAutomation {
         }
 
         var error: NSDictionary?
-        let desc = script.executeAndReturnError(&error)
+        let desc = AppleScriptRunner.execute(script, error: &error)
         guard error == nil, let jsonString = desc.stringValue, !jsonString.isEmpty else {
             return .empty
         }
@@ -483,7 +483,7 @@ enum NowPlayingAutomation {
         """
         guard let script = NSAppleScript(source: src) else { return nil }
         var error: NSDictionary?
-        let desc = script.executeAndReturnError(&error)
+        let desc = AppleScriptRunner.execute(script, error: &error)
         guard error == nil else { return nil }
         let raw = desc.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return raw.isEmpty ? nil : raw
@@ -533,7 +533,7 @@ enum NowPlayingAutomation {
         """
         guard let script = NSAppleScript(source: src) else { return nil }
         var error: NSDictionary?
-        let desc = script.executeAndReturnError(&error)
+        let desc = AppleScriptRunner.execute(script, error: &error)
         guard error == nil else { return nil }
         switch desc.atIndex(1)?.stringValue {
         case "shuffled": return NowPlayingQueue(items: [], canPlay: false, isShuffled: true)
@@ -569,7 +569,7 @@ enum NowPlayingAutomation {
         """
         guard let script = NSAppleScript(source: src) else { return false }
         var error: NSDictionary?
-        script.executeAndReturnError(&error)
+        AppleScriptRunner.execute(script, error: &error)
         return error == nil
     }
 
@@ -598,7 +598,7 @@ enum NowPlayingAutomation {
         DispatchQueue.global(qos: .userInitiated).async {
             guard let script = NSAppleScript(source: src) else { return }
             var error: NSDictionary?
-            script.executeAndReturnError(&error)
+            AppleScriptRunner.execute(script, error: &error)
         }
     }
 
@@ -631,7 +631,7 @@ enum NowPlayingAutomation {
         DispatchQueue.global(qos: .userInitiated).async {
             if let script = NSAppleScript(source: scriptSource) {
                 var error: NSDictionary?
-                script.executeAndReturnError(&error)
+                AppleScriptRunner.execute(script, error: &error)
             }
         }
     }
@@ -696,7 +696,7 @@ enum NowPlayingAutomation {
             """
             guard let script = NSAppleScript(source: src) else { return nil }
             var error: NSDictionary?
-            let desc = script.executeAndReturnError(&error)
+            let desc = AppleScriptRunner.execute(script, error: &error)
             guard error == nil, let jsonString = desc.stringValue,
                   let data = jsonString.data(using: .utf8),
                   let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
@@ -732,7 +732,7 @@ enum NowPlayingAutomation {
         }
         guard let script = NSAppleScript(source: src) else { return nil }
         var error: NSDictionary?
-        let desc = script.executeAndReturnError(&error)
+        let desc = AppleScriptRunner.execute(script, error: &error)
         guard error == nil, desc.numberOfItems >= 2 else { return nil }
         let shuffle = parseAppleScriptBoolean(desc.atIndex(1)?.stringValue) ?? false
         let repeatMode: NowPlayingRepeatMode
@@ -770,7 +770,7 @@ enum NowPlayingAutomation {
             """
             guard let script = NSAppleScript(source: src) else { return nil }
             var error: NSDictionary?
-            let desc = script.executeAndReturnError(&error)
+            let desc = AppleScriptRunner.execute(script, error: &error)
             guard error == nil, let jsonString = desc.stringValue,
                   let data = jsonString.data(using: .utf8),
                   let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
@@ -798,7 +798,7 @@ enum NowPlayingAutomation {
         """
         guard let script = NSAppleScript(source: src) else { return nil }
         var error: NSDictionary?
-        let desc = script.executeAndReturnError(&error)
+        let desc = AppleScriptRunner.execute(script, error: &error)
         guard error == nil else { return nil }
         return parseAppleScriptBoolean(desc.stringValue)
     }
@@ -832,7 +832,7 @@ enum NowPlayingAutomation {
                 """
                 guard let script = NSAppleScript(source: src) else { break }
                 var error: NSDictionary?
-                let desc = script.executeAndReturnError(&error)
+                let desc = AppleScriptRunner.execute(script, error: &error)
                 guard error == nil, let jsonString = desc.stringValue,
                       let data = jsonString.data(using: .utf8),
                       let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
@@ -880,7 +880,7 @@ enum NowPlayingAutomation {
         }
         guard let script = NSAppleScript(source: src) else { return nil }
         var error: NSDictionary?
-        let desc = script.executeAndReturnError(&error)
+        let desc = AppleScriptRunner.execute(script, error: &error)
         guard error == nil else { return nil }
         if bundleID == spotifyBundleID {
             guard let enabled = parseAppleScriptBoolean(desc.stringValue) else { return nil }

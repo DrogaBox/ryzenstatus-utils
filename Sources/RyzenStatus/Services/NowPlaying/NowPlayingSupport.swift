@@ -456,7 +456,7 @@ enum NowPlayingSearch {
             DispatchQueue.global(qos: .userInitiated).async {
                 if let script = NSAppleScript(source: scriptSource) {
                     var error: NSDictionary?
-                    script.executeAndReturnError(&error)
+                    AppleScriptRunner.execute(script, error: &error)
                 }
             }
             return

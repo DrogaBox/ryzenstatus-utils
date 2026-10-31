@@ -39,6 +39,9 @@ final class NowPlayingAnimatedArtworkCenter: ObservableObject {
     /// Resolution results memoized per track and quality policy; a searched
     /// track without a stream caches nil so it is never re-scraped.
     private var resolutionCache: [String: URL?] = [:]
+    /// Surfaces on screen that can show the stream: with none, nothing is resolved.
+    private var displayDemand = 0
+    private var latestSnapshot = NowPlayingSnapshot.empty
 
     private init() {}
 
@@ -51,7 +54,10 @@ final class NowPlayingAnimatedArtworkCenter: ObservableObject {
     /// snapshot change: the track key and the result cache keep repeat calls
     /// free. Main thread only, like the service that drives it.
     func sync(with snapshot: NowPlayingSnapshot) {
+        latestSnapshot = snapshot
+        // With Reduce Motion the cover stays still, so the stream is not even looked up.
         let enabled = UserDefaults.standard.bool(forKey: DefaultsKey.nowPlayingAnimatedArtwork)
+            && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let quality = NowPlayingAnimatedArtworkQuality(
             rawValue: UserDefaults.standard.integer(forKey: DefaultsKey.nowPlayingAnimatedArtworkQuality))
             ?? .adaptive1080
@@ -63,6 +69,7 @@ final class NowPlayingAnimatedArtworkCenter: ObservableObject {
             if streamURL != nil { streamURL = nil }
             return
         }
+        guard displayDemand > 0 else { return }
         guard trackKey != lastTrackKey else { return }
         lastTrackKey = trackKey
         generation += 1
@@ -92,9 +99,25 @@ final class NowPlayingAnimatedArtworkCenter: ObservableObject {
 
     /// Drops every cached resolution (the action behind "Clear media cache").
     func clearCache() {
-        queue.async { [weak self] in
-            self?.resolutionCache.removeAll()
-        }
+        resolutionCache.removeAll()
+        generation += 1
+        lastTrackKey = ""
+        if streamURL != nil { streamURL = nil }
+    }
+
+    /// A surface that can show the stream came on screen.
+    func beginDisplay() {
+        displayDemand += 1
+        guard displayDemand == 1 else { return }
+        lastTrackKey = ""
+        sync(with: latestSnapshot)
+    }
+
+    /// A surface that showed the stream left the screen. The stream goes
+    /// too, so the next one never starts on the previous album's video.
+    func endDisplay() {
+        displayDemand = max(0, displayDemand - 1)
+        guard displayDemand == 0 else { return }
         generation += 1
         lastTrackKey = ""
         if streamURL != nil { streamURL = nil }
@@ -506,6 +529,7 @@ private final class NowPlayingAnimatedArtworkPlayerView: NSView {
     private var layerReadinessObservation: NSKeyValueObservation?
     private var hasReportedReady = false
     private var lastNotifiedReadiness: Bool?
+    private var occlusionObserver: NSObjectProtocol?
     var onRenderReadinessChanged: ((Bool) -> Void)?
 
     override init(frame frameRect: NSRect) {
@@ -525,6 +549,24 @@ private final class NowPlayingAnimatedArtworkPlayerView: NSView {
 
     deinit {
         teardownPlayer(shouldNotify: false)
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        occlusionObserver = nil
+        if let window {
+            occlusionObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
+            ) { [weak self] _ in self?.updatePlayback() }
+        }
+        updatePlayback()
+    }
+
+    /// The video plays only while its window can be seen.
+    private func updatePlayback() {
+        if window?.occlusionState.contains(.visible) == true { player?.play() } else { player?.pause() }
     }
 
     func configure(streamURL: URL) {
@@ -562,7 +604,7 @@ private final class NowPlayingAnimatedArtworkPlayerView: NSView {
             guard let self, layer.isReadyForDisplay, !self.hasReportedReady else { return }
             self.hasReportedReady = true
             self.notifyRenderReadiness(true)
-            self.player?.play()
+            self.updatePlayback()
         }
 
         // The artwork loop: seek to the start and keep playing at the end.
@@ -571,10 +613,10 @@ private final class NowPlayingAnimatedArtworkPlayerView: NSView {
         ) { [weak self] _ in
             guard let self else { return }
             self.player?.seek(to: .zero)
-            self.player?.play()
+            self.updatePlayback()
         }
 
-        player.play()
+        updatePlayback()
     }
 
     private func teardownPlayer(shouldNotify: Bool) {
@@ -663,5 +705,7 @@ struct NowPlayingArtworkStreamSurface<StaticContent: View>: View {
                 streamReadyForDisplay = false
             }
         }
+        .onAppear { NowPlayingAnimatedArtworkCenter.shared.beginDisplay() }
+        .onDisappear { NowPlayingAnimatedArtworkCenter.shared.endDisplay() }
     }
 }

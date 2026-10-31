@@ -491,12 +491,13 @@ struct SystemSection: View {
         }
     }
 
-    private var averageCPUFreq: Double {
-        let cores = monitor.snapshot.cores
-        guard !cores.isEmpty else { return 0 }
-        let physicalCores = cores.filter { !$0.isLogical }
-        let sum = physicalCores.reduce(0.0) { $0 + Double($1.freqMHz) }
-        return (sum / Double(physicalCores.count)) / 1000.0
+    private var averageCPUFreq: Double { Self.averageFrequencyGHz(monitor.snapshot.cores) }
+
+    /// The mean clock of the physical cores, in GHz; zero without any.
+    static func averageFrequencyGHz(_ cores: [CoreSnapshot]) -> Double {
+        let physical = cores.filter { !$0.isLogical }
+        guard !physical.isEmpty else { return 0 }
+        return physical.reduce(0.0) { $0 + Double($1.freqMHz) } / Double(physical.count) / 1000
     }
 
     private func temperatureCell(icon: String, label: String, value: Double?) -> some View {

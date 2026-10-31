@@ -28,6 +28,7 @@ struct NowPlayingPopupView: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var service = NowPlayingService.shared
     @ObservedObject private var lyricsCenter = NowPlayingLyricsCenter.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var animatedArtworkCenter = NowPlayingAnimatedArtworkCenter.shared
     @AppStorage(DefaultsKey.nowPlayingOpenInApp) private var openInApp = true
     @AppStorage(DefaultsKey.nowPlayingShowArtwork) private var showArtwork = true
@@ -76,7 +77,7 @@ struct NowPlayingPopupView: View {
     /// The editorial animated artwork stream for the current track; nil
     /// keeps the static cover. Only live while the setting is on.
     private var animatedStreamURL: URL? {
-        animatedArtwork ? animatedArtworkCenter.streamURL : nil
+        animatedArtwork && !reduceMotion ? animatedArtworkCenter.streamURL : nil
     }
 
     /// The layout currently on top: the popover morphs between both, the

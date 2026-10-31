@@ -305,20 +305,20 @@ final class NowPlayingLyricsCenter: ObservableObject {
                                      completion: @escaping (NowPlayingLyricsPayload?) -> Void) {
         guard bundleID == NowPlayingAutomation.musicBundleID,
               NowPlayingAutomation.isRunning(bundleID: NowPlayingAutomation.musicBundleID) else {
-            completion(nil)
+            deliver(nil, to: completion)
             return
         }
-        DispatchQueue.global(qos: .utility).async {
+        DispatchQueue.global(qos: .utility).async { [self] in
             guard let raw = NowPlayingAutomation.fetchMusicLyrics() else {
-                completion(nil)
+                self.deliver(nil, to: completion)
                 return
             }
             let lines = NowPlayingLyricsText.normalizePlain(raw)
             guard !lines.isEmpty else {
-                completion(nil)
+                self.deliver(nil, to: completion)
                 return
             }
-            completion(NowPlayingLyricsPayload(sourceName: "Music", lines: lines, isTimed: false))
+            self.deliver(NowPlayingLyricsPayload(sourceName: "Music", lines: lines, isTimed: false), to: completion)
         }
     }
 
@@ -342,21 +342,26 @@ final class NowPlayingLyricsCenter: ObservableObject {
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             guard error == nil, (200...299).contains(status), let data,
                   let object = try? JSONSerialization.jsonObject(with: data) else {
-                completion(.failure(status))
+                self.deliver(JSONResult.failure(status), to: completion)
                 return
             }
             if let array = object as? [[String: Any]] {
-                completion(.success(["__array__": array]))
+                self.deliver(JSONResult.success(["__array__": array]), to: completion)
             } else if let dictionary = object as? [String: Any] {
-                completion(.success(dictionary))
+                self.deliver(JSONResult.success(dictionary), to: completion)
             } else {
-                completion(.failure(status))
+                self.deliver(JSONResult.failure(status), to: completion)
             }
         }
         queue.async { [weak self] in
             self?.inflightTasks.append(task)
         }
         task.resume()
+    }
+
+    /// Every answer is handled on `queue`, where the lookup state lives.
+    private func deliver<T>(_ value: T, to completion: @escaping (T) -> Void) {
+        queue.async { completion(value) }
     }
 
     // MARK: - Cache bookkeeping (on `queue`)
