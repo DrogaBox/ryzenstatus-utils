@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.73.1] — 2026-10-31 — kexts 3.38.0 (No kext changes)
+
+### Fixed
+
+- **No more false "fan stopped" alerts**: an empty fan header can pick up a stray reading now and then, and one such reading was enough for the alert to treat it as a fan that later stopped. A fan now counts only after turning steadily for 10 seconds, it must read zero for 6 seconds before the alert fires, and a fan whose duty is 0 % (stopped on purpose by a curve or by hand) never counts. Hidden fans stay out of the alert, as before.
+
 ## [1.73.0] — 2026-10-31 — kexts 3.38.0 (No kext changes)
 
 This release is a full review of the app around the driver: fan and power writes run in order and report what really happened, the dashboards stop sampling when nobody is looking, and the island, the companions and Now Playing use less energy and work better with Reduce Motion, VoiceOver and a locked screen.

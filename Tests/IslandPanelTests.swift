@@ -129,11 +129,26 @@ enum IslandPanelTests {
         suite.expect(rules.cooledDown(nil, now: now, cooldown: 35), "the first alert is always allowed")
         suite.expect(!rules.cooledDown(now.addingTimeInterval(-10), now: now, cooldown: 35), "a recent alert holds the next")
         suite.expect(rules.cooledDown(now.addingTimeInterval(-35), now: now, cooldown: 35), "the cooldown ends")
-        let spun = rules.spinning([1: 900, 2: 0], adding: [])
-        suite.expect(spun == [1], "only a turning fan counts as fitted")
-        suite.expect(rules.stalled([1: 0, 2: 0], spun: spun) == [1],
-                     "a fan that turned and reads zero has stalled; an empty header never does")
-        suite.expect(rules.stalled([1: 850, 2: 0], spun: spun).isEmpty, "a turning fan has not stalled")
+        // Feeds `readings` (rpm, driven) one second apart and says whether the fan stalls at the end.
+        func stallsAfter(_ readings: [(UInt64, Bool)]) -> Bool {
+            var track = rules.FanTrack()
+            var at = now
+            for (rpm, driven) in readings {
+                at = at.addingTimeInterval(1)
+                track = rules.track(track, rpm: rpm, driven: driven, now: at)
+            }
+            return rules.stalls(track, now: at)
+        }
+        let steady = Array(repeating: (UInt64(900), true), count: 12)
+        let stopped = Array(repeating: (UInt64(0), true), count: 7)
+        suite.expect(stallsAfter(steady + stopped), "a fan that turned steadily and reads zero for a while has stalled")
+        suite.expect(!stallsAfter(steady + Array(stopped.prefix(2))), "a short run of zeros is a glitch, not a stall")
+        suite.expect(!stallsAfter(steady + Array(repeating: (UInt64(0), false), count: 7)),
+                     "a fan stopped on purpose (zero duty) never stalls")
+        suite.expect(!stallsAfter([(0, true), (0, true), (1300, true), (1300, true)] + stopped),
+                     "an empty header with a stray reading never stalls")
+        suite.expect(!stallsAfter(steady + [(0, true), (0, true), (0, true), (850, true)] + Array(stopped.prefix(3))),
+                     "a fan that turns again starts its count over")
 
         let service = text("Sources/RyzenStatus/Services/Notch/NotchHardwareAlertService.swift", suite)
         suite.expect(!service.contains("@unchecked Sendable") && !service.contains("Fan Check")
