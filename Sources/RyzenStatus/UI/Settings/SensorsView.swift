@@ -1,11 +1,15 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 RyzenStatus
+
 import SwiftUI
 import UniformTypeIdentifiers
 
 struct SensorsView: View {
     @ObservedObject private var smcDump = SMCDumpService.shared
     @State private var loadTimer: Timer?
-    @AppStorage("showPreciseTemperature") private var showPreciseTemperature = true
-    @AppStorage("showRawSMCSensors") private var showRawSMCSensors = false
+    @AppStorage(DefaultsKey.showPreciseTemperature) private var showPreciseTemperature = true
+    @AppStorage(DefaultsKey.showRawSMCSensors) private var showRawSMCSensors = false
+    @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnitRaw = TemperatureUnit.celsius.rawValue
     @ObservedObject private var monitor = SystemMonitor.shared
     
     @State private var showingCPUDetails = false
@@ -105,7 +109,13 @@ struct SensorsView: View {
                 let fanSensors = filteredReadings.filter {
                     $0.key.count == 4 && $0.key.hasPrefix("F") && $0.key.hasSuffix("Ac") && $0.value > 0
                 }
-                let voltageSensors = filteredReadings.filter { $0.key.hasPrefix("V") && $0.value > 0 }
+                // VC0C comes from the kext's SVI2 reading when the CPU
+                // section already shows it; listing it again here would
+                // show the same voltage twice.
+                let voltageSensors = filteredReadings.filter {
+                    $0.key.hasPrefix("V") && $0.value > 0
+                        && !($0.key == "VC0C" && monitor.snapshot.cpuCoreVoltage != nil)
+                }
                 let powerSensors = filteredReadings.filter { $0.key.hasPrefix("P") && $0.value > 0 }
                 let currentSensors = filteredReadings.filter { $0.key.hasPrefix("I") && $0.value > 0 }
                 
@@ -127,8 +137,9 @@ struct SensorsView: View {
                         }
                         .buttonStyle(.plain)
                         
-                        SensorRow(name: "CPU Package Temp", value: formatTemp(monitor.snapshot.cpuTemperature ?? 0), icon: "thermometer")
-                        SensorRow(name: "CPU Package Power", value: String(format: "%.1f W", monitor.snapshot.cpuPower ?? 0), icon: "bolt.fill")
+                        // A missing reading shows a dash, never 0 °C or 0 W.
+                        SensorRow(name: "CPU Package Temp", value: monitor.snapshot.cpuTemperature.map(formatTemp) ?? "—", icon: "thermometer")
+                        SensorRow(name: "CPU Package Power", value: monitor.snapshot.cpuPower.map { String(format: "%.1f W", $0) } ?? "—", icon: "bolt.fill")
                         // SVI2 planes read by the kext (selector 59); Zen 4/5 report none.
                         if let coreVolts = monitor.snapshot.cpuCoreVoltage {
                             SensorRow(name: "CPU Core Voltage (SVI2)", value: String(format: "%.3f V", coreVolts), icon: "bolt.horizontal")
@@ -165,6 +176,34 @@ struct SensorsView: View {
                             }
                         }
                         .padding(.vertical, 4)
+
+                        // Per-core power from the kext's CORE_ENERGY_STAT
+                        // counters (selector 60); absent on older kexts.
+                        let corePowers = monitor.snapshot.cpuCorePowers
+                        if !corePowers.isEmpty {
+                            Text("Core Power (\(corePowers.count)) · \(String(format: "%.1f W", corePowers.reduce(0, +)))")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.top, 4)
+                                .padding(.bottom, 2)
+
+                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+                                ForEach(Array(corePowers.enumerated()), id: \.offset) { index, watts in
+                                    HStack {
+                                        Text("Core \(index)")
+                                            .font(.subheadline)
+                                        Spacer(minLength: 4)
+                                        Text(String(format: "%.2f W", watts))
+                                            .font(.system(.subheadline, design: .monospaced, weight: .semibold))
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 6)
+                                    .background(Color.primary.opacity(0.04))
+                                    .cornerRadius(6)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
                     } label: {
                         HStack {
                             Image(systemName: "cpu")
@@ -176,6 +215,7 @@ struct SensorsView: View {
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
+                        .disclosureHeader(isExpanded: $cpuExpanded)
                     }
                 }
                 
@@ -200,7 +240,8 @@ struct SensorsView: View {
                                             .foregroundColor(.secondary)
                                         Text("Temperature")
                                         Spacer()
-                                        Text(formatTemp(gpu.temperature))
+                                        // The kext reports 0 for a reading it does not have.
+                                        Text(gpu.temperature > 0 ? formatTemp(gpu.temperature) : "—")
                                             .font(.system(.body, design: .monospaced))
                                     }
                                     if gpu.supportsPower {
@@ -210,7 +251,7 @@ struct SensorsView: View {
                                                 .foregroundColor(.secondary)
                                             Text("Power")
                                             Spacer()
-                                            Text(String(format: "%.1f W", gpu.power))
+                                            Text(gpu.power > 0 ? String(format: "%.1f W", gpu.power) : "—")
                                                 .font(.system(.body, design: .monospaced))
                                         }
                                     }
@@ -226,7 +267,12 @@ struct SensorsView: View {
                                 SensorRow(name: "GPU Power", value: String(format: "%.1f W", power), icon: "bolt")
                             }
                         }
-                        
+                        // The card's own fan, as its driver reports it; it cannot be set from macOS.
+                        if let fan = monitor.snapshot.gpuFan, fan > 0 {
+                            SensorRow(name: FeatureStrings.notchCapsuleCenter(L10n.shared.language).fanSpeed,
+                                      value: String(format: "%.0f RPM", fan), icon: "fanblades")
+                        }
+
                         // Supplemental SMC TGxx sensors (Hotspot, VRAM, or fallback die)
                         ForEach(gpuSensors) { sensor in
                             SensorRow(name: sensorDisplayName(for: sensor.key), value: formatValue(sensor), icon: "thermometer.snowflake")
@@ -239,11 +285,13 @@ struct SensorsView: View {
                                 .font(.headline)
                             Spacer()
                             let kextCount = monitor.snapshot.gpuDevices.count
-                            let totalGpuCount = kextCount > 0 ? (kextCount + gpuSensors.count) : (gpuSensors.count + (monitor.snapshot.gpuTemperature != nil ? 1 : 0))
+                            let fanCount = (monitor.snapshot.gpuFan ?? 0) > 0 ? 1 : 0
+                            let totalGpuCount = fanCount + (kextCount > 0 ? (kextCount + gpuSensors.count) : (gpuSensors.count + (monitor.snapshot.gpuTemperature != nil ? 1 : 0)))
                             Text("\(totalGpuCount) items")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
+                        .disclosureHeader(isExpanded: $gpuExpanded)
                     }
                 }
                 
@@ -265,6 +313,7 @@ struct SensorsView: View {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
+                            .disclosureHeader(isExpanded: $disksExpanded)
                         }
                     }
                 }
@@ -287,6 +336,7 @@ struct SensorsView: View {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
+                            .disclosureHeader(isExpanded: $ramExpanded)
                         }
                     }
                 }
@@ -309,6 +359,7 @@ struct SensorsView: View {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
+                            .disclosureHeader(isExpanded: $fansExpanded)
                         }
                     }
                 }
@@ -337,6 +388,7 @@ struct SensorsView: View {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
+                            .disclosureHeader(isExpanded: $powerExpanded)
                         }
                     }
                 }
@@ -362,6 +414,7 @@ struct SensorsView: View {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
+                            .disclosureHeader(isExpanded: $systemExpanded)
                         }
                     }
                 }
@@ -390,22 +443,24 @@ struct SensorsView: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear {
-            // Full monitor surface: register as a panel client (depth counter)
-            // so opening/closing the menu popover cannot wipe these needs.
-            SystemMonitor.shared.panelDidAppear()
+        // The monitor client (a depth-counted panel client, so the popover
+        // cannot wipe these needs) and the 1 s SMC sweep run only while the
+        // page is on screen in a visible Settings window.
+        .settingsPageActivity(.sensors, activate: {
+            smcDump.rediscoverKeys()
             smcDump.refresh()
-            loadTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            loadTimer?.invalidate()
+            let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
                 Task { @MainActor in
                     smcDump.refresh()
                 }
             }
-        }
-        .onDisappear {
-            SystemMonitor.shared.panelDidDisappear()
+            timer.tolerance = 0.2
+            loadTimer = timer
+        }, deactivate: {
             loadTimer?.invalidate()
             loadTimer = nil
-        }
+        })
         .sheet(isPresented: $showingCPUDetails) {
             VStack {
                 HStack {
@@ -429,8 +484,12 @@ struct SensorsView: View {
     @State private var powerExpanded = false
     @State private var systemExpanded = false
     
+    /// Follows the app's temperature unit; the precise option adds one decimal.
     private func formatTemp(_ value: Double) -> String {
-        return showPreciseTemperature ? String(format: "%.1f °C", value) : String(format: "%.0f °C", value)
+        let unit = TemperatureUnit(rawValue: temperatureUnitRaw) ?? .celsius
+        return showPreciseTemperature
+            ? MetricFormat.temperaturePrecise(value, unit: unit)
+            : MetricFormat.temperature(value, unit: unit)
     }
     
     private func formatValue(_ sensor: SMCSensorReading) -> String {

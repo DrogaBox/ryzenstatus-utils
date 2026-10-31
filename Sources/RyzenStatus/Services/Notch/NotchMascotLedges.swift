@@ -150,6 +150,17 @@ enum NotchMascotLedges {
         return moved && beside && above >= figure * 0.8 && above <= figure * 3.2
     }
 
+    /// How often, in milliseconds, the companion on the desktop looks at the
+    /// windows; zero for not at all. On a window: often while it moves or the
+    /// button is held, as a drag starts, and slowly otherwise. On the floor:
+    /// only while the button is held, which is how a window comes up beside
+    /// it to ride, and never in Low Power Mode.
+    static func watchInterval(climbs: Bool, perched: Bool, riding: Bool, pressed: Bool, lowPower: Bool) -> Int {
+        guard climbs else { return 0 }
+        if perched { return riding || pressed ? 33 : 250 }
+        return pressed && !lowPower ? 300 : 0
+    }
+
     // MARK: The app in front
 
     /// What kind of app is in front, for the companion to react to.

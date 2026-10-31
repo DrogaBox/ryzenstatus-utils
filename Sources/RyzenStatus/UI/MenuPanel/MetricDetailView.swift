@@ -459,10 +459,15 @@ struct MetricDetailView: View {
                 row(l10n.s.systemUptime, SystemSection.uptimeString()),
             ]
         case .gpu:
-            return [
+            var rows = [
                 row(l10n.s.usageSection, snapshot.gpuUsage.map(MetricFormat.percent) ?? l10n.s.networkMeasuring),
                 row(l10n.s.temperatures, snapshot.gpuTemperature.map(formatTemperature) ?? l10n.s.monitorUnavailable),
             ]
+            // Shown only while the driver reports the card's fan turning.
+            if let fan = snapshot.gpuFan, fan > 0 {
+                rows.append(row(FeatureStrings.notchCapsuleCenter(l10n.language).fanSpeed, String(format: "%.0f RPM", fan)))
+            }
+            return rows
         case .memory:
             let used = snapshot.memoryUsed.map(formatMemory) ?? l10n.s.networkMeasuring
             let total = snapshot.memoryTotal.map(formatMemory) ?? "-"

@@ -298,6 +298,22 @@ enum NotchMascotRoam {
         distance <= greetDistance && since >= greetInterval
     }
 
+    // MARK: Screens
+
+    /// The frame in `frames` that holds `point`, else the nearest one; nil
+    /// when there is none.
+    static func screenIndex(for point: CGPoint, in frames: [CGRect]) -> Int? {
+        if let inside = frames.firstIndex(where: { $0.contains(point) }) { return inside }
+        return frames.indices.min { distance(from: point, to: frames[$0]) < distance(from: point, to: frames[$1]) }
+    }
+
+    /// How far `point` is from `rect`; zero inside it.
+    static func distance(from point: CGPoint, to rect: CGRect) -> CGFloat {
+        let dx = max(rect.minX - point.x, 0, point.x - rect.maxX)
+        let dy = max(rect.minY - point.y, 0, point.y - rect.maxY)
+        return hypot(dx, dy)
+    }
+
     // MARK: Home
 
     /// Let go this close below the island's top edge, near where it rests

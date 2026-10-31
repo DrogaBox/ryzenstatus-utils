@@ -7,15 +7,27 @@ import SwiftUI
 struct BTopDashboardView: View {
     @ObservedObject var monitor: SystemMonitor
     var showCpuOverview: Bool = true
+    /// False while the page is off screen or the Settings window is hidden:
+    /// no `ps` refresh runs for nobody.
+    var isActive: Bool = true
+    @ObservedObject private var l10n = L10n.shared
     @State private var topProcesses: [ProcessUsage] = []
     @State private var procSortMode: ProcSortMode = .cpu
     @Environment(\.colorScheme) private var colorScheme
 
     enum ProcSortMode: String, CaseIterable, Identifiable {
-        case cpu = "CPU %"
-        case memory = "MEM Usage"
-        case gpu = "GPU %"
+        case cpu
+        case memory
+        case gpu
         var id: String { rawValue }
+
+        func title(_ strings: PerformanceSuiteFeatureStrings) -> String {
+            switch self {
+            case .cpu: return "CPU"
+            case .memory: return strings.memoryColumn
+            case .gpu: return "GPU"
+            }
+        }
     }
 
     private var cpuColor: Color { PanelMetricColor.cyan(for: colorScheme) }
@@ -24,31 +36,37 @@ struct BTopDashboardView: View {
     private var gpuColor: Color { PanelMetricColor.orange(for: colorScheme) }
     private var critColor: Color { PanelMetricColor.red(for: colorScheme) }
 
-    /// Hardware-derived box title (brand + core/thread counts), computed once.
-    private static let cpuBoxTitle: String = {
+    private static let cpuBrand: String = {
         let brand = ProcessorModel.sysctlString(key: "machdep.cpu.brand_string")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let threads = ProcessInfo.processInfo.processorCount
-        let cores = max(1, threads / 2)
-        let name = brand.isEmpty ? "AMD Ryzen" : brand
-        return "CPU · \(name) (\(cores)-Core / \(threads)-Thread)"
+        return brand.isEmpty ? "AMD Ryzen" : brand
     }()
 
+    /// Hardware-derived box title: brand plus the kernel's core and thread
+    /// counts (cores are not threads / 2 once SMT is off).
+    private var cpuBoxTitle: String {
+        "CPU · \(Self.cpuBrand) (" + String(format: l10n.dashboard.cpuTopologyFormat,
+                                            SystemMonitor.hostPhysicalCoreCount,
+                                            ProcessInfo.processInfo.processorCount) + ")"
+    }
+
     var body: some View {
+        let strings = l10n.dashboard
+        let suite = FeatureStrings.performanceSuite(l10n.language)
         VStack(spacing: 12) {
             if showCpuOverview {
                 // --- TOP ROW: CPU & SYSTEM OVERVIEW ---
-                suiteBox(title: Self.cpuBoxTitle, icon: "cpu", accentColor: cpuColor) {
+                suiteBox(title: cpuBoxTitle, icon: "cpu", accentColor: cpuColor) {
                 HStack(spacing: 16) {
                     // Left: Total Load gauge + load history
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
-                            Text("Total Utilization")
+                            Text(strings.totalUtilization)
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundColor(.secondary)
                             Spacer()
-                            let cpuPct = (monitor.snapshot.cpuUsage ?? 0.0) * 100.0
-                            Text(String(format: "%.1f%%", cpuPct))
+                            // No reading yet (launch, wake) is a dash, never 0 %.
+                            Text(monitor.snapshot.cpuUsage.map { String(format: "%.1f%%", $0 * 100.0) } ?? "—")
                                 .font(.system(size: 16, weight: .bold, design: .rounded))
                                 .monospacedDigit()
                                 .foregroundColor(cpuColor)
@@ -67,13 +85,13 @@ struct BTopDashboardView: View {
                             if let temp = monitor.snapshot.cpuTemperature {
                                 let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
                                 let tempStr = MetricFormat.temperatureCompact(temp, unit: unit)
-                                statBadge(label: "Temp", val: tempStr, color: temp > 80 ? critColor : (temp > 65 ? gpuColor : netColor))
+                                statBadge(label: strings.temperatureShort, val: tempStr, color: temp > 80 ? critColor : (temp > 65 ? gpuColor : netColor))
                             }
                             if let freq = monitor.snapshot.cpuFreqHistory.last {
-                                statBadge(label: "Freq", val: String(format: "%.2f GHz", freq), color: cpuColor)
+                                statBadge(label: strings.frequencyShort, val: String(format: "%.2f GHz", freq), color: cpuColor)
                             }
                             if let pwr = monitor.snapshot.cpuPower {
-                                statBadge(label: "Power", val: String(format: "%.1f W", pwr), color: memColor)
+                                statBadge(label: strings.powerShort, val: String(format: "%.1f W", pwr), color: memColor)
                             }
                         }
                     }
@@ -96,35 +114,32 @@ struct BTopDashboardView: View {
             // --- MIDDLE ROW: MEMORY & NETWORK ---
             HStack(spacing: 12) {
                 // MEMORY & STORAGE BOX
-                suiteBox(title: "Memory & Storage", icon: "memorychip", accentColor: memColor) {
+                suiteBox(title: strings.memoryAndStorage, icon: "memorychip", accentColor: memColor) {
                     VStack(alignment: .leading, spacing: 8) {
-                        let usedMem = monitor.snapshot.memoryUsed.map { Double($0) / 1073741824.0 }
-                        let totalMem = monitor.snapshot.memoryTotal.map { Double($0) / 1073741824.0 }
-                        let ramPct = (usedMem != nil && totalMem != nil && totalMem! > 0) ? (usedMem! / totalMem!) : 0.0
-                        let ramStr = (usedMem != nil && totalMem != nil)
-                            ? String(format: "%.1f / %.1f GB (%.0f%%)", usedMem!, totalMem!, ramPct * 100)
-                            : "—"
+                        let usedMem = monitor.snapshot.memoryUsed
+                        let totalMem = monitor.snapshot.memoryTotal
+                        let ramFraction = usedMem.flatMap { used in
+                            totalMem.flatMap { $0 > 0 ? Double(used) / Double($0) : nil }
+                        }
+                        let ramStr = usedAndTotal(usedMem, totalMem, fraction: ramFraction)
+                        nativeProgressBar(label: "RAM", valStr: ramStr, fraction: ramFraction ?? 0, color: memColor)
 
-                        nativeProgressBar(label: "RAM", valStr: ramStr, fraction: ramPct, color: memColor)
-
+                        // An unknown VRAM size stays unknown: no bar, no
+                        // borrowed total.
                         let gpuMemUsed = monitor.snapshot.gpuMemoryUsed
                         let gpuMemTotal = monitor.snapshot.gpuMemoryTotal
-                        let gUsed = gpuMemUsed.map { Double($0) / 1073741824.0 }
-                        let gTotal = gpuMemTotal.map { Double($0) / 1073741824.0 }
-                        let gFrac = (gUsed != nil && gTotal != nil && gTotal! > 0) ? (gUsed! / gTotal!) : 0.0
-                        let vramStr = (gUsed != nil && gTotal != nil)
-                            ? String(format: "%.1f / %.1f GB", gUsed!, gTotal!)
-                            : "—"
-                        nativeProgressBar(label: "VRAM", valStr: vramStr, fraction: gFrac, color: gpuColor)
+                        let vramFraction = gpuMemUsed.flatMap { used in
+                            gpuMemTotal.flatMap { $0 > 0 ? Double(used) / Double($0) : nil }
+                        }
+                        let vramStr = usedAndTotal(gpuMemUsed, gpuMemTotal, fraction: nil)
+                        nativeProgressBar(label: "VRAM", valStr: vramStr, fraction: vramFraction ?? 0, color: gpuColor)
 
-                        let read = monitor.snapshot.diskReadHistory.last ?? 0.0
-                        let write = monitor.snapshot.diskWriteHistory.last ?? 0.0
                         HStack {
-                            Text("Disk I/O")
+                            Text(strings.diskIO)
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundColor(.secondary)
                             Spacer()
-                            Text(String(format: "R: %.1f MB/s  W: %.1f MB/s", read / 1048576.0, write / 1048576.0))
+                            Text(diskRates(strings))
                                 .font(.system(size: 11, weight: .semibold))
                                 .monospacedDigit()
                                 .foregroundColor(.primary)
@@ -134,27 +149,27 @@ struct BTopDashboardView: View {
                 }
 
                 // NETWORK TRAFFIC BOX
-                suiteBox(title: "Bandwidth & Traffic", icon: "network", accentColor: netColor) {
+                suiteBox(title: strings.networkTraffic, icon: "network", accentColor: netColor) {
                     VStack(alignment: .leading, spacing: 6) {
                         let downRate = monitor.snapshot.netDownBytesPerSec
                         let upRate = monitor.snapshot.netUpBytesPerSec
 
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Download")
+                                Text(suite.rxColumn)
                                     .font(.system(size: 10, weight: .medium))
                                     .foregroundColor(.secondary)
-                                Text(formatOptionalBytes(downRate))
+                                Text(rate(downRate))
                                     .font(.system(size: 13, weight: .bold, design: .rounded))
                                     .monospacedDigit()
                                     .foregroundColor(cpuColor)
                             }
                             Spacer()
                             VStack(alignment: .trailing, spacing: 2) {
-                                Text("Upload")
+                                Text(suite.txColumn)
                                     .font(.system(size: 10, weight: .medium))
                                     .foregroundColor(.secondary)
-                                Text(formatOptionalBytes(upRate))
+                                Text(rate(upRate))
                                     .font(.system(size: 13, weight: .bold, design: .rounded))
                                     .monospacedDigit()
                                     .foregroundColor(netColor)
@@ -173,24 +188,25 @@ struct BTopDashboardView: View {
             }
 
             // --- BOTTOM ROW: TOP PROCESSES LIST ---
-            suiteBox(title: "Process Manager", icon: "list.bullet.rectangle", accentColor: gpuColor) {
+            suiteBox(title: strings.processManager, icon: "list.bullet.rectangle", accentColor: gpuColor) {
                 VStack(spacing: 8) {
                     HStack {
-                        Text("Sort by:")
+                        Text(strings.sortBy)
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(.secondary)
 
-                        Picker("", selection: $procSortMode) {
+                        Picker(strings.sortBy, selection: $procSortMode) {
                             ForEach(ProcSortMode.allCases) { mode in
-                                Text(mode.rawValue).tag(mode)
+                                Text(mode.title(suite)).tag(mode)
                             }
                         }
                         .pickerStyle(.segmented)
+                        .labelsHidden()
                         .frame(width: 240)
 
                         Spacer()
 
-                        Text("\(min(topProcesses.count, 10)) active processes")
+                        Text(String(format: strings.processCountFormat, min(topProcesses.count, 10)))
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
                     }
@@ -198,9 +214,9 @@ struct BTopDashboardView: View {
                     // Table Header
                     HStack {
                         Text("PID").lineLimit(1).frame(width: 55, alignment: .leading)
-                        Text("Name").lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                        Text("Resource Value").lineLimit(1).frame(width: 120, alignment: .trailing)
-                        Text("Action").lineLimit(1).frame(width: 60, alignment: .center)
+                        Text(suite.processColumn).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                        Text(strings.usageColumn).lineLimit(1).frame(width: 120, alignment: .trailing)
+                        Text(suite.actionColumn).lineLimit(1).frame(width: 60, alignment: .center)
                     }
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.secondary)
@@ -213,12 +229,21 @@ struct BTopDashboardView: View {
                         if topProcesses.isEmpty {
                             HStack {
                                 Spacer()
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .padding(.trailing, 6)
-                                Text("Loading active processes...")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
+                                // A GPU whose driver attributes no time to any
+                                // process says so, once a real delta sample
+                                // exists; before that the list is still loading.
+                                if procSortMode == .gpu && ProcessUsageService.shared.hasGPUDeltaSample {
+                                    Text(strings.noGPUProcesses)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.secondary)
+                                } else {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .padding(.trailing, 6)
+                                    Text(strings.loadingProcesses)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.secondary)
+                                }
                                 Spacer()
                             }
                             .padding(.vertical, 12)
@@ -242,9 +267,13 @@ struct BTopDashboardView: View {
         .onChange(of: procSortMode) { _, _ in
             refreshProcesses()
         }
+        .onChange(of: isActive) { _, active in
+            if active { refreshProcesses() }
+        }
     }
 
     private func refreshProcesses() {
+        guard isActive else { return }
         let procs: [ProcessUsage]
         switch procSortMode {
         case .cpu:
@@ -259,16 +288,31 @@ struct BTopDashboardView: View {
         }
     }
 
-    private func formatBytes(_ bytes: Double) -> String {
-        if bytes >= 1073741824 { return String(format: "%.1f GB", bytes / 1073741824.0) }
-        if bytes >= 1048576 { return String(format: "%.1f MB", bytes / 1048576.0) }
-        if bytes >= 1024 { return String(format: "%.0f KB", bytes / 1024.0) }
-        return String(format: "%.0f B", bytes)
+    /// A rate in the user's bits or bytes preference, or a dash when there
+    /// is no reading.
+    private func rate(_ value: Double?) -> String {
+        guard let value, value.isFinite, value >= 0 else { return "—" }
+        return MetricFormat.networkRate(value)
     }
 
-    private func formatOptionalBytes(_ bytes: Double?) -> String {
-        guard let bytes, bytes.isFinite, bytes >= 0 else { return "—" }
-        return formatBytes(bytes) + "/s"
+    /// "used / total (pct)", or a dash while either side is unknown.
+    private func usedAndTotal(_ used: UInt64?, _ total: UInt64?, fraction: Double?) -> String {
+        guard let used, let total, total > 0 else { return "—" }
+        let text = "\(MetricFormat.bytes(used)) / \(MetricFormat.bytes(total))"
+        guard let fraction else { return text }
+        return text + String(format: " (%.0f%%)", fraction * 100)
+    }
+
+    /// This tick's disk rates from the snapshot, not the last history push
+    /// (which can be an old sample); a dash when no device reports one.
+    private func diskRates(_ strings: DashboardFeatureStrings) -> String {
+        let devices = monitor.snapshot.disk?.uniqueIODevices ?? []
+        let reads = devices.compactMap(\.readBytesPerSec)
+        let writes = devices.compactMap(\.writeBytesPerSec)
+        guard !reads.isEmpty || !writes.isEmpty else { return "—" }
+        return String(format: strings.diskReadWriteFormat,
+                      reads.isEmpty ? "—" : MetricFormat.bytesPerSec(reads.reduce(0, +)),
+                      writes.isEmpty ? "—" : MetricFormat.bytesPerSec(writes.reduce(0, +)))
     }
 
     @ViewBuilder
@@ -303,7 +347,8 @@ struct BTopDashboardView: View {
 
     @ViewBuilder
     private func threadCell(core: CoreSnapshot) -> some View {
-        let load = core.loadPct
+        // Clamped so a bad sample can never draw past the cell.
+        let load = min(100, max(0, core.loadPct))
         let cellColor = load > 85 ? critColor : (load > 50 ? gpuColor : netColor)
         let label = core.isLogical ? "T\(core.id + 1)" : "C\(core.id + 1)"
 
@@ -328,7 +373,7 @@ struct BTopDashboardView: View {
                     .frame(height: 3)
                 RoundedRectangle(cornerRadius: 1.5)
                     .fill(cellColor)
-                    .frame(width: max(0, 36 * CGFloat(load / 100.0)), height: 3)
+                    .frame(width: 36 * CGFloat(load / 100.0), height: 3)
             }
         }
         .padding(4)
@@ -370,14 +415,33 @@ struct BTopProcessRow: View {
     let accentColor: Color
     let onKill: () -> Void
 
+    @ObservedObject private var l10n = L10n.shared
     @State private var showingKillConfirm = false
+    /// The kernel start time read when the user asked to terminate: the
+    /// kill goes only to that exact process, never to a reused pid.
+    @State private var killStartTime: UInt64?
     @Environment(\.colorScheme) private var colorScheme
 
-    private var isProtectedPID: Bool {
-        proc.pid <= 1 || proc.pid == getpid()
+    /// The same gate as the process manager: the feature is on and the
+    /// process is not one the system needs.
+    private var canKill: Bool {
+        AppFeature.killProcess.isAvailable && !KillProcessService.isProtected(pid: proc.pid, name: proc.name)
+    }
+
+    /// The row's pid can be a cached one; it is killed only if it still
+    /// names the same app, through KillProcessService's safe path.
+    private func requestKill() {
+        guard let startedAt = KillProcessService.startTime(for: proc.pid),
+              ResponsibleProcess.displayName(pid: proc.pid, fallback: proc.name) == proc.name else {
+            onKill()
+            return
+        }
+        killStartTime = startedAt
+        showingKillConfirm = true
     }
 
     var body: some View {
+        let suite = FeatureStrings.performanceSuite(l10n.language)
         HStack {
             Button {
                 ProcessInspectorWindowController.shared.present(for: proc)
@@ -397,9 +461,7 @@ struct BTopProcessRow: View {
                     let valStr: String = {
                         switch procSortMode {
                         case .cpu: return String(format: "%.1f%% CPU", proc.value)
-                        case .memory:
-                            let valGB = proc.value / (1024 * 1024 * 1024)
-                            return valGB >= 1.0 ? String(format: "%.1f GB", valGB) : String(format: "%.0f MB", proc.value / (1024 * 1024))
+                        case .memory: return MetricFormat.bytes(UInt64(max(0, proc.value)))
                         case .gpu: return String(format: "%.1f%% GPU", proc.value)
                         }
                     }()
@@ -414,11 +476,9 @@ struct BTopProcessRow: View {
             }
             .buttonStyle(.plain)
 
-            if !isProtectedPID {
-                Button(action: {
-                    showingKillConfirm = true
-                }) {
-                    Text("Kill")
+            if canKill {
+                Button(action: requestKill) {
+                    Text(l10n.dashboard.killShort)
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundColor(PanelMetricColor.red(for: colorScheme))
                         .padding(.horizontal, 6)
@@ -428,19 +488,22 @@ struct BTopProcessRow: View {
                 }
                 .buttonStyle(.plain)
                 .frame(width: 60, alignment: .center)
+                .accessibilityLabel(suite.killButton)
                 .confirmationDialog(
-                    "Terminate \(proc.name) (PID: \(proc.pid))?",
+                    suite.killConfirmTitle,
                     isPresented: $showingKillConfirm,
                     titleVisibility: .visible
                 ) {
-                    Button("Terminate", role: .destructive) {
-                        if kill(proc.pid, SIGTERM) == 0 {
+                    Button(suite.killButton, role: .destructive) {
+                        guard let startedAt = killStartTime else { return }
+                        KillProcessService.shared.kill(pid: proc.pid, name: proc.name,
+                                                       startedAt: startedAt, force: false) {
                             onKill()
                         }
                     }
-                    Button("Cancel", role: .cancel) {}
+                    Button(suite.killCancel, role: .cancel) {}
                 } message: {
-                    Text("Are you sure you want to terminate this process?")
+                    Text(String(format: suite.killConfirmMessage, proc.name, Int(proc.pid)))
                 }
             } else {
                 Spacer().frame(width: 60)
@@ -451,13 +514,13 @@ struct BTopProcessRow: View {
         .background(Color.primary.opacity(0.02))
         .cornerRadius(4)
         .contextMenu {
-            Button("Inspect Process") {
+            Button(suite.inspectButton) {
                 ProcessInspectorWindowController.shared.present(for: proc)
             }
-            if !isProtectedPID {
+            if canKill {
                 Divider()
-                Button("Terminate Process", role: .destructive) {
-                    showingKillConfirm = true
+                Button(suite.killButton, role: .destructive) {
+                    requestKill()
                 }
             }
         }

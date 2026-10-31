@@ -201,6 +201,11 @@ enum AMDKextSelector: UInt32, CaseIterable {
     /// SoC plane words. Cache only, refreshed by the kext's sensor timer.
     /// Unsupported on pre-3.36.0 kexts.
     case sviVoltage = 59
+    /// Read-only per-core power (kext 3.37.0+): one Float in watts per
+    /// physical core, indexed like the effective clocks of selector 2, from
+    /// the CORE_ENERGY_STAT counter; scalar [0] = core count. Cache only,
+    /// refreshed by the kext's main timer. Unsupported on older kexts.
+    case corePower = 60
 
     // MARK: — Fan Control (via SuperIO)
 

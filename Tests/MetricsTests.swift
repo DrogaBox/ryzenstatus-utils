@@ -8961,11 +8961,11 @@ struct MetricsTests {
         snapB.artworkData = Data(repeating: 0x42, count: 128)
         expect(snapA == snapB, "Snapshots with identical artwork buffers are equal")
 
-        // Same length and first 64 bytes identical -> equal by identity proxy rule
+        // Same length and first 64 bytes identical -> still a different cover
         var proxyData = Data(repeating: 0x42, count: 64)
         proxyData.append(Data(repeating: 0x99, count: 64))
         snapB.artworkData = proxyData
-        expect(snapA == snapB, "Artwork proxy matches equal count and identical first 64 bytes")
+        expect(snapA != snapB, "Artwork is compared in full, not by count and first 64 bytes")
 
         // Different count -> not equal
         snapB.artworkData = Data(repeating: 0x42, count: 130)
@@ -9276,62 +9276,6 @@ struct MetricsTests {
             expect(NowPlayingScriptingCapabilities.parse(Data("<dictionary/>".utf8)) == nil,
                    "Scripting: a dictionary with no playback vocabulary is refused")
             checks += 31
-        }
-
-        // MARK: C6 residency sampling
-
-        // No counter (raw == 0) → pct nil, baseline zeroed
-        do {
-            let (pct, lr, lt) = C6Sampling.sample(raw: 0, now: 1.0, lastRaw: 0, lastTimestamp: 0)
-            expect(pct == nil, "C6: raw=0 yields nil pct")
-            expect(lr == 0, "C6: raw=0 zeros lastRaw")
-            expect(lt == 0, "C6: raw=0 zeros lastTimestamp")
-            checks += 3
-        }
-
-        // First sample (no baseline) → nil pct, baseline becomes (raw, now)
-        do {
-            let (pct, lr, lt) = C6Sampling.sample(raw: 1_000_000, now: 10.0, lastRaw: 0, lastTimestamp: 0)
-            expect(pct == nil, "C6: first sample yields nil pct")
-            expect(lr == 1_000_000, "C6: first sample anchors lastRaw")
-            expectClose(lt, 10.0, "C6: first sample anchors lastTimestamp")
-            checks += 3
-        }
-
-        // Counter reset (raw < lastRaw, lastRaw > 0) → nil pct, re-anchored
-        do {
-            let (pct, lr, lt) = C6Sampling.sample(raw: 500, now: 20.0, lastRaw: 1_000_000, lastTimestamp: 10.0)
-            expect(pct == nil, "C6: counter reset yields nil pct")
-            expect(lr == 500, "C6: counter reset re-anchors lastRaw to raw")
-            expectClose(lt, 20.0, "C6: counter reset re-anchors lastTimestamp to now")
-            checks += 3
-        }
-
-        // Normal delta: 500 000 µs over 1.0 s → 50%
-        do {
-            let base: UInt64 = 1_000_000
-            let (pct, lr, _) = C6Sampling.sample(raw: base + 500_000, now: 11.0, lastRaw: base, lastTimestamp: 10.0)
-            expect(pct != nil, "C6: normal delta yields non-nil pct")
-            expectClose(pct ?? -1, 50.0, "C6: 500_000µs / 1s = 50%")
-            expect(lr == base + 500_000, "C6: normal delta advances lastRaw")
-            checks += 3
-        }
-
-        // Clamp upper: delta > elapsed → 100%
-        do {
-            let base: UInt64 = 1_000_000
-            // delta = 2_000_000µs over 1.0 s (1_000_000µs) → would be 200% → clamped to 100%
-            let (pct, _, _) = C6Sampling.sample(raw: base + 2_000_000, now: 11.0, lastRaw: base, lastTimestamp: 10.0)
-            expect(pct != nil, "C6: over-full delta yields non-nil pct")
-            expectClose(pct ?? -1, 100.0, "C6: delta > elapsed clamps to 100%")
-            checks += 2
-        }
-
-        // Non-positive elapsed (now <= lastTimestamp) → nil pct
-        do {
-            let (pct, _, _) = C6Sampling.sample(raw: 2_000_000, now: 10.0, lastRaw: 1_000_000, lastTimestamp: 10.0)
-            expect(pct == nil, "C6: zero elapsed yields nil pct")
-            checks += 1
         }
 
         // MARK: AMDPowerPreset.snapEPP bucket edges
@@ -10330,7 +10274,7 @@ struct MetricsTests {
         expect(!monitorSwift.isEmpty, "SystemMonitor source must be readable for the promotion-pin checks (run tests from the repo root)")
         expect(!monitorSwift.contains("freshCoreClocksMHz"),
                "SystemMonitor must not promote SMU effective clocks into snapshot.cores[] (window-averaged values poison current-clock aggregates)")
-        expect(monitorSwift.range(of: "let freqIdx = physicalIdx \\+ 3", options: .regularExpression) != nil,
+        expect(monitorSwift.range(of: "let freqIdx = (physicalIdx|place\\.physicalIndex) \\+ 3", options: .regularExpression) != nil,
                "core-grid frequency must keep the kext metric-array source (current-clock semantics)")
 
         // MARK: mailbox diagnostics (selector 58) — decode + kernel wire pins
@@ -12992,6 +12936,10 @@ struct MetricsTests {
                 ("ClipboardHistoryWriteTests", ClipboardHistoryWriteTests.run),
                 ("NotchAgentTests", NotchAgentTests.run),
                 ("NotchMascotCheatsTests", NotchMascotCheatsTests.run),
+                ("HardwareLayerTests", HardwareLayerTests.run),
+                ("DashboardMetricsTests", DashboardMetricsTests.run),
+                ("NotchMascotRuntimeTests", NotchMascotRuntimeTests.run),
+                ("IslandPanelTests", IslandPanelTests.run),
             ]
             for (name, run) in suites { suite.run(name) { run(suite) } }
             checks += suite.checks
@@ -13013,8 +12961,14 @@ struct MetricsTests {
 
             if let userClientSrc = try? String(contentsOf: userClientURL, encoding: .utf8) {
                 let selectors = AMDKextSelector.allKnownSelectors
-                expect(selectors.count == 65,
-                       "AMDKextSelector enumerates all 65 app-used IOKit selectors (got \(selectors.count))")
+                expect(selectors.count == 66,
+                       "AMDKextSelector enumerates all 66 app-used IOKit selectors (got \(selectors.count))")
+                expect(AMDKextSelector.corePower.rawValue == 60, "corePower selector is 60")
+                expect(userClientSrc.contains("provider->corePowerW_perCore[i]")
+                       && userClientSrc.contains("if (numPhyCores > CPUInfo::MaxCpus) numPhyCores = CPUInfo::MaxCpus;"),
+                       "selector 60 copies per-core power with the core count clamped to MaxCpus")
+                expect(userClientSrc.components(separatedBy: "provider->pmTableLastDemandMs = getCurrentTimeNs()").count == 3,
+                       "selectors 56 and 57 record PM table demand")
                 for selector in selectors.sorted() {
                     expect(userClientSrc.contains("case \(selector):"),
                            "AMDRyzenCPUPMUserClient.cpp implements case \(selector):")
@@ -13036,6 +12990,86 @@ struct MetricsTests {
                        "AUD-006: ISSuperIOIT86XXEFamily gates register 0x0c unlock write on allowUnlock")
             } else {
                 expect(false, "ISSuperIOIT86XXEFamily.cpp is readable from repo root")
+            }
+
+            // Kext 3.36.1 / 3.37.0 regressions guarded by source checks.
+            let kextRoot = repoRoot.appendingPathComponent("SMCAMDProcessor_Source")
+            if let pluginSrc = try? String(contentsOf: kextRoot.appendingPathComponent("SMCAMDProcessor/SMCAMDProcessor.cpp"), encoding: .utf8),
+               let qsortAt = pluginSrc.range(of: "VirtualSMCKeyValue::compare"),
+               let registerAt = pluginSrc.range(of: "VirtualSMCAPI::registerHandler(") {
+                expect(qsortAt.lowerBound < registerAt.lowerBound,
+                       "the SMC plugin sorts its keys before registering with VirtualSMC (binary-search lookups)")
+                expect(pluginSrc.contains("KeyVC0C") && pluginSrc.contains("fProvider->svi.supported"),
+                       "the SMC plugin publishes VC0C only on silicon with an SVI2 layout")
+                expect(pluginSrc.contains("KeyPC0C") && pluginSrc.contains("KeyPCPC")
+                       && pluginSrc.contains("if (fProvider->coreEnergySupported)"),
+                       "the SMC plugin publishes PC0C/PCPC only where CORE_ENERGY_STAT reads")
+            } else {
+                expect(false, "SMCAMDProcessor.cpp sorts and registers its keys")
+            }
+            if let driverSrc = try? String(contentsOf: kextRoot.appendingPathComponent("AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.cpp"), encoding: .utf8) {
+                expect(driverSrc.contains("if (gap < kREQUEST_BURST_GAP_MS)"),
+                       "registerRequest folds back-to-back selector calls into one burst")
+                expect(driverSrc.contains("provider->resumeSuperIO();"),
+                       "the post-wake path re-applies the Super I/O setup")
+                expect(driverSrc.contains("provider->updateCoreEnergy(physical, seed);")
+                       && driverSrc.contains("provider->lastCoreEnergyTSC_perCore[physical] = 0;"),
+                       "per-core energy is sampled in the rendezvous and its window restarts after wake")
+                expect(driverSrc.contains("!svi.socIgnoresTfn && (tfn & kSVI_TFN_SOC_PLANE_OFF) != 0"),
+                       "the SoC plane ignores its TFN bit only on the models listed in probeSviTelemetry")
+                // 3.38.0: interrupt-context code stays integer-only (the
+                // binary-level check is Tools/check-kext-fpu.py).
+                expect(driverSrc.contains("provider->finishCoreSamples();")
+                       && driverSrc.components(separatedBy: "provider->readPstateDefs(false);").count == 3
+                       && !driverSrc.contains("provider->dumpPstate(false)"),
+                       "rendezvous handlers capture raw counters and P-state words; floats are computed afterwards")
+                expect(driverSrc.contains("if (!provider->hasRecentDemand(tickMs)) {")
+                       && driverSrc.contains("if (provider->mainSamplingIdle && provider->hasRecentDemand(")
+                       && !driverSrc.contains("timerEvent_main->setTimeoutMS(1);\n    }\n\n    // A client back"),
+                       "the main sampler stops without demand and only the sensor timer restarts it, on the work loop")
+                expect(driverSrc.contains("if (!seedOnly) {\n            provider->finishCoreSamples();")
+                       && driverSrc.contains("sender->setTimeoutMS(kSEED_WINDOW_MS);"),
+                       "the first rendezvous after a pause only seeds; no published window spans the pause")
+                expect(driverSrc.contains("instructionDelta_perCore[cpu_num] = (insCount - last) & kIRPERF_MASK;"),
+                       "the 48-bit instructions-retired counter wraps without freezing its delta")
+                expect(driverSrc.contains("mainSamplingIdle = false;\n    seedNextSample = false;\n    if (timerEvent_main) timerEvent_main->cancelTimeout();"),
+                       "sleep clears the idle state so nothing restarts the sampler before the post-wake tick")
+                expect(driverSrc.contains("IOLockLock(provider->rendezvousLock);\n            provider->reinitHwState();"),
+                       "the post-wake reinit holds rendezvousLock like writePstate")
+                expect(driverSrc.contains("else IOSleep(1);"),
+                       "the SMU mailbox sleeps instead of spinning once a command runs past 1 ms")
+                expect(driverSrc.contains("return fanRPMCache[fan];")
+                       && driverSrc.components(separatedBy: "fanRPMCache[i] = 0;").count == 3,
+                       "the FxAc SMC keys read a lock-free RPM cache that is cleared with the chip object")
+                expect(driverSrc.contains("timer->setTimeout(kIOTimeOptionsWithLeeway, interval, leeway);"),
+                       "periodic timers are armed with leeway for coalescing")
+            } else {
+                expect(false, "AMDRyzenCPUPowerManagement.cpp is readable from repo root")
+            }
+            if let clientSrc = try? String(contentsOf: kextRoot.appendingPathComponent("AMDRyzenCPUPowerManagement/AMDRyzenCPUPMUserClient.cpp"), encoding: .utf8) {
+                expect(clientSrc.contains("provider->showLoadAlertAsync();")
+                       && !clientSrc.contains("(*(provider->kunc_alert))"),
+                       "the load-problem alert never blocks a selector call")
+            } else {
+                expect(false, "AMDRyzenCPUPMUserClient.cpp is readable from repo root")
+            }
+            if let gpuSrc = try? String(contentsOf: kextRoot.appendingPathComponent("AMDRyzenCPUPowerManagement/AMDGPU.cpp"), encoding: .utf8) {
+                expect(gpuSrc.contains("else IOSleep(1);")
+                       && gpuSrc.components(separatedBy: "waited = smuWaitStep(sentNs);").count == 3,
+                       "both GPU SMU mailboxes sleep instead of spinning once a reply runs past 1 ms")
+            } else {
+                expect(false, "AMDGPU.cpp is readable from repo root")
+            }
+            if let dmgScript = try? String(contentsOf: repoRoot.appendingPathComponent("Tools/make-dmg.sh"), encoding: .utf8) {
+                expect(dmgScript.contains("python3 -B Tools/check-kext-fpu.py"),
+                       "the release script refuses a driver that uses the FPU in interrupt context")
+            } else {
+                expect(false, "Tools/make-dmg.sh is readable from repo root")
+            }
+            if let it86Resume = try? String(contentsOf: it86URL, encoding: .utf8) {
+                expect(it86Resume.contains("void ISSuperIOIT86XXEFamily::resume()")
+                       && it86Resume.contains("if (!tach16BitRequested)"),
+                       "IT86xxE resume re-enables 16-bit tachometers only when the probe did")
             }
 
             if let securityDoc = try? String(contentsOf: securityURL, encoding: .utf8) {

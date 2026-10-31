@@ -143,9 +143,14 @@ enum NowPlayingAutomation {
         return NSAppleScript(source: src)
     }()
 
-    // Artwork cache keyed by track ID to avoid fetching artwork on every poll tick.
-    private static var lastTrackID: String?
-    private static var cachedArtworkData: Data?
+    // Artwork caches keyed by track ID to avoid fetching artwork on every poll
+    // tick, one per player: with Music paused and Spotify open, a shared slot
+    // flipped every poll and fetched both covers again each time. Touched only
+    // on the poll queue.
+    private static var lastMusicTrackID: String?
+    private static var cachedMusicArtworkData: Data?
+    private static var lastSpotifyTrackID: String?
+    private static var cachedSpotifyArtworkData: Data?
 
     private static var lastKasetTrackID: String?
     private static var cachedKasetArtworkData: Data?
@@ -229,7 +234,7 @@ enum NowPlayingAutomation {
         }
 
         var error: NSDictionary?
-        let desc = script.executeAndReturnError(&error)
+        let desc = AppleScriptRunner.execute(script, error: &error)
         guard error == nil, desc.numberOfItems >= 7 else {
             return .empty
         }
@@ -257,12 +262,12 @@ enum NowPlayingAutomation {
 
         var artworkData: Data? = nil
         if !trackID.isEmpty {
-            if trackID == lastTrackID {
-                artworkData = cachedArtworkData
+            if trackID == lastMusicTrackID {
+                artworkData = cachedMusicArtworkData
             } else {
-                lastTrackID = trackID
-                cachedArtworkData = fetchMusicArtwork()
-                artworkData = cachedArtworkData
+                lastMusicTrackID = trackID
+                cachedMusicArtworkData = fetchMusicArtwork()
+                artworkData = cachedMusicArtworkData
             }
         }
 
@@ -289,7 +294,7 @@ enum NowPlayingAutomation {
     private static func fetchMusicArtwork() -> Data? {
         guard let script = musicArtworkScript else { return nil }
         var error: NSDictionary?
-        let desc = script.executeAndReturnError(&error)
+        let desc = AppleScriptRunner.execute(script, error: &error)
         guard error == nil else { return nil }
         return desc.data
     }
@@ -303,7 +308,7 @@ enum NowPlayingAutomation {
         }
 
         var error: NSDictionary?
-        let desc = script.executeAndReturnError(&error)
+        let desc = AppleScriptRunner.execute(script, error: &error)
         guard error == nil, desc.numberOfItems >= 7 else {
             return .empty
         }
@@ -330,18 +335,12 @@ enum NowPlayingAutomation {
 
         var artworkData: Data? = nil
         if !trackID.isEmpty {
-            if trackID == lastTrackID {
-                artworkData = cachedArtworkData
+            if trackID == lastSpotifyTrackID {
+                artworkData = cachedSpotifyArtworkData
             } else {
-                lastTrackID = trackID
-                if let artUrlStr = artUrlStr, let url = URL(string: artUrlStr),
-                   let data = try? Data(contentsOf: url) {
-                    cachedArtworkData = data
-                    artworkData = data
-                } else {
-                    cachedArtworkData = nil
-                    artworkData = nil
-                }
+                lastSpotifyTrackID = trackID
+                cachedSpotifyArtworkData = artUrlStr.flatMap(URL.init(string:)).flatMap(downloadArtwork)
+                artworkData = cachedSpotifyArtworkData
             }
         }
 
@@ -398,19 +397,8 @@ enum NowPlayingAutomation {
                 artworkData = cachedKasetArtworkData
             } else {
                 lastKasetTrackID = trackKey
-                if let artUrlStr = artUrlStr, !artUrlStr.isEmpty,
-                   let url = URL(string: artUrlStr) {
-                    var req = URLRequest(url: url)
-                    req.timeoutInterval = 3.0
-                    if let imgData = try? Data(contentsOf: url) {
-                        cachedKasetArtworkData = imgData
-                        artworkData = imgData
-                    } else {
-                        cachedKasetArtworkData = nil
-                    }
-                } else {
-                    cachedKasetArtworkData = nil
-                }
+                cachedKasetArtworkData = artUrlStr.flatMap(URL.init(string:)).flatMap(downloadArtwork)
+                artworkData = cachedKasetArtworkData
             }
         }
 
@@ -441,12 +429,39 @@ enum NowPlayingAutomation {
         }
 
         var error: NSDictionary?
-        let desc = script.executeAndReturnError(&error)
+        let desc = AppleScriptRunner.execute(script, error: &error)
         guard error == nil, let jsonString = desc.stringValue, !jsonString.isEmpty else {
             return .empty
         }
 
         return parseKasetJSON(jsonString) ?? .empty
+    }
+
+    /// Cover art over https, bounded so a slow network never holds the poll
+    /// queue: the request gives up after 3 s of silence and the wait after 4 s
+    /// in all, cancelling the request. The answer is handed over under a lock,
+    /// since a late one can still arrive after the wait gave up.
+    private static func downloadArtwork(_ url: URL) -> Data? {
+        guard url.scheme?.lowercased() == "https" else { return nil }
+        final class Answer: @unchecked Sendable {
+            let lock = NSLock()
+            var data: Data?
+        }
+        let answer = Answer()
+        let done = DispatchSemaphore(value: 0)
+        let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 3)
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+            if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), let data, !data.isEmpty {
+                answer.lock.withLock { answer.data = data }
+            }
+            done.signal()
+        }
+        task.resume()
+        if done.wait(timeout: .now() + 4) == .timedOut {
+            task.cancel()
+            return nil
+        }
+        return answer.lock.withLock { answer.data }
     }
 
     private static func emptyToNil(_ value: String?) -> String? {
@@ -483,7 +498,7 @@ enum NowPlayingAutomation {
         """
         guard let script = NSAppleScript(source: src) else { return nil }
         var error: NSDictionary?
-        let desc = script.executeAndReturnError(&error)
+        let desc = AppleScriptRunner.execute(script, error: &error)
         guard error == nil else { return nil }
         let raw = desc.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return raw.isEmpty ? nil : raw
@@ -533,7 +548,7 @@ enum NowPlayingAutomation {
         """
         guard let script = NSAppleScript(source: src) else { return nil }
         var error: NSDictionary?
-        let desc = script.executeAndReturnError(&error)
+        let desc = AppleScriptRunner.execute(script, error: &error)
         guard error == nil else { return nil }
         switch desc.atIndex(1)?.stringValue {
         case "shuffled": return NowPlayingQueue(items: [], canPlay: false, isShuffled: true)
@@ -569,7 +584,7 @@ enum NowPlayingAutomation {
         """
         guard let script = NSAppleScript(source: src) else { return false }
         var error: NSDictionary?
-        script.executeAndReturnError(&error)
+        AppleScriptRunner.execute(script, error: &error)
         return error == nil
     }
 
@@ -598,7 +613,7 @@ enum NowPlayingAutomation {
         DispatchQueue.global(qos: .userInitiated).async {
             guard let script = NSAppleScript(source: src) else { return }
             var error: NSDictionary?
-            script.executeAndReturnError(&error)
+            AppleScriptRunner.execute(script, error: &error)
         }
     }
 
@@ -631,7 +646,7 @@ enum NowPlayingAutomation {
         DispatchQueue.global(qos: .userInitiated).async {
             if let script = NSAppleScript(source: scriptSource) {
                 var error: NSDictionary?
-                script.executeAndReturnError(&error)
+                AppleScriptRunner.execute(script, error: &error)
             }
         }
     }
@@ -696,7 +711,7 @@ enum NowPlayingAutomation {
             """
             guard let script = NSAppleScript(source: src) else { return nil }
             var error: NSDictionary?
-            let desc = script.executeAndReturnError(&error)
+            let desc = AppleScriptRunner.execute(script, error: &error)
             guard error == nil, let jsonString = desc.stringValue,
                   let data = jsonString.data(using: .utf8),
                   let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
@@ -732,7 +747,7 @@ enum NowPlayingAutomation {
         }
         guard let script = NSAppleScript(source: src) else { return nil }
         var error: NSDictionary?
-        let desc = script.executeAndReturnError(&error)
+        let desc = AppleScriptRunner.execute(script, error: &error)
         guard error == nil, desc.numberOfItems >= 2 else { return nil }
         let shuffle = parseAppleScriptBoolean(desc.atIndex(1)?.stringValue) ?? false
         let repeatMode: NowPlayingRepeatMode
@@ -770,7 +785,7 @@ enum NowPlayingAutomation {
             """
             guard let script = NSAppleScript(source: src) else { return nil }
             var error: NSDictionary?
-            let desc = script.executeAndReturnError(&error)
+            let desc = AppleScriptRunner.execute(script, error: &error)
             guard error == nil, let jsonString = desc.stringValue,
                   let data = jsonString.data(using: .utf8),
                   let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
@@ -798,7 +813,7 @@ enum NowPlayingAutomation {
         """
         guard let script = NSAppleScript(source: src) else { return nil }
         var error: NSDictionary?
-        let desc = script.executeAndReturnError(&error)
+        let desc = AppleScriptRunner.execute(script, error: &error)
         guard error == nil else { return nil }
         return parseAppleScriptBoolean(desc.stringValue)
     }
@@ -832,7 +847,7 @@ enum NowPlayingAutomation {
                 """
                 guard let script = NSAppleScript(source: src) else { break }
                 var error: NSDictionary?
-                let desc = script.executeAndReturnError(&error)
+                let desc = AppleScriptRunner.execute(script, error: &error)
                 guard error == nil, let jsonString = desc.stringValue,
                       let data = jsonString.data(using: .utf8),
                       let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
@@ -880,7 +895,7 @@ enum NowPlayingAutomation {
         }
         guard let script = NSAppleScript(source: src) else { return nil }
         var error: NSDictionary?
-        let desc = script.executeAndReturnError(&error)
+        let desc = AppleScriptRunner.execute(script, error: &error)
         guard error == nil else { return nil }
         if bundleID == spotifyBundleID {
             guard let enabled = parseAppleScriptBoolean(desc.stringValue) else { return nil }

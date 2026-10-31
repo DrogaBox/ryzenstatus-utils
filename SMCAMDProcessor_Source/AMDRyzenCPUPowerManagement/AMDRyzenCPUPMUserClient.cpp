@@ -112,6 +112,7 @@ IOReturn AMDRyzenCPUPMUserClient::clientClose() {
                 provider->fanToCurveMap[i] = -1;
                 provider->superIO->setDefaultFanControl(i);
                 provider->lastAppliedPWM[i] = 0;
+                provider->lastPWMAssertMs[i] = 0;
             }
             IOLog("AMDRyzenCPUPMUserClient: clientClose released %d fan(s) to BIOS control\n", fanCount);
         }
@@ -165,27 +166,10 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
     AMDRyzenCPUPowerManagement *provider = fProvider;
     if (!provider) return kIOReturnNotReady;
 
-    // Surface kext-load alerts at most once across concurrent UserClient connections.
-    // OSCompareAndSwap makes the check-and-set atomic.
+    // Surface kext-load alerts at most once across concurrent UserClient
+    // connections, without blocking this call on the dialog.
     if (provider->kextloadAlerts && provider->kunc_alert) {
-        if (OSCompareAndSwap(0, 1, &provider->kextAlertDisplayed)) {
-            unsigned int rf = 0;
-
-            char buf[160];
-            snprintf(buf, sizeof(buf),
-                     "%d problem(s) were detected while the driver loaded. "
-                     "Check the system log for AMDRyzenCPUPowerManagement messages.",
-                     provider->kextloadAlerts);
-
-            // "OK" (rf 0) dismisses it for this boot; "Clear Alert" (rf 1)
-            // also resets the count.
-            (*(provider->kunc_alert))(0, 0, NULL, NULL, NULL,
-                          "AMDRyzenCPUPowerManagement", buf, "OK", "Clear Alert", NULL, &rf);
-            if (rf == 1) {
-                provider->kextloadAlerts = 0;
-                OSCompareAndSwap(1, 0, &provider->kextAlertDisplayed);
-            }
-        }
+        provider->showLoadAlertAsync();
     }
 
     provider->registerRequest();
@@ -1060,6 +1044,31 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
+        // Per-core power in watts (kext 3.37.0+): one float per physical
+        // core, indexed like selector 2; [0] scalar = core count. Cache
+        // only, refreshed by the main timer rendezvous from
+        // CORE_ENERGY_STAT. A core whose counter has not closed a window
+        // yet reads 0.
+        case 60: {
+            uint32_t numPhyCores = provider->totalNumberOfPhysicalCores;
+            if (numPhyCores > CPUInfo::MaxCpus) numPhyCores = CPUInfo::MaxCpus;
+            if (numPhyCores == 0) return kIOReturnNoDevice;
+
+            arguments->scalarOutputCount = 1;
+            arguments->scalarOutput[0] = numPhyCores;
+
+            uint32_t requiredSize = numPhyCores * sizeof(float);
+            if (arguments->structureOutputSize < requiredSize || !arguments->structureOutput)
+                return kIOReturnBadArgument;
+            arguments->structureOutputSize = requiredSize;
+
+            float *dataOut = (float *)arguments->structureOutput;
+            for (uint32_t i = 0; i < numPhyCores; i++) {
+                dataOut[i] = provider->corePowerW_perCore[i];
+            }
+            break;
+        }
+
         // Per-core instruction-retired delta (IPC input),
         // one UInt32 per logical core. instructionDelta_perCore is refreshed by
         // the provider timer (updateInstructionDelta, MSR PERF_IRPC); this
@@ -1565,6 +1574,9 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 return kIOReturnBadArgument;
             }
             provider->fanToCurveMap[fanIdx] = (int8_t)curveIdx;
+            // Whatever the fan held (a manual duty, another curve), the next
+            // curve tick writes it.
+            provider->lastPWMAssertMs[fanIdx] = 0;
             // If mapping to Auto, restore default fan control
             if (curveIdx == -1 && provider->superIO) {
                 provider->superIO->setDefaultFanControl(fanIdx);
@@ -2080,6 +2092,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             if(!provider)
                 return kIOReturnNoDevice;
 
+            provider->pmTableLastDemandMs = getCurrentTimeNs() / 1000000;
             if (provider->rendezvousLock) IOLockLock(provider->rendezvousLock);
             arguments->scalarOutputCount = 8;
             arguments->scalarOutput[0] = provider->pmTableVersionRaw;
@@ -2144,6 +2157,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             // op 1: chunked snapshot read. Serialize against the timer's
             // capture path so callers never observe a partially-copied buffer.
+            provider->pmTableLastDemandMs = getCurrentTimeNs() / 1000000;
             arguments->scalarOutputCount = 0;
             if (provider->rendezvousLock) IOLockLock(provider->rendezvousLock);
 

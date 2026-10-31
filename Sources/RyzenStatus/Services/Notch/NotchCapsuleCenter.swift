@@ -50,13 +50,20 @@ enum NotchCapsuleCenterSupport {
     /// this wide, so a counting number does not resize it every second.
     static let widthStep: CGFloat = 12
 
+    /// Whether the once-a-second reading runs: something to show, an island
+    /// that runs and can present, and a capsule that shows it.
+    static func runsTimer(center: NotchCapsuleCenter, running: Bool, suspended: Bool, capsuleShows: Bool) -> Bool {
+        center != .none && running && !suspended && capsuleShows
+    }
+
     static func song(title: String?, artist: String?) -> String? {
         let parts = [title, artist].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    static func metric(_ metric: NotchCapsuleMetric, snapshot: SystemSnapshot, unit: TemperatureUnit) -> String? {
+    static func metric(_ metric: NotchCapsuleMetric, snapshot: SystemSnapshot, unit: TemperatureUnit,
+                       strings: NotchCapsuleCenterStrings = FeatureStrings.notchCapsuleCenter(.enUS)) -> String? {
         switch metric {
         case .cpuTemperature:
             return snapshot.cpuTemperature.map { "CPU " + MetricFormat.temperatureCompact($0, unit: unit) }
@@ -73,33 +80,31 @@ enum NotchCapsuleCenterSupport {
             return snapshot.cpuPower.map { String(format: "PPT %.0fW", $0) }
         case .peakFrequency:
             if let peak = snapshot.peakCPUFreq, peak > 0 {
-                return String(format: "Boost %.2f GHz", peak / 1000.0)
+                return String(format: strings.boostReading, peak / 1000.0)
             } else if let avg = snapshot.avgCPUFreq, avg > 0 {
-                return String(format: "Clock %.2f GHz", avg / 1000.0)
+                return String(format: strings.clockReading, avg / 1000.0)
             } else if let last = snapshot.cpuFreqHistory.last, last > 0 {
-                return String(format: "Clock %.2f GHz", last)
+                return String(format: strings.clockReading, last)
             }
             return nil
         case .fanSpeed:
             if let fan = snapshot.gpuFan, fan > 0 {
-                return String(format: "Fan %.0f RPM", fan)
+                return String(format: strings.fanReading, fan)
             }
             return nil
         }
     }
 
     /// Formats multiple metrics side by side separated by " · ".
-    static func multiMetric(_ metrics: [NotchCapsuleMetric], snapshot: SystemSnapshot, unit: TemperatureUnit) -> String? {
-        let parts = metrics.compactMap { metric($0, snapshot: snapshot, unit: unit) }
+    static func multiMetric(_ metrics: [NotchCapsuleMetric], snapshot: SystemSnapshot, unit: TemperatureUnit,
+                            strings: NotchCapsuleCenterStrings = FeatureStrings.notchCapsuleCenter(.enUS)) -> String? {
+        let parts = metrics.compactMap { metric($0, snapshot: snapshot, unit: unit, strings: strings) }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
+    /// Read once a second: a format style, not a new formatter each time.
     static func clock(_ date: Date, locale: Locale) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.dateStyle = .none
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+        date.formatted(Date.FormatStyle(date: .omitted, time: .shortened, locale: locale))
     }
 
     /// The middle's text, or nil when it has nothing to show. A rotating
@@ -113,7 +118,8 @@ enum NotchCapsuleCenterSupport {
     static func text(center: NotchCapsuleCenter, song: String?, metric: String?, clock: String,
                      snapshot: SystemSnapshot?, unit: TemperatureUnit,
                      carouselMetrics: [NotchCapsuleMetric]? = nil,
-                     now: Date) -> String? {
+                     now: Date,
+                     strings: NotchCapsuleCenterStrings = FeatureStrings.notchCapsuleCenter(.enUS)) -> String? {
         switch center {
         case .none: return nil
         case .song: return song
@@ -128,7 +134,7 @@ enum NotchCapsuleCenterSupport {
             var readings: [String] = []
             if let s = snapshot {
                 let items = carouselMetrics ?? NotchCapsuleMetric.carouselList()
-                readings = items.compactMap { self.metric($0, snapshot: s, unit: unit) }
+                readings = items.compactMap { self.metric($0, snapshot: s, unit: unit, strings: strings) }
             }
             if readings.isEmpty {
                 if let m = metric { readings.append(m) }

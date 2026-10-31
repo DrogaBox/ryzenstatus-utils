@@ -18,6 +18,11 @@ struct InteractiveFanCurveEditor: View {
     @State private var appliedConfirmationTask: Task<Void, Never>?
     @State private var hoveredPointIndex: Int? = nil
     @State private var draggingPoint: (index: Int, temp: Double, pwm: Double)? = nil
+    /// The curve the picker asked for while the draft has unsaved edits.
+    @State private var pendingCurveIndex: Int? = nil
+    @State private var confirmDeleteInUse = false
+    /// The last Apply was refused by the controller (invalid points).
+    @State private var curveRejected = false
 
     private var visibleSensors: [FanSensor] {
         hasDiscreteGPU ? [.cpu, .gpu] : [.cpu]
@@ -38,18 +43,40 @@ struct InteractiveFanCurveEditor: View {
         return draft != controller.customCurves[selectedCurveIndex]
     }
 
-    private var currentSensorTemperature: Double {
-        guard let curve = currentCurve else { return 45.0 }
+    /// Nil when no sensor answers: the badge and the graph marker then stay
+    /// hidden instead of showing an invented temperature.
+    private var currentSensorTemperature: Double? {
+        guard let curve = currentCurve else { return nil }
         if curve.sourceSensor == .gpu {
             let kextGPUTemp = ProcessorModel.shared.lastKextGPUTemperature
             let fallback = monitor.snapshot.gpuTemperature ?? 0.0
             let gpuTemp = kextGPUTemp > 0 ? kextGPUTemp : fallback
             if gpuTemp > 0 { return gpuTemp }
         }
-        if let packet = ProcessorModel.shared.getTelemetry(), packet.packageTempC > 0 {
-            return Double(packet.packageTempC)
-        }
-        return monitor.snapshot.cpuTemperature ?? 45.0
+        // The fan poll's last reading: a SwiftUI body must not call the kext.
+        if let temp = controller.lastPackageTempC { return temp }
+        return monitor.snapshot.cpuTemperature
+    }
+
+    /// Fans following the selected curve go back to BIOS control when it is
+    /// deleted, so that delete asks first.
+    private var selectedCurveInUse: Bool {
+        controller.fanMappings.values.contains(selectedCurveIndex)
+    }
+
+    /// Loads a saved curve as the draft, sorted by temperature: the drag
+    /// clamp works on neighbours, and an older saved curve may be unsorted.
+    private func loadDraft(_ index: Int) {
+        guard index < controller.customCurves.count else { return }
+        var draft = controller.customCurves[index]
+        draft.points.sort { $0.temp < $1.temp }
+        draftCurve = draft
+        curveRejected = false
+    }
+
+    private func selectCurve(_ index: Int) {
+        selectedCurveIndex = index
+        loadDraft(index)
     }
 
     @ViewBuilder
@@ -62,12 +89,15 @@ struct InteractiveFanCurveEditor: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.secondary)
 
-                    Picker("", selection: Binding(
+                    Picker(l10n.fanControl.curveNameLabel, selection: Binding(
                         get: { selectedCurveIndex },
                         set: { newIdx in
-                            selectedCurveIndex = newIdx
-                            if newIdx < controller.customCurves.count {
-                                draftCurve = controller.customCurves[newIdx]
+                            guard newIdx != selectedCurveIndex else { return }
+                            // Switching would drop the unsaved edits.
+                            if hasUnsavedChanges {
+                                pendingCurveIndex = newIdx
+                            } else {
+                                selectCurve(newIdx)
                             }
                         }
                     )) {
@@ -79,7 +109,7 @@ struct InteractiveFanCurveEditor: View {
                     .labelsHidden()
                     .frame(width: 140)
 
-                    TextField("", text: Binding(
+                    TextField(l10n.fanControl.curveNameLabel, text: Binding(
                         get: { curve.name },
                         set: { newVal in
                             mutateDraft { $0.name = newVal }
@@ -116,13 +146,10 @@ struct InteractiveFanCurveEditor: View {
 
                     if controller.customCurves.count > 1 {
                         Button("−") {
-                            let deletedIdx = selectedCurveIndex
-                            guard deletedIdx < controller.customCurves.count else { return }
-                            controller.deleteCurve(id: curve.id)
-                            let newIdx = max(0, min(selectedCurveIndex, controller.customCurves.count - 1))
-                            selectedCurveIndex = newIdx
-                            if newIdx < controller.customCurves.count {
-                                draftCurve = controller.customCurves[newIdx]
+                            if selectedCurveInUse {
+                                confirmDeleteInUse = true
+                            } else {
+                                deleteSelectedCurve(id: curve.id)
                             }
                         }
                         .buttonStyle(.bordered)
@@ -135,18 +162,20 @@ struct InteractiveFanCurveEditor: View {
                     Spacer()
 
                     // Live Sensor Readout Badge
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(Color.green)
-                            .frame(width: 6, height: 6)
-                        Text(String(format: l10n.fanControl.currentTempIndicatorFormat, currentSensorTemperature))
-                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.secondary)
+                    if let liveTemp = currentSensorTemperature {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(Color.green)
+                                .frame(width: 6, height: 6)
+                            Text(String(format: l10n.fanControl.currentTempIndicatorFormat, liveTemp))
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.primary.opacity(0.04))
+                        .cornerRadius(6)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color.primary.opacity(0.04))
-                    .cornerRadius(6)
                 }
 
                 // MARK: - Sensor & Parameter Sliders + Apply Controls
@@ -155,7 +184,7 @@ struct InteractiveFanCurveEditor: View {
                         Text(l10n.fanControl.sourceSensorLabel)
                             .font(.system(size: 10))
                             .foregroundColor(.secondary)
-                        Picker("", selection: Binding(
+                        Picker(l10n.fanControl.sourceSensorLabel, selection: Binding(
                             get: {
                                 visibleSensors.contains(curve.sourceSensor) ? curve.sourceSensor : .cpu
                             },
@@ -169,6 +198,7 @@ struct InteractiveFanCurveEditor: View {
                             }
                         }
                         .pickerStyle(.segmented)
+                        .labelsHidden()
                         .frame(width: hasDiscreteGPU ? 160 : 100)
                     }
 
@@ -223,8 +253,14 @@ struct InteractiveFanCurveEditor: View {
                                 Button(action: {
                                     if let draft = draftCurve {
                                         controller.saveCurve(draft)
-                                        showAppliedConfirmation = true
+                                        // The controller refuses invalid points
+                                        // without saying so; "Applied" only
+                                        // when the saved curve is the draft.
+                                        let saved = controller.customCurves.first(where: { $0.id == draft.id }) == draft
+                                        curveRejected = !saved
+                                        showAppliedConfirmation = saved
                                         appliedConfirmationTask?.cancel()
+                                        guard saved else { return }
                                         appliedConfirmationTask = Task {
                                             try? await Task.sleep(nanoseconds: 2_000_000_000)
                                             guard !Task.isCancelled else { return }
@@ -246,15 +282,18 @@ struct InteractiveFanCurveEditor: View {
                                 .buttonStyle(.plain)
 
                                 Button(action: {
-                                    if selectedCurveIndex < controller.customCurves.count {
-                                        draftCurve = controller.customCurves[selectedCurveIndex]
-                                    }
+                                    loadDraft(selectedCurveIndex)
                                 }) {
                                     Text(l10n.fanControl.revertChangesButton)
                                         .font(.system(size: 10.5))
                                         .foregroundColor(.secondary)
                                 }
                                 .buttonStyle(.plain)
+                            }
+                            if curveRejected {
+                                Text(l10n.dashboard.curveRejectedHint)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.red)
                             }
                         } else if showAppliedConfirmation {
                             HStack(spacing: 4) {
@@ -327,7 +366,8 @@ struct InteractiveFanCurveEditor: View {
                         }
                         .stroke(Color.red.opacity(0.35), style: StrokeStyle(lineWidth: 1.0, dash: [4, 4]))
 
-                        Text("16% Floor")
+                        Text(String(format: l10n.dashboard.pwmFloorFormat,
+                                    Int(AMDFanSafety.minimumCurvePWMPercent.rounded())))
                             .font(.system(size: 7.5, weight: .semibold, design: .monospaced))
                             .foregroundColor(.red.opacity(0.6))
                             .position(x: w - 30, y: max(8, floorY - 7))
@@ -392,7 +432,7 @@ struct InteractiveFanCurveEditor: View {
                         )
 
                         // Live Temperature Marker Line & Target Dot
-                        if liveTemp >= 0 && liveTemp <= 100 {
+                        if let liveTemp, liveTemp >= 0 && liveTemp <= 100 {
                             let liveX = CGFloat(liveTemp / 100.0) * w
                             let targetPWM = lut[min(255, max(0, Int(liveTemp.rounded())))]
                             let liveY = h - CGFloat(targetPWM / 100.0) * h
@@ -438,9 +478,13 @@ struct InteractiveFanCurveEditor: View {
                                         let newY = max(0, min(h, val.location.y))
                                         let snappedTemp = round(Double(newX / w) * 100.0)
                                         let rawPWM = round(Double((h - newY) / h) * 100.0)
-                                        let floorPWM = AMDFanSafety.minimumCurvePWMPercent.rounded()
-                                        let snappedPWM = max(floorPWM, min(100.0, rawPWM))
-                                        draggingPoint = (index: ptIdx, temp: snappedTemp, pwm: snappedPWM)
+                                        // Between its neighbours, so the curve
+                                        // keeps its order and never falls.
+                                        let point = FanCurveGeometry.clampedPoint(
+                                            index: ptIdx, temp: snappedTemp, pwm: rawPWM,
+                                            sorted: curve.points,
+                                            floor: AMDFanSafety.minimumCurvePWMPercent.rounded())
+                                        draggingPoint = (index: ptIdx, temp: point.temp, pwm: point.pwm)
                                     }
                                     .onEnded { _ in
                                         if let drag = draggingPoint {
@@ -448,7 +492,6 @@ struct InteractiveFanCurveEditor: View {
                                                  guard drag.index < draft.points.count else { return }
                                                  draft.points[drag.index].temp = drag.temp
                                                  draft.points[drag.index].pwm = drag.pwm
-                                                 draft.points.sort { $0.temp < $1.temp }
                                              }
                                              draggingPoint = nil
                                          }
@@ -465,6 +508,10 @@ struct InteractiveFanCurveEditor: View {
                              .onHover { hovering in
                                  hoveredPointIndex = hovering ? ptIdx : nil
                              }
+                             .accessibilityElement()
+                             .accessibilityLabel(String(format: l10n.dashboard.curvePointLabelFormat, ptIdx + 1))
+                             .accessibilityValue(String(format: l10n.dashboard.curvePointValueFormat,
+                                                        Int(displayPt.temp.rounded()), Int(displayPt.pwm.rounded())))
                              .contextMenu {
                                  Button(l10n.fanControl.deletePointTooltip) {
                                      if curve.points.count > 2 {
@@ -499,11 +546,15 @@ struct InteractiveFanCurveEditor: View {
                                  if !tooClose && curve.points.count < 8 {
                                      let newTemp = max(0.0, min(100.0, Double(tapX / w) * 100.0))
                                      let rawPWM = round(Double((h - tapY) / h) * 100.0)
-                                     let floorPWM = AMDFanSafety.minimumCurvePWMPercent.rounded()
-                                     let newPWM = max(floorPWM, min(100.0, rawPWM))
-                                     mutateDraft { draft in
-                                         draft.points.append(FanCurvePoint(temp: newTemp, pwm: newPWM))
-                                         draft.points.sort { $0.temp < $1.temp }
+                                     // No point on top of another temperature,
+                                     // and a duty between its neighbours'.
+                                     if let point = FanCurveGeometry.insertedPoint(
+                                         temp: newTemp, pwm: rawPWM, sorted: curve.points,
+                                         floor: AMDFanSafety.minimumCurvePWMPercent.rounded()) {
+                                         mutateDraft { draft in
+                                             draft.points.append(FanCurvePoint(temp: point.temp, pwm: point.pwm))
+                                             draft.points.sort { $0.temp < $1.temp }
+                                         }
                                      }
                                  }
                              }
@@ -520,14 +571,35 @@ struct InteractiveFanCurveEditor: View {
                  .foregroundColor(.secondary)
             }
             .onAppear {
-                if selectedCurveIndex < controller.customCurves.count {
-                    draftCurve = controller.customCurves[selectedCurveIndex]
+                loadDraft(selectedCurveIndex)
+            }
+            .confirmationDialog(l10n.dashboard.discardChangesTitle,
+                                isPresented: Binding(get: { pendingCurveIndex != nil },
+                                                     set: { if !$0 { pendingCurveIndex = nil } })) {
+                Button(l10n.dashboard.discardChangesButton, role: .destructive) {
+                    if let index = pendingCurveIndex { selectCurve(index) }
+                    pendingCurveIndex = nil
                 }
+                Button(l10n.fanControl.cancelButton, role: .cancel) { pendingCurveIndex = nil }
+            }
+            .confirmationDialog(l10n.dashboard.deleteCurveInUseTitle, isPresented: $confirmDeleteInUse) {
+                Button(l10n.fanControl.deleteCurveButton, role: .destructive) {
+                    deleteSelectedCurve(id: curve.id)
+                }
+                Button(l10n.fanControl.cancelButton, role: .cancel) {}
+            } message: {
+                Text(l10n.dashboard.deleteCurveInUseMessage)
             }
         } else {
             Text(l10n.fanControl.noCurvesConfigured)
                 .foregroundColor(.secondary)
         }
+    }
+
+    private func deleteSelectedCurve(id: UUID) {
+        guard selectedCurveIndex < controller.customCurves.count else { return }
+        controller.deleteCurve(id: id)
+        selectCurve(max(0, min(selectedCurveIndex, controller.customCurves.count - 1)))
     }
 
     private func mutateDraft(_ transform: (inout FanCurveDefinition) -> Void) {
@@ -538,4 +610,40 @@ struct InteractiveFanCurveEditor: View {
     }
 }
 
+/// Where the editor lets a curve point go, so a drag or a tap can never make
+/// the duty fall as the temperature rises or put two points on one
+/// temperature. Plain functions over points sorted by temperature, kept off
+/// the view so they can be tested.
+enum FanCurveGeometry {
+    /// Keeps a dragged point at least 1 °C from its neighbours and its duty
+    /// between theirs, never below `floor`. When the bounds cross (neighbours
+    /// 1 °C apart, or an older curve whose duty already falls) the point pins
+    /// to the lower bound.
+    static func clampedPoint(index: Int, temp: Double, pwm: Double,
+                             sorted points: [FanCurvePoint], floor: Double) -> (temp: Double, pwm: Double) {
+        let previous = index > 0 && index - 1 < points.count ? points[index - 1] : nil
+        let next = index >= 0 && index + 1 < points.count ? points[index + 1] : nil
+        let lowTemp = previous.map { $0.temp + 1 } ?? 0
+        let highTemp = next.map { $0.temp - 1 } ?? 100
+        let lowPWM = max(floor, previous?.pwm ?? floor)
+        let highPWM = next?.pwm ?? 100
+        return (clamp(temp, lowTemp, highTemp), clamp(pwm, lowPWM, highPWM))
+    }
 
+    /// A new point at `temp`, or nil when another point is closer than 1 °C
+    /// (exactly 1 °C apart is allowed); its duty sits between the
+    /// neighbours' duties and never below `floor`.
+    static func insertedPoint(temp: Double, pwm: Double,
+                              sorted points: [FanCurvePoint], floor: Double) -> (temp: Double, pwm: Double)? {
+        guard !points.contains(where: { abs($0.temp - temp) < 1 }) else { return nil }
+        let previous = points.last(where: { $0.temp < temp })
+        let next = points.first(where: { $0.temp > temp })
+        let lowPWM = max(floor, previous?.pwm ?? floor)
+        let highPWM = next?.pwm ?? 100
+        return (temp, clamp(pwm, lowPWM, highPWM))
+    }
+
+    private static func clamp(_ value: Double, _ low: Double, _ high: Double) -> Double {
+        high < low ? low : min(max(value, low), high)
+    }
+}

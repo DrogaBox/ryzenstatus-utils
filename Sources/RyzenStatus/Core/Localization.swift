@@ -736,6 +736,10 @@ struct Strings {
     let panelAccordionMode: String
     let graphShowsNumericValue: String
     let cpuFrequencyMetricTitle: String
+    let cpuPowerMetricTitle: String
+    let gpuPowerMetricTitle: String
+    let cpuTempPowerMetricTitle: String
+    let gpuTempPowerMetricTitle: String
     let amdRyzenProcessorInfo: String
     let amdMinFrequency: String
     let amdMaxFrequency: String
@@ -1948,6 +1952,10 @@ extension Strings {
         panelAccordionMode: "Modo sanfona (mostrar tudo em formato de lista)",
         graphShowsNumericValue: "Mostrar valor numérico dentro do gráfico",
         cpuFrequencyMetricTitle: "Frequência CPU (Pico/Média em 2 linhas)",
+        cpuPowerMetricTitle: "Potência da CPU",
+        gpuPowerMetricTitle: "Potência da GPU",
+        cpuTempPowerMetricTitle: "Temp. + potência da CPU (2 linhas)",
+        gpuTempPowerMetricTitle: "Temp. + potência da GPU (2 linhas)",
         amdRyzenProcessorInfo: "Informações do Processador AMD Ryzen",
         amdMinFrequency: "Frequência Mínima",
         amdMaxFrequency: "Frequência Máxima (Pico)",
@@ -3135,6 +3143,10 @@ extension Strings {
         panelAccordionMode: "Accordion mode (show everything in list format)",
         graphShowsNumericValue: "Show numeric value inside graph",
         cpuFrequencyMetricTitle: "CPU Frequency (2-Line Peak/Avg)",
+        cpuPowerMetricTitle: "CPU Power",
+        gpuPowerMetricTitle: "GPU Power",
+        cpuTempPowerMetricTitle: "CPU Temp + Power (2-Line)",
+        gpuTempPowerMetricTitle: "GPU Temp + Power (2-Line)",
         amdRyzenProcessorInfo: "AMD Ryzen Processor Information",
         amdMinFrequency: "Minimum Frequency",
         amdMaxFrequency: "Maximum Frequency (Peak)",

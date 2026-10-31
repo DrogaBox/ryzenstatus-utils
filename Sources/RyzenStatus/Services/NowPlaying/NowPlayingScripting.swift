@@ -78,6 +78,14 @@ enum NowPlayingScripting {
         return answer
     }
 
+    /// Forgets the recent answer for `pid`, after the person was asked or
+    /// asked to look again, so the next check reads the system's answer.
+    static func forgetAccess(for pid: Int32) {
+        accessLock.lock()
+        recentAccess[pid] = nil
+        accessLock.unlock()
+    }
+
     static func event(_ command: NowPlayingTransportCommand, playback: NowPlayingPlayback,
                       capabilities: NowPlayingScriptingCapabilities, pid: Int32) -> NSAppleEventDescriptor? {
         guard pid > 0 else { return nil }

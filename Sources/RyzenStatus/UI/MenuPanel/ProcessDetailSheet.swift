@@ -9,13 +9,24 @@ import SwiftUI
 /// memory regions, live CPU/RAM/Network telemetry (updating live at 1Hz), and system actions.
 struct ProcessDetailSheet: View {
     let row: ProcessUsage
+    /// Whether the window can be seen: the live refresh runs only then.
+    @ObservedObject var visibility: ProcessInspectorVisibility
     @ObservedObject private var l10n = L10n.shared
     @Environment(\.dismiss) private var dismiss
     @State private var showingTerminateAlert = false
     @State private var pathCopied = false
 
-    @State private var liveCPUPct: Double = 0.0
-    @State private var liveRSSStr: String = "0 MB"
+    /// Read once when the window opens: a kill is refused for any process
+    /// that no longer has this start time, so a reused PID is never hit.
+    @State private var startedAt: UInt64?
+    @State private var path: String?
+    @State private var isLeaking = false
+    @State private var killing = false
+    @State private var killFailed = false
+
+    /// Nil until the process shows up in the CPU list.
+    @State private var liveCPUPct: Double?
+    @State private var liveRSSStr: String = "—"
     @State private var liveDown: Double = 0.0
     @State private var liveUp: Double = 0.0
 
@@ -23,22 +34,20 @@ struct ProcessDetailSheet: View {
         ProcessGlossary.resolve(name: row.name, pid: row.pid)
     }
 
-    private var isLeaking: Bool {
-        ProcessUsageService.shared.leakingPIDsCopy().contains(row.pid)
+    private var strings: ProcessInspectorStrings {
+        FeatureStrings.processInspector(l10n.language)
     }
 
-    private var executablePath: String {
+    /// The executable of `pid`, or nil when the system does not say.
+    nonisolated static func executablePath(of pid: pid_t) -> String? {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-        let ret = proc_pidpath(row.pid, &buffer, UInt32(MAXPATHLEN))
-        if ret > 0 {
-            return String(cString: buffer)
-        }
-        return "/System/Library/CoreServices/\(row.name)"
+        guard proc_pidpath(pid, &buffer, UInt32(MAXPATHLEN)) > 0 else { return nil }
+        return String(cString: buffer)
     }
 
     var body: some View {
         let entry = glossaryEntry
-        let path = executablePath
+        let strings = strings
 
         VStack(alignment: .leading, spacing: 14) {
             // --- HEADER BAR ---
@@ -51,7 +60,7 @@ struct ProcessDetailSheet: View {
                     HStack(spacing: 6) {
                         Text(row.name)
                             .font(.system(size: 16, weight: .bold))
-                        Text(entry.category.rawValue.capitalized)
+                        Text(strings.categoryName(entry.category))
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -60,7 +69,7 @@ struct ProcessDetailSheet: View {
                             .cornerRadius(4)
                     }
 
-                    Text("PID: \(row.pid)  ·  Native Architecture")
+                    Text(String(format: strings.pidFormat, row.pid))
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(.secondary)
                 }
@@ -90,10 +99,10 @@ struct ProcessDetailSheet: View {
                         .font(.system(size: 16))
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Continuous Memory Growth Detected")
+                        Text(strings.leakTitle)
                             .font(.system(size: 11, weight: .bold))
                             .foregroundColor(.orange)
-                        Text("This process is showing sustained memory leaks over 20+ minutes.")
+                        Text(strings.leakDetail)
                             .font(.system(size: 10))
                             .foregroundColor(.secondary)
                     }
@@ -108,12 +117,12 @@ struct ProcessDetailSheet: View {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 // Card 1: Live CPU Usage
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("CPU LOAD")
+                    Text(strings.cpuLoad)
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .foregroundColor(.secondary)
-                    Text(String(format: "%.1f%%", liveCPUPct))
+                    Text(liveCPUPct.map { String(format: "%.1f%%", $0) } ?? "—")
                         .font(.system(size: 16, weight: .bold, design: .monospaced))
-                        .foregroundColor(liveCPUPct > 80.0 ? .red : .primary)
+                        .foregroundColor((liveCPUPct ?? 0) > 80.0 ? .red : .primary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
@@ -122,7 +131,7 @@ struct ProcessDetailSheet: View {
 
                 // Card 2: Live Memory RSS
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("RESIDENT RAM (RSS)")
+                    Text(strings.residentMemory)
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .foregroundColor(.secondary)
                     Text(liveRSSStr)
@@ -136,10 +145,11 @@ struct ProcessDetailSheet: View {
 
                 // Card 3: Live Network Throughput
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("NETWORK I/O")
+                    Text(strings.networkIO)
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .foregroundColor(.secondary)
-                    let netText = (liveDown > 0 || liveUp > 0) ? "↓ \(formatKB(liveDown))  ↑ \(formatKB(liveUp))" : "0 B/s (Inactive)"
+                    let netText = (liveDown > 0 || liveUp > 0)
+                        ? "↓ \(formatKB(liveDown))  ↑ \(formatKB(liveUp))" : strings.networkIdle
                     Text(netText)
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundColor(liveDown > 0 || liveUp > 0 ? .cyan : .secondary)
@@ -153,12 +163,13 @@ struct ProcessDetailSheet: View {
             // --- EXECUTABLE PATH PANEL ---
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("EXECUTABLE PATH")
+                    Text(strings.executablePath)
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundColor(.secondary)
                     Spacer()
 
                     Button {
+                        guard let path else { return }
                         GeneralPasteboardAccess.shared.copyString(path, ownCopy: false)
                         pathCopied = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
@@ -167,25 +178,28 @@ struct ProcessDetailSheet: View {
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: pathCopied ? "checkmark" : "doc.on.doc")
-                            Text(pathCopied ? "Copied" : "Copy Path")
+                            Text(pathCopied ? strings.copied : strings.copyPath)
                         }
                         .font(.system(size: 10, weight: .semibold))
                     }
                     .buttonStyle(.borderless)
+                    .disabled(path == nil)
 
                     Button {
+                        guard let path else { return }
                         NSWorkspace.shared.selectFile(path, inFileViewerRootedAtPath: "")
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "folder")
-                            Text("Reveal in Finder")
+                            Text(strings.revealInFinder)
                         }
                         .font(.system(size: 10, weight: .semibold))
                     }
                     .buttonStyle(.borderless)
+                    .disabled(path == nil)
                 }
 
-                Text(path)
+                Text(path ?? strings.pathUnavailable)
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundColor(.secondary)
                     .lineLimit(2)
@@ -198,11 +212,11 @@ struct ProcessDetailSheet: View {
 
             // --- PROCESS GLOSSARY EXPLANATION ---
             VStack(alignment: .leading, spacing: 6) {
-                Text("PROCESS ROLE & DESCRIPTION")
+                Text(strings.processRole)
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundColor(.secondary)
 
-                Text(entry.localizedDescriptionKey)
+                Text(strings.role(entry.category))
                     .font(.system(size: 11))
                     .foregroundColor(.primary)
                     .multilineTextAlignment(.leading)
@@ -216,49 +230,79 @@ struct ProcessDetailSheet: View {
             Spacer(minLength: 0)
 
             // --- ACTION BUTTONS ---
-            HStack(spacing: 12) {
-                Button("Done") {
-                    ProcessInspectorWindowController.shared.close()
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
+            VStack(alignment: .trailing, spacing: 6) {
+                HStack(spacing: 12) {
+                    Button(strings.done) {
+                        ProcessInspectorWindowController.shared.close()
+                        dismiss()
+                    }
+                    .keyboardShortcut(.defaultAction)
 
-                Spacer()
+                    Spacer()
 
-                Button("Terminate Process", role: .destructive) {
-                    showingTerminateAlert = true
+                    Button(strings.terminate, role: .destructive) {
+                        showingTerminateAlert = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .disabled(killing)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
+                if killFailed {
+                    Text(strings.terminateFailed)
+                        .font(.system(size: 11))
+                        .foregroundColor(.orange)
+                }
             }
         }
         .padding(16)
         .frame(width: 480, height: 420)
-        .onAppear {
-            refreshLiveTelemetry()
+        .task {
+            // Path and identity once; they do not change for a running process.
+            startedAt = KillProcessService.startTime(for: row.pid)
+            path = Self.executablePath(of: row.pid)
         }
-        .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in
-            refreshLiveTelemetry()
+        // While the window is hidden, occluded or behind the lock screen no
+        // `ps` runs and the network sampler is not kept alive.
+        .task(id: visibility.isVisible) {
+            guard visibility.isVisible else { return }
+            while !Task.isCancelled {
+                refreshLiveTelemetry()
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
         }
-        .alert("Force Quit \(row.name)?", isPresented: $showingTerminateAlert) {
-            Button("Cancel", role: .cancel) {}
-            Button("Force Quit", role: .destructive) {
-                kill(row.pid, SIGKILL)
+        .alert(String(format: strings.forceQuitTitleFormat, row.name), isPresented: $showingTerminateAlert) {
+            Button(strings.cancel, role: .cancel) {}
+            Button(strings.forceQuit, role: .destructive) {
+                forceQuit()
+            }
+        } message: {
+            Text(String(format: strings.forceQuitMessageFormat, row.pid))
+        }
+    }
+
+    /// Kills through the shared safe path, which re-checks the start time
+    /// right before the signal. A process still there afterwards with the
+    /// same start time was not stopped (protected, or refused).
+    private func forceQuit() {
+        guard let startedAt else { killFailed = true; return }
+        killFailed = false
+        killing = true
+        let pid = row.pid
+        KillProcessService.shared.kill(pid: pid, name: row.name, startedAt: startedAt, force: true) {
+            killing = false
+            if KillProcessService.startTime(for: pid) == startedAt {
+                killFailed = true
+            } else {
                 ProcessInspectorWindowController.shared.close()
                 dismiss()
             }
-        } message: {
-            Text("Are you sure you want to send SIGKILL to PID \(row.pid)? Any unsaved data will be lost.")
         }
     }
 
     private func refreshLiveTelemetry() {
         // 1. Live CPU %
-        if let match = ProcessUsageService.shared.topCPU(limit: 50).first(where: { $0.pid == row.pid }) {
-            liveCPUPct = match.value
-        } else if row.value <= 2000.0 {
-            liveCPUPct = row.value
-        }
+        liveCPUPct = ProcessUsageService.shared.topCPU(limit: 50).first(where: { $0.pid == row.pid })?.value
+        isLeaking = ProcessUsageService.shared.leakingPIDsCopy().contains(row.pid)
 
         // 2. Live RSS RAM
         var info = proc_taskinfo()
@@ -296,15 +340,23 @@ struct ProcessDetailSheet: View {
     }
 }
 
+/// Whether the inspector's window is on screen and not covered: the window
+/// controller follows its occlusion state, the sheet's refresh follows this.
+@MainActor
+final class ProcessInspectorVisibility: ObservableObject {
+    @Published var isVisible = true
+}
+
 // MARK: - ProcessInspectorWindowController
 
 /// Standalone Window Controller for Process Inspector to prevent NSPopover modality lockups.
-/// Conforms to NSWindowDelegate so the live-telemetry timer is properly torn down when the
+/// Conforms to NSWindowDelegate so the live-telemetry refresh is properly torn down when the
 /// user clicks the native close (red) button — preventing an indefinite 1 Hz background drain.
 @MainActor
 final class ProcessInspectorWindowController: NSObject, NSWindowDelegate {
     static let shared = ProcessInspectorWindowController()
     private var window: NSWindow?
+    private var occlusionObserver: NSObjectProtocol?
 
     private override init() {}
 
@@ -313,11 +365,14 @@ final class ProcessInspectorWindowController: NSObject, NSWindowDelegate {
             existing.close()
             self.window = nil
         }
+        removeOcclusionObserver()
 
-        let view = ProcessDetailSheet(row: process)
+        let visibility = ProcessInspectorVisibility()
+        let view = ProcessDetailSheet(row: process, visibility: visibility)
         let host = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: host)
-        window.title = "Process Inspector — \(process.name) (\(process.pid))"
+        window.title = String(format: FeatureStrings.processInspector(L10n.shared.language).windowTitleFormat,
+                              process.name, process.pid)
         window.styleMask = [.titled, .closable, .fullSizeContentView]
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
@@ -329,22 +384,45 @@ final class ProcessInspectorWindowController: NSObject, NSWindowDelegate {
         window.delegate = self
         window.center()
 
+        // Covered, minimized, on another Space or behind the lock screen, the
+        // window is occluded and the sheet stops sampling.
+        occlusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
+        ) { [weak window, weak visibility] _ in
+            MainActor.assumeIsolated {
+                guard let window, let visibility else { return }
+                let visible = window.occlusionState.contains(.visible)
+                if visibility.isVisible != visible { visibility.isVisible = visible }
+            }
+        }
+
         self.window = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
     func close() {
+        removeOcclusionObserver()
         window?.close()
         window = nil
+    }
+
+    private func removeOcclusionObserver() {
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        occlusionObserver = nil
     }
 
     // MARK: NSWindowDelegate
 
     /// Called when the user clicks the red close button or presses Cmd+W.
-    /// Clears our reference so the SwiftUI view (and its 1 Hz timer) are released.
+    /// Clears our reference so the SwiftUI view (and its refresh) are released.
     nonisolated func windowWillClose(_ notification: Notification) {
+        // Only the window still shown: closing the previous one from
+        // `present` must not drop the one that replaced it.
+        let closing = (notification.object as AnyObject?).map(ObjectIdentifier.init)
         Task { @MainActor in
+            guard let window = self.window, ObjectIdentifier(window) == closing else { return }
+            self.removeOcclusionObserver()
             self.window = nil
         }
     }

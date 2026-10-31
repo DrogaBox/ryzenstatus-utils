@@ -32,7 +32,9 @@ struct NotchMarquee<Content: View>: View {
             }
             .overlay(alignment: .leading) {
                 if scrolls {
-                    TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
+                    TimelineView(NotchMarqueeSchedule(start: start, pause: pause,
+                                                      travel: Double((lineWidth + gap) / speed),
+                                                      interval: 1.0 / 30)) { timeline in
                         HStack(spacing: gap) {
                             content().lineLimit(1).fixedSize()
                             content().lineLimit(1).fixedSize()
@@ -62,5 +64,36 @@ struct NotchMarquee<Content: View>: View {
         return LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: edge),
                                       .init(color: .black, location: 1 - edge), .init(color: .clear, location: 1)],
                               startPoint: .leading, endPoint: .trailing)
+    }
+}
+
+/// Frames only while the line moves: one as each rest begins, then steady
+/// frames through the scroll. The rest draws the same frame throughout, so
+/// a 30 Hz timeline there would redraw it 54 times for nothing.
+struct NotchMarqueeSchedule: TimelineSchedule {
+    let start: Date
+    let pause: TimeInterval
+    let travel: TimeInterval
+    let interval: TimeInterval
+
+    /// Never shorter than this, so a rest that ends a hair after `current`
+    /// cannot round to the same date and stall the timeline.
+    static let minimumStep: TimeInterval = 1.0 / 240
+
+    func entries(from startDate: Date, mode: TimelineScheduleMode) -> AnyIterator<Date> {
+        let cycle = max(interval, pause + travel)
+        var next = startDate
+        return AnyIterator {
+            let current = next
+            let elapsed = max(0, current.timeIntervalSince(start)).truncatingRemainder(dividingBy: cycle)
+            next = current.addingTimeInterval(Self.step(elapsed: elapsed, pause: pause, interval: interval))
+            return current
+        }
+    }
+
+    /// From `elapsed` into a cycle to the next frame: to the end of the rest,
+    /// or one frame on while scrolling.
+    static func step(elapsed: TimeInterval, pause: TimeInterval, interval: TimeInterval) -> TimeInterval {
+        max(elapsed < pause ? pause - elapsed : interval, minimumStep)
     }
 }

@@ -179,6 +179,9 @@ struct AMDPowerFeatureStrings {
     let cppcActiveOn: String
     let cppcActiveOff: String
     let eppValueFormat: String
+    // Shown while the kext ignores the write (no format specifiers).
+    let eppNotApplied: String
+    let pstateNotApplied: String
     let manualBadge: String
     let autoBadge: String
     let cpuLoadLabel: String
@@ -206,6 +209,39 @@ struct AMDPowerFeatureStrings {
     let sidebarTitle: String
     let telemetryPacketSelectorTitle: String
     let loadingControls: String
+    /// The panel's core grid: each ring's name (`%d`), what VoiceOver and the
+    /// hover text read after it, and the words around the numbers.
+    let gridThreadFormat: String
+    let gridCoreFormat: String
+    /// Thread load and its system share, as two `%.1f`.
+    let gridLoadValueFormat: String
+    /// C6 residency as a whole `%d` percent.
+    let gridC6Format: String
+    let gridFavorite: String
+    let gridParked: String
+    /// Effective clock as `%.0f` MHz.
+    let gridClockValueFormat: String
+    let gridLoad: String
+    let perCoreGrid: String
+    let pmVoltageHelp: String
+    let pmC0Help: String
+    let pmCC6Help: String
+    /// L3 slice `%d`, clock `%.0f`, temperature `%.1f`, logic and VDDM power
+    /// `%.2f` each, EDC limit `%.0f`.
+    let l3HelpFormat: String
+    let presetEco: String
+    let presetBalance: String
+    let presetPerformance: String
+    let presetExtreme: String
+
+    func presetTitle(_ preset: AMDPowerPreset) -> String {
+        switch preset {
+        case .eco: return presetEco
+        case .balance: return presetBalance
+        case .performance: return presetPerformance
+        case .extreme: return presetExtreme
+        }
+    }
 }
 
 extension L10n {
@@ -398,6 +434,8 @@ extension AMDPowerFeatureStrings {
         cppcActiveOn: "CPPC Active Mode: On",
         cppcActiveOff: "CPPC Active Mode: Off",
         eppValueFormat: "EPP %d/255",
+        eppNotApplied: "The installed AMD kext does not apply EPP yet, so energy profile changes have no effect.",
+        pstateNotApplied: "The installed AMD kext does not change P-states on this CPU.",
         manualBadge: "Manual",
         autoBadge: "Auto",
         cpuLoadLabel: "CPU Load",
@@ -421,7 +459,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "Thread %d",
+        gridCoreFormat: "Core %d",
+        gridLoadValueFormat: "%.1f%% (system %.1f%%)",
+        gridC6Format: "C6 residency %d%%",
+        gridFavorite: "favorite core",
+        gridParked: "parked",
+        gridClockValueFormat: "%.0f MHz eff",
+        gridLoad: "Load",
+        perCoreGrid: "Per-Core Grid",
+        pmVoltageHelp: "Per-core voltage (SMU)",
+        pmC0Help: "C0 residency (%)",
+        pmCC6Help: "CC6 residency (%)",
+        l3HelpFormat: "L3 cache %d · %.0f MHz eff · %.1f °C · %.2f W logic + %.2f W VDDM · EDC %.0f A",
+        presetEco: "Eco",
+        presetBalance: "Balance",
+        presetPerformance: "Performance",
+        presetExtreme: "Extreme"
     )
 
     static let es = AMDPowerFeatureStrings(
@@ -581,6 +636,8 @@ extension AMDPowerFeatureStrings {
         cppcActiveOn: "Modo activo CPPC: activado",
         cppcActiveOff: "Modo activo CPPC: desactivado",
         eppValueFormat: "EPP %d/255",
+        eppNotApplied: "El kext AMD instalado aún no aplica el EPP, así que los cambios de perfil energético no tienen efecto.",
+        pstateNotApplied: "El kext AMD instalado no cambia los P-states en esta CPU.",
         manualBadge: "Manual",
         autoBadge: "Auto",
         cpuLoadLabel: "Carga de CPU",
@@ -604,7 +661,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "Hilo %d",
+        gridCoreFormat: "Núcleo %d",
+        gridLoadValueFormat: "%.1f%% (sistema %.1f%%)",
+        gridC6Format: "Residencia C6 %d%%",
+        gridFavorite: "núcleo preferido",
+        gridParked: "en reposo",
+        gridClockValueFormat: "%.0f MHz efectivos",
+        gridLoad: "Carga",
+        perCoreGrid: "Cuadrícula por núcleo",
+        pmVoltageHelp: "Voltaje por núcleo (SMU)",
+        pmC0Help: "Residencia C0 (%)",
+        pmCC6Help: "Residencia CC6 (%)",
+        l3HelpFormat: "Caché L3 %d · %.0f MHz efectivos · %.1f °C · %.2f W lógica + %.2f W VDDM · EDC %.0f A",
+        presetEco: "Eco",
+        presetBalance: "Equilibrado",
+        presetPerformance: "Rendimiento",
+        presetExtreme: "Extremo"
     )
 
     static let ptBR = AMDPowerFeatureStrings(
@@ -764,6 +838,8 @@ extension AMDPowerFeatureStrings {
         cppcActiveOn: "Modo ativo CPPC: ligado",
         cppcActiveOff: "Modo ativo CPPC: desligado",
         eppValueFormat: "EPP %d/255",
+        eppNotApplied: "O kext AMD instalado ainda não aplica o EPP, então as mudanças de perfil de energia não têm efeito.",
+        pstateNotApplied: "O kext AMD instalado não altera os P-states nesta CPU.",
         manualBadge: "Manual",
         autoBadge: "Auto",
         cpuLoadLabel: "Carga da CPU",
@@ -787,7 +863,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "Thread %d",
+        gridCoreFormat: "Núcleo %d",
+        gridLoadValueFormat: "%.1f%% (sistema %.1f%%)",
+        gridC6Format: "Residência C6 %d%%",
+        gridFavorite: "núcleo preferido",
+        gridParked: "em repouso",
+        gridClockValueFormat: "%.0f MHz efetivos",
+        gridLoad: "Carga",
+        perCoreGrid: "Grade por núcleo",
+        pmVoltageHelp: "Tensão por núcleo (SMU)",
+        pmC0Help: "Residência C0 (%)",
+        pmCC6Help: "Residência CC6 (%)",
+        l3HelpFormat: "Cache L3 %d · %.0f MHz efetivos · %.1f °C · %.2f W lógica + %.2f W VDDM · EDC %.0f A",
+        presetEco: "Eco",
+        presetBalance: "Equilíbrio",
+        presetPerformance: "Desempenho",
+        presetExtreme: "Extremo"
     )
 
     static let de = AMDPowerFeatureStrings(
@@ -947,6 +1040,8 @@ extension AMDPowerFeatureStrings {
         cppcActiveOn: "CPPC-Aktivmodus: ein",
         cppcActiveOff: "CPPC-Aktivmodus: aus",
         eppValueFormat: "EPP %d/255",
+        eppNotApplied: "Der installierte AMD-Kext wendet EPP noch nicht an; Änderungen am Energieprofil haben daher keine Wirkung.",
+        pstateNotApplied: "Der installierte AMD-Kext ändert auf dieser CPU keine P-States.",
         manualBadge: "Manuell",
         autoBadge: "Auto",
         cpuLoadLabel: "CPU-Last",
@@ -970,7 +1065,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "Thread %d",
+        gridCoreFormat: "Kern %d",
+        gridLoadValueFormat: "%.1f %% (System %.1f %%)",
+        gridC6Format: "C6-Verweildauer %d %%",
+        gridFavorite: "bevorzugter Kern",
+        gridParked: "geparkt",
+        gridClockValueFormat: "%.0f MHz effektiv",
+        gridLoad: "Last",
+        perCoreGrid: "Raster pro Kern",
+        pmVoltageHelp: "Spannung pro Kern (SMU)",
+        pmC0Help: "C0-Verweildauer (%)",
+        pmCC6Help: "CC6-Verweildauer (%)",
+        l3HelpFormat: "L3-Cache %d · %.0f MHz effektiv · %.1f °C · %.2f W Logik + %.2f W VDDM · EDC %.0f A",
+        presetEco: "Eco",
+        presetBalance: "Ausgewogen",
+        presetPerformance: "Leistung",
+        presetExtreme: "Extrem"
     )
 
     static let fr = AMDPowerFeatureStrings(
@@ -1130,6 +1242,8 @@ extension AMDPowerFeatureStrings {
         cppcActiveOn: "Mode actif CPPC : activé",
         cppcActiveOff: "Mode actif CPPC : désactivé",
         eppValueFormat: "EPP %d/255",
+        eppNotApplied: "Le kext AMD installé n'applique pas encore l'EPP : les changements de profil énergétique n'ont aucun effet.",
+        pstateNotApplied: "Le kext AMD installé ne change pas les P-states sur ce processeur.",
         manualBadge: "Manuel",
         autoBadge: "Auto",
         cpuLoadLabel: "Charge CPU",
@@ -1153,7 +1267,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "Thread %d",
+        gridCoreFormat: "Cœur %d",
+        gridLoadValueFormat: "%.1f %% (système %.1f %%)",
+        gridC6Format: "Résidence C6 %d %%",
+        gridFavorite: "cœur favori",
+        gridParked: "en veille",
+        gridClockValueFormat: "%.0f MHz effectifs",
+        gridLoad: "Charge",
+        perCoreGrid: "Grille par cœur",
+        pmVoltageHelp: "Tension par cœur (SMU)",
+        pmC0Help: "Résidence C0 (%)",
+        pmCC6Help: "Résidence CC6 (%)",
+        l3HelpFormat: "Cache L3 %d · %.0f MHz effectifs · %.1f °C · %.2f W logique + %.2f W VDDM · EDC %.0f A",
+        presetEco: "Éco",
+        presetBalance: "Équilibré",
+        presetPerformance: "Performance",
+        presetExtreme: "Extrême"
     )
 
     static let it = AMDPowerFeatureStrings(
@@ -1313,6 +1444,8 @@ extension AMDPowerFeatureStrings {
         cppcActiveOn: "Modalità attiva CPPC: on",
         cppcActiveOff: "Modalità attiva CPPC: off",
         eppValueFormat: "EPP %d/255",
+        eppNotApplied: "Il kext AMD installato non applica ancora l'EPP, quindi le modifiche al profilo energetico non hanno effetto.",
+        pstateNotApplied: "Il kext AMD installato non modifica i P-state su questa CPU.",
         manualBadge: "Manuale",
         autoBadge: "Auto",
         cpuLoadLabel: "Carico CPU",
@@ -1336,7 +1469,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "Thread %d",
+        gridCoreFormat: "Core %d",
+        gridLoadValueFormat: "%.1f%% (sistema %.1f%%)",
+        gridC6Format: "Residenza C6 %d%%",
+        gridFavorite: "core preferito",
+        gridParked: "in pausa",
+        gridClockValueFormat: "%.0f MHz effettivi",
+        gridLoad: "Carico",
+        perCoreGrid: "Griglia per core",
+        pmVoltageHelp: "Tensione per core (SMU)",
+        pmC0Help: "Residenza C0 (%)",
+        pmCC6Help: "Residenza CC6 (%)",
+        l3HelpFormat: "Cache L3 %d · %.0f MHz effettivi · %.1f °C · %.2f W logica + %.2f W VDDM · EDC %.0f A",
+        presetEco: "Eco",
+        presetBalance: "Bilanciato",
+        presetPerformance: "Prestazioni",
+        presetExtreme: "Estremo"
     )
 
     static let ru = AMDPowerFeatureStrings(
@@ -1496,6 +1646,8 @@ extension AMDPowerFeatureStrings {
         cppcActiveOn: "Активный режим CPPC: вкл",
         cppcActiveOff: "Активный режим CPPC: выкл",
         eppValueFormat: "EPP %d/255",
+        eppNotApplied: "Установленный AMD kext пока не применяет EPP, поэтому изменения энергопрофиля не действуют.",
+        pstateNotApplied: "Установленный AMD kext не меняет P-состояния на этом процессоре.",
         manualBadge: "Вручную",
         autoBadge: "Авто",
         cpuLoadLabel: "Нагрузка CPU",
@@ -1519,7 +1671,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "Поток %d",
+        gridCoreFormat: "Ядро %d",
+        gridLoadValueFormat: "%.1f%% (система %.1f%%)",
+        gridC6Format: "Время в C6 %d%%",
+        gridFavorite: "предпочтительное ядро",
+        gridParked: "запарковано",
+        gridClockValueFormat: "%.0f МГц эфф.",
+        gridLoad: "Нагрузка",
+        perCoreGrid: "Сетка по ядрам",
+        pmVoltageHelp: "Напряжение ядра (SMU)",
+        pmC0Help: "Время в C0 (%)",
+        pmCC6Help: "Время в CC6 (%)",
+        l3HelpFormat: "Кэш L3 %d · %.0f МГц эфф. · %.1f °C · %.2f Вт логика + %.2f Вт VDDM · EDC %.0f А",
+        presetEco: "Эко",
+        presetBalance: "Баланс",
+        presetPerformance: "Производительность",
+        presetExtreme: "Экстрим"
     )
 
     static let tr = AMDPowerFeatureStrings(
@@ -1679,6 +1848,8 @@ extension AMDPowerFeatureStrings {
         cppcActiveOn: "CPPC Etkin Modu: açık",
         cppcActiveOff: "CPPC Etkin Modu: kapalı",
         eppValueFormat: "EPP %d/255",
+        eppNotApplied: "Yüklü AMD kext henüz EPP'yi uygulamıyor; enerji profili değişikliklerinin etkisi yok.",
+        pstateNotApplied: "Yüklü AMD kext bu işlemcide P-state'leri değiştirmiyor.",
         manualBadge: "Manuel",
         autoBadge: "Otomatik",
         cpuLoadLabel: "CPU Yükü",
@@ -1702,7 +1873,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "İş parçacığı %d",
+        gridCoreFormat: "Çekirdek %d",
+        gridLoadValueFormat: "%.1f%% (sistem %.1f%%)",
+        gridC6Format: "C6 kalış %d%%",
+        gridFavorite: "tercih edilen çekirdek",
+        gridParked: "park edildi",
+        gridClockValueFormat: "%.0f MHz efektif",
+        gridLoad: "Yük",
+        perCoreGrid: "Çekirdek ızgarası",
+        pmVoltageHelp: "Çekirdek başına voltaj (SMU)",
+        pmC0Help: "C0 kalış (%)",
+        pmCC6Help: "CC6 kalış (%)",
+        l3HelpFormat: "L3 önbellek %d · %.0f MHz efektif · %.1f °C · %.2f W mantık + %.2f W VDDM · EDC %.0f A",
+        presetEco: "Eko",
+        presetBalance: "Denge",
+        presetPerformance: "Performans",
+        presetExtreme: "Ekstrem"
     )
 
     static let ja = AMDPowerFeatureStrings(
@@ -1862,6 +2050,8 @@ extension AMDPowerFeatureStrings {
         cppcActiveOn: "CPPCアクティブモード: オン",
         cppcActiveOff: "CPPCアクティブモード: オフ",
         eppValueFormat: "EPP %d/255",
+        eppNotApplied: "インストールされているAMD kextはまだEPPを適用しないため、エネルギープロファイルの変更は反映されません。",
+        pstateNotApplied: "インストールされているAMD kextはこのCPUのPステートを変更しません。",
         manualBadge: "手動",
         autoBadge: "自動",
         cpuLoadLabel: "CPU負荷",
@@ -1885,7 +2075,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "スレッド %d",
+        gridCoreFormat: "コア %d",
+        gridLoadValueFormat: "%.1f%%（システム %.1f%%）",
+        gridC6Format: "C6滞在率 %d%%",
+        gridFavorite: "優先コア",
+        gridParked: "パーク中",
+        gridClockValueFormat: "実効 %.0f MHz",
+        gridLoad: "負荷",
+        perCoreGrid: "コア別グリッド",
+        pmVoltageHelp: "コア別電圧（SMU）",
+        pmC0Help: "C0滞在率（%）",
+        pmCC6Help: "CC6滞在率（%）",
+        l3HelpFormat: "L3キャッシュ %d · 実効 %.0f MHz · %.1f °C · ロジック %.2f W + VDDM %.2f W · EDC %.0f A",
+        presetEco: "エコ",
+        presetBalance: "バランス",
+        presetPerformance: "パフォーマンス",
+        presetExtreme: "エクストリーム"
     )
 
     static let ko = AMDPowerFeatureStrings(
@@ -2045,6 +2252,8 @@ extension AMDPowerFeatureStrings {
         cppcActiveOn: "CPPC 활성 모드: 켜짐",
         cppcActiveOff: "CPPC 활성 모드: 꺼짐",
         eppValueFormat: "EPP %d/255",
+        eppNotApplied: "설치된 AMD kext가 아직 EPP를 적용하지 않으므로 에너지 프로필 변경이 반영되지 않습니다.",
+        pstateNotApplied: "설치된 AMD kext는 이 CPU에서 P-state를 변경하지 않습니다.",
         manualBadge: "수동",
         autoBadge: "자동",
         cpuLoadLabel: "CPU 부하",
@@ -2068,7 +2277,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "스레드 %d",
+        gridCoreFormat: "코어 %d",
+        gridLoadValueFormat: "%.1f%% (시스템 %.1f%%)",
+        gridC6Format: "C6 체류율 %d%%",
+        gridFavorite: "우선 코어",
+        gridParked: "파킹됨",
+        gridClockValueFormat: "실효 %.0f MHz",
+        gridLoad: "부하",
+        perCoreGrid: "코어별 그리드",
+        pmVoltageHelp: "코어별 전압(SMU)",
+        pmC0Help: "C0 체류율(%)",
+        pmCC6Help: "CC6 체류율(%)",
+        l3HelpFormat: "L3 캐시 %d · 실효 %.0f MHz · %.1f °C · 로직 %.2f W + VDDM %.2f W · EDC %.0f A",
+        presetEco: "에코",
+        presetBalance: "균형",
+        presetPerformance: "성능",
+        presetExtreme: "익스트림"
     )
 
     static let zhHans = AMDPowerFeatureStrings(
@@ -2228,6 +2454,8 @@ extension AMDPowerFeatureStrings {
         cppcActiveOn: "CPPC 活动模式：开",
         cppcActiveOff: "CPPC 活动模式：关",
         eppValueFormat: "EPP %d/255",
+        eppNotApplied: "已安装的 AMD kext 尚未应用 EPP，因此能耗配置的更改不会生效。",
+        pstateNotApplied: "已安装的 AMD kext 不会在此 CPU 上更改 P 状态。",
         manualBadge: "手动",
         autoBadge: "自动",
         cpuLoadLabel: "CPU 负载",
@@ -2251,7 +2479,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "线程 %d",
+        gridCoreFormat: "核心 %d",
+        gridLoadValueFormat: "%.1f%%（系统 %.1f%%）",
+        gridC6Format: "C6 驻留 %d%%",
+        gridFavorite: "首选核心",
+        gridParked: "已休眠",
+        gridClockValueFormat: "有效 %.0f MHz",
+        gridLoad: "负载",
+        perCoreGrid: "逐核心网格",
+        pmVoltageHelp: "逐核心电压（SMU）",
+        pmC0Help: "C0 驻留（%）",
+        pmCC6Help: "CC6 驻留（%）",
+        l3HelpFormat: "L3 缓存 %d · 有效 %.0f MHz · %.1f °C · 逻辑 %.2f W + VDDM %.2f W · EDC %.0f A",
+        presetEco: "节能",
+        presetBalance: "平衡",
+        presetPerformance: "性能",
+        presetExtreme: "极限"
     )
 
     static let zhTW = AMDPowerFeatureStrings(
@@ -2411,6 +2656,8 @@ extension AMDPowerFeatureStrings {
         cppcActiveOn: "CPPC 活動模式：開",
         cppcActiveOff: "CPPC 活動模式：關",
         eppValueFormat: "EPP %d/255",
+        eppNotApplied: "已安裝的 AMD kext 尚未套用 EPP，因此能耗設定檔的變更不會生效。",
+        pstateNotApplied: "已安裝的 AMD kext 不會在此 CPU 上變更 P 狀態。",
         manualBadge: "手動",
         autoBadge: "自動",
         cpuLoadLabel: "CPU 負載",
@@ -2434,7 +2681,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "執行緒 %d",
+        gridCoreFormat: "核心 %d",
+        gridLoadValueFormat: "%.1f%%（系統 %.1f%%）",
+        gridC6Format: "C6 駐留 %d%%",
+        gridFavorite: "偏好核心",
+        gridParked: "已休眠",
+        gridClockValueFormat: "有效 %.0f MHz",
+        gridLoad: "負載",
+        perCoreGrid: "逐核心格狀圖",
+        pmVoltageHelp: "逐核心電壓（SMU）",
+        pmC0Help: "C0 駐留（%）",
+        pmCC6Help: "CC6 駐留（%）",
+        l3HelpFormat: "L3 快取 %d · 有效 %.0f MHz · %.1f °C · 邏輯 %.2f W + VDDM %.2f W · EDC %.0f A",
+        presetEco: "節能",
+        presetBalance: "平衡",
+        presetPerformance: "效能",
+        presetExtreme: "極限"
     )
 
     static let zhHK = zhTW
@@ -2595,6 +2859,8 @@ extension AMDPowerFeatureStrings {
         cppcActiveOn: "Aktívny režim CPPC: zapnutý",
         cppcActiveOff: "Aktívny režim CPPC: vypnutý",
         eppValueFormat: "EPP %d/255",
+        eppNotApplied: "Nainštalovaný AMD kext zatiaľ EPP neuplatňuje, takže zmeny energetického profilu nemajú účinok.",
+        pstateNotApplied: "Nainštalovaný AMD kext na tomto procesore nemení P-stavy.",
         manualBadge: "Manuálne",
         autoBadge: "Auto",
         cpuLoadLabel: "Záťaž CPU",
@@ -2618,7 +2884,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "Napájanie AMD Ryzen",
         telemetryPacketSelectorTitle: "Paket telemetrie (selektor 100)",
-        loadingControls: "Načítava sa ovládanie napájania AMD…"
+        loadingControls: "Načítava sa ovládanie napájania AMD…",
+        gridThreadFormat: "Vlákno %d",
+        gridCoreFormat: "Jadro %d",
+        gridLoadValueFormat: "%.1f %% (systém %.1f %%)",
+        gridC6Format: "Rezidencia C6 %d %%",
+        gridFavorite: "preferované jadro",
+        gridParked: "zaparkované",
+        gridClockValueFormat: "%.0f MHz efektívne",
+        gridLoad: "Záťaž",
+        perCoreGrid: "Mriežka jadier",
+        pmVoltageHelp: "Napätie jadra (SMU)",
+        pmC0Help: "Rezidencia C0 (%)",
+        pmCC6Help: "Rezidencia CC6 (%)",
+        l3HelpFormat: "L3 cache %d · %.0f MHz efektívne · %.1f °C · %.2f W logika + %.2f W VDDM · EDC %.0f A",
+        presetEco: "Úsporný",
+        presetBalance: "Vyvážený",
+        presetPerformance: "Výkon",
+        presetExtreme: "Extrémny"
     )
 
     static let uk = AMDPowerFeatureStrings(
@@ -2777,6 +3060,8 @@ extension AMDPowerFeatureStrings {
         cppcActiveOn: "Активний режим CPPC: увімк.",
         cppcActiveOff: "Активний режим CPPC: вимк.",
         eppValueFormat: "EPP %d/255",
+        eppNotApplied: "Встановлений AMD kext поки не застосовує EPP, тому зміни енергопрофілю не діють.",
+        pstateNotApplied: "Встановлений AMD kext не змінює P-стани на цьому процесорі.",
         manualBadge: "Вручну",
         autoBadge: "Авто",
         cpuLoadLabel: "Навантаження CPU",
@@ -2800,6 +3085,23 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "Живлення AMD Ryzen",
         telemetryPacketSelectorTitle: "Пакет телеметрії (селектор 100)",
-        loadingControls: "Завантаження керування живленням AMD…"
+        loadingControls: "Завантаження керування живленням AMD…",
+        gridThreadFormat: "Потік %d",
+        gridCoreFormat: "Ядро %d",
+        gridLoadValueFormat: "%.1f%% (система %.1f%%)",
+        gridC6Format: "Час у C6 %d%%",
+        gridFavorite: "пріоритетне ядро",
+        gridParked: "запарковано",
+        gridClockValueFormat: "%.0f МГц еф.",
+        gridLoad: "Навантаження",
+        perCoreGrid: "Сітка за ядрами",
+        pmVoltageHelp: "Напруга ядра (SMU)",
+        pmC0Help: "Час у C0 (%)",
+        pmCC6Help: "Час у CC6 (%)",
+        l3HelpFormat: "Кеш L3 %d · %.0f МГц еф. · %.1f °C · %.2f Вт логіка + %.2f Вт VDDM · EDC %.0f А",
+        presetEco: "Еко",
+        presetBalance: "Баланс",
+        presetPerformance: "Продуктивність",
+        presetExtreme: "Екстрим"
     )
 }

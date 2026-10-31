@@ -32,7 +32,13 @@ public:
     
     virtual void overrideFanControl(int fan, uint8_t thr);
     virtual void setDefaultFanControl(int fan);
-    
+
+    // Called from the work loop after a wake from sleep. Firmware may put the
+    // chip back to its power-on state on resume (Linux it87 and nct6683 have
+    // resume handlers for this), so a family re-applies here whatever its
+    // probe set up. The default has nothing to redo.
+    virtual void resume() {}
+
     virtual uint8_t readReg(uint16_t reg) { return 0; }
     virtual void writeReg(uint16_t reg, uint8_t val) {}
 };

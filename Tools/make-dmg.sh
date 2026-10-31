@@ -75,10 +75,10 @@ fi
 # bytes the kernel loads and the identity it loads them under. They survive any
 # repackaging and they cover BOTH provenance paths, because the check now runs on
 # the staged bundles rather than on the archive.
-KEXT_PIN_DRIVER_MACHO="fb22d671f2f7327d57a93e62965519165e0f70924fd7bbb3fea53682bb93a93d"
-KEXT_PIN_DRIVER_PLIST="714d560c3d7f5c80b0d2dec79e69fb5c996a9dc2e38dffd6048a1f61c9b1eda7"
-KEXT_PIN_PLUGIN_MACHO="9ffef5d274f9257f9392744bca0a650fb136a1d9b9b9a6609a44e88e73dc147a"
-KEXT_PIN_PLUGIN_PLIST="aa3a682dbeeb1cb3348b8039388104b306f41eb0d7b5f47afe1bcca31f2e584c"
+KEXT_PIN_DRIVER_MACHO="53f6083a71a875c32b2e5b311af2bfd02f37f876a488cd07896cdc298a03ae8a"
+KEXT_PIN_DRIVER_PLIST="96e77ea556d9be848b820cdb8c50a2a51d1c86cdf958b5c9e1c7834d18def285"
+KEXT_PIN_PLUGIN_MACHO="fc6152e543525ba4f8d8d85eb8d90cbd69b9c412bb61645864ddd386d9a3c2b1"
+KEXT_PIN_PLUGIN_PLIST="a4fb6a83ca08ba605f2eb608a7691e103a8dd6ea9c767a69135b97476f439833"
 if [[ ! -d "$KEXT_DRIVER" || ! -d "$KEXT_PLUGIN" ]] && [[ -f "ReleaseAssets/AMDRyzenCPUPowerManagement-Kexts.zip" ]]; then
     # Structural pre-check: assert the archive's top level is exactly the two
     # kext bundles. Unlike a hash this never needs updating on a rebuild, and it
@@ -156,6 +156,12 @@ if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
             echo "    $signed.kext: code signature does not verify" >&2
         fi
     done
+    # Strict on both paths: floating point in a rendezvous handler corrupts
+    # the registers of whatever program that CPU interrupted, whoever built it.
+    if ! python3 -B Tools/check-kext-fpu.py "$STAGING/Kexts/AMDRyzenCPUPowerManagement.kext/Contents/MacOS/AMDRyzenCPUPowerManagement" >&2; then
+        echo "✗ Error: the driver uses the FPU in interrupt context (Tools/check-kext-fpu.py)." >&2
+        exit 1
+    fi
     if [[ -n "$KEXT_SOURCE_LOCAL" ]]; then
         echo "  ⚠ Source: LOCAL BUILD (SMCAMDProcessor_Source/build/dmg-kexts/) — content pins NOT enforced."
         echo "    These binaries are unverified. Do not publish this DMG until the"

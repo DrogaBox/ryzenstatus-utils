@@ -45,6 +45,10 @@ struct IStatsDonutMeter: View {
             }
         }
         .frame(width: 44, height: 44)
+        // One element, the gauge's name and reading, instead of two loose texts.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue(value)
     }
 }
 

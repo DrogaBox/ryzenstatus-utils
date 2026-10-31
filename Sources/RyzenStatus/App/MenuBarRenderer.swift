@@ -64,11 +64,11 @@ enum MenuBarMetric: String, CaseIterable, Identifiable {
         case .memory: return strings.monitorShowMemory
         case .cpuTemperature: return strings.monitorShowCPUTemperature
         case .gpuTemperature: return strings.monitorShowGPUTemperature
-        case .cpuPower: return "CPU Power"
-        case .gpuPower: return "GPU Power"
+        case .cpuPower: return strings.cpuPowerMetricTitle
+        case .gpuPower: return strings.gpuPowerMetricTitle
         case .cpuFrequency: return strings.cpuFrequencyMetricTitle
-        case .cpuTempPower: return "CPU Temp + Power (2-Line)"
-        case .gpuTempPower: return "GPU Temp + Power (2-Line)"
+        case .cpuTempPower: return strings.cpuTempPowerMetricTitle
+        case .gpuTempPower: return strings.gpuTempPowerMetricTitle
         case .batteryTemperature: return strings.monitorShowBatteryTemperature
         case .network: return strings.monitorShowNetwork
         case .diskUsage: return strings.monitorItemDiskUsage

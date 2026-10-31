@@ -135,6 +135,23 @@ final class NetworkSampler {
     }
 
     private static func readCountersFromRouteList() -> NetworkCounters? {
+        guard let perInterface = interfaceByteCounters() else { return nil }
+        var result = NetworkCounters()
+        result.interfaces = MetricFormat.countedNetworkInterfaces(Array(perInterface.keys),
+                                                                  primaries: primaryInterfaces())
+        for name in result.interfaces {
+            guard let counters = perInterface[name] else { continue }
+            result.received += counters.received
+            result.sent += counters.sent
+        }
+        return result
+    }
+
+    /// The 64-bit byte counters of every interface from the routing socket
+    /// (`NET_RT_IFLIST2`), unfiltered. Nil when `sysctl` fails, so a failed
+    /// read is never taken for an empty list or a drop to zero. The adapter
+    /// list reads these too: `if_data`'s 32-bit counters wrap every 4 GiB.
+    static func interfaceByteCounters() -> [String: (received: UInt64, sent: UInt64)]? {
         var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0]
         var length = 0
         guard sysctl(&mib, 6, nil, &length, nil, 0) == 0, length > 0 else {
@@ -170,15 +187,7 @@ final class NetworkSampler {
                 offset += messageLength
             }
         }
-        var result = NetworkCounters()
-        result.interfaces = MetricFormat.countedNetworkInterfaces(Array(perInterface.keys),
-                                                                  primaries: primaryInterfaces())
-        for name in result.interfaces {
-            guard let counters = perInterface[name] else { continue }
-            result.received += counters.received
-            result.sent += counters.sent
-        }
-        return result
+        return perInterface
     }
 
     private static let store = SCDynamicStoreCreate(nil, "com.ryzenstatus.utils.network-sampler" as CFString, nil, nil)

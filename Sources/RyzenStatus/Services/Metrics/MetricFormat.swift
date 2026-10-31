@@ -466,6 +466,17 @@ enum MetricFormat {
         }
     }
 
+    /// One decimal and the unit, for pages that offer a precise reading
+    /// (the Sensors page's "precise temperature" option).
+    static func temperaturePrecise(_ celsius: Double, unit: TemperatureUnit) -> String {
+        switch unit {
+        case .celsius:
+            return String(format: "%.1f °C", locale: Self.locale, celsius)
+        case .fahrenheit:
+            return String(format: "%.1f °F", locale: Self.locale, celsius * 9 / 5 + 32)
+        }
+    }
+
     /// Compact temperature for tight surfaces like the menu bar. The settings
     /// page still makes the active unit explicit.
     static func temperatureCompact(_ celsius: Double, unit: TemperatureUnit) -> String {

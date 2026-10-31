@@ -198,6 +198,7 @@ public:
 
     static constexpr uint32_t kMSR_HWCR = 0xC0010015;
     static constexpr uint32_t kMSR_PKG_ENERGY_STAT = 0xC001029B;
+    static constexpr uint32_t kMSR_CORE_ENERGY_STAT = 0xC001029A;
     static constexpr uint32_t kMSR_PSTATE_0 = 0xC0010064;
     static constexpr uint32_t kMSR_PSTATE_LEN = 8;
     static constexpr uint32_t kMSR_PSTATE_CTL = 0xC0010062;
@@ -231,9 +232,13 @@ public:
     uint64_t fanTelemetryLastMs {0};
     void refreshFanTelemetryIfStale();
 
-    // Cached fan readings for the SMC plugin: each takes superIOLock briefly
-    // (the chip object can be replaced by a re-probe) and never touches the
-    // hardware. fanCount() is 0 without a detected chip.
+    // Cached fan readings for the SMC plugin, never touching the hardware.
+    // fanCount() takes superIOLock briefly (the chip object can be replaced
+    // by a re-probe) and runs once, when the plugin builds its keys; it is
+    // 0 without a detected chip. fanRPM() backs the FxAc keys and reads
+    // fanRPMCache[] without a lock, so an SMC read never waits behind the
+    // sensor timer's port I/O (acidanthera's sensor plugins keep their key
+    // reads lock-free too).
     int fanCount();
     uint32_t fanRPM(int fan);
 
@@ -241,8 +246,13 @@ public:
     bool write_msr(uint32_t addr, uint64_t value);
 
 
-    void calculateEffectiveFrequency(uint32_t physical);
-    void updateInstructionDelta(uint32_t cpu);
+    // Per-CPU samplers run inside the main rendezvous. With seedOnly they
+    // only store fresh baselines: the first window after the sampler was
+    // idle would span the pause, so it is dropped instead of published.
+    void calculateEffectiveFrequency(uint32_t physical, bool seedOnly);
+    void updateInstructionDelta(uint32_t cpu, bool seedOnly);
+    // IRPerfCount (MSR C000_00E9) is 48 bits wide.
+    static constexpr uint64_t kIRPERF_MASK = (1ULL << 48) - 1;
     void applyPowerControl();
     void applyEPPControl();
 
@@ -266,6 +276,13 @@ public:
 
     // canLog = false inside mp_rendezvous handlers: IOLog takes locks that an
     // interrupted thread may hold, and every CPU is parked in the rendezvous.
+    // Rendezvous handlers run in interrupt context on top of whatever thread
+    // each CPU was running, and xnu does not save that thread's FPU/XMM
+    // state for them, so they stay integer-only: readPstateDefs() there,
+    // decodePstateClocks() afterwards on the work loop thread. dumpPstate()
+    // does both and is for thread context only.
+    void readPstateDefs(bool canLog);
+    void decodePstateClocks(bool canLog);
     void dumpPstate(bool canLog = true);
     void reinitHwState();
     void writePstate(const uint64_t *buf);
@@ -408,6 +425,13 @@ public:
 
     uint64_t lastMPERF_perCore[CPUInfo::MaxCpus] {};
     uint64_t lastAPERF_perCore[CPUInfo::MaxCpus] {};
+    // Raw counter deltas of the last window, written by the rendezvous
+    // (integer only) and turned into MHz / watts by finishCoreSamples() on
+    // the work loop thread. A zero MPERF / TSC delta marks a skipped window,
+    // which keeps the previous reading.
+    uint64_t freqDeltaAPERF_perCore[CPUInfo::MaxCpus] {};
+    uint64_t freqDeltaMPERF_perCore[CPUInfo::MaxCpus] {};
+    void finishCoreSamples();
 
     uint64_t instructionDelta_perCore[CPUInfo::MaxCpus] {};
     uint64_t lastInstructionDelta_perCore[CPUInfo::MaxCpus] {};
@@ -424,7 +448,26 @@ public:
     uint64_t lastTSCResidency_perCpu[CPUInfo::MaxCpus] {};
     uint8_t  idlePercent_perCpu[CPUInfo::MaxCpus] {};
     bool     idleResidencySampled {false};
-    void updateC0Residency(uint32_t cpu_num);
+    void updateC0Residency(uint32_t cpu_num, bool seedOnly);
+
+    // Per-core power from CORE_ENERGY_STAT (MSR 0xC001029A), the counter
+    // Linux turbostat (CorWatt) and zenpower read: energy in the RAPL unit
+    // the package counter uses, one per physical core, read on the core's
+    // primary thread in the main rendezvous. corePowerW_perCore[] is the
+    // average over the last window, indexed like effFreq_perCore[];
+    // selector 60. A window restarts (TSC 0) on boot and after wake.
+    uint32_t lastCoreEnergy_perCore[CPUInfo::MaxCpus] {};
+    uint64_t lastCoreEnergyTSC_perCore[CPUInfo::MaxCpus] {};
+    uint32_t coreEnergyDelta_perCore[CPUInfo::MaxCpus] {};
+    uint64_t coreEnergyTSCDelta_perCore[CPUInfo::MaxCpus] {};
+    float    corePowerW_perCore[CPUInfo::MaxCpus] {};
+    // Sum of corePowerW_perCore[] for the PC0C / PCPC SMC keys. Reading
+    // them stamps smcCoreDemandMs, which counts as demand for the main
+    // sampler like a selector call does.
+    bool     coreEnergySupported {false};
+    volatile float corePowerTotalW {0};
+    volatile uint64_t smcCoreDemandMs {0};
+    void updateCoreEnergy(uint32_t physical, bool seedOnly);
 
     uint8_t PStateCur_perCore[CPUInfo::MaxCpus] {};
     uint8_t PStateCtl = 0;
@@ -557,6 +600,11 @@ public:
 
     kern_return_t (*kunc_alert)(int,unsigned,const char*,const char*,const char*,
                                 const char*,const char*,const char*,const char*,const char*,unsigned*) {nullptr};
+    // Shows the load-problem alert from a kernel thread of its own.
+    // KUNCUserNotificationDisplayAlert waits for the user's answer, and the
+    // selector call that used to show it held the app's sampling thread for
+    // as long as the dialog stayed on screen.
+    void showLoadAlertAsync();
 
 
     ISSuperIOSMCFamily *superIO{nullptr};
@@ -569,10 +617,22 @@ public:
     IOLock *controlLock{nullptr};   // Serializes provider state writes (PStateCtl, CPPC) from concurrent UserClients
 
     static constexpr size_t kMAX_FANS = 16;
+    // Trusted RPM of each fan (0 = unknown), copied on every tachometer
+    // refresh for fanRPM(); read without a lock.
+    volatile uint32_t fanRPMCache[kMAX_FANS] {};
     FanCurveConfig fanCurves[MAX_FAN_CURVES] {};
     int8_t fanToCurveMap[kMAX_FANS] {}; // Maps each physical fan index to a curve index (-1 = Auto; set in start())
     uint8_t lastAppliedPWM[kMAX_FANS] {};
     uint64_t lastPWMUpdateTime[kMAX_FANS] {};
+    // When a curve fan's duty last reached the chip (ms, 0 = write on the
+    // next tick). An unchanged duty is written again only every
+    // kFAN_REASSERT_MS, in case firmware took the header back, instead of
+    // on every 500 ms tick; fewer index/data cycles on the LPC ports that
+    // ACPI and SMM firmware also use. Zeroed wherever the chip state stops
+    // being known: probe, curve mapping, client close, wake.
+    uint64_t lastPWMAssertMs[kMAX_FANS] {};
+    static constexpr uint64_t kFAN_REASSERT_MS = 5000;
+    void resumeSuperIO();
 
     static_assert(sizeof(fanToCurveMap) / sizeof(fanToCurveMap[0]) == kMAX_FANS, "fan array size mismatch");
     static_assert(sizeof(lastAppliedPWM) / sizeof(lastAppliedPWM[0]) == kMAX_FANS, "fan array size mismatch");
@@ -688,6 +748,12 @@ public:
     static constexpr uint32_t kPM_TABLE_MAX_SIZE = 0x2000;   // covers every documented Vermeer size (max 0x1BB0)
     static constexpr uint64_t kPM_REFRESH_MIN_INTERVAL_MS = 1000; // one 0x05 + re-map check per second, worst case
     uint64_t pmRefreshLastPollMs {0};
+    // Last time a client read the PM table or its info (selectors 56/57).
+    // Once a first snapshot exists, the 1 s capture only runs while someone
+    // asked within kPM_DEMAND_WINDOW_MS: each capture costs an SMU transfer
+    // and an uncached mapping, and only the AMD Power page reads it.
+    volatile uint64_t pmTableLastDemandMs {0};
+    static constexpr uint64_t kPM_DEMAND_WINDOW_MS = 15000;
     uint32_t pmTableVersionRaw {0};          // 0x08 response (BCD-style, e.g. 0x380904 → 38.09.04)
     bool     pmTableVersionPolled {false};
     uint64_t pmDramBase {0};                 // physical base from 0x06 (0 = unknown)
@@ -740,8 +806,33 @@ private:
     uint32_t updateTimeInterval = 1000;
     uint32_t actualUpdateTimeInterval = 1;
     uint64_t timeOfLastUpdate = 0;
+    // How often user space polls, as the smoothed gap between bursts of
+    // calls: one app refresh is a dozen selectors back to back, and calls
+    // closer than kREQUEST_BURST_GAP_MS belong to the same burst.
     uint64_t estimatedRequestTimeInterval = 0;
     uint64_t timeOfLastMissedRequest = 0;
+    static constexpr uint64_t kREQUEST_BURST_GAP_MS = 25;
+    static constexpr uint64_t kREQUEST_STREAM_MS = 250;
+    uint64_t requestBurstStartMs = 0;
+    // Demand-driven main sampler. With no selector call and no PC0C/PCPC
+    // read for kCLIENT_IDLE_MS, the main timer stops re-arming: no more
+    // rendezvous interrupting every CPU. The package temperature and energy
+    // behind the SMC keys and the thermal interlocks come from the sensor
+    // timer either way, and that timer restarts the main one once demand is
+    // back (both run on the work loop, so nothing else touches the timer).
+    // The first rendezvous after a pause only seeds the counter windows
+    // (seedNextSample) and the real sample follows kSEED_WINDOW_MS later,
+    // so no published window ever spans the pause.
+    static constexpr uint64_t kCLIENT_IDLE_MS = 10000;
+    static constexpr uint32_t kSEED_WINDOW_MS = 100;
+    bool mainSamplingIdle = false;
+    bool seedNextSample = false;
+    bool hasRecentDemand(uint64_t nowMs) const {
+        uint64_t last = timeOfLastMissedRequest;
+        uint64_t smc = smcCoreDemandMs;
+        if (smc > last) last = smc;
+        return last > nowMs || nowMs - last <= kCLIENT_IDLE_MS;
+    }
 
     int tempNextSample = 0;
     float tempSamples[HF_TEMP_SAMPLE_LEN] {};

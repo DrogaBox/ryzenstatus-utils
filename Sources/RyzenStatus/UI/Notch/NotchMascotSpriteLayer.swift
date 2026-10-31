@@ -13,6 +13,9 @@ import QuartzCore
 final class NotchMascotSpriteFrames {
     private static var cache: [String: NotchMascotSpriteFrames] = [:]
     private static var missing: Set<String> = []
+    /// Each sheet decoded once, whatever it is cut to: the frames of every
+    /// framing are cut from, and keep, the same image.
+    private static var sheets: [String: CGImage] = [:]
 
     /// One image per frame, row by row in `NotchMascotSpriteState` order.
     let rows: [[CGImage]]
@@ -27,7 +30,8 @@ final class NotchMascotSpriteFrames {
             + "\(framing.minX) \(framing.minY) \(framing.width) \(framing.height)"
         if let cached = cache[key] { return cached }
         guard !missing.contains(resource) else { return nil }
-        guard let frames = NotchMascotSpriteFrames(sheet: sheet, framing: framing, resource: resource, signs: signs,
+        guard let image = Self.sheet(resource),
+              let frames = NotchMascotSpriteFrames(sheet: sheet, image: image, framing: framing, signs: signs,
                                                    words: FeatureStrings.notchMascotSign(language)) else {
             missing.insert(resource)
             return nil
@@ -36,13 +40,20 @@ final class NotchMascotSpriteFrames {
         return frames
     }
 
-    private init?(sheet: NotchMascotSpriteSheet, framing: CGRect, resource: String, signs: NotchMascotSpriteSigns?,
-                  words: NotchMascotSignStrings) {
+    /// The decoded image of `resource`, or nil when it is not in the app.
+    private static func sheet(_ resource: String) -> CGImage? {
+        if let decoded = sheets[resource] { return decoded }
         let url = Bundle.main.url(forResource: resource, withExtension: "png", subdirectory: "Images")
             ?? Bundle.main.url(forResource: resource, withExtension: "png")
         guard let url, let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
         else { return nil }
+        sheets[resource] = image
+        return image
+    }
+
+    private init?(sheet: NotchMascotSpriteSheet, image: CGImage, framing: CGRect, signs: NotchMascotSpriteSigns?,
+                  words: NotchMascotSignStrings) {
         var rows: [[CGImage]] = []
         for state in NotchMascotSpriteState.allCases {
             let row = sheet.frames(for: state).compactMap { frame -> CGImage? in

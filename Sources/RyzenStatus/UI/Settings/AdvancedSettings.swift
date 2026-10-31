@@ -3,9 +3,10 @@
 
 import SwiftUI
 
-/// Advanced page: a clean way to reset every permission the app holds, and a
-/// full self-uninstall. Both actions are confirmation-gated and scoped entirely
-/// to this app (see `SelfUninstall`).
+/// Advanced page: a repair that ties given permissions back to the installed
+/// build (`PermissionRepair`), a clean way to reset every permission the app
+/// holds, and a full self-uninstall. All three touch only this app's own
+/// entries; the last two ask first (see `SelfUninstall`).
 struct AdvancedSettings: View {
     @ObservedObject private var l10n = L10n.shared
     @State private var showClearConfirm = false
@@ -18,9 +19,14 @@ struct AdvancedSettings: View {
     @State private var importFailed = false
     @State private var pendingImport: [String: Any]?
     @State private var showImportConfirm = false
+    @State private var repairOutcome: PermissionRepair.Outcome?
 
     private var backup: BackupFeatureStrings {
         FeatureStrings.backup(l10n.language)
+    }
+
+    private var repair: PermissionRepairStrings {
+        FeatureStrings.permissionRepair(l10n.language)
     }
 
     var body: some View {
@@ -65,6 +71,50 @@ struct AdvancedSettings: View {
                     Text(backup.invalidFile)
                         .font(.caption)
                         .foregroundStyle(.orange)
+                }
+            }
+
+            Section(repair.title) {
+                Text(repair.description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    working = true
+                    repairOutcome = nil
+                    PermissionRepair.repair { outcome in
+                        working = false
+                        repairOutcome = outcome
+                    }
+                } label: {
+                    Label(repair.button, systemImage: "wrench.and.screwdriver")
+                }
+                .disabled(working)
+                switch repairOutcome {
+                case .repaired(let services):
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                        Text(String(format: repair.repairedFormat, services.count))
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                        Spacer()
+                        Button(repair.relaunch) { appDelegate()?.relaunchApp() }
+                    }
+                case .nothingToRepair:
+                    Text(repair.nothingToRepair).font(.caption).foregroundStyle(.secondary)
+                case .needsFullDiskAccess:
+                    HStack(spacing: 8) {
+                        Text(repair.needsFullDiskAccess)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer()
+                        Button(repair.openFullDiskAccess) { Permissions.shared.requestFullDiskAccess() }
+                    }
+                case .failed:
+                    Text(repair.failed).font(.caption).foregroundStyle(.orange)
+                case nil:
+                    EmptyView()
                 }
             }
 

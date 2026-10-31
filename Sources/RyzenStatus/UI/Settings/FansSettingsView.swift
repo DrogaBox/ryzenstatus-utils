@@ -174,7 +174,7 @@ struct FansSettingsView: View {
                                         .foregroundColor(.secondary)
                                 }
                                 Spacer()
-                                Toggle("", isOn: $autoFanCurveEnabled)
+                                Toggle(l10n.fanControl.dynamicCurvesTitle, isOn: $autoFanCurveEnabled)
                                     .toggleStyle(.switch)
                                     .tint(.orange)
                                     .labelsHidden()
@@ -217,18 +217,12 @@ struct FansSettingsView: View {
         }
         .formStyle(.grouped)
         .environment(\.defaultMinListRowHeight, 4)
-        .onAppear {
-            // Register as a panel client with the depth-counter API.
-            // setMenuPanelNeeds(.none) unconditionally wiped the panel's needs,
-            // silently stopping CPU/temp sampling for a detached menu panel until
-            // it was reopened — the AMD/Sensors pages already use this API.
-            SystemMonitor.shared.panelDidAppear()
-            controller.startPolling()
-        }
-        .onDisappear {
-            controller.stopPolling()
-            SystemMonitor.shared.panelDidDisappear()
-        }
+        // The monitor client (a depth-counted panel client, so the popover
+        // cannot wipe these needs) and the fast fan poll run only while the
+        // page is on screen in a visible Settings window.
+        .settingsPageActivity(.fans,
+                              activate: { controller.startPolling() },
+                              deactivate: { controller.stopPolling() })
     }
 }
 
@@ -254,7 +248,7 @@ struct FanControlCard: View {
         if let idx = fan.mappedCurveIndex, idx >= 0 && idx < controller.customCurves.count {
             return controller.customCurves[idx].name
         }
-        return "Unknown"
+        return l10n.dashboard.unknownCurve
     }
 
     private var currentModeSelection: FanCardModeSelection {
@@ -371,7 +365,7 @@ struct FanControlCard: View {
                 Spacer()
 
                 // Unified Mode Picker
-                Picker("", selection: Binding(
+                Picker(l10n.fanControl.modeLabel, selection: Binding(
                     get: { currentModeSelection },
                     set: { newSelection in
                         switch newSelection {

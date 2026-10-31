@@ -111,6 +111,7 @@ ISSuperIONCT67XXFamily* ISSuperIONCT67XXFamily::getDevice(uint16_t *chipIntel, b
     // The chip is confirmed: clear the hardware-monitor I/O space lock
     // (LibreHardwareMonitor does the same for NCT6791D and later).
     uint8_t conf = 0;
+    bool unlockRequested = false;
     switch (*chipIntel) {
         // In short, these are all the chips we currently support.
         case CHIP_NCT6791D:
@@ -133,6 +134,7 @@ ISSuperIONCT67XXFamily* ISSuperIONCT67XXFamily::getDevice(uint16_t *chipIntel, b
             if(allowUnlock && (conf & 0x10)){
                 ISLPCPort::writeByte(portSel, CHIP_IO_SPACE_LOCK, (uint8_t)(conf & ~0x10));
             }
+            unlockRequested = allowUnlock;
             break;
 
         default:
@@ -142,7 +144,24 @@ ISSuperIONCT67XXFamily* ISSuperIONCT67XXFamily::getDevice(uint16_t *chipIntel, b
     //close port
     outb(regport, 0xaa);
 
-    return new ISSuperIONCT67XXFamily(portSel, devAddr, *chipIntel);
+    ISSuperIONCT67XXFamily *device = new ISSuperIONCT67XXFamily(portSel, devAddr, *chipIntel);
+    if (device) device->ioSpaceUnlockRequested = unlockRequested;
+    return device;
+}
+
+// The probe's unlock again, after a wake: enter config mode, select the
+// hardware monitor, clear the lock bit if firmware set it, close.
+void ISSuperIONCT67XXFamily::resume(){
+    if (!ioSpaceUnlockRequested) return;
+    const i386_ioport_t regport = ISLPCPort::kREGISTER_PORTS[lpcPortSel];
+    outb(regport, CHIP_SIO_OPEN);
+    outb(regport, CHIP_SIO_OPEN);
+    ISLPCPort::select(lpcPortSel, CHIP_HWM_LDN);
+    const uint8_t conf = ISLPCPort::readByte(lpcPortSel, CHIP_IO_SPACE_LOCK);
+    if (conf & 0x10) {
+        ISLPCPort::writeByte(lpcPortSel, CHIP_IO_SPACE_LOCK, (uint8_t)(conf & ~0x10));
+    }
+    outb(regport, CHIP_SIO_CLOSE);
 }
 
 uint8_t ISSuperIONCT67XXFamily::readByte(uint16_t addr){

@@ -190,7 +190,10 @@ enum Defaults {
     static let allowedDurations = [0, 15, 30, 60, 120, 240, 480]
     static let allowedKeepAwakeMouseJiggleIntervals = [1, 2, 5, 10, 15]
     static let allowedBatteryLimits = [0, 5, 10, 15, 20]
-    static let allowedMonitorIntervals: [Double] = [0.5, 0.7, 1.0, 2.0, 5.0]
+    /// Sub-second options were removed: every metric targets 1 s in the
+    /// foreground, so 0.5 s sampled at 1 s anyway and 0.7 s at 1.4 s. A stored
+    /// 0.5 or 0.7 sanitizes to 1 s.
+    static let allowedMonitorIntervals: [Double] = [1.0, 2.0, 5.0]
     static let defaultKeyboardDebounceWindowMs = 5
     static let defaultSnippetSoundName = "Tink"
     static let allowedKeyboardDebounceWindowRange = 0...500

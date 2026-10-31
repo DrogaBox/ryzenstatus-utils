@@ -298,6 +298,82 @@ enum FanPollingPolicy {
     }
 }
 
+// MARK: - Fan Write Plan
+
+/// One fan write the controller sends to the kext.
+enum FanKextWrite: Equatable, Sendable {
+    /// Selector 102. A curve of -1 unmaps the fan, and the kext then hands
+    /// it back to the BIOS (`setDefaultFanControl`).
+    case mapToCurve(fan: Int, curve: Int)
+    /// Selector 95 with this user duty; the thermal guard is applied at
+    /// write time.
+    case manualDuty(fan: Int, pwm: UInt8)
+    /// Selector 96: the fan back to the BIOS.
+    case biosControl(fan: Int)
+
+    var isManualDuty: Bool {
+        if case .manualDuty = self { return true }
+        return false
+    }
+}
+
+/// Turns the controller's fan state into kext writes. Kept apart from the
+/// controller so it can be tested.
+enum FanKextWritePlan {
+    /// The writes that bring the kext in line with the controller.
+    ///
+    /// A manual fan never gets `mapToCurve(-1)` on its own: the kext answers
+    /// that by handing the fan to the BIOS, which drops its duty. It gets one
+    /// only when the kext still holds a curve for it, and then directly
+    /// followed by its duty.
+    ///
+    /// - Parameters:
+    ///   - mappings: fan → curve slot; -1 or a slot without a curve means
+    ///     "not on a curve".
+    ///   - manualPWMs: the fans in manual mode, with their user duty.
+    ///   - kextMappings: the curve slot the kext holds for each fan, as far
+    ///     as the app's own writes say; absent = not on a kext curve.
+    ///   - curveCount: how many curves exist.
+    ///   - assertDutyFor: manual fans whose duty is written even when their
+    ///     mapping needs no change (the user just set it, or the kext dropped
+    ///     it when the connection was reopened).
+    static func writes(mappings: [Int: Int],
+                       manualPWMs: [Int: UInt8],
+                       kextMappings: [Int: Int],
+                       curveCount: Int,
+                       assertDutyFor: Set<Int> = []) -> [FanKextWrite] {
+        let fanIds = Set(mappings.keys).union(manualPWMs.keys).union(kextMappings.keys)
+        var writes: [FanKextWrite] = []
+        for fan in fanIds.sorted() {
+            let mapped = mappings[fan].flatMap { (0..<curveCount).contains($0) ? $0 : nil }
+            let held = kextMappings[fan].flatMap { $0 >= 0 ? $0 : nil }
+            if let mapped {
+                if held != mapped { writes.append(.mapToCurve(fan: fan, curve: mapped)) }
+            } else if let pwm = manualPWMs[fan] {
+                if held != nil {
+                    writes.append(.mapToCurve(fan: fan, curve: -1))
+                    writes.append(.manualDuty(fan: fan, pwm: pwm))
+                } else if assertDutyFor.contains(fan) {
+                    writes.append(.manualDuty(fan: fan, pwm: pwm))
+                }
+            } else if held != nil {
+                writes.append(.mapToCurve(fan: fan, curve: -1))
+            }
+        }
+        return writes
+    }
+
+    /// The curve slot the kext holds for `fan` after `write` succeeded, or
+    /// nil when the write does not change it (selector 96 leaves the
+    /// mapping alone).
+    static func heldCurve(after write: FanKextWrite) -> (fan: Int, curve: Int?)? {
+        switch write {
+        case .mapToCurve(let fan, let curve): return (fan, curve >= 0 ? curve : nil)
+        case .biosControl, .manualDuty: return nil
+        }
+    }
+}
+
 // MARK: - Hardware Safety Bounds
 
 public enum AMDFanSafety {

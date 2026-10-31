@@ -31,12 +31,12 @@ struct MonitorSettings: View {
     @AppStorage(DefaultsKey.monitorGraphDisk) private var graphDisk = true
     @AppStorage(DefaultsKey.monitorGraphPower) private var graphPower = true
     @AppStorage(DefaultsKey.monitorGraphBattery) private var graphBattery = true
-    @AppStorage("panelViewStyle") private var panelViewStyle = "cards"
-    @AppStorage("menuBarMetricAppearance_cpu") private var appCPU = "values"
-    @AppStorage("menuBarMetricAppearance_gpu") private var appGPU = "values"
-    @AppStorage("menuBarMetricAppearance_memory") private var appRAM = "values"
-    @AppStorage("menuBarMetricAppearance_network") private var appNet = "values"
-    @AppStorage("menuBarMetricAppearance_diskUsage") private var appDisk = "values"
+    @AppStorage(DefaultsKey.panelViewStyle) private var panelViewStyle = "cards"
+    @AppStorage(DefaultsKey.menuBarMetricAppearanceCPU) private var appCPU = "values"
+    @AppStorage(DefaultsKey.menuBarMetricAppearanceGPU) private var appGPU = "values"
+    @AppStorage(DefaultsKey.menuBarMetricAppearanceMemory) private var appRAM = "values"
+    @AppStorage(DefaultsKey.menuBarMetricAppearanceNetwork) private var appNet = "values"
+    @AppStorage(DefaultsKey.menuBarMetricAppearanceDiskUsage) private var appDisk = "values"
 
     var body: some View {
         // A plain stack, not a lazy one: a lazy stack estimates the rows it
@@ -83,16 +83,15 @@ struct MonitorSettings: View {
             }
         }
         .toggleStyle(.switch)
+        // The live preview samples only while the page is on screen in a
+        // visible Settings window.
+        .settingsPageActivity(.monitorSettings)
         .onAppear {
-            SystemMonitor.shared.panelDidAppear()
             interval = Defaults.sanitizedMonitorInterval(interval)
             metricAppearance = Defaults.sanitizedMenuBarMetricAppearance(metricAppearance)
             if TemperatureUnit(rawValue: temperatureUnit) == nil {
                 temperatureUnit = TemperatureUnit.celsius.rawValue
             }
-        }
-        .onDisappear {
-            SystemMonitor.shared.panelDidDisappear()
         }
     }
 
@@ -291,8 +290,6 @@ struct MonitorSettings: View {
         SettingsCard {
             SettingsRow(symbol: "timer", title: l10n.s.monitorIntervalLabel) {
                 Picker(l10n.s.monitorIntervalLabel, selection: $interval) {
-                    Text("0.5s").tag(0.5)
-                    Text("0.7s").tag(0.7)
                     Text(l10n.s.monitorInterval1).tag(1.0)
                     Text(l10n.s.monitorInterval2).tag(2.0)
                     Text(l10n.s.monitorInterval5).tag(5.0)
@@ -302,10 +299,10 @@ struct MonitorSettings: View {
             }
             SettingsRow(symbol: "list.bullet.rectangle", title: l10n.s.processListRefreshIntervalLabel) {
                 Picker(l10n.s.processListRefreshIntervalLabel, selection: $processListInterval) {
-                    Text("1.0s").tag(1.0)
-                    Text("2.0s").tag(2.0)
-                    Text("3.0s").tag(3.0)
-                    Text("5.0s").tag(5.0)
+                    Text(l10n.s.monitorInterval1).tag(1.0)
+                    Text(l10n.s.monitorInterval2).tag(2.0)
+                    Text(l10n.dashboard.intervalThreeSeconds).tag(3.0)
+                    Text(l10n.s.monitorInterval5).tag(5.0)
                 }
                 .labelsHidden()
                 .fixedSize()
@@ -617,8 +614,10 @@ private struct MetricRowOptionToggle: View {
             }
             .buttonStyle(.plain)
             .help(label)
-            .accessibilityLabel(label)
-            .accessibilityValue(isOn ? "1" : "0")
+            // VoiceOver reads it as the switch it draws, with its on/off value.
+            .accessibilityRepresentation {
+                Toggle(label, isOn: $isOn)
+            }
         }
         .padding(.leading, 58)
         .padding(.trailing, 4)
@@ -678,8 +677,12 @@ private struct MenuBarMetricVisibilityToggle: View {
         }
         .buttonStyle(.plain)
         .help(shown ? l10n.s.panelHideItem : l10n.s.panelShowItem)
-        .accessibilityLabel(shown ? l10n.s.panelHideItem : l10n.s.panelShowItem)
-        .accessibilityValue(metric.title(l10n.s))
+        // The metric is the label and its visibility the value; the action
+        // the click takes is the hint.
+        .accessibilityRepresentation {
+            Toggle(metric.title(l10n.s), isOn: $shown)
+        }
+        .accessibilityHint(shown ? l10n.s.panelHideItem : l10n.s.panelShowItem)
     }
 }
 

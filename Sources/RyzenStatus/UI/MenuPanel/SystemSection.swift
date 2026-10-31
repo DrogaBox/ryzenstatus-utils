@@ -14,11 +14,10 @@ enum BreakdownKind {
 struct SystemSection: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var monitor = SystemMonitor.shared
-    /// Live SMU PM-table decode for the reinvented core grid — the
-    /// same single-owner model the AMD section and dashboard consume. The
-    /// model only syncs while some view drives it; the AMD control section
-    /// (same panel) runs that 3 s timer, so this stays a passive consumer
-    /// with no new timers.
+    /// Live SMU PM-table decode for the per-core grid, the same model the AMD
+    /// section and the dashboard read. The grid view itself keeps the model
+    /// live while it shows an SMU mode (`beginLiveSync`), so the System tab
+    /// updates without the AMD tab open.
     @ObservedObject private var amdControls = AmdPowerControlsModel.shared
     @Environment(\.colorScheme) private var colorScheme
     var collapsible = true
@@ -287,7 +286,7 @@ struct SystemSection: View {
 
     private func smuModeLabel(_ m: PanelCoreGridMetric) -> String {
         switch m {
-        case .load: return "LOAD"
+        case .load: return l10n.amdPower.gridLoad.localizedUppercase
         case .clock: return "MHz"
         case .temp: return "°C"
         case .power: return "W"
@@ -491,12 +490,13 @@ struct SystemSection: View {
         }
     }
 
-    private var averageCPUFreq: Double {
-        let cores = monitor.snapshot.cores
-        guard !cores.isEmpty else { return 0 }
-        let physicalCores = cores.filter { !$0.isLogical }
-        let sum = physicalCores.reduce(0.0) { $0 + Double($1.freqMHz) }
-        return (sum / Double(physicalCores.count)) / 1000.0
+    private var averageCPUFreq: Double { Self.averageFrequencyGHz(monitor.snapshot.cores) }
+
+    /// The mean clock of the physical cores, in GHz; zero without any.
+    nonisolated static func averageFrequencyGHz(_ cores: [CoreSnapshot]) -> Double {
+        let physical = cores.filter { !$0.isLogical }
+        guard !physical.isEmpty else { return 0 }
+        return physical.reduce(0.0) { $0 + Double($1.freqMHz) } / Double(physical.count) / 1000
     }
 
     private func temperatureCell(icon: String, label: String, value: Double?) -> some View {
@@ -574,7 +574,7 @@ struct SystemSection: View {
                         .padding(.leading, 18)
                         .padding(.bottom, 2)
 
-                    Toggle("Per-Core Grid", isOn: $graphCPUMode)
+                    Toggle(l10n.amdPower.perCoreGrid, isOn: $graphCPUMode)
                         .toggleStyle(.checkbox)
                         .font(.system(size: 10))
                         .padding(.leading, 18)

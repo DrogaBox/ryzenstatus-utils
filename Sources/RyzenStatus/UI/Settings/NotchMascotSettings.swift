@@ -886,6 +886,7 @@ private struct NotchMascotStageCard: View {
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: visit == nil)
             } label: {
                 Text(text.momentsTitle).font(.callout.weight(.semibold))
+                    .disclosureHeader(isExpanded: $showsMoments)
             }
             // Said here rather than as a tooltip, which came up over the
             // companion just as a resting pointer pets it.

@@ -55,13 +55,20 @@ class SMCAMDProcessor : public IOService {
      *
      *  - TC0D/E/F/J/P/T/p: package temperature (SP78)
      *  - PCPR, PSTR: package power (SP96)
+     *  - PC0C, PCPC: summed CPU core power (SP96), only where
+     *    CORE_ENERGY_STAT reads
      *  - TCxC/TCxc: per-CCD temperature (SP78), x = CCD index
      *  - TGxD/P/d/p, TGDD: GPU temperature (SP78), x = GPU index
      *  - PGxR/PGxC: GPU power (SP96), only for GPUs that report it
      *  - FNum, FxAc: Super I/O fan count and tachometers (fpe2), x = header
+     *  - VC0C: SVI2 core voltage (flt), only on silicon with an SVI2 layout
      */
     static constexpr SMC_KEY KeyPCPR = SMC_MAKE_IDENTIFIER('P','C','P','R');
     static constexpr SMC_KEY KeyPSTR = SMC_MAKE_IDENTIFIER('P','S','T','R');
+    // CPU cores power (sum of the per-core energy counters), the keys
+    // SMCProcessor fills on Intel and iStat Menus / Stats label "CPU Cores".
+    static constexpr SMC_KEY KeyPC0C = SMC_MAKE_IDENTIFIER('P','C','0','C');
+    static constexpr SMC_KEY KeyPCPC = SMC_MAKE_IDENTIFIER('P','C','P','C');
     static constexpr SMC_KEY KeyTCxD(size_t i) { return SMC_MAKE_IDENTIFIER('T','C',KeyIndexes[i < MaxIndexCount ? i : 0],'D'); }
     static constexpr SMC_KEY KeyTCxE(size_t i) { return SMC_MAKE_IDENTIFIER('T','C',KeyIndexes[i < MaxIndexCount ? i : 0],'E'); }
     static constexpr SMC_KEY KeyTCxF(size_t i) { return SMC_MAKE_IDENTIFIER('T','C',KeyIndexes[i < MaxIndexCount ? i : 0],'F'); }
@@ -91,6 +98,10 @@ class SMCAMDProcessor : public IOService {
     // which is what iStat Menus, Stats and HWMonitor read. Up to 16 headers.
     static constexpr size_t MaxFanIndexCount = 16;
     static constexpr SMC_KEY KeyFNum = SMC_MAKE_IDENTIFIER('F','N','u','m');
+
+    // === CPU core voltage (VC0C flt) ===
+    // The key iStat Menus, Stats and HWMonitor read as "CPU Core" voltage.
+    static constexpr SMC_KEY KeyVC0C = SMC_MAKE_IDENTIFIER('V','C','0','C');
     static constexpr SMC_KEY KeyFxAc(size_t i) { return SMC_MAKE_IDENTIFIER('F',KeyIndexes[i < MaxFanIndexCount ? i : 0],'A','c'); }
     
 public:

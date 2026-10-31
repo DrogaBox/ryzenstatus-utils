@@ -256,6 +256,25 @@ enum Sudoers {
 /// requested. Call these OFF the main thread, so a slow target never blocks the
 /// UI or the event taps (the calls block their thread until the target replies).
 enum AppleScriptRunner {
+    /// NSAppleScript may not run on two threads at once: every script of the
+    /// app runs on this queue, one after another.
+    private static let queue: DispatchQueue = {
+        let queue = DispatchQueue(label: "com.ryzenstatus.utils.applescript", qos: .userInitiated)
+        queue.setSpecific(key: onQueue, value: ())
+        return queue
+    }()
+    private static let onQueue = DispatchSpecificKey<Void>()
+
+    /// Runs `script` on the shared queue and waits for its answer.
+    @discardableResult
+    static func execute(_ script: NSAppleScript, error: inout NSDictionary?) -> NSAppleEventDescriptor {
+        if DispatchQueue.getSpecific(key: onQueue) != nil { return script.executeAndReturnError(&error) }
+        var failure: NSDictionary?
+        let result = queue.sync { script.executeAndReturnError(&failure) }
+        error = failure
+        return result
+    }
+
     /// True when this app may script `bundleID`. Undetermined → shows the system
     /// prompt (attributed to this app); granted → returns at once; denied →
     /// false without nagging.
@@ -285,7 +304,7 @@ enum AppleScriptRunner {
     static func runDetailed(_ source: String) -> (ok: Bool, errorNumber: Int?, message: String, output: String) {
         guard let script = NSAppleScript(source: source) else { return (false, nil, "", "") }
         var error: NSDictionary?
-        let result = script.executeAndReturnError(&error)
+        let result = execute(script, error: &error)
         if let error {
             return (false,
                     error[NSAppleScript.errorNumber] as? Int,

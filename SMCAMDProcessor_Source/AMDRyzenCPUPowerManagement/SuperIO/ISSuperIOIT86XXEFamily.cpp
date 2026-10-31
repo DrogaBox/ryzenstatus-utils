@@ -37,6 +37,7 @@ ISSuperIOIT86XXEFamily::ISSuperIOIT86XXEFamily(int psel, uint16_t addr, uint16_t
     // Enable 16-bit fan tachometer mode for all 6 fans only when the caller
     // is privileged (same gate as NCT67XX/NCT668X in initSuperIO).
     if (allowUnlock) {
+        tach16BitRequested = true;
         writeByte(0x0c, static_cast<uint8_t>(readByte(0x0c) | 0x3f));
     }
 
@@ -263,6 +264,19 @@ void ISSuperIOIT86XXEFamily::overrideFanControl(int fan, uint8_t thr)
     }
     writeByte(regPwmCtrl[fan], static_cast<uint8_t>(fanDefaultControlMode[fan] & 0x7F));
     writeByte(kFAN_PWM_CTRL_EXT_REGS[fan], thr);
+}
+
+// Linux it87_resume() re-runs it87_init_device(), whose job here is the
+// 16-bit counters: firmware that resets them on wake leaves the 8-bit
+// counters, which saturate and read slow fans wrong until the next reboot.
+void ISSuperIOIT86XXEFamily::resume()
+{
+    if (!tach16BitRequested)
+        return;
+    const uint8_t mode = readByte(0x0c);
+    if ((mode & 0x3f) != 0x3f) {
+        writeByte(0x0c, static_cast<uint8_t>(mode | 0x3f));
+    }
 }
 
 void ISSuperIOIT86XXEFamily::setDefaultFanControl(int fan)

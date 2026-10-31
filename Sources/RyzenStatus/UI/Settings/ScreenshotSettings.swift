@@ -159,7 +159,7 @@ struct ScreenshotCaptureSettings: View {
                 Text(strings.highlightWindowsCaption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                DisclosureGroup {
+                HeaderDisclosureGroup {
                     Toggle(strings.loupeStartsOnToggle, isOn: $loupeStartsOn)
                     Toggle(strings.loupeRememberZoomToggle, isOn: $rememberLoupeZoom)
                     if !rememberLoupeZoom {

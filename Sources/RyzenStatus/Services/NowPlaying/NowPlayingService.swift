@@ -45,8 +45,10 @@ final class NowPlayingService: ObservableObject {
     var statusItemButton: NSStatusBarButton? { statusItem?.button }
 
     @Published private(set) var snapshot = NowPlayingSnapshot.empty
-    /// Bumped after every finished poll, whatever it found, so a one-off
-    /// reader can tell "nothing is playing" from "not read yet".
+    /// One once a poll has finished, whatever it found, so a one-off reader
+    /// (the radial menu) can tell "nothing is playing" from "not read yet".
+    /// Set on the first reading only: bumping it on every poll would redraw
+    /// every observer every two seconds.
     @Published private(set) var completedReadings = 0
     /// Polling is running and has answered at least once.
     var hasCurrentReading: Bool { timer != nil && completedReadings > 0 }
@@ -112,6 +114,14 @@ final class NowPlayingService: ObservableObject {
     private var lastFingerprintedData: Data?
     private var lastArtworkIdentity = ""
     private var cancellables = Set<AnyCancellable>()
+    /// Lock, sleep and console state, seeded when observing starts. Polls
+    /// and the marquee wait while nobody can see the item or the island.
+    private var session = NotchSessionState()
+    private var sessionObservers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
+    private var statusItemOcclusionObserver: NSObjectProtocol?
+    /// The marquee's next redraw after a hold; one at a time.
+    private var marqueeHoldWork: DispatchWorkItem?
+    private var automationCheckGeneration = UUID()
 
     /// Free ids in the app's shared Carbon hotkey table: 25 popover,
     /// 26 detached window.
@@ -155,6 +165,7 @@ final class NowPlayingService: ObservableObject {
     func unregisterConsumer(_ consumer: Consumer) {
         activeConsumers.remove(consumer)
         if consumer == .menuBar {
+            removeStatusItemOcclusionObserver()
             if let statusItem {
                 NSStatusBar.system.removeStatusItem(statusItem)
             }
@@ -216,12 +227,14 @@ final class NowPlayingService: ObservableObject {
                 MediaRemoteBridge.triggerTCCPrompt(for: NowPlayingAutomation.musicBundleID)
             }
         }
+        installSessionObservers()
         poll()
         let t = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.poll()
         }
         t.tolerance = 0.5
         RunLoop.main.add(t, forMode: .common)
+        if !session.canPresent { t.fireDate = .distantFuture }
         timer = t
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(appLaunchedOrTerminated), name: NSWorkspace.didLaunchApplicationNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(appLaunchedOrTerminated), name: NSWorkspace.didTerminateApplicationNotification, object: nil)
@@ -229,6 +242,7 @@ final class NowPlayingService: ObservableObject {
 
     func stop() {
         activeConsumers.removeAll()
+        removeStatusItemOcclusionObserver()
         if let statusItem {
             NSStatusBar.system.removeStatusItem(statusItem)
         }
@@ -268,6 +282,7 @@ final class NowPlayingService: ObservableObject {
     // MARK: - Reading
 
     private func poll() {
+        guard session.canPresent else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard now - lastPollStartedAt >= 2.0 else { return }
         lastPollStartedAt = now
@@ -277,21 +292,14 @@ final class NowPlayingService: ObservableObject {
 
         if MediaRemoteBridge.readsBlockedBySystem {
             NowPlayingAutomation.fetchSnapshot(provider: provider, queue: queue) { [weak self] snapshot in
+                var next = snapshot
+                next.sampledAt = Date()
                 DispatchQueue.main.async {
                     guard let self, self.timer != nil, gen == self.pollGeneration else { return }
-                    var next = snapshot
                     if !provider.accepts(next.appBundleID) {
                         next = .empty
                     }
-                    if next != self.snapshot {
-                        self.snapshot = next
-                        self.artworkImage = next.artwork
-                        self.artworkIdentity = self.artworkIdentity(for: next.artworkData)
-                        NowPlayingAnimatedArtworkCenter.shared.sync(with: next)
-                        self.syncIslandFeed()
-                    }
-                    self.completedReadings &+= 1
-                    self.renderMenuBar()
+                    self.apply(next)
                 }
             }
             return
@@ -321,6 +329,7 @@ final class NowPlayingService: ObservableObject {
                     next.isShuffleEnabled = modes.shuffle
                     next.repeatMode = modes.repeatMode
                 }
+                next.sampledAt = Date()
                 DispatchQueue.main.async {
                     guard let self, self.timer != nil, gen == self.pollGeneration else { return }
                     // A pinned provider filters the session out entirely:
@@ -328,28 +337,36 @@ final class NowPlayingService: ObservableObject {
                     if !provider.accepts(bundleID) {
                         next = .empty
                     }
-                    if next != self.snapshot {
-                        self.snapshot = next
-                        self.artworkImage = next.artwork
-                        self.artworkIdentity = self.artworkIdentity(for: next.artworkData)
-                        NowPlayingAnimatedArtworkCenter.shared.sync(with: next)
-                        self.syncIslandFeed()
-                    }
-                    self.completedReadings &+= 1
-                    self.renderMenuBar()
+                    self.apply(next)
                 }
             }
         }
     }
 
+    /// One finished reading. A reading the published one already predicts
+    /// (the same song, the playhead where its clock puts it) publishes
+    /// nothing; the cover is decoded again only when its bytes change.
+    private func apply(_ next: NowPlayingSnapshot) {
+        if !NowPlayingSnapshot.continues(snapshot, with: next) {
+            let identity = artworkIdentity(for: next.artworkData)
+            snapshot = next
+            if identity != artworkIdentity {
+                artworkImage = next.artwork
+                artworkIdentity = identity
+            }
+            NowPlayingAnimatedArtworkCenter.shared.sync(with: next)
+            syncIslandFeed()
+        }
+        if completedReadings == 0 { completedReadings = 1 }
+        renderMenuBar()
+    }
+
     /// The fingerprint for the current artwork data, memoized on the bytes
-    /// themselves (count + first 64B match the last hashed buffer) so the
+    /// themselves (the whole buffer matches the last hashed one) so the
     /// 12×12 downscale is only computed once per real artwork change.
     private func artworkIdentity(for data: Data?) -> String {
         guard let data, !data.isEmpty else { return "" }
-        if let last = lastFingerprintedData,
-           last.count == data.count,
-           last.prefix(64) == data.prefix(64) {
+        if let last = lastFingerprintedData, last == data {
             return lastArtworkIdentity
         }
         let identity = NowPlayingSnapshot.artworkFingerprint(of: data)
@@ -554,7 +571,9 @@ final class NowPlayingService: ObservableObject {
         let pid = snapshot.appBundleID.flatMap {
             NSRunningApplication.runningApplications(withBundleIdentifier: $0).first?.processIdentifier
         }
-        guard let next = NowPlayingPlayback.make(from: snapshot, pid: pid, sampledAt: Date()) else {
+        // The reading's own clock, so a feed derived later still places the
+        // playhead where the song is now.
+        guard let next = NowPlayingPlayback.make(from: snapshot, pid: pid, sampledAt: snapshot.sampledAt ?? Date()) else {
             if playback != nil {
                 // Sent first, so the island lets the ending song go as itself.
                 trackEnds.send()
@@ -562,6 +581,7 @@ final class NowPlayingService: ObservableObject {
                 artworkTint = nil
                 tintIdentity = ""
                 automationAvailability = nil
+                automationCheckGeneration = UUID()
             }
             return
         }
@@ -585,6 +605,7 @@ final class NowPlayingService: ObservableObject {
         artworkTint = nil
         tintIdentity = ""
         automationAvailability = nil
+        automationCheckGeneration = UUID()
         upcoming = nil
         upcomingKey = ""
         upcomingGeneration = UUID()
@@ -635,40 +656,59 @@ final class NowPlayingService: ObservableObject {
     // MARK: - Scripting dictionaries
 
     /// Reads which scripting commands the playing app declares and whether
-    /// this app may send them. The dictionary is parsed once per app.
-    func refreshAutomation() {
+    /// this app may send them. The dictionary is parsed once per app; both
+    /// it and the permission check (which can block for a second) run on the
+    /// scripting queue. `force` drops the recent permission answer first, for
+    /// a person who asks to look again after changing it in System Settings.
+    func refreshAutomation(force: Bool = false) {
+        let generation = UUID()
+        automationCheckGeneration = generation
         guard let playback, let target = NowPlayingScripting.Target(playback) else {
             if automationAvailability != nil { automationAvailability = nil }
             return
         }
-        let capabilities: NowPlayingScriptingCapabilities?
-        if let cached = scriptingCapabilities[target.bundleURL] {
-            capabilities = cached
-        } else {
-            capabilities = NowPlayingScriptingCapabilities.load(bundleURL: target.bundleURL)
-            if scriptingCapabilities.count > 16 { scriptingCapabilities.removeAll() }
-            scriptingCapabilities[target.bundleURL] = .some(capabilities)
-        }
-        guard let capabilities else {
-            if automationAvailability != nil { automationAvailability = nil }
-            return
-        }
-        let next = NowPlayingScripting.Availability(target: target, capabilities: capabilities,
-                                                     access: NowPlayingScripting.access(to: target))
-        if next.target != automationAvailability?.target || next.access != automationAvailability?.access
-            || next.capabilities != automationAvailability?.capabilities {
-            automationAvailability = next
+        if force { NowPlayingScripting.forgetAccess(for: target.pid) }
+        let cached = scriptingCapabilities[target.bundleURL]
+        scriptingQueue.async { [weak self] in
+            let capabilities = cached ?? NowPlayingScriptingCapabilities.load(bundleURL: target.bundleURL)
+            let access: NowPlayingScripting.Access = capabilities == nil ? .unavailable : NowPlayingScripting.access(to: target)
+            DispatchQueue.main.async {
+                guard let self, self.automationCheckGeneration == generation else { return }
+                if cached == nil {
+                    if self.scriptingCapabilities.count > 16 { self.scriptingCapabilities.removeAll() }
+                    self.scriptingCapabilities[target.bundleURL] = .some(capabilities)
+                }
+                guard let capabilities else {
+                    if self.automationAvailability != nil { self.automationAvailability = nil }
+                    return
+                }
+                let next = NowPlayingScripting.Availability(target: target, capabilities: capabilities, access: access)
+                let current = self.automationAvailability
+                guard next.target != current?.target || next.access != current?.access
+                        || next.capabilities != current?.capabilities else { return }
+                self.automationAvailability = next
+                // Shuffle is read through the same consent, so it looks again.
+                if self.shuffleReading { self.refreshShuffle() }
+            }
         }
     }
 
+    /// Asks for consent off the main thread: the call waits for the person
+    /// to answer the system dialog, and the island and menu bar keep working.
     func requestAutomationAccess() {
-        guard let playback, let target = NowPlayingScripting.Target(playback) else { return }
+        guard !requestingAutomation, let playback, let target = NowPlayingScripting.Target(playback) else { return }
         requestingAutomation = true
-        let address = NSAppleEventDescriptor(processIdentifier: target.pid)
-        _ = AEDeterminePermissionToAutomateTarget(address.aeDesc, typeWildCard, typeWildCard, true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.requestingAutomation = false
-            self?.refreshAutomation()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let address = NSAppleEventDescriptor(processIdentifier: target.pid)
+            withExtendedLifetime(address) {
+                _ = AEDeterminePermissionToAutomateTarget(address.aeDesc, typeWildCard, typeWildCard, true)
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.requestingAutomation = false
+                NowPlayingScripting.forgetAccess(for: target.pid)
+                self.refreshAutomation()
+            }
         }
     }
 
@@ -834,7 +874,9 @@ final class NowPlayingService: ObservableObject {
                 guard let self else { return }
                 self.requestingShuffleAccess = false
                 guard self.shuffleReading else { return }
-                // The playback buttons share this consent, so they look again too.
+                // The playback buttons share this consent, so they look again
+                // too, past the answer remembered from before the question.
+                NowPlayingScripting.forgetAccess(for: available.target.pid)
                 self.refreshAutomation()
                 self.refreshShuffle()
             }
@@ -859,6 +901,69 @@ final class NowPlayingService: ObservableObject {
             button.imagePosition = .imageLeft
         }
         statusItem = item
+        // Behind the camera housing, in a full-screen Space without a menu
+        // bar, or switched off in the system's menu bar settings, the item is
+        // occluded and its text stops scrolling.
+        removeStatusItemOcclusionObserver()
+        if let window = item.button?.window {
+            statusItemOcclusionObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
+            ) { [weak self] _ in self?.renderMenuBar() }
+        }
+        renderMenuBar()
+    }
+
+    private func removeStatusItemOcclusionObserver() {
+        if let statusItemOcclusionObserver { NotificationCenter.default.removeObserver(statusItemOcclusionObserver) }
+        statusItemOcclusionObserver = nil
+    }
+
+    // MARK: - Session
+
+    /// Observed for the life of the app once polling first starts, so the
+    /// state is always current; seeded from the system before the first
+    /// notification, as the island does.
+    private func installSessionObservers() {
+        guard sessionObservers.isEmpty else { return }
+        session.onConsole = SessionActivity.shared.isActive
+        session.locked = (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool ?? false
+        func observe(_ center: NotificationCenter, _ name: Notification.Name,
+                     _ change: @escaping (inout NotchSessionState) -> Void) {
+            let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                let couldPresent = self.session.canPresent
+                change(&self.session)
+                if couldPresent != self.session.canPresent { self.sessionChanged() }
+            }
+            sessionObservers.append((center, token))
+        }
+        let workspace = NSWorkspace.shared.notificationCenter
+        observe(workspace, NSWorkspace.willSleepNotification) { $0.sleeping = true }
+        observe(workspace, NSWorkspace.didWakeNotification) { $0.sleeping = false }
+        observe(workspace, NSWorkspace.screensDidSleepNotification) { $0.displaysSleeping = true }
+        observe(workspace, NSWorkspace.screensDidWakeNotification) { $0.displaysSleeping = false }
+        observe(workspace, NSWorkspace.sessionDidResignActiveNotification) { $0.onConsole = false }
+        observe(workspace, NSWorkspace.sessionDidBecomeActiveNotification) { $0.onConsole = true }
+        let distributed = DistributedNotificationCenter.default()
+        observe(distributed, Notification.Name("com.apple.screenIsLocked")) { $0.locked = true }
+        observe(distributed, Notification.Name("com.apple.screenIsUnlocked")) { $0.locked = false }
+        // Reduce Motion switched on stops the scroll at once.
+        let options = workspace.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+                                            object: nil, queue: .main) { [weak self] _ in self?.renderMenuBar() }
+        sessionObservers.append((workspace, options))
+    }
+
+    /// Nobody can see the item or the island: no polls and no marquee until
+    /// someone can, then one reading at once.
+    private func sessionChanged() {
+        guard let timer else { return }
+        if session.canPresent {
+            timer.fireDate = Date().addingTimeInterval(2)
+            lastPollStartedAt = 0
+            poll()
+        } else {
+            timer.fireDate = .distantFuture
+        }
         renderMenuBar()
     }
 
@@ -897,8 +1002,12 @@ final class NowPlayingService: ObservableObject {
 
         // The marquee advances its state machine here; the returned offset
         // joins the render key so every scroll step repaints the item.
-        let marqueeOffset = updateMarquee(text: text,
-                                          enabled: defaults.bool(forKey: DefaultsKey.nowPlayingMarquee))
+        let scrolls = NowPlayingMarqueeEngine.scrolls(
+            setting: defaults.bool(forKey: DefaultsKey.nowPlayingMarquee),
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+            itemVisible: button.window.map { $0.occlusionState.contains(.visible) } ?? true,
+            sessionActive: session.canPresent)
+        let marqueeOffset = updateMarquee(text: text, enabled: scrolls)
 
         let progressStr = progress != nil ? String(Int(progress! * 100)) : "-"
         let appearance = button.effectiveAppearance.name.rawValue
@@ -922,7 +1031,7 @@ final class NowPlayingService: ObservableObject {
     }
 
     private var progressFraction: Double? {
-        guard let elapsed = snapshot.elapsed, let duration = snapshot.duration,
+        guard let elapsed = snapshot.position(at: Date()), let duration = snapshot.duration,
               duration > 0 else { return nil }
         return max(0, min(1, elapsed / duration))
     }
@@ -950,11 +1059,17 @@ final class NowPlayingService: ObservableObject {
             startMarqueeTimer()
         } else {
             stopMarqueeTimer()
+            // One pending redraw at a time: polls during a hold would
+            // otherwise stack a chain of them.
+            marqueeHoldWork?.cancel()
+            marqueeHoldWork = nil
             if let delay = result.nextHoldDelay {
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                    guard let self else { return }
-                    self.renderMenuBar()
+                let work = DispatchWorkItem { [weak self] in
+                    self?.marqueeHoldWork = nil
+                    self?.renderMenuBar()
                 }
+                marqueeHoldWork = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
             }
         }
         return result.offset
@@ -977,6 +1092,8 @@ final class NowPlayingService: ObservableObject {
 
     private func stopMarquee() {
         stopMarqueeTimer()
+        marqueeHoldWork?.cancel()
+        marqueeHoldWork = nil
         marqueeEngine.reset()
     }
 

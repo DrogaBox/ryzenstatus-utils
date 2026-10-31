@@ -225,7 +225,8 @@ final class NotchMascotAutomation: ObservableObject {
                 let limit = model.pmTableBox.decoded.map { Double($0.summary.pptLimitW) }
                 return (rpm, model.lastCPUPowerWatts, limit)
             }.value
-            guard let self else { return }
+            // Stopped meanwhile: a newer read, if any, owns the handle and the values.
+            guard let self, !Task.isCancelled else { return }
             self.hardwareRead = nil
             self.fanShare = rpm.map(NotchMascotHardware.fanShare)
             self.powerShare = NotchMascotHardware.powerShare(watts: watts, limit: limit)

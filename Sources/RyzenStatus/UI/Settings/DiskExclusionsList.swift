@@ -106,6 +106,7 @@ struct DiskExclusionsList: View {
                         .monospacedDigit()
                 }
             }
+            .disclosureHeader(isExpanded: $isExpanded)
         }
     }
 

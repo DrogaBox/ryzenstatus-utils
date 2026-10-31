@@ -148,7 +148,7 @@ struct RadialMenuSettings: View {
                     }
                 }
 
-                DisclosureGroup(showList ? text.hideListButton : text.showListButton, isExpanded: $showList) {
+                HeaderDisclosureGroup(showList ? text.hideListButton : text.showListButton, isExpanded: $showList) {
                     if let openSubmenu {
                         Button {
                             openSubmenuID = nil

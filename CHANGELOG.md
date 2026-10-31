@@ -1,5 +1,85 @@
 # Changelog
 
+## [1.73.0] — 2026-10-31 — kexts 3.38.0 (No kext changes)
+
+This release is a full review of the app around the driver: fan and power writes run in order and report what really happened, the dashboards stop sampling when nobody is looking, and the island, the companions and Now Playing use less energy and work better with Reduce Motion, VoiceOver and a locked screen.
+
+### Added
+
+- **Repair permissions** (Settings > Advanced): after an update, macOS can leave the microphone, system audio, camera, calendars or Automation switched on but no longer working for the new version. This ties the permissions you already gave back to the installed version, without granting anything new. It needs Full Disk Access.
+- **GPU fan speed**: the speed your graphics card's driver reports for its fan now shows on the Sensors page and in the panel's GPU details. It cannot be set from macOS; the card's firmware runs it.
+
+### Fixed
+
+- **Manual fans stay manual**: a fan you set by hand no longer falls back to the BIOS curve after a curve upload or a reconnect, and it gets its duty back after one.
+- **Fan, power and overclocking writes run in order**: mode switches, manual duties, curves and fan mappings go through one ordered chain off the main thread, and so do PBO, cHTC, overclocking and Curve Optimizer writes. A write is never dropped because a sync was running, and every failure is reported and followed by a fresh read.
+- **Curve Optimizer**: Apply all and Reset write only the cores that differ from the last good readback, and a failed read shows "—" instead of zeros.
+- **Honest results**: EPP is no longer sent to a driver that ignores it, and the settings say so. P-state writes that are refused or ignored are reverted and reported.
+- **Fan curve editor**: points stay between their neighbours, unsaved edits and curves in use ask before they are thrown away, and a curve that was not saved says so.
+- **Process inspector**: Force Quit checks that it is still the same process before it acts, and says when the process could not be stopped. The path, the CPU reading and the description no longer show invented values, and the inspector is now translated.
+- **Missing values show "—"**: the dashboards no longer invent a CPU percentage, clocks, power or 16 GB of VRAM when a reading is missing.
+- **Hardware alerts**: the thermal and power alerts play their sound only when the island shows them, the power alert needs three readings in a row, and the fan stall alert can now fire.
+- **Now Playing**: scripts to the music apps run one at a time, lyrics and animated artwork no longer race, and the animated cover pauses when it cannot be seen. A leave reminder that could not show is tried again.
+- **The island opens smoothly**, without the small jump at the end.
+- **Companions**: saved progress and gold survive damaged or older preferences and are written at once when spent, and a display change that briefly leaves no screen no longer trips up a companion out on the desktop.
+
+### Changed
+
+- **Less work in the background**: the Settings pages, the dashboard and the panel's core grid sample only while they are on screen, and one shared 3 s driver poll serves all of them. Now Playing polling and the companions' background life pause while the screen is locked or asleep. Network rates use 64-bit counters.
+- **One process listing**: the process manager and the rankings share one `ps` run, and memory is the resident size everywhere.
+- **Reduce Motion and Low Power Mode**: the companions hold still, the animated cover and the title marquee stop, and the popup snaps instead of animating.
+- **Accessibility**: labels and values for the core rings, the AMD pickers, the column toggles, the charts and the fan curve points; the Now Playing popup has actions, and Esc closes the detached window.
+- **Collapsible sections open from their whole header**, not just the small arrow.
+- **Monitor intervals** are 1, 2 and 5 seconds; a shorter saved interval becomes 1 s.
+- **Translations**: the new and changed texts are in all 15 languages.
+
+## [1.72.0] — 2026-10-31 — kexts 3.38.0
+
+This release makes the driver safer for every other app on the system and lets the CPU rest while nobody is watching. It also publishes the power of the CPU cores to other apps.
+
+> [!WARNING]
+> **This release updates the kexts.** `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` move from 3.37.0 to **3.38.0**. Replace both together in `EFI/OC/Kexts/` and reboot.
+
+### Added
+
+- **CPU cores power in other apps**: `SMCAMDProcessor.kext` publishes the summed power of the CPU cores as the `PC0C` and `PCPC` SMC keys, the ones iStat Menus, Stats and HWMonitor show as CPU cores power.
+
+### Fixed
+
+- **Instruction counts no longer freeze**: when a core's instructions-retired counter wrapped, its count stopped updating for hours; the driver now carries the wrap.
+- **Floating-point registers of other apps**: the driver's once-a-second sample interrupts every CPU, and it did some of its math with floating-point registers while there. xnu does not save an interrupted program's floating-point registers for that, so a busy app could find one of its values changed. All of that math now runs afterwards on the driver's own thread, and a new check on the built kext fails if floating point ever comes back to those paths.
+- **Load alert no longer freezes the app**: when the driver reported problems at load, the alert held the app's sampling until it was dismissed. It now opens on its own thread.
+
+### Changed
+
+- **The CPU rests when nothing is watching**: with no app reading the per-core data for 10 seconds, the driver stops interrupting every core. Package temperature, power and fan control keep running, and full sampling is back within half a second when an app asks again. The first reading after a pause is a fresh one, never an average over the pause.
+- **Less busy waiting**: SMU and GPU mailbox commands that take longer than a millisecond now wait with the CPU free instead of spinning for up to 25 ms.
+- **Timers that coalesce**: the driver's periodic timers allow a small leeway, so macOS can group them with other wakeups.
+- **Fan speeds for SMC readers come from a lock-free cache**, so an SMC read never waits behind the fan chip.
+
+## [1.71.0] — 2026-10-31 — kexts 3.37.0
+
+This release adds per-core power and puts the core voltage in the SMC. It also keeps the fans right after sleep, and the driver wakes the CPU far less often while the app is open.
+
+> [!WARNING]
+> **This release updates the kexts.** `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` move from 3.36.1 to **3.37.0**. Replace both together in `EFI/OC/Kexts/` and reboot.
+
+### Added
+
+- **Power of every core**: the driver reads each core's own energy counter, the one Linux turbostat and zenpower read, and the Sensors page lists the watts of every core with their total under the CCD temperatures.
+- **Core voltage in other apps**: `SMCAMDProcessor.kext` publishes the core voltage as the `VC0C` SMC key, so iStat Menus, Stats and HWMonitor show it too. It appears only on CPUs whose voltage the driver can read (Zen to Zen 3).
+
+### Fixed
+
+- **Fans after sleep**: firmware can put the Super I/O chip back to its power-on state on wake. On ITE chips that switched the tachometers to a mode that misreads slow fans, and on Nuvoton chips it could lock the fan registers again. The driver now redoes its chip setup after every wake, re-reads the fans and re-applies the fan curves at once, as Linux does.
+- **Log noise**: a failed package energy read is logged once per boot instead of on every sample.
+
+### Changed
+
+- **Far fewer CPU wakeups**: the driver mistook the dozen calls of one app refresh for a client asking every few milliseconds, so it sampled every CPU about five times a second while the app was open. It now samples about as often as the app actually refreshes.
+- **Less SMU traffic**: the SMU's metrics table is copied to memory only while the AMD Power page is reading it, instead of every second.
+- **Fewer fan register writes**: a fan curve whose speed has not changed is written to the chip every 5 seconds instead of twice a second.
+
 ## [1.70.1] — 2026-10-31 — kexts 3.36.1
 
 This release makes the fan speeds and the SoC voltage that came with kexts 3.36.0 show up where they should.

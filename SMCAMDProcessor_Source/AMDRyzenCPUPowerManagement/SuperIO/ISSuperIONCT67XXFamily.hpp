@@ -87,6 +87,12 @@ public:
 
     void overrideFanControl(int fan, uint8_t thr) override;
     void setDefaultFanControl(int fan) override;
+    void resume() override;
+
+    // The probe cleared the hardware-monitor I/O-space lock (privileged
+    // callers, NCT6791D and later); resume() clears it again if firmware
+    // set it back on wake.
+    bool ioSpaceUnlockRequested = false;
 
     uint8_t readReg(uint16_t reg) override { return readByte(reg); }
     void writeReg(uint16_t reg, uint8_t val) override { writeByte(reg, val); }

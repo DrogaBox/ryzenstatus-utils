@@ -48,6 +48,9 @@ struct PerformanceSuiteView: View {
     @State private var cachedAdapters: [NetworkAdapterInfo] = []
     @State private var lastAdaptersRefresh = Date.distantPast
     @State private var refreshInFlight = false
+    /// On screen in a visible Settings window; no process or adapter work
+    /// runs otherwise.
+    @State private var isActive = false
     /// Observed mirror of the three PM-column toggle keys. Plain
     /// UserDefaults writes don't re-render SwiftUI, so the toggles bump
     /// this counter to repaint the grid instantly (the popover's own
@@ -61,7 +64,6 @@ struct PerformanceSuiteView: View {
     /// or undecodable table versions — the whole section then stays hidden.
     @ObservedObject private var amdControls = AmdPowerControlsModel.shared
     @Environment(\.colorScheme) private var colorScheme
-    @State private var amdSyncTimer: Timer?
 
     init(monitor: SystemMonitor) {
         self.monitor = monitor
@@ -95,12 +97,13 @@ struct PerformanceSuiteView: View {
                 Spacer()
 
                 if availableTabs.count > 1 {
-                    Picker("", selection: $selectedTab) {
+                    Picker(strings.title, selection: $selectedTab) {
                         ForEach(availableTabs) { tab in
                             Text(tab.localizedTitle(strings: strings)).tag(tab)
                         }
                     }
                     .pickerStyle(.segmented)
+                    .labelsHidden()
                     .frame(maxWidth: 540)
                 }
             }
@@ -128,21 +131,15 @@ struct PerformanceSuiteView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onAppear {
-            SystemMonitor.shared.panelDidAppear()
+        // The monitor client and the shared 3 s kext poll (which keeps the
+        // SMU decode fresh) run only while the page is on screen in a
+        // visible Settings window; so do the process and adapter refreshes.
+        .settingsPageActivity(.performanceSuite, activate: {
+            isActive = true
             refreshData()
-            // Keep the SMU decode fresh while the dashboard is visible
-            // (same 3 s cadence as the AMD panel section; torn down on exit).
-            Task { await amdControls.syncFromKext() }
-            amdSyncTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
-                Task { await amdControls.syncFromKext() }
-            }
-        }
-        .onDisappear {
-            SystemMonitor.shared.panelDidDisappear()
-            amdSyncTimer?.invalidate()
-            amdSyncTimer = nil
-        }
+        }, deactivate: {
+            isActive = false
+        })
         .onChange(of: selectedTab) { _, _ in
             refreshData()
         }
@@ -163,7 +160,7 @@ struct PerformanceSuiteView: View {
         VStack(spacing: 14) {
             // CPU brand hardware caption
             HStack {
-                Text(Self.cpuBrandSubtitle)
+                Text(cpuBrandSubtitle)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.secondary)
                 Spacer()
@@ -182,7 +179,7 @@ struct PerformanceSuiteView: View {
             }
 
             // Activity Monitor Matrix & Process Manager
-            BTopDashboardView(monitor: monitor, showCpuOverview: amdControls.pmTableDecoded == nil)
+            BTopDashboardView(monitor: monitor, showCpuOverview: amdControls.pmTableDecoded == nil, isActive: isActive)
         }
     }
 
@@ -191,16 +188,18 @@ struct PerformanceSuiteView: View {
     private func headlineMetricCardsGrid(strings: PerformanceSuiteFeatureStrings) -> some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
             // Card 1: CPU Total
-            let cpuVal = (monitor.snapshot.cpuUsage ?? 0.0) * 100.0
+            let dash = l10n.dashboard
+            // No reading yet (launch, wake) is a dash, never 0 %.
+            let cpuVal = monitor.snapshot.cpuUsage.map { String(format: "%.1f%%", $0 * 100.0) } ?? "—"
             let cpuTemp = monitor.snapshot.cpuTemperature
             let cpuPwr = monitor.snapshot.cpuPower
             let cpuThreads = ProcessInfo.processInfo.processorCount
-            let cpuCores = max(1, cpuThreads / 2)
+            let cpuCores = SystemMonitor.hostPhysicalCoreCount
             let tempUnit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
             let cpuColor = PanelMetricColor.cyan(for: colorScheme)
             suiteMetricCard(
                 title: strings.cpuTotal,
-                value: String(format: "%.1f%%", cpuVal),
+                value: cpuVal,
                 subtitle: cpuTemp.map { MetricFormat.temperatureCompact($0, unit: tempUnit) } ?? "—",
                 extraInfo: cpuPwr.map { String(format: "%.1f W", $0) } ?? "\(cpuCores)C / \(cpuThreads)T",
                 accentColor: cpuColor,
@@ -209,12 +208,15 @@ struct PerformanceSuiteView: View {
             )
 
             // Card 2: Memory Footprint (RAM Used)
-            let usedRAM = monitor.snapshot.memoryUsed.map { Double($0) / 1_073_741_824.0 }
-            let totalRAM = monitor.snapshot.memoryTotal.map { Double($0) / 1_073_741_824.0 }
-            let ramPct = (usedRAM != nil && totalRAM != nil && totalRAM! > 0) ? (usedRAM! / totalRAM! * 100.0) : 0.0
-            let valStr = usedRAM.map { String(format: "%.1f GB", $0) } ?? "—"
-            let subStr = usedRAM != nil ? String(format: "%.0f%% Used", ramPct) : "—"
-            let extraStr = totalRAM.map { String(format: "%.1f GB Total", $0) } ?? "—"
+            let usedRAM = monitor.snapshot.memoryUsed
+            let totalRAM = monitor.snapshot.memoryTotal
+            let valStr = usedRAM.map { MetricFormat.bytes($0) } ?? "—"
+            let subStr: String = {
+                guard let usedRAM, let totalRAM, totalRAM > 0 else { return "—" }
+                let pct = String(format: "%.0f%%", Double(usedRAM) / Double(totalRAM) * 100.0)
+                return String(format: dash.memoryUsedPercentFormat, pct)
+            }()
+            let extraStr = totalRAM.map { String(format: dash.memoryTotalFormat, MetricFormat.bytes($0)) } ?? "—"
             let memColor = PanelMetricColor.purple(for: colorScheme)
             suiteMetricCard(
                 title: strings.memoryFootprint,
@@ -230,14 +232,14 @@ struct PerformanceSuiteView: View {
             let gpuVal = monitor.snapshot.gpuUsage.map { String(format: "%.1f%%", $0 * 100.0) } ?? "—"
             let gpuTemp = monitor.snapshot.gpuTemperature
             let gpuPwr = monitor.snapshot.gpuPower
-            let gpuVRAMGB = monitor.snapshot.gpuMemoryTotal.map { Double($0) / 1_073_741_824.0 }
+            let gpuVRAM = monitor.snapshot.gpuMemoryTotal
             let gpuColor = PanelMetricColor.orange(for: colorScheme)
             suiteMetricCard(
                 title: "GPU",
                 value: gpuVal,
                 subtitle: gpuTemp.map { MetricFormat.temperatureCompact($0, unit: tempUnit) } ?? "—",
                 extraInfo: gpuPwr.map { String(format: "%.1f W", $0) }
-                    ?? gpuVRAMGB.map { String(format: "%.0f GB VRAM", $0) }
+                    ?? gpuVRAM.map { String(format: dash.vramTotalFormat, MetricFormat.bytes($0)) }
                     ?? "—",
                 accentColor: gpuColor,
                 history: monitor.snapshot.gpuHistory.map { Double($0) * 100.0 },
@@ -252,18 +254,20 @@ struct PerformanceSuiteView: View {
             let netColor = PanelMetricColor.green(for: colorScheme)
             suiteMetricCard(
                 title: strings.networkIO,
-                value: formatOptionalBytes(netDown),
-                subtitle: "↓ " + formatOptionalBytes(netDown),
-                extraInfo: "↑ " + formatOptionalBytes(netUp),
+                value: "↓ " + rate(netDown),
+                subtitle: "↑ " + rate(netUp),
+                extraInfo: "",
                 accentColor: netColor,
                 history: netHistory,
-                maxDomain: maxNet
+                maxDomain: maxNet,
+                summaryFormat: { MetricFormat.networkRate($0) }
             )
         }
     }
 
     @ViewBuilder
-    private func suiteMetricCard(title: String, value: String, subtitle: String, extraInfo: String, accentColor: Color, history: [Double], maxDomain: Double) -> some View {
+    private func suiteMetricCard(title: String, value: String, subtitle: String, extraInfo: String, accentColor: Color, history: [Double], maxDomain: Double,
+                                 summaryFormat: @escaping (Double) -> String = { String(format: "%.0f%%", $0) }) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(title)
@@ -290,6 +294,8 @@ struct PerformanceSuiteView: View {
                 .frame(height: 36)
         }
         .suiteCard(padding: 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(historySummary(history, format: summaryFormat))
     }
 
     // MARK: - 1b. SMU PM-table Telemetry
@@ -304,7 +310,7 @@ struct PerformanceSuiteView: View {
         let amdStrings = L10n.shared.amdPower
         let tempUnit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
         let presentCores = decoded.cores.filter { $0.isPresent }
-        let corePeak = presentCores.map { Double($0.tempC) }.max() ?? 0
+        let corePeak = presentCores.map { Double($0.tempC) }.max()
         let activeCount = presentCores.filter { !$0.isSleeping }.count
         let clockColor = PanelMetricColor.cyan(for: colorScheme)
 
@@ -332,7 +338,8 @@ struct PerformanceSuiteView: View {
                 smuMetricCard(
                     title: amdStrings.packageTempLabel,
                     value: MetricFormat.temperatureCompact(Double(decoded.summary.thmValueC), unit: tempUnit),
-                    extraInfo: String(format: "core %.0f °C", corePeak),
+                    extraInfo: corePeak.map { String(format: l10n.dashboard.hottestCoreFormat,
+                                                     MetricFormat.temperatureCompact($0, unit: tempUnit)) } ?? "",
                     accentColor: PanelMetricColor.orange(for: colorScheme),
                     history: amdControls.packageTempHistory,
                     maxDomain: 100.0
@@ -351,19 +358,19 @@ struct PerformanceSuiteView: View {
                 smuColumnToggle("bolt.fill", color: .yellow,
                                 isOn: Binding(get: { UserDefaults.standard.bool(forKey: DefaultsKey.showPmCoreVoltage) },
                                               set: { UserDefaults.standard.set($0, forKey: DefaultsKey.showPmCoreVoltage); pmColumnsRevision += 1 }),
-                                help: "Per-core voltage (SMU)")
+                                help: l10n.dashboard.pmVoltageHelp)
                 smuColumnToggle("cpu", color: .green,
                                 isOn: Binding(get: { UserDefaults.standard.bool(forKey: DefaultsKey.showPmCoreC0) },
                                               set: { UserDefaults.standard.set($0, forKey: DefaultsKey.showPmCoreC0); pmColumnsRevision += 1 }),
-                                help: "C0 residency (%)")
+                                help: l10n.dashboard.pmC0Help)
                 smuColumnToggle("moon.zzz.fill", color: .purple,
                                 isOn: Binding(get: { UserDefaults.standard.bool(forKey: DefaultsKey.showPmCoreCC6) },
                                               set: { UserDefaults.standard.set($0, forKey: DefaultsKey.showPmCoreCC6); pmColumnsRevision += 1 }),
-                                help: "CC6 residency (%)")
+                                help: l10n.dashboard.pmCC6Help)
                 Spacer()
                 if presentCores.contains(where: { $0.isSleeping }) {
                     // Sleeping legend — mirrors the disclosure's dash cell.
-                    Text("— park").font(.system(size: 8, weight: .medium, design: .monospaced)).foregroundColor(.secondary)
+                    Text(l10n.dashboard.coreParkedLegend).font(.system(size: 8, weight: .medium, design: .monospaced)).foregroundColor(.secondary)
                 }
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
@@ -437,8 +444,10 @@ struct PerformanceSuiteView: View {
         .padding(.vertical, 3)
         .background(RoundedRectangle(cornerRadius: 4)
             .fill(Color.primary.opacity(colorScheme == .dark ? 0.06 : 0.04)))
-        .help(String(format: "core %02d · %.0f MHz eff · %.1f °C · %.2f W · C0 %.1f%% · CC6 %.1f%%",
-                     core.slot, core.freqMHz, core.tempC, core.powerW, core.c0Percent, core.cc6Percent))
+        .help(String(format: l10n.dashboard.coreLabelFormat, core.slot)
+              + String(format: " · %.0f MHz eff · ", core.freqMHz)
+              + MetricFormat.temperaturePrecise(Double(core.tempC), unit: tempUnit)
+              + String(format: " · %.2f W · C0 %.1f%% · CC6 %.1f%%", core.powerW, core.c0Percent, core.cc6Percent))
     }
 
     /// Icon-only column toggle — same language as the panel disclosure's
@@ -457,6 +466,8 @@ struct PerformanceSuiteView: View {
         }
         .buttonStyle(.plain)
         .help(help)
+        .accessibilityLabel(help)
+        .accessibilityAddTraits(isOn.wrappedValue ? .isSelected : [])
     }
 
     /// One SMU metric card mirroring `suiteMetricCard`'s anatomy at a smaller
@@ -484,6 +495,8 @@ struct PerformanceSuiteView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(historySummary(history, format: { String(format: "%.0f", $0) }))
     }
 
     /// Fabric clock readout (FCLK/UCLK/MEMCLK in MHz). Language-neutral
@@ -491,7 +504,7 @@ struct PerformanceSuiteView: View {
     @ViewBuilder
     private func smuFabricCard(fclk: Float, uclk: Float, memclk: Float) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Fabric (MHz)")
+            Text(l10n.dashboard.fabricClocksTitle)
                 .font(.system(size: 9, weight: .medium))
                 .foregroundColor(.secondary)
             HStack(spacing: 8) {
@@ -552,6 +565,7 @@ struct PerformanceSuiteView: View {
                                     .cornerRadius(5)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityAddTraits(selectedInsightFilter == filter ? .isSelected : [])
                         }
                     }
                 }
@@ -638,7 +652,7 @@ struct PerformanceSuiteView: View {
                     Text(strings.processColumn)
                         .font(.system(size: 12, weight: .semibold))
                     Spacer()
-                    Text("\(topProcesses.count) Active")
+                    Text(String(format: l10n.dashboard.processCountFormat, topProcesses.count))
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
@@ -659,7 +673,7 @@ struct PerformanceSuiteView: View {
 
                     ForEach(topProcesses.prefix(15)) { proc in
                         let entry = ProcessGlossary.resolve(name: proc.name, pid: proc.pid)
-                        let catName = entry.category.rawValue.capitalized
+                        let catName = categoryName(entry.category)
                         HStack {
                             Text("\(proc.pid)")
                                 .font(.system(size: 11, design: .monospaced))
@@ -739,7 +753,7 @@ struct PerformanceSuiteView: View {
 
                 // Chart 3: GPU Compute History
                 analyticsChartCard(
-                    title: "GPU Compute",
+                    title: l10n.dashboard.gpuCompute,
                     data: monitor.snapshot.gpuHistory.map { Double($0) * 100.0 },
                     lineColor: PanelMetricColor.orange(for: colorScheme),
                     yUnit: "%",
@@ -769,8 +783,10 @@ struct PerformanceSuiteView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.secondary)
                 Spacer()
-                let avg = data.isEmpty ? 0.0 : (data.reduce(0, +) / Double(data.count))
-                let avgText = isBytes ? (formatBytes(avg) + "/s") : String(format: "AVG: %.1f", avg) + yUnit
+                // An empty history has no average: a dash, not 0.
+                let format: (Double) -> String = { isBytes ? MetricFormat.networkRate($0) : String(format: "%.1f", $0) + yUnit }
+                let avgText = MetricSeriesSummary.summary(data)
+                    .map { String(format: l10n.dashboard.averageFormat, format($0.average)) } ?? "—"
                 Text(avgText)
                     .font(.system(size: 10, weight: .semibold))
                     .monospacedDigit()
@@ -782,7 +798,7 @@ struct PerformanceSuiteView: View {
                                inks: [.fixed(lineColor)],
                                gridFractions: [0.25, 0.5, 0.75, 1])
                 .overlay(alignment: .topLeading) {
-                    Text(isBytes ? formatBytes(maxDomain) + "/s" : String(format: "%.0f", maxDomain) + yUnit)
+                    Text(isBytes ? MetricFormat.networkRate(maxDomain) : String(format: "%.0f", maxDomain) + yUnit)
                         .font(.system(size: 9, weight: .medium))
                         .monospacedDigit()
                         .foregroundColor(.secondary)
@@ -791,6 +807,8 @@ struct PerformanceSuiteView: View {
                 .frame(height: 130)
         }
         .suiteCard(padding: 12)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(historySummary(data, format: { isBytes ? MetricFormat.networkRate($0) : String(format: "%.1f", $0) + yUnit }))
     }
 
     // MARK: - 4. Energy Tab Content
@@ -840,7 +858,7 @@ struct PerformanceSuiteView: View {
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
-                        Text(record.isApp ? "App" : "Daemon")
+                        Text(record.isApp ? l10n.dashboard.categoryApp : l10n.dashboard.categoryBackground)
                             .font(.system(size: 9, weight: .medium))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -906,7 +924,7 @@ struct PerformanceSuiteView: View {
                     Text(strings.rxColumn)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.secondary)
-                    Text(formatOptionalBytes(downRate))
+                    Text(rate(downRate))
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .foregroundColor(PanelMetricColor.cyan(for: colorScheme))
@@ -916,7 +934,7 @@ struct PerformanceSuiteView: View {
                     Text(strings.txColumn)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.secondary)
-                    Text(formatOptionalBytes(upRate))
+                    Text(rate(upRate))
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .foregroundColor(PanelMetricColor.green(for: colorScheme))
@@ -953,7 +971,7 @@ struct PerformanceSuiteView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(adapter.name)
                                     .font(.system(size: 12, weight: .semibold))
-                                Text("IP: \(adapter.ipAddress)")
+                                Text(String(format: l10n.dashboard.ipAddressFormat, adapter.ipAddress))
                                     .font(.system(size: 10))
                                     .foregroundColor(.secondary)
                             }
@@ -961,11 +979,11 @@ struct PerformanceSuiteView: View {
                             Spacer()
 
                             VStack(alignment: .trailing, spacing: 2) {
-                                Text("↓ " + formatOptionalBytes(adapter.rxBytesPerSec))
+                                Text("↓ " + rate(adapter.rxBytesPerSec))
                                     .font(.system(size: 10, weight: .semibold))
                                     .monospacedDigit()
                                     .foregroundColor(PanelMetricColor.cyan(for: colorScheme))
-                                Text("↑ " + formatOptionalBytes(adapter.txBytesPerSec))
+                                Text("↑ " + rate(adapter.txBytesPerSec))
                                     .font(.system(size: 10, weight: .semibold))
                                     .monospacedDigit()
                                     .foregroundColor(PanelMetricColor.green(for: colorScheme))
@@ -979,10 +997,12 @@ struct PerformanceSuiteView: View {
     }
 
     private func refreshData() {
-        guard !refreshInFlight else { return }
+        guard isActive, !refreshInFlight else { return }
         refreshInFlight = true
         let currentTab = selectedTab
-        let adaptersStale = Date().timeIntervalSince(lastAdaptersRefresh) >= 10
+        // The adapter rates are deltas between two scans, so a 2 s rescan
+        // keeps them close to live.
+        let adaptersStale = Date().timeIntervalSince(lastAdaptersRefresh) >= 2
         let cached = cachedAdapters
 
         Task.detached(priority: .userInitiated) {
@@ -1027,26 +1047,44 @@ struct PerformanceSuiteView: View {
                 if self.energyRecords != outEnergy {
                     self.energyRecords = outEnergy
                 }
-                if adaptersStale && self.networkAdapters != outAdapters {
-                    self.networkAdapters = outAdapters
+                if adaptersStale && currentTab == .network {
+                    // Stamped on every scan, changed or not, so an unchanged
+                    // list is not rescanned on every snapshot.
                     self.cachedAdapters = outAdapters
                     self.lastAdaptersRefresh = Date()
+                    if self.networkAdapters != outAdapters {
+                        self.networkAdapters = outAdapters
+                    }
                 }
                 self.refreshInFlight = false
             }
         }
     }
 
-    private func formatBytes(_ bytes: Double) -> String {
-        if bytes >= 1_073_741_824 { return String(format: "%.1f GB", bytes / 1_073_741_824.0) }
-        if bytes >= 1_048_576 { return String(format: "%.1f MB", bytes / 1_048_576.0) }
-        if bytes >= 1_024 { return String(format: "%.1f KB", bytes / 1_024.0) }
-        return String(format: "%.0f B", bytes)
+    /// A rate in the user's bits or bytes preference, or a dash when there
+    /// is no reading.
+    private func rate(_ value: Double?) -> String {
+        guard let value, value.isFinite, value >= 0 else { return "—" }
+        return MetricFormat.networkRate(value)
     }
 
-    private func formatOptionalBytes(_ bytes: Double?) -> String {
-        guard let bytes, bytes.isFinite, bytes >= 0 else { return "—" }
-        return formatBytes(bytes) + "/s"
+    /// The spoken summary of a history graph: average, peak and latest.
+    private func historySummary(_ values: [Double], format: (Double) -> String) -> String {
+        guard let summary = MetricSeriesSummary.summary(values) else { return "" }
+        return String(format: l10n.dashboard.chartSummaryFormat,
+                      format(summary.average), format(summary.peak), format(summary.last))
+    }
+
+    private func categoryName(_ category: ProcessCategory) -> String {
+        let dash = l10n.dashboard
+        switch category {
+        case .system: return dash.categorySystem
+        case .app: return dash.categoryApp
+        case .helper: return dash.categoryHelper
+        case .background: return dash.categoryBackground
+        case .developer: return dash.categoryDeveloper
+        case .security: return dash.categorySecurity
+        }
     }
 
     private func networkChartMax(_ values: [Double]) -> Double {
@@ -1054,7 +1092,13 @@ struct PerformanceSuiteView: View {
         return max(1.0, peak * 1.15)
     }
 
-    private static let cpuBrandSubtitle: String = {
+    private var cpuBrandSubtitle: String {
+        "\(Self.cpuBrandName)  ·  " + String(format: l10n.dashboard.cpuTopologyFormat,
+                                               SystemMonitor.hostPhysicalCoreCount,
+                                               ProcessInfo.processInfo.processorCount)
+    }
+
+    private static let cpuBrandName: String = {
         var size = 0
         sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0)
         let brandName: String = {
@@ -1066,9 +1110,7 @@ struct PerformanceSuiteView: View {
             }
             return "AMD Ryzen Processor"
         }()
-        let threads = ProcessInfo.processInfo.processorCount
-        let cores = max(1, threads / 2)
-        return "\(brandName)  ·  \(cores)-Core / \(threads)-Thread"
+        return brandName
     }()
 
     private func cardColor(for severity: InsightSeverity) -> Color {
@@ -1091,5 +1133,16 @@ struct PerformanceSuiteView: View {
 private extension String {
     func equalsIgnoreCase(_ other: String) -> Bool {
         return self.lowercased() == other.lowercased()
+    }
+}
+
+/// Average, peak and latest value of a history series, for the charts'
+/// spoken summaries and the average caption. Non-finite samples are ignored;
+/// nil for a series with no finite sample.
+enum MetricSeriesSummary {
+    static func summary(_ values: [Double]) -> (average: Double, peak: Double, last: Double)? {
+        let finite = values.filter(\.isFinite)
+        guard let last = finite.last, let peak = finite.max() else { return nil }
+        return (finite.reduce(0, +) / Double(finite.count), peak, last)
     }
 }

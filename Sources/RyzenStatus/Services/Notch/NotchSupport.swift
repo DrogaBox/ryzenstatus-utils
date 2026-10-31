@@ -2841,16 +2841,12 @@ enum NotchMotion {
                 let springW = spring(from: from.width, to: to.width, width: true, steady: false)
                 let p = springW.progress(at: time)
                 if widthDiff > 0 {
-                    // Expanding: in-flight squash followed by subtle landing impact
+                    // Expanding: a squash in flight; the spring's own overshoot is the landing.
                     if p > 0.05 && p < 0.85 {
                         let normalized = (p - 0.05) / 0.80
                         let squashFactor = sin(normalized * Double.pi) * 0.065
                         let targetH = result.height * CGFloat(1.0 - squashFactor)
                         result.height = max(min(from.height, to.height), targetH)
-                    } else if p >= 0.85 && p <= 1.25 {
-                        let impactNorm = (p - 0.85) / 0.40
-                        let impactFactor = sin(impactNorm * Double.pi) * 0.02
-                        result.height = result.height * CGFloat(1.0 + impactFactor)
                     }
                 } else {
                     // Contracting / collapsing:

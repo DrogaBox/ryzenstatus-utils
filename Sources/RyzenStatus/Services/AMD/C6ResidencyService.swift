@@ -5,64 +5,74 @@ import AppKit
 import Combine
 import Foundation
 
-/// Tracks the percentage of time the CPU package spends in the deepest
-/// C-state (C6) using the kext's accumulated residency counter
-/// (selector 31 — `ProcessorModel.getPackageC6Residency()`).
+/// Per-core idle residency for the menu panel's core grid (kext selector 32).
 ///
-/// The kext returns a cumulative `uint64` of microseconds; the percentage is
-/// derived from the delta between two samples divided by the elapsed uptime:
-///
-///     Δµs / (Δseconds * 1_000_000) * 100
+/// It polls only while a view that shows it is on screen (client-counted
+/// `startPolling()`/`stopPolling()`, the pattern `FanCurveController` uses).
+/// Every kext call restarts the kext's sampling, so a poll that never stops
+/// keeps the kext from ever entering its idle mode.
 @MainActor
 final class C6ResidencyService: ObservableObject {
     static let shared = C6ResidencyService()
-
-    /// Percentage of time in C6 over the last polling window (0–100).
-    @Published private(set) var percentage: Double = 0
 
     /// Per-core idle residency snapshot (KEXT_WAVE 1.20.0 C-1, selector 32).
     /// Index = logical core; value = % of the last window the CPU spent out of
     /// C0 (kext 3.36.0+: MPERF against the TSC, every Zen; older kexts: the
     /// driver's own idle-loop accounting, Zen 1/2 only). Empty when the kext
-    /// predates selector 32.
+    /// predates selector 32, is gone, or nothing has asked for it.
     @Published private(set) var coreResidency: [UInt16] = []
 
-    /// Per-core instructions-retired delta (KEXT_WAVE 1.20.0 C-2, selector 33).
-    /// Sampled on the same 1.5 s cadence; empty on old kexts.
-    @Published private(set) var coreInstRetired: [UInt32] = []
-
-    private var lastRaw: UInt64 = 0
-    private var lastTimestamp: TimeInterval = 0
     private var pollTask: Task<Void, Never>?
-    private var wakeObserver: Any?
+    /// Views showing the residency while they are on screen.
+    private var clients = 0
+    private var unloadObserver: Any?
     private static let pollInterval: TimeInterval = 1.5
 
     private init() {
-        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification,
+        unloadObserver = NotificationCenter.default.addObserver(
+            forName: ProcessorModel.kextUnloadedNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.resetBaseline()
+                self?.publish([])
             }
         }
     }
 
     deinit {
-        if let wakeObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        if let unloadObserver {
+            NotificationCenter.default.removeObserver(unloadObserver)
         }
     }
 
-    /// Starts the background poller. Idempotent — call once at launch.
-    func start() {
+    /// A view showing the residency calls this when it appears, and
+    /// `stopPolling()` when it goes away.
+    func startPolling() {
+        clients += 1
+        updateLoop()
+    }
+
+    func stopPolling() {
+        clients = max(0, clients - 1)
+        updateLoop()
+    }
+
+    /// Stops the poller. Called on termination.
+    func stop() {
+        pollTask?.cancel()
+        pollTask = nil
+    }
+
+    private func updateLoop() {
+        guard clients > 0 else {
+            stop()
+            return
+        }
         guard pollTask == nil else { return }
         pollTask = Task.detached(priority: .background) { [weak self] in
-            // Exit the loop when the owner is gone. Previously the
-            // `await self?.poll()` simply no-op'd and the loop kept waking every
-            // 1.5 s forever, because the only thing that cancels it is a method
-            // on the object that just went away.
+            // Exit the loop when the owner is gone, instead of waking every
+            // 1.5 s forever with nothing to publish to.
             guard let strong = self else { return }
             await strong.poll()
             while !Task.isCancelled {
@@ -73,53 +83,17 @@ final class C6ResidencyService: ObservableObject {
         }
     }
 
-    /// Stops the poller. Called on termination.
-    func stop() {
-        pollTask?.cancel()
-        pollTask = nil
-    }
-
-    private func resetBaseline() {
-        lastRaw = 0
-        lastTimestamp = 0
-    }
-
     // Move blocking kext IPC off MainActor
     private func poll() async {
-        let (raw, now, corePct, coreInst) = await Task.detached(priority: .background) {
-            (ProcessorModel.shared.getPackageC6Residency(),
-             ProcessInfo.processInfo.systemUptime,
-             ProcessorModel.shared.getCoreC6Residency(),
-             ProcessorModel.shared.getCoreInstRetired())
+        let corePct = await Task.detached(priority: .background) {
+            ProcessorModel.shared.getCoreC6Residency()
         }.value
+        // A failed read (old kext, kext gone) clears the dots instead of
+        // freezing the last ones on the grid.
+        publish(corePct)
+    }
 
-        let (newPct, nextRaw, nextTimestamp) = C6Sampling.sample(
-            raw: raw, now: now,
-            lastRaw: lastRaw, lastTimestamp: lastTimestamp
-        )
-
-        // No counter (kext absent / not sampling) — report nothing.
-        if raw == 0 {
-            if percentage != 0 { percentage = 0 }
-        }
-
-        // KEXT_WAVE C-1: publish the per-core snapshot on the same cadence.
-        // Empty result (old kext) keeps the previous value untouched so the UI
-        // never flashes to "all zero" on a version mismatch.
-        if !corePct.isEmpty {
-            coreResidency = corePct
-        }
-        if !coreInst.isEmpty {
-            coreInstRetired = coreInst
-        }
-
-        lastRaw = nextRaw
-        lastTimestamp = nextTimestamp
-
-        if let pct = newPct {
-            if abs(percentage - pct) >= 0.1 {
-                percentage = pct
-            }
-        }
+    private func publish(_ values: [UInt16]) {
+        if coreResidency != values { coreResidency = values }
     }
 }

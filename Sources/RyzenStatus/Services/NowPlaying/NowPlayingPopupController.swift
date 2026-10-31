@@ -8,9 +8,9 @@ import SwiftUI
 /// Presentation controller for the now-playing popup: owns the regular↔mini
 /// morph of the anchored popover and the detachable floating window.
 ///
-/// The morph drives the popover's window frame with a 120 Hz timer (the
+/// The morph drives the popover's window frame with a 60 Hz timer (the
 /// display-link role) along a steep ease curve while the SwiftUI side
-/// crossfades the two layouts. The detached window follows the house pattern
+/// crossfades the two layouts; with Reduce Motion the frame snaps instead. The detached window follows the house pattern
 /// for floating panels (borderless, non-activating, clear background),
 /// content-hosting the same popup view in its mini presentation.
 @MainActor
@@ -125,7 +125,6 @@ final class NowPlayingPopupController: ObservableObject {
 
     private var detachedPanel: NSPanel?
     private var morphTimer: Timer?
-    private var moveObserver: NSObjectProtocol?
 
     private init() {
         let defaults = UserDefaults.standard
@@ -206,6 +205,7 @@ final class NowPlayingPopupController: ObservableObject {
                                      window: NSWindow,
                                      to target: NSSize) {
         morphTimer?.invalidate()
+        morphTimer = nil
         let startFrame = window.frame
         let startContent = popover.contentSize
         let topY = startFrame.maxY
@@ -213,6 +213,16 @@ final class NowPlayingPopupController: ObservableObject {
         let deltaW = target.width - startContent.width
         let deltaH = target.height - startContent.height
         let startTime = CACurrentMediaTime()
+
+        // Reduce Motion: straight to the frame the morph would end on.
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            popover.contentSize = NSSize(width: max(1, target.width), height: max(1, target.height))
+            let frameW = max(1, startFrame.width + deltaW)
+            let frameH = max(1, startFrame.height + deltaH)
+            window.setFrame(NSRect(x: midX - frameW / 2, y: topY - frameH, width: frameW, height: frameH),
+                            display: true)
+            return
+        }
 
         let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self, weak popover, weak window] timer in
             MainActor.assumeIsolated {
@@ -264,27 +274,28 @@ final class NowPlayingPopupController: ObservableObject {
         panel.isReleasedWhenClosed = false
         panel.acceptsMouseMovedEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
-        panel.contentViewController = NSHostingController(
-            rootView: NowPlayingPopupView(cluster: .detached))
-        moveObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didMoveNotification, object: panel, queue: .main
-        ) { note in
-            MainActor.assumeIsolated {
-                guard let window = note.object as? NSWindow, window.isVisible else { return }
-                UserDefaults.standard.set(Double(window.frame.origin.x),
-                                          forKey: DefaultsKey.nowPlayingDetachedOriginX)
-                UserDefaults.standard.set(Double(window.frame.origin.y),
-                                          forKey: DefaultsKey.nowPlayingDetachedOriginY)
-            }
-        }
         detachedPanel = panel
         return panel
     }
 
     func showDetached() {
         let panel = ensureDetachedPanel()
+        // Hosted only while shown: a hidden window's view never disappears,
+        // so it would keep resolving and playing the animated cover.
+        if panel.contentViewController == nil {
+            panel.contentViewController = NSHostingController(rootView: NowPlayingPopupView(cluster: .detached))
+        }
         panel.setFrameOrigin(detachedOrigin(for: panel))
         panel.makeKeyAndOrderFront(nil)
+    }
+
+    /// Kept once, when the window goes away: every write to the defaults
+    /// re-syncs the island's preferences, so saving on each move of a drag
+    /// would redraw it all along.
+    private func saveDetachedOrigin(_ panel: NSPanel) {
+        guard panel.isVisible else { return }
+        UserDefaults.standard.set(Double(panel.frame.origin.x), forKey: DefaultsKey.nowPlayingDetachedOriginX)
+        UserDefaults.standard.set(Double(panel.frame.origin.y), forKey: DefaultsKey.nowPlayingDetachedOriginY)
     }
 
     /// Whether the detached floating window is currently live; the anchored
@@ -300,24 +311,19 @@ final class NowPlayingPopupController: ObservableObject {
 
     func closeDetached() {
         guard let panel = detachedPanel, panel.isVisible else { return }
+        saveDetachedOrigin(panel)
         panel.orderOut(nil)
+        panel.contentViewController = nil
     }
 
     func tearDown() {
         morphTimer?.invalidate()
         morphTimer = nil
-        if let moveObserver {
-            NotificationCenter.default.removeObserver(moveObserver)
-        }
-        moveObserver = nil
         closeDetached()
     }
 
     deinit {
         morphTimer?.invalidate()
-        if let moveObserver {
-            NotificationCenter.default.removeObserver(moveObserver)
-        }
     }
 
     /// Where the detached window appears: the persisted origin once the user
@@ -365,6 +371,10 @@ final class NowPlayingPopupController: ObservableObject {
         // clamp the new frame before animating.
         frame.origin = clampToScreen(NSPoint(x: midX - size.width / 2, y: maxY - size.height),
                                      size: frame.size)
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            panel.setFrame(frame, display: true)
+            return
+        }
         NSAnimationContext.runAnimationGroup { context in
             MainActor.assumeIsolated {
                 context.duration = 0.2

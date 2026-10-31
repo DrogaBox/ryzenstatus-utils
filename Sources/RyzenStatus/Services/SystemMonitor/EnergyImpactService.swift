@@ -30,7 +30,14 @@ final class EnergyImpactService: @unchecked Sendable {
 
     private init() {}
 
-    /// Calculates energy impact score for processes based on CPU%, GPU%, and background activity.
+    /// Estimated impact: the CPU share plus 1.5 × the GPU share. It is an
+    /// estimate for ranking, not Apple's Energy Impact, and an idle app no
+    /// longer outranks a busy daemon through a flat bonus for being an app.
+    static func score(cpuPct: Double, gpuPct: Double) -> Double {
+        cpuPct + gpuPct * 1.5
+    }
+
+    /// Ranks processes by their estimated impact.
     func calculateEnergyImpact(processes: [ProcessUsage]) -> [ProcessEnergyRecord] {
         // BUG-18 fix: GPU was always hardcoded to 0.0. Build a PID-keyed GPU lookup
         // from topGPU so each process reflects its real GPU utilization.
@@ -44,8 +51,7 @@ final class EnergyImpactService: @unchecked Sendable {
             let isApp = ProcessGlossary.resolve(name: proc.name, pid: proc.pid).category == .app
             let cpuPct = proc.value
             let gpuPct = gpuByPID[proc.pid] ?? 0.0
-            // Formula: Energy = CPU% * 1.0 + GPU% * 1.5 + (isApp ? 2.0 : 0.5)
-            let score = (cpuPct * 1.0) + (gpuPct * 1.5) + (isApp ? 2.0 : 0.5)
+            let score = Self.score(cpuPct: cpuPct, gpuPct: gpuPct)
             return ProcessEnergyRecord(
                 pid: proc.pid,
                 name: proc.name,

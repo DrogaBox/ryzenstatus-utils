@@ -8,9 +8,10 @@ import Foundation
 /// Global singleton that monitors CPU load and automatically adjusts the EPP
 /// (Energy Performance Preference) when Auto EPP mode is active.
 ///
-/// Unlike per-view timers, this service runs continuously in the background
-/// so the CPU throttles down to Power Save during idle even when no Settings
-/// or menu panel view is open.
+/// Unlike per-view timers, this service runs in the background while Auto EPP
+/// is on, so the CPU throttles down to Power Save during idle even when no
+/// Settings or menu panel view is open. It does not run while the kext
+/// ignores EPP writes (`ProcessorModel.eppWritesTakeEffect`).
 ///
 /// Thresholds are read live from AmdSettingsStore, so changes via `@AppStorage`
 /// in the settings views take effect immediately on the next poll cycle.
@@ -87,10 +88,15 @@ final class AutoEppService: ObservableObject {
 
     // MARK: - Lifecycle
 
-    /// Starts the monitoring loop. Called once from the app delegate at launch.
-    /// Idempotent — safe to call multiple times.
+    /// Starts the monitoring loop when it can matter (`AutoEppPolicy.shouldRun`).
+    /// Called from the app delegate at launch and whenever Auto EPP is
+    /// switched on or resumed. Idempotent — safe to call multiple times.
     func start() {
-        guard pollTask == nil else { return }
+        guard pollTask == nil,
+              AutoEppPolicy.shouldRun(enabled: AmdSettingsStore.shared.autoEppEnabled,
+                                      suspended: isSuspended,
+                                      writesTakeEffect: ProcessorModel.eppWritesTakeEffect)
+        else { return }
         pollTask = Task.detached(priority: .background) { [weak self] in
             // Exit the loop when the owner is gone. Previously the
             // `await self?.poll()` simply no-op'd and the loop kept waking every
@@ -106,10 +112,14 @@ final class AutoEppService: ObservableObject {
         }
     }
 
-    /// Stops the monitoring loop. Called on termination.
-    func stop() {
+    private func stopLoop() {
         pollTask?.cancel()
         pollTask = nil
+    }
+
+    /// Stops the monitoring loop. Called on termination.
+    func stop() {
+        stopLoop()
         // Deinit never fires on a `static let shared` singleton, so the
         // observer is released here — stop() is the real teardown point
         // (AppDelegate.applicationWillTerminate).
@@ -126,8 +136,7 @@ final class AutoEppService: ObservableObject {
     /// while Gaming Mode holds the Extreme preset.
     /// Safe to call when already suspended (idempotent).
     func suspend() {
-        pollTask?.cancel()
-        pollTask = nil
+        stopLoop()
         isSuspended = true
         resetWriteSentinel() // F7: resume writes immediately
     }
@@ -137,7 +146,6 @@ final class AutoEppService: ObservableObject {
     @MainActor
     func resume() {
         isSuspended = false
-        guard AmdSettingsStore.shared.autoEppEnabled else { return }
         start()
     }
 
@@ -149,14 +157,13 @@ final class AutoEppService: ObservableObject {
         // A preset or the manual picker may have written the EPP since Auto
         // EPP last did, so its first poll after this must write again.
         resetWriteSentinel()
+        if active { start() } else { stopLoop() }
         Task {
-            let res = ProcessorModel.shared.setCPPCActiveMode(active: active)
-            if res == ProcessorModel.kIOReturnNotPrivilegedCode {
-                self.privilegeDenied = true
-            } else {
-                self.privilegeDenied = false
-            }
-            await self.poll()
+            let res = await Task.detached(priority: .userInitiated) {
+                ProcessorModel.shared.setCPPCActiveMode(active: active)
+            }.value
+            self.privilegeDenied = res == ProcessorModel.kIOReturnNotPrivilegedCode
+            if self.pollTask != nil { await self.poll() }
         }
     }
 
@@ -215,12 +222,13 @@ final class AutoEppService: ObservableObject {
         var newPrivilegeDenied = self.privilegeDenied
         if targetEPP != lastWrittenEPP {
             let writeRes = await ProcessorModel.shared.setCPPCEPPValue(epp: targetEPP)
-            if writeRes == ProcessorModel.kIOReturnNotPrivilegedCode {
-                newPrivilegeDenied = true
-            } else {
+            if writeRes == KERN_SUCCESS {
                 newPrivilegeDenied = false
                 lastWrittenEPP = targetEPP
+            } else if writeRes == ProcessorModel.kIOReturnNotPrivilegedCode {
+                newPrivilegeDenied = true
             }
+            // Any other failure records nothing, so the next poll retries.
         }
 
         let finalEPP = targetEPP
@@ -272,6 +280,13 @@ enum AutoEppPolicy {
     /// Polls in a row (1.5 s apart) a lower-performance target must be asked
     /// for before it is applied.
     static let stepDownPolls = 3
+
+    /// Whether the poll loop runs at all. While the kext ignores EPP writes
+    /// (`ProcessorModel.eppWritesTakeEffect`) it would wake the app every
+    /// 1.5 s to change nothing.
+    static func shouldRun(enabled: Bool, suspended: Bool, writesTakeEffect: Bool) -> Bool {
+        enabled && !suspended && writesTakeEffect
+    }
 
     /// The target for one reading of CPU and GPU load (0–100).
     static func target(cpuLoad: Float, gpuLoad: Float,
