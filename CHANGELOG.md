@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.72.0] — 2026-10-31 — kexts 3.38.0
+
+This release makes the driver safer for every other app on the system and lets the CPU rest while nobody is watching. It also publishes the power of the CPU cores to other apps.
+
+> [!WARNING]
+> **This release updates the kexts.** `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` move from 3.37.0 to **3.38.0**. Replace both together in `EFI/OC/Kexts/` and reboot.
+
+### Added
+
+- **CPU cores power in other apps**: `SMCAMDProcessor.kext` publishes the summed power of the CPU cores as the `PC0C` and `PCPC` SMC keys, the ones iStat Menus, Stats and HWMonitor show as CPU cores power.
+
+### Fixed
+
+- **Floating-point registers of other apps**: the driver's once-a-second sample interrupts every CPU, and it did some of its math with floating-point registers while there. xnu does not save an interrupted program's floating-point registers for that, so a busy app could find one of its values changed. All of that math now runs afterwards on the driver's own thread, and a new check on the built kext fails if floating point ever comes back to those paths.
+- **Load alert no longer freezes the app**: when the driver reported problems at load, the alert held the app's sampling until it was dismissed. It now opens on its own thread.
+
+### Changed
+
+- **The CPU rests when nothing is watching**: with no app reading the per-core data for 10 seconds, the driver stops interrupting every core. Package temperature, power and fan control keep running, and the full sampling comes back at once when an app asks again.
+- **Less busy waiting**: SMU and GPU mailbox commands that take longer than a millisecond now wait with the CPU free instead of spinning for up to 25 ms.
+- **Timers that coalesce**: the driver's periodic timers allow a small leeway, so macOS can group them with other wakeups.
+- **Fan speeds for SMC readers come from a lock-free cache**, so an SMC read never waits behind the fan chip.
+
 ## [1.71.0] — 2026-10-31 — kexts 3.37.0
 
 This release adds per-core power and puts the core voltage in the SMC. It also keeps the fans right after sleep, and the driver wakes the CPU far less often while the app is open.

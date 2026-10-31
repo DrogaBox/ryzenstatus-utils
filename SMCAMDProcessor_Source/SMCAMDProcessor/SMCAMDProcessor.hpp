@@ -63,6 +63,10 @@ class SMCAMDProcessor : public IOService {
      */
     static constexpr SMC_KEY KeyPCPR = SMC_MAKE_IDENTIFIER('P','C','P','R');
     static constexpr SMC_KEY KeyPSTR = SMC_MAKE_IDENTIFIER('P','S','T','R');
+    // CPU cores power (sum of the per-core energy counters), the keys
+    // SMCProcessor fills on Intel and iStat Menus / Stats label "CPU Cores".
+    static constexpr SMC_KEY KeyPC0C = SMC_MAKE_IDENTIFIER('P','C','0','C');
+    static constexpr SMC_KEY KeyPCPC = SMC_MAKE_IDENTIFIER('P','C','P','C');
     static constexpr SMC_KEY KeyTCxD(size_t i) { return SMC_MAKE_IDENTIFIER('T','C',KeyIndexes[i < MaxIndexCount ? i : 0],'D'); }
     static constexpr SMC_KEY KeyTCxE(size_t i) { return SMC_MAKE_IDENTIFIER('T','C',KeyIndexes[i < MaxIndexCount ? i : 0],'E'); }
     static constexpr SMC_KEY KeyTCxF(size_t i) { return SMC_MAKE_IDENTIFIER('T','C',KeyIndexes[i < MaxIndexCount ? i : 0],'F'); }

@@ -13053,6 +13053,9 @@ struct MetricsTests {
                        "the SMC plugin sorts its keys before registering with VirtualSMC (binary-search lookups)")
                 expect(pluginSrc.contains("KeyVC0C") && pluginSrc.contains("fProvider->svi.supported"),
                        "the SMC plugin publishes VC0C only on silicon with an SVI2 layout")
+                expect(pluginSrc.contains("KeyPC0C") && pluginSrc.contains("KeyPCPC")
+                       && pluginSrc.contains("if (fProvider->coreEnergySupported)"),
+                       "the SMC plugin publishes PC0C/PCPC only where CORE_ENERGY_STAT reads")
             } else {
                 expect(false, "SMCAMDProcessor.cpp sorts and registers its keys")
             }
@@ -13066,6 +13069,28 @@ struct MetricsTests {
                        "per-core energy is sampled in the rendezvous and its window restarts after wake")
                 expect(driverSrc.contains("!svi.socIgnoresTfn && (tfn & kSVI_TFN_SOC_PLANE_OFF) != 0"),
                        "the SoC plane ignores its TFN bit only on the models listed in probeSviTelemetry")
+                // 3.38.0: interrupt-context code stays integer-only (the
+                // binary-level check is Tools/check-kext-fpu.py).
+                expect(driverSrc.contains("provider->finishCoreSamples();")
+                       && driverSrc.components(separatedBy: "provider->readPstateDefs(false);").count == 3
+                       && !driverSrc.contains("provider->dumpPstate(false)"),
+                       "rendezvous handlers capture raw counters and P-state words; floats are computed afterwards")
+                expect(driverSrc.contains("tickMs - lastAsk > kCLIENT_IDLE_MS")
+                       && driverSrc.contains("if (mainSamplingIdle && serviceInitialized && timerEvent_main)"),
+                       "the main timer idles without a client and a selector call wakes it")
+                expect(driverSrc.contains("else IOSleep(1);"),
+                       "the SMU mailbox sleeps instead of spinning once a command runs past 1 ms")
+                expect(driverSrc.contains("return fanRPMCache[fan];"),
+                       "the FxAc SMC keys read a lock-free RPM cache")
+                expect(driverSrc.contains("timer->setTimeout(kIOTimeOptionsWithLeeway, interval, leeway);"),
+                       "periodic timers are armed with leeway for coalescing")
+            } else {
+                expect(false, "AMDRyzenCPUPowerManagement.cpp is readable from repo root")
+            }
+            if let clientSrc = try? String(contentsOf: kextRoot.appendingPathComponent("AMDRyzenCPUPowerManagement/AMDRyzenCPUPMUserClient.cpp"), encoding: .utf8) {
+                expect(clientSrc.contains("provider->showLoadAlertAsync();")
+                       && !clientSrc.contains("(*(provider->kunc_alert))"),
+                       "the load-problem alert never blocks a selector call")
             } else {
                 expect(false, "AMDRyzenCPUPowerManagement.cpp is readable from repo root")
             }

@@ -11,6 +11,7 @@
 
 #include "AMDGPU.hpp"
 #include <Headers/kern_iokit.hpp>
+#include <Headers/kern_time.hpp>
 
 OSDefineMetaClassAndStructors(AMDGPUDevice, OSObject);
 
@@ -69,6 +70,17 @@ static constexpr UInt32 kSMU_RESP_OK = 1;
 
 /// How long the work loop may wait for an SMU reply while holding gpuLock.
 static constexpr UInt32 kSMUReplyTimeoutUS = 10000;
+/// One wait between response polls, measured against the real clock: spin
+/// through the first millisecond, where the SMU answers, then sleep in 1 ms
+/// steps. Callers hold gpuLock, a mutex, on the work loop thread, so they
+/// may block. Returns the microseconds elapsed since startNs.
+static UInt32 smuWaitStep(uint64_t startNs) {
+    uint64_t elapsedUs = (getCurrentTimeNs() - startNs) / 1000;
+    if (elapsedUs < 1000) IODelay(1);
+    else IOSleep(1);
+    elapsedUs = (getCurrentTimeNs() - startNs) / 1000;
+    return elapsedUs > UINT32_MAX ? UINT32_MAX : static_cast<UInt32>(elapsedUs);
+}
 
 /// Orders an index write before the matching data access. The BAR is mapped
 /// uncached, which x86 already keeps in program order; the fence also stops
@@ -365,8 +377,9 @@ IOReturn AMDGPUDevice::smu7GetPower(float *watts) {
     memoryBarrier();
 
     UInt32 resp = 0;
-    for (UInt32 waited = 0; waited < kSMUReplyTimeoutUS && resp == 0; waited++) {
-        IODelay(1);
+    uint64_t sentNs = getCurrentTimeNs();
+    for (UInt32 waited = 0; waited < kSMUReplyTimeoutUS && resp == 0; ) {
+        waited = smuWaitStep(sentNs);
         resp = rawReadReg32(mmSMC_RESP_0) & kSMC_RESP_MASK;
     }
     UInt32 value = (resp == kSMU_RESP_OK) ? rawReadReg32(mmSMC_MSG_ARG_0) : 0;
@@ -375,8 +388,8 @@ IOReturn AMDGPUDevice::smu7GetPower(float *watts) {
     if (resp != kSMU_RESP_OK) {
         return resp == 0 ? kIOReturnTimeout : kIOReturnError;
     }
-    // Linux falls back to the PM status log when this reads 0; that needs
-    // sleeps the work loop cannot take, so the sample is skipped instead.
+    // Linux falls back to the PM status log when this reads 0, a second
+    // message plus a 10 ms settle; the sample is skipped instead.
     if (value == 0) {
         return kIOReturnNotReady;
     }
@@ -405,8 +418,9 @@ IOReturn AMDGPUDevice::smu9GetPower(float *watts) {
     memoryBarrier();
 
     UInt32 resp = 0;
-    for (UInt32 waited = 0; waited < kSMUReplyTimeoutUS && resp == 0; waited++) {
-        IODelay(1);
+    uint64_t sentNs = getCurrentTimeNs();
+    for (UInt32 waited = 0; waited < kSMUReplyTimeoutUS && resp == 0; ) {
+        waited = smuWaitStep(sentNs);
         resp = rawSoc15ReadReg32(respReg);
     }
     UInt32 value = (resp == kSMU_RESP_OK) ? rawSoc15ReadReg32(argReg) : 0;

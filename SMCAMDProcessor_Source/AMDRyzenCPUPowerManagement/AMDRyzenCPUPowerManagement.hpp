@@ -232,9 +232,13 @@ public:
     uint64_t fanTelemetryLastMs {0};
     void refreshFanTelemetryIfStale();
 
-    // Cached fan readings for the SMC plugin: each takes superIOLock briefly
-    // (the chip object can be replaced by a re-probe) and never touches the
-    // hardware. fanCount() is 0 without a detected chip.
+    // Cached fan readings for the SMC plugin, never touching the hardware.
+    // fanCount() takes superIOLock briefly (the chip object can be replaced
+    // by a re-probe) and runs once, when the plugin builds its keys; it is
+    // 0 without a detected chip. fanRPM() backs the FxAc keys and reads
+    // fanRPMCache[] without a lock, so an SMC read never waits behind the
+    // sensor timer's port I/O (acidanthera's sensor plugins keep their key
+    // reads lock-free too).
     int fanCount();
     uint32_t fanRPM(int fan);
 
@@ -267,6 +271,13 @@ public:
 
     // canLog = false inside mp_rendezvous handlers: IOLog takes locks that an
     // interrupted thread may hold, and every CPU is parked in the rendezvous.
+    // Rendezvous handlers run in interrupt context on top of whatever thread
+    // each CPU was running, and xnu does not save that thread's FPU/XMM
+    // state for them, so they stay integer-only: readPstateDefs() there,
+    // decodePstateClocks() afterwards on the work loop thread. dumpPstate()
+    // does both and is for thread context only.
+    void readPstateDefs(bool canLog);
+    void decodePstateClocks(bool canLog);
     void dumpPstate(bool canLog = true);
     void reinitHwState();
     void writePstate(const uint64_t *buf);
@@ -409,6 +420,13 @@ public:
 
     uint64_t lastMPERF_perCore[CPUInfo::MaxCpus] {};
     uint64_t lastAPERF_perCore[CPUInfo::MaxCpus] {};
+    // Raw counter deltas of the last window, written by the rendezvous
+    // (integer only) and turned into MHz / watts by finishCoreSamples() on
+    // the work loop thread. A zero MPERF / TSC delta marks a skipped window,
+    // which keeps the previous reading.
+    uint64_t freqDeltaAPERF_perCore[CPUInfo::MaxCpus] {};
+    uint64_t freqDeltaMPERF_perCore[CPUInfo::MaxCpus] {};
+    void finishCoreSamples();
 
     uint64_t instructionDelta_perCore[CPUInfo::MaxCpus] {};
     uint64_t lastInstructionDelta_perCore[CPUInfo::MaxCpus] {};
@@ -435,7 +453,15 @@ public:
     // selector 60. A window restarts (TSC 0) on boot and after wake.
     uint32_t lastCoreEnergy_perCore[CPUInfo::MaxCpus] {};
     uint64_t lastCoreEnergyTSC_perCore[CPUInfo::MaxCpus] {};
+    uint32_t coreEnergyDelta_perCore[CPUInfo::MaxCpus] {};
+    uint64_t coreEnergyTSCDelta_perCore[CPUInfo::MaxCpus] {};
     float    corePowerW_perCore[CPUInfo::MaxCpus] {};
+    // Sum of corePowerW_perCore[] for the PC0C / PCPC SMC keys. Reading
+    // them stamps smcCoreDemandMs, which keeps the main timer out of its
+    // idle cadence like a selector call does (without the immediate kick).
+    bool     coreEnergySupported {false};
+    volatile float corePowerTotalW {0};
+    volatile uint64_t smcCoreDemandMs {0};
     void updateCoreEnergy(uint32_t physical);
 
     uint8_t PStateCur_perCore[CPUInfo::MaxCpus] {};
@@ -569,6 +595,11 @@ public:
 
     kern_return_t (*kunc_alert)(int,unsigned,const char*,const char*,const char*,
                                 const char*,const char*,const char*,const char*,const char*,unsigned*) {nullptr};
+    // Shows the load-problem alert from a kernel thread of its own.
+    // KUNCUserNotificationDisplayAlert waits for the user's answer, and the
+    // selector call that used to show it held the app's sampling thread for
+    // as long as the dialog stayed on screen.
+    void showLoadAlertAsync();
 
 
     ISSuperIOSMCFamily *superIO{nullptr};
@@ -581,6 +612,9 @@ public:
     IOLock *controlLock{nullptr};   // Serializes provider state writes (PStateCtl, CPPC) from concurrent UserClients
 
     static constexpr size_t kMAX_FANS = 16;
+    // Trusted RPM of each fan (0 = unknown), copied on every tachometer
+    // refresh for fanRPM(); read without a lock.
+    volatile uint32_t fanRPMCache[kMAX_FANS] {};
     FanCurveConfig fanCurves[MAX_FAN_CURVES] {};
     int8_t fanToCurveMap[kMAX_FANS] {}; // Maps each physical fan index to a curve index (-1 = Auto; set in start())
     uint8_t lastAppliedPWM[kMAX_FANS] {};
@@ -775,6 +809,14 @@ private:
     static constexpr uint64_t kREQUEST_BURST_GAP_MS = 25;
     static constexpr uint64_t kREQUEST_STREAM_MS = 250;
     uint64_t requestBurstStartMs = 0;
+    // With no selector call for kCLIENT_IDLE_MS the main timer stops the
+    // per-CPU rendezvous, which pulls every core out of its C-state, and
+    // only refreshes the package temperature and energy behind the SMC keys
+    // and the thermal interlocks, every kIDLE_TICK_MS. The next selector
+    // call (registerRequest) brings the timer back at once.
+    static constexpr uint64_t kCLIENT_IDLE_MS = 10000;
+    static constexpr uint32_t kIDLE_TICK_MS = 1200;
+    volatile bool mainSamplingIdle = false;
 
     int tempNextSample = 0;
     float tempSamples[HF_TEMP_SAMPLE_LEN] {};

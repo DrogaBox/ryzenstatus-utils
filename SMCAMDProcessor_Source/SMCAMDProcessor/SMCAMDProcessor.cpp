@@ -27,6 +27,12 @@ bool SMCAMDProcessor::setupKeysVsmc(){
         // PCPR/PSTR: package power reported by RAPL MSR
         suc &= VirtualSMCAPI::addKey(KeyPCPR, vsmcPlugin.data, VirtualSMCAPI::valueWithSp(0, SmcKeyTypeSp96, new EnergyPackage(fProvider, 0))); keyCount++;
         suc &= VirtualSMCAPI::addKey(KeyPSTR, vsmcPlugin.data, VirtualSMCAPI::valueWithSp(0, SmcKeyTypeSp96, new EnergyPackage(fProvider, 0))); keyCount++;
+
+        // PC0C/PCPC: cores power from CORE_ENERGY_STAT, where it reads.
+        if (fProvider->coreEnergySupported) {
+            suc &= VirtualSMCAPI::addKey(KeyPC0C, vsmcPlugin.data, VirtualSMCAPI::valueWithSp(0, SmcKeyTypeSp96, new CorePowerValue(fProvider, 0))); keyCount++;
+            suc &= VirtualSMCAPI::addKey(KeyPCPC, vsmcPlugin.data, VirtualSMCAPI::valueWithSp(0, SmcKeyTypeSp96, new CorePowerValue(fProvider, 0))); keyCount++;
+        }
         
         // === Per-CCD temperature keys (SP78 format) ===
         // TCxC/TCxc: individual Core Complex Die temperatures, iterating over ccdCount

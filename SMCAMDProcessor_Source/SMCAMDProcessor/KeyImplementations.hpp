@@ -60,6 +60,14 @@ protected:
     SMC_RESULT readAccess() override;
 };
 
+// CorePowerValue: summed per-core power in watts (sp96). A read stamps the
+// provider's SMC demand so its sampler keeps running while an app shows it.
+class CorePowerValue : public AMDSupportVsmcValue {
+    using AMDSupportVsmcValue::AMDSupportVsmcValue;
+protected:
+    SMC_RESULT readAccess() override;
+};
+
 // FanSpeedValue: Super I/O tachometer in RPM (fpe2); `package` is the fan
 // header index. Served from the provider's cache (refreshFanTelemetryIfStale),
 // an untrusted reading reports 0.

@@ -68,6 +68,14 @@ SMC_RESULT CoreVoltageValue::readAccess() {
     return SmcSuccess;
 }
 
+SMC_RESULT CorePowerValue::readAccess() {
+    if (!provider) return SmcError;
+    provider->smcCoreDemandMs = getCurrentTimeNs() / 1000000;
+    __sync_synchronize();
+    *reinterpret_cast<uint16_t *>(data) = VirtualSMCAPI::encodeSp(type, (double)provider->corePowerTotalW);
+    return SmcSuccess;
+}
+
 SMC_RESULT FanSpeedValue::readAccess() {
     if (!provider) return SmcError;
     uint32_t rpm = provider->fanRPM((int)package);

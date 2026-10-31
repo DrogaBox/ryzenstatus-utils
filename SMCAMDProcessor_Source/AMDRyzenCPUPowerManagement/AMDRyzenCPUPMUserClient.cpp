@@ -166,27 +166,10 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
     AMDRyzenCPUPowerManagement *provider = fProvider;
     if (!provider) return kIOReturnNotReady;
 
-    // Surface kext-load alerts at most once across concurrent UserClient connections.
-    // OSCompareAndSwap makes the check-and-set atomic.
+    // Surface kext-load alerts at most once across concurrent UserClient
+    // connections, without blocking this call on the dialog.
     if (provider->kextloadAlerts && provider->kunc_alert) {
-        if (OSCompareAndSwap(0, 1, &provider->kextAlertDisplayed)) {
-            unsigned int rf = 0;
-
-            char buf[160];
-            snprintf(buf, sizeof(buf),
-                     "%d problem(s) were detected while the driver loaded. "
-                     "Check the system log for AMDRyzenCPUPowerManagement messages.",
-                     provider->kextloadAlerts);
-
-            // "OK" (rf 0) dismisses it for this boot; "Clear Alert" (rf 1)
-            // also resets the count.
-            (*(provider->kunc_alert))(0, 0, NULL, NULL, NULL,
-                          "AMDRyzenCPUPowerManagement", buf, "OK", "Clear Alert", NULL, &rf);
-            if (rf == 1) {
-                provider->kextloadAlerts = 0;
-                OSCompareAndSwap(1, 0, &provider->kextAlertDisplayed);
-            }
-        }
+        provider->showLoadAlertAsync();
     }
 
     provider->registerRequest();
