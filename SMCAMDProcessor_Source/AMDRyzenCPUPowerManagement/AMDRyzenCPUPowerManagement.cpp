@@ -1290,20 +1290,20 @@ void AMDRyzenCPUPowerManagement::probeSviTelemetry() {
     if (cpuFamily == 0x17) {
         switch (cpuModel) {
         case 0x31:
-            svi = { kF17H_M01H_SVI + 0x14, kF17H_M01H_SVI + 0x10, true };
+            svi = { kF17H_M01H_SVI + 0x14, kF17H_M01H_SVI + 0x10, true, true };
             break;
         case 0x71:
-            svi = { kF17H_M01H_SVI + 0x10, kF17H_M01H_SVI + 0xC, true };
+            svi = { kF17H_M01H_SVI + 0x10, kF17H_M01H_SVI + 0xC, true, true };
             break;
         default:
-            svi = { kF17H_M01H_SVI + 0xC, kF17H_M01H_SVI + 0x10, true };
+            svi = { kF17H_M01H_SVI + 0xC, kF17H_M01H_SVI + 0x10, true, cpuModel == 0x11 };
             break;
         }
     } else if (cpuFamily == 0x19 && cpuModel <= 0x5F) {
         if (cpuModel == 0x21) {
-            svi = { kF17H_M01H_SVI + 0x10, kF17H_M01H_SVI + 0xC, true };
+            svi = { kF17H_M01H_SVI + 0x10, kF17H_M01H_SVI + 0xC, true, true };
         } else {
-            svi = { kF17H_M01H_SVI + 0xC, kF17H_M01H_SVI + 0x10, true };
+            svi = { kF17H_M01H_SVI + 0xC, kF17H_M01H_SVI + 0x10, true, false };
         }
     }
     IOLog("AMDRyzenCPUPowerManagement::probeSviTelemetry %s (core 0x%X, SoC 0x%X)\n",
@@ -1331,7 +1331,7 @@ void AMDRyzenCPUPowerManagement::updateSviTelemetry() {
         return;
     }
     sviCoreValid = sviDecodeMillivolts(core, (tfn & kSVI_TFN_CORE_PLANE_OFF) != 0, sviCoreMillivolts);
-    sviSocValid = sviDecodeMillivolts(soc, (tfn & kSVI_TFN_SOC_PLANE_OFF) != 0, sviSocMillivolts);
+    sviSocValid = sviDecodeMillivolts(soc, !svi.socIgnoresTfn && (tfn & kSVI_TFN_SOC_PLANE_OFF) != 0, sviSocMillivolts);
 }
 
 bool AMDRyzenCPUPowerManagement::sviDecodeMillivolts(uint32_t word, bool planeOff, uint16_t &millivolts) {

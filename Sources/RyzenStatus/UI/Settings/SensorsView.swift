@@ -100,7 +100,11 @@ struct SensorsView: View {
                 let ramSensors = filteredReadings.filter { $0.key.hasPrefix("TM") && $0.value > 0 }
                 let airSensors = filteredReadings.filter { ($0.key.hasPrefix("TA") || $0.key.hasPrefix("Te") || $0.key.hasPrefix("TW")) && $0.value > 0 }
                 let batterySensors = filteredReadings.filter { $0.key.hasPrefix("TB") && $0.value > 0 }
-                let fanSensors = filteredReadings.filter { $0.key.hasPrefix("F") && $0.value > 0 }
+                // Only the FxAc tachometers: FNum is the fan count and FAC0 a
+                // flag, neither of them a speed.
+                let fanSensors = filteredReadings.filter {
+                    $0.key.count == 4 && $0.key.hasPrefix("F") && $0.key.hasSuffix("Ac") && $0.value > 0
+                }
                 let voltageSensors = filteredReadings.filter { $0.key.hasPrefix("V") && $0.value > 0 }
                 let powerSensors = filteredReadings.filter { $0.key.hasPrefix("P") && $0.value > 0 }
                 let currentSensors = filteredReadings.filter { $0.key.hasPrefix("I") && $0.value > 0 }
