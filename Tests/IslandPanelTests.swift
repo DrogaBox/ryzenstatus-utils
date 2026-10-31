@@ -28,6 +28,7 @@ enum IslandPanelTests {
         marqueeRestsQuietly(suite)
         accessibilityAndReduceMotion(suite)
         localizedStrings(suite)
+        permissionRepair(suite)
     }
 
     // MARK: Phase 1
@@ -379,6 +380,23 @@ enum IslandPanelTests {
         suite.expect(!capsule.contains(": String = \""), "no capsule string falls back to English")
         let spectrum = text("Sources/RyzenStatus/UI/Notch/NotchSpectrumBars.swift", suite)
         suite.expect(spectrum.contains("waveLine.shadowPath ="), "the wave's shadow has a path")
+    }
+
+    private static func permissionRepair(_ suite: TestSuite) {
+        let repair = text("Sources/RyzenStatus/Services/PermissionRepair.swift", suite)
+        suite.expect(repair.contains("auth_value = 2") && repair.contains("csreq IS NOT NULL AND length(csreq) > 0"),
+                     "repair only re-ties permissions already allowed and already tied to a signature")
+        suite.expect(!repair.contains("INSERT") && !repair.contains("DELETE"), "repair never adds or removes a permission")
+        suite.expect(!PermissionRepair.services.contains("kTCCServiceAccessibility")
+                     && !PermissionRepair.services.contains("kTCCServiceScreenCapture"),
+                     "the system database's services are left to their own path")
+        for language in AppLanguage.allCases {
+            let strings = FeatureStrings.permissionRepair(language)
+            let texts = [strings.title, strings.description, strings.button, strings.repairedFormat, strings.nothingToRepair,
+                         strings.needsFullDiskAccess, strings.openFullDiskAccess, strings.failed, strings.relaunch]
+            suite.expect(texts.allSatisfy { !$0.isEmpty } && specifiers(strings.repairedFormat) == ["d"],
+                         "permission repair strings are filled in \(language.rawValue)")
+        }
     }
 
     private static func localizedStrings(_ suite: TestSuite) {

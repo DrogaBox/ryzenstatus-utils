@@ -10274,7 +10274,7 @@ struct MetricsTests {
         expect(!monitorSwift.isEmpty, "SystemMonitor source must be readable for the promotion-pin checks (run tests from the repo root)")
         expect(!monitorSwift.contains("freshCoreClocksMHz"),
                "SystemMonitor must not promote SMU effective clocks into snapshot.cores[] (window-averaged values poison current-clock aggregates)")
-        expect(monitorSwift.range(of: "let freqIdx = physicalIdx \\+ 3", options: .regularExpression) != nil,
+        expect(monitorSwift.range(of: "let freqIdx = (physicalIdx|place\\.physicalIndex) \\+ 3", options: .regularExpression) != nil,
                "core-grid frequency must keep the kext metric-array source (current-clock semantics)")
 
         // MARK: mailbox diagnostics (selector 58) — decode + kernel wire pins
