@@ -204,6 +204,29 @@ final class AmdPowerControlsModel: ObservableObject {
 
     // MARK: - State Sync
 
+    /// Views showing live readings (the AMD panel section, the panel's core
+    /// grid, the dashboard) while they are on screen. One 3 s loop serves
+    /// them all: two of them on screen at once neither double the kext
+    /// traffic nor squeeze the history graphs into half their span.
+    private var liveSyncDemand = AmdLiveSyncDemand()
+    private var liveSyncTask: Task<Void, Never>?
+
+    func beginLiveSync() {
+        guard liveSyncDemand.begin() else { return }
+        liveSyncTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.syncFromKext()
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+            }
+        }
+    }
+
+    func endLiveSync() {
+        guard liveSyncDemand.end() else { return }
+        liveSyncTask?.cancel()
+        liveSyncTask = nil
+    }
+
     // Move blocking kext IPC off MainActor
     func syncFromKext() async {
         guard !isSyncingFromKext else { return }
@@ -474,5 +497,22 @@ final class AmdPowerControlsModel: ObservableObject {
         if packageTempHistory.count > Self.historyCapacity {
             packageTempHistory.removeFirst(packageTempHistory.count - Self.historyCapacity)
         }
+    }
+}
+
+/// How many views want the AMD model kept live. `begin` answers true for
+/// the first one (start the loop), `end` true for the last (stop it).
+struct AmdLiveSyncDemand {
+    private(set) var clients = 0
+
+    mutating func begin() -> Bool {
+        clients += 1
+        return clients == 1
+    }
+
+    mutating func end() -> Bool {
+        guard clients > 0 else { return false }
+        clients -= 1
+        return clients == 0
     }
 }

@@ -95,6 +95,7 @@ public struct CPUCoreGridView: View {
     /// Persisted metric mode (DefaultsKey.panelCoreGridMetric).
     let metric: PanelCoreGridMetric
     @Environment(\.colorScheme) private var colorScheme
+    @State private var holdsLiveSync = false
 
     /// SMU mode is live only when data exists; otherwise load.
     private var smuActive: Bool { metric != .load && !smuCores.isEmpty }
@@ -128,7 +129,11 @@ public struct CPUCoreGridView: View {
                              label: layout.showsValue ? smuValueText(core) : nil,
                              diameter: layout.diameter,
                              dimmed: hidesValue(core))
-                        .help(smuHoverText(core))
+                        .help(smuName(core) + ": " + smuValue(core))
+                        // A ring is a tiny digit at most; VoiceOver reads its name and readings.
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(smuName(core))
+                        .accessibilityValue(smuValue(core))
                 }
             } else {
                 ForEach(cores) { core in
@@ -138,13 +143,41 @@ public struct CPUCoreGridView: View {
                              diameter: layout.diameter,
                              dimmed: core.loadPct < 1)
                         .overlay(alignment: .topTrailing) { badges(for: core) }
-                        .help(hoverText(for: core))
+                        .help(threadName(core) + ": " + threadValue(core))
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(threadName(core))
+                        .accessibilityValue(threadValue(core))
                 }
             }
         }
         // The residency dots are polled only while a grid is on screen.
-        .onAppear { C6ResidencyService.shared.startPolling() }
-        .onDisappear { C6ResidencyService.shared.stopPolling() }
+        .onAppear {
+            C6ResidencyService.shared.startPolling()
+            syncLiveDemand(onScreen: true)
+            // The load view needs no SMU readings; one read tells the section
+            // whether the table decodes, so it can offer the other modes.
+            if metric == .load && smuCores.isEmpty {
+                Task { await AmdPowerControlsModel.shared.syncFromKext() }
+            }
+        }
+        .onDisappear {
+            C6ResidencyService.shared.stopPolling()
+            syncLiveDemand(onScreen: false)
+        }
+        .onChange(of: metric) { _, _ in syncLiveDemand(onScreen: true) }
+    }
+
+    /// The SMU modes keep the AMD model live while the grid shows them; the
+    /// model runs one loop however many views ask.
+    private func syncLiveDemand(onScreen: Bool) {
+        let wanted = Self.wantsLiveSMU(metric: metric, onScreen: onScreen)
+        guard wanted != holdsLiveSync else { return }
+        holdsLiveSync = wanted
+        if wanted { AmdPowerControlsModel.shared.beginLiveSync() } else { AmdPowerControlsModel.shared.endLiveSync() }
+    }
+
+    nonisolated static func wantsLiveSMU(metric: PanelCoreGridMetric, onScreen: Bool) -> Bool {
+        onScreen && metric != .load
     }
 
     // MARK: - Load (kext metric array, per logical thread)
@@ -164,13 +197,20 @@ public struct CPUCoreGridView: View {
         }
     }
 
-    private func hoverText(for core: CoreSnapshot) -> String {
-        var parts = [String(format: "Thread %d: %.1f%% (system %.1f%%)", core.id, core.loadPct, core.systemPct)]
+    private var strings: AMDPowerFeatureStrings { L10n.shared.amdPower }
+
+    private func threadName(_ core: CoreSnapshot) -> String {
+        String(format: strings.gridThreadFormat, core.id)
+    }
+
+    /// The thread's readings without its name, which the label carries.
+    private func threadValue(_ core: CoreSnapshot) -> String {
+        var parts = [String(format: strings.gridLoadValueFormat, core.loadPct, core.systemPct)]
         if core.id < c6Residency.count {
-            parts.append(String(format: "C6 residency %d%%", Int(c6Residency[core.id])))
+            parts.append(String(format: strings.gridC6Format, Int(c6Residency[core.id])))
         }
         if favoriteThreads.contains(core.id) {
-            parts.append("★ favorite core")
+            parts.append("★ " + strings.gridFavorite)
         }
         return parts.joined(separator: " · ")
     }
@@ -216,12 +256,15 @@ public struct CPUCoreGridView: View {
         }
     }
 
-    private func smuHoverText(_ core: AMDSmuPMTable.CoreRow) -> String {
-        if core.isSleeping {
-            return String(format: "Core %d: parked · %.1f °C · %.2f W · C0 %.1f%% · CC6 %.1f%% · %.2f V",
-                          core.slot, core.tempC, core.powerW, core.c0Percent, core.cc6Percent, core.voltageRaw)
-        }
-        return String(format: "Core %d: %.0f MHz eff · %.1f °C · %.2f W · C0 %.1f%% · CC6 %.1f%% · %.2f V",
-                      core.slot, core.freqMHz, core.tempC, core.powerW, core.c0Percent, core.cc6Percent, core.voltageRaw)
+    private func smuName(_ core: AMDSmuPMTable.CoreRow) -> String {
+        String(format: strings.gridCoreFormat, core.slot)
+    }
+
+    /// The core's readings without its name: the clock (or "parked"), then
+    /// numbers and units every language writes the same way.
+    private func smuValue(_ core: AMDSmuPMTable.CoreRow) -> String {
+        let clock = core.isSleeping ? strings.gridParked : String(format: strings.gridClockValueFormat, core.freqMHz)
+        return clock + String(format: " · %.1f °C · %.2f W · C0 %.1f%% · CC6 %.1f%% · %.2f V",
+                              core.tempC, core.powerW, core.c0Percent, core.cc6Percent, core.voltageRaw)
     }
 }

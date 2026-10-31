@@ -113,9 +113,13 @@ final class NotchFocusService {
         process.standardError = FileHandle.nullDevice
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
+            // At end of file the handle stays readable and would call this
+            // again and again with nothing in it.
+            if data.isEmpty { handle.readabilityHandler = nil; return }
             DispatchQueue.main.async { self?.consume(data) }
         }
         process.terminationHandler = { [weak self] ended in
+            (ended.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil
             DispatchQueue.main.async {
                 guard let self, self.process === ended else { return }
                 self.process = nil

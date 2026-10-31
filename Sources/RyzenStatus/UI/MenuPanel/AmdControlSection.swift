@@ -11,7 +11,6 @@ struct AmdControlSection: View {
     @ObservedObject private var gaming = GamingModeService.shared
     @ObservedObject private var presetCtrl = AmdPresetController.shared
     @ObservedObject private var fanController = FanCurveController.shared
-    @State private var loadTimer: Timer?
     @State private var showThresholds: Bool = false
 
     // Fan state: the fan controller reads the headers; this row registers
@@ -77,7 +76,7 @@ struct AmdControlSection: View {
                 if !visibleFans.isEmpty {
                     DisclosureGroup(isExpanded: $showFansInAmdPower) {
                         HStack {
-                            Picker("", selection: $selectedFanId) {
+                            Picker(L10n.shared.amdPower.panelSmcFanControl, selection: $selectedFanId) {
                                 ForEach(visibleFans) { fan in
                                     Text(fan.effectiveDisplayName).tag(fan.id)
                                 }
@@ -196,13 +195,13 @@ struct AmdControlSection: View {
                                     HStack(spacing: 12) {
                                         pmColumnToggle("bolt.fill", color: .yellow,
                                                        isOn: $showsPmCoreVoltage,
-                                                       help: "Per-core voltage (SMU)")
+                                                       help: L10n.shared.amdPower.pmVoltageHelp)
                                         pmColumnToggle("cpu", color: .green,
                                                        isOn: $showsPmCoreC0,
-                                                       help: "C0 residency (%)")
+                                                       help: L10n.shared.amdPower.pmC0Help)
                                         pmColumnToggle("moon.zzz.fill", color: .purple,
                                                        isOn: $showsPmCoreCC6,
-                                                       help: "CC6 residency (%)")
+                                                       help: L10n.shared.amdPower.pmCC6Help)
                                         Spacer()
                                     }
                                     .padding(.leading, 2)
@@ -215,7 +214,7 @@ struct AmdControlSection: View {
                                     // animation stays deterministic (no measurement
                                     // pass, no second reflow).
                                     let presentCores = decoded.cores.filter { $0.isPresent }
-                                    let listCap = min(320.0, max(160.0, (NSScreen.main?.visibleFrame.height ?? 760) * 0.3))
+                                    let listCap = min(320.0, max(160.0, ((PanelInteractionState.shared.anchorScreen ?? NSScreen.main)?.visibleFrame.height ?? 760) * 0.3))
                                     ScrollView(.vertical, showsIndicators: true) {
                                         VStack(spacing: 2) {
                                             ForEach(presentCores, id: \.slot) { core in
@@ -255,7 +254,7 @@ struct AmdControlSection: View {
                                                 .foregroundColor(.secondary)
                                                 .frame(width: 38, alignment: .trailing)
                                         }
-                                        .help(String(format: "L3 cache %d · %.0f MHz eff · %.1f °C · %.2f W logic + %.2f W VDDM · EDC %.0f A",
+                                        .help(String(format: L10n.shared.amdPower.l3HelpFormat,
                                                      l3.id, l3.freqEffMHz, l3.tempC, l3.logicPowerW, l3.vddmPowerW, l3.edcLimitA))
                                     }
                                 }
@@ -264,7 +263,7 @@ struct AmdControlSection: View {
                         }
 
                         VStack(spacing: 8) {
-                            Picker("", selection: Binding(
+                            Picker(L10n.shared.amdPower.energyProfileManual, selection: Binding(
                                 get: {
                                     if autoEpp.isActive {
                                         return AMDPowerPreset.snapEPP(autoEpp.currentEPP)
@@ -279,6 +278,7 @@ struct AmdControlSection: View {
                                 Text(L10n.shared.amdPower.perfBalMinusShort).tag(UInt8(170))
                                 Text(L10n.shared.amdPower.perfEcoShort).tag(UInt8(255))
                             }
+                            .labelsHidden()
                             .pickerStyle(.segmented)
                             .disabled(autoEpp.isActive || gaming.isActive)
                         }
@@ -382,7 +382,7 @@ struct AmdControlSection: View {
                                 .foregroundColor(.secondary)
 
                             if !controls.validPStateLabels.isEmpty {
-                                Picker("", selection: Binding(
+                                Picker(L10n.shared.amdPower.panelLegacyProfiles, selection: Binding(
                                     get: { controls.selectedPState },
                                     set: { controls.setPState($0) }
                                 )) {
@@ -390,6 +390,7 @@ struct AmdControlSection: View {
                                         Text(controls.validPStateLabels[idx]).tag(idx)
                                     }
                                 }
+                                .labelsHidden()
                                 .pickerStyle(.segmented)
                             }
                         }
@@ -455,16 +456,13 @@ struct AmdControlSection: View {
             // The same rounded card every other panel section sits in.
             .panelCard()
             .onAppear {
-                Task { await controls.syncFromKext() }
-                loadTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
-                    Task { await controls.syncFromKext() }
-                }
+                // The model runs one 3 s loop for every view that shows it.
+                controls.beginLiveSync()
                 setFanPolling(showFansInAmdPower)
                 keepFanSelectionVisible()
             }
             .onDisappear {
-                loadTimer?.invalidate()
-                loadTimer = nil
+                controls.endLiveSync()
                 setFanPolling(false)
             }
             .onChange(of: showFansInAmdPower) { _, expanded in
@@ -525,6 +523,9 @@ struct AmdControlSection: View {
         }
         .buttonStyle(.plain)
         .help(help)
+        // The glyph alone says nothing to VoiceOver; the tooltip's words do.
+        .accessibilityLabel(help)
+        .accessibilityAddTraits(isOn.wrappedValue ? .isSelected : [])
     }
 
     // MARK: - Power Presets (menu panel)
@@ -538,7 +539,7 @@ struct AmdControlSection: View {
             VStack(spacing: 3) {
                 Image(systemName: preset.systemImage)
                     .font(.system(size: 11))
-                Text(preset.rawValue)
+                Text(L10n.shared.amdPower.presetTitle(preset))
                     .font(.system(size: 9, weight: .medium))
             }
             .frame(maxWidth: .infinity)
@@ -692,7 +693,9 @@ struct AmdPmTableCoreRowView: View {
                 .foregroundColor(.secondary)
                 .frame(width: 38, alignment: .trailing)
         }
-        .help(String(format: "core %02d · %.0f MHz eff · %.1f °C · %.2f W · C0 %.1f%% · CC6 %.1f%%",
-                     core.slot, core.freqMHz, core.tempC, core.powerW, core.c0Percent, core.cc6Percent))
+        .help(String(format: L10n.shared.amdPower.gridCoreFormat, core.slot) + " · "
+              + String(format: L10n.shared.amdPower.gridClockValueFormat, core.freqMHz)
+              + String(format: " · %.1f °C · %.2f W · C0 %.1f%% · CC6 %.1f%%",
+                       core.tempC, core.powerW, core.c0Percent, core.cc6Percent))
     }
 }

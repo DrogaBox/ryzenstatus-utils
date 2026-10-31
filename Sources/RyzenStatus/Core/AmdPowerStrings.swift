@@ -209,6 +209,39 @@ struct AMDPowerFeatureStrings {
     let sidebarTitle: String
     let telemetryPacketSelectorTitle: String
     let loadingControls: String
+    /// The panel's core grid: each ring's name (`%d`), what VoiceOver and the
+    /// hover text read after it, and the words around the numbers.
+    let gridThreadFormat: String
+    let gridCoreFormat: String
+    /// Thread load and its system share, as two `%.1f`.
+    let gridLoadValueFormat: String
+    /// C6 residency as a whole `%d` percent.
+    let gridC6Format: String
+    let gridFavorite: String
+    let gridParked: String
+    /// Effective clock as `%.0f` MHz.
+    let gridClockValueFormat: String
+    let gridLoad: String
+    let perCoreGrid: String
+    let pmVoltageHelp: String
+    let pmC0Help: String
+    let pmCC6Help: String
+    /// L3 slice `%d`, clock `%.0f`, temperature `%.1f`, logic and VDDM power
+    /// `%.2f` each, EDC limit `%.0f`.
+    let l3HelpFormat: String
+    let presetEco: String
+    let presetBalance: String
+    let presetPerformance: String
+    let presetExtreme: String
+
+    func presetTitle(_ preset: AMDPowerPreset) -> String {
+        switch preset {
+        case .eco: return presetEco
+        case .balance: return presetBalance
+        case .performance: return presetPerformance
+        case .extreme: return presetExtreme
+        }
+    }
 }
 
 extension L10n {
@@ -426,7 +459,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "Thread %d",
+        gridCoreFormat: "Core %d",
+        gridLoadValueFormat: "%.1f%% (system %.1f%%)",
+        gridC6Format: "C6 residency %d%%",
+        gridFavorite: "favorite core",
+        gridParked: "parked",
+        gridClockValueFormat: "%.0f MHz eff",
+        gridLoad: "Load",
+        perCoreGrid: "Per-Core Grid",
+        pmVoltageHelp: "Per-core voltage (SMU)",
+        pmC0Help: "C0 residency (%)",
+        pmCC6Help: "CC6 residency (%)",
+        l3HelpFormat: "L3 cache %d · %.0f MHz eff · %.1f °C · %.2f W logic + %.2f W VDDM · EDC %.0f A",
+        presetEco: "Eco",
+        presetBalance: "Balance",
+        presetPerformance: "Performance",
+        presetExtreme: "Extreme"
     )
 
     static let es = AMDPowerFeatureStrings(
@@ -611,7 +661,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "Hilo %d",
+        gridCoreFormat: "Núcleo %d",
+        gridLoadValueFormat: "%.1f%% (sistema %.1f%%)",
+        gridC6Format: "Residencia C6 %d%%",
+        gridFavorite: "núcleo preferido",
+        gridParked: "en reposo",
+        gridClockValueFormat: "%.0f MHz efectivos",
+        gridLoad: "Carga",
+        perCoreGrid: "Cuadrícula por núcleo",
+        pmVoltageHelp: "Voltaje por núcleo (SMU)",
+        pmC0Help: "Residencia C0 (%)",
+        pmCC6Help: "Residencia CC6 (%)",
+        l3HelpFormat: "Caché L3 %d · %.0f MHz efectivos · %.1f °C · %.2f W lógica + %.2f W VDDM · EDC %.0f A",
+        presetEco: "Eco",
+        presetBalance: "Equilibrado",
+        presetPerformance: "Rendimiento",
+        presetExtreme: "Extremo"
     )
 
     static let ptBR = AMDPowerFeatureStrings(
@@ -796,7 +863,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "Thread %d",
+        gridCoreFormat: "Núcleo %d",
+        gridLoadValueFormat: "%.1f%% (sistema %.1f%%)",
+        gridC6Format: "Residência C6 %d%%",
+        gridFavorite: "núcleo preferido",
+        gridParked: "em repouso",
+        gridClockValueFormat: "%.0f MHz efetivos",
+        gridLoad: "Carga",
+        perCoreGrid: "Grade por núcleo",
+        pmVoltageHelp: "Tensão por núcleo (SMU)",
+        pmC0Help: "Residência C0 (%)",
+        pmCC6Help: "Residência CC6 (%)",
+        l3HelpFormat: "Cache L3 %d · %.0f MHz efetivos · %.1f °C · %.2f W lógica + %.2f W VDDM · EDC %.0f A",
+        presetEco: "Eco",
+        presetBalance: "Equilíbrio",
+        presetPerformance: "Desempenho",
+        presetExtreme: "Extremo"
     )
 
     static let de = AMDPowerFeatureStrings(
@@ -981,7 +1065,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "Thread %d",
+        gridCoreFormat: "Kern %d",
+        gridLoadValueFormat: "%.1f %% (System %.1f %%)",
+        gridC6Format: "C6-Verweildauer %d %%",
+        gridFavorite: "bevorzugter Kern",
+        gridParked: "geparkt",
+        gridClockValueFormat: "%.0f MHz effektiv",
+        gridLoad: "Last",
+        perCoreGrid: "Raster pro Kern",
+        pmVoltageHelp: "Spannung pro Kern (SMU)",
+        pmC0Help: "C0-Verweildauer (%)",
+        pmCC6Help: "CC6-Verweildauer (%)",
+        l3HelpFormat: "L3-Cache %d · %.0f MHz effektiv · %.1f °C · %.2f W Logik + %.2f W VDDM · EDC %.0f A",
+        presetEco: "Eco",
+        presetBalance: "Ausgewogen",
+        presetPerformance: "Leistung",
+        presetExtreme: "Extrem"
     )
 
     static let fr = AMDPowerFeatureStrings(
@@ -1166,7 +1267,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "Thread %d",
+        gridCoreFormat: "Cœur %d",
+        gridLoadValueFormat: "%.1f %% (système %.1f %%)",
+        gridC6Format: "Résidence C6 %d %%",
+        gridFavorite: "cœur favori",
+        gridParked: "en veille",
+        gridClockValueFormat: "%.0f MHz effectifs",
+        gridLoad: "Charge",
+        perCoreGrid: "Grille par cœur",
+        pmVoltageHelp: "Tension par cœur (SMU)",
+        pmC0Help: "Résidence C0 (%)",
+        pmCC6Help: "Résidence CC6 (%)",
+        l3HelpFormat: "Cache L3 %d · %.0f MHz effectifs · %.1f °C · %.2f W logique + %.2f W VDDM · EDC %.0f A",
+        presetEco: "Éco",
+        presetBalance: "Équilibré",
+        presetPerformance: "Performance",
+        presetExtreme: "Extrême"
     )
 
     static let it = AMDPowerFeatureStrings(
@@ -1351,7 +1469,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "Thread %d",
+        gridCoreFormat: "Core %d",
+        gridLoadValueFormat: "%.1f%% (sistema %.1f%%)",
+        gridC6Format: "Residenza C6 %d%%",
+        gridFavorite: "core preferito",
+        gridParked: "in pausa",
+        gridClockValueFormat: "%.0f MHz effettivi",
+        gridLoad: "Carico",
+        perCoreGrid: "Griglia per core",
+        pmVoltageHelp: "Tensione per core (SMU)",
+        pmC0Help: "Residenza C0 (%)",
+        pmCC6Help: "Residenza CC6 (%)",
+        l3HelpFormat: "Cache L3 %d · %.0f MHz effettivi · %.1f °C · %.2f W logica + %.2f W VDDM · EDC %.0f A",
+        presetEco: "Eco",
+        presetBalance: "Bilanciato",
+        presetPerformance: "Prestazioni",
+        presetExtreme: "Estremo"
     )
 
     static let ru = AMDPowerFeatureStrings(
@@ -1536,7 +1671,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "Поток %d",
+        gridCoreFormat: "Ядро %d",
+        gridLoadValueFormat: "%.1f%% (система %.1f%%)",
+        gridC6Format: "Время в C6 %d%%",
+        gridFavorite: "предпочтительное ядро",
+        gridParked: "запарковано",
+        gridClockValueFormat: "%.0f МГц эфф.",
+        gridLoad: "Нагрузка",
+        perCoreGrid: "Сетка по ядрам",
+        pmVoltageHelp: "Напряжение ядра (SMU)",
+        pmC0Help: "Время в C0 (%)",
+        pmCC6Help: "Время в CC6 (%)",
+        l3HelpFormat: "Кэш L3 %d · %.0f МГц эфф. · %.1f °C · %.2f Вт логика + %.2f Вт VDDM · EDC %.0f А",
+        presetEco: "Эко",
+        presetBalance: "Баланс",
+        presetPerformance: "Производительность",
+        presetExtreme: "Экстрим"
     )
 
     static let tr = AMDPowerFeatureStrings(
@@ -1721,7 +1873,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "İş parçacığı %d",
+        gridCoreFormat: "Çekirdek %d",
+        gridLoadValueFormat: "%.1f%% (sistem %.1f%%)",
+        gridC6Format: "C6 kalış %d%%",
+        gridFavorite: "tercih edilen çekirdek",
+        gridParked: "park edildi",
+        gridClockValueFormat: "%.0f MHz efektif",
+        gridLoad: "Yük",
+        perCoreGrid: "Çekirdek ızgarası",
+        pmVoltageHelp: "Çekirdek başına voltaj (SMU)",
+        pmC0Help: "C0 kalış (%)",
+        pmCC6Help: "CC6 kalış (%)",
+        l3HelpFormat: "L3 önbellek %d · %.0f MHz efektif · %.1f °C · %.2f W mantık + %.2f W VDDM · EDC %.0f A",
+        presetEco: "Eko",
+        presetBalance: "Denge",
+        presetPerformance: "Performans",
+        presetExtreme: "Ekstrem"
     )
 
     static let ja = AMDPowerFeatureStrings(
@@ -1906,7 +2075,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "スレッド %d",
+        gridCoreFormat: "コア %d",
+        gridLoadValueFormat: "%.1f%%（システム %.1f%%）",
+        gridC6Format: "C6滞在率 %d%%",
+        gridFavorite: "優先コア",
+        gridParked: "パーク中",
+        gridClockValueFormat: "実効 %.0f MHz",
+        gridLoad: "負荷",
+        perCoreGrid: "コア別グリッド",
+        pmVoltageHelp: "コア別電圧（SMU）",
+        pmC0Help: "C0滞在率（%）",
+        pmCC6Help: "CC6滞在率（%）",
+        l3HelpFormat: "L3キャッシュ %d · 実効 %.0f MHz · %.1f °C · ロジック %.2f W + VDDM %.2f W · EDC %.0f A",
+        presetEco: "エコ",
+        presetBalance: "バランス",
+        presetPerformance: "パフォーマンス",
+        presetExtreme: "エクストリーム"
     )
 
     static let ko = AMDPowerFeatureStrings(
@@ -2091,7 +2277,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "스레드 %d",
+        gridCoreFormat: "코어 %d",
+        gridLoadValueFormat: "%.1f%% (시스템 %.1f%%)",
+        gridC6Format: "C6 체류율 %d%%",
+        gridFavorite: "우선 코어",
+        gridParked: "파킹됨",
+        gridClockValueFormat: "실효 %.0f MHz",
+        gridLoad: "부하",
+        perCoreGrid: "코어별 그리드",
+        pmVoltageHelp: "코어별 전압(SMU)",
+        pmC0Help: "C0 체류율(%)",
+        pmCC6Help: "CC6 체류율(%)",
+        l3HelpFormat: "L3 캐시 %d · 실효 %.0f MHz · %.1f °C · 로직 %.2f W + VDDM %.2f W · EDC %.0f A",
+        presetEco: "에코",
+        presetBalance: "균형",
+        presetPerformance: "성능",
+        presetExtreme: "익스트림"
     )
 
     static let zhHans = AMDPowerFeatureStrings(
@@ -2276,7 +2479,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "线程 %d",
+        gridCoreFormat: "核心 %d",
+        gridLoadValueFormat: "%.1f%%（系统 %.1f%%）",
+        gridC6Format: "C6 驻留 %d%%",
+        gridFavorite: "首选核心",
+        gridParked: "已休眠",
+        gridClockValueFormat: "有效 %.0f MHz",
+        gridLoad: "负载",
+        perCoreGrid: "逐核心网格",
+        pmVoltageHelp: "逐核心电压（SMU）",
+        pmC0Help: "C0 驻留（%）",
+        pmCC6Help: "CC6 驻留（%）",
+        l3HelpFormat: "L3 缓存 %d · 有效 %.0f MHz · %.1f °C · 逻辑 %.2f W + VDDM %.2f W · EDC %.0f A",
+        presetEco: "节能",
+        presetBalance: "平衡",
+        presetPerformance: "性能",
+        presetExtreme: "极限"
     )
 
     static let zhTW = AMDPowerFeatureStrings(
@@ -2461,7 +2681,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "AMD Ryzen Power",
         telemetryPacketSelectorTitle: "Telemetry Packet (Selector 100)",
-        loadingControls: "Loading AMD power controls…"
+        loadingControls: "Loading AMD power controls…",
+        gridThreadFormat: "執行緒 %d",
+        gridCoreFormat: "核心 %d",
+        gridLoadValueFormat: "%.1f%%（系統 %.1f%%）",
+        gridC6Format: "C6 駐留 %d%%",
+        gridFavorite: "偏好核心",
+        gridParked: "已休眠",
+        gridClockValueFormat: "有效 %.0f MHz",
+        gridLoad: "負載",
+        perCoreGrid: "逐核心格狀圖",
+        pmVoltageHelp: "逐核心電壓（SMU）",
+        pmC0Help: "C0 駐留（%）",
+        pmCC6Help: "CC6 駐留（%）",
+        l3HelpFormat: "L3 快取 %d · 有效 %.0f MHz · %.1f °C · 邏輯 %.2f W + VDDM %.2f W · EDC %.0f A",
+        presetEco: "節能",
+        presetBalance: "平衡",
+        presetPerformance: "效能",
+        presetExtreme: "極限"
     )
 
     static let zhHK = zhTW
@@ -2647,7 +2884,24 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "Napájanie AMD Ryzen",
         telemetryPacketSelectorTitle: "Paket telemetrie (selektor 100)",
-        loadingControls: "Načítava sa ovládanie napájania AMD…"
+        loadingControls: "Načítava sa ovládanie napájania AMD…",
+        gridThreadFormat: "Vlákno %d",
+        gridCoreFormat: "Jadro %d",
+        gridLoadValueFormat: "%.1f %% (systém %.1f %%)",
+        gridC6Format: "Rezidencia C6 %d %%",
+        gridFavorite: "preferované jadro",
+        gridParked: "zaparkované",
+        gridClockValueFormat: "%.0f MHz efektívne",
+        gridLoad: "Záťaž",
+        perCoreGrid: "Mriežka jadier",
+        pmVoltageHelp: "Napätie jadra (SMU)",
+        pmC0Help: "Rezidencia C0 (%)",
+        pmCC6Help: "Rezidencia CC6 (%)",
+        l3HelpFormat: "L3 cache %d · %.0f MHz efektívne · %.1f °C · %.2f W logika + %.2f W VDDM · EDC %.0f A",
+        presetEco: "Úsporný",
+        presetBalance: "Vyvážený",
+        presetPerformance: "Výkon",
+        presetExtreme: "Extrémny"
     )
 
     static let uk = AMDPowerFeatureStrings(
@@ -2831,6 +3085,23 @@ extension AMDPowerFeatureStrings {
         panelSectionTitle: "AMD Ryzen",
         sidebarTitle: "Живлення AMD Ryzen",
         telemetryPacketSelectorTitle: "Пакет телеметрії (селектор 100)",
-        loadingControls: "Завантаження керування живленням AMD…"
+        loadingControls: "Завантаження керування живленням AMD…",
+        gridThreadFormat: "Потік %d",
+        gridCoreFormat: "Ядро %d",
+        gridLoadValueFormat: "%.1f%% (система %.1f%%)",
+        gridC6Format: "Час у C6 %d%%",
+        gridFavorite: "пріоритетне ядро",
+        gridParked: "запарковано",
+        gridClockValueFormat: "%.0f МГц еф.",
+        gridLoad: "Навантаження",
+        perCoreGrid: "Сітка за ядрами",
+        pmVoltageHelp: "Напруга ядра (SMU)",
+        pmC0Help: "Час у C0 (%)",
+        pmCC6Help: "Час у CC6 (%)",
+        l3HelpFormat: "Кеш L3 %d · %.0f МГц еф. · %.1f °C · %.2f Вт логіка + %.2f Вт VDDM · EDC %.0f А",
+        presetEco: "Еко",
+        presetBalance: "Баланс",
+        presetPerformance: "Продуктивність",
+        presetExtreme: "Екстрим"
     )
 }

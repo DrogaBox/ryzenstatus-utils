@@ -14,7 +14,14 @@ final class NotchService: ObservableObject {
     static let fullscreenVisibilityDidChange = Notification.Name("NotchFullscreenVisibilityDidChange")
 
     @Published private(set) var geometry = NotchGeometry(
-        screen: CGRect(x: 0, y: 0, width: 1440, height: 900), safeAreaTop: 0, cameraWidth: 0)
+        screen: CGRect(x: 0, y: 0, width: 1440, height: 900), safeAreaTop: 0, cameraWidth: 0) {
+        didSet {
+            // A capsule needs the middle's reading, a notch does not: moving
+            // between the two starts or stops it, after this change settles.
+            guard geometry.floats != oldValue.floats else { return }
+            DispatchQueue.main.async { [weak self] in self?.syncCapsuleCenter() }
+        }
+    }
     @Published private(set) var expanded = false
     @Published private(set) var showsKeyboardFocus = false
     /// True when macOS refused the island's own shortcut, so Settings can say so.
@@ -1297,7 +1304,6 @@ final class NotchService: ObservableObject {
             running = true
             installObservers()
         }
-        syncCapsuleCenter()
         syncShortcut()
         if !NotchTimerSupport.isEnabled() { NotchTimerService.shared.stop() }
         // A watch keeps reading while the island is away, as on the lock
@@ -1337,6 +1343,10 @@ final class NotchService: ObservableObject {
         updateFullscreenDisplays()
         updateScreen()
         syncAppFullscreenMonitoring()
+        // After the suspended guard, so a preference change while locked does
+        // not restart the timer the teardown stopped, and once the display
+        // style and the copies' setting are known.
+        syncCapsuleCenter()
         syncPointerFollowing()
         syncGestures()
         NotchTimerService.shared.syncWithPreferences()
@@ -1511,6 +1521,9 @@ final class NotchService: ObservableObject {
         NotchLeaveService.shared.stop()
         NotchFocusService.shared.stop()
         NotchNotificationService.shared.stop()
+        // Alerts the island cannot show are not evaluated at all while away;
+        // the preference sync starts them again after the suspended guard.
+        NotchHardwareAlertService.shared.stop()
         blurBackdrop.hide()
         AgentUsageService.shared.pause()
         settingsSignature = ""
@@ -3275,11 +3288,21 @@ final class NotchService: ObservableObject {
     }
 
     /// Reads the capsule's middle once a second while a preference asks for
-    /// one, and only redraws the strip's width when the reading needs it.
+    /// one and a capsule can show it: this island floating, or a copy on
+    /// another display that floats. A notch keeps its camera there, so on a
+    /// notched Mac alone nothing runs. Only redraws the strip's width when
+    /// the reading needs it.
     private func syncCapsuleCenter() {
-        if NotchCapsuleCenter.current() == .none {
+        let capsuleShows = geometry.floats
+            || (showsOnAllDisplays && NSScreen.screens.contains { baseGeometry(for: $0).floats })
+        guard NotchCapsuleCenterSupport.runsTimer(center: NotchCapsuleCenter.current(), running: running,
+                                                  suspended: suspended, capsuleShows: capsuleShows) else {
             capsuleCenterTimer?.invalidate(); capsuleCenterTimer = nil
-        } else if capsuleCenterTimer == nil {
+            // While suspended the presentation is torn down and clears it.
+            if !suspended { showCapsuleCenter(nil) }
+            return
+        }
+        if capsuleCenterTimer == nil {
             let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.updateCapsuleCenter() }
             timer.tolerance = 0.2
             RunLoop.main.add(timer, forMode: .common)
@@ -3294,15 +3317,20 @@ final class NotchService: ObservableObject {
         let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "") ?? .celsius
         let now = Date()
         let support = NotchCapsuleCenterSupport.self
+        let strings = FeatureStrings.notchCapsuleCenter(language)
         let metricText = support.multiMetric(NotchCapsuleMetric.currentList(),
-                                             snapshot: SystemMonitor.shared.snapshot, unit: unit)
+                                             snapshot: SystemMonitor.shared.snapshot, unit: unit, strings: strings)
         let text = support.text(center: NotchCapsuleCenter.current(),
                                 song: support.song(title: track?.title, artist: track?.artist),
                                 metric: metricText,
                                 clock: support.clock(now, locale: language.formattingLocale()),
                                 snapshot: SystemMonitor.shared.snapshot, unit: unit,
                                 carouselMetrics: NotchCapsuleMetric.carouselList(),
-                                now: now)
+                                now: now, strings: strings)
+        showCapsuleCenter(text)
+    }
+
+    private func showCapsuleCenter(_ text: String?) {
         guard text != capsuleCenterText else { return }
         let measure = { (text: String?) in text.map(NotchCapsuleLayout.centerWidth) ?? 0 }
         let resizes = measure(text) != measure(capsuleCenterText)

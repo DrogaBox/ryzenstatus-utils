@@ -5,16 +5,42 @@ import AppKit
 import Combine
 import Foundation
 
-/// Proactive Dynamic Island hardware alerts for AMD Ryzen systems.
-/// Monitors thermal, PPT power and fan health metrics and alerts through the Dynamic Island.
-final class NotchHardwareAlertService: @unchecked Sendable {
+/// The rules behind the hardware alerts, kept pure for the tests.
+enum NotchHardwareAlertSupport {
+    /// Readings in a row at or past `trigger`; one below `release` resets.
+    static func nextStreak(_ streak: Int, value: Double, trigger: Double, release: Double) -> Int {
+        if value >= trigger { return streak + 1 }
+        return value < release ? 0 : streak
+    }
+
+    static func cooledDown(_ last: Date?, now: Date, cooldown: TimeInterval) -> Bool {
+        last.map { now.timeIntervalSince($0) >= cooldown } ?? true
+    }
+
+    /// Fans seen turning at some point: only these can stall. A header with
+    /// nothing plugged in reads zero from the start and never counts.
+    static func spinning(_ readings: [Int: UInt64], adding known: Set<Int>) -> Set<Int> {
+        known.union(readings.filter { $0.value > 0 }.map(\.key))
+    }
+
+    /// Fans that turned before and read zero now.
+    static func stalled(_ readings: [Int: UInt64], spun: Set<Int>) -> Set<Int> {
+        Set(readings.filter { $0.value == 0 && spun.contains($0.key) }.map(\.key))
+    }
+}
+
+/// Thermal, PPT power and fan stall alerts through the Dynamic Island.
+/// Runs only while the island can show: the island stops it on suspend.
+final class NotchHardwareAlertService {
     static let shared = NotchHardwareAlertService()
 
     private var subscription: AnyCancellable?
     private var thermalStreak = 0
+    private var powerStreak = 0
     private var lastThermalAlert: Date?
     private var lastPowerAlert: Date?
     private var lastFanAlert: Date?
+    private var spunFans = Set<Int>()
     private let cooldown: TimeInterval = 35
 
     private init() {}
@@ -31,65 +57,70 @@ final class NotchHardwareAlertService: @unchecked Sendable {
     func stop() {
         subscription?.cancel()
         subscription = nil
+        thermalStreak = 0
+        powerStreak = 0
     }
 
+    /// Each alert stamps its cooldown and plays its sound only once the
+    /// island has taken it: a refused alert stays silent and can fire again.
     private func evaluate(_ snapshot: SystemSnapshot) {
         guard UserDefaults.standard.bool(forKey: DefaultsKey.notchHardwareAlertsEnabled) else { return }
         let now = Date()
+        let text = FeatureStrings.notchIslandExtras(L10n.shared.language)
 
-        // 1. Thermal Spike Check
         if let temp = snapshot.cpuTemperature {
-            if temp >= 85.0 {
-                thermalStreak += 1
-                if thermalStreak >= 3,
-                   lastThermalAlert == nil || now.timeIntervalSince(lastThermalAlert!) >= cooldown {
-                    lastThermalAlert = now
-                    NotchSoundCueService.shared.play(.error)
-                    let notice = NotchNotice(
-                        event: .hardwareAlert,
-                        title: "CPU Thermal Alert",
-                        detail: String(format: "%.0f°C", temp),
-                        symbol: "flame.fill",
-                        mascot: .surprised
-                    )
-                    NotchService.shared.show(notice)
-                }
-            } else if temp < 78.0 {
-                thermalStreak = 0
+            thermalStreak = NotchHardwareAlertSupport.nextStreak(thermalStreak, value: temp, trigger: 85, release: 78)
+            let unit = TemperatureUnit(rawValue: UserDefaults.standard.string(forKey: DefaultsKey.temperatureUnit) ?? "")
+                ?? .celsius
+            if thermalStreak >= 3,
+               NotchHardwareAlertSupport.cooledDown(lastThermalAlert, now: now, cooldown: cooldown),
+               NotchService.shared.show(NotchNotice(event: .hardwareAlert, title: text.thermalAlert,
+                                                    detail: MetricFormat.temperature(temp, unit: unit),
+                                                    symbol: "flame.fill", mascot: .surprised)) {
+                lastThermalAlert = now
+                NotchSoundCueService.shared.play(.error)
             }
         }
 
-        // 2. PPT Power Limit Check
-        if let power = snapshot.cpuPower, power >= 140.0 {
-            if lastPowerAlert == nil || now.timeIntervalSince(lastPowerAlert!) >= cooldown {
+        if let power = snapshot.cpuPower {
+            powerStreak = NotchHardwareAlertSupport.nextStreak(powerStreak, value: power, trigger: 140, release: 130)
+            if powerStreak >= 3,
+               NotchHardwareAlertSupport.cooledDown(lastPowerAlert, now: now, cooldown: cooldown),
+               NotchService.shared.show(NotchNotice(event: .hardwareAlert, title: text.powerAlert,
+                                                    detail: String(format: "%.0f W", power),
+                                                    symbol: "bolt.fill", mascot: .surprised)) {
                 lastPowerAlert = now
                 NotchSoundCueService.shared.play(.context)
-                let notice = NotchNotice(
-                    event: .hardwareAlert,
-                    title: "PPT Saturation",
-                    detail: String(format: "%.0fW", power),
-                    symbol: "bolt.fill",
-                    mascot: .surprised
-                )
-                NotchService.shared.show(notice)
             }
         }
 
-        // 3. Fan Stall Check under load
-        if let temp = snapshot.cpuTemperature, temp >= 72.0,
-           let fan = snapshot.gpuFan, fan == 0 {
-            if lastFanAlert == nil || now.timeIntervalSince(lastFanAlert!) >= (cooldown * 1.5) {
-                lastFanAlert = now
-                NotchSoundCueService.shared.play(.error)
-                let notice = NotchNotice(
-                    event: .hardwareAlert,
-                    title: "Fan Check",
-                    detail: "0 RPM",
-                    symbol: "fanblades.slash",
-                    mascot: .confused
-                )
-                NotchService.shared.show(notice)
-            }
+        evaluateFans(snapshot: snapshot, now: now, text: text)
+    }
+
+    /// A fan that turned earlier and reads zero while the CPU is hot. The
+    /// readings come from the fan controller, and only while its poll runs
+    /// (a fan view open, a manual fan): a stale list is never trusted.
+    private func evaluateFans(snapshot: SystemSnapshot, now: Date, text: NotchIslandExtrasStrings) {
+        // The sink delivers on the main queue, where the controller lives.
+        let live: (fans: [FanState], packageTemp: Double)? = MainActor.assumeIsolated {
+            let controller = FanCurveController.shared
+            guard let packageTemp = controller.lastPackageTempC, packageTemp > 0 else { return nil }
+            return (controller.fans.filter { !$0.isHidden && $0.rpmValid }, packageTemp)
+        }
+        guard let live else { return }
+        let fans = live.fans
+        let readings = Dictionary(fans.map { ($0.id, $0.rpm) }, uniquingKeysWith: { first, _ in first })
+        spunFans = NotchHardwareAlertSupport.spinning(readings, adding: spunFans)
+        let temp = snapshot.cpuTemperature ?? live.packageTemp
+        let stalled = NotchHardwareAlertSupport.stalled(readings, spun: spunFans)
+        guard temp >= 72, let fan = fans.first(where: { stalled.contains($0.id) }),
+              NotchHardwareAlertSupport.cooledDown(lastFanAlert, now: now, cooldown: cooldown * 1.5) else { return }
+        let name = fan.customName.flatMap { $0.isEmpty ? nil : $0 } ?? fan.name
+        if NotchService.shared.show(NotchNotice(event: .hardwareAlert, title: text.fanAlert,
+                                                detail: name + " · 0 RPM",
+                                                symbol: "fanblades.slash", mascot: .confused)) {
+            lastFanAlert = now
+            NotchSoundCueService.shared.play(.error)
         }
     }
 }

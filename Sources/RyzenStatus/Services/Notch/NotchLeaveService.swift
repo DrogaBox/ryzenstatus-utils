@@ -129,24 +129,43 @@ final class NotchLeaveService: NSObject, CLLocationManagerDelegate {
 
     private func schedule(event: NotchCalendarEvent, travel: TimeInterval, transport: NotchLeaveTransport, key: String) {
         let leave = NotchLeaveSupport.leaveAt(start: event.start, travel: travel)
-        let fire = { [weak self] in
-            guard let self, self.planned == key, Date() < event.start else { return }
-            self.announced.insert(key)
-            self.announce(event: event, travel: travel, transport: transport)
+        guard leave > Date() else {
+            attempt(event: event, travel: travel, transport: transport, key: key)
+            return
         }
-        guard leave > Date() else { fire(); return }
-        let timer = Timer(fire: leave, interval: 0, repeats: false) { _ in fire() }
+        arm(at: leave, event: event, travel: travel, transport: transport, key: key)
+    }
+
+    private func arm(at date: Date, event: NotchCalendarEvent, travel: TimeInterval,
+                     transport: NotchLeaveTransport, key: String) {
+        timer?.invalidate()
+        let timer = Timer(fire: date, interval: 0, repeats: false) { [weak self] _ in
+            self?.attempt(event: event, travel: travel, transport: transport, key: key)
+        }
         timer.tolerance = 10
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
     }
 
-    private func announce(event: NotchCalendarEvent, travel: TimeInterval, transport: NotchLeaveTransport) {
+    /// A reminder the island refuses (full screen, a busier notice) is not
+    /// spent: it comes back every minute until the event starts.
+    private func attempt(event: NotchCalendarEvent, travel: TimeInterval,
+                         transport: NotchLeaveTransport, key: String) {
+        guard planned == key, Date() < event.start else { return }
+        if announce(event: event, travel: travel, transport: transport) {
+            announced.insert(key)
+        } else {
+            arm(at: Date().addingTimeInterval(60), event: event, travel: travel, transport: transport, key: key)
+        }
+    }
+
+    @discardableResult
+    private func announce(event: NotchCalendarEvent, travel: TimeInterval, transport: NotchLeaveTransport) -> Bool {
         let text = FeatureStrings.notchIslandExtras(L10n.shared.language)
         let minutes = max(1, Int((travel / 60).rounded()))
         let detail = String(format: text.travelMinutes, minutes) + " · " + event.title
-        NotchService.shared.show(NotchNotice(event: .leave, title: text.timeToLeave, detail: detail,
-                                             symbol: transport.symbol))
+        return NotchService.shared.show(NotchNotice(event: .leave, title: text.timeToLeave, detail: detail,
+                                                    symbol: transport.symbol))
     }
 
     // MARK: Location

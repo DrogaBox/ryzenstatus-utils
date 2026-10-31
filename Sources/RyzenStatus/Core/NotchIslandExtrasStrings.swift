@@ -21,6 +21,11 @@ struct NotchIslandExtrasStrings {
     let focusOff: String
     /// The system's name for its built-in Focus.
     let doNotDisturb: String
+    /// Hardware alert titles: CPU temperature, the PPT power limit, a fan
+    /// that stopped turning.
+    let thermalAlert: String
+    let powerAlert: String
+    let fanAlert: String
 }
 
 extension FeatureStrings {
@@ -37,7 +42,8 @@ extension FeatureStrings {
             focus: "Focus",
             focusHint: "Shows when a Focus turns on or off.",
             focusOn: "On", focusOff: "Off",
-            doNotDisturb: "Do Not Disturb")
+            doNotDisturb: "Do Not Disturb",
+            thermalAlert: "CPU Thermal Alert", powerAlert: "PPT Saturation", fanAlert: "Fan Stopped")
         case .ptBR: return NotchIslandExtrasStrings(
             progressiveBlur: "Desfocar atrás da ilha aberta",
             progressiveBlurHint: "O topo da tela fica desfocado e mais escuro atrás do Dynamic Island aberto, sumindo abaixo dele.",
@@ -49,7 +55,8 @@ extension FeatureStrings {
             focus: "Foco",
             focusHint: "Mostra quando um modo Foco é ativado ou desativado.",
             focusOn: "Ativado", focusOff: "Desativado",
-            doNotDisturb: "Não Perturbe")
+            doNotDisturb: "Não Perturbe",
+            thermalAlert: "Alerta térmico da CPU", powerAlert: "PPT saturado", fanAlert: "Ventoinha parada")
         case .es: return NotchIslandExtrasStrings(
             progressiveBlur: "Desenfocar detrás de la isla abierta",
             progressiveBlurHint: "La parte superior de la pantalla se desenfoca y oscurece detrás del Dynamic Island abierto y se desvanece por debajo.",
@@ -61,7 +68,8 @@ extension FeatureStrings {
             focus: "Concentración",
             focusHint: "Muestra cuándo se activa o desactiva un modo de concentración.",
             focusOn: "Activado", focusOff: "Desactivado",
-            doNotDisturb: "No molestar")
+            doNotDisturb: "No molestar",
+            thermalAlert: "Alerta térmica de la CPU", powerAlert: "PPT saturado", fanAlert: "Ventilador detenido")
         case .sk: return NotchIslandExtrasStrings(
             progressiveBlur: "Rozmazať za otvoreným ostrovom",
             progressiveBlurHint: "Horná časť obrazovky sa za otvoreným Dynamic Island rozmaže a stmavne a pod ním sa vytratí.",
@@ -73,7 +81,8 @@ extension FeatureStrings {
             focus: "Sústredenie",
             focusHint: "Zobrazí, keď sa režim sústredenia zapne alebo vypne.",
             focusOn: "Zapnuté", focusOff: "Vypnuté",
-            doNotDisturb: "Nerušiť")
+            doNotDisturb: "Nerušiť",
+            thermalAlert: "Teplotné upozornenie CPU", powerAlert: "PPT na limite", fanAlert: "Ventilátor stojí")
         case .de: return NotchIslandExtrasStrings(
             progressiveBlur: "Hinter geöffneter Insel weichzeichnen",
             progressiveBlurHint: "Der obere Bildschirmrand wird hinter dem geöffneten Dynamic Island weichgezeichnet und abgedunkelt und läuft darunter aus.",
@@ -85,7 +94,8 @@ extension FeatureStrings {
             focus: "Fokus",
             focusHint: "Zeigt an, wenn ein Fokus ein- oder ausgeschaltet wird.",
             focusOn: "Ein", focusOff: "Aus",
-            doNotDisturb: "Nicht stören")
+            doNotDisturb: "Nicht stören",
+            thermalAlert: "CPU-Temperaturwarnung", powerAlert: "PPT ausgereizt", fanAlert: "Lüfter steht")
         case .fr: return NotchIslandExtrasStrings(
             progressiveBlur: "Flouter derrière l’île ouverte",
             progressiveBlurHint: "Le haut de l’écran se floute et s’assombrit derrière le Dynamic Island ouvert, puis s’estompe en dessous.",
@@ -97,7 +107,8 @@ extension FeatureStrings {
             focus: "Concentration",
             focusHint: "Indique quand un mode Concentration s’active ou se désactive.",
             focusOn: "Activé", focusOff: "Désactivé",
-            doNotDisturb: "Ne pas déranger")
+            doNotDisturb: "Ne pas déranger",
+            thermalAlert: "Alerte thermique du processeur", powerAlert: "PPT saturé", fanAlert: "Ventilateur arrêté")
         case .it: return NotchIslandExtrasStrings(
             progressiveBlur: "Sfoca dietro l’isola aperta",
             progressiveBlurHint: "La parte superiore dello schermo si sfoca e si scurisce dietro il Dynamic Island aperto, sfumando sotto di esso.",
@@ -109,7 +120,8 @@ extension FeatureStrings {
             focus: "Full immersion",
             focusHint: "Mostra quando una modalità Full immersion si attiva o si disattiva.",
             focusOn: "Attiva", focusOff: "Disattivata",
-            doNotDisturb: "Non disturbare")
+            doNotDisturb: "Non disturbare",
+            thermalAlert: "Avviso termico CPU", powerAlert: "PPT saturato", fanAlert: "Ventola ferma")
         case .ru: return NotchIslandExtrasStrings(
             progressiveBlur: "Размытие за открытым островом",
             progressiveBlurHint: "Верх экрана размывается и затемняется за открытым Dynamic Island и плавно исчезает под ним.",
@@ -121,7 +133,8 @@ extension FeatureStrings {
             focus: "Фокусирование",
             focusHint: "Показывает, когда режим фокусирования включается или выключается.",
             focusOn: "Вкл.", focusOff: "Выкл.",
-            doNotDisturb: "Не беспокоить")
+            doNotDisturb: "Не беспокоить",
+            thermalAlert: "Перегрев процессора", powerAlert: "PPT на пределе", fanAlert: "Вентилятор остановился")
         case .tr: return NotchIslandExtrasStrings(
             progressiveBlur: "Açık adanın arkasını bulanıklaştır",
             progressiveBlurHint: "Açık Dynamic Island’ın arkasında ekranın üstü bulanıklaşır ve kararır, altında giderek kaybolur.",
@@ -133,7 +146,8 @@ extension FeatureStrings {
             focus: "Odak",
             focusHint: "Bir Odak modu açıldığında veya kapandığında gösterir.",
             focusOn: "Açık", focusOff: "Kapalı",
-            doNotDisturb: "Rahatsız Etme")
+            doNotDisturb: "Rahatsız Etme",
+            thermalAlert: "CPU sıcaklık uyarısı", powerAlert: "PPT sınırda", fanAlert: "Fan durdu")
         case .ja: return NotchIslandExtrasStrings(
             progressiveBlur: "開いたアイランドの背後をぼかす",
             progressiveBlurHint: "開いたDynamic Islandの背後で画面上部がぼけて暗くなり、その下でフェードアウトします。",
@@ -145,7 +159,8 @@ extension FeatureStrings {
             focus: "集中モード",
             focusHint: "集中モードのオン／オフを表示します。",
             focusOn: "オン", focusOff: "オフ",
-            doNotDisturb: "おやすみモード")
+            doNotDisturb: "おやすみモード",
+            thermalAlert: "CPU温度警告", powerAlert: "PPT上限到達", fanAlert: "ファン停止")
         case .ko: return NotchIslandExtrasStrings(
             progressiveBlur: "열린 아일랜드 뒤 흐리게",
             progressiveBlurHint: "열린 Dynamic Island 뒤로 화면 상단이 흐려지고 어두워지며 그 아래에서 서서히 사라집니다.",
@@ -157,7 +172,8 @@ extension FeatureStrings {
             focus: "집중 모드",
             focusHint: "집중 모드가 켜지거나 꺼질 때 표시합니다.",
             focusOn: "켬", focusOff: "끔",
-            doNotDisturb: "방해금지 모드")
+            doNotDisturb: "방해금지 모드",
+            thermalAlert: "CPU 온도 경고", powerAlert: "PPT 한계 도달", fanAlert: "팬 멈춤")
         case .zhHans: return NotchIslandExtrasStrings(
             progressiveBlur: "模糊打开的灵动岛背后",
             progressiveBlurHint: "打开灵动岛时，屏幕顶部在其背后变得模糊并变暗，并在下方逐渐消失。",
@@ -169,7 +185,8 @@ extension FeatureStrings {
             focus: "专注模式",
             focusHint: "在专注模式打开或关闭时显示。",
             focusOn: "已打开", focusOff: "已关闭",
-            doNotDisturb: "勿扰模式")
+            doNotDisturb: "勿扰模式",
+            thermalAlert: "CPU 温度警告", powerAlert: "PPT 已饱和", fanAlert: "风扇已停转")
         case .zhTW: return NotchIslandExtrasStrings(
             progressiveBlur: "模糊打開的動態島背後",
             progressiveBlurHint: "打開動態島時，螢幕頂部在其背後變得模糊並變暗，並在下方逐漸消失。",
@@ -181,7 +198,8 @@ extension FeatureStrings {
             focus: "專注模式",
             focusHint: "在專注模式開啟或關閉時顯示。",
             focusOn: "已開啟", focusOff: "已關閉",
-            doNotDisturb: "勿擾模式")
+            doNotDisturb: "勿擾模式",
+            thermalAlert: "CPU 溫度警告", powerAlert: "PPT 已飽和", fanAlert: "風扇已停轉")
         case .zhHK: return NotchIslandExtrasStrings(
             progressiveBlur: "模糊開啟的動態島背後",
             progressiveBlurHint: "開啟動態島時，螢幕頂部在其背後變得模糊並變暗，並在下方逐漸消失。",
@@ -193,7 +211,8 @@ extension FeatureStrings {
             focus: "專注模式",
             focusHint: "在專注模式開啟或關閉時顯示。",
             focusOn: "已開啟", focusOff: "已關閉",
-            doNotDisturb: "勿擾模式")
+            doNotDisturb: "勿擾模式",
+            thermalAlert: "CPU 溫度警告", powerAlert: "PPT 已飽和", fanAlert: "風扇已停轉")
         case .uk: return NotchIslandExtrasStrings(
             progressiveBlur: "Розмиття за відкритим островом",
             progressiveBlurHint: "Верх екрана розмивається й темнішає за відкритим Dynamic Island і плавно зникає під ним.",
@@ -205,7 +224,8 @@ extension FeatureStrings {
             focus: "Зосередження",
             focusHint: "Показує, коли режим зосередження вмикається або вимикається.",
             focusOn: "Увімк.", focusOff: "Вимк.",
-            doNotDisturb: "Не турбувати")
+            doNotDisturb: "Не турбувати",
+            thermalAlert: "Перегрів процесора", powerAlert: "PPT на межі", fanAlert: "Вентилятор зупинився")
         }
     }
 }

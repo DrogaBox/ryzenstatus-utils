@@ -128,9 +128,17 @@ struct NowPlayingTrackContent: View {
         }
     }
 
+    /// The service publishes a reading only when it changes, so the playhead
+    /// moves on the reading's own clock, once a second while playing.
     private var progressBar: some View {
+        TimelineView(.animation(minimumInterval: 1, paused: !service.snapshot.isPlaying)) { context in
+            progressContent(at: context.date)
+        }
+    }
+
+    private func progressContent(at date: Date) -> some View {
         let duration = service.snapshot.duration ?? 0
-        let elapsed = service.snapshot.elapsed ?? 0
+        let elapsed = service.snapshot.position(at: date) ?? 0
         let displayPosition = isSeeking ? seekPosition : elapsed
         return VStack(spacing: 2) {
             Slider(value: Binding(

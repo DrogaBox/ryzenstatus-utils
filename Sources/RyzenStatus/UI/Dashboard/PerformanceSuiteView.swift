@@ -61,7 +61,6 @@ struct PerformanceSuiteView: View {
     /// or undecodable table versions — the whole section then stays hidden.
     @ObservedObject private var amdControls = AmdPowerControlsModel.shared
     @Environment(\.colorScheme) private var colorScheme
-    @State private var amdSyncTimer: Timer?
 
     init(monitor: SystemMonitor) {
         self.monitor = monitor
@@ -131,17 +130,13 @@ struct PerformanceSuiteView: View {
         .onAppear {
             SystemMonitor.shared.panelDidAppear()
             refreshData()
-            // Keep the SMU decode fresh while the dashboard is visible
-            // (same 3 s cadence as the AMD panel section; torn down on exit).
-            Task { await amdControls.syncFromKext() }
-            amdSyncTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
-                Task { await amdControls.syncFromKext() }
-            }
+            // Keep the SMU decode fresh while the dashboard is visible; the
+            // model's one 3 s loop also serves the panel when both are open.
+            amdControls.beginLiveSync()
         }
         .onDisappear {
             SystemMonitor.shared.panelDidDisappear()
-            amdSyncTimer?.invalidate()
-            amdSyncTimer = nil
+            amdControls.endLiveSync()
         }
         .onChange(of: selectedTab) { _, _ in
             refreshData()

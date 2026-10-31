@@ -8961,11 +8961,11 @@ struct MetricsTests {
         snapB.artworkData = Data(repeating: 0x42, count: 128)
         expect(snapA == snapB, "Snapshots with identical artwork buffers are equal")
 
-        // Same length and first 64 bytes identical -> equal by identity proxy rule
+        // Same length and first 64 bytes identical -> still a different cover
         var proxyData = Data(repeating: 0x42, count: 64)
         proxyData.append(Data(repeating: 0x99, count: 64))
         snapB.artworkData = proxyData
-        expect(snapA == snapB, "Artwork proxy matches equal count and identical first 64 bytes")
+        expect(snapA != snapB, "Artwork is compared in full, not by count and first 64 bytes")
 
         // Different count -> not equal
         snapB.artworkData = Data(repeating: 0x42, count: 130)
@@ -12938,6 +12938,7 @@ struct MetricsTests {
                 ("NotchMascotCheatsTests", NotchMascotCheatsTests.run),
                 ("HardwareLayerTests", HardwareLayerTests.run),
                 ("NotchMascotRuntimeTests", NotchMascotRuntimeTests.run),
+                ("IslandPanelTests", IslandPanelTests.run),
             ]
             for (name, run) in suites { suite.run(name) { run(suite) } }
             checks += suite.checks

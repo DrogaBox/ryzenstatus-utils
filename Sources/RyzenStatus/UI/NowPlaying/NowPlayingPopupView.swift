@@ -148,6 +148,29 @@ struct NowPlayingPopupView: View {
                 }
             }
         }
+        // The corner buttons exist only under the pointer; VoiceOver and the
+        // keyboard reach the same actions on the card itself.
+        .accessibilityElement(children: .contain)
+        .accessibilityActions {
+            if cluster == .popover {
+                if !controller.isMini {
+                    Button(strings.lyricsTab) { controller.toggleDetailsPane(tab: .lyrics) }
+                    Button(strings.creditsTab) { controller.toggleDetailsPane(tab: .credits) }
+                }
+                Button(controller.isMini ? strings.regularModeLabel : strings.miniModeLabel) { controller.toggleMini() }
+                Button(strings.detachLabel) { controller.detachPopover() }
+            } else {
+                Button(strings.sizeSmall) { controller.detachedSize = .small }
+                Button(strings.sizeMedium) { controller.detachedSize = .medium }
+                Button(strings.sizeLarge) { controller.detachedSize = .large }
+                Button(strings.alwaysOnTopLabel) { controller.detachedOnTop.toggle() }
+                Button(strings.closeLabel) { controller.closeDetached() }
+            }
+        }
+        // Esc closes the detached window without the pointer over its button.
+        .onExitCommand {
+            if cluster == .detached { controller.closeDetached() }
+        }
         .onChange(of: service.artworkIdentity) { oldIdentity, _ in
             guard hasDisplayedArtwork else {
                 displayedArtwork = service.artworkImage
@@ -436,9 +459,17 @@ struct NowPlayingPopupView: View {
         return line
     }
 
+    /// The service publishes a reading only when it changes, so the playhead
+    /// moves on the reading's own clock, once a second while playing.
     private var progressView: some View {
+        TimelineView(.animation(minimumInterval: 1, paused: !service.snapshot.isPlaying)) { context in
+            progressContent(at: context.date)
+        }
+    }
+
+    private func progressContent(at date: Date) -> some View {
         let duration = service.snapshot.duration ?? 0
-        let elapsed = service.snapshot.elapsed ?? 0
+        let elapsed = service.snapshot.position(at: date) ?? 0
         let displayPosition = isSeeking ? seekPosition : elapsed
         return VStack(spacing: 2) {
             Slider(value: Binding(

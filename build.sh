@@ -106,6 +106,7 @@ if (( TEST )); then
         $(find Sources/RyzenStatus -name '*.swift' ! -name main.swift | sort) \
         Tests/Ported/*.swift \
         Tests/HardwareLayerTests.swift \
+        Tests/IslandPanelTests.swift \
         Tests/MetricsTests.swift \
         -o build/metrics-tests
     ./build/metrics-tests

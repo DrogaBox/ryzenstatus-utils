@@ -604,7 +604,8 @@ private final class NowPlayingAnimatedArtworkPlayerView: NSView {
             guard let self, layer.isReadyForDisplay, !self.hasReportedReady else { return }
             self.hasReportedReady = true
             self.notifyRenderReadiness(true)
-            self.updatePlayback()
+            // The change can arrive off the main thread; the window is read there.
+            DispatchQueue.main.async { [weak self] in self?.updatePlayback() }
         }
 
         // The artwork loop: seek to the start and keep playing at the end.

@@ -341,7 +341,7 @@ private struct NotchMusicTransport: View {
                     if service.requestingAutomation { ProgressView().controlSize(.small) }
                 } else if service.automationAvailability?.access == .denied {
                     Button(l10n.s.permissionOpenSettings) { Permissions.shared.openAutomationSettings() }
-                    Button { service.refreshAutomation() } label: { Image(systemName: "arrow.clockwise") }
+                    Button { service.refreshAutomation(force: true) } label: { Image(systemName: "arrow.clockwise") }
                         .accessibilityLabel(FeatureStrings.notchMusicExtras(l10n.language).refresh)
                 } else {
                     Button(FeatureStrings.notchMusicExtras(l10n.language).openPlayer) { NowPlayingApplication.open(playback.track) }

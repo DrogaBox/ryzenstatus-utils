@@ -385,6 +385,10 @@ final class NotchSpectrumView: NSView {
         area.addLine(to: CGPoint(x: bounds.minX, y: 0))
         area.closeSubpath()
         waveLine.path = line
+        // Without a shadow path Core Animation renders the line offscreen
+        // every frame to find the shadow's shape.
+        waveLine.shadowPath = line.copy(strokingWithWidth: waveLine.lineWidth, lineCap: .round,
+                                        lineJoin: .round, miterLimit: 10)
         waveArea.path = area
     }
 }

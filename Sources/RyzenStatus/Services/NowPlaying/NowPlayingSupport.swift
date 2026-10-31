@@ -30,6 +30,34 @@ struct NowPlayingSnapshot: Equatable {
     /// hides the shuffle/repeat buttons for every other provider.
     var isShuffleEnabled = false
     var repeatMode = NowPlayingRepeatMode.off
+    /// When `elapsed` was read. While playing, the position moves on from
+    /// there, so a reading that only says "two seconds later" changes nothing.
+    /// Not part of equality.
+    var sampledAt: Date?
+
+    /// Where the song stands at `date`, from this reading's clock.
+    func position(at date: Date) -> TimeInterval? {
+        guard let elapsed else { return nil }
+        let moved = isPlaying ? max(0, date.timeIntervalSince(sampledAt ?? date)) : 0
+        let position = max(0, elapsed + moved)
+        if let duration, duration > 0 { return min(duration, position) }
+        return position
+    }
+
+    /// Whether `new` says nothing `old` does not already predict: the same
+    /// reading, with the playhead where `old`'s clock puts it within
+    /// `tolerance`. A seek jumps past it and counts as a change.
+    static func continues(_ old: NowPlayingSnapshot, with new: NowPlayingSnapshot,
+                          tolerance: TimeInterval = 1) -> Bool {
+        var aligned = new
+        aligned.elapsed = old.elapsed
+        guard aligned == old else { return false }
+        switch (old.position(at: new.sampledAt ?? Date()), new.elapsed) {
+        case (nil, nil): return true
+        case let (predicted?, actual?): return abs(predicted - actual) <= tolerance
+        default: return false
+        }
+    }
 
     /// A title is the minimum requirement for a "now playing" moment; a
     /// paused track still counts, an idle session does not.
@@ -112,7 +140,9 @@ struct NowPlayingSnapshot: Equatable {
         case (nil, nil): return true
         case (nil, _), (_, nil): return false
         case let (l?, r?):
-            return l.count == r.count && l.prefix(64) == r.prefix(64)
+            // In full: two covers of one size from one encoder can share
+            // their first bytes.
+            return l == r
         }
     }
 }
@@ -347,6 +377,13 @@ struct NowPlayingMarqueeEngine {
 
     private(set) var phase = Phase.idle
     private(set) var lastText = ""
+
+    /// Whether the menu bar text may scroll at all: the setting is on, Reduce
+    /// Motion is off, the item can be seen and someone is at the Mac.
+    /// Otherwise the text truncates and no tick timer runs.
+    static func scrolls(setting: Bool, reduceMotion: Bool, itemVisible: Bool, sessionActive: Bool) -> Bool {
+        setting && !reduceMotion && itemVisible && sessionActive
+    }
 
     mutating func reset() {
         phase = .idle
