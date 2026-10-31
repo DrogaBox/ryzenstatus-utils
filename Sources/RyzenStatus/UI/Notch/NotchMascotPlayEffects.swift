@@ -798,14 +798,23 @@ extension NotchMascotPlayEffects {
 
     /// `thing` thrown along a high arc from `start` to `end` over `duration`,
     /// turning as it goes, and gone on arrival or, `falls`, dropped short.
+    /// With `alive`, its landing is heard only if `alive` still answers true.
     static func fly(_ thing: NotchMascotIslandPlay.Thing, in parent: CALayer, from start: CGPoint, to end: CGPoint,
                     duration: TimeInterval, side: CGFloat = 16, falls: Bool = false,
-                    energy: NotchMascotPlay.Energy = NotchMascotPlay.Energy(red: 1, green: 0.86, blue: 0.3)) {
+                    energy: NotchMascotPlay.Energy = NotchMascotPlay.Energy(red: 1, green: 0.86, blue: 0.3),
+                    while alive: (() -> Bool)? = nil) {
         let width = parent.bounds.width
         NotchMascotSound.play(NotchMascotSoundMap.launch(of: thing), pan: NotchMascotSoundMap.pan(x: start.x, width: width))
         if !falls {
-            NotchMascotSound.play(NotchMascotSoundMap.landing(of: thing), pan: NotchMascotSoundMap.pan(x: end.x, width: width),
-                                  after: duration * 0.92)
+            let landing = NotchMascotSoundMap.landing(of: thing)
+            let pan = NotchMascotSoundMap.pan(x: end.x, width: width)
+            if let alive {
+                DispatchQueue.main.asyncAfter(deadline: .now() + duration * 0.92) {
+                    if alive() { NotchMascotSound.play(landing, pan: pan) }
+                }
+            } else {
+                NotchMascotSound.play(landing, pan: pan, after: duration * 0.92)
+            }
         }
         let holder = propLayer(thingParts(thing, side: side, energy: energy), side: side, at: start,
                                scale: scale(of: parent))

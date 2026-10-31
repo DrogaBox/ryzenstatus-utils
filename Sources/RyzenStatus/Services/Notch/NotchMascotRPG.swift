@@ -46,12 +46,18 @@ enum NotchMascotRPG {
 
     static func isHungry(vitality: Double) -> Bool { vitality < snackThreshold }
 
-    /// The hearts after `elapsed` seconds with `vitality`: they fade while
-    /// it starves, and come back slowly otherwise, never below one.
+    /// The hearts after `elapsed` seconds that began with `vitality` and ran
+    /// it down at `drainPerSecond`: they come back slowly while it is fed
+    /// and fade once it starves, never below one. A long pause, such as a
+    /// locked screen, counts in one step what many short ones would.
     static func hearts(_ hearts: Double, containers: Int, vitality: Double, elapsed: TimeInterval) -> Double {
         let full = Double(containers)
-        if vitality < starvingThreshold { return max(1, hearts - elapsed * heartLossPerSecond) }
-        return min(full, hearts + elapsed * heartGainPerSecond)
+        // The moment within `elapsed` the hourglass falls below the threshold.
+        let fed = min(elapsed, max(0, (vitality - starvingThreshold) / drainPerSecond))
+        var next = hearts
+        if fed > 0 { next = min(full, next + fed * heartGainPerSecond) }
+        if elapsed > fed { next = max(1, next - (elapsed - fed) * heartLossPerSecond) }
+        return next
     }
 
     // MARK: Main-actor access for the rest of the island
@@ -70,6 +76,10 @@ enum NotchMascotRPG {
 
     static func tick(elapsed: TimeInterval, level: Int) {
         MainActor.assumeIsolated { NotchMascotRPGState.shared.tick(elapsed: elapsed, level: level) }
+    }
+
+    static func flush() {
+        MainActor.assumeIsolated { NotchMascotRPGState.shared.flush() }
     }
 
     static func feed(_ snack: NotchMascotSnack) {
@@ -366,14 +376,15 @@ public final class NotchMascotRPGState: ObservableObject {
     /// it, and a new level may bring a heart container.
     func tick(elapsed: TimeInterval, level: Int) {
         guard elapsed > 0 else { return }
-        hourglassVitality = NotchMascotRPG.clampVitality(hourglassVitality - elapsed * NotchMascotRPG.drainPerSecond)
+        let vitality = hourglassVitality
+        hourglassVitality = NotchMascotRPG.clampVitality(vitality - elapsed * NotchMascotRPG.drainPerSecond)
         let containers = NotchMascotRPG.heartContainers(forLevel: level)
         if containers > heartContainers {
             heartContainers = containers
             currentHearts = Double(containers)
         }
         currentHearts = NotchMascotRPG.hearts(currentHearts, containers: heartContainers,
-                                              vitality: hourglassVitality, elapsed: elapsed)
+                                              vitality: vitality, elapsed: elapsed)
     }
 
     /// A snack eaten: the hourglass fills, the points become gold, the boba a heart.
@@ -425,6 +436,8 @@ public final class NotchMascotRPGState: ObservableObject {
     func buy(_ item: NotchMascotAccessory) -> Bool {
         guard shopStock.contains(item), goldCoins >= item.price else { return false }
         goldCoins -= item.price
+        // The item is kept at once, so the gold paid for it is too.
+        flush()
         NotchMascotShop.grant(item)
         shopStock.removeAll { $0 == item }
         saveStock()
@@ -437,6 +450,7 @@ public final class NotchMascotRPGState: ObservableObject {
     func rerollShop() -> Bool {
         guard goldCoins >= NotchMascotShop.rerollPrice else { return false }
         goldCoins -= NotchMascotShop.rerollPrice
+        flush()
         restock()
         return true
     }

@@ -65,7 +65,7 @@ final class NotchMascotPlayDirector {
         guard playing == nil, leader.isOut, friend.isOut else { return false }
         if joinDoze() { return true }
         guard allowed(), leader.isFree, friend.isFree, !leader.isDozing, !friend.isDozing,
-              leader.playScreen == friend.playScreen, let a = leader.feet, let b = friend.feet else { return false }
+              let screen = leader.playScreen, screen == friend.playScreen, let a = leader.feet, let b = friend.feet else { return false }
         let context = NotchMascotPlay.Context(distance: abs(a.x - b.x), music: music(),
                                               since: CACurrentMediaTime() - lastPlay,
                                               hour: Calendar.current.component(.hour, from: Date()), recent: recent,
@@ -137,7 +137,7 @@ final class NotchMascotPlayDirector {
     private var power: CGFloat { NotchMascotPlay.power(level: level()) }
 
     /// The layer over the whole screen they play on, and its points.
-    private func canvas() -> CALayer? { stage.layer(over: leader.playScreen) }
+    private func canvas() -> CALayer? { leader.playScreen.flatMap { stage.layer(over: $0) } }
     private func onCanvas(_ point: CGPoint) -> CGPoint { stage.point(point) }
 
     private func middle(_ a: CGPoint, _ b: CGPoint) -> CGPoint { CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2) }
@@ -213,7 +213,8 @@ final class NotchMascotPlayDirector {
             let side = direction(from: from, to: to)
             NotchMascotPlayEffects.fly(flight.thing, in: canvas, from: onCanvas(from.hand(toward: side)),
                                        to: onCanvas(to.hand(toward: -side)), duration: flight.duration,
-                                       side: max(14, figure * 0.34), falls: flight.falls, energy: energy(from))
+                                       side: max(14, figure * 0.34), falls: flight.falls, energy: energy(from),
+                                       while: { [weak self] in self?.playing != nil })
         }
         if let burst = beat.burst {
             let one = burst.onLeader ? leader : friend

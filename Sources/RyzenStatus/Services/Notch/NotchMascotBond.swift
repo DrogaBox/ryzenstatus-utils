@@ -130,6 +130,40 @@ struct NotchMascotBond: Codable, Equatable {
     var celebratedAges: [Int] = []
 
     init(adopted: Date) { self.adopted = adopted }
+
+    private enum CodingKeys: String, CodingKey {
+        case adopted, experience, pets, moments, daysTogether, lastDay, petExperienceToday,
+             momentExperienceToday, greetedDay, celebratedAges
+    }
+
+    /// Reads what it can: a field missing or unreadable keeps its default, so
+    /// a record from an older or newer build still loads. Only the adoption
+    /// day is required.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func read<T: Decodable>(_ key: CodingKeys, _ fallback: T) -> T {
+            ((try? container.decodeIfPresent(T.self, forKey: key)) ?? nil) ?? fallback
+        }
+        adopted = try container.decode(Date.self, forKey: .adopted)
+        experience = max(0, read(.experience, 0))
+        pets = max(0, read(.pets, 0))
+        moments = max(0, read(.moments, 0))
+        daysTogether = max(0, read(.daysTogether, 0))
+        lastDay = read(.lastDay, nil as String?)
+        petExperienceToday = max(0, read(.petExperienceToday, 0))
+        momentExperienceToday = max(0, read(.momentExperienceToday, 0))
+        greetedDay = read(.greetedDay, nil as String?)
+        celebratedAges = read(.celebratedAges, [Int]())
+    }
+}
+
+/// One entry of the saved map: nil when it cannot be read, so the others still load.
+private struct FailableNotchMascotBond: Decodable {
+    let value: NotchMascotBond?
+
+    init(from decoder: Decoder) throws {
+        value = try? NotchMascotBond(from: decoder)
+    }
 }
 
 enum NotchMascotBondEvent: Equatable {
@@ -504,9 +538,14 @@ final class NotchMascotBondStore: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         var loaded: [String: NotchMascotBond] = [:]
-        if let data = defaults.data(forKey: DefaultsKey.notchMascotBonds),
-           let saved = try? JSONDecoder().decode([String: NotchMascotBond].self, from: data) {
-            loaded = saved
+        if let data = defaults.data(forKey: DefaultsKey.notchMascotBonds) {
+            let decoded = Self.decodeBonds(data)
+            loaded = decoded?.bonds ?? [:]
+            // What could not be read is copied aside once, before anything
+            // is written over it. Nothing reads the copy back.
+            if decoded?.complete != true, defaults.data(forKey: DefaultsKey.notchMascotBondsBackup) != data {
+                defaults.set(data, forKey: DefaultsKey.notchMascotBondsBackup)
+            }
         }
         let name = (defaults.string(forKey: DefaultsKey.notchMascotName) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedActive = NotchMascotStyle.resolved(defaults.string(forKey: DefaultsKey.notchMascotStyle), name: name)
@@ -532,8 +571,21 @@ final class NotchMascotBondStore: ObservableObject {
         defaults.set(NotchMascotGrowth.level(for: currentBond.experience), forKey: DefaultsKey.notchMascotLevel)
     }
 
+    /// The saved map, entry by entry: the bonds that could be read, and
+    /// whether that was all of them. Nil when it is not a map at all.
+    static func decodeBonds(_ data: Data) -> (bonds: [String: NotchMascotBond], complete: Bool)? {
+        guard let entries = try? JSONDecoder().decode([String: FailableNotchMascotBond].self, from: data) else { return nil }
+        let bonds = entries.compactMapValues(\.value)
+        return (bonds, bonds.count == entries.count)
+    }
+
     func syncActiveStyle() {
         let current = bond(for: activeStyle)
+        // A style new to it is kept from now on, with today as its adoption day.
+        if bonds[activeStyle.rawValue] == nil {
+            save(current, for: activeStyle)
+            return
+        }
         bond = current
         if let data = try? JSONEncoder().encode(current) {
             defaults.set(data, forKey: DefaultsKey.notchMascotBond)
@@ -541,16 +593,11 @@ final class NotchMascotBondStore: ObservableObject {
         defaults.set(NotchMascotGrowth.level(for: current.experience), forKey: DefaultsKey.notchMascotLevel)
     }
 
+    /// The bond of `style`, or a new one for a style that has none yet.
+    /// Reading never writes or publishes: views ask while they draw. The new
+    /// bond is kept once something is recorded for it.
     func bond(for style: NotchMascotStyle) -> NotchMascotBond {
-        if let existing = bonds[style.rawValue] {
-            return existing
-        }
-        let fresh = NotchMascotBond(adopted: Date())
-        bonds[style.rawValue] = fresh
-        if let data = try? JSONEncoder().encode(bonds) {
-            defaults.set(data, forKey: DefaultsKey.notchMascotBonds)
-        }
-        return fresh
+        bonds[style.rawValue] ?? NotchMascotBond(adopted: Date())
     }
 
     func level(for style: NotchMascotStyle) -> Int {
@@ -580,9 +627,12 @@ final class NotchMascotBondStore: ObservableObject {
     func record(_ event: NotchMascotBondEvent, for style: NotchMascotStyle? = nil, now: Date = Date()) -> Int {
         let targetStyle = style ?? activeStyle
         var targetBond = bond(for: targetStyle)
+        let original = targetBond
         let beforeExp = targetBond.experience
         let beforeDays = targetBond.daysTogether
         let levels = NotchMascotGrowth.record(event, into: &targetBond, style: targetStyle, day: NotchMascotGrowth.dayKey(now))
+        // A day already counted changes nothing: nothing is written again.
+        if targetBond == original, bonds[targetStyle.rawValue] != nil { return 0 }
         let gained = targetBond.experience - beforeExp
         let firstOfDay = targetBond.daysTogether != beforeDays
         save(targetBond, for: targetStyle)

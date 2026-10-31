@@ -315,6 +315,8 @@ final class NotchService: ObservableObject {
     private var pendingMascotOccasion: (occasion: NotchMascotOccasion, until: CFTimeInterval)?
     private var nextPreviewedOccasion = 0
     private lazy var mascotFireworks = NotchMascotPlayStage()
+    /// The booms still to come, and putting the fireworks away.
+    private var mascotFireworksWork: [DispatchWorkItem] = []
     private var mascotIslandPlayWork: [DispatchWorkItem] = []
     private var mascotIslandPlayTick: DispatchWorkItem?
     private var mascotIslandPlaysRecent: [NotchMascotIslandPlay.Kind] = []
@@ -1295,8 +1297,6 @@ final class NotchService: ObservableObject {
             running = true
             installObservers()
         }
-        NotchMascotCheats.shared.start()
-        scheduleMascotIslandPlayTick()
         syncCapsuleCenter()
         syncShortcut()
         if !NotchTimerSupport.isEnabled() { NotchTimerService.shared.stop() }
@@ -1319,6 +1319,10 @@ final class NotchService: ObservableObject {
         // Checked before any service starts, so each preference change while
         // the lid is closed does not start and stop them all again.
         guard screenIndex(in: NSScreen.screens) != nil else { withdrawFromMissingScreen(); return }
+        // The companion's own life starts only with an island that can show:
+        // its slow look, and the cheat listener while the companion is on.
+        scheduleMascotIslandPlayTick()
+        if NotchMascotSupport.isEnabled() { NotchMascotCheats.shared.start() } else { NotchMascotCheats.shared.stop() }
         refreshModules()
         NotchDownloadService.shared.syncWithPreferences()
         NotchCalendarService.shared.syncWithPreferences()
@@ -1456,6 +1460,7 @@ final class NotchService: ObservableObject {
     }
 
     private func tearDownPresentation() {
+        suspendMascotLife()
         cancelRelocation()
         screenRefreshWork?.cancel(); screenRefreshWork = nil
         stopAppFullscreenMonitoring()
@@ -5255,7 +5260,9 @@ extension NotchService {
         }
     }
     private func tryMascotOccasion(_ occasion: NotchMascotOccasion) -> Bool {
-        if mascotOnDesktop { return mascotDesktop.show(occasion) }
+        // Out on the desktop in Low Power Mode it does nothing of its own:
+        // the moment waits, as it does while the companion is busy.
+        if mascotOnDesktop { return !ProcessInfo.processInfo.isLowPowerModeEnabled && mascotDesktop.show(occasion) }
         guard !mascotIslandPlaying, mascotItemUseFits else { return false }
         startMascotIslandPlay(NotchMascotIslandPlay(kind: .occasion(occasion), beats: occasion.islandBeats(byLeader: true)),
                               solo: true)
@@ -5284,13 +5291,22 @@ extension NotchService {
     /// The new year comes in: fireworks over the screen, the companion
     /// cheering where it is.
     private func mascotMidnightFireworks() {
-        if mascotOnDesktop, mascotDesktop.show(.newYear) { return }
+        if mascotOnDesktop, !ProcessInfo.processInfo.isLowPowerModeEnabled, mascotDesktop.show(.newYear) { return }
         if let screen = NSScreen.main, let canvas = mascotFireworks.layer(over: screen) {
             NotchMascotOccasionArt.fireworks(in: canvas, area: CGRect(origin: .zero, size: screen.frame.size), duration: 10)
-            for at in stride(from: 0.4, to: 9.5, by: 0.8) {
-                NotchMascotSound.play(.boom, pan: Float.random(in: -0.8...0.8), after: at)
+            mascotFireworksWork.forEach { $0.cancel() }
+            mascotFireworksWork = stride(from: 0.4, to: 9.5, by: 0.8).map { at in
+                let pan = Float.random(in: -0.8...0.8)
+                let work = DispatchWorkItem { NotchMascotSound.play(.boom, pan: pan) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + at, execute: work)
+                return work
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in self?.mascotFireworks.close() }
+            let close = DispatchWorkItem { [weak self] in
+                self?.mascotFireworks.close()
+                self?.mascotFireworksWork.removeAll()
+            }
+            mascotFireworksWork.append(close)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: close)
         }
         _ = tryMascotOccasion(.newYear)
     }
@@ -5679,6 +5695,23 @@ extension NotchService {
             && !mascotFriendSteppedAside && !mascotFriendOut
     }
 
+    /// While the island cannot show, locked, asleep or with its display
+    /// away, the companion's background life stops: its slow look, a play
+    /// under way, the fireworks, its automatic moods and the cheat listener.
+    /// `syncWithPreferences()` starts them again when the island returns, and
+    /// the first look then counts the whole pause toward the hourglass.
+    private func suspendMascotLife() {
+        mascotIslandPlayTick?.cancel(); mascotIslandPlayTick = nil
+        endMascotIslandPlay()
+        mascotFireworksWork.forEach { $0.cancel() }
+        mascotFireworksWork.removeAll()
+        mascotFireworks.close()
+        NotchMascotAutomation.shared.sync(islandRunning: false)
+        NotchMascotCheats.shared.stop()
+        // Hearts, the hourglass and gold are kept before the Mac may shut down.
+        NotchMascotRPG.flush()
+    }
+
     /// Looks now and then for a moment to play, while the island runs.
     private func scheduleMascotIslandPlayTick() {
         guard mascotIslandPlayTick == nil else { return }
@@ -5852,7 +5885,15 @@ extension NotchService {
         // Something took the island over: the play stops where it is.
         guard mascotIslandSolo ? mascotItemUseFits : mascotIslandPlayFits else { endMascotIslandPlay(); return }
         let now = CACurrentMediaTime()
-        NotchMascotSound.play(cues: NotchMascotSoundMap.cues(for: beat), leaderOnLeft: NotchMascotSupport.side() == .left)
+        // Its later cues wait with the play, so a play that ends takes them along.
+        let leaderOnLeft = NotchMascotSupport.side() == .left
+        for cue in NotchMascotSoundMap.cues(for: beat) {
+            let pan = NotchMascotSoundMap.islandPan(onLeader: cue.onLeader, leaderOnLeft: leaderOnLeft)
+            guard cue.delay > 0 else { NotchMascotSound.play(cue.effect, pan: pan); continue }
+            let work = DispatchWorkItem { NotchMascotSound.play(cue.effect, pan: pan) }
+            mascotIslandPlayWork.append(work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + cue.delay, execute: work)
+        }
         if let reaction = beat.leader {
             mascotReaction = NotchMascotReactionEvent(id: UUID(), reaction: reaction, start: now)
         }

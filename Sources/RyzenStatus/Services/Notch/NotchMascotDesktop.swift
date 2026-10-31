@@ -52,6 +52,8 @@ final class NotchMascotDesktop: NSObject {
     var sawEncounter: ((NotchMascotEncounter) -> Void)?
 
     private(set) var isOut = false
+    /// Counts its outings, so what one scheduled stays with it.
+    private var outing = 0
     /// It plays with the other companion: it makes no plans of its own and
     /// its eyes leave the pointer be.
     private(set) var inPlay = false
@@ -117,6 +119,8 @@ final class NotchMascotDesktop: NSObject {
     /// Watches the window it stands on, or the windows that pass by.
     private var watchTimer: DispatchSourceTimer?
     private var watchInterval = 0
+    /// The mouse button is held down in another app, as when a window is dragged.
+    private var buttonHeld = false
     private var appObserver: NSObjectProtocol?
     private var lastAppReaction: CFTimeInterval = -.infinity
     private var lastHitch: CFTimeInterval = -.infinity
@@ -174,6 +178,8 @@ final class NotchMascotDesktop: NSObject {
     private var laserDot: CALayer?
     private var rosinUntil: CFTimeInterval = -.infinity
     private var lastPrintX: CGFloat?
+    /// Its last usable area, for the moment a display change leaves no screen.
+    private var lastArea = CGRect(x: 0, y: 0, width: 1440, height: 900)
     private var upsideDown = false
     /// One at a time, for both companions, and rare across their outings.
     private static var encounterUnderWay = false
@@ -181,6 +187,10 @@ final class NotchMascotDesktop: NSObject {
     private static var recentEncounters: [NotchMascotEncounter] = []
 
     private var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    /// A game picked from its menu: it moves for it even with Reduce Motion.
+    private var askedFor = false
+    /// With Reduce Motion it does not hop or stroll on its own.
+    private var holdsStill: Bool { reduceMotion && !askedFor }
     private var host: NotchMascotHostView? { stage?.host }
 
     init(leads: Bool = true) {
@@ -205,6 +215,7 @@ final class NotchMascotDesktop: NSObject {
                  grabbedAt pointer: CGPoint?, hop: CGFloat? = nil) {
         guard !isOut else { return }
         isOut = true
+        outing += 1
         configure(look: look, mood: mood)
         guard let panel, let host else { return }
         staysPut = false
@@ -219,15 +230,25 @@ final class NotchMascotDesktop: NSObject {
         lastSolo = now - NotchMascotSoloDance.interval + 45
         lastTouched = now
         let start = CGPoint(x: center.x, y: center.y - size / 2)
+        lastArea = area(for: start)
         if let pointer {
             // It hangs by the head from the pointer that pulled it out.
             grabOffset = CGVector(dx: 0, dy: -size * 0.8)
             body = NotchMascotRoam.Body(position: CGPoint(x: pointer.x, y: pointer.y + grabOffset.dy), airborne: true)
             press = (pointer, CACurrentMediaTime(), NotchMascotRoam.tapSlop)
             mode = .held
+        } else if reduceMotion {
+            // With Reduce Motion it does not hop out: it is simply there, on the floor.
+            let area = self.area(for: start)
+            let half = size * figureAspect / 2
+            body = NotchMascotRoam.Body(position: CGPoint(x: min(area.maxX - half, max(area.minX + half, start.x)),
+                                                          y: area.minY), airborne: false)
+            mode = .standing
+            planNext(after: 2)
+            if leads { scheduleExcursionEnd() }
         } else {
-            let screen = self.screen(for: start)
-            let toward: CGFloat = hop.map { $0 > 0 ? 1 : -1 } ?? (start.x < screen.visibleFrame.midX ? 1 : -1)
+            let area = self.area(for: start)
+            let toward: CGFloat = hop.map { $0 > 0 ? 1 : -1 } ?? (start.x < area.midX ? 1 : -1)
             body = NotchMascotRoam.Body(position: start, velocity: CGVector(dx: toward * CGFloat.random(in: 140...260), dy: 420),
                                         airborne: true)
             mode = .flying
@@ -444,7 +465,8 @@ final class NotchMascotDesktop: NSObject {
     private func itemCanvas() -> CALayer? {
         let stage = itemStage ?? NotchMascotPlayStage()
         itemStage = stage
-        return stage.layer(over: playScreen)
+        guard let screen = playScreen else { return nil }
+        return stage.layer(over: screen)
     }
     private func onItemCanvas(_ point: CGPoint) -> CGPoint { itemStage?.point(point) ?? point }
     private static func color(_ tint: NotchMascotItemAction.Tint) -> CGColor {
@@ -484,19 +506,19 @@ final class NotchMascotDesktop: NSObject {
                               y: hand.y + size * 0.3)
             let length = NotchMascotItemUse.flingLength
             NotchMascotPlayEffects.fly(thing, in: canvas, from: onItemCanvas(hand), to: onItemCanvas(far),
-                                       duration: length, side: max(14, size * 0.34), energy: energy)
+                                       duration: length, side: max(14, size * 0.34), energy: energy, while: outingLasts)
             guard back else { return }
             itemStep(after: length + 0.1) { [weak self] in
                 guard let self, let canvas = self.itemCanvas() else { return }
                 NotchMascotPlayEffects.fly(thing, in: canvas, from: self.onItemCanvas(far),
                                            to: self.onItemCanvas(self.hand(toward: side)), duration: length,
-                                           side: max(14, self.size * 0.34), energy: energy)
+                                           side: max(14, self.size * 0.34), energy: energy, while: self.outingLasts)
             }
         case .juggle(let thing):
             guard !reduceMotion, let canvas = itemCanvas() else { return }
             NotchMascotPlayEffects.fly(thing, in: canvas, from: onItemCanvas(hand(toward: side)),
                                        to: onItemCanvas(hand(toward: -side)), duration: NotchMascotItemUse.juggleLength,
-                                       side: max(12, size * 0.3), energy: energy)
+                                       side: max(12, size * 0.3), energy: energy, while: outingLasts)
         case .slash:
             guard let canvas = itemCanvas() else { return }
             let blade = NotchMascotPlayEffects.blade(in: canvas, hand: onItemCanvas(hand(toward: side)), direction: side,
@@ -661,7 +683,7 @@ final class NotchMascotDesktop: NSObject {
         // What passes by goes its way even if it is picked up meanwhile.
         let stage = encounterStage
         DispatchQueue.main.asyncAfter(deadline: .now() + max(busy, visitorsLeave) + 1.5) { [weak self] in
-            guard self?.encounterStage === stage, Self.encounterUnderWay == false else { return }
+            guard let self, self.encounterStage === stage, !self.inEncounter else { return }
             stage?.close()
         }
         return true
@@ -684,14 +706,29 @@ final class NotchMascotDesktop: NSObject {
         encounterWork.append(work)
         DispatchQueue.main.asyncAfter(deadline: .now() + max(0, delay), execute: work)
     }
-    /// Runs `block` after `delay` whatever it does meanwhile: what passes by.
+    /// Runs `block` after `delay` whatever it does meanwhile, what passes by,
+    /// as long as this outing lasts.
     private func later(_ delay: TimeInterval, _ block: @escaping () -> Void) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, delay), execute: block)
+        let lasts = outingLasts
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, delay)) {
+            if lasts() { block() }
+        }
+    }
+    /// Whether the outing under way now is still on, asked later.
+    private var outingLasts: () -> Bool {
+        let outing = self.outing
+        return { [weak self] in self?.isOut == true && self?.outing == outing }
+    }
+    /// A sound of this outing: one still waiting once it is in is not heard.
+    private func sound(_ effect: NotchMascotSoundEffect, pan: Float = 0, after delay: TimeInterval = 0) {
+        guard delay > 0 else { NotchMascotSound.play(effect, pan: pan); return }
+        later(delay) { NotchMascotSound.play(effect, pan: pan) }
     }
     private func encounterCanvas() -> CALayer? {
         let stage = encounterStage ?? NotchMascotPlayStage()
         encounterStage = stage
-        return stage.layer(over: playScreen)
+        guard let screen = playScreen else { return nil }
+        return stage.layer(over: screen)
     }
     private func onStage(_ point: CGPoint) -> CGPoint { encounterStage?.point(point) ?? point }
     private func pan(_ x: CGFloat) -> Float {
@@ -708,7 +745,7 @@ final class NotchMascotDesktop: NSObject {
         for (index, at) in [0.0, 0.8, 1.6].enumerated() {
             later(at) { [weak self] in
                 guard let self else { return }
-                NotchMascotSound.play(.thud, pan: fromRight ? 0.85 : -0.85)
+                sound(.thud, pan: fromRight ? 0.85 : -0.85)
                 NotchMascotEncounterArt.dust(in: canvas, at: self.onStage(CGPoint(x: edgeX + inward * CGFloat(20 + index * 30),
                                                                                   y: area.minY + 8)),
                                              radius: 26 + CGFloat(index) * 6)
@@ -719,8 +756,8 @@ final class NotchMascotDesktop: NSObject {
             NotchMascotEncounterArt.tail(in: canvas, edgeX: self.onStage(CGPoint(x: edgeX, y: 0)).x,
                                          floor: self.onStage(CGPoint(x: 0, y: area.minY)).y, inward: inward,
                                          length: min(440, area.width * 0.3), duration: 5.5)
-            NotchMascotSound.play(.whoosh, pan: fromRight ? 0.7 : -0.7)
-            NotchMascotSound.play(.whoosh, pan: fromRight ? 0.7 : -0.7, after: 1.6)
+            sound(.whoosh, pan: fromRight ? 0.7 : -0.7)
+            sound(.whoosh, pan: fromRight ? 0.7 : -0.7, after: 1.6)
         }
         encounterStep(after: 0.1) { [weak self] in self?.react(.surprised) }
         encounterStep(after: 0.9) { [weak self] in self?.face(toward: edgeX) }
@@ -745,7 +782,7 @@ final class NotchMascotDesktop: NSObject {
         later(0.3) { [weak self] in
             guard let self else { return }
             NotchMascotEncounterArt.shootingStar(in: canvas, from: self.onStage(start), to: self.onStage(end), duration: 1.2)
-            NotchMascotSound.play(.magic, pan: self.pan(end.x), after: 0.9)
+            sound(.magic, pan: self.pan(end.x), after: 0.9)
         }
         encounterStep(after: 0.2) { [weak self] in
             self?.react(.perk)
@@ -773,12 +810,12 @@ final class NotchMascotDesktop: NSObject {
         let stops = [entry, hover, CGPoint(x: hover.x + 6, y: hover.y + 8), hover, exit].map(onStage)
         NotchMascotEncounterArt.saucer(in: canvas, size: ship, stops: stops, times: [0, 0.25, 0.5, 0.72, 1],
                                        duration: duration)
-        NotchMascotSound.play(.warble, pan: pan(entry.x), after: 0.2)
+        sound(.warble, pan: pan(entry.x), after: 0.2)
         NotchMascotEncounterArt.beam(in: canvas, top: onStage(CGPoint(x: hover.x, y: hover.y - ship * 0.12)),
                                      floor: onStage(CGPoint(x: 0, y: feet.y)).y, width: size * 2.4, delay: 2.4,
                                      length: 3.4)
-        NotchMascotSound.play(.zap, pan: pan(hover.x), after: 2.4)
-        NotchMascotSound.play(.warble, pan: pan(hover.x), after: 6.2)
+        sound(.zap, pan: pan(hover.x), after: 2.4)
+        sound(.warble, pan: pan(hover.x), after: 6.2)
         encounterStep(after: 0.5) { [weak self] in
             self?.react(.surprised)
             self?.face(toward: entry.x)
@@ -808,8 +845,8 @@ final class NotchMascotDesktop: NSObject {
                      CGPoint(x: feet.x - side * reach * 0.5, y: feet.y + size * 0.9),
                      CGPoint(x: feet.x - side * reach, y: feet.y + size * 1.5)].map(onStage)
         NotchMascotEncounterArt.ghost(in: canvas, size: size * 1.1, stops: stops, duration: 6.5)
-        NotchMascotSound.play(.hoot, pan: pan(feet.x + side * reach), after: 0.8)
-        NotchMascotSound.play(.hoot, pan: pan(feet.x), after: 3.3)
+        sound(.hoot, pan: pan(feet.x + side * reach), after: 0.8)
+        sound(.hoot, pan: pan(feet.x), after: 3.3)
         encounterStep(after: 0.6) { [weak self] in
             self?.face(toward: feet.x + side * reach)
             self?.react(.surprised)
@@ -851,7 +888,7 @@ final class NotchMascotDesktop: NSObject {
         NotchMascotEncounterArt.magpie(in: canvas, size: bird, stops: stops, times: times.map { NSNumber(value: $0) },
                                        duration: duration, carryFrom: 0.18, carryUntil: 0.78)
         for at in [0.1, 0.4, 0.5, 0.75] {
-            NotchMascotSound.play(.chirp, pan: pan(at < 0.3 ? entry.x : perchPoint.x), after: duration * at)
+            sound(.chirp, pan: pan(at < 0.3 ? entry.x : perchPoint.x), after: duration * at)
         }
         let taken = duration * 0.18, returned = duration * 0.78
         encounterStep(after: 0.4) { [weak self] in
@@ -889,7 +926,7 @@ final class NotchMascotDesktop: NSObject {
         let side: CGFloat = Bool.random() ? 1 : -1
         let center = CGPoint(x: body.position.x, y: body.position.y + size * 1.2)
         NotchMascotEncounterArt.fireflies(in: canvas, around: onStage(center), radius: size * 3, count: 7, duration: 9.5)
-        NotchMascotSound.play(.chime, pan: pan(center.x), after: 0.4)
+        sound(.chime, pan: pan(center.x), after: 0.4)
         encounterStep(after: 0.5) { [weak self] in self?.react(.perk) }
         encounterStep(after: 1.6) { [weak self] in self?.face(toward: center.x + side * 100) }
         encounterStep(after: 2.5) { [weak self] in self?.hop(dx: side * 120, dy: 520) }
@@ -918,7 +955,7 @@ final class NotchMascotDesktop: NSObject {
                                           floor: onStage(CGPoint(x: 0, y: area.minY)).y, size: duck, babies: babies,
                                           duration: duration)
         for at in stride(from: 0.6, to: duration, by: 2.2) {
-            NotchMascotSound.play(.squeak, pan: pan(fromX + way * speed * CGFloat(at)), after: at)
+            sound(.squeak, pan: pan(fromX + way * speed * CGFloat(at)), after: at)
         }
         let passes = TimeInterval(abs(body.position.x - fromX) / speed)
         let lastPasses = passes + TimeInterval(line / speed)
@@ -975,10 +1012,10 @@ final class NotchMascotDesktop: NSObject {
                                       duration: duration, openAt: open / duration, closeAt: close / duration)
         NotchMascotPlayEffects.magicSmoke(in: canvas, at: at(spot, chest * 0.3), radius: chest * 0.5,
                                           energy: NotchMascotPlay.Energy(red: 0.8, green: 0.75, blue: 0.7), count: 5)
-        NotchMascotSound.play(.poof, pan: pan(spot))
-        NotchMascotSound.play(.creak, pan: pan(spot), after: open - 0.2)
+        sound(.poof, pan: pan(spot))
+        sound(.creak, pan: pan(spot), after: open - 0.2)
         for bite in [open + 0.1, open + 0.8, open + 1.5] {
-            NotchMascotSound.play(.munch, pan: pan(spot), after: bite)
+            sound(.munch, pan: pan(spot), after: bite)
         }
         later(open + 0.2) { [weak self] in
             self?.encounterMarker("CHOMP", on: canvas, at: CGPoint(x: spot, y: floor + chest * 1.1))
@@ -989,8 +1026,8 @@ final class NotchMascotDesktop: NSObject {
             NotchMascotPlayEffects.magicSmoke(in: canvas, at: at(last, chest * 0.3), radius: chest * 0.5,
                                               energy: NotchMascotPlay.Energy(red: 0.8, green: 0.75, blue: 0.7), count: 5)
             NotchMascotPlayEffects.goldCoins(in: canvas, at: at(last, chest * 0.3), radius: max(3, chest * 0.12))
-            NotchMascotSound.play(.poof, pan: self.pan(last))
-            NotchMascotSound.play(.coin, pan: self.pan(last), after: 0.3)
+            sound(.poof, pan: self.pan(last))
+            sound(.coin, pan: self.pan(last), after: 0.3)
         }
         encounterStep(after: 0.3) { [weak self] in
             self?.react(.surprised)
@@ -1030,7 +1067,7 @@ final class NotchMascotDesktop: NSObject {
                                          floor: onStage(CGPoint(x: 0, y: feet.y)).y, size: seller, duration: duration,
                                          arriveAt: arrive / duration, leaveAt: leave / duration)
         let hand = CGPoint(x: stopX - side * seller * 0.2, y: feet.y + seller * 0.6)
-        NotchMascotSound.play(.chime, pan: pan(stopX), after: arrive + 0.2)
+        sound(.chime, pan: pan(stopX), after: arrive + 0.2)
         later(arrive + 0.4) { [weak self] in
             self?.encounterMarker("SHOP", on: canvas, at: CGPoint(x: stopX, y: feet.y + seller * 1.25))
         }
@@ -1043,13 +1080,13 @@ final class NotchMascotDesktop: NSObject {
         encounterStep(after: arrive + 1.7) { [weak self] in
             guard let self else { return }
             NotchMascotPlayEffects.fly(.coin, in: canvas, from: self.onStage(self.hand(toward: side)), to: self.onStage(hand),
-                                       duration: 0.7, side: max(12, self.size * 0.28))
-            NotchMascotSound.play(.coin, pan: self.pan(stopX), after: 0.6)
+                                       duration: 0.7, side: max(12, self.size * 0.28), while: self.outingLasts)
+            sound(.coin, pan: self.pan(stopX), after: 0.6)
         }
         encounterStep(after: arrive + 2.8) { [weak self] in
             guard let self else { return }
             NotchMascotPlayEffects.fly(ware, in: canvas, from: self.onStage(hand), to: self.onStage(self.head),
-                                       duration: 0.8, side: max(14, self.size * 0.34))
+                                       duration: 0.8, side: max(14, self.size * 0.34), while: self.outingLasts)
         }
         encounterStep(after: arrive + 3.7) { [weak self] in
             guard let self else { return }
@@ -1087,15 +1124,15 @@ final class NotchMascotDesktop: NSObject {
                                                                         over].map(onStage),
                                        duration: 2.6, delay: 0.3)
         pops.append(2.9)
-        for pop in pops { NotchMascotSound.play(.pop, pan: pan(feet.x), after: pop) }
+        for pop in pops { sound(.pop, pan: pan(feet.x), after: pop) }
         let big = size * 1.9
         let middle = figureCenter
         let entry = CGPoint(x: middle.x + side * size * 5, y: middle.y + size * 0.4)
         let stops = [entry, CGPoint(x: middle.x + side * size * 2.4, y: middle.y + size * 0.6), middle,
                      CGPoint(x: middle.x + 3, y: middle.y + 5), CGPoint(x: middle.x - 2, y: middle.y + 2), middle].map(onStage)
         NotchMascotEncounterArt.bubble(in: canvas, size: big, stops: stops, duration: 3.6, delay: 4.4)
-        NotchMascotSound.play(.pop, pan: pan(middle.x), after: 8.0)
-        NotchMascotSound.play(.splat, pan: pan(middle.x), after: 8.05)
+        sound(.pop, pan: pan(middle.x), after: 8.0)
+        sound(.splat, pan: pan(middle.x), after: 8.05)
         encounterStep(after: 0.3) { [weak self] in self?.react(.perk) }
         encounterStep(after: 2.45) { [weak self] in self?.hop(dx: 0, dy: 620) }
         encounterStep(after: 3.0) { [weak self] in
@@ -1135,10 +1172,10 @@ final class NotchMascotDesktop: NSObject {
                        there + 1.1, duration]
         NotchMascotEncounterArt.box(in: canvas, size: crate, stops: stops, times: Self.marks(seconds, of: duration),
                                     duration: duration)
-        NotchMascotSound.play(.thud, pan: pan(x0), after: 0.6)
-        NotchMascotSound.play(.thud, pan: pan(x0), after: under + 0.25)
-        NotchMascotSound.play(.alert, pan: pan(x0), after: under + 0.8)
-        NotchMascotSound.play(.whoosh, pan: pan(x1), after: there + 0.6)
+        sound(.thud, pan: pan(x0), after: 0.6)
+        sound(.thud, pan: pan(x0), after: under + 0.25)
+        sound(.alert, pan: pan(x0), after: under + 0.8)
+        sound(.whoosh, pan: pan(x1), after: there + 0.6)
         later(under + 0.8) { [weak self] in
             self?.encounterMarker("!", on: canvas, at: CGPoint(x: x0, y: floor + crate * 0.82 + crate * 0.25))
         }
@@ -1170,7 +1207,7 @@ final class NotchMascotDesktop: NSObject {
             guard let self else { return }
             NotchMascotEncounterArt.glitch(in: canvas, at: self.onStage(center), height: self.size * 2.2, duration: duration)
         }
-        for at in [0.2, 1.1, 2.7, 4.1, 5.5] { NotchMascotSound.play(.bleep, pan: pan(center.x), after: at) }
+        for at in [0.2, 1.1, 2.7, 4.1, 5.5] { sound(.bleep, pan: pan(center.x), after: at) }
         later(1.3) { [weak self] in
             guard let self else { return }
             self.encounterMarker("ERROR", on: canvas, at: CGPoint(x: center.x, y: center.y + self.size * 1.4))
@@ -1178,7 +1215,7 @@ final class NotchMascotDesktop: NSObject {
         later(3.2) { [weak self] in
             guard let self else { return }
             NotchMascotPlayEffects.goldCoins(in: canvas, at: self.onStage(center), radius: max(3, self.size * 0.13))
-            NotchMascotSound.play(.coin, pan: self.pan(center.x), after: 0.2)
+            sound(.coin, pan: self.pan(center.x), after: 0.2)
         }
         encounterStep(after: 0.4) { [weak self] in
             self?.react(.surprised)
@@ -1216,8 +1253,8 @@ final class NotchMascotDesktop: NSObject {
                                      toX: onStage(CGPoint(x: toX, y: 0)).x,
                                      water: onStage(CGPoint(x: 0, y: area.minY)).y, size: craft, duration: duration)
         let passes = TimeInterval(abs(feet.x - fromX) / speed)
-        NotchMascotSound.play(.toot, pan: pan(fromLeft ? area.minX : area.maxX), after: 0.6)
-        NotchMascotSound.play(.toot, pan: pan(feet.x), after: passes + 0.9)
+        sound(.toot, pan: pan(fromLeft ? area.minX : area.maxX), after: 0.6)
+        sound(.toot, pan: pan(feet.x), after: passes + 0.9)
         let onTheFloor = perch == nil
         encounterStep(after: 0.6) { [weak self] in
             self?.react(.perk)
@@ -1248,7 +1285,7 @@ final class NotchMascotDesktop: NSObject {
                                           size: max(26, size * 0.6), duration: duration)
         let above = TimeInterval(abs(body.position.x - fromX) / abs(toX - fromX)) * duration
         for at in stride(from: 0.8, to: duration, by: 2.2) {
-            NotchMascotSound.play(.bleep, pan: pan(fromX + (toX - fromX) * CGFloat(at / duration)), after: at)
+            sound(.bleep, pan: pan(fromX + (toX - fromX) * CGFloat(at / duration)), after: at)
         }
         let style = look.style
         encounterStep(after: 0.6) { [weak self] in
@@ -1264,8 +1301,8 @@ final class NotchMascotDesktop: NSObject {
                 NotchMascotPlayEffects.burst(.sparkles, in: canvas, at: self.onStage(self.head), size: self.size, energy: self.energy)
             case .android:
                 self.host?.mascot.charge(for: 2)
-                NotchMascotSound.play(.bleep, pan: self.pan(self.body.position.x), after: 0.3)
-                NotchMascotSound.play(.bleep, pan: self.pan(self.body.position.x), after: 0.6)
+                sound(.bleep, pan: self.pan(self.body.position.x), after: 0.3)
+                sound(.bleep, pan: self.pan(self.body.position.x), after: 0.6)
             default:
                 self.react(.surprised)
             }
@@ -1289,7 +1326,7 @@ final class NotchMascotDesktop: NSObject {
                 guard let self else { return }
                 NotchMascotEncounterArt.shootingStar(in: canvas, from: self.onStage(start), to: self.onStage(end),
                                                      duration: 0.9)
-                if index % 2 == 0 { NotchMascotSound.play(.magic, pan: self.pan(end.x), after: 0.7) }
+                if index % 2 == 0 { sound(.magic, pan: self.pan(end.x), after: 0.7) }
             }
         }
         encounterStep(after: 0.3) { [weak self] in self?.react(.perk) }
@@ -1316,7 +1353,7 @@ final class NotchMascotDesktop: NSObject {
         let from = CGPoint(x: feet.x + side * size * 2.4, y: area.minY - 30)
         let to = CGPoint(x: feet.x - side * size * 0.6, y: area.maxY + 60)
         NotchMascotPlayEffects.fly(.balloon, in: canvas, from: onStage(from), to: onStage(to), duration: 6,
-                                   side: max(18, size * 0.45))
+                                   side: max(18, size * 0.45), while: outingLasts)
         encounterStep(after: 0.6) { [weak self] in
             self?.react(.perk)
             self?.face(toward: from.x)
@@ -1337,7 +1374,7 @@ final class NotchMascotDesktop: NSObject {
         let span = min(area.width * 0.7, 900)
         let center = CGPoint(x: min(area.maxX - span / 2, max(area.minX + span / 2, body.position.x)), y: area.minY)
         NotchMascotEncounterArt.rainbow(in: canvas, center: onStage(center), radius: span / 2, duration: 6.5)
-        NotchMascotSound.play(.chime, pan: pan(center.x), after: 0.5)
+        sound(.chime, pan: pan(center.x), after: 0.5)
         encounterStep(after: 0.6) { [weak self] in self?.react(.surprised) }
         encounterStep(after: 1.8) { [weak self] in
             guard let self else { return }
@@ -1357,7 +1394,7 @@ final class NotchMascotDesktop: NSObject {
         later(0.4) { [weak self] in
             guard let self else { return }
             NotchMascotPlayEffects.fly(.heart, in: canvas, from: self.onStage(from), to: self.onStage(self.head),
-                                       duration: 1.6, side: max(14, self.size * 0.34))
+                                       duration: 1.6, side: max(14, self.size * 0.34), while: self.outingLasts)
         }
         encounterStep(after: 0.3) { [weak self] in self?.face(toward: from.x) }
         encounterStep(after: 2.1) { [weak self] in
@@ -1403,7 +1440,7 @@ final class NotchMascotDesktop: NSObject {
                 guard let self else { return }
                 self.face(toward: standX)
                 self.react(.ready)
-                NotchMascotSound.play(.boing, pan: self.pan(spot))
+                sound(.boing, pan: self.pan(spot))
             }
             encounterStep(after: toss + 0.7) { [weak self] in
                 self?.encounterMarker("+10", on: canvas, at: CGPoint(x: standX, y: mouth.y + bin * 0.35))
@@ -1422,14 +1459,14 @@ final class NotchMascotDesktop: NSObject {
         for (index, spot) in spots.enumerated() {
             NotchMascotEncounterArt.paperBall(in: canvas, mouth: onStage(mouth), spot: onStage(CGPoint(x: spot, y: feet.y)),
                                               size: max(8, size * 0.22), spillAt: spills[index], tossAt: tosses[index])
-            NotchMascotSound.play(.creak, pan: pan(standX), after: spills[index] - 0.1)
-            NotchMascotSound.play(.pop, pan: pan(standX), after: spills[index])
+            sound(.creak, pan: pan(standX), after: spills[index] - 0.1)
+            sound(.pop, pan: pan(standX), after: spills[index])
         }
         later(leave - 0.5) { [weak self] in
             guard let self else { return }
             NotchMascotPlayEffects.burst(.hearts, in: canvas, at: self.onStage(CGPoint(x: standX, y: mouth.y + bin * 0.2)),
                                          size: bin, energy: NotchMascotPlay.energy(for: self.look))
-            NotchMascotSound.play(.chime, pan: self.pan(standX))
+            sound(.chime, pan: self.pan(standX))
         }
         encounterStep(after: 0.5) { [weak self] in
             self?.react(.perk)
@@ -1456,9 +1493,9 @@ final class NotchMascotDesktop: NSObject {
         NotchMascotEncounterArt.coffee(in: canvas, x: onStage(CGPoint(x: cupX, y: 0)).x,
                                        floor: onStage(CGPoint(x: 0, y: feet.y)).y, size: cup, duration: duration,
                                        emptyAt: drunk / duration)
-        NotchMascotSound.play(.pop, pan: pan(cupX), after: 0.3)
-        NotchMascotSound.play(.slurp, pan: pan(cupX), after: there + 0.4)
-        NotchMascotSound.play(.slurp, pan: pan(cupX), after: there + 1.7)
+        sound(.pop, pan: pan(cupX), after: 0.3)
+        sound(.slurp, pan: pan(cupX), after: there + 0.4)
+        sound(.slurp, pan: pan(cupX), after: there + 1.7)
         encounterStep(after: 0.4) { [weak self] in
             self?.react(.perk)
             self?.face(toward: cupX)
@@ -1473,7 +1510,7 @@ final class NotchMascotDesktop: NSObject {
             guard let self else { return }
             self.react(.flash)
             self.encounterMarker("!!", on: canvas, at: CGPoint(x: self.head.x, y: self.head.y + self.size * 0.35))
-            NotchMascotSound.play(.zap, pan: self.pan(self.head.x))
+            sound(.zap, pan: self.pan(self.head.x))
         }
         for (index, at) in [drunk + 0.7, drunk + 1.3, drunk + 1.9, drunk + 2.5].enumerated() {
             encounterStep(after: at) { [weak self] in
@@ -1482,7 +1519,7 @@ final class NotchMascotDesktop: NSObject {
                 self.hop(dx: way * 300, dy: 600)
                 NotchMascotPlayEffects.sparks(in: canvas, at: self.onStage(self.figureCenter), reach: self.size * 0.8,
                                               energy: NotchMascotPlay.energy(for: self.look), count: 6)
-                NotchMascotSound.play(.boing, pan: self.pan(self.head.x))
+                sound(.boing, pan: self.pan(self.head.x))
             }
         }
         encounterStep(after: drunk + 3.2) { [weak self] in self?.sway(amplitude: 0.2, speed: 70, duration: 1.0) }
@@ -1508,7 +1545,8 @@ final class NotchMascotDesktop: NSObject {
     private func occasionCanvas() -> CALayer? {
         let stage = occasionStage ?? NotchMascotPlayStage()
         occasionStage = stage
-        return stage.layer(over: playScreen)
+        guard let screen = playScreen else { return nil }
+        return stage.layer(over: screen)
     }
     private func onOccasion(_ point: CGPoint) -> CGPoint { occasionStage?.point(point) ?? point }
     private func occasionMarker(_ text: String, at point: CGPoint? = nil) {
@@ -1551,6 +1589,7 @@ final class NotchMascotDesktop: NSObject {
             host?.mascot.setUpsideDown(false)
         }
         if occasion == .seeking { endPeek() }
+        askedFor = false
         guard occasion != nil else { return }
         occasion = nil
         let stage = occasionStage
@@ -1609,7 +1648,7 @@ final class NotchMascotDesktop: NSObject {
         react(.perk)
         NotchMascotOccasionArt.thought(in: canvas, over: onOccasion(head), size: max(40, size * 0.95),
                                        icon: .craving(craving), duration: NotchMascotCravings.patience)
-        NotchMascotSound.play(.pop, pan: pan(body.position.x))
+        sound(.pop, pan: pan(body.position.x))
         occasionStep(after: 3.5) { [weak self] in self?.react(.lookAround) }
         occasionStep(after: NotchMascotCravings.patience) { [weak self] in self?.tantrum() }
     }
@@ -1621,10 +1660,10 @@ final class NotchMascotDesktop: NSObject {
         guard let canvas = occasionCanvas() else { return }
         let from = CGPoint(x: head.x + size * 1.6, y: head.y + size * 1.4)
         NotchMascotPlayEffects.fly(craving.thing, in: canvas, from: onOccasion(from), to: onOccasion(head), duration: 0.7,
-                                   side: max(14, size * 0.34), energy: energy)
+                                   side: max(14, size * 0.34), energy: energy, while: outingLasts)
         react(.celebrate)
         hop(dx: 0, dy: 640)
-        NotchMascotSound.play(.chime, pan: pan(body.position.x))
+        sound(.chime, pan: pan(body.position.x))
         occasionStep(after: 0.8) { [weak self] in
             guard let self, let canvas = self.occasionCanvas() else { return }
             NotchMascotPlayEffects.burst(.hearts, in: canvas, at: self.onOccasion(self.head), size: self.size * 0.9,
@@ -1642,7 +1681,7 @@ final class NotchMascotDesktop: NSObject {
             occasionStep(after: at) { [weak self] in
                 guard let self else { return }
                 self.hop(dx: 0, dy: 300)
-                NotchMascotSound.play(.thud, pan: self.pan(self.body.position.x))
+                sound(.thud, pan: self.pan(self.body.position.x))
                 NotchMascotPlayEffects.magicSmoke(in: canvas, at: self.onOccasion(CGPoint(x: self.head.x, y: self.head.y + self.size * 0.2)),
                                                   radius: self.size * 0.3,
                                                   energy: NotchMascotPlay.Energy(red: 0.95, green: 0.95, blue: 0.95), count: 3)
@@ -1672,7 +1711,7 @@ final class NotchMascotDesktop: NSObject {
             for (index, at) in [0.8, 1.15, 1.5].enumerated() {
                 occasionStep(after: at) { [weak self] in
                     guard let self else { return }
-                    NotchMascotSound.play(index == 2 ? .munch : .crunch, pan: self.pan(self.body.position.x))
+                    sound(index == 2 ? .munch : .crunch, pan: self.pan(self.body.position.x))
                     if index == 0 { self.occasionMarker("CHOMP") }
                 }
             }
@@ -1712,8 +1751,8 @@ final class NotchMascotDesktop: NSObject {
         let side = roomier
         react(.celebrate)
         occasionMarker("HAHAHA!")
-        NotchMascotSound.play(.giggle, pan: pan(body.position.x))
-        NotchMascotSound.play(.giggle, pan: pan(body.position.x), after: 0.6)
+        sound(.giggle, pan: pan(body.position.x))
+        sound(.giggle, pan: pan(body.position.x), after: 0.6)
         sway(amplitude: 0.22, speed: 38, duration: 1.6)
         occasionStep(after: 0.9) { [weak self] in
             guard let self else { return }
@@ -1723,7 +1762,7 @@ final class NotchMascotDesktop: NSObject {
         occasionStep(after: 1.8) { [weak self] in
             guard let self else { return }
             self.tilt(side * 1.5, for: 2.0)
-            NotchMascotSound.play(.giggle, pan: self.pan(self.body.position.x), after: 0.3)
+            sound(.giggle, pan: self.pan(self.body.position.x), after: 0.3)
         }
         occasionStep(after: 2.2) { [weak self] in self?.react(.bounce) }
         occasionStep(after: 4.0) { [weak self] in self?.react(.love) }
@@ -1750,13 +1789,16 @@ final class NotchMascotDesktop: NSObject {
         body.velocity.dx *= 0.6
         thrown = false
         lastTouched = now
-        NotchMascotSound.play(.boing, pan: pan(pointer.x))
+        sound(.boing, pan: pan(pointer.x))
         host?.mascot.spin(turns: bounces.isMultiple(of: 2) ? -2 : 2, duration: 0.7)
         occasionMarker(bounces == 1 ? "BOING!" : "X\(bounces)", at: CGPoint(x: pointer.x, y: pointer.y + size * 0.3))
     }
     // The laser pointer.
     /// A red dot follows the pointer for a while and it chases it all over.
-    @objc private func menuLaser() { startLaser() }
+    @objc private func menuLaser() {
+        startLaser()
+        askedFor = occasion == .laser
+    }
     func startLaser() {
         guard let canvas = beginOccasion(.laser) else { return }
         excursionWork?.cancel(); excursionWork = nil
@@ -1771,7 +1813,7 @@ final class NotchMascotDesktop: NSObject {
         canvas.addSublayer(dot)
         laserDot = dot
         react(.perk)
-        NotchMascotSound.play(.zap, pan: pan(body.position.x))
+        sound(.zap, pan: pan(body.position.x))
         let started = CACurrentMediaTime()
         var lastThought = started
         var lastCatch = -CFTimeInterval.infinity
@@ -1783,7 +1825,7 @@ final class NotchMascotDesktop: NSObject {
             let pointer = NSEvent.mouseLocation
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            dot.isHidden = !self.playScreen.frame.contains(pointer)
+            dot.isHidden = self.playScreen?.frame.contains(pointer) != true
             dot.position = self.onOccasion(pointer)
             CATransaction.commit()
             if now - started >= NotchMascotLaser.length {
@@ -1793,7 +1835,7 @@ final class NotchMascotDesktop: NSObject {
             if self.figureFrame.insetBy(dx: -8, dy: -8).contains(pointer), now - lastCatch > 1.4 {
                 lastCatch = now
                 self.react(.celebrate)
-                NotchMascotSound.play(.pop, pan: self.pan(pointer.x))
+                sound(.pop, pan: self.pan(pointer.x))
                 self.occasionMarker("GOT IT!")
             }
             guard now - lastThought >= NotchMascotLaser.think else { return }
@@ -1804,7 +1846,7 @@ final class NotchMascotDesktop: NSObject {
         timer.resume()
     }
     private func chaseLaser(to pointer: CGPoint) {
-        guard playScreen.frame.contains(pointer), press == nil else { return }
+        guard playScreen?.frame.contains(pointer) == true, press == nil else { return }
         face(toward: pointer.x)
         guard !body.airborne else { return }
         let dx = pointer.x - body.position.x
@@ -1841,6 +1883,7 @@ final class NotchMascotDesktop: NSObject {
     @objc private func menuFishing() {
         excursionWork?.cancel(); excursionWork = nil
         fish()
+        askedFor = occasion != nil
     }
     /// It sits by the Dock with a little rod and waits; when it bites, a click
     /// helps it pull, and what comes up is a surprise. Missed, it gets away.
@@ -1856,22 +1899,22 @@ final class NotchMascotDesktop: NSObject {
         NotchMascotOccasionArt.rod(in: canvas, hand: onOccasion(hand(toward: way)), way: way,
                                    water: onOccasion(CGPoint(x: 0, y: area.minY + size * 0.05)).y, size: size,
                                    duration: pullAt + 0.8, biteAt: bite, pullAt: pullAt)
-        NotchMascotSound.play(.whoosh, pan: pan(body.position.x + way * size), after: 0.3)
-        NotchMascotSound.play(.pop, pan: pan(body.position.x + way * size * 1.6), after: 0.8)
+        sound(.whoosh, pan: pan(body.position.x + way * size), after: 0.3)
+        sound(.pop, pan: pan(body.position.x + way * size * 1.6), after: 0.8)
         occasionStep(after: bite * 0.5) { [weak self] in self?.react(.hush) }
         occasionStep(after: bite) { [weak self] in
             guard let self else { return }
             self.occasion = .bite
             self.react(.surprised)
             self.occasionMarker("!")
-            NotchMascotSound.play(.alert, pan: self.pan(self.body.position.x))
+            sound(.alert, pan: self.pan(self.body.position.x))
         }
         occasionStep(after: pullAt) { [weak self] in
             guard let self, self.occasion == .bite else { return }
             self.occasion = .fishing
             self.react(.confused)
             self.occasionMarker("...")
-            NotchMascotSound.play(.sad, pan: self.pan(self.body.position.x))
+            sound(.sad, pan: self.pan(self.body.position.x))
             self.finishOccasion(after: 2)
         }
     }
@@ -1887,7 +1930,7 @@ final class NotchMascotDesktop: NSObject {
         let haul = NotchMascotCatch.pull(random: Double.random(in: 0..<1))
         let from = CGPoint(x: body.position.x + way * size * 1.6, y: area(for: body.position).minY + size * 0.05)
         NotchMascotOccasionArt.caught(haul, in: canvas, from: onOccasion(from), head: onOccasion(head), size: max(24, size * 0.6))
-        NotchMascotSound.play(.whoosh, pan: pan(from.x))
+        sound(.whoosh, pan: pan(from.x))
         hop(dx: 0, dy: 360)
         occasionStep(after: 0.7) { [weak self] in
             guard let self, let canvas = self.occasionCanvas() else { return }
@@ -1895,17 +1938,17 @@ final class NotchMascotDesktop: NSObject {
             switch haul {
             case .goldfish:
                 self.react(.celebrate)
-                NotchMascotSound.play(.coin, pan: self.pan(self.body.position.x))
+                sound(.coin, pan: self.pan(self.body.position.x))
             case .boot:
                 self.react(.sweat)
-                NotchMascotSound.play(.splat, pan: self.pan(self.body.position.x))
+                sound(.splat, pan: self.pan(self.body.position.x))
             case .key:
                 self.react(.perk)
-                NotchMascotSound.play(.chime, pan: self.pan(self.body.position.x))
+                sound(.chime, pan: self.pan(self.body.position.x))
                 NotchMascotPlayEffects.burst(.sparkles, in: canvas, at: self.onOccasion(self.head), size: self.size, energy: self.energy)
             case .pearl:
                 self.react(.love)
-                NotchMascotSound.play(.magic, pan: self.pan(self.body.position.x))
+                sound(.magic, pan: self.pan(self.body.position.x))
                 NotchMascotPlayEffects.burst(.sparkles, in: canvas, at: self.onOccasion(self.head), size: self.size, energy: self.energy)
             }
         }
@@ -1917,6 +1960,7 @@ final class NotchMascotDesktop: NSObject {
     @objc private func menuRoshambo(_ item: NSMenuItem) {
         guard let raw = item.representedObject as? String, let yours = NotchMascotRoshambo(rawValue: raw) else { return }
         playRoshambo(yours)
+        askedFor = occasion != nil
     }
     /// One, two, three: it shows its pick in a bubble, and claps and pays
     /// up when you win, or dances a cheeky victory when it does.
@@ -1930,14 +1974,14 @@ final class NotchMascotDesktop: NSObject {
                 guard let self else { return }
                 self.occasionMarker("\(index + 1)")
                 self.hop(dx: 0, dy: 280)
-                NotchMascotSound.play(.bleep, pan: self.pan(self.body.position.x))
+                sound(.bleep, pan: self.pan(self.body.position.x))
             }
         }
         occasionStep(after: 1.8) { [weak self] in
             guard let self else { return }
             NotchMascotOccasionArt.thought(in: canvas, over: self.onOccasion(self.head), size: max(40, self.size * 0.95),
                                            icon: .roshambo(its), duration: 3.4)
-            NotchMascotSound.play(.pop, pan: self.pan(self.body.position.x))
+            sound(.pop, pan: self.pan(self.body.position.x))
         }
         occasionStep(after: 2.7) { [weak self] in
             guard let self else { return }
@@ -1946,7 +1990,7 @@ final class NotchMascotDesktop: NSObject {
                 self.react(.bounce)
                 let prize = self.payRoshamboWin()
                 NotchMascotPlayEffects.goldCoins(in: canvas, at: self.onOccasion(self.head), radius: max(3, self.size * 0.14))
-                NotchMascotSound.play(.coin, pan: self.pan(self.body.position.x))
+                sound(.coin, pan: self.pan(self.body.position.x))
                 self.occasionMarker(prize > 0 ? "+\(prize)" : "YOU WIN")
                 self.occasionStep(after: 0.9) { [weak self] in self?.react(.celebrate) }
             case .itWins:
@@ -1987,6 +2031,7 @@ final class NotchMascotDesktop: NSObject {
     @objc private func menuHideAndSeek() {
         excursionWork?.cancel(); excursionWork = nil
         hideAndSeek()
+        askedFor = occasion != nil
     }
     /// Bored, it calls out and hides behind the window it stands on or the
     /// bottom of the screen, only the top of its head showing. Found with a
@@ -1996,7 +2041,7 @@ final class NotchMascotDesktop: NSObject {
         lastTouched = CACurrentMediaTime()
         react(.wave)
         occasionMarker("FIND ME!")
-        NotchMascotSound.play(.chime, pan: pan(body.position.x))
+        sound(.chime, pan: pan(body.position.x))
         var walk: TimeInterval = 0
         if perch == nil {
             let floor = self.floor
@@ -2033,7 +2078,7 @@ final class NotchMascotDesktop: NSObject {
             self.hop(dx: 0, dy: 520)
             NotchMascotPlayEffects.burst(.confetti, in: canvas, at: self.onOccasion(self.head), size: self.size * 1.2,
                                          energy: self.energy)
-            NotchMascotSound.play(.magic, pan: self.pan(self.body.position.x))
+            sound(.magic, pan: self.pan(self.body.position.x))
             self.occasionMarker("YOU FOUND ME!")
         }
         occasion = .game
@@ -2063,7 +2108,7 @@ final class NotchMascotDesktop: NSObject {
             react(.ready)
             NotchMascotOccasionArt.turboFan(in: canvas, at: onOccasion(CGPoint(x: feet.x - side * size * 0.75, y: feet.y + size * 0.6)),
                                             size: size * 0.6, duration: length)
-            NotchMascotSound.play(.whoosh, pan: pan(feet.x))
+            sound(.whoosh, pan: pan(feet.x))
             for at in stride(from: 0.3, to: 5.5, by: 0.6) {
                 occasionStep(after: at) { [weak self] in
                     guard let self else { return }
@@ -2076,7 +2121,7 @@ final class NotchMascotDesktop: NSObject {
                 self.react(.flash)
                 NotchMascotPlayEffects.lightning(in: canvas, around: self.onOccasion(self.figureCenter), radius: self.size * 0.8,
                                                  energy: NotchMascotPlay.Energy(red: 1, green: 0.9, blue: 0.3))
-                NotchMascotSound.play(.zap, pan: self.pan(self.body.position.x))
+                sound(.zap, pan: self.pan(self.body.position.x))
             }
             occasionStep(after: 2.0) { [weak self] in self?.sway(amplitude: 0.06, speed: 70, duration: 2.5) }
         case .cold:
@@ -2128,13 +2173,13 @@ final class NotchMascotDesktop: NSObject {
             react(.flash)
             NotchMascotPlayEffects.lightning(in: canvas, around: onOccasion(figureCenter), radius: size * 0.9,
                                              energy: NotchMascotPlay.Energy(red: 0.5, green: 1, blue: 0.5))
-            NotchMascotSound.play(.zap, pan: pan(feet.x))
+            sound(.zap, pan: pan(feet.x))
             occasionStep(after: 0.5) { [weak self] in
                 guard let self else { return }
                 self.react(.celebrate)
                 self.hop(dx: 0, dy: 820)
                 NotchMascotPlayEffects.burst(.sparkles, in: canvas, at: self.onOccasion(self.head), size: self.size, energy: self.energy)
-                NotchMascotSound.play(.chime, pan: self.pan(self.body.position.x))
+                sound(.chime, pan: self.pan(self.body.position.x))
             }
         case .offline:
             length = 20
@@ -2143,7 +2188,7 @@ final class NotchMascotDesktop: NSObject {
             for at in stride(from: 2.0, to: length - 1, by: 2.4) {
                 occasionStep(after: at) { [weak self] in
                     guard let self else { return }
-                    NotchMascotSound.play(.bleep, pan: self.pan(self.body.position.x))
+                    sound(.bleep, pan: self.pan(self.body.position.x))
                     NotchMascotPlayEffects.float("♪", in: canvas, at: self.onOccasion(self.head), size: max(9, self.size * 0.2),
                                                  color: NotchMascotRPGShapes.rgb(0x8BC34A), count: 1)
                 }
@@ -2171,20 +2216,21 @@ final class NotchMascotDesktop: NSObject {
             NotchMascotOccasionArt.bats(in: canvas, area: onOccasionRect(area), count: 6, duration: 7)
             NotchMascotOccasionArt.pumpkin(in: canvas, x: onOccasion(CGPoint(x: onFloor(feet.x + side * size * 1.3), y: 0)).x,
                                            floor: onOccasion(CGPoint(x: 0, y: feet.y)).y, size: size * 0.7, duration: length)
-            NotchMascotSound.play(.hoot, pan: pan(feet.x), after: 0.6)
+            sound(.hoot, pan: pan(feet.x), after: 0.6)
             react(.peek)
             occasionStep(after: 1.6) { [weak self] in self?.react(.surprised) }
             occasionStep(after: 3.0) { [weak self] in
                 guard let self else { return }
                 NotchMascotPlayEffects.fly(.cookie, in: canvas, from: self.onOccasion(CGPoint(x: self.head.x + side * self.size * 1.5,
                                                                                               y: self.head.y + self.size)),
-                                           to: self.onOccasion(self.head), duration: 0.7, side: max(14, self.size * 0.34))
+                                           to: self.onOccasion(self.head), duration: 0.7, side: max(14, self.size * 0.34),
+                                           while: self.outingLasts)
             }
             occasionStep(after: 3.8) { [weak self] in self?.react(.celebrate) }
         case .christmas:
             length = 12
             NotchMascotOccasionArt.snow(in: canvas, area: onOccasionRect(area), count: 60, duration: length - 2)
-            NotchMascotSound.play(.chime, pan: pan(feet.x), after: 0.4)
+            sound(.chime, pan: pan(feet.x), after: 0.4)
             react(.wave)
             occasionStep(after: 2.0) { [weak self] in self?.react(.love) }
             occasionStep(after: 4.0) { [weak self] in
@@ -2196,7 +2242,7 @@ final class NotchMascotDesktop: NSObject {
             length = 9
             NotchMascotOccasionArt.fireworks(in: canvas, area: onOccasionRect(area), duration: 8)
             for at in stride(from: 0.4, to: 7.5, by: 0.9) {
-                NotchMascotSound.play(.boom, pan: Float.random(in: -0.8...0.8), after: at)
+                sound(.boom, pan: Float.random(in: -0.8...0.8), after: at)
             }
             celebrate(on: canvas, for: length, fanfare: false)
         case .aprilFools:
@@ -2207,7 +2253,7 @@ final class NotchMascotDesktop: NSObject {
             occasionStep(after: 1.0) { [weak self] in
                 guard let self else { return }
                 self.occasionMarker(NotchMascotSpecialDays.foolsCall(for: self.look.style))
-                NotchMascotSound.play(.squeak, pan: self.pan(self.body.position.x))
+                sound(.squeak, pan: self.pan(self.body.position.x))
             }
             occasionStep(after: 2.0) { [weak self] in
                 guard let self else { return }
@@ -2235,7 +2281,7 @@ final class NotchMascotDesktop: NSObject {
         react(.celebrate)
         if fanfare {
             for (index, at) in [0.3, 0.6, 0.9, 1.4].enumerated() {
-                NotchMascotSound.play(index == 3 ? .magic : .chime, pan: pan(body.position.x), after: at)
+                sound(index == 3 ? .magic : .chime, pan: pan(body.position.x), after: at)
             }
         }
         for at in stride(from: 0.6, to: length - 2, by: 2.2) {
@@ -2275,7 +2321,7 @@ final class NotchMascotDesktop: NSObject {
         occasionStep(after: 14) { [weak self] in
             guard let self else { return }
             self.occasionMarker("CRACK!")
-            NotchMascotSound.play(.crunch, pan: self.pan(self.body.position.x))
+            sound(.crunch, pan: self.pan(self.body.position.x))
             self.react(.sweat)
         }
         finishOccasion(after: 16)
@@ -2294,7 +2340,7 @@ final class NotchMascotDesktop: NSObject {
         occasionStep(after: start) { [weak self] in
             guard let self else { return }
             self.occasionMarker(move.marker)
-            NotchMascotSound.play(Self.cue(for: move), pan: self.pan(self.body.position.x))
+            sound(Self.cue(for: move), pan: self.pan(self.body.position.x))
             self.perform(move, toward: way, on: canvas)
         }
         finishOccasion(after: start + move.length)
@@ -2326,7 +2372,7 @@ final class NotchMascotDesktop: NSObject {
         for (index, at) in [walk + 0.3, walk + 0.8, walk + 1.3].enumerated() {
             occasionStep(after: at) { [weak self] in
                 guard let self else { return }
-                NotchMascotSound.play(.crunch, pan: self.pan(boxX))
+                sound(.crunch, pan: self.pan(boxX))
                 NotchMascotPlayEffects.magicSmoke(in: canvas, at: self.onOccasion(self.body.position), radius: self.size * 0.3,
                                                   energy: NotchMascotPlay.Energy(red: 1, green: 0.97, blue: 0.88), count: 3)
                 self.sway(amplitude: 0.08, speed: 40, duration: 0.4)
@@ -2344,7 +2390,7 @@ final class NotchMascotDesktop: NSObject {
             self.tilt(-1.1, for: 1.4)
             self.react(.sweat)
             self.occasionMarker("OOPS!")
-            NotchMascotSound.play(.splat, pan: self.pan(self.body.position.x))
+            sound(.splat, pan: self.pan(self.body.position.x))
         }
         occasionStep(after: 2.0) { [weak self] in self?.react(.confused) }
         finishOccasion(after: 3)
@@ -2377,13 +2423,13 @@ final class NotchMascotDesktop: NSObject {
             }
         case .fouettes:
             mascot?.spin(turns: 8, duration: 4)
-            for at in [0.5, 1.5, 2.5, 3.5] { NotchMascotSound.play(.whoosh, pan: pan(body.position.x), after: at) }
+            for at in [0.5, 1.5, 2.5, 3.5] { sound(.whoosh, pan: pan(body.position.x), after: at) }
             occasionStep(after: 4.0) { [weak self] in
                 guard let self else { return }
                 NotchMascotPlayEffects.burst(.confetti, in: canvas, at: self.onOccasion(self.head), size: self.size * 1.3,
                                              energy: NotchMascotPlay.Energy(red: 1, green: 0.84, blue: 0.3))
                 self.react(.celebrate)
-                NotchMascotSound.play(.magic, pan: self.pan(self.body.position.x))
+                sound(.magic, pan: self.pan(self.body.position.x))
             }
         case .grandJete:
             hop(dx: way * 460, dy: 860)
@@ -2395,7 +2441,7 @@ final class NotchMascotDesktop: NSObject {
             NotchMascotPlayEffects.burst(.hearts, in: canvas, at: onOccasion(head), size: size, energy: energy)
         case .pirouettes:
             mascot?.spin(turns: 6, duration: 4.5)
-            for at in [0.6, 1.8, 3.0, 4.0] { NotchMascotSound.play(.whoosh, pan: pan(body.position.x), after: at) }
+            for at in [0.6, 1.8, 3.0, 4.0] { sound(.whoosh, pan: pan(body.position.x), after: at) }
             occasionStep(after: 4.6) { [weak self] in
                 self?.tilt(way * 0.35, for: 1.3)
                 self?.react(.love)
@@ -2409,7 +2455,7 @@ final class NotchMascotDesktop: NSObject {
             occasionStep(after: 1.1) { [weak self] in self?.react(.ready) }
         case .cabriole:
             hop(dx: way * 320, dy: 800)
-            NotchMascotSound.play(.clash, pan: pan(body.position.x), after: 0.3)
+            sound(.clash, pan: pan(body.position.x), after: 0.3)
         case .floorwork:
             tilt(way * 1.5, for: 2.4)
             occasionStep(after: 0.3) { [weak self] in
@@ -2420,7 +2466,7 @@ final class NotchMascotDesktop: NSObject {
             occasionStep(after: 2.6) { [weak self] in self?.react(.relax) }
         case .contractRelease:
             tilt(0.3, for: 0.7)
-            NotchMascotSound.play(.whoosh, pan: pan(body.position.x))
+            sound(.whoosh, pan: pan(body.position.x))
             occasionStep(after: 0.8) { [weak self] in
                 guard let self else { return }
                 NotchMascotPlayEffects.burst(.magic, in: canvas, at: self.onOccasion(self.head), size: self.size, energy: self.energy)
@@ -2453,7 +2499,7 @@ final class NotchMascotDesktop: NSObject {
                     self.host?.mascot.foxfire(for: 1.2)
                     NotchMascotPlayEffects.magicSmoke(in: canvas, at: self.onOccasion(self.head), radius: self.size * 0.35,
                                                       energy: self.energy, count: 4)
-                    NotchMascotSound.play(.fire, pan: self.pan(self.body.position.x))
+                    sound(.fire, pan: self.pan(self.body.position.x))
                     if index == 2 { self.react(.celebrate) }
                 }
             }
@@ -2472,7 +2518,7 @@ final class NotchMascotDesktop: NSObject {
                 guard let self else { return }
                 NotchMascotPlayEffects.magicSmoke(in: canvas, at: self.onOccasion(self.body.position), radius: self.size * 0.4,
                                                   energy: NotchMascotPlay.Energy(red: 1, green: 1, blue: 1), count: 6)
-                NotchMascotSound.play(.thud, pan: self.pan(self.body.position.x))
+                sound(.thud, pan: self.pan(self.body.position.x))
                 self.react(.celebrate)
             }
         case .leafTrick:
@@ -2487,7 +2533,7 @@ final class NotchMascotDesktop: NSObject {
                 guard let self else { return }
                 NotchMascotPlayEffects.burst(.smoke, in: canvas, at: self.onOccasion(self.head), size: self.size * 1.3,
                                              energy: self.energy)
-                NotchMascotSound.play(.poof, pan: self.pan(self.body.position.x))
+                sound(.poof, pan: self.pan(self.body.position.x))
                 mascot?.spin(turns: 1, duration: 0.6)
             }
             occasionStep(after: 2.3) { [weak self] in self?.react(.surprised) }
@@ -2499,7 +2545,7 @@ final class NotchMascotDesktop: NSObject {
                 guard let self else { return }
                 self.tilt(way * 1.35, for: 2.6)
                 self.stroll(to: self.body.position.x + way * self.size * 3.2, pace: 3.2)
-                NotchMascotSound.play(.whoosh, pan: self.pan(self.body.position.x))
+                sound(.whoosh, pan: self.pan(self.body.position.x))
             }
             occasionStep(after: 1.6) { [weak self] in
                 guard let self else { return }
@@ -2529,7 +2575,7 @@ final class NotchMascotDesktop: NSObject {
                 guard let self else { return }
                 NotchMascotPlayEffects.float("o", in: canvas, at: self.onOccasion(self.head), size: max(9, self.size * 0.24),
                                              color: NotchMascotRPGShapes.rgb(0x9AA0A6), count: 1)
-                NotchMascotSound.play(.pop, pan: self.pan(self.body.position.x))
+                sound(.pop, pan: self.pan(self.body.position.x))
             }
             occasionStep(after: 1.6) { [weak self] in
                 guard let self else { return }
@@ -2561,7 +2607,7 @@ final class NotchMascotDesktop: NSObject {
                 guard let self else { return }
                 NotchMascotPlayEffects.burst(.magic, in: canvas, at: self.onOccasion(self.head), size: self.size,
                                              energy: self.energy)
-                NotchMascotSound.play(.zap, pan: self.pan(self.body.position.x))
+                sound(.zap, pan: self.pan(self.body.position.x))
             }
             occasionStep(after: 1.3) { [weak self] in self?.react(.confused) }
             occasionStep(after: 2.1) { [weak self] in self?.react(.love) }
@@ -2582,11 +2628,11 @@ final class NotchMascotDesktop: NSObject {
             occasionStep(after: 1.4) { [weak self] in
                 guard let self else { return }
                 self.tilt(-way * 0.25, for: 1.2)
-                NotchMascotSound.play(.bleep, pan: self.pan(self.body.position.x))
+                sound(.bleep, pan: self.pan(self.body.position.x))
             }
             occasionStep(after: 2.8) { [weak self] in
                 guard let self else { return }
-                NotchMascotSound.play(.bleep, pan: self.pan(self.body.position.x))
+                sound(.bleep, pan: self.pan(self.body.position.x))
                 self.occasionMarker("ALL OK")
                 self.react(.ready)
             }
@@ -2597,7 +2643,7 @@ final class NotchMascotDesktop: NSObject {
                 guard let self else { return }
                 NotchMascotPlayEffects.magicSmoke(in: canvas, at: self.onOccasion(self.body.position), radius: self.size * 0.4,
                                                   energy: self.energy, count: 6)
-                NotchMascotSound.play(.whoosh, pan: self.pan(self.body.position.x))
+                sound(.whoosh, pan: self.pan(self.body.position.x))
                 self.hop(dx: way * 160, dy: 1000)
             }
             occasionStep(after: 2.2) { [weak self] in self?.react(.celebrate) }
@@ -2608,7 +2654,7 @@ final class NotchMascotDesktop: NSObject {
             for (index, at) in [0.9, 1.75, 2.6, 3.4].enumerated() {
                 occasionStep(after: at) { [weak self] in
                     guard let self else { return }
-                    NotchMascotSound.play(.bleep, pan: self.pan(self.body.position.x))
+                    sound(.bleep, pan: self.pan(self.body.position.x))
                     if index == 3 {
                         self.occasionMarker("FULL!")
                         NotchMascotPlayEffects.burst(.sparkles, in: canvas, at: self.onOccasion(self.head), size: self.size,
@@ -2684,7 +2730,7 @@ final class NotchMascotDesktop: NSObject {
     /// Its middle on screen.
     var screenCenter: CGPoint { figureCenter }
     /// The screen it is on.
-    var playScreen: NSScreen { screen(for: body.position) }
+    var playScreen: NSScreen? { screen(for: body.position) }
     /// Where its feet may go along the floor.
     var floor: ClosedRange<CGFloat> {
         let area = self.area(for: body.position)
@@ -2741,7 +2787,7 @@ final class NotchMascotDesktop: NSObject {
     /// says how long that takes.
     @discardableResult
     func stroll(to x: CGFloat, pace: CGFloat = 1) -> TimeInterval {
-        guard isOut, !isHoming, press == nil, !body.airborne else { return 0 }
+        guard isOut, !isHoming, press == nil, !body.airborne, !holdsStill else { return 0 }
         let floor = self.floor
         let target = min(floor.upperBound, max(floor.lowerBound, x))
         let distance = target - body.position.x
@@ -2758,7 +2804,7 @@ final class NotchMascotDesktop: NSObject {
 
     /// A hop of its own, `dx` and `dy` points a second.
     func hop(dx: CGFloat, dy: CGFloat) {
-        guard isOut, !isHoming, press == nil else { return }
+        guard isOut, !isHoming, press == nil, !holdsStill else { return }
         if isWalking { setRun(nil) }
         body.velocity = CGVector(dx: dx, dy: dy)
         body.airborne = true
@@ -2863,6 +2909,7 @@ final class NotchMascotDesktop: NSObject {
     /// Gone at once, as the island stops or the companion is switched off.
     func dismiss() {
         guard isOut else { return }
+        outing += 1
         cancelDizzy()
         if inPlay { interrupted?() }
         cancelPlans()
@@ -2871,24 +2918,30 @@ final class NotchMascotDesktop: NSObject {
         endEncounter()
         endOccasion()
         resetItemState()
+        encounterStage?.close()
+        occasionStage?.close()
         perch = nil
         // Whatever it had put on stays home: out again, it wears what was chosen.
         dressUpWork?.cancel(); dressUpWork = nil; dressUpItem = nil
         removeMonitors()
-        stopTicking()
+        invalidateTicking()
         panel?.orderOut(nil)
         isOut = false
         mode = .standing
     }
 
     private func finishHome(fading: Bool) {
+        outing += 1
+        let outing = self.outing
         cancelPlans()
         resetItemState()
         removeMonitors()
-        stopTicking()
+        invalidateTicking()
         mode = .standing
+        // Dismissed while it fades, it is already in: nothing more to report.
         let landed = { [weak self] in
-            guard let self else { return }
+            guard let self, self.outing == outing else { return }
+            self.invalidateTicking()
             self.panel?.orderOut(nil)
             self.isOut = false
             self.cameHome?(.happy)
@@ -2902,9 +2955,15 @@ final class NotchMascotDesktop: NSObject {
 
     // MARK: Ticking
 
+    /// A small figure walking at a few dozen points a second looks no
+    /// smoother above 60 frames, and each frame moves a window. Up to 72, a
+    /// 144 Hz display runs at half its rate rather than a third.
+    static let frameRates = CAFrameRateRange(minimum: 30, maximum: 72, preferred: 60)
+
     private func resumeTicking() {
         if displayLink == nil, let stage {
             let link = stage.displayLink(target: self, selector: #selector(tick(_:)))
+            link.preferredFrameRateRange = Self.frameRates
             link.add(to: .main, forMode: .common)
             displayLink = link
         }
@@ -2914,6 +2973,13 @@ final class NotchMascotDesktop: NSObject {
 
     private func stopTicking() {
         displayLink?.isPaused = true
+    }
+
+    /// In again, the link goes: it holds on to the companion while it lasts,
+    /// and the next outing makes a new one.
+    private func invalidateTicking() {
+        displayLink?.invalidate()
+        displayLink = nil
     }
 
     @objc private func tick(_ link: CADisplayLink) {
@@ -3061,14 +3127,19 @@ final class NotchMascotDesktop: NSObject {
         else { return }
         if perch == nil, invitePlay?() == true { return }
         if perch == nil, greetIfNear() { return }
-        if maybeEncounter() { return }
-        if maybePlayDressUp() { return }
-        if maybeUseItem() { return }
-        if maybeDanceSolo() { return }
-        if maybeCrave() { return }
-        if maybeFish() { return }
-        if maybeHideAndSeek() { return }
-        let still = staysPut || reduceMotion || ProcessInfo.processInfo.isLowPowerModeEnabled || host.mascot.isDozing
+        let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+        // Saving power, it does nothing of its own; with Reduce Motion,
+        // nothing that leaps about.
+        if !lowPower {
+            if maybeEncounter() { return }
+            if maybePlayDressUp() { return }
+            if maybeUseItem() { return }
+            if !reduceMotion, maybeDanceSolo() { return }
+            if maybeCrave() { return }
+            if maybeFish() { return }
+            if !reduceMotion, maybeHideAndSeek() { return }
+        }
+        let still = staysPut || reduceMotion || lowPower || host.mascot.isDozing
         if !still, windowActivity() { return }
         let area = self.area(for: body.position)
         let half = size * figureAspect / 2
@@ -3166,12 +3237,14 @@ final class NotchMascotDesktop: NSObject {
         updateWindowWatch()
     }
 
-    /// Standing on a window it watches that window closely, to ride along
-    /// when it is dragged; on the floor it glances at the windows now and then.
+    /// Standing on a window it watches that window, closely while it may be
+    /// dragged, to ride along; on the floor it looks only while a window may
+    /// be dragged up beside it.
     private func updateWindowWatch() {
-        let wanted = !isOut || !climbsWindows ? 0
-            : perch != nil ? 33
-            : ProcessInfo.processInfo.isLowPowerModeEnabled ? 0 : 300
+        let wanted = !isOut ? 0
+            : NotchMascotLedges.watchInterval(climbs: climbsWindows, perched: perch != nil, riding: riding,
+                                              pressed: buttonHeld,
+                                              lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
         guard wanted != watchInterval else { return }
         watchInterval = wanted
         watchTimer?.cancel(); watchTimer = nil
@@ -3214,6 +3287,7 @@ final class NotchMascotDesktop: NSObject {
             body.position.y += frame.maxY - current.frame.maxY
             if !riding {
                 riding = true
+                updateWindowWatch()
                 endPeek()
                 leavesLedge = false
                 planWork?.cancel(); planWork = nil
@@ -3232,6 +3306,7 @@ final class NotchMascotDesktop: NSObject {
             // The window came to rest: it straightens up, glad of the ride.
             guard now - rideMoved > 0.3 else { return }
             riding = false
+            updateWindowWatch()
             host?.mascot.lean(0)
             ledgesRead = -.infinity
             if mode == .standing {
@@ -3274,8 +3349,12 @@ final class NotchMascotDesktop: NSObject {
         guard mode == .standing || isWalking, press == nil, !inPlay, !body.airborne, !isDozing, !staysPut,
               !reduceMotion, climbWork == nil, CACurrentMediaTime() - lastHitch > 6
         else { return }
+        // Not looked at for a while, the windows' last places are no baseline:
+        // this look only takes them, and the next one sees what moves.
+        let stale = CACurrentMediaTime() - ledgesRead > 0.6
         let before = windowFrames
         let ledges = currentLedges(maxAge: 0)
+        guard !stale else { return }
         let feet = body.position
         for (id, frame) in windowFrames {
             guard let old = before[id], NotchMascotLedges.hitchable(old: old, new: frame, feet: feet, figure: size),
@@ -3369,6 +3448,11 @@ final class NotchMascotDesktop: NSObject {
             guard let self else { return }
             self.climbWork = nil
             guard self.isOut, self.mode == .standing, self.press == nil, !self.inPlay else { return }
+            // Reduce Motion came on meanwhile: it stays where it is and thinks again.
+            guard !self.holdsStill else {
+                self.planNext(after: 2)
+                return
+            }
             let velocity = NotchMascotLedges.leap(from: self.body.position, to: target,
                                                   gravity: NotchMascotRoam.gravity, drag: NotchMascotRoam.airDrag)
             self.perch = nil
@@ -3735,6 +3819,12 @@ final class NotchMascotDesktop: NSObject {
             self?.pointerMoved(NSEvent.mouseLocation)
             return event
         }) { monitors.append(local) }
+        // A button held in another app may be a window on the move: it looks
+        // at the windows more often until the button comes up.
+        let presses: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseUp]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: presses, handler: { [weak self] event in
+            self?.buttonChanged(held: event.type == .leftMouseDown)
+        }) { monitors.append(global) }
         screenObserver = screenObserver ?? NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             self?.screensChanged()
@@ -3754,6 +3844,13 @@ final class NotchMascotDesktop: NSObject {
         appObserver = nil
         watchTimer?.cancel(); watchTimer = nil
         watchInterval = 0
+        buttonHeld = false
+    }
+
+    private func buttonChanged(held: Bool) {
+        guard buttonHeld != held else { return }
+        buttonHeld = held
+        updateWindowWatch()
     }
 
     /// Its eyes go to a pointer that comes near, and it takes clicks only
@@ -3861,20 +3958,25 @@ final class NotchMascotDesktop: NSObject {
         if panel.frame.origin != origin { panel.setFrameOrigin(origin) }
     }
 
-    private func screen(for point: CGPoint) -> NSScreen {
-        NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main ?? NSScreen.screens[0]
+    /// The screen under `point`, else the nearest one; nil only while a
+    /// display change leaves none.
+    private func screen(for point: CGPoint) -> NSScreen? {
+        let screens = NSScreen.screens
+        return NotchMascotRoam.screenIndex(for: point, in: screens.map(\.frame)).map { screens[$0] }
     }
 
     /// Where it may be on the screen under `point`: above the Dock and below
-    /// the menu bar.
+    /// the menu bar. With no screen for a moment, where it last was.
     private func area(for point: CGPoint) -> CGRect {
-        screen(for: point).visibleFrame
+        guard let area = screen(for: point)?.visibleFrame else { return lastArea }
+        lastArea = area
+        return area
     }
 
     /// Held, it may go anywhere on a screen.
     private func clampedToScreens(_ point: CGPoint) -> CGPoint {
         guard !NSScreen.screens.contains(where: { $0.frame.contains(point) }) else { return point }
-        let frame = screen(for: point).frame
+        let frame = screen(for: point)?.frame ?? area(for: point)
         return CGPoint(x: min(frame.maxX, max(frame.minX, point.x)), y: min(frame.maxY - size, max(frame.minY, point.y)))
     }
 

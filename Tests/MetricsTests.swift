@@ -12937,6 +12937,7 @@ struct MetricsTests {
                 ("NotchAgentTests", NotchAgentTests.run),
                 ("NotchMascotCheatsTests", NotchMascotCheatsTests.run),
                 ("HardwareLayerTests", HardwareLayerTests.run),
+                ("NotchMascotRuntimeTests", NotchMascotRuntimeTests.run),
             ]
             for (name, run) in suites { suite.run(name) { run(suite) } }
             checks += suite.checks

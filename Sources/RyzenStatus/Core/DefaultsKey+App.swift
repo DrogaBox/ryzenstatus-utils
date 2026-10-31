@@ -665,6 +665,7 @@ extension DefaultsKey {
     /// The companion's life: its bond (JSON), level, name and wardrobe.
     static let notchMascotBond = "notchMascotBond"
     static let notchMascotBonds = "notchMascotBonds" // JSON map of style rawValue -> NotchMascotBond
+    static let notchMascotBondsBackup = "notchMascotBondsBackup" // Data, notchMascotBonds as found when part of it could not be read
     static let notchMascotLevel = "notchMascotLevel"
     static let notchMascotName = "notchMascotName"
     static let notchMascotAccessory = "notchMascotAccessory"   // NotchMascotAccessory raw value
