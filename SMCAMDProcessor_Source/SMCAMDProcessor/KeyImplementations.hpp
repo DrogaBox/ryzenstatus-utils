@@ -52,6 +52,14 @@ protected:
     SMC_RESULT readAccess() override;
 };
 
+// CoreVoltageValue: SVI2 core voltage in volts (flt), from the provider's
+// cache; 0 while the plane reading is not trusted.
+class CoreVoltageValue : public AMDSupportVsmcValue {
+    using AMDSupportVsmcValue::AMDSupportVsmcValue;
+protected:
+    SMC_RESULT readAccess() override;
+};
+
 // FanSpeedValue: Super I/O tachometer in RPM (fpe2); `package` is the fan
 // header index. Served from the provider's cache (refreshFanTelemetryIfStale),
 // an untrusted reading reports 0.

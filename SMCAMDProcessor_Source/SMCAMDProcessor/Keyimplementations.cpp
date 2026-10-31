@@ -60,6 +60,14 @@ SMC_RESULT RGPUTempValue::readAccess() {
     return SmcSuccess;
 }
 
+SMC_RESULT CoreVoltageValue::readAccess() {
+    if (!provider) return SmcError;
+    __sync_synchronize();
+    float volts = provider->sviCoreValid ? (float)provider->sviCoreMillivolts / 1000.0f : 0.0f;
+    *reinterpret_cast<uint32_t *>(data) = VirtualSMCAPI::encodeFlt(volts);
+    return SmcSuccess;
+}
+
 SMC_RESULT FanSpeedValue::readAccess() {
     if (!provider) return SmcError;
     uint32_t rpm = provider->fanRPM((int)package);

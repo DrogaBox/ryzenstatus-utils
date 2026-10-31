@@ -198,6 +198,7 @@ public:
 
     static constexpr uint32_t kMSR_HWCR = 0xC0010015;
     static constexpr uint32_t kMSR_PKG_ENERGY_STAT = 0xC001029B;
+    static constexpr uint32_t kMSR_CORE_ENERGY_STAT = 0xC001029A;
     static constexpr uint32_t kMSR_PSTATE_0 = 0xC0010064;
     static constexpr uint32_t kMSR_PSTATE_LEN = 8;
     static constexpr uint32_t kMSR_PSTATE_CTL = 0xC0010062;
@@ -425,6 +426,17 @@ public:
     uint8_t  idlePercent_perCpu[CPUInfo::MaxCpus] {};
     bool     idleResidencySampled {false};
     void updateC0Residency(uint32_t cpu_num);
+
+    // Per-core power from CORE_ENERGY_STAT (MSR 0xC001029A), the counter
+    // Linux turbostat (CorWatt) and zenpower read: energy in the RAPL unit
+    // the package counter uses, one per physical core, read on the core's
+    // primary thread in the main rendezvous. corePowerW_perCore[] is the
+    // average over the last window, indexed like effFreq_perCore[];
+    // selector 60. A window restarts (TSC 0) on boot and after wake.
+    uint32_t lastCoreEnergy_perCore[CPUInfo::MaxCpus] {};
+    uint64_t lastCoreEnergyTSC_perCore[CPUInfo::MaxCpus] {};
+    float    corePowerW_perCore[CPUInfo::MaxCpus] {};
+    void updateCoreEnergy(uint32_t physical);
 
     uint8_t PStateCur_perCore[CPUInfo::MaxCpus] {};
     uint8_t PStateCtl = 0;

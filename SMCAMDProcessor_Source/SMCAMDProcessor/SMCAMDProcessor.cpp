@@ -83,6 +83,13 @@ bool SMCAMDProcessor::setupKeysVsmc(){
             }
         }
         IOLog("SMCAMDProcessor::setupKeysVsmc: registering %d fan(s)\n", fanCountLocal);
+
+        // === CPU core voltage (VC0C flt) ===
+        // From the provider's SVI2 cache; absent on SVI3 parts (Zen 4/5).
+        if (fProvider->svi.supported) {
+            suc &= VirtualSMCAPI::addKey(KeyVC0C, vsmcPlugin.data,
+                VirtualSMCAPI::valueWithFlt(0, new CoreVoltageValue(fProvider, 0))); keyCount++;
+        }
     } else {
         IOLog("SMCAMDProcessor::setupKeysVsmc: fProvider is null, skipping key registration\n");
     }

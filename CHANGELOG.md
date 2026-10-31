@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.71.0] — 2026-10-31 — kexts 3.37.0
+
+This release adds per-core power and puts the core voltage in the SMC. It also keeps the fans right after sleep, and the driver wakes the CPU far less often while the app is open.
+
+> [!WARNING]
+> **This release updates the kexts.** `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` move from 3.36.1 to **3.37.0**. Replace both together in `EFI/OC/Kexts/` and reboot.
+
+### Added
+
+- **Power of every core**: the driver reads each core's own energy counter, the one Linux turbostat and zenpower read, and the Sensors page lists the watts of every core with their total under the CCD temperatures.
+- **Core voltage in other apps**: `SMCAMDProcessor.kext` publishes the core voltage as the `VC0C` SMC key, so iStat Menus, Stats and HWMonitor show it too. It appears only on CPUs whose voltage the driver can read (Zen to Zen 3).
+
+### Fixed
+
+- **Fans after sleep**: firmware can put the Super I/O chip back to its power-on state on wake. On ITE chips that switched the tachometers to a mode that misreads slow fans, and on Nuvoton chips it could lock the fan registers again. The driver now redoes its chip setup after every wake, re-reads the fans and re-applies the fan curves at once, as Linux does.
+- **Log noise**: a failed package energy read is logged once per boot instead of on every sample.
+
+### Changed
+
+- **Far fewer CPU wakeups**: the driver mistook the dozen calls of one app refresh for a client asking every few milliseconds, so it sampled every CPU about five times a second while the app was open. It now samples about as often as the app actually refreshes.
+- **Less SMU traffic**: the SMU's metrics table is copied to memory only while the AMD Power page is reading it, instead of every second.
+- **Fewer fan register writes**: a fan curve whose speed has not changed is written to the chip every 5 seconds instead of twice a second.
+
 ## [1.70.1] — 2026-10-31 — kexts 3.36.1
 
 This release makes the fan speeds and the SoC voltage that came with kexts 3.36.0 show up where they should.

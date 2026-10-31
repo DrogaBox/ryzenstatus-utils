@@ -1644,6 +1644,24 @@ actor ProcessorModel {
         return (core, soc)
     }
 
+    /// Per-core power in watts (kext 3.37.0+, selector 60), one value per
+    /// physical core. Nil when the kext predates the selector or the
+    /// connection is down; quiet on failure, unlike kernelGetFloats, since an
+    /// older kext answers "unsupported" on every poll.
+    nonisolated func getCorePowers() -> [Double]? {
+        if isTerminating || Task.isCancelled { return nil }
+        var scalarOut: UInt64 = 0
+        var scalarOutCount: UInt32 = 1
+        var output = [Float](repeating: 0, count: 64)
+        var outputSize = MemoryLayout<Float>.size * output.count
+        let res = safeIOConnectCallMethod(AMDKextSelector.corePower.id, nil, 0, nil, 0,
+                                          &scalarOut, &scalarOutCount, &output, &outputSize)
+        guard res == KERN_SUCCESS else { return nil }
+        let valid = min(output.count, outputSize / MemoryLayout<Float>.size)
+        guard valid > 0 else { return nil }
+        return output.prefix(valid).map { Double($0) }
+    }
+
     /// Reads the zero-copy telemetry packet (selector 100) — a packed
     /// `CPUSensorPacket` of exactly 304 bytes. Returns nil when the kext does
     /// not answer or the buffer comes back short.

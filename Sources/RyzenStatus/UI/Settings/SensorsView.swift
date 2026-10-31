@@ -105,7 +105,13 @@ struct SensorsView: View {
                 let fanSensors = filteredReadings.filter {
                     $0.key.count == 4 && $0.key.hasPrefix("F") && $0.key.hasSuffix("Ac") && $0.value > 0
                 }
-                let voltageSensors = filteredReadings.filter { $0.key.hasPrefix("V") && $0.value > 0 }
+                // VC0C comes from the kext's SVI2 reading when the CPU
+                // section already shows it; listing it again here would
+                // show the same voltage twice.
+                let voltageSensors = filteredReadings.filter {
+                    $0.key.hasPrefix("V") && $0.value > 0
+                        && !($0.key == "VC0C" && monitor.snapshot.cpuCoreVoltage != nil)
+                }
                 let powerSensors = filteredReadings.filter { $0.key.hasPrefix("P") && $0.value > 0 }
                 let currentSensors = filteredReadings.filter { $0.key.hasPrefix("I") && $0.value > 0 }
                 
@@ -165,6 +171,34 @@ struct SensorsView: View {
                             }
                         }
                         .padding(.vertical, 4)
+
+                        // Per-core power from the kext's CORE_ENERGY_STAT
+                        // counters (selector 60); absent on older kexts.
+                        let corePowers = monitor.snapshot.cpuCorePowers
+                        if !corePowers.isEmpty {
+                            Text("Core Power (\(corePowers.count)) · \(String(format: "%.1f W", corePowers.reduce(0, +)))")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.top, 4)
+                                .padding(.bottom, 2)
+
+                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+                                ForEach(Array(corePowers.enumerated()), id: \.offset) { index, watts in
+                                    HStack {
+                                        Text("Core \(index)")
+                                            .font(.subheadline)
+                                        Spacer(minLength: 4)
+                                        Text(String(format: "%.2f W", watts))
+                                            .font(.system(.subheadline, design: .monospaced, weight: .semibold))
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 6)
+                                    .background(Color.primary.opacity(0.04))
+                                    .cornerRadius(6)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
                     } label: {
                         HStack {
                             Image(systemName: "cpu")

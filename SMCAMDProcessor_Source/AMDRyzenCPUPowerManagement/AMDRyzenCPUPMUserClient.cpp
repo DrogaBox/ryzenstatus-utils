@@ -1061,6 +1061,31 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
+        // Per-core power in watts (kext 3.37.0+): one float per physical
+        // core, indexed like selector 2; [0] scalar = core count. Cache
+        // only, refreshed by the main timer rendezvous from
+        // CORE_ENERGY_STAT. A core whose counter has not closed a window
+        // yet reads 0.
+        case 60: {
+            uint32_t numPhyCores = provider->totalNumberOfPhysicalCores;
+            if (numPhyCores > CPUInfo::MaxCpus) numPhyCores = CPUInfo::MaxCpus;
+            if (numPhyCores == 0) return kIOReturnNoDevice;
+
+            arguments->scalarOutputCount = 1;
+            arguments->scalarOutput[0] = numPhyCores;
+
+            uint32_t requiredSize = numPhyCores * sizeof(float);
+            if (arguments->structureOutputSize < requiredSize || !arguments->structureOutput)
+                return kIOReturnBadArgument;
+            arguments->structureOutputSize = requiredSize;
+
+            float *dataOut = (float *)arguments->structureOutput;
+            for (uint32_t i = 0; i < numPhyCores; i++) {
+                dataOut[i] = provider->corePowerW_perCore[i];
+            }
+            break;
+        }
+
         // Per-core instruction-retired delta (IPC input),
         // one UInt32 per logical core. instructionDelta_perCore is refreshed by
         // the provider timer (updateInstructionDelta, MSR PERF_IRPC); this

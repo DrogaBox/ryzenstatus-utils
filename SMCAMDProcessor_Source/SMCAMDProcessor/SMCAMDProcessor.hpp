@@ -59,6 +59,7 @@ class SMCAMDProcessor : public IOService {
      *  - TGxD/P/d/p, TGDD: GPU temperature (SP78), x = GPU index
      *  - PGxR/PGxC: GPU power (SP96), only for GPUs that report it
      *  - FNum, FxAc: Super I/O fan count and tachometers (fpe2), x = header
+     *  - VC0C: SVI2 core voltage (flt), only on silicon with an SVI2 layout
      */
     static constexpr SMC_KEY KeyPCPR = SMC_MAKE_IDENTIFIER('P','C','P','R');
     static constexpr SMC_KEY KeyPSTR = SMC_MAKE_IDENTIFIER('P','S','T','R');
@@ -91,6 +92,10 @@ class SMCAMDProcessor : public IOService {
     // which is what iStat Menus, Stats and HWMonitor read. Up to 16 headers.
     static constexpr size_t MaxFanIndexCount = 16;
     static constexpr SMC_KEY KeyFNum = SMC_MAKE_IDENTIFIER('F','N','u','m');
+
+    // === CPU core voltage (VC0C flt) ===
+    // The key iStat Menus, Stats and HWMonitor read as "CPU Core" voltage.
+    static constexpr SMC_KEY KeyVC0C = SMC_MAKE_IDENTIFIER('V','C','0','C');
     static constexpr SMC_KEY KeyFxAc(size_t i) { return SMC_MAKE_IDENTIFIER('F',KeyIndexes[i < MaxFanIndexCount ? i : 0],'A','c'); }
     
 public:

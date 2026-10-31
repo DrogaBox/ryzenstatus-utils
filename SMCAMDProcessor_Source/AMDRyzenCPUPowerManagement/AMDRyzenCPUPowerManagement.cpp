@@ -279,6 +279,7 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
 
 
             provider->calculateEffectiveFrequency(physical);
+            provider->updateCoreEnergy(physical);
 
         }, provider);
         // Every CPU has now closed one window since reapplyPerCoreConfig().
@@ -1027,6 +1028,33 @@ void AMDRyzenCPUPowerManagement::calculateEffectiveFrequency(uint32_t physical){
     effFreq_perCore[physical] = effFreq;
 }
 
+// Runs inside the main rendezvous on each core's primary thread, so it
+// only reads one MSR and the TSC and writes this core's slots. The counter
+// is 32 bits wide and wraps (about every 70 s at 1 W per 15.3 uJ unit,
+// minutes at real loads); unsigned subtraction handles one wrap, and a
+// delta past 2^31 is taken as a reset and skipped like the package path.
+void AMDRyzenCPUPowerManagement::updateCoreEnergy(uint32_t physical){
+    if (physical >= CPUInfo::MaxCpus) return;
+
+    uint64_t raw = 0;
+    if (!read_msr(kMSR_CORE_ENERGY_STAT, &raw)) return;
+    uint32_t energy = (uint32_t)(raw & 0xffffffff);
+    uint64_t tsc = rdtsc64();
+
+    uint32_t lastEnergy = lastCoreEnergy_perCore[physical];
+    uint64_t lastTsc = lastCoreEnergyTSC_perCore[physical];
+    lastCoreEnergy_perCore[physical] = energy;
+    lastCoreEnergyTSC_perCore[physical] = tsc;
+
+    if (lastTsc == 0 || tsc <= lastTsc || xnuTSCFreq == 0) return;
+    uint32_t delta = energy - lastEnergy;
+    if (delta > 0x80000000u) return;
+
+    double seconds = (double)(tsc - lastTsc) / (double)xnuTSCFreq;
+    if (seconds <= 0.0) return;
+    corePowerW_perCore[physical] = (float)((pwrEnergyUnit * (double)delta) / seconds);
+}
+
 // Per-core programming shared by the first tick and the post-wake path.
 // Caller holds rendezvousLock. The rendezvous handler runs with interrupts
 // off on every CPU, so it only touches MSRs and the provider's arrays; the
@@ -1101,6 +1129,7 @@ void AMDRyzenCPUPowerManagement::reapplyPerCoreConfig() {
         if (physical >= CPUInfo::MaxCpus) return;
         provider->lastAPERF_perCore[physical] = aperf;
         provider->lastMPERF_perCore[physical] = mperf;
+        provider->lastCoreEnergyTSC_perCore[physical] = 0;
     }, &outcome);
 
     uint64_t cstateAddr = 0;

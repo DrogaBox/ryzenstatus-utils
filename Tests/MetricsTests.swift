@@ -13013,8 +13013,14 @@ struct MetricsTests {
 
             if let userClientSrc = try? String(contentsOf: userClientURL, encoding: .utf8) {
                 let selectors = AMDKextSelector.allKnownSelectors
-                expect(selectors.count == 65,
-                       "AMDKextSelector enumerates all 65 app-used IOKit selectors (got \(selectors.count))")
+                expect(selectors.count == 66,
+                       "AMDKextSelector enumerates all 66 app-used IOKit selectors (got \(selectors.count))")
+                expect(AMDKextSelector.corePower.rawValue == 60, "corePower selector is 60")
+                expect(userClientSrc.contains("provider->corePowerW_perCore[i]")
+                       && userClientSrc.contains("if (numPhyCores > CPUInfo::MaxCpus) numPhyCores = CPUInfo::MaxCpus;"),
+                       "selector 60 copies per-core power with the core count clamped to MaxCpus")
+                expect(userClientSrc.components(separatedBy: "provider->pmTableLastDemandMs = getCurrentTimeNs()").count == 3,
+                       "selectors 56 and 57 record PM table demand")
                 for selector in selectors.sorted() {
                     expect(userClientSrc.contains("case \(selector):"),
                            "AMDRyzenCPUPMUserClient.cpp implements case \(selector):")
@@ -13036,6 +13042,37 @@ struct MetricsTests {
                        "AUD-006: ISSuperIOIT86XXEFamily gates register 0x0c unlock write on allowUnlock")
             } else {
                 expect(false, "ISSuperIOIT86XXEFamily.cpp is readable from repo root")
+            }
+
+            // Kext 3.36.1 / 3.37.0 regressions guarded by source checks.
+            let kextRoot = repoRoot.appendingPathComponent("SMCAMDProcessor_Source")
+            if let pluginSrc = try? String(contentsOf: kextRoot.appendingPathComponent("SMCAMDProcessor/SMCAMDProcessor.cpp"), encoding: .utf8),
+               let qsortAt = pluginSrc.range(of: "VirtualSMCKeyValue::compare"),
+               let registerAt = pluginSrc.range(of: "VirtualSMCAPI::registerHandler(") {
+                expect(qsortAt.lowerBound < registerAt.lowerBound,
+                       "the SMC plugin sorts its keys before registering with VirtualSMC (binary-search lookups)")
+                expect(pluginSrc.contains("KeyVC0C") && pluginSrc.contains("fProvider->svi.supported"),
+                       "the SMC plugin publishes VC0C only on silicon with an SVI2 layout")
+            } else {
+                expect(false, "SMCAMDProcessor.cpp sorts and registers its keys")
+            }
+            if let driverSrc = try? String(contentsOf: kextRoot.appendingPathComponent("AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.cpp"), encoding: .utf8) {
+                expect(driverSrc.contains("if (gap < kREQUEST_BURST_GAP_MS)"),
+                       "registerRequest folds back-to-back selector calls into one burst")
+                expect(driverSrc.contains("provider->resumeSuperIO();"),
+                       "the post-wake path re-applies the Super I/O setup")
+                expect(driverSrc.contains("provider->updateCoreEnergy(physical);")
+                       && driverSrc.contains("provider->lastCoreEnergyTSC_perCore[physical] = 0;"),
+                       "per-core energy is sampled in the rendezvous and its window restarts after wake")
+                expect(driverSrc.contains("!svi.socIgnoresTfn && (tfn & kSVI_TFN_SOC_PLANE_OFF) != 0"),
+                       "the SoC plane ignores its TFN bit only on the models listed in probeSviTelemetry")
+            } else {
+                expect(false, "AMDRyzenCPUPowerManagement.cpp is readable from repo root")
+            }
+            if let it86Resume = try? String(contentsOf: it86URL, encoding: .utf8) {
+                expect(it86Resume.contains("void ISSuperIOIT86XXEFamily::resume()")
+                       && it86Resume.contains("if (!tach16BitRequested)"),
+                       "IT86xxE resume re-enables 16-bit tachometers only when the probe did")
             }
 
             if let securityDoc = try? String(contentsOf: securityURL, encoding: .utf8) {

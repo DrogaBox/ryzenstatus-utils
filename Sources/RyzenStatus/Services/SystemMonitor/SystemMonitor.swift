@@ -33,6 +33,9 @@ struct SystemSnapshot {
     /// nil on Zen 4/5 (SVI3), on older kexts, or while a plane is untrusted.
     var cpuCoreVoltage: Double?
     var cpuSocVoltage: Double?
+    /// Per-core power in watts from the kext (selector 60, kext 3.37.0+),
+    /// one per physical core; empty on older kexts.
+    var cpuCorePowers: [Double] = []
     var gpuPower: Double?
     var gpuFreq: Double?
     var gpuFan: Double?
@@ -218,6 +221,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
     private var cores: [CoreSnapshot] = []
     private var ccdTemperatures: [Double] = []
     private var cpuVoltages: (core: Double?, soc: Double?) = (nil, nil)
+    private var cpuCorePowers: [Double] = []
     private var lastAmdSnapshot: ProcessorModel.TelemetrySnapshot?
     private var isKextAvailable: Bool = true
     private var missedCPUUsageSamples = 0
@@ -880,6 +884,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                     self.ccdTemperatures = ccdTemps.map { Double($0) }
                     let volts = ProcessorModel.shared.getSviVoltages()
                     self.cpuVoltages = (volts?.coreVolts, volts?.socVolts)
+                    self.cpuCorePowers = ProcessorModel.shared.getCorePowers() ?? []
 
                     if let load = self.readCPUUsage(now: now) {
                         let cpu = load.busy
@@ -927,6 +932,7 @@ final class SystemMonitor: ObservableObject, @unchecked Sendable {
                 next.ccdTemperatures = self.ccdTemperatures.map { Float($0) }
                 next.cpuCoreVoltage = self.cpuVoltages.core
                 next.cpuSocVoltage = self.cpuVoltages.soc
+                next.cpuCorePowers = self.cpuCorePowers
             }
 
             if plan.needMemory {
