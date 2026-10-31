@@ -17,15 +17,41 @@ enum NotchHardwareAlertSupport {
         last.map { now.timeIntervalSince($0) >= cooldown } ?? true
     }
 
-    /// Fans seen turning at some point: only these can stall. A header with
-    /// nothing plugged in reads zero from the start and never counts.
-    static func spinning(_ readings: [Int: UInt64], adding known: Set<Int>) -> Set<Int> {
-        known.union(readings.filter { $0.value > 0 }.map(\.key))
+    /// What the stall rule remembers about one fan header.
+    struct FanTrack: Equatable {
+        var turningSince: Date?
+        /// Seen turning steadily: only such a fan can stall. An empty header
+        /// can pick up a stray reading now and then, never a steady one.
+        var proven = false
+        var stoppedSince: Date?
     }
 
-    /// Fans that turned before and read zero now.
-    static func stalled(_ readings: [Int: UInt64], spun: Set<Int>) -> Set<Int> {
-        Set(readings.filter { $0.value == 0 && spun.contains($0.key) }.map(\.key))
+    /// Below this a reading is noise, not a turning fan.
+    static let turningRPM: UInt64 = 200
+    static let provenAfter: TimeInterval = 10
+    static let stalledAfter: TimeInterval = 6
+
+    /// The track after one reading. Times, not reading counts: the fan poll
+    /// and the monitor run at their own rates, so one stray value can be seen
+    /// several times in a row. A fan whose duty is zero was stopped on
+    /// purpose (a zero-RPM curve point, a manual 0 %) and never counts.
+    static func track(_ track: FanTrack, rpm: UInt64, driven: Bool, now: Date) -> FanTrack {
+        var next = track
+        if rpm >= turningRPM {
+            next.turningSince = next.turningSince ?? now
+            next.stoppedSince = nil
+            if let since = next.turningSince, now.timeIntervalSince(since) >= provenAfter { next.proven = true }
+        } else {
+            next.turningSince = nil
+            next.stoppedSince = rpm == 0 && driven ? (next.stoppedSince ?? now) : nil
+        }
+        return next
+    }
+
+    /// A fan that turned steadily and has read zero, while driven, for a while.
+    static func stalls(_ track: FanTrack, now: Date) -> Bool {
+        guard track.proven, let since = track.stoppedSince else { return false }
+        return now.timeIntervalSince(since) >= stalledAfter
     }
 }
 
@@ -40,7 +66,7 @@ final class NotchHardwareAlertService {
     private var lastThermalAlert: Date?
     private var lastPowerAlert: Date?
     private var lastFanAlert: Date?
-    private var spunFans = Set<Int>()
+    private var fanTracks: [Int: NotchHardwareAlertSupport.FanTrack] = [:]
     private let cooldown: TimeInterval = 35
 
     private init() {}
@@ -59,6 +85,7 @@ final class NotchHardwareAlertService {
         subscription = nil
         thermalStreak = 0
         powerStreak = 0
+        fanTracks = [:]
     }
 
     /// Each alert stamps its cooldown and plays its sound only once the
@@ -97,9 +124,10 @@ final class NotchHardwareAlertService {
         evaluateFans(snapshot: snapshot, now: now, text: text)
     }
 
-    /// A fan that turned earlier and reads zero while the CPU is hot. The
-    /// readings come from the fan controller, and only while its poll runs
-    /// (a fan view open, a manual fan): a stale list is never trusted.
+    /// A fan that turned steadily and has read zero for a while, while driven
+    /// and with the CPU hot. The readings come from the fan controller, and
+    /// only while its poll runs (a fan view open, a manual fan): a stale list
+    /// is never trusted. Hidden fans are left out.
     private func evaluateFans(snapshot: SystemSnapshot, now: Date, text: NotchIslandExtrasStrings) {
         // The sink delivers on the main queue, where the controller lives.
         let live: (fans: [FanState], packageTemp: Double)? = MainActor.assumeIsolated {
@@ -109,11 +137,13 @@ final class NotchHardwareAlertService {
         }
         guard let live else { return }
         let fans = live.fans
-        let readings = Dictionary(fans.map { ($0.id, $0.rpm) }, uniquingKeysWith: { first, _ in first })
-        spunFans = NotchHardwareAlertSupport.spinning(readings, adding: spunFans)
+        for fan in fans {
+            fanTracks[fan.id] = NotchHardwareAlertSupport.track(fanTracks[fan.id] ?? .init(), rpm: fan.rpm,
+                                                                driven: fan.throttlePWM > 0, now: now)
+        }
         let temp = snapshot.cpuTemperature ?? live.packageTemp
-        let stalled = NotchHardwareAlertSupport.stalled(readings, spun: spunFans)
-        guard temp >= 72, let fan = fans.first(where: { stalled.contains($0.id) }),
+        guard temp >= 72,
+              let fan = fans.first(where: { fanTracks[$0.id].map { NotchHardwareAlertSupport.stalls($0, now: now) } ?? false }),
               NotchHardwareAlertSupport.cooledDown(lastFanAlert, now: now, cooldown: cooldown * 1.5) else { return }
         let name = fan.customName.flatMap { $0.isEmpty ? nil : $0 } ?? fan.name
         if NotchService.shared.show(NotchNotice(event: .hardwareAlert, title: text.fanAlert,
