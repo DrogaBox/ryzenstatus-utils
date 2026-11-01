@@ -265,14 +265,20 @@ enum AppleScriptRunner {
     }()
     private static let onQueue = DispatchSpecificKey<Void>()
 
-    /// Runs `script` on the shared queue and waits for its answer.
+    /// Runs `script` on the shared queue and waits for its answer. A failed
+    /// script answers an empty descriptor, with the reason in `error`.
     @discardableResult
     static func execute(_ script: NSAppleScript, error: inout NSDictionary?) -> NSAppleEventDescriptor {
-        if DispatchQueue.getSpecific(key: onQueue) != nil { return script.executeAndReturnError(&error) }
+        // executeAndReturnError returns nil on failure, and its header has no
+        // nullability: keep the result optional so it is never force-unwrapped.
+        if DispatchQueue.getSpecific(key: onQueue) != nil {
+            let result: NSAppleEventDescriptor? = script.executeAndReturnError(&error)
+            return result ?? NSAppleEventDescriptor()
+        }
         var failure: NSDictionary?
-        let result = queue.sync { script.executeAndReturnError(&failure) }
+        let result = queue.sync { () -> NSAppleEventDescriptor? in script.executeAndReturnError(&failure) }
         error = failure
-        return result
+        return result ?? NSAppleEventDescriptor()
     }
 
     /// True when this app may script `bundleID`. Undetermined → shows the system

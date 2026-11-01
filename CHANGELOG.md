@@ -22,6 +22,7 @@
 
 - On Ryzen 3000 and newer, the PPM and LPM switches no longer write the legacy P-state register the driver must not touch on those CPUs.
 - Messages that wrongly called Ryzen 5000 chips "Ryzen 3000" are gone.
+- The app no longer quits at launch when Music answers the Now Playing query with an error.
 
 ## [1.74.2] — 2026-11-01 — kexts 3.39.1 (No kext changes)
 
