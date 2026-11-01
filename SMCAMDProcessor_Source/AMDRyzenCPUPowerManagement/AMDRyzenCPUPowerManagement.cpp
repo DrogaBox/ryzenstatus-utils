@@ -2491,9 +2491,7 @@ void AMDRyzenCPUPowerManagement::reinitHwState() {
     CPUInfo::getCpuid(0x80000007, 0, &cpuid_eax, &cpuid_ebx, &cpuid_ecx, &cpuid_edx);
     cpbSupported = (cpuid_edx >> 9) & 0x1;
 
-    // Probe CPPC support: read CAP1 MSR. All Zen families (17h/19h/1Ah) support CPPC,
-    // but CPPC writes (ENABLE/REQ MSRs) are disabled in the current baseline.
-    // CPPC writes may be enabled in a future profile update once validated.
+    // Probe CPPC support: read CAP1 MSR. All Zen families (17h/19h/1Ah) support CPPC.
     uint64_t cppcVal = 0;
     bool msrSuccess = read_msr(kMSR_AMD_CPPC_CAP1, &cppcVal);
     const bool zenFamily = (cpuFamily == 0x17 || cpuFamily == 0x19 || cpuFamily == 0x1A);
@@ -2508,11 +2506,17 @@ void AMDRyzenCPUPowerManagement::reinitHwState() {
         cppcSupported = false;
     }
 
-    // EPP needs the MSR flavour of CPPC (CPUID 8000_0008h EBX[27]); without
-    // it the controls live in ACPI shared memory, which this kext does not drive.
-    uint32_t ext8_eax = 0, ext8_ebx = 0, ext8_ecx = 0, ext8_edx = 0;
-    CPUInfo::getCpuid(0x80000008, 0, &ext8_eax, &ext8_ebx, &ext8_ecx, &ext8_edx);
-    cppcMsrSupported = cppcSupported && ((ext8_ebx >> 27) & 0x1);
+    // EPP needs the CPPC MSRs. CPUID 8000_0008h EBX[27] is not a usable gate:
+    // Vermeer desktop parts clear it although CPPC_CAP1/ENABLE/REQ are all
+    // implemented. Probe the registers instead: rdmsr_carefully fails on an
+    // MSR the CPU does not implement, and CAP1 must hold a real perf range.
+    uint64_t cppcEnableProbe = 0, cppcReqProbe = 0;
+    const uint32_t capHighest = (uint32_t)((cppcVal >> 24) & 0xFF);
+    const uint32_t capLowest = (uint32_t)(cppcVal & 0xFF);
+    cppcMsrSupported = cppcSupported && msrSuccess
+        && capHighest != 0 && capLowest != 0 && capLowest <= capHighest
+        && read_msr(kMSR_AMD_CPPC_ENABLE, &cppcEnableProbe)
+        && read_msr(kMSR_AMD_CPPC_REQ, &cppcReqProbe);
 
     // Firmware (boot) or S3 (wake) left CPPC_ENABLE in its reset state, so
     // the next applyEPPControl() must write it again.

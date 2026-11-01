@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.74.1] — 2026-11-01 — kexts 3.39.1
+
+### Fixed
+
+- **Auto EPP on Ryzen 5000**: the driver looked for a CPU flag that Ryzen 5000 desktop processors leave off even though they have the energy preference controls, so on those CPUs Auto EPP, the energy profile and the presets stayed locked with "the installed AMD kext does not apply EPP yet". The driver now checks the controls themselves.
+
 ## [1.74.0] — 2026-11-01 — kexts 3.39.0
 
 ### Fixed

@@ -13057,8 +13057,11 @@ struct MetricsTests {
                        "-amdcppcactive engages CPPC instead of being switched back off")
                 expect(driverSrc.components(separatedBy: "if (provider->cppcActiveMode) provider->applyEPPControlLocked();").count == 3,
                        "the first tick and the post-wake reinit both put CPPC and the EPP back")
-                expect(driverSrc.contains("cppcMsrSupported = cppcSupported && ((ext8_ebx >> 27) & 0x1);"),
-                       "EPP writes need MSR CPPC (CPUID 8000_0008h EBX[27])")
+                expect(!driverSrc.contains("ext8_ebx >> 27"),
+                       "MSR CPPC is not gated on CPUID 8000_0008h EBX[27] (clear on Vermeer)")
+                expect(driverSrc.contains("&& read_msr(kMSR_AMD_CPPC_ENABLE, &cppcEnableProbe)")
+                       && driverSrc.contains("&& read_msr(kMSR_AMD_CPPC_REQ, &cppcReqProbe);"),
+                       "MSR CPPC is detected by probing CAP1, ENABLE and REQ")
                 expect(driverSrc.contains("provider->cppcHighestPerf_perCore[cpu_num] = (cppcCap >> 24) & 0xFF;"),
                        "the preferred-core ranking reads CAP1 HighestPerf (bits 31:24)")
                 expect(driverSrc.contains("else IOSleep(1);"),
