@@ -23,6 +23,10 @@ Most features lean on a macOS permission, which the [permissions guide](PERMISSI
 
 RyzenStatus keeps an eye on Accessibility and Screen Recording, so features tend to wake up within a second or two of a grant, with no relaunch needed.
 
+If a permission is switched on but stopped working after an update, open Settings › Advanced and use **Repair permissions**: it ties the permissions you already gave back to the installed version, without granting anything new. It needs Full Disk Access.
+
+On a Hackintosh booted with AMFI relaxed (`amfi_get_out_of_my_way`), macOS may refuse a permission without ever showing its prompt. If a feature stays quiet and no prompt appeared, look for RyzenStatus in the matching System Settings list and switch it on there.
+
 ### Accessibility
 
 This one powers the scroll direction inverter, Window Layout, the switcher, Dock Preview, Finder cut and paste and quit on close. If they do nothing, open System Settings, Privacy and Security, Accessibility and confirm RyzenStatus is switched on. If you rebuilt the app yourself, its signature can shift and macOS may treat it as a different app, so remove the old RyzenStatus entry with the minus button and grant it again. For steady local signing while you develop, see the [contributing guide](../CONTRIBUTING.md).
@@ -45,7 +49,19 @@ This one powers the floating Camera Preview mirror. If the preview window shows 
 
 ### Automation
 
-Finder cut and paste, the uninstaller and Homebrew's Terminal handoff may ask for Automation. If a Finder move or Terminal handoff does nothing after a denial, open System Settings, Privacy and Security, Automation, and allow RyzenStatus for the app it needs to control.
+Now Playing, Finder cut and paste, the uninstaller and Homebrew's Terminal handoff may ask for Automation. If a Finder move or Terminal handoff does nothing after a denial, open System Settings, Privacy and Security, Automation, and allow RyzenStatus for the app it needs to control.
+
+### Now Playing shows nothing while music plays
+
+Since macOS 15.4, Now Playing reads Music and Spotify by asking them directly, which needs Automation. Open System Settings, Privacy and Security, Automation, and switch on Music (or Spotify) under RyzenStatus. If RyzenStatus is not listed there, play a song, open the Dynamic Island once so the app asks, and check again.
+
+## AMD controls
+
+- **A control says your processor does not accept it.** The driver reports what each family supports, and the app only offers those controls. The table of families and command sets is in the [driver README](../SMCAMDProcessor_Source/README.md#supported-amd-processors).
+- **Changes are refused.** Hardware writes need root, or the `-amdpnopchk` boot argument on a trusted personal machine. Reading telemetry needs neither.
+- **The app warns about the driver version.** Install the two kexts from the same release as the app, into `EFI/OC/Kexts`, and restart.
+- **You want to know whether the energy preference reaches the CPU.** Settings › AMD Ryzen › Hardware Validation shows the path it takes (CPPC MSRs or ACPI) and can read the values back from the firmware.
+- **Deep idle cannot be switched on.** The `amdcstate=1` or `-amdnoidle` boot arguments forbid it; remove them and restart.
 
 ## Resetting permissions
 

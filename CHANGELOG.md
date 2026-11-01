@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.75.1] — 2026-11-01 — kexts 3.40.0 (No kext changes)
+
+### Changed
+
+- **A lighter app while things move on screen**: the scroll and pointer features keep track of RyzenStatus's own windows without asking the window server for the whole window order on every pass of the event loop, so animations, the dashboard and the desktop companion cost far less CPU.
+- **A lighter dashboard**: the process list remembers which app each process belongs to and its name instead of looking them up again every second, and the main dashboard tab no longer redraws the whole page for a list it does not show. Disk readings reuse each volume's purgeable space figure for 30 seconds instead of asking macOS to work it out on every sample.
+- **A lighter island**: the Dynamic Island works out which sections are on only when a setting changes, not on every pointer move.
+- **Up-to-date documentation**: the README, the driver README, the troubleshooting guide and the permissions guide describe the AMD power rework, the processors each family covers, the boot arguments and the Automation access Now Playing needs.
+
 ## [1.75.0] — 2026-11-01 — kexts 3.40.0
 
 **The AMD power rework.** This is the biggest AMD release so far: the whole power stack, driver and app, was rebuilt from the ground up.

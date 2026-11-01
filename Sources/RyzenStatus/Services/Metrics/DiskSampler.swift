@@ -218,11 +218,29 @@ final class DiskSampler {
     /// writable volume can answer it: asking a mounted image costs a round
     /// trip to the purge service and comes back as an error on every sample,
     /// which is what filled the log while a disk image was attached.
+    /// The free space for important use counts purgeable space, which macOS
+    /// works out through CacheDelete in another process: asked on every
+    /// sample it kept that daemon busy while a disk view was open. It moves
+    /// slowly, so each volume's answer is reused for 30 seconds.
+    private static let importantFreeLifetime: TimeInterval = 30
+    private static let importantFreeLock = NSLock()
+    private static var importantFreeCache: [String: (value: UInt64?, at: TimeInterval)] = [:]
+
     private static func importantFree(for url: URL, isReadOnly: Bool) -> UInt64? {
-        guard !isReadOnly,
-              let values = try? url.resourceValues(
-                forKeys: [.volumeAvailableCapacityForImportantUsageKey]) else { return nil }
-        return positiveUInt(values.volumeAvailableCapacityForImportantUsage)
+        guard !isReadOnly else { return nil }
+        let now = ProcessInfo.processInfo.systemUptime
+        importantFreeLock.lock()
+        if let cached = importantFreeCache[url.path], now - cached.at < importantFreeLifetime {
+            importantFreeLock.unlock()
+            return cached.value
+        }
+        importantFreeLock.unlock()
+        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        let value = positiveUInt(values?.volumeAvailableCapacityForImportantUsage)
+        importantFreeLock.lock()
+        importantFreeCache[url.path] = (value, now)
+        importantFreeLock.unlock()
+        return value
     }
 
     private static func positiveUInt(_ value: Int?) -> UInt64? {

@@ -1752,6 +1752,48 @@ enum NotchSupport {
     }
 
     static func modules(in defaults: UserDefaults = .standard) -> [NotchModule] {
+        guard defaults === UserDefaults.standard else { return resolvedModules(in: defaults) }
+        return StandardModules.shared.value { resolvedModules(in: defaults) }
+    }
+
+    /// The modules of the standard settings, worked out again only after a
+    /// setting changes: the island asks on every pointer move.
+    private final class StandardModules: @unchecked Sendable {
+        static let shared = StandardModules()
+        private let lock = NSLock()
+        private var cached: [NotchModule]?
+        /// Bumped by every settings change, so an answer worked out while a
+        /// setting changed is not kept.
+        private var generation = 0
+
+        private init() {
+            NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
+                                                   object: nil, queue: nil) { [weak self] _ in
+                guard let self else { return }
+                self.lock.lock()
+                self.cached = nil
+                self.generation &+= 1
+                self.lock.unlock()
+            }
+        }
+
+        func value(_ resolve: () -> [NotchModule]) -> [NotchModule] {
+            lock.lock()
+            if let cached {
+                lock.unlock()
+                return cached
+            }
+            let started = generation
+            lock.unlock()
+            let modules = resolve()
+            lock.lock()
+            if generation == started { cached = modules }
+            lock.unlock()
+            return modules
+        }
+    }
+
+    private static func resolvedModules(in defaults: UserDefaults) -> [NotchModule] {
         let hidden = Set((defaults.string(forKey: DefaultsKey.notchHiddenModules) ?? "")
             .split(separator: ",").map(String.init))
         let stored = (defaults.string(forKey: DefaultsKey.notchModuleOrder) ?? "")

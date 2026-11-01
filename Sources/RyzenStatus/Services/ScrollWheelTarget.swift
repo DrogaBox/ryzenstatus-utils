@@ -12,6 +12,18 @@ final class ScrollWheelTarget {
     private let cache = ScrollWheelTargetCache(ownProcessID: ProcessInfo.processInfo.processIdentifier)
     private var observers: [NSObjectProtocol] = []
 
+    /// `NSApplication.didUpdateNotification` follows every pass of the event
+    /// loop, and the window order (`NSApp.orderedWindows`) is a synchronous
+    /// WindowServer query: asked on every pass it took a tenth of the main
+    /// thread whenever something on screen moved. The order is asked again
+    /// only when the set of windows or the key window changes, or once the
+    /// last answer is half a second old. Frames and visibility cost nothing
+    /// and are read on every pass.
+    private static let orderLifetime: CFTimeInterval = 0.5
+    private var orderedWindowIDs: [CGWindowID] = []
+    private var orderedFor: (windows: [CGWindowID], key: Int)?
+    private var orderedAt: CFTimeInterval = 0
+
     private init() {}
 
     func setEnabled(_ enabled: Bool) {
@@ -20,6 +32,7 @@ final class ScrollWheelTarget {
         guard enabled else {
             observers.forEach(NotificationCenter.default.removeObserver)
             observers.removeAll()
+            orderedFor = nil
             return
         }
         refresh()
@@ -40,9 +53,14 @@ final class ScrollWheelTarget {
                          alpha: Double(window.alphaValue), ignoresMouseEvents: window.ignoresMouseEvents,
                          level: window.level.rawValue)
         }.sorted { $0.id < $1.id }
-        cache.update(ownWindows: windows, orderedWindowIDs: NSApp.orderedWindows.compactMap {
-            CGWindowID(exactly: $0.windowNumber)
-        })
+        let shown = (windows: windows.filter(\.visible).map(\.id), key: NSApp.keyWindow?.windowNumber ?? 0)
+        let now = CACurrentMediaTime()
+        if orderedFor.map({ $0 != shown }) ?? true || now - orderedAt >= Self.orderLifetime {
+            orderedWindowIDs = NSApp.orderedWindows.compactMap { CGWindowID(exactly: $0.windowNumber) }
+            orderedFor = shown
+            orderedAt = now
+        }
+        cache.update(ownWindows: windows, orderedWindowIDs: orderedWindowIDs)
     }
 
     func contains(_ point: CGPoint) -> Bool {

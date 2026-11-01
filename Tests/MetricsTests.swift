@@ -9469,7 +9469,7 @@ struct MetricsTests {
         // What this does NOT do: execute kernel code. It verifies that the two
         // DECLARATIONS agree. The kernel's runtime behaviour — the floor actually
         // reaching the Super I/O, the guard actually arming — is only provable on
-        // hardware; see .kiro/steering/hardware-safety.md for the probes.
+        // hardware.
         let kernelHeaderPath = "SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.hpp"
         let kernelHeaderText = (try? String(contentsOfFile: kernelHeaderPath, encoding: .utf8)) ?? ""
         expect(!kernelHeaderText.isEmpty,

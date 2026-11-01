@@ -67,6 +67,13 @@ final class ProcessUsageService {
     private var diskCache: CachedRows?
     private var diskDeltaTracker = DiskProcessDeltaTracker()
     private let diskSampleLock = NSLock()
+    /// Each process's responsible app and each app's display name, kept
+    /// between refreshes: neither changes while the process lives, and the
+    /// lookups (the responsibility call, NSRunningApplication) were most of
+    /// a refresh. Pids that leave the process table are forgotten.
+    private let identityLock = NSLock()
+    private var ownerByPid: [pid_t: pid_t] = [:]
+    private var nameByPid: [pid_t: String] = [:]
     /// One `ps` run fills the CPU and the memory caches together.
     private var tableLoading = false
     private var gpuLoading = false
@@ -443,6 +450,7 @@ final class ProcessUsageService {
                 self.finishTable(cpu: nil, memory: nil)
                 return
             }
+            self.forgetIdentities(keeping: Set(table.map(\.pid)))
             let cpuRows = self.groupedByApp(table.map {
                 ProcessUsage(pid: $0.pid, name: $0.shortName, value: $0.cpuPercent)
             })
@@ -463,8 +471,7 @@ final class ProcessUsageService {
         var fallbackNames: [pid_t: String] = [:]
 
         for row in rows {
-            let respOwner = ResponsibleProcess.owner(of: row.pid)
-            let owner = (respOwner <= 1) ? row.pid : respOwner
+            let owner = appOwner(of: row.pid)
             totals[owner, default: 0] += row.value
             if fallbackNames[owner] == nil {
                 fallbackNames[owner] = row.name
@@ -484,10 +491,49 @@ final class ProcessUsageService {
                 let value = element.value
                 let fallback = fallbackNames[owner] ?? "pid \(owner)"
                 let name = index < maximumCachedRows
-                    ? ResponsibleProcess.displayName(pid: owner, fallback: fallback)
+                    ? displayName(of: owner, fallback: fallback)
                     : fallback
                 return ProcessUsage(pid: owner, name: name, value: value)
             }
+    }
+
+    /// The pid a row is billed to: its responsible app, or itself.
+    private func appOwner(of pid: pid_t) -> pid_t {
+        identityLock.lock()
+        if let owner = ownerByPid[pid] {
+            identityLock.unlock()
+            return owner
+        }
+        identityLock.unlock()
+        let responsible = ResponsibleProcess.owner(of: pid)
+        let owner = responsible <= 1 ? pid : responsible
+        identityLock.lock()
+        ownerByPid[pid] = owner
+        identityLock.unlock()
+        return owner
+    }
+
+    private func displayName(of pid: pid_t, fallback: String) -> String {
+        identityLock.lock()
+        if let name = nameByPid[pid] {
+            identityLock.unlock()
+            return name
+        }
+        identityLock.unlock()
+        let name = ResponsibleProcess.displayName(pid: pid, fallback: fallback)
+        identityLock.lock()
+        nameByPid[pid] = name
+        identityLock.unlock()
+        return name
+    }
+
+    /// Drops the owners and names of pids no longer in the process table, so
+    /// a reused pid is looked up afresh.
+    private func forgetIdentities(keeping live: Set<pid_t>) {
+        identityLock.lock()
+        ownerByPid = ownerByPid.filter { live.contains($0.key) }
+        nameByPid = nameByPid.filter { live.contains($0.key) }
+        identityLock.unlock()
     }
 
     private func groupedNetworkByApp(_ samples: [NetworkProcessSample]) -> [ProcessUsage] {

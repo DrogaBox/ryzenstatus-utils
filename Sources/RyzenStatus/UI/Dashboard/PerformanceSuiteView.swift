@@ -1017,7 +1017,8 @@ struct PerformanceSuiteView: View {
             // P2: Gate heavy work by active tab
             switch currentTab {
             case .dashboard:
-                procs = ProcessUsageService.shared.topCPU(limit: 20)
+                // The process manager on this tab keeps its own list; storing
+                // one here too would redraw the whole page on every snapshot.
                 _ = ProcessUsageService.shared.topMemory(limit: 10) // D4: feed LeakDetector
             case .insights:
                 procs = ProcessUsageService.shared.topCPU(limit: 20)

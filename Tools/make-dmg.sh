@@ -165,7 +165,7 @@ if [[ -d "$KEXT_DRIVER" && -d "$KEXT_PLUGIN" ]]; then
     if [[ -n "$KEXT_SOURCE_LOCAL" ]]; then
         echo "  ⚠ Source: LOCAL BUILD (SMCAMDProcessor_Source/build/dmg-kexts/) — content pins NOT enforced."
         echo "    These binaries are unverified. Do not publish this DMG until the"
-        echo "    hardware probes pass; see .kiro/steering/hardware-safety.md."
+        echo "    hardware probes pass on a real machine."
         if [[ -z "$KEXT_CONTENT_OK" ]]; then
             echo "    Content differs from the pinned release binaries (hashes above) — expected for a new kext revision."
         else
