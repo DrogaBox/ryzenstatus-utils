@@ -772,16 +772,123 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
         }
 
         // Deep C-state policy (read-only, no privilege).
-        // Scalar output: [0] = 1 if the kext disables deep C-States (C6+),
-        //                [1] = raw cstateAddrConfig read after the boot write.
-        // Lets the app tell "0xF0 because the kext wrote it" from "0xF0 set by
-        // firmware"; kexts without this selector return kIOReturnUnsupported
-        // and the app falls back to selector 22.
+        // Scalar output: [0] = 1 while idle cores stay out of CC6,
+        //                [1] = raw CSTATE_ADDR (MSR C001_0073),
+        //                [2] = CC6 idle on (selector 61),
+        //                [3] = firmware C-state IO base (0 = none usable),
+        //                [4] = CC6 idle can be switched on,
+        //                [5] = CC6 forbidden by amdcstate=1.
+        // Kexts before 3.40.0 report only [0] and [1]; a caller asking for
+        // fewer outputs gets the first ones.
         case 34: {
-            arguments->scalarOutputCount = 2;
-            arguments->scalarOutput[0] = provider->disableCStates ? 1 : 0;
-            arguments->scalarOutput[1] = provider->cstateAddrConfig;
+            const uint64_t policy[] = {
+                provider->c6IdleActive ? 0ULL : 1ULL,
+                provider->cstateAddrConfig,
+                provider->c6IdleActive ? 1ULL : 0ULL,
+                provider->cstateIoBase,
+                provider->c6IdleSupported() ? 1ULL : 0ULL,
+                provider->c6Forbidden ? 1ULL : 0ULL,
+            };
+            const uint32_t count = (uint32_t)(sizeof(policy) / sizeof(policy[0]));
+            if (arguments->scalarOutputCount > count) arguments->scalarOutputCount = count;
+            for (uint32_t i = 0; i < arguments->scalarOutputCount; i++) {
+                arguments->scalarOutput[i] = policy[i];
+            }
+            break;
+        }
 
+        // CC6 idle on/off (privileged, kext 3.40.0+). scalarInput[0] = 1/0.
+        // Takes effect on the next idle entry of every core, no reboot.
+        case 61: {
+            if (!hasPrivilege(61)) return kIOReturnNotPrivileged;
+            arguments->scalarOutputCount = 0;
+            arguments->structureOutputSize = 0;
+            if (arguments->scalarInputCount != 1 || arguments->scalarInput[0] > 1)
+                return kIOReturnBadArgument;
+            if (!provider->c6IdleSupported()) return kIOReturnUnsupported;
+
+            if (provider->controlLock) IOLockLock(provider->controlLock);
+            bool ok = provider->setC6Idle(arguments->scalarInput[0] == 1);
+            if (provider->controlLock) IOLockUnlock(provider->controlLock);
+            if (!ok) return kIOReturnError;
+            break;
+        }
+
+        // Power-control capabilities (read-only, no privilege, kext 3.40.0+),
+        // the one place the app learns what this CPU accepts.
+        // [0] bitmask: 0 PPT/TDC/EDC, 1 APU power limit (PPT as STAPM/fast/
+        //     slow), 2 cHTC limit, 3 PBO scalar, 4 OC mode + all-core
+        //     frequency, 5 per-CCD frequency, 6 OC VID, 7 per-core Curve
+        //     Optimizer, 8 all-core Curve Optimizer, 9 boost ceiling,
+        //     10 PM table, 11 CC6 idle, 12 EPP writes reach the CPU.
+        // [1] last OC VID written (0 = none), [2] all-core CO written
+        //     (two's complement byte, valid when [3] = 1), [4] boost ceiling
+        //     written in MHz (0 = none).
+        case 62: {
+            uint64_t caps = 0;
+            if (provider->smuPptLimitsSupported())  caps |= 1ULL << 0;
+            if (provider->smuApuLimitsSupported())  caps |= 1ULL << 1;
+            if (provider->smuTctlSupported())       caps |= 1ULL << 2;
+            if (provider->smuScalarSupported())     caps |= 1ULL << 3;
+            if (provider->smuOcSupported())         caps |= 1ULL << 4;
+            if (provider->smuOcPerCcdSupported())   caps |= 1ULL << 5;
+            if (provider->smuOcVidSupported())      caps |= 1ULL << 6;
+            if (provider->smuCoPerCoreSupported())  caps |= 1ULL << 7;
+            if (provider->smuCoAllSupported())      caps |= 1ULL << 8;
+            if (provider->smuBoostLimitSupported()) caps |= 1ULL << 9;
+            if (provider->smuPmTableSupported())    caps |= 1ULL << 10;
+            if (provider->c6IdleSupported())        caps |= 1ULL << 11;
+            if (provider->cppcMsrSupported)         caps |= 1ULL << 12;
+            const uint64_t report[] = {
+                caps,
+                provider->ocVidCache,
+                (uint64_t)(uint8_t)provider->curveOptimizerAllCache,
+                provider->curveOptimizerAllSet ? 1ULL : 0ULL,
+                provider->boostLimitMHzCache,
+            };
+            const uint32_t count = (uint32_t)(sizeof(report) / sizeof(report[0]));
+            if (arguments->scalarOutputCount > count) arguments->scalarOutputCount = count;
+            for (uint32_t i = 0; i < arguments->scalarOutputCount; i++) {
+                arguments->scalarOutput[i] = report[i];
+            }
+            break;
+        }
+
+        // OC VID (privileged, kext 3.40.0+): scalarInput[0] = SVI2 VID
+        // 16..120 (1.45..0.80 V). Needs OC mode enabled by this driver.
+        // All-core Curve Optimizer (66): scalarInput[0] = margin -30..+30 as
+        // a signed 64-bit value. Boost ceiling (67): scalarInput[0] = MHz.
+        case 65:
+        case 66:
+        case 67: {
+            if (!hasPrivilege(selector)) return kIOReturnNotPrivileged;
+            arguments->scalarOutputCount = 0;
+            arguments->structureOutputSize = 0;
+            if (arguments->scalarInputCount != 1) return kIOReturnBadArgument;
+            const int64_t value = (int64_t)arguments->scalarInput[0];
+
+            if (provider->controlLock) IOLockLock(provider->controlLock);
+            int rc;
+            if (selector == 65) {
+                rc = (value < 0 || value > 0xFF) ? -2 : provider->setOcVid((uint32_t)value);
+            } else if (selector == 66) {
+                rc = (value < -30 || value > 30) ? -2 : provider->setCurveOptimizerAll((int8_t)value);
+            } else {
+                rc = (value < 0 || value > 0xFFFF) ? -2 : provider->setBoostLimit((uint32_t)value);
+            }
+            if (provider->controlLock) IOLockUnlock(provider->controlLock);
+
+            switch (rc) {
+                case 0:   break;
+                case -1:
+                case -11: return kIOReturnUnsupported;
+                case -2:  return kIOReturnBadArgument;
+                case -3:  return kIOReturnNotPermitted;
+                case -4:  return kIOReturnNotReady;
+                case -10: return kIOReturnTimeout;
+                case -13: return kIOReturnBusy;
+                default:  return kIOReturnError;
+            }
             break;
         }
 
@@ -873,8 +980,9 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
         //   bit 0: pmDispatchAllowed
         //   bit 1: legacyPstateAllowed
         //   bit 2: supportsCPPC
-        //   bit 3: eppApplied (MSR CPPC: selectors 24/25 program CPPC_REQ)
-        //   bits 4-7: reserved
+        //   bit 3: eppApplied (selectors 24/25 reach the CPU)
+        //   bit 4: CC6 idle can be switched on (selector 61)
+        //   bits 5-7: reserved
         case 26: {
             arguments->scalarOutputCount = 0;
 
@@ -905,6 +1013,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 if (provider->legacyPstateAllowed)  flags |= (1ULL << 1);
                 if (provider->supportsCPPC)         flags |= (1ULL << 2);
                 if (provider->cppcMsrSupported)     flags |= (1ULL << 3);
+                if (provider->c6IdleSupported())    flags |= (1ULL << 4);
                 memcpy(dataOut + nameSize, &flags, flagsSize);
             }
 
@@ -1708,15 +1817,15 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // Get PBO capability: [0] supported (Vermeer + mailbox),
-        // [1..3] reserved (no verified SMU read command exists for limits —
-        // the PM-table budget is not parsed; reported as 0).
+        // Get PBO capability: [0] power limits writable (selector 41),
+        // [1..3] reserved 0. Selector 62 reports every SMU feature.
         case 38: {
             if(!provider)
                 return kIOReturnNoDevice;
 
             arguments->scalarOutputCount = 4;
-            arguments->scalarOutput[0] = provider->pboLimitsSupported() ? 1 : 0;
+            arguments->scalarOutput[0] = (provider->smuPptLimitsSupported() ||
+                                          provider->smuApuLimitsSupported()) ? 1 : 0;
             arguments->scalarOutput[1] = 0;
             arguments->scalarOutput[2] = 0;
             arguments->scalarOutput[3] = 0;
@@ -1730,7 +1839,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 return kIOReturnNoDevice;
 
             arguments->scalarOutputCount = 3;
-            arguments->scalarOutput[0] = provider->pboLimitsSupported() ? 1 : 0;
+            arguments->scalarOutput[0] = provider->smuScalarSupported() ? 1 : 0;
             arguments->scalarOutput[1] = 100;   // 1x
             arguments->scalarOutput[2] = 1000;  // 10x — matches Ryzen Master range
 
@@ -1809,7 +1918,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             if (celsius < 40 || celsius > 95)
                 return kIOReturnBadArgument;
 
-            if (!provider->pboLimitsSupported())
+            if (!provider->smuTctlSupported())
                 return kIOReturnUnsupported;
 
             if (provider->controlLock) IOLockLock(provider->controlLock);
@@ -1876,10 +1985,10 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 return kIOReturnNoDevice;
 
             arguments->scalarOutputCount = 4;
-            arguments->scalarOutput[0] = provider->pboLimitsSupported() ? 1 : 0;
+            arguments->scalarOutput[0] = provider->smuOcSupported() ? 1 : 0;
             arguments->scalarOutput[1] = provider->smuProcessorParametersRaw;
             arguments->scalarOutput[2] = provider->smuOcModeState;
-            arguments->scalarOutput[3] = provider->pboLimitsSupported() ? 1 : 0;
+            arguments->scalarOutput[3] = provider->smuOcPerCcdSupported() ? 1 : 0;
 
             break;
         }
@@ -1905,7 +2014,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             if (enable > 1 || resetScalar > 1)
                 return kIOReturnBadArgument;
 
-            if (!provider->pboLimitsSupported())
+            if (!provider->smuOcSupported())
                 return kIOReturnUnsupported;
 
             if (provider->controlLock) IOLockLock(provider->controlLock);
@@ -1950,7 +2059,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             if (mode > 1)
                 return kIOReturnBadArgument;
 
-            if (!provider->pboLimitsSupported())
+            if (!provider->smuOcSupported())
                 return kIOReturnUnsupported;
 
             int rc;
@@ -2222,15 +2331,13 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             if (ppt < 1000 || ppt > 500000 || tdc < 1000 || tdc > 500000 || edc < 1000 || edc > 500000)
                 return kIOReturnBadArgument;
 
-            if (!provider->pboLimitsSupported())
+            if (!provider->smuPptLimitsSupported() && !provider->smuApuLimitsSupported())
                 return kIOReturnUnsupported;
 
-            // Serialize the three writes; abort on first failure so the UI
-            // never shows a half-applied set as success.
+            // Serialize the writes; abort on first failure so the UI never
+            // shows a half-applied set as success.
             if (provider->controlLock) IOLockLock(provider->controlLock);
-            int rc = provider->setPBOLimit(0x53, ppt, provider->pboPPTMilliwatts);
-            if (rc == 0) rc = provider->setPBOLimit(0x54, tdc, provider->pboTDCMilliamps);
-            if (rc == 0) rc = provider->setPBOLimit(0x55, edc, provider->pboEDCMilliamps);
+            int rc = provider->setPowerLimits(ppt, tdc, edc);
             if (provider->controlLock) IOLockUnlock(provider->controlLock);
 
             if (rc < 0) {
@@ -2258,11 +2365,11 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             if (scalar < 100 || scalar > 1000)
                 return kIOReturnBadArgument;
 
-            if (!provider->pboLimitsSupported())
+            if (!provider->smuScalarSupported())
                 return kIOReturnUnsupported;
 
             if (provider->controlLock) IOLockLock(provider->controlLock);
-            int rc = provider->setPBOLimit(0x58, scalar, provider->pboScalarPercentX100);
+            int rc = provider->setPboScalar(scalar);
             if (provider->controlLock) IOLockUnlock(provider->controlLock);
 
             if (rc < 0) {

@@ -23,16 +23,11 @@
 #define MOD_NAME pmARyzen
 #define XNU_MAX_CPU 64
 
-// Single idle strategy: sti; hlt — safe on all AMD CPUs.
-// MONITOR/MWAIT (Intel-style) was removed: AMD CPUs do not report
-// CPUID.01h:ECX[3] and the instructions are unsafe on this platform.
-// MONITORX/MWAITX (AMD-style) may be added as a future enhancement.
-typedef enum {
-    PMRYZEN_IDLE_STRATEGY_SIMPLE = 0,  // sti; hlt — safe for all AMD CPUs
-} pmRyzen_idle_strategy_t;
-
-// Runtime idle strategy — set by AMDRyzenCPUPowerManagement::start() based on cpuFamily.
-extern pmRyzen_idle_strategy_t pmRyzen_idle_strategy;
+// Idle entry: sti; hlt (CC1), or, while pmRyzen_c6_port is non-zero, a byte
+// read of that IO port, which the core turns into a CC6 entry (the SystemIO
+// C2 entry of AMD's ACPI _CST: CstateAddr + 1). The read returns once an
+// interrupt is pending, with interrupts still masked, like the SystemIO path
+// of Linux's acpi_idle.
 
 #define MSR_PSTATE_CTL 0xC0010062
 #define MSR_PSTATE_0 0xC0010064
@@ -53,7 +48,8 @@ extern x86_lcpu_t *pmRyzen_cpunum_to_lcpu[XNU_MAX_CPU];
 extern uint32_t pmRyzen_num_phys;
 extern uint32_t pmRyzen_num_logi;
 
-extern uint64_t pmRyzen_exit_idle_false_c;
+// CC6 entry port, 0 = CC1 (hlt). Written by the kext, read on every idle entry.
+extern volatile uint32_t pmRyzen_c6_port;
 
 
 #pragma mark - Idle Strategy
@@ -68,31 +64,28 @@ extern pmRyzen_symtable_t pmRyzen_symtable;
 
 
 typedef struct __attribute__((aligned(64))) pmProcessor {
-    // Cache Line 1 (64 bytes): Hot Idle & TSC tracking
+    // Cache Line 1: idle & TSC tracking
     x86_lcpu_t *lcpu;
-
-#pragma mark - Processor State & API
-    uint64_t stat_exit_idle;
-    uint64_t arm_flag;
     uint64_t cpu_awake;
     uint64_t last_idle_tsc;
     uint64_t last_start_tsc;
-    uint64_t last_idle_length;
-    uint64_t last_running_time;
 
-    // Cache Line 2 (64 bytes): Hot Load accumulators & P-state control
+    // Load accumulators & P-state control
     uint64_t eff_timeacc;
     uint64_t eff_idleacc;
     uint64_t eff_timeaccd;
     uint64_t eff_idleaccd;
-    float eff_load;
     uint32_t ll_count;
     uint8_t PState;
-    uint8_t _reserved[23]; // Align total structure size to exactly 128 bytes (2 cache lines)
 } pmProcessor_t;
 
-void pmRyzen_init(void*, int allowDispatch);
+// allowDispatch: take over the kernel's idle loop (MachineIdle, pmChooseCPU).
+// pstateControl: also step legacy P-states from it (Zen 1/2 only: Zen 3+
+// must never write MSR_PSTATE_CTL).
+void pmRyzen_init(void*, int allowDispatch, int pstateControl);
 void pmRyzen_stop(void);
+// Every later idle entry goes to CC6 through `port`, or to CC1 with 0.
+void pmRyzen_set_c6_port(uint32_t port);
 void pmRyzen_PState_reset(void);
 float pmRyzen_avgload_pcpu(uint32_t);
 

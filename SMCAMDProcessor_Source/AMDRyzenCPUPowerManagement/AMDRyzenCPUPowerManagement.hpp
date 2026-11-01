@@ -324,7 +324,16 @@ public:
     uint8_t cppcAppliedEPP {0};
     uint8_t cppcHighestPerf_perCore[CPUInfo::MaxCpus] {};
     bool cppcThrottled {false};
-    bool disableCStates = true;
+    // CC6 idle (selector 61). The kext owns the idle loop on every supported
+    // family unless `-amdnoidle`; amdcstate=1 forbids CC6, otherwise the app
+    // switches it on and off live. cstateIoBase is the firmware's
+    // CSTATE_ADDR[15:0], read before anything else touches the MSR.
+    bool idleDispatchActive {false};
+    bool c6Forbidden {false};
+    uint16_t cstateIoBase {0};
+    bool c6IdleActive {false};
+    bool c6IdleSupported() const { return idleDispatchActive && !c6Forbidden && cstateIoBase != 0; }
+    bool setC6Idle(bool on);
     uint64_t cstateAddrConfig {0};
 
     uint8_t cpuFamily {0};
@@ -338,7 +347,6 @@ public:
     uint8_t  ccdSlot[kMAX_CCD_COUNT] {};
     float    ccdTemperatures[kMAX_CCD_COUNT] {};
     char     cpuArchName[16] {};
-    pmRyzen_idle_strategy_t cpuIdleStrategy{PMRYZEN_IDLE_STRATEGY_SIMPLE};
 
     // Curve Optimizer offsets last acknowledged by the SMU (selector 110)
     int8_t curveOptimizerOffsets[CPUInfo::MaxCpus] {};
@@ -358,16 +366,36 @@ public:
     uint32_t pboEDCMilliamps  {0};
     uint32_t pboScalarPercentX100 {0};  // e.g. 200 = 2x
 
-    // Returns true only when the silicon matches the Vermeer RSMU command
-    // set documented in ryzen_smu rsmu_commands.md (family 0x19, 0x21-0x2F) —
-    // the same gate as Curve Optimizer. Fail-closed everywhere else.
-    bool pboLimitsSupported() const {
-        return (cpuFamily == 0x19 && cpuModel >= 0x21 && cpuModel <= 0x2F) &&
-               rsmu.supported;
-    }
-    // int setPBOLimit(uint32_t cmd, uint32_t value): shared SMU write path for
-    // PPT/TDC/EDC/scalar; negative return maps like setCurveOptimizer.
-    int setPBOLimit(uint32_t smuCmd, uint32_t arg, uint32_t &cacheSlot);
+    // Feature gates, all derived from the detected family's SMU command set
+    // (selectSmuCommandSet) and reported to the app by selector 62.
+    bool smuPptLimitsSupported() const { return rsmu.supported && smuCmd.setPpt && smuCmd.setTdc && smuCmd.setEdc; }
+    bool smuApuLimitsSupported() const { return rsmu.supported && smuCmd.setStapm && smuCmd.setFast && smuCmd.setSlow; }
+    bool smuTctlSupported() const      { return rsmu.supported && smuCmd.setTctl; }
+    bool smuScalarSupported() const    { return rsmu.supported && smuCmd.setScalar; }
+    bool smuOcSupported() const        { return rsmu.supported && smuCmd.ocEnable && smuCmd.ocDisable && smuCmd.ocClkAll; }
+    bool smuOcPerCcdSupported() const  { return smuOcSupported() && smuCmd.ocClkPerCore && coreMapValid; }
+    bool smuOcVidSupported() const     { return smuOcSupported() && smuCmd.ocVid; }
+    bool smuCoPerCoreSupported() const { return mp1.supported && smuCmd.mp1CoPerCore && coreMapValid; }
+    bool smuCoAllSupported() const     { return mp1.supported && smuCmd.mp1CoAll; }
+    bool smuBoostLimitSupported() const { return mp1.supported && smuCmd.mp1BoostLimit; }
+    bool smuPmTableSupported() const   { return rsmu.supported && smuCmd.pmVersion && smuCmd.pmBase && smuCmd.pmTransfer; }
+    // Shared RSMU write path for the power limits and the scalar: thermal
+    // interlock, one command, cache on success. cmd 0 (not on this family)
+    // returns -1; other negatives map like setCurveOptimizer.
+    int setPBOLimit(uint32_t cmd, uint32_t arg, uint32_t &cacheSlot);
+    // Power limits for selector 41: PPT/TDC/EDC on desktop parts, or PPT as
+    // the STAPM, fast and slow limits on APUs (TDC/EDC have no APU command).
+    int setPowerLimits(uint32_t pptMilliwatts, uint32_t tdcMilliamps, uint32_t edcMilliamps);
+    int setPboScalar(uint32_t percentX100);
+    // OC VID (SVI2), all-core Curve Optimizer and boost ceiling (selectors
+    // 65-67). Same thermal interlock and error mapping as setPBOLimit.
+    int setOcVid(uint32_t vid);
+    int setCurveOptimizerAll(int8_t offset);
+    int setBoostLimit(uint32_t mhz);
+    uint32_t ocVidCache {0};               // last VID this driver wrote (0 = none)
+    int8_t   curveOptimizerAllCache {0};
+    bool     curveOptimizerAllSet {false};
+    uint32_t boostLimitMHzCache {0};       // 0 = never set this boot
 
     // Refresh both boost-telemetry caches; throttled to one SMU round trip
     // per kSMU_BOOST_POLL_MIN_INTERVAL_MS (the main timer cadence is shorter).
@@ -767,7 +795,7 @@ public:
     // table ryzen_smu/HWiNFO feed from). The table lives at a SMU-provided
     // physical address in DRAM; the kext maps it read-only and snapshots it
     // into a fixed buffer that user space reads through selector 57.
-    static constexpr uint32_t kPM_TABLE_MAX_SIZE = 0x2000;   // covers every documented Vermeer size (max 0x1BB0)
+    static constexpr uint32_t kPM_TABLE_MAX_SIZE = 0x2000;   // covers every documented size (max 0x1E48)
     static constexpr uint64_t kPM_REFRESH_MIN_INTERVAL_MS = 1000; // one 0x05 + re-map check per second, worst case
     uint64_t pmRefreshLastPollMs {0};
     // Last time a client read the PM table or its info (selectors 56/57).
@@ -789,7 +817,7 @@ public:
     // mailbox (SMN register layout) private.
     bool smuMailboxSupported() const { return rsmu.supported; }
     uint32_t smuCurveOptimizerCmd() const {
-        return (mp1.supported && coreMapValid) ? kMP1_SET_DLDO_PSM_MARGIN : 0;
+        return smuCoPerCoreSupported() ? smuCmd.mp1CoPerCore : 0;
     }
 
     // On-demand mailbox health report (UserClient selector 58). Runs the
@@ -899,9 +927,37 @@ private:
     SMUMailbox rsmu{};
     SMUMailbox mp1{};
 
+    // Command numbers of the detected family's SMU, from the ZenMaster
+    // tables (runner.py, mailbox.py, pmtable.py) and ryzen_smu. 0 means the
+    // family has no such command, and every feature built on it reports
+    // unsupported instead of sending a number meant for another chip.
+    struct SmuCommandSet {
+        const char *name;
+        // RSMU
+        uint8_t setPpt, setTdc, setEdc;        // desktop limits: mW, mA, mA
+        uint8_t setStapm, setFast, setSlow;    // APU power limits, mW
+        uint8_t setTctl;                       // cHTC / Tctl limit, °C
+        uint8_t setScalar, getScalar;          // PBO scalar, %x100
+        uint8_t ocEnable, ocDisable;
+        uint8_t ocClkAll, ocClkPerCore;        // MHz in [19:0]
+        uint8_t ocVid;                         // SVI2 VID
+        uint8_t getMaxClk, getFastestCore, getProcessorParams;
+        uint8_t pmVersion, pmBase, pmTransfer;
+        uint8_t pmBaseArg0, pmBaseArg1, pmTransferArg;
+        bool    pmBase64;                      // base comes back as arg0 | arg1 << 32
+        // MP1
+        uint8_t mp1CoPerCore, mp1CoAll;        // margin, 16-bit two's complement
+        uint8_t mp1BoostLimit;                 // MHz
+        // Core positions readable with the Zen 3 fuse layout: per-core
+        // Curve Optimizer and per-CCD frequency need them.
+        bool    zen3CoreFuses;
+    };
+    SmuCommandSet smuCmd{};
+    // Picks the command set and mailboxes for cpuFamily/cpuModel; the CPU
+    // name tells first- and second-generation Threadripper from Ryzen.
+    void selectSmuCommandSet(const char *cpuName);
+
     static constexpr uint32_t kSMU_ARG_COUNT = 6;
-    // Vermeer MP1 SetDldoPsmMargin (ZenStates-Core Zen3Settings).
-    static constexpr uint32_t kMP1_SET_DLDO_PSM_MARGIN = 0x35;
 
     // One complete mailbox transaction. args[] goes out in the argument
     // registers and, on SMU_RSP_OK, comes back with the reply words.
