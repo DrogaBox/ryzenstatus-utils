@@ -62,6 +62,10 @@ final class AmdPresetController: ObservableObject {
     ///
     /// Called from both `AmdPowerSettingsView.presetCard` and `AmdControlSection.presetButton`.
     func apply(_ preset: AMDPowerPreset) {
+        // The preset's EPP becomes the manual one first: switching Auto EPP
+        // off below writes the manual EPP, which must not race the preset's
+        // own write with a different value.
+        AmdSettingsStore.shared.manualEpp = preset.eppValue
         // A preset owns the EPP profile: stop Auto EPP so its next poll cycle
         // cannot overwrite the preset's value (P2-fix: also resets lastWrittenEPP
         // sentinel, so the first Auto EPP write after re-enabling goes through).

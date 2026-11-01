@@ -52,4 +52,20 @@ public final class AmdSettingsStore: ObservableObject {
         get { defaults.string(forKey: DefaultsKey.amdPowerPreset) }
         set { defaults.set(newValue, forKey: DefaultsKey.amdPowerPreset) }
     }
+
+    // MARK: - Manual EPP
+
+    /// The EPP last chosen by hand, with the picker or a preset; nil until
+    /// the user chooses one. Written back when a kext that applies EPP loads
+    /// and when Auto EPP is switched off.
+    public var manualEpp: UInt8? {
+        get { (defaults.object(forKey: DefaultsKey.amdManualEpp) as? Int).map { UInt8(clamping: $0) } }
+        set {
+            if let newValue {
+                defaults.set(Int(newValue), forKey: DefaultsKey.amdManualEpp)
+            } else {
+                defaults.removeObject(forKey: DefaultsKey.amdManualEpp)
+            }
+        }
+    }
 }

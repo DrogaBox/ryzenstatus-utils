@@ -183,7 +183,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         FeatureRuntime.shared.syncAtLaunch()
         // Auto EPP runs in the background while it is on, so the CPU throttles
         // down even when Settings are closed; it stays off while the kext
-        // ignores EPP writes.
+        // ignores EPP writes. This call may run before the kext profile is
+        // read: ProcessorModel starts it again once eppApplied is known.
         AutoEppService.shared.start()
         // Fans mapped to curves get them back now (the app hands every fan to
         // the BIOS when it quits), not when Settings › Fans is next opened.

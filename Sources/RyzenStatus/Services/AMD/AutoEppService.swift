@@ -11,7 +11,8 @@ import Foundation
 /// Unlike per-view timers, this service runs in the background while Auto EPP
 /// is on, so the CPU throttles down to Power Save during idle even when no
 /// Settings or menu panel view is open. It does not run while the kext
-/// ignores EPP writes (`ProcessorModel.eppWritesTakeEffect`).
+/// ignores EPP writes (`ProcessorModel.eppWritesTakeEffect`), and starts as
+/// soon as a kext that applies them loads (`kextEppSupportChanged(_:)`).
 ///
 /// Thresholds are read live from AmdSettingsStore, so changes via `@AppStorage`
 /// in the settings views take effect immediately on the next poll cycle.
@@ -27,19 +28,26 @@ final class AutoEppService: ObservableObject {
     @Published private(set) var currentCPULoad: Float = 0
     /// Current GPU load (0–100%) from SystemMonitor snapshot.
     @Published private(set) var currentGPULoad: Float = 0
-    /// Human-readable label for the EPP target the service last applied.
+    /// Human-readable label for the EPP target the service last applied;
+    /// empty until a write has reached the kext.
     @Published private(set) var currentTarget: String = ""
-    /// The raw EPP value last written to the kext.
-    @Published private(set) var currentEPP: UInt8 = 0
+    /// The raw EPP value last written to the kext; nil until one is, so no
+    /// view shows a value the CPU was never given.
+    @Published private(set) var currentEPP: UInt8?
     /// Whether the last write attempt returned kIOReturnNotPrivileged.
     @Published private(set) var privilegeDenied: Bool = false
+    /// Observable mirror of `ProcessorModel.eppWritesTakeEffect`, so views
+    /// update when a kext that applies EPP loads or goes away.
+    @Published private(set) var writesTakeEffect: Bool = ProcessorModel.eppWritesTakeEffect
 
     // MARK: - Internal state
 
     private var pollTask: Task<Void, Never>?
     private static let pollInterval: TimeInterval = 1.5
-    /// Sentinel (0xFF) means "never written". Used to skip redundant MSR writes.
-    private var lastWrittenEPP: UInt8 = 0xFF
+    /// The EPP last written, nil when none has been since the last reset.
+    /// Used to skip redundant MSR writes. Not a 0xFF sentinel: 255 is the
+    /// Power Save target, which a sentinel would have skipped forever.
+    private var lastWrittenEPP: UInt8?
     /// The target in force and how many polls in a row asked for less
     /// performance than it (see `AutoEppPolicy.settle`).
     private var appliedTarget: AutoEppTarget?
@@ -79,9 +87,9 @@ final class AutoEppService: ObservableObject {
     /// correct in steady state, but the SMU can lose the EPP across a suspend
     /// while our target value is unchanged — in which case the write was skipped
     /// forever and the EPP silently stayed at the firmware default until the
-    /// user happened to change presets. 0xFF means "never written".
+    /// user happened to change presets. nil means "never written".
     private func resetWriteSentinel() {
-        lastWrittenEPP = 0xFF
+        lastWrittenEPP = nil
         appliedTarget = nil
         stepDownPolls = 0
     }
@@ -89,8 +97,10 @@ final class AutoEppService: ObservableObject {
     // MARK: - Lifecycle
 
     /// Starts the monitoring loop when it can matter (`AutoEppPolicy.shouldRun`).
-    /// Called from the app delegate at launch and whenever Auto EPP is
-    /// switched on or resumed. Idempotent — safe to call multiple times.
+    /// Called from the app delegate at launch, whenever Auto EPP is switched
+    /// on or resumed, and when a kext that applies EPP loads (the launch call
+    /// may run before the kext profile is read). Idempotent — safe to call
+    /// multiple times.
     func start() {
         guard pollTask == nil,
               AutoEppPolicy.shouldRun(enabled: AmdSettingsStore.shared.autoEppEnabled,
@@ -129,6 +139,30 @@ final class AutoEppService: ObservableObject {
         }
     }
 
+    /// Called by `ProcessorModel` each time it reads the kext's eppApplied
+    /// flag: on every load and reload, and with `false` when the kext unloads.
+    /// A freshly loaded kext holds no EPP of the user's, so with the flag set
+    /// Auto EPP starts, or, while it is off, the manual EPP is written back
+    /// once. Nothing is written while Gaming Mode holds the EPP, including at
+    /// launch before `GamingModeService.restoreIfNeeded()` has suspended this
+    /// service; its `resume()` starts the loop when the mode ends.
+    func kextEppSupportChanged(_ applied: Bool) {
+        writesTakeEffect = applied
+        resetWriteSentinel()
+        currentEPP = nil
+        currentTarget = ""
+        guard applied,
+              !isSuspended,
+              !AmdSettingsStore.shared.gamingModeActive,
+              !GamingModeService.shared.isActive
+        else { return }
+        if AmdSettingsStore.shared.autoEppEnabled {
+            start()
+        } else {
+            Task { await AmdPowerControlsModel.shared.restoreManualEPP() }
+        }
+    }
+
     // MARK: - Gaming Mode coordination
 
     /// Suspends the Auto EPP poll loop without touching AmdSettingsStore.
@@ -149,7 +183,12 @@ final class AutoEppService: ObservableObject {
         start()
     }
 
-    /// Toggles CPPC Active Mode in the kext and updates published state immediately.
+    /// Switches Auto EPP on or off and updates published state immediately.
+    ///
+    /// On engages CPPC active mode (selector 24 = 1). Off does not send
+    /// selector 24 = 0, which cannot release CPPC before a reboot and pins
+    /// EPP 0 (max performance): the user's manual EPP is written instead, so
+    /// the manual picker takes over from the last Auto EPP value.
     @MainActor
     func setCPPCActive(_ active: Bool) {
         AmdSettingsStore.shared.autoEppEnabled = active
@@ -157,13 +196,27 @@ final class AutoEppService: ObservableObject {
         // A preset or the manual picker may have written the EPP since Auto
         // EPP last did, so its first poll after this must write again.
         resetWriteSentinel()
-        if active { start() } else { stopLoop() }
-        Task {
-            let res = await Task.detached(priority: .userInitiated) {
-                ProcessorModel.shared.setCPPCActiveMode(active: active)
-            }.value
-            self.privilegeDenied = res == ProcessorModel.kIOReturnNotPrivilegedCode
-            if self.pollTask != nil { await self.poll() }
+        currentEPP = nil
+        currentTarget = ""
+        if active {
+            start()
+            Task {
+                let res = await Task.detached(priority: .userInitiated) {
+                    ProcessorModel.shared.setCPPCActiveMode(active: true)
+                }.value
+                self.privilegeDenied = res == ProcessorModel.kIOReturnNotPrivilegedCode
+                if self.pollTask != nil { await self.poll() }
+            }
+        } else {
+            stopLoop()
+            // Gaming Mode holds the EPP while suspended; a kext that ignores
+            // EPP would only answer unsupported.
+            guard !isSuspended, writesTakeEffect else { return }
+            Task {
+                let res = await AmdPowerControlsModel.shared.restoreManualEPP(
+                    fallback: AMDPowerPreset.balance.eppValue)
+                self.privilegeDenied = res == ProcessorModel.kIOReturnNotPrivilegedCode
+            }
         }
     }
 
@@ -231,14 +284,17 @@ final class AutoEppService: ObservableObject {
             // Any other failure records nothing, so the next poll retries.
         }
 
-        let finalEPP = targetEPP
+        // Only what reached the kext is shown: a refused write leaves the
+        // CPU on the last value written, or on none.
+        let finalEPP = lastWrittenEPP
+        let finalTarget = lastWrittenEPP == targetEPP ? targetName : ""
         let finalPrivilegeDenied = newPrivilegeDenied
 
         await MainActor.run {
             if self.isActive != enabled { self.isActive = enabled }
             if self.currentCPULoad != cpuAvg { self.currentCPULoad = cpuAvg }
             if self.currentGPULoad != gpuLoad { self.currentGPULoad = gpuLoad }
-            if self.currentTarget != targetName { self.currentTarget = targetName }
+            if self.currentTarget != finalTarget { self.currentTarget = finalTarget }
             if self.currentEPP != finalEPP { self.currentEPP = finalEPP }
             if self.privilegeDenied != finalPrivilegeDenied { self.privilegeDenied = finalPrivilegeDenied }
         }
@@ -286,6 +342,16 @@ enum AutoEppPolicy {
     /// 1.5 s to change nothing.
     static func shouldRun(enabled: Bool, suspended: Bool, writesTakeEffect: Bool) -> Bool {
         enabled && !suspended && writesTakeEffect
+    }
+
+    /// The EPP picker value the views show (0/85/170/255), or nil to leave it
+    /// unselected: while the kext ignores EPP writes, or while Auto EPP is on
+    /// and has not applied a value yet. Never a made-up "Max".
+    static func shownEPP(writesTakeEffect: Bool, autoActive: Bool,
+                         autoEPP: UInt8?, manualEPP: UInt8) -> UInt8? {
+        guard writesTakeEffect else { return nil }
+        if autoActive { return autoEPP.map(AMDPowerPreset.snapEPP) }
+        return AMDPowerPreset.snapEPP(manualEPP)
     }
 
     /// The target for one reading of CPU and GPU load (0–100).
