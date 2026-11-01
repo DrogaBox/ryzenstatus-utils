@@ -759,7 +759,11 @@ actor ProcessorModel {
         // tried before the kext answered), or, while it is off, the user's
         // manual EPP goes back on, since a freshly loaded kext holds none.
         await AmdPresetController.shared.refreshPresetClass()
-        await MainActor.run { AutoEppService.shared.kextChanged(loaded: true) }
+        await AmdPresetController.shared.reapplySaved()
+        await MainActor.run {
+            AutoEppService.shared.kextChanged(loaded: true)
+            AdaptivePowerService.shared.start()
+        }
         // A freshly loaded kext idles in CC1: put the saved CC6 choice back.
         await AmdPowerControlsModel.shared.reapplyC6Idle()
 
@@ -1351,16 +1355,6 @@ actor ProcessorModel {
     /// when it goes to the kext.
     nonisolated static func eppWriteRefusal(writesTakeEffect: Bool) -> kern_return_t? {
         writesTakeEffect ? nil : kIOReturnUnsupported
-    }
-
-    /// Selector 24. `true` engages CPPC autonomous mode with the stored EPP.
-    /// `false` cannot switch CPPC off before a reboot: the kext writes EPP 0
-    /// (max performance) and reports inactive, so leaving Auto EPP writes the
-    /// manual EPP through selector 25 instead.
-    nonisolated func setCPPCActiveMode(active: Bool) -> kern_return_t {
-        if let refusal = Self.eppWriteRefusal(writesTakeEffect: Self.eppWritesTakeEffect) { return refusal }
-        var input: [UInt64] = [active ? 1 : 0]
-        return safeIOConnectCallMethod( AMDKextSelector.cppcActiveMode.id, &input, 1, nil, 0, nil, nil, nil, nil)
     }
 
     /// Selector 25: stores the EPP (0 max performance, 255 max power saving)

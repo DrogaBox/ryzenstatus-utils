@@ -200,6 +200,34 @@ extension AMDPowerPreset {
     }
 }
 
+// MARK: - Profile files
+
+/// The app's own export format for custom profiles.
+enum AMDPowerProfileFile {
+    static let format = "RyzenStatus Power Profiles"
+
+    private struct Envelope: Codable {
+        let format: String
+        let version: Int
+        let profiles: [AMDPowerProfile]
+    }
+
+    static func encode(_ profiles: [AMDPowerProfile]) -> Data? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try? encoder.encode(Envelope(format: format, version: 1, profiles: profiles))
+    }
+
+    /// Profiles from the app's own file or from a ZenTune backup, with the
+    /// ZenTune keys that had no equivalent; nil when the file is neither.
+    static func decode(_ data: Data) -> ZenTuneBackupImport.Outcome? {
+        if let envelope = try? JSONDecoder().decode(Envelope.self, from: data), envelope.format == format {
+            return ZenTuneBackupImport.Outcome(profiles: envelope.profiles)
+        }
+        return ZenTuneBackupImport.parse(data)
+    }
+}
+
 // MARK: - ZenTune backup import
 
 /// Reads the custom presets of a ZenTune backup ("ZenTune Preset Backup",

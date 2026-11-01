@@ -53,8 +53,6 @@ enum AMDKextSelector: UInt32, CaseIterable {
     case pStateWrite       = 10
     /// CPU power profile index.
     case cpuPowerProfile   = 26
-    /// CPPC Active Mode toggle (enables hardware-controlled EPP).
-    case cppcActiveMode    = 24
 
     // MARK: — GPU Telemetry (Read-only)
 

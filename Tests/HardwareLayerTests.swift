@@ -187,25 +187,16 @@ enum HardwareLayerTests {
                      "an EPP write the kext would ignore answers unsupported without IPC")
         suite.expect(ProcessorModel.eppWriteRefusal(writesTakeEffect: true) == nil,
                      "an EPP write that takes effect goes to the kext")
-        suite.expect(!AutoEppPolicy.shouldRun(enabled: true, suspended: false,
-                                              writesTakeEffect: false, controlsCPB: false),
-                     "the Auto EPP loop never starts with neither EPP nor boost to drive")
-        suite.expect(AutoEppPolicy.shouldRun(enabled: true, suspended: false,
-                                             writesTakeEffect: true, controlsCPB: false)
-                     && AutoEppPolicy.shouldRun(enabled: true, suspended: false,
-                                                writesTakeEffect: false, controlsCPB: true),
-                     "Auto EPP runs once it is on and EPP writes take effect or boost can be switched")
-        suite.expect(!AutoEppPolicy.shouldRun(enabled: false, suspended: false,
-                                              writesTakeEffect: true, controlsCPB: true)
-                     && !AutoEppPolicy.shouldRun(enabled: true, suspended: true,
-                                                 writesTakeEffect: true, controlsCPB: true),
+        suite.expect(!AutoEppPolicy.shouldRun(enabled: true, suspended: false, kextLoaded: false),
+                     "the Auto EPP loop never starts without a kext to write to")
+        suite.expect(AutoEppPolicy.shouldRun(enabled: true, suspended: false, kextLoaded: true),
+                     "Auto EPP runs once it is on and a kext is loaded")
+        suite.expect(!AutoEppPolicy.shouldRun(enabled: false, suspended: false, kextLoaded: true)
+                     && !AutoEppPolicy.shouldRun(enabled: true, suspended: true, kextLoaded: true),
                      "Auto EPP stays off while disabled or suspended by Gaming Mode")
-        suite.expect(!AutoEppTarget.powerSave.cpbEnabled
-                     && AutoEppTarget.balanced.cpbEnabled
-                     && AutoEppTarget.performance.cpbEnabled
-                     && AutoEppTarget.gpuActive.cpbEnabled
-                     && AutoEppTarget.gpuPerformance.cpbEnabled,
-                     "Auto EPP turns boost off only at idle")
+        suite.expect(!AMDPowerPreset.eco.cpbEnabled && AMDPowerPreset.balance.cpbEnabled
+                     && AMDPowerPreset.performance.cpbEnabled,
+                     "the Eco preset Auto EPP applies at idle turns boost off")
         suite.expect(AutoEppTarget.powerSave.preset == .eco
                      && AutoEppTarget.balanced.preset == .balance
                      && AutoEppTarget.gpuActive.preset == .balance
@@ -227,14 +218,66 @@ enum HardwareLayerTests {
 
     private static func presetFailureMessage(_ suite: TestSuite) {
         let privilegeHint = ProcessorModel.privilegeHint(for: ProcessorModel.kIOReturnNotPrivilegedCode)
-        let denied = AMDPowerPresetApplyResult(epp: kIOReturnUnsupported,
-                                               cpb: ProcessorModel.kIOReturnNotPrivilegedCode,
-                                               ppm: KERN_SUCCESS, lpm: KERN_SUCCESS)
-        suite.expect(denied.privilegeDenied && denied.firstFailureMessage == privilegeHint,
-                     "a preset denied privilege shows the privilege hint, not EPP's unsupported")
-        let eppOnly = AMDPowerPresetApplyResult(epp: kIOReturnUnsupported, cpb: KERN_SUCCESS,
-                                                ppm: KERN_SUCCESS, lpm: KERN_SUCCESS)
-        suite.expect(!eppOnly.privilegeDenied, "an ignored EPP write is not a privilege denial")
+        var denied = AMDPowerProfileApplyResult()
+        denied.statuses = [(.c6Idle, kIOReturnUnsupported), (.cpb, ProcessorModel.kIOReturnNotPrivilegedCode)]
+        suite.expect(denied.privilegeDenied && denied.firstFailureMessage == privilegeHint && !denied.succeeded,
+                     "a profile denied privilege shows the privilege hint, not another lever's error")
+        var skipped = AMDPowerProfileApplyResult()
+        skipped.statuses = [(.cpb, KERN_SUCCESS)]
+        skipped.skipped = [.epp, .powerLimits]
+        suite.expect(skipped.succeeded && !skipped.privilegeDenied && skipped.firstFailureMessage == nil,
+                     "levers the CPU lacks are skipped, not failures")
+
+        // ZenTune classes and limits.
+        let xt = AMDPresetClass.classify(brand: "AMD Ryzen 9 5900XT 16-Core Processor",
+                                         family: 0x19, model: 0x21, isApu: false)
+        suite.expect(xt == .desktopX9(preRaphael: true), "a 5900XT is ZenTune's pre-Raphael X 9-series")
+        let eco = AMDPowerPreset.eco.profile(for: xt)
+        suite.expect(eco.pptW == 65 && eco.tdcA == 90 && eco.edcA == 90 && eco.chtcC == 95
+                     && eco.cpb == false && eco.c6Idle == true && eco.epp == 255,
+                     "Eco on a 5900XT: 65 W / 90 A / 90 A, 95 °C, boost off, CC6, EPP 255")
+        let extreme = AMDPowerPreset.extreme.profile(for: xt)
+        suite.expect(extreme.pptW == 170 && extreme.tdcA == 230 && extreme.edcA == 230 && extreme.c6Idle == false,
+                     "Extreme on a 5900XT: 170 W / 230 A / 230 A without CC6")
+        suite.expect(AMDPresetClass.classify(brand: "AMD Ryzen 7 5800X3D 8-Core Processor", family: 0x19, model: 0x21, isApu: false) == .desktopX3D
+                     && AMDPresetClass.desktopX3D.tctlCelsius == 85,
+                     "X3D parts get their own class and an 85 °C limit")
+        suite.expect(AMDPresetClass.classify(brand: "AMD Ryzen 9 7950X 16-Core Processor", family: 0x19, model: 0x61, isApu: false)
+                     == .desktopX9(preRaphael: false), "Raphael uses the AM5 X 9-series limits")
+        suite.expect(AMDPresetClass.classify(brand: "AMD Ryzen 7 5700G with Radeon Graphics", family: 0x19, model: 0x50, isApu: true) == .apuDesktopG
+                     && AMDPresetClass.apuDesktopG.limits(.balance)?.ppt == 65
+                     && AMDPresetClass.apuDesktopG.limits(.balance)?.tdc == nil,
+                     "desktop G APUs take a STAPM limit only")
+        suite.expect(AMDPresetClass.classify(brand: "AMD Ryzen 5 3600 6-Core Processor", family: 0x17, model: 0x71, isApu: false) == .desktopStandard,
+                     "a part without suffix is ZenTune's standard desktop class")
+
+        // Profile files and ZenTune backups.
+        let zenTune = Data(#"{"format":"ZenTune Preset Backup","version":1,"custom_presets":[{"name":"Quiet","tctl_temp":{"enabled":true,"value":80},"ppt_limit":{"enabled":true,"value":88},"tdc_limit":{"enabled":false,"value":60},"pbo_scalar":{"enabled":true,"value":2},"coall":{"enabled":true,"value":-40},"oc_clk":{"enabled":true,"value":4400}}]}"#.utf8)
+        let outcome = AMDPowerProfileFile.decode(zenTune)
+        let quiet = outcome?.profiles.first
+        suite.expect(quiet?.name == "Quiet" && quiet?.chtcC == 80 && quiet?.pptW == 88 && quiet?.tdcA == nil
+                     && quiet?.pboScalarX100 == 200 && quiet?.coAll == -30,
+                     "a ZenTune record maps its enabled fields and clamps the all-core margin")
+        suite.expect(outcome?.skippedKeys == ["oc_clk"], "fields with no equivalent are reported")
+        let roundTrip = AMDPowerProfileFile.encode([eco]).flatMap(AMDPowerProfileFile.decode)
+        suite.expect(roundTrip?.profiles == [eco], "the app's own profile file round-trips")
+        suite.expect(AMDPowerProfileFile.decode(Data("{}".utf8)) == nil, "an unrelated JSON file is refused")
+
+        // Adaptive power limit.
+        suite.expect(AdaptivePowerPolicy.next(currentW: 125, ceilingW: 125, tempC: 85, targetC: 80,
+                                              cpuLoad: 90, loadThreshold: 50) == 120,
+                     "above the target the limit drops 5 W")
+        suite.expect(AdaptivePowerPolicy.next(currentW: 45, ceilingW: 125, tempC: 90, targetC: 80,
+                                              cpuLoad: 90, loadThreshold: 50) == 45,
+                     "the limit never drops below 45 W")
+        suite.expect(AdaptivePowerPolicy.next(currentW: 100, ceilingW: 125, tempC: 60, targetC: 80,
+                                              cpuLoad: 90, loadThreshold: 50) == 105
+                     && AdaptivePowerPolicy.next(currentW: 125, ceilingW: 125, tempC: 60, targetC: 80,
+                                                 cpuLoad: 90, loadThreshold: 50) == 125,
+                     "cool and busy climbs back, never past the profile's PPT")
+        suite.expect(AdaptivePowerPolicy.next(currentW: 100, ceilingW: 125, tempC: 75, targetC: 80,
+                                              cpuLoad: 90, loadThreshold: 50) == 100,
+                     "inside the 10 °C margin the limit holds")
     }
 
     // MARK: - Caches
@@ -303,21 +346,21 @@ enum HardwareLayerTests {
         let model = source("Sources/RyzenStatus/Services/AMD/ProcessorModel.swift", suite)
         suite.expect(model.contains("await self.forgetUnloadedKext()"),
                      "the watchdog clears the kext's caches when it unloads")
-        suite.expect(body(of: "_finishInit", in: model).contains("kextEppSupportChanged(eppApplied, cpbSupported: cpbSupported)")
-                     && body(of: "forgetUnloadedKext", in: model).contains("kextEppSupportChanged(false, cpbSupported: false)"),
-                     "every kext load and unload hands the eppApplied flag and CPB support to Auto EPP")
+        suite.expect(body(of: "_finishInit", in: model).contains("kextChanged(loaded: true)")
+                     && body(of: "_finishInit", in: model).contains("reapplySaved()")
+                     && body(of: "_finishInit", in: model).contains("reapplyC6Idle()")
+                     && body(of: "forgetUnloadedKext", in: model).contains("kextChanged(loaded: false)"),
+                     "every kext load puts the saved choices back and tells Auto EPP; an unload stops it")
         let autoEpp = source("Sources/RyzenStatus/Services/AMD/AutoEppService.swift", suite)
-        let setActive = body(of: "setCPPCActive", in: autoEpp)
-        suite.expect(setActive.contains("setCPPCActiveMode(active: true)")
-                     && !setActive.contains("setCPPCActiveMode(active: active)")
-                     && !setActive.contains("setCPPCActiveMode(active: false)")
-                     && setActive.contains("restoreManualEPP"),
-                     "switching Auto EPP off writes the manual EPP, never selector 24 = 0")
-        suite.expect(setActive.contains("restoreManualBoost()")
-                     && body(of: "poll", in: autoEpp).contains("applyPresetLimits(targetPreset)")
-                     && body(of: "poll", in: autoEpp).contains("showAutoPreset(shownPreset)")
+        let setEnabled = body(of: "setEnabled", in: autoEpp)
+        suite.expect(!autoEpp.contains("setCPPCActiveMode(active: false)")
+                     && setEnabled.contains("restoreManualEPP") && setEnabled.contains("restoreManualBoost()")
+                     && setEnabled.contains("withPresetTransaction(preset)"),
+                     "switching Auto EPP off restores the user's preset or manual settings, never selector 24 = 0")
+        suite.expect(body(of: "poll", in: autoEpp).contains("applyPreset(preset)")
+                     && body(of: "poll", in: autoEpp).contains("showAutoPreset(applied ? preset : nil)")
                      && body(of: "stopLoop", in: autoEpp).contains("showAutoPreset(nil)"),
-                     "Auto EPP applies and shows its target's preset and hands boost back when switched off")
+                     "Auto EPP applies and shows its target's whole preset profile")
         for view in ["Sources/RyzenStatus/UI/Settings/AmdPowerSettingsView.swift",
                      "Sources/RyzenStatus/UI/MenuPanel/AmdControlSection.swift"] {
             let text = source(view, suite)

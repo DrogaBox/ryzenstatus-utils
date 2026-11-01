@@ -318,6 +318,8 @@ struct AmdPowerSettingsView: View {
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
 
+                        AdaptivePowerRow()
+
                         if autoEpp.isActive {
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack {
@@ -476,6 +478,8 @@ struct AmdPowerSettingsView: View {
                     } footer: {
                         Text(l10n.amdPower.powerPresetsFooter)
                     }
+
+                    AmdCustomProfilesSection()
 
                     // Gaming Mode — one click: Extreme preset + Keep Awake +
                     // hidden menu bar icon. Recoverable by relaunching the app.

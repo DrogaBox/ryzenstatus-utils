@@ -34,6 +34,7 @@ struct AmdValidationSettingsView: View {
     var body: some View {
         Form {
             preconditionsSection
+            AmdPowerControlsValidationSection()
             probesSection
             samplesSection
             reportSection

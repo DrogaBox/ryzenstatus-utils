@@ -148,3 +148,45 @@ struct AmdAdvancedEnergySection: View {
         .padding(.vertical, 6)
     }
 }
+
+/// Adaptive power limit switch and target (Settings › AMD Ryzen Power,
+/// below Auto EPP). Desktop parts with PPT/TDC/EDC only.
+struct AdaptivePowerRow: View {
+    @ObservedObject private var adaptive = AdaptivePowerService.shared
+    @ObservedObject private var controls = AmdPowerControlsModel.shared
+    @ObservedObject private var l10n = L10n.shared
+    @State private var enabled = AdaptivePowerService.shared.isEnabled
+    @State private var target = Double(AdaptivePowerService.shared.targetCelsius)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle(l10n.amdPower.adaptiveToggle, isOn: Binding(
+                get: { enabled },
+                set: { enabled = $0; adaptive.setEnabled($0) }
+            ))
+            .disabled(!controls.powerCapabilities.contains(.pptTdcEdcLimits))
+            if enabled {
+                HStack {
+                    Text(l10n.amdPower.adaptiveTargetLabel)
+                        .font(.caption)
+                    Slider(value: $target,
+                           in: Double(AdaptivePowerPolicy.targetRange.lowerBound)...Double(AdaptivePowerPolicy.targetRange.upperBound),
+                           step: 1) { editing in
+                        if !editing { adaptive.setTarget(celsius: Int(target)) }
+                    }
+                    Text("\(Int(target)) °C")
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                }
+                if let limit = adaptive.currentLimitW {
+                    Text(String(format: l10n.amdPower.adaptiveCurrentFormat, limit))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+            Text(l10n.amdPower.adaptiveCaption)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}

@@ -9621,9 +9621,9 @@ struct MetricsTests {
             expect(target(cpu: 35, gpu: 0) == .balanced, "load between the thresholds is balanced")
             expect(target(cpu: 10, gpu: 70) == .gpuPerformance, "a busy GPU keeps the CPU at full performance")
             expect(target(cpu: 10, gpu: 40) == .gpuActive, "an active GPU keeps the CPU from idling down")
-            expect(AutoEppTarget.powerSave.epp == 255 && AutoEppTarget.performance.epp == 0
-                   && AutoEppTarget.balanced.epp == 128,
-                   "Auto EPP keeps its EPP values")
+            expect(AutoEppTarget.powerSave.preset == .eco && AutoEppTarget.performance.preset == .performance
+                   && AutoEppTarget.balanced.preset == .balance,
+                   "Auto EPP targets pick the Eco, Performance and Balance presets")
 
             let first = AutoEppPolicy.settle(candidate: .powerSave, current: nil, pendingStepDownPolls: 0)
             expect(first.target == .powerSave && first.pendingStepDownPolls == 0,
