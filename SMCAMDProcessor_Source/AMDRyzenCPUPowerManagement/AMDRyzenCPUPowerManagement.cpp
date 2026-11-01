@@ -1,4 +1,6 @@
 #include "AMDRyzenCPUPowerManagement.hpp"
+#include <IOKit/acpi/IOACPIPlatformDevice.h>
+#include <architecture/i386/pio.h>
 #include <string.h>
 #include <mach/mach_time.h>
 #include <kern/clock.h>
@@ -662,6 +664,7 @@ bool AMDRyzenCPUPowerManagement::start(IOService *provider){
         }
     }
 
+    discoverAcpiCppc(provider);
     reinitHwState();
 
     fetchOEMBaseBoardInfo();
@@ -837,6 +840,7 @@ void AMDRyzenCPUPowerManagement::stop(IOService *provider){
 
     // 4. pmRyzen_stop() after timers are completely drained and unlinked
     pmRyzen_stop();
+    releaseAcpiCppc();
 
     // 5. release() of fIOPCIDevice and null
     if (fIOPCIDevice) { fIOPCIDevice->release(); fIOPCIDevice = nullptr; }
@@ -1350,7 +1354,7 @@ bool AMDRyzenCPUPowerManagement::applyEPPControl() {
 // does not compete with anything for frequency control; it replaces the
 // "every core asks for P0" default that keeps an idle Zen 3 at full clocks.
 bool AMDRyzenCPUPowerManagement::applyEPPControlLocked() {
-    if (!cppcMsrSupported) return false;
+    if (!cppcEppSupported()) return false;
     // Nothing engaged and nothing wanted: leave the firmware's state alone.
     if (!cppcActiveMode && !cppcEngaged) return true;
 
@@ -1359,6 +1363,17 @@ bool AMDRyzenCPUPowerManagement::applyEPPControlLocked() {
     uint8_t epp = 0x00;
     if (cppcActiveMode) epp = cppcThrottled ? 0xFF : cppcEPPValue;
 
+    const bool ok = cppcMsrSupported ? applyEPPMsr(epp) : applyEPPPcc(epp);
+    if (ok) {
+        cppcAppliedEPP = epp;
+        IOLog("AMDRyzenCPUPowerManagement::applyEPPControl: CPPC %s, EPP 0x%02X on every CPU (%s)\n",
+              cppcActiveMode ? "autonomous" : "performance", epp, cppcMsrSupported ? "MSR" : "ACPI PCC");
+    }
+    return ok;
+}
+
+// MSR CPPC: CPPC_ENABLE, then CPPC_REQ with the core's own CAP1 range.
+bool AMDRyzenCPUPowerManagement::applyEPPMsr(uint8_t epp) {
     struct EPPArgs {
         AMDRyzenCPUPowerManagement *provider;
         uint64_t epp;
@@ -1415,15 +1430,339 @@ bool AMDRyzenCPUPowerManagement::applyEPPControlLocked() {
 
     const bool ok = args.enableFailures == 0 && args.capFailures == 0 && args.reqFailures == 0;
     if (args.enableFailures == 0) cppcEngaged = true;
-    if (ok) {
-        cppcAppliedEPP = epp;
-        IOLog("AMDRyzenCPUPowerManagement::applyEPPControl: CPPC %s, EPP 0x%02X on every CPU\n",
-              cppcActiveMode ? "autonomous" : "performance", epp);
-    } else {
+    if (!ok) {
         IOLog("AMDRyzenCPUPowerManagement::applyEPPControl: EPP 0x%02X not applied (enable %d, cap %d, req %d CPU failures)\n",
               epp, (int)args.enableFailures, (int)args.capFailures, (int)args.reqFailures);
     }
     return ok;
+}
+
+#pragma mark - ACPI CPPC (PCC shared memory)
+
+// Little-endian field readers for ACPI tables and resource buffers.
+static uint64_t acpiLE(const uint8_t *p, uint32_t bytes) {
+    uint64_t v = 0;
+    for (uint32_t i = 0; i < bytes; i++) v |= (uint64_t)p[i] << (8 * i);
+    return v;
+}
+
+static AMDRyzenCPUPowerManagement::AcpiGas acpiGasAt(const uint8_t *p) {
+    AMDRyzenCPUPowerManagement::AcpiGas g;
+    g.space = p[0]; g.bitWidth = p[1]; g.bitOffset = p[2]; g.accessSize = p[3];
+    g.address = acpiLE(p + 4, 8);
+    return g;
+}
+
+// Discovery, following Linux drivers/acpi/cppc_acpi.c (acpi_cppc_processor_probe)
+// and drivers/mailbox/pcc.c: every ACPI processor beside the provider must
+// return a _CPC package whose used registers live in PCC subspaces the PCCT
+// describes; the subspaces' shared memory is mapped once, uncached. Any
+// mismatch leaves acpiCppc.supported false with the reason in .error.
+void AMDRyzenCPUPowerManagement::discoverAcpiCppc(IOService *provider) {
+    acpiCppc = {};
+    const IORegistryPlane *plane = IORegistryEntry::getPlane("IOACPIPlane");
+    IORegistryEntry *parent = (plane && provider) ? provider->getParentEntry(plane) : nullptr;
+    OSIterator *it = parent ? parent->getChildIterator(plane) : nullptr;
+    if (!it) { acpiCppc.error = kAcpiCppcNoPlane; return; }
+
+    uint32_t processors = 0;
+    uint32_t subspacesUsed = 0;
+    while (OSObject *obj = it->getNextObject()) {
+        IOACPIPlatformDevice *dev = OSDynamicCast(IOACPIPlatformDevice, obj);
+        if (!dev) continue;
+        OSNumber *index = OSDynamicCast(OSNumber, dev->getProperty("processor-index"));
+        if (!index) continue;
+        processors++;
+        const uint32_t cpu = index->unsigned32BitValue();
+        if (cpu >= CPUInfo::MaxCpus) continue;
+
+        OSObject *result = nullptr;
+        if (dev->evaluateObject("_CPC", &result) != kIOReturnSuccess || !result) {
+            if (!acpiCppc.error) acpiCppc.error = kAcpiCppcNoCpc;
+            continue;
+        }
+        OSArray *pkg = OSDynamicCast(OSArray, result);
+        OSNumber *revision = pkg ? OSDynamicCast(OSNumber, pkg->getObject(1)) : nullptr;
+        // Revision 2 has 21 entries, revision 3 has 23; both hold every used index.
+        if (!pkg || pkg->getCount() < 21 || !revision) {
+            if (!acpiCppc.error) acpiCppc.error = kAcpiCppcBadCpc;
+            result->release();
+            continue;
+        }
+        acpiCppc.cpcRevision = revision->unsigned32BitValue();
+
+        bool usable = true;
+        for (uint32_t i = 0; i < kCpcUsedCount && usable; i++) {
+            CpcValue &v = acpiCppc.cpc[cpu][i];
+            OSObject *entry = pkg->getObject(kCpcUsed[i]);
+            if (OSNumber *n = OSDynamicCast(OSNumber, entry)) {
+                v.isRegister = false;
+                v.integer = n->unsigned64BitValue();
+                continue;
+            }
+            // Generic Register descriptor: 0x82, length 0x000C, then the GAS.
+            OSData *d = OSDynamicCast(OSData, entry);
+            const uint8_t *b = d ? (const uint8_t *)d->getBytesNoCopy() : nullptr;
+            if (!b || d->getLength() < 15 || b[0] != 0x82) { usable = false; break; }
+            v.isRegister = true;
+            v.reg = acpiGasAt(b + 3);
+            // An all-zero register is "not implemented" (ACPI 6.x, 8.4.6.1).
+            if (v.reg.space == 0 && v.reg.address == 0) {
+                v.isRegister = false;
+                v.integer = 0;
+                continue;
+            }
+            if (v.reg.space != 0x0A || v.reg.accessSize >= kPccMaxSubspaces) {
+                if (!acpiCppc.error) acpiCppc.error = kAcpiCppcNotPcc;
+                usable = false;
+                break;
+            }
+            subspacesUsed |= 1u << v.reg.accessSize;
+        }
+        result->release();
+        // EPP and the min/max/desired requests must be writable registers.
+        const CpcValue *c = acpiCppc.cpc[cpu];
+        if (usable && c[kSlotEpp].isRegister && c[kSlotMin].isRegister && c[kSlotMax].isRegister &&
+            c[kSlotDesired].isRegister) {
+            acpiCppc.cpuCount++;
+        } else if (!acpiCppc.error) {
+            acpiCppc.error = kAcpiCppcNotPcc;
+        }
+    }
+    it->release();
+
+    if (acpiCppc.error) return;
+    if (acpiCppc.cpuCount == 0 || acpiCppc.cpuCount != processors) {
+        acpiCppc.error = kAcpiCppcCountMismatch;
+        return;
+    }
+
+    IOACPIPlatformDevice *acpiDev = OSDynamicCast(IOACPIPlatformDevice, provider);
+    const OSData *pcct = acpiDev ? acpiDev->getACPITableData("PCCT", 0) : nullptr;
+    const uint8_t *t = pcct ? (const uint8_t *)pcct->getBytesNoCopy() : nullptr;
+    const uint32_t tableLength = t && pcct->getLength() >= 48 ? (uint32_t)acpiLE(t + 4, 4) : 0;
+    if (!t || tableLength < 48 || tableLength > pcct->getLength() || memcmp(t, "PCCT", 4) != 0) {
+        acpiCppc.error = kAcpiCppcNoPcct;
+        return;
+    }
+
+    // Subspaces follow the 36-byte header, Flags (4) and Reserved (8).
+    uint32_t offset = 48;
+    for (uint32_t id = 0; id < kPccMaxSubspaces && offset + 2 <= tableLength; id++) {
+        const uint8_t *ss = t + offset;
+        const uint8_t type = ss[0], length = ss[1];
+        if (length < 2 || offset + length > tableLength) break;
+        offset += length;
+        if (!(subspacesUsed & (1u << id))) continue;
+        if (type > 2 || length < 62) { acpiCppc.error = kAcpiCppcBadPcct; return; }
+
+        PccSubspace &p = acpiCppc.pcc[id];
+        p.present = true;
+        p.type = type;
+        p.base = acpiLE(ss + 8, 8);
+        p.length = acpiLE(ss + 16, 8);
+        p.doorbell = acpiGasAt(ss + 24);
+        p.preserve = acpiLE(ss + 36, 8);
+        p.write = acpiLE(ss + 44, 8);
+        p.latencyUs = (uint32_t)acpiLE(ss + 52, 4);
+        p.turnaroundUs = (uint16_t)acpiLE(ss + 60, 2);
+        if (p.base == 0 || p.length < 8 || (p.doorbell.space != 0 && p.doorbell.space != 1)) {
+            acpiCppc.error = kAcpiCppcBadPcct;
+            return;
+        }
+    }
+    for (uint32_t id = 0; id < kPccMaxSubspaces; id++) {
+        if ((subspacesUsed & (1u << id)) && !acpiCppc.pcc[id].present) {
+            acpiCppc.error = kAcpiCppcBadPcct;
+            return;
+        }
+    }
+
+    // Every register a CPU uses must lie inside its subspace.
+    for (uint32_t cpu = 0; cpu < CPUInfo::MaxCpus; cpu++) {
+        for (uint32_t i = 0; i < kCpcUsedCount; i++) {
+            const CpcValue &v = acpiCppc.cpc[cpu][i];
+            if (!v.isRegister) continue;
+            const PccSubspace &p = acpiCppc.pcc[v.reg.accessSize];
+            if (v.reg.bitWidth == 0 || v.reg.bitWidth > 64 ||
+                8 + v.reg.address + 8 > p.length) {
+                acpiCppc.error = kAcpiCppcBadPcct;
+                return;
+            }
+        }
+    }
+
+    for (uint32_t id = 0; id < kPccMaxSubspaces; id++) {
+        PccSubspace &p = acpiCppc.pcc[id];
+        if (!p.present) continue;
+        IOMemoryDescriptor *md = IOMemoryDescriptor::withPhysicalAddress(
+            (IOPhysicalAddress)p.base, (IOByteCount)p.length, kIODirectionInOut);
+        p.shm = md ? md->createMappingInTask(kernel_task, 0, kIOMapAnywhere | kIOMapInhibitCache) : nullptr;
+        if (md) md->release();
+        if (p.doorbell.space == 0) {
+            IOMemoryDescriptor *dmd = IOMemoryDescriptor::withPhysicalAddress(
+                (IOPhysicalAddress)p.doorbell.address, 8, kIODirectionInOut);
+            p.doorbellMap = dmd ? dmd->createMappingInTask(kernel_task, 0, kIOMapAnywhere | kIOMapInhibitCache) : nullptr;
+            if (dmd) dmd->release();
+        }
+        if (!p.shm || (p.doorbell.space == 0 && !p.doorbellMap)) {
+            acpiCppc.error = kAcpiCppcMapFailed;
+            releaseAcpiCppc();
+            return;
+        }
+    }
+    acpiCppc.supported = true;
+    IOLog("AMDRyzenCPUPowerManagement: ACPI CPPC over PCC on %u CPUs (_CPC revision %u)\n",
+          acpiCppc.cpuCount, acpiCppc.cpcRevision);
+}
+
+void AMDRyzenCPUPowerManagement::releaseAcpiCppc() {
+    acpiCppc.supported = false;
+    for (uint32_t id = 0; id < kPccMaxSubspaces; id++) {
+        PccSubspace &p = acpiCppc.pcc[id];
+        if (p.shm) { p.shm->release(); p.shm = nullptr; }
+        if (p.doorbellMap) { p.doorbellMap->release(); p.doorbellMap = nullptr; }
+    }
+}
+
+// One PCC command (0x00 read, 0x01 write) on a generic communication
+// channel: wait for the previous command and the minimum turnaround, clear
+// the status, ring the doorbell (read & preserve | write), poll for
+// command-complete. Thread context, caller holds the lock that serialises
+// EPP changes.
+bool AMDRyzenCPUPowerManagement::pccCommand(PccSubspace &ss, uint16_t command) {
+    volatile uint16_t *cmd = (volatile uint16_t *)(ss.shm->getVirtualAddress() + 4);
+    volatile uint16_t *status = (volatile uint16_t *)(ss.shm->getVirtualAddress() + 6);
+    const uint32_t timeoutUs = ss.latencyUs * 10 < 1000 ? 1000
+                             : (ss.latencyUs * 10 > 20000 ? 20000 : ss.latencyUs * 10);
+
+    // The channel is free once the previous command completed.
+    uint32_t waited = 0;
+    while (!(*status & 0x1) && waited < timeoutUs) { IODelay(10); waited += 10; }
+    if (!(*status & 0x1)) {
+        acpiCppc.lastStatus = *status;
+        acpiCppc.lastResult = -3;
+        return false;
+    }
+    if (ss.turnaroundUs && ss.lastCmdNs) {
+        const uint64_t elapsedUs = (getCurrentTimeNs() - ss.lastCmdNs) / 1000;
+        if (elapsedUs < ss.turnaroundUs) IODelay((uint32_t)(ss.turnaroundUs - elapsedUs));
+    }
+
+    *cmd = command;
+    *status = 0;
+    __sync_synchronize();
+
+    const uint8_t width = ss.doorbell.bitWidth;
+    if (ss.doorbell.space == 0) {
+        volatile uint8_t *db = (volatile uint8_t *)ss.doorbellMap->getVirtualAddress();
+        switch (width) {
+            case 8:  *db = (uint8_t)((*db & ss.preserve) | ss.write); break;
+            case 16: *(volatile uint16_t *)db = (uint16_t)((*(volatile uint16_t *)db & ss.preserve) | ss.write); break;
+            case 64: *(volatile uint64_t *)db = (*(volatile uint64_t *)db & ss.preserve) | ss.write; break;
+            default: *(volatile uint32_t *)db = (uint32_t)((*(volatile uint32_t *)db & ss.preserve) | ss.write); break;
+        }
+    } else {
+        const uint16_t port = (uint16_t)ss.doorbell.address;
+        switch (width) {
+            case 8:  outb(port, (uint8_t)((inb(port) & ss.preserve) | ss.write)); break;
+            case 16: outw(port, (uint16_t)((inw(port) & ss.preserve) | ss.write)); break;
+            default: outl(port, (uint32_t)((inl(port) & ss.preserve) | ss.write)); break;
+        }
+    }
+
+    waited = 0;
+    while (!(*status & 0x1) && waited < timeoutUs) { IODelay(10); waited += 10; }
+    ss.lastCmdNs = getCurrentTimeNs();
+    acpiCppc.lastStatus = *status;
+    if (!(*status & 0x1)) { acpiCppc.lastResult = -1; return false; }
+    if (*status & 0x4)    { acpiCppc.lastResult = -2; return false; }
+    acpiCppc.lastResult = 0;
+    return true;
+}
+
+// Register access inside a mapped subspace; the field is bitWidth bits at
+// bitOffset within the smallest naturally sized container that holds it.
+static uint32_t cpcContainerBytes(const AMDRyzenCPUPowerManagement::AcpiGas &g) {
+    const uint32_t bits = (uint32_t)g.bitOffset + g.bitWidth;
+    return bits <= 8 ? 1 : bits <= 16 ? 2 : bits <= 32 ? 4 : 8;
+}
+
+bool AMDRyzenCPUPowerManagement::cpcRead(const CpcValue &v, uint64_t &out) {
+    if (!v.isRegister) { out = v.integer; return true; }
+    const PccSubspace &p = acpiCppc.pcc[v.reg.accessSize];
+    if (!p.shm || (uint32_t)v.reg.bitOffset + v.reg.bitWidth > 64) return false;
+    volatile uint8_t *addr = (volatile uint8_t *)(p.shm->getVirtualAddress() + 8 + v.reg.address);
+    uint64_t raw = 0;
+    switch (cpcContainerBytes(v.reg)) {
+        case 1:  raw = *addr; break;
+        case 2:  raw = *(volatile uint16_t *)addr; break;
+        case 4:  raw = *(volatile uint32_t *)addr; break;
+        default: raw = *(volatile uint64_t *)addr; break;
+    }
+    const uint64_t mask = v.reg.bitWidth >= 64 ? ~0ULL : ((1ULL << v.reg.bitWidth) - 1);
+    out = (raw >> v.reg.bitOffset) & mask;
+    return true;
+}
+
+bool AMDRyzenCPUPowerManagement::cpcWrite(const CpcValue &v, uint64_t value) {
+    if (!v.isRegister) return true;   // a constant needs no write
+    const PccSubspace &p = acpiCppc.pcc[v.reg.accessSize];
+    if (!p.shm || (uint32_t)v.reg.bitOffset + v.reg.bitWidth > 64) return false;
+    volatile uint8_t *addr = (volatile uint8_t *)(p.shm->getVirtualAddress() + 8 + v.reg.address);
+    const uint64_t mask = (v.reg.bitWidth >= 64 ? ~0ULL : ((1ULL << v.reg.bitWidth) - 1)) << v.reg.bitOffset;
+    switch (cpcContainerBytes(v.reg)) {
+        case 1:  *addr = (uint8_t)((*addr & ~mask) | ((value << v.reg.bitOffset) & mask)); break;
+        case 2:  *(volatile uint16_t *)addr = (uint16_t)((*(volatile uint16_t *)addr & ~mask) | ((value << v.reg.bitOffset) & mask)); break;
+        case 4:  *(volatile uint32_t *)addr = (uint32_t)((*(volatile uint32_t *)addr & ~mask) | ((value << v.reg.bitOffset) & mask)); break;
+        default: *(volatile uint64_t *)addr = (*(volatile uint64_t *)addr & ~mask) | ((value << v.reg.bitOffset) & mask); break;
+    }
+    return true;
+}
+
+// Autonomous mode through PCC, like amd-pstate shared memory mode: read the
+// capabilities, then for every CPU min = lowest, max = highest, desired = 0
+// (autonomous), autonomous selection and CPPC enable on, EPP; one WRITE
+// command per subspace carries all of them.
+bool AMDRyzenCPUPowerManagement::applyEPPPcc(uint8_t epp) {
+    if (!acpiCppc.supported) return false;
+
+    for (uint32_t id = 0; id < kPccMaxSubspaces; id++) {
+        if (acpiCppc.pcc[id].present && !pccCommand(acpiCppc.pcc[id], 0x00)) {
+            IOLog("AMDRyzenCPUPowerManagement: PCC read on subspace %u failed (status 0x%X)\n",
+                  id, acpiCppc.lastStatus);
+            return false;
+        }
+    }
+
+    for (uint32_t cpu = 0; cpu < CPUInfo::MaxCpus; cpu++) {
+        const CpcValue *c = acpiCppc.cpc[cpu];
+        if (!c[kSlotEpp].isRegister) continue;   // no _CPC for this index
+        uint64_t highest = 0, lowest = 0;
+        if (!cpcRead(c[kSlotHighest], highest) || !cpcRead(c[kSlotLowest], lowest) ||
+            highest == 0 || lowest == 0 || lowest > highest) {
+            IOLog("AMDRyzenCPUPowerManagement: CPU %u has no usable CPPC range (%llu..%llu)\n",
+                  cpu, lowest, highest);
+            return false;
+        }
+        cpcWrite(c[kSlotMin], lowest);
+        cpcWrite(c[kSlotMax], highest);
+        cpcWrite(c[kSlotDesired], 0);       // autonomous
+        cpcWrite(c[kSlotEnable], 1);
+        cpcWrite(c[kSlotAutoSel], 1);
+        cpcWrite(c[kSlotEpp], epp);
+    }
+    __sync_synchronize();
+
+    for (uint32_t id = 0; id < kPccMaxSubspaces; id++) {
+        if (acpiCppc.pcc[id].present && !pccCommand(acpiCppc.pcc[id], 0x01)) {
+            IOLog("AMDRyzenCPUPowerManagement: PCC write on subspace %u failed (status 0x%X)\n",
+                  id, acpiCppc.lastStatus);
+            return false;
+        }
+    }
+    cppcEngaged = true;
+    return true;
 }
 
 void AMDRyzenCPUPowerManagement::setCPBState(bool enabled){
@@ -2805,10 +3144,11 @@ void AMDRyzenCPUPowerManagement::reinitHwState() {
     // runs; the app then sends the EPP it wants. The first tick applies it.
     // On wake the flag keeps whatever the app last chose.
     if (!serviceInitialized && checkKernelArgument("-amdcppcactive")) {
-        cppcActiveMode = cppcMsrSupported;
+        cppcActiveMode = cppcEppSupported();
     }
-    IOLog("AMDRyzenCPUPowerManagement::reinitHwState: MSR CPPC %s, active mode %s\n",
-          cppcMsrSupported ? "available" : "unavailable", cppcActiveMode ? "on" : "off");
+    IOLog("AMDRyzenCPUPowerManagement::reinitHwState: MSR CPPC %s, ACPI CPPC %s, active mode %s\n",
+          cppcMsrSupported ? "available" : "unavailable", acpiCppc.supported ? "available" : "unavailable",
+          cppcActiveMode ? "on" : "off");
 
     uint64_t rapl = 0;
     if (read_msr(kMSR_RAPL_PWR_UNIT, &rapl)) {

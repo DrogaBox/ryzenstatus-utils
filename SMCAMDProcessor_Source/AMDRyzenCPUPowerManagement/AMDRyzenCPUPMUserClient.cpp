@@ -838,7 +838,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             if (provider->smuBoostLimitSupported()) caps |= 1ULL << 9;
             if (provider->smuPmTableSupported())    caps |= 1ULL << 10;
             if (provider->c6IdleSupported())        caps |= 1ULL << 11;
-            if (provider->cppcMsrSupported)         caps |= 1ULL << 12;
+            if (provider->cppcEppSupported())       caps |= 1ULL << 12;
             const uint64_t report[] = {
                 caps,
                 provider->ocVidCache,
@@ -851,6 +851,92 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             for (uint32_t i = 0; i < arguments->scalarOutputCount; i++) {
                 arguments->scalarOutput[i] = report[i];
             }
+            break;
+        }
+
+        // ACPI CPPC discovery report (read-only, no privilege, kext 3.40.0+).
+        // Structure output, little-endian uint32 words:
+        //   [0] supported, [1] error (AcpiCppcError), [2] CPUs with _CPC,
+        //   [3] _CPC revision, [4] last PCC result, [5] last channel status,
+        //   [6] MSR CPPC present;
+        //   then for the first CPU with a _CPC, per used entry (highest,
+        //   nominal, lowest non-linear, lowest, desired, min, max, enable,
+        //   autonomous selection, EPP): isRegister, space, bitWidth|bitOffset<<8,
+        //   subspace, offset (low 32 bits), integer value (low 32 bits);
+        //   then per subspace 0..7: present, type, base low, base high,
+        //   length, doorbell space, doorbell address low, latency us.
+        case 63: {
+            arguments->scalarOutputCount = 0;
+            const auto &a = provider->acpiCppc;
+            const uint32_t words = 7 + provider->kCpcUsedCount * 6 + provider->kPccMaxSubspaces * 8;
+            const uint32_t required = words * (uint32_t)sizeof(uint32_t);
+            if (arguments->structureOutputSize < required || !arguments->structureOutput)
+                return kIOReturnBadArgument;
+            arguments->structureOutputSize = required;
+            uint32_t *out = (uint32_t *)arguments->structureOutput;
+            uint32_t w = 0;
+            out[w++] = a.supported ? 1 : 0;
+            out[w++] = a.error;
+            out[w++] = a.cpuCount;
+            out[w++] = a.cpcRevision;
+            out[w++] = (uint32_t)a.lastResult;
+            out[w++] = a.lastStatus;
+            out[w++] = provider->cppcMsrSupported ? 1 : 0;
+            uint32_t first = 0;
+            while (first < CPUInfo::MaxCpus && !a.cpc[first][provider->kSlotEpp].isRegister) first++;
+            for (uint32_t i = 0; i < provider->kCpcUsedCount; i++) {
+                const auto *v = first < CPUInfo::MaxCpus ? &a.cpc[first][i] : nullptr;
+                out[w++] = (v && v->isRegister) ? 1 : 0;
+                out[w++] = v ? v->reg.space : 0;
+                out[w++] = v ? (uint32_t)v->reg.bitWidth | ((uint32_t)v->reg.bitOffset << 8) : 0;
+                out[w++] = v ? v->reg.accessSize : 0;
+                out[w++] = v ? (uint32_t)v->reg.address : 0;
+                out[w++] = v ? (uint32_t)v->integer : 0;
+            }
+            for (uint32_t id = 0; id < provider->kPccMaxSubspaces; id++) {
+                const auto &p = a.pcc[id];
+                out[w++] = p.present ? 1 : 0;
+                out[w++] = p.type;
+                out[w++] = (uint32_t)p.base;
+                out[w++] = (uint32_t)(p.base >> 32);
+                out[w++] = (uint32_t)p.length;
+                out[w++] = p.doorbell.space;
+                out[w++] = (uint32_t)p.doorbell.address;
+                out[w++] = p.latencyUs;
+            }
+            break;
+        }
+
+        // ACPI CPPC capability read (privileged: it rings the PCC doorbell,
+        // kext 3.40.0+). Sends one PCC READ on every used subspace and
+        // returns, for the first CPU with a _CPC: [0] highest, [1] nominal,
+        // [2] lowest non-linear, [3] lowest, [4] EPP register value,
+        // [5] channel status. Changes no setting.
+        case 64: {
+            if (!hasPrivilege(64)) return kIOReturnNotPrivileged;
+            if (!provider->acpiCppc.supported) return kIOReturnUnsupported;
+            auto &a = provider->acpiCppc;
+            uint32_t first = 0;
+            while (first < CPUInfo::MaxCpus && !a.cpc[first][provider->kSlotEpp].isRegister) first++;
+            if (first >= CPUInfo::MaxCpus) return kIOReturnUnsupported;
+
+            if (provider->controlLock) IOLockLock(provider->controlLock);
+            bool ok = true;
+            for (uint32_t id = 0; id < provider->kPccMaxSubspaces && ok; id++) {
+                if (a.pcc[id].present) ok = provider->pccCommand(a.pcc[id], 0x00);
+            }
+            uint64_t values[5] = {};
+            const uint8_t slots[5] = { provider->kSlotHighest, provider->kSlotNominal,
+                                       provider->kSlotLowestNonlinear, provider->kSlotLowest,
+                                       provider->kSlotEpp };
+            for (uint32_t i = 0; i < 5 && ok; i++) ok = provider->cpcRead(a.cpc[first][slots[i]], values[i]);
+            if (provider->controlLock) IOLockUnlock(provider->controlLock);
+            if (!ok) return kIOReturnTimeout;
+
+            const uint64_t report[] = { values[0], values[1], values[2], values[3], values[4], a.lastStatus };
+            const uint32_t count = (uint32_t)(sizeof(report) / sizeof(report[0]));
+            if (arguments->scalarOutputCount > count) arguments->scalarOutputCount = count;
+            for (uint32_t i = 0; i < arguments->scalarOutputCount; i++) arguments->scalarOutput[i] = report[i];
             break;
         }
 
@@ -932,7 +1018,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             if (arguments->scalarInputCount != 1)
                 return kIOReturnBadArgument;
 
-            if (!provider->cppcMsrSupported)
+            if (!provider->cppcEppSupported())
                 return kIOReturnUnsupported;
 
             // controlLock protects cppcActiveMode + applyEPPControl as an atomic
@@ -955,7 +1041,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             if (arguments->scalarInputCount != 1)
                 return kIOReturnBadArgument;
 
-            if (!provider->cppcMsrSupported)
+            if (!provider->cppcEppSupported())
                 return kIOReturnUnsupported;
             if (arguments->scalarInput[0] > 0xFF)
                 return kIOReturnBadArgument;
@@ -1012,7 +1098,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 if (provider->pmDispatchAllowed)    flags |= (1ULL << 0);
                 if (provider->legacyPstateAllowed)  flags |= (1ULL << 1);
                 if (provider->supportsCPPC)         flags |= (1ULL << 2);
-                if (provider->cppcMsrSupported)     flags |= (1ULL << 3);
+                if (provider->cppcEppSupported())  flags |= (1ULL << 3);
                 if (provider->c6IdleSupported())    flags |= (1ULL << 4);
                 memcpy(dataOut + nameSize, &flags, flagsSize);
             }

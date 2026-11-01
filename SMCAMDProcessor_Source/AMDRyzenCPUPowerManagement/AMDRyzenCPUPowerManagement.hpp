@@ -314,6 +314,74 @@ public:
     /// CPUID 8000_0008h EBX[27]: CPPC is driven through MSRs, so EPP can be
     /// programmed. Without it CPPC lives in ACPI shared memory only.
     bool cppcMsrSupported {false};
+    /// EPP reaches the CPU through MSRs or through ACPI CPPC (PCC).
+    bool cppcEppSupported() const { return cppcMsrSupported || acpiCppc.supported; }
+
+    // ACPI CPPC over PCC shared memory (Linux amd-pstate "shared memory"
+    // mode): each processor's _CPC names registers in a PCC subspace of the
+    // PCCT. Used when the CPPC MSRs are missing (Ryzen 5000 desktop, among
+    // others). Discovered once at start; selector 63 reports what was found.
+    struct AcpiGas {
+        uint8_t  space;       // 0 memory, 1 IO, 0x0A PCC, 0x7F FFH
+        uint8_t  bitWidth;
+        uint8_t  bitOffset;
+        uint8_t  accessSize;  // PCC: subspace index
+        uint64_t address;     // PCC: offset after the 8-byte channel header
+    };
+    struct CpcValue {
+        bool     isRegister;
+        uint64_t integer;     // when !isRegister
+        AcpiGas  reg;
+    };
+    // The _CPC package entries this driver uses (ACPI 6.x, 8.4.6.1).
+    enum CpcIndex : uint8_t {
+        kCpcHighest = 2, kCpcNominal = 3, kCpcLowestNonlinear = 4, kCpcLowest = 5,
+        kCpcDesired = 7, kCpcMin = 8, kCpcMax = 9, kCpcEnable = 16, kCpcAutoSel = 17,
+        kCpcEpp = 19,
+    };
+    static constexpr uint8_t kCpcUsed[] = { kCpcHighest, kCpcNominal, kCpcLowestNonlinear, kCpcLowest,
+                                            kCpcDesired, kCpcMin, kCpcMax, kCpcEnable, kCpcAutoSel, kCpcEpp };
+    static constexpr uint32_t kCpcUsedCount = sizeof(kCpcUsed);
+    // Positions in kCpcUsed (and in AcpiCppcState::cpc[cpu]).
+    enum CpcSlot : uint8_t {
+        kSlotHighest, kSlotNominal, kSlotLowestNonlinear, kSlotLowest, kSlotDesired,
+        kSlotMin, kSlotMax, kSlotEnable, kSlotAutoSel, kSlotEpp,
+    };
+    static constexpr uint32_t kPccMaxSubspaces = 8;
+    struct PccSubspace {
+        bool          present;
+        uint8_t       type;           // PCCT subspace type 0, 1 or 2
+        uint64_t      base, length;   // shared memory
+        AcpiGas       doorbell;
+        uint64_t      preserve, write;
+        uint32_t      latencyUs;      // nominal latency
+        uint16_t      turnaroundUs;   // minimum request turnaround
+        IOMemoryMap  *shm;
+        IOMemoryMap  *doorbellMap;    // when the doorbell is in memory
+        uint64_t      lastCmdNs;
+    };
+    struct AcpiCppcState {
+        bool        supported;
+        uint8_t     error;            // 0 ok, else AcpiCppcError
+        uint32_t    cpuCount;         // processors with a usable _CPC
+        uint32_t    cpcRevision;
+        CpcValue    cpc[CPUInfo::MaxCpus][kCpcUsedCount];
+        PccSubspace pcc[kPccMaxSubspaces];
+        uint16_t    lastStatus;       // channel status after the last command
+        int32_t     lastResult;       // 0 ok, -1 timeout, -2 error bit, -3 not ready
+    } acpiCppc {};
+    enum AcpiCppcError : uint8_t {
+        kAcpiCppcOk = 0, kAcpiCppcNoPlane, kAcpiCppcNoCpc, kAcpiCppcBadCpc,
+        kAcpiCppcNotPcc, kAcpiCppcNoPcct, kAcpiCppcBadPcct, kAcpiCppcMapFailed,
+        kAcpiCppcCountMismatch,
+    };
+    void discoverAcpiCppc(IOService *provider);
+    void releaseAcpiCppc();
+    bool pccCommand(PccSubspace &ss, uint16_t command);
+    bool cpcRead(const CpcValue &v, uint64_t &out);
+    bool cpcWrite(const CpcValue &v, uint64_t value);
+    bool applyEPPPcc(uint8_t epp);
+    bool applyEPPMsr(uint8_t epp);
     /// Wanted: CPPC autonomous mode with cppcEPPValue (selector 24/25 or
     /// the -amdcppcactive boot-arg).
     bool cppcActiveMode {false};
