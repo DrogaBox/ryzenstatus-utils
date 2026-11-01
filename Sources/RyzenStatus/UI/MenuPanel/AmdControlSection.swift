@@ -435,7 +435,7 @@ struct AmdControlSection: View {
                                     .font(.system(size: 12))
                                     .toggleStyle(SwitchToggleStyle(tint: .orange))
                                     // Auto EPP switches boost while it is on.
-                                    .disabled(gaming.isActive || (autoEpp.isActive && autoEpp.controlsCPB))
+                                    .disabled(gaming.isActive)
                             }
                         }
 
@@ -541,7 +541,7 @@ struct AmdControlSection: View {
     // MARK: - Power Presets (menu panel)
 
     private func presetButton(_ preset: AMDPowerPreset) -> some View {
-        let isSelected = presetCtrl.selectedPreset == preset
+        let isSelected = presetCtrl.shownPreset == preset
         return Button {
             presetCtrl.apply(preset)
             Task { await controls.syncFromKext() }

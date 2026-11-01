@@ -1,10 +1,17 @@
 # Changelog
 
+## [1.74.2] — 2026-11-01 — kexts 3.39.1 (No kext changes)
+
+### Fixed
+
+- **Auto EPP switches the power presets**: the Auto EPP thresholds now move the processor between the Eco, Balance and Performance presets, applying each one's boost and power limit settings: Eco below the idle threshold, Performance above the load threshold, Balance in between. The preset in use is highlighted while Auto EPP runs, and your own preset is shown again when you switch it off.
+- **Boost switch stays usable**: the Core Performance Boost switch is no longer locked while Auto EPP is on.
+
 ## [1.74.1] — 2026-11-01 — kexts 3.39.1
 
 ### Fixed
 
-- **Auto EPP cools an idle CPU again**: Auto EPP now also switches Core Performance Boost, off while the CPU is idle and back on as soon as there is work, which is what brings an idle processor down to base clock, base voltage and a much lower temperature. This works on every Ryzen with boost, including those whose energy preference macOS cannot reach. Switching Auto EPP off puts boost back to your own setting, and the boost switch is locked while Auto EPP drives it.
+- **Auto EPP cools an idle CPU again**: Auto EPP now also switches Core Performance Boost, off while the CPU is idle and back on as soon as there is work, which is what brings an idle processor down to base clock, base voltage and a much lower temperature. This works on every Ryzen with boost, including those whose energy preference macOS cannot reach. Switching Auto EPP off puts boost back to your own setting.
 - **Energy preference detection**: the driver now checks for the energy preference controls themselves instead of a CPU flag. On processors that do not expose them, such as Ryzen 5000 desktop chips, the energy profile still says it is not applied.
 
 ## [1.74.0] — 2026-11-01 — kexts 3.39.0

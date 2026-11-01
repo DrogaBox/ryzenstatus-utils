@@ -1444,6 +1444,13 @@ actor ProcessorModel {
     /// errors (`kIOReturnNotPrivilegedCode`) per feature.
     func applyPowerPreset(_ preset: AMDPowerPreset) -> AMDPowerPresetApplyResult {
         let epp = setCPPCEPPValue(epp: preset.eppValue)
+        let limits = applyPresetLimits(preset)
+        return AMDPowerPresetApplyResult(epp: epp, cpb: limits.cpb, ppm: limits.ppm, lpm: limits.lpm)
+    }
+
+    /// A preset's boost and PPM/LPM without its EPP: what Auto EPP applies
+    /// when its thresholds move the CPU to another preset.
+    func applyPresetLimits(_ preset: AMDPowerPreset) -> (cpb: kern_return_t, ppm: kern_return_t, lpm: kern_return_t) {
         let cpb = setCPB(enabled: preset.cpbEnabled)
 
         // PPM (selector 14) and LPM (selector 19) share the kext's
@@ -1457,8 +1464,7 @@ actor ProcessorModel {
             lpm = setLPM(enabled: false)   // enforce exclusivity
             ppm = setPPM(enabled: preset.ppmEnabled)
         }
-
-        return AMDPowerPresetApplyResult(epp: epp, cpb: cpb, ppm: ppm, lpm: lpm)
+        return (cpb, ppm, lpm)
     }
 
     nonisolated func getInstructionDelta() -> [UInt64]{

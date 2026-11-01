@@ -563,7 +563,7 @@ struct AmdPowerSettingsView: View {
                             set: { controls.setCPB($0) }
                         ))
                         // Auto EPP switches boost while it is on.
-                        .disabled(gaming.isActive || (autoEpp.isActive && autoEpp.controlsCPB))
+                        .disabled(gaming.isActive)
                     }
 
                     Toggle(l10n.amdPower.ppmToggle, isOn: Binding(
@@ -947,7 +947,7 @@ struct AmdPowerSettingsView: View {
     // MARK: - Power Presets
 
     private func presetCard(_ preset: AMDPowerPreset) -> some View {
-        let isSelected = presetCtrl.selectedPreset == preset
+        let isSelected = presetCtrl.shownPreset == preset
         return Button {
             applyPreset(preset)
         } label: {

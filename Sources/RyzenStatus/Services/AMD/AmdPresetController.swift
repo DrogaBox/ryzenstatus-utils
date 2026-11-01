@@ -26,6 +26,14 @@ final class AmdPresetController: ObservableObject {
     /// The preset currently applied (nil = none applied yet this session).
     @Published private(set) var selectedPreset: AMDPowerPreset? = AMDPowerPreset.saved()
 
+    /// The preset Auto EPP's thresholds have applied, nil while Auto EPP is
+    /// not switching presets. Shown in place of `selectedPreset` without
+    /// replacing it, so the user's own preset is still there afterwards.
+    @Published private(set) var autoPreset: AMDPowerPreset?
+
+    /// The preset the views highlight.
+    var shownPreset: AMDPowerPreset? { autoPreset ?? selectedPreset }
+
     /// Non-nil when the last `apply` was denied by the kext (no root / no -amdpnopchk).
     @Published private(set) var privilegeMessage: String?
 
@@ -137,6 +145,12 @@ final class AmdPresetController: ObservableObject {
         // so the chain must keep pointing at it).
         if presetQueueSequence == sequence + 1 { presetQueueTail = nil }
         return result
+    }
+
+    /// Called by `AutoEppService` each poll with the preset it applied, and
+    /// with nil when it stops.
+    func showAutoPreset(_ preset: AMDPowerPreset?) {
+        if autoPreset != preset { autoPreset = preset }
     }
 
     /// Clears any stale privilege warning (called after the user dismisses it).

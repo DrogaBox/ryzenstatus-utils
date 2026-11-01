@@ -55,9 +55,9 @@ final class AutoEppService: ObservableObject {
     /// Used to skip redundant MSR writes. Not a 0xFF sentinel: 255 is the
     /// Power Save target, which a sentinel would have skipped forever.
     private var lastWrittenEPP: UInt8?
-    /// The boost state last written, nil when none has been since the last
-    /// reset (S3 or a manual change may have moved it).
-    private var lastWrittenCPB: Bool?
+    /// The preset whose boost and PPM/LPM were last written, nil when none
+    /// has been since the last reset (S3 or a manual change may have moved them).
+    private var lastWrittenPreset: AMDPowerPreset?
     /// The target in force and how many polls in a row asked for less
     /// performance than it (see `AutoEppPolicy.settle`).
     private var appliedTarget: AutoEppTarget?
@@ -100,7 +100,7 @@ final class AutoEppService: ObservableObject {
     /// user happened to change presets. nil means "never written".
     private func resetWriteSentinel() {
         lastWrittenEPP = nil
-        lastWrittenCPB = nil
+        lastWrittenPreset = nil
         appliedTarget = nil
         stepDownPolls = 0
     }
@@ -137,6 +137,7 @@ final class AutoEppService: ObservableObject {
     private func stopLoop() {
         pollTask?.cancel()
         pollTask = nil
+        AmdPresetController.shared.showAutoPreset(nil)
     }
 
     /// Stops the monitoring loop. Called on termination.
@@ -233,7 +234,7 @@ final class AutoEppService: ObservableObject {
             let restoreCPB = controlsCPB
             Task {
                 if restoreCPB {
-                    await AmdPowerControlsModel.shared.restoreManualCPB()
+                    await AmdPowerControlsModel.shared.restoreManualBoost()
                 }
                 if restoreEPP {
                     let res = await AmdPowerControlsModel.shared.restoreManualEPP(
@@ -294,7 +295,7 @@ final class AutoEppService: ObservableObject {
         appliedTarget = settled.target
         stepDownPolls = settled.pendingStepDownPolls
         let targetEPP = settled.target.epp
-        let targetCPB = settled.target.cpbEnabled
+        let targetPreset = settled.target.preset
         let targetName = settled.target.label
         let (writeEPP, writeCPB) = await MainActor.run { (self.writesTakeEffect, self.controlsCPB) }
 
@@ -310,12 +311,15 @@ final class AutoEppService: ObservableObject {
                 newPrivilegeDenied = true
             }
         }
-        if writeCPB, targetCPB != lastWrittenCPB {
-            let writeRes = await ProcessorModel.shared.setCPB(enabled: targetCPB)
-            if writeRes == KERN_SUCCESS {
+        if writeCPB, targetPreset != lastWrittenPreset {
+            let res = await ProcessorModel.shared.applyPresetLimits(targetPreset)
+            let statuses = [res.cpb, res.ppm, res.lpm]
+            if statuses.allSatisfy({ $0 == KERN_SUCCESS }) {
                 newPrivilegeDenied = false
-                lastWrittenCPB = targetCPB
-            } else if writeRes == ProcessorModel.kIOReturnNotPrivilegedCode {
+                lastWrittenPreset = targetPreset
+                // The boost and PPM/LPM toggles show what the kext now holds.
+                Task { await AmdPowerControlsModel.shared.syncFromKext() }
+            } else if statuses.contains(ProcessorModel.kIOReturnNotPrivilegedCode) {
                 newPrivilegeDenied = true
             }
         }
@@ -324,9 +328,10 @@ final class AutoEppService: ObservableObject {
         // CPU on the last values written, or on none.
         let finalEPP = lastWrittenEPP
         let applied = (!writeEPP || lastWrittenEPP == targetEPP)
-            && (!writeCPB || lastWrittenCPB == targetCPB)
+            && (!writeCPB || lastWrittenPreset == targetPreset)
         let finalTarget = applied ? targetName : ""
         let finalPrivilegeDenied = newPrivilegeDenied
+        let shownPreset = writeCPB ? lastWrittenPreset : nil
 
         await MainActor.run {
             if self.isActive != enabled { self.isActive = enabled }
@@ -335,6 +340,8 @@ final class AutoEppService: ObservableObject {
             if self.currentTarget != finalTarget { self.currentTarget = finalTarget }
             if self.currentEPP != finalEPP { self.currentEPP = finalEPP }
             if self.privilegeDenied != finalPrivilegeDenied { self.privilegeDenied = finalPrivilegeDenied }
+            // A loop stopped while this poll ran has already cleared the preset.
+            if self.pollTask != nil { AmdPresetController.shared.showAutoPreset(shownPreset) }
         }
     }
 }
@@ -351,9 +358,18 @@ enum AutoEppTarget: Equatable {
         }
     }
 
-    /// Boost is off only at idle: base clock and voltage is what cools an
-    /// idle CPU, while any real work keeps the full boost clocks.
-    var cpbEnabled: Bool { self != .powerSave }
+    /// The power preset whose boost and PPM/LPM this target applies, so the
+    /// EPP thresholds move the CPU between Eco, Balance and Performance.
+    /// Eco turns boost off: base clock and voltage is what cools an idle CPU.
+    var preset: AMDPowerPreset {
+        switch self {
+        case .gpuPerformance, .performance: return .performance
+        case .gpuActive, .balanced: return .balance
+        case .powerSave: return .eco
+        }
+    }
+
+    var cpbEnabled: Bool { preset.cpbEnabled }
 
     /// The same names the manual EPP picker shows for these values.
     @MainActor

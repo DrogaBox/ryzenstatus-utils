@@ -186,13 +186,25 @@ final class AmdPowerControlsModel: ObservableObject {
         return res
     }
 
-    /// Puts boost back to the user's own choice (the toggle's last value,
-    /// on by default) when Auto EPP stops switching it.
-    func restoreManualCPB() async {
-        let enabled = UserDefaults.standard.object(forKey: DefaultsKey.amdCpbEnabled) as? Bool ?? true
+    /// Puts boost and PPM/LPM back to the user's own choices (the toggles'
+    /// last values, boost on by default) when Auto EPP stops switching them.
+    func restoreManualBoost() async {
+        let defaults = UserDefaults.standard
+        let cpb = defaults.object(forKey: DefaultsKey.amdCpbEnabled) as? Bool ?? true
+        let ppm = defaults.bool(forKey: DefaultsKey.amdPpmEnabled)
+        let lpm = defaults.bool(forKey: DefaultsKey.amdLpmEnabled)
         userWriteGeneration &+= 1
-        corePerformanceBoost = enabled
-        let res = await perform { await ProcessorModel.shared.setCPB(enabled: enabled) }
+        corePerformanceBoost = cpb
+        ppmEnabled = ppm
+        lpmEnabled = lpm
+        // PPM and LPM share one kext limit: switch the one going off first.
+        let res = await perform {
+            let model = ProcessorModel.shared
+            let cpbRes = await model.setCPB(enabled: cpb)
+            let offRes = lpm ? await model.setPPM(enabled: false) : await model.setLPM(enabled: false)
+            let onRes = lpm ? await model.setLPM(enabled: true) : await model.setPPM(enabled: ppm)
+            return [cpbRes, offRes, onRes].first { $0 != KERN_SUCCESS } ?? KERN_SUCCESS
+        }
         await reportWriteFailure(res)
     }
 

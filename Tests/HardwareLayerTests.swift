@@ -206,6 +206,12 @@ enum HardwareLayerTests {
                      && AutoEppTarget.gpuActive.cpbEnabled
                      && AutoEppTarget.gpuPerformance.cpbEnabled,
                      "Auto EPP turns boost off only at idle")
+        suite.expect(AutoEppTarget.powerSave.preset == .eco
+                     && AutoEppTarget.balanced.preset == .balance
+                     && AutoEppTarget.gpuActive.preset == .balance
+                     && AutoEppTarget.performance.preset == .performance
+                     && AutoEppTarget.gpuPerformance.preset == .performance,
+                     "the EPP thresholds pick Eco, Balance or Performance")
     }
 
     private static func pStateRoutes(_ suite: TestSuite) {
@@ -307,9 +313,18 @@ enum HardwareLayerTests {
                      && !setActive.contains("setCPPCActiveMode(active: false)")
                      && setActive.contains("restoreManualEPP"),
                      "switching Auto EPP off writes the manual EPP, never selector 24 = 0")
-        suite.expect(setActive.contains("restoreManualCPB()")
-                     && body(of: "poll", in: autoEpp).contains("setCPB(enabled: targetCPB)"),
-                     "Auto EPP switches boost with its target and hands it back when switched off")
+        suite.expect(setActive.contains("restoreManualBoost()")
+                     && body(of: "poll", in: autoEpp).contains("applyPresetLimits(targetPreset)")
+                     && body(of: "poll", in: autoEpp).contains("showAutoPreset(shownPreset)")
+                     && body(of: "stopLoop", in: autoEpp).contains("showAutoPreset(nil)"),
+                     "Auto EPP applies and shows its target's preset and hands boost back when switched off")
+        for view in ["Sources/RyzenStatus/UI/Settings/AmdPowerSettingsView.swift",
+                     "Sources/RyzenStatus/UI/MenuPanel/AmdControlSection.swift"] {
+            let text = source(view, suite)
+            suite.expect(text.contains("presetCtrl.shownPreset == preset")
+                         && !text.contains("autoEpp.isActive && autoEpp.controlsCPB"),
+                         "\(view) highlights Auto EPP's preset and keeps the boost toggle usable")
+        }
         suite.expect(model.contains("isLikelyStale, !self.probeConnection()"),
                      "a suspect handle is reopened only when the probe fails too")
         suite.expect(!model.contains("func setPState(def"), "the unused P-state definition write is gone")
