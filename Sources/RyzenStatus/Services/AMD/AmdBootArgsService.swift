@@ -8,16 +8,15 @@ import IOKit
 /// Read-only service that reads the current NVRAM `boot-args` and exposes
 /// the AMD kext parameter state. To change parameters, use the "Copy AMD
 /// Boot-Args" button and paste the string into your bootloader config.plist.
+/// CC6 idle is switched live (selector 61), not by boot argument.
 ///
 /// Parameters tracked (read-only):
-/// - `amdcstate=0`/`amdcstate=1`: Deep C-States (C6+)
 /// - `-amdcppcactive`: CPPC Energy Performance Preference Mode
 /// - `-amdpnopchk`: Root Privilege Check Bypass for Fan & EPP Controls
 @MainActor
-final class CStateNvramService: ObservableObject {
-    static let shared = CStateNvramService()
+final class AmdBootArgsService: ObservableObject {
+    static let shared = AmdBootArgsService()
 
-    @Published private(set) var isC6Enabled: Bool = false
     @Published private(set) var isCppcActiveEnabled: Bool = false
     @Published private(set) var isPnopchkEnabled: Bool = false
     @Published private(set) var currentBootArgs: String = ""
@@ -33,7 +32,6 @@ final class CStateNvramService: ObservableObject {
 
             await MainActor.run {
                 self.currentBootArgs = args
-                self.isC6Enabled = flags.c6Enabled
                 self.isCppcActiveEnabled = flags.cppcActive
                 self.isPnopchkEnabled = flags.pnopchk
             }
@@ -45,7 +43,6 @@ final class CStateNvramService: ObservableObject {
     /// never writes to NVRAM directly.
     var amdBootArgsString: String {
         Self.formatAmdBootArgs(
-            isC6Enabled: isC6Enabled,
             isCppcActiveEnabled: isCppcActiveEnabled,
             isPnopchkEnabled: isPnopchkEnabled
         )
@@ -53,14 +50,12 @@ final class CStateNvramService: ObservableObject {
 
     /// Pure formatter for AMD boot-args string generation.
     nonisolated static func formatAmdBootArgs(
-        isC6Enabled: Bool,
         isCppcActiveEnabled: Bool,
         isPnopchkEnabled: Bool
     ) -> String {
         var items: [String] = []
         if isCppcActiveEnabled { items.append("-amdcppcactive") }
         if isPnopchkEnabled    { items.append("-amdpnopchk") }
-        items.append(isC6Enabled ? "amdcstate=0" : "amdcstate=1")
         return items.joined(separator: " ")
     }
 
@@ -76,12 +71,11 @@ final class CStateNvramService: ObservableObject {
     // MARK: - Read Helpers
 
     /// The AMD kext arguments in a boot-args string, matched as whole
-    /// arguments: `-amdpnopchkx` or `amdcstate=01` are not these flags.
+    /// arguments: `-amdpnopchkx` is not `-amdpnopchk`.
     nonisolated static func amdFlags(inBootArgs args: String)
-        -> (c6Enabled: Bool, cppcActive: Bool, pnopchk: Bool) {
+        -> (cppcActive: Bool, pnopchk: Bool) {
         let arguments = Set(args.split(whereSeparator: \.isWhitespace).map(String.init))
-        return (arguments.contains("amdcstate=0"),
-                arguments.contains("-amdcppcactive"),
+        return (arguments.contains("-amdcppcactive"),
                 arguments.contains("-amdpnopchk"))
     }
 

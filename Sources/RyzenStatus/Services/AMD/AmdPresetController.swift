@@ -26,6 +26,22 @@ final class AmdPresetController: ObservableObject {
     /// The preset currently applied (nil = none applied yet this session).
     @Published private(set) var selectedPreset: AMDPowerPreset? = AMDPowerPreset.saved()
 
+    /// The user's own profiles, and the one last applied (nil when a preset is).
+    @Published private(set) var customProfiles: [AMDPowerProfile] = AmdSettingsStore.shared.customProfiles
+    @Published private(set) var selectedCustomName: String? = AmdSettingsStore.shared.customProfileName
+
+    /// ZenTune class of this CPU, which picks each preset's limits. Read from
+    /// the kext when it loads (`refreshPresetClass`).
+    @Published private(set) var presetClass: AMDPresetClass = .other
+
+    /// The preset Auto EPP's thresholds have applied, nil while Auto EPP is
+    /// not switching presets. Shown in place of `selectedPreset` without
+    /// replacing it, so the user's own preset is still there afterwards.
+    @Published private(set) var autoPreset: AMDPowerPreset?
+
+    /// The preset the views highlight.
+    var shownPreset: AMDPowerPreset? { autoPreset ?? selectedPreset }
+
     /// Non-nil when the last `apply` was denied by the kext (no root / no -amdpnopchk).
     @Published private(set) var privilegeMessage: String?
 
@@ -38,7 +54,7 @@ final class AmdPresetController: ObservableObject {
     /// of one preset never interleaves with another — otherwise a restore and
     /// a new activation running in separate Tasks could leave the persisted
     /// key and the kext on different presets (FIFO: last queued wins).
-    private var presetQueueTail: Task<AMDPowerPresetApplyResult, Never>?
+    private var presetQueueTail: Task<AMDPowerProfileApplyResult, Never>?
     /// Monotonic sequence for the tail bookkeeping — `Task` is a struct, so
     /// identity is tracked by sequence number instead of `===`.
     private var presetQueueSequence = 0
@@ -53,11 +69,36 @@ final class AmdPresetController: ObservableObject {
                 self?.selectedPreset = AMDPowerPreset.saved() ?? self?.selectedPreset
             }
             .store(in: &cancellables)
+        // S3 resets the SMU limits with the cores: put the saved choice back
+        // once the kext has re-initialised them (its first tick after wake).
+        NotificationCenter.default.publisher(for: NSWorkspace.didWakeNotification,
+                                             object: NSWorkspace.shared)
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    await self?.reapplySaved()
+                }
+            }
+            .store(in: &cancellables)
+    }
+    /// Puts the user's saved custom profile or preset back: after the kext
+    /// loads, which starts from firmware defaults, and after wake. Not while
+    /// Auto EPP or Gaming Mode own the power settings.
+    func reapplySaved() async {
+        guard !AmdSettingsStore.shared.autoEppEnabled,
+              !AmdSettingsStore.shared.gamingModeActive,
+              !GamingModeService.shared.isActive else { return }
+        if let name = selectedCustomName, let profile = customProfiles.first(where: { $0.name == name }) {
+            _ = await ProcessorModel.shared.applyPowerProfile(profile)
+        } else if let preset = AMDPowerPreset.saved() {
+            await withPresetTransaction(preset)
+        }
     }
 
     // MARK: - Public API
 
-    /// Applies `preset` to the kext: stops Auto EPP if active, writes EPP/CPB/PPM/LPM,
+    /// Applies `preset` to the kext: stops Auto EPP if active, writes the
+    /// preset's profile for this CPU (`AMDPowerPreset.profile(for:)`),
     /// persists the choice, and surfaces privilege errors.
     ///
     /// Called from both `AmdPowerSettingsView.presetCard` and `AmdControlSection.presetButton`.
@@ -70,14 +111,73 @@ final class AmdPresetController: ObservableObject {
         // cannot overwrite the preset's value (P2-fix: also resets lastWrittenEPP
         // sentinel, so the first Auto EPP write after re-enabling goes through).
         if AutoEppService.shared.isActive {
-            AutoEppService.shared.setCPPCActive(false)
+            AutoEppService.shared.setEnabled(false, restore: false)
         }
+        setSelectedCustom(nil)
 
-        Task {
-            await withPresetTransaction(preset) { preset in
-                await ProcessorModel.shared.applyPowerPreset(preset)
+        Task { await withPresetTransaction(preset) }
+    }
+
+    // MARK: - Custom profiles
+
+    /// Applies a custom profile the way `apply(_:)` applies a preset: Auto EPP
+    /// stops, the profile is written, and on success it becomes the one shown
+    /// as selected.
+    @discardableResult
+    func apply(custom profile: AMDPowerProfile) async -> AMDPowerProfileApplyResult {
+        if let epp = profile.epp { AmdSettingsStore.shared.manualEpp = epp }
+        if AutoEppService.shared.isActive {
+            AutoEppService.shared.setEnabled(false, restore: false)
+        }
+        let result = await ProcessorModel.shared.applyPowerProfile(profile)
+        if result.privilegeDenied {
+            privilegeMessage = result.firstFailureMessage
+        } else {
+            privilegeMessage = nil
+            AmdSettingsStore.shared.amdPowerPreset = nil
+            selectedPreset = nil
+            setSelectedCustom(profile.name)
+        }
+        return result
+    }
+
+    /// Adds `profile`, or replaces the one with the same name.
+    func save(custom profile: AMDPowerProfile) {
+        var list = customProfiles
+        if let index = list.firstIndex(where: { $0.name == profile.name }) {
+            list[index] = profile
+        } else {
+            list.append(profile)
+        }
+        storeCustom(list)
+    }
+
+    func deleteCustom(named name: String) {
+        storeCustom(customProfiles.filter { $0.name != name })
+        if selectedCustomName == name { setSelectedCustom(nil) }
+    }
+
+    /// Merges imported profiles by name; an imported one replaces a namesake.
+    func importCustom(_ profiles: [AMDPowerProfile]) {
+        var list = customProfiles
+        for profile in profiles {
+            if let index = list.firstIndex(where: { $0.name == profile.name }) {
+                list[index] = profile
+            } else {
+                list.append(profile)
             }
         }
+        storeCustom(list)
+    }
+
+    private func storeCustom(_ list: [AMDPowerProfile]) {
+        customProfiles = list
+        AmdSettingsStore.shared.customProfiles = list
+    }
+
+    private func setSelectedCustom(_ name: String?) {
+        selectedCustomName = name
+        AmdSettingsStore.shared.customProfileName = name
     }
 
     /// Applies a preset transactionally: the persisted `amdPowerPreset` key is
@@ -100,14 +200,11 @@ final class AmdPresetController: ObservableObject {
     ///   chain tasks await each other's values on the MainActor, so a nested
     ///   transaction would deadlock.
     @discardableResult
-    func withPresetTransaction(
-        _ preset: AMDPowerPreset,
-        apply: @escaping (AMDPowerPreset) async -> AMDPowerPresetApplyResult
-    ) async -> AMDPowerPresetApplyResult {
+    func withPresetTransaction(_ preset: AMDPowerPreset) async -> AMDPowerProfileApplyResult {
         let previous = presetQueueTail
         let sequence = presetQueueSequence
         presetQueueSequence += 1
-        let task = Task { [weak self] () -> AMDPowerPresetApplyResult in
+        let task = Task { [weak self] () -> AMDPowerProfileApplyResult in
             // Wait for the previous transaction to fully settle (key + kext)
             // before starting this one — this is the serialization point.
             _ = await previous?.value
@@ -116,7 +213,7 @@ final class AmdPresetController: ObservableObject {
             AmdSettingsStore.shared.amdPowerPreset = preset.rawValue
             self?.selectedPreset = preset
 
-            let result = await apply(preset)
+            let result = await ProcessorModel.shared.applyPreset(preset)
 
             if result.privilegeDenied {
                 // Roll back: the kext never accepted the preset, so the
@@ -137,6 +234,38 @@ final class AmdPresetController: ObservableObject {
         // so the chain must keep pointing at it).
         if presetQueueSequence == sequence + 1 { presetQueueTail = nil }
         return result
+    }
+
+    func refreshPresetClass() async {
+        let cpuClass = await ProcessorModel.shared.presetClass()
+        if presetClass != cpuClass { presetClass = cpuClass }
+    }
+
+    /// The profile the CPU should be running: Auto EPP's preset while it
+    /// drives, else the custom profile or the saved preset last applied.
+    func profileInForce() -> AMDPowerProfile? {
+        if let auto = autoPreset { return profile(for: auto) }
+        if let name = selectedCustomName, let custom = customProfiles.first(where: { $0.name == name }) {
+            return custom
+        }
+        return AMDPowerPreset.saved().map { profile(for: $0) }
+    }
+    /// Writes back the power limits of the profile in force, after the
+    /// adaptive limit has moved them.
+    func reapplyLimitsInForce() async {
+        guard let inForce = profileInForce(), inForce.pptW != nil else { return }
+        let limits = AMDPowerProfile(name: inForce.name, pptW: inForce.pptW, tdcA: inForce.tdcA, edcA: inForce.edcA)
+        _ = await ProcessorModel.shared.applyPowerProfile(limits)
+    }
+    /// The profile `preset` applies on this CPU.
+    func profile(for preset: AMDPowerPreset) -> AMDPowerProfile {
+        preset.profile(for: presetClass)
+    }
+
+    /// Called by `AutoEppService` each poll with the preset it applied, and
+    /// with nil when it stops.
+    func showAutoPreset(_ preset: AMDPowerPreset?) {
+        if autoPreset != preset { autoPreset = preset }
     }
 
     /// Clears any stale privilege warning (called after the user dismisses it).

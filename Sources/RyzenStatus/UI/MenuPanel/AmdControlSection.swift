@@ -414,14 +414,14 @@ struct AmdControlSection: View {
                                 Image(systemName: "cpu").foregroundColor(.cyan).frame(width: 20)
                                 Toggle(L10n.shared.amdPower.autoEppToggle, isOn: Binding(
                                     get: { autoEpp.isActive },
-                                    set: { autoEpp.setCPPCActive($0) }
+                                    set: { autoEpp.setEnabled($0) }
                                 ))
                                     .font(.system(size: 12))
                                     .toggleStyle(SwitchToggleStyle(tint: .cyan))
-                                    // Not switched on while the kext ignores
-                                    // EPP (the orange notice says so).
+                                    // Not switched on with neither EPP nor
+                                    // boost to drive.
                                     .disabled(gaming.isActive
-                                              || (!autoEpp.writesTakeEffect && !autoEpp.isActive))
+                                              || (!autoEpp.canRun && !autoEpp.isActive))
                             }
                         }
 
@@ -434,6 +434,7 @@ struct AmdControlSection: View {
                                 ))
                                     .font(.system(size: 12))
                                     .toggleStyle(SwitchToggleStyle(tint: .orange))
+                                    // Auto EPP switches boost while it is on.
                                     .disabled(gaming.isActive)
                             }
                         }
@@ -540,7 +541,7 @@ struct AmdControlSection: View {
     // MARK: - Power Presets (menu panel)
 
     private func presetButton(_ preset: AMDPowerPreset) -> some View {
-        let isSelected = presetCtrl.selectedPreset == preset
+        let isSelected = presetCtrl.shownPreset == preset
         return Button {
             presetCtrl.apply(preset)
             Task { await controls.syncFromKext() }

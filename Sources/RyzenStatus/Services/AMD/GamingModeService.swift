@@ -71,9 +71,9 @@ final class GamingModeService: ObservableObject {
         // Suspend Auto EPP poll loop so it cannot overwrite the Extreme preset
         // value during Gaming Mode. suspend() is idempotent and does not touch
         // UserDefaults, so the user's Auto EPP preference is preserved.
-        // NOTE: do NOT go through AmdPresetController.apply(_:) here — it calls
-        // setCPPCActive(false) when Auto EPP is on, which would permanently
-        // write autoEppEnabled=false to UserDefaults.
+        // NOTE: do NOT go through AmdPresetController.apply(_:) here — it
+        // switches Auto EPP off, which would write autoEppEnabled=false to
+        // UserDefaults for good.
         AutoEppService.shared.suspend()
 
         AmdSettingsStore.shared.gamingModeActive = true
@@ -99,9 +99,7 @@ final class GamingModeService: ObservableObject {
             // Transactional: the key is written before the kext write and rolled
             // back on privilege denial, so the persisted key always names what
             // the kext actually applied.
-            let result = await AmdPresetController.shared.withPresetTransaction(.extreme) { preset in
-                await ProcessorModel.shared.applyPowerPreset(preset)
-            }
+            let result = await AmdPresetController.shared.withPresetTransaction(.extreme)
             // A newer activate()/deactivate() superseded this one — do not
             // publish status from a stale activation.
             guard self.activationGeneration == generation else { return }
@@ -177,9 +175,7 @@ final class GamingModeService: ObservableObject {
                 // A newer activation may have started while this restore was
                 // queued — do not clobber its Extreme with the old profile.
                 guard self.activationGeneration == generation, !self.isActive else { return }
-                let restore = await AmdPresetController.shared.withPresetTransaction(self.restoredPreset) { preset in
-                    await ProcessorModel.shared.applyPowerPreset(preset)
-                }
+                let restore = await AmdPresetController.shared.withPresetTransaction(self.restoredPreset)
                 guard self.activationGeneration == generation, !self.isActive else { return }
                 // The snapshot has served its purpose — the user's preset is
                 // back where it belongs (or the restore failed visibly). Only

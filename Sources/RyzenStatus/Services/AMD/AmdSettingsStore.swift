@@ -46,6 +46,29 @@ public final class AmdSettingsStore: ObservableObject {
         set { defaults.set(newValue, forKey: DefaultsKey.gamingModeRestorePreset) }
     }
 
+    // MARK: - CC6 idle
+    /// CC6 idle wanted; the kext starts with it off, so it is put back when
+    /// the kext loads.
+    public var c6IdleEnabled: Bool {
+        get { defaults.bool(forKey: DefaultsKey.amdC6IdleEnabled) }
+        set { defaults.set(newValue, forKey: DefaultsKey.amdC6IdleEnabled) }
+    }
+    // MARK: - Custom power profiles
+
+    var customProfiles: [AMDPowerProfile] {
+        get {
+            guard let data = defaults.data(forKey: DefaultsKey.amdCustomProfiles) else { return [] }
+            return (try? JSONDecoder().decode([AMDPowerProfile].self, from: data)) ?? []
+        }
+        set { defaults.set(try? JSONEncoder().encode(newValue), forKey: DefaultsKey.amdCustomProfiles) }
+    }
+
+    /// The custom profile last applied, nil when a preset (or nothing) is.
+    public var customProfileName: String? {
+        get { defaults.string(forKey: DefaultsKey.amdCustomProfileName) }
+        set { defaults.set(newValue, forKey: DefaultsKey.amdCustomProfileName) }
+    }
+
     // MARK: - Presets Settings
 
     public var amdPowerPreset: String? {

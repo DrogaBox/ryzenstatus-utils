@@ -11,9 +11,8 @@ struct AmdOverclockingSettingsView: View {
     @ObservedObject private var controls = AmdPowerControlsModel.shared
     @ObservedObject private var l10n = L10n.shared
 
-    @State private var coGeneration = AMDCpuGeneration.unknown
-    @State private var coSupported = false
     @State private var coCoreCount = 16
+    @State private var coAllDraft: Double = 0
     @State private var curveOffsets: [Int8] = []
     /// The offsets the kext last reported, or nil when that read failed or
     /// was invalid: an unknown offset is never shown or written as 0.
@@ -28,7 +27,6 @@ struct AmdOverclockingSettingsView: View {
     @State private var coStatusMessage: String?
     @State private var coStatusIsError = false
 
-    @State private var pboSupported = false
     @State private var pboCacheMilli: (ppt: Int, tdc: Int, edc: Int)?
     @State private var pboScalarCacheX100: Int?
     @State private var pboPPTWatts: Double = 142
@@ -60,6 +58,15 @@ struct AmdOverclockingSettingsView: View {
 
     @State private var showCopiedToast = false
 
+    @State private var ocVoltageDraftMV: Double = 1250
+    @State private var boostLimitDraftMHz: Double = 4500
+    @State private var limitsSeeded = false
+    @State private var extraStatusMessage: String?
+    @State private var extraStatusIsError = false
+
+    /// What the kext accepts on this CPU (selector 62).
+    private var caps: AMDPowerCapabilities { controls.powerCapabilities }
+
     @AppStorage(DefaultsKey.curveOptimizerUnlocked) private var coUnlocked: Bool = false
     @AppStorage(DefaultsKey.pboUnlocked) private var pboUnlocked: Bool = false
     @AppStorage(DefaultsKey.pboLastPPTWatts) private var pboLastPPTWatts: Double = 142
@@ -79,12 +86,7 @@ struct AmdOverclockingSettingsView: View {
 
             // S8: OC Mode Master Switch (RSMU 0x5A/0x5B, selectors 49/50)
             Section {
-                if coGeneration.isZen4OrNewer {
-                    Label(l10n.amdPower.ocUnsupportedZen4, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if controls.ocSupported {
+                if caps.contains(.ocMode) {
                     HStack {
                         Text(l10n.amdPower.ocModeLabel)
                         Spacer()
@@ -134,10 +136,7 @@ struct AmdOverclockingSettingsView: View {
                         }
                     }
                 } else {
-                    Label(l10n.amdPower.ocUnsupportedVermeer, systemImage: "info.circle")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    unsupportedLabel
                 }
             } header: {
                 Text(l10n.amdPower.ocHeader)
@@ -147,60 +146,70 @@ struct AmdOverclockingSettingsView: View {
 
             // S4: Precision Boost Overdrive Limits + Scalar (selectors 36-42)
             Section {
-                if coGeneration.isZen4OrNewer {
-                    Label(l10n.amdPower.pboUnsupportedZen4, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if pboSupported {
+                if caps.hasPowerLimits || caps.contains(.pboScalar) {
                     Toggle(l10n.amdPower.pboUnlockToggle, isOn: $pboUnlocked)
                         .padding(.bottom, 4)
 
                     if pboUnlocked {
                         Group {
-                            pboLimitRow(title: l10n.amdPower.pboPPTLabel,
-                                        value: $pboPPTWatts,
-                                        range: 20...500,
-                                        step: 1,
-                                        unit: l10n.amdPower.pboUnitWatts,
-                                        format: "%0.0f")
-                            pboLimitRow(title: l10n.amdPower.pboTDCLabel,
-                                        value: $pboTDCAmps,
-                                        range: 5...500,
-                                        step: 1,
-                                        unit: l10n.amdPower.pboUnitAmps,
-                                        format: "%0.0f")
-                            pboLimitRow(title: l10n.amdPower.pboEDCLabel,
-                                        value: $pboEDCAmps,
-                                        range: 5...500,
-                                        step: 1,
-                                        unit: l10n.amdPower.pboUnitAmps,
-                                        format: "%0.0f")
-                            pboLimitRow(title: l10n.amdPower.pboScalarLabel,
-                                        value: $pboScalarTenths,
-                                        range: 10...100,
-                                        step: 1,
-                                        unit: l10n.amdPower.pboUnitScalar,
-                                        format: "%0.1f")
+                            if caps.hasPowerLimits {
+                                pboLimitRow(title: l10n.amdPower.pboPPTLabel,
+                                            value: $pboPPTWatts,
+                                            range: 5...500,
+                                            step: 1,
+                                            unit: l10n.amdPower.pboUnitWatts,
+                                            format: "%0.0f")
+                            }
+                            if caps.contains(.pptTdcEdcLimits) {
+                                pboLimitRow(title: l10n.amdPower.pboTDCLabel,
+                                            value: $pboTDCAmps,
+                                            range: 5...500,
+                                            step: 1,
+                                            unit: l10n.amdPower.pboUnitAmps,
+                                            format: "%0.0f")
+                                pboLimitRow(title: l10n.amdPower.pboEDCLabel,
+                                            value: $pboEDCAmps,
+                                            range: 5...500,
+                                            step: 1,
+                                            unit: l10n.amdPower.pboUnitAmps,
+                                            format: "%0.0f")
+                            } else if caps.contains(.apuPowerLimit) {
+                                Text(l10n.amdPower.apuPowerLimitNote)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            if caps.contains(.pboScalar) {
+                                pboLimitRow(title: l10n.amdPower.pboScalarLabel,
+                                            value: $pboScalarTenths,
+                                            range: 10...100,
+                                            step: 1,
+                                            unit: l10n.amdPower.pboUnitScalar,
+                                            format: "%0.1f")
+                            }
                         }
                         .padding(.vertical, 2)
 
                         HStack(spacing: 10) {
-                            Button {
-                                Task { await applyPBOLimits() }
-                            } label: {
-                                Label(l10n.amdPower.pboApplyLimits, systemImage: "bolt.fill")
+                            if caps.hasPowerLimits {
+                                Button {
+                                    Task { await applyPBOLimits() }
+                                } label: {
+                                    Label(l10n.amdPower.pboApplyLimits, systemImage: "bolt.fill")
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(controls.isWriting)
                             }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(controls.isWriting)
 
-                            Button {
-                                Task { await applyPBOScalar() }
-                            } label: {
-                                Label(l10n.amdPower.pboApplyScalar, systemImage: "gauge.with.needle")
+                            if caps.contains(.pboScalar) {
+                                Button {
+                                    Task { await applyPBOScalar() }
+                                } label: {
+                                    Label(l10n.amdPower.pboApplyScalar, systemImage: "gauge.with.needle")
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(controls.isWriting)
                             }
-                            .buttonStyle(.bordered)
-                            .disabled(controls.isWriting)
 
                             Spacer()
 
@@ -234,10 +243,7 @@ struct AmdOverclockingSettingsView: View {
                         }
                     }
                 } else {
-                    Label(l10n.amdPower.pboDisabledLegacy, systemImage: "info.circle")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    unsupportedLabel
                 }
             } header: {
                 Text(l10n.amdPower.pboHeader)
@@ -301,12 +307,7 @@ struct AmdOverclockingSettingsView: View {
 
             // S6: cHTC Thermal Limit (SMU 0x56) + Fused Capability Bits (0x6F)
             Section {
-                if coGeneration.isZen4OrNewer {
-                    Label(l10n.amdPower.chtcUnsupportedZen4, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if pboSupported {
+                if caps.contains(.chtcLimit) {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Text(l10n.amdPower.chtcSliderLabel)
@@ -361,10 +362,7 @@ struct AmdOverclockingSettingsView: View {
                         }
                     }
                 } else {
-                    Label(l10n.amdPower.chtcUnsupportedVermeer, systemImage: "info.circle")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    unsupportedLabel
                 }
             } header: {
                 Text(l10n.amdPower.chtcHeader)
@@ -374,16 +372,15 @@ struct AmdOverclockingSettingsView: View {
 
             // AMD Curve Optimizer — per-core offsets (selectors 110/111)
             Section {
-                if coGeneration.isZen4OrNewer {
-                    Label(l10n.amdPower.coUnsupportedZen4, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if coSupported {
+                if caps.contains(.coPerCore) || caps.contains(.coAllCores) {
                     Toggle(l10n.amdPower.coUnlockToggle, isOn: $coUnlocked)
                         .padding(.bottom, 4)
 
-                    if coUnlocked {
+                    if coUnlocked && caps.contains(.coAllCores) {
+                        curveOptimizerAllRow
+                    }
+
+                    if coUnlocked && caps.contains(.coPerCore) {
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                             ForEach(0..<coCoreCount, id: \.self) { core in
                                 curveOptimizerCell(core)
@@ -419,10 +416,7 @@ struct AmdOverclockingSettingsView: View {
                         }
                     }
                 } else {
-                    Label(l10n.amdPower.coDisabledLegacy, systemImage: "info.circle")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    unsupportedLabel
                 }
             } header: {
                 Text(l10n.amdPower.coHeader)
@@ -432,13 +426,8 @@ struct AmdOverclockingSettingsView: View {
 
             // S8.2: Frequency Overrides (0x5C/0x5D)
             Section {
-                if coGeneration.isZen4OrNewer {
-                    Label(l10n.amdPower.ocUnsupportedZen4, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if controls.ocFreqSupported,
-                          AMDOcMode.from(code: controls.ocModeCode) == .enabled {
+                if controls.ocFreqSupported,
+                   AMDOcMode.from(code: controls.ocModeCode) == .enabled {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Text(l10n.amdPower.ocFreqAllCoreLabel)
@@ -463,7 +452,7 @@ struct AmdOverclockingSettingsView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(controls.isWriting)
 
-                    ForEach(0..<controls.kextCcdCount, id: \.self) { ccd in
+                    ForEach(0..<(caps.contains(.ocPerCcd) ? controls.kextCcdCount : 0), id: \.self) { ccd in
                         if ccd < ocFreqPerCcdDrafts.count {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
@@ -490,6 +479,10 @@ struct AmdOverclockingSettingsView: View {
                         }
                     }
 
+                    if caps.contains(.ocVid) {
+                        ocVoltageRow
+                    }
+
                     if let message = ocFreqStatusMessage {
                         Text(message)
                             .font(.caption2)
@@ -509,15 +502,25 @@ struct AmdOverclockingSettingsView: View {
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    Label(l10n.amdPower.ocUnsupportedVermeer, systemImage: "info.circle")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    unsupportedLabel
                 }
             } header: {
                 Text(l10n.amdPower.ocFreqHeader)
             } footer: {
                 Text(l10n.amdPower.ocFreqFooter)
+            }
+
+            // Boost ceiling (MP1 set-boost-limit-frequency, selector 67)
+            Section {
+                if caps.contains(.boostLimit) {
+                    boostLimitRow
+                } else {
+                    unsupportedLabel
+                }
+            } header: {
+                Text(l10n.amdPower.boostLimitHeader)
+            } footer: {
+                Text(l10n.amdPower.boostLimitFooter)
             }
 
             // Diagnostics: Copy SMU Mailbox Diagnostics bundle for troubleshooting
@@ -581,19 +584,19 @@ struct AmdOverclockingSettingsView: View {
 
     private func seedState() {
         Task {
-            let family = await ProcessorModel.shared.cpuFamily
-            let model = await ProcessorModel.shared.cpuModel
             let physicalCores = await ProcessorModel.shared.physicalCoreCount
-
-            coGeneration = AMDCpuGeneration.classify(family: family, model: model)
-            // Capability reads are kext IPC: off the main thread.
-            let (coCapability, pboCapability) = await Task.detached(priority: .userInitiated) {
-                (ProcessorModel.shared.getCurveOptimizerCapability()?.supported,
-                 ProcessorModel.shared.getPBOCapability()?.supported)
-            }.value
-            coSupported = coCapability ?? AMDCurveOptimizer.supported(family: family, model: model)
             coCoreCount = physicalCores > 0 ? min(physicalCores, 32) : 16
-            pboSupported = pboCapability ?? AMDPBOLimits.supported(family: family, model: model)
+            await controls.syncFromKext()
+            if !limitsSeeded, let state = controls.powerControlState {
+                coAllDraft = Double(state.curveOptimizerAll ?? 0)
+                if let vid = state.ocVid { ocVoltageDraftMV = Double(AMDOcVoltage.millivolts(vid: vid)) }
+                if let mhz = state.boostLimitMHz {
+                    boostLimitDraftMHz = Double(mhz)
+                } else if controls.maxBoostFreqMHz > 0 {
+                    boostLimitDraftMHz = Double(controls.maxBoostFreqMHz)
+                }
+                limitsSeeded = true
+            }
 
             // The sliders seed from the readbacks, so they are awaited first.
             await reloadCurveOffsets()
@@ -623,6 +626,97 @@ struct AmdOverclockingSettingsView: View {
                     return mhz > 0 ? Double(mhz) : (allCached > 0 ? Double(allCached) : 4000)
                 }
                 ocFreqSeeded = true
+            }
+        }
+    }
+
+    private var unsupportedLabel: some View {
+        Label(l10n.amdPower.smuSettingUnsupported, systemImage: "info.circle")
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    // MARK: - All-core Curve Optimizer, OC voltage, boost ceiling
+
+    private var curveOptimizerAllRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(l10n.amdPower.coAllLabel)
+                    .font(.caption)
+                Spacer()
+                Text(String(format: "%+d", Int(coAllDraft)))
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundColor(curveOffsetColor(Int8(coAllDraft)))
+            }
+            Slider(value: $coAllDraft,
+                   in: Double(AMDCurveOptimizer.minOffset)...Double(AMDCurveOptimizer.maxOffset),
+                   step: 1)
+                .labelsHidden()
+            Button {
+                controls.setCurveOptimizerAll(AMDCurveOptimizer.clamp(Int(coAllDraft)))
+                Task { await reloadCurveOffsets() }
+            } label: {
+                Label(l10n.amdPower.coAllApply, systemImage: "bolt.fill")
+            }
+            .buttonStyle(.bordered)
+            .disabled(controls.isWriting)
+        }
+        .padding(.bottom, 6)
+    }
+
+    private var ocVoltageRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(l10n.amdPower.ocVoltageLabel)
+                    .font(.caption)
+                Spacer()
+                Text(String(format: "%.3f V", ocVoltageDraftMV / 1000))
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+            }
+            Slider(value: $ocVoltageDraftMV,
+                   in: Double(AMDOcVoltage.millivoltRange.lowerBound)...Double(AMDOcVoltage.millivoltRange.upperBound),
+                   step: 6.25)
+                .labelsHidden()
+            Button {
+                controls.setOcVoltage(millivolts: Int(ocVoltageDraftMV.rounded()))
+            } label: {
+                Label(l10n.amdPower.ocVoltageApply, systemImage: "bolt.horizontal")
+            }
+            .buttonStyle(.bordered)
+            .disabled(controls.isWriting)
+            Text(l10n.amdPower.ocVoltageCaption)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 4)
+    }
+
+    private var boostLimitRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(l10n.amdPower.boostLimitLabel)
+                    .font(.caption)
+                Spacer()
+                Text("\(Int(boostLimitDraftMHz)) MHz")
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+            }
+            Slider(value: $boostLimitDraftMHz,
+                   in: Double(AMDOcFreq.minMHz)...Double(AMDOcFreq.maxMHz),
+                   step: 25)
+                .labelsHidden()
+            Button {
+                controls.setBoostLimit(mhz: UInt32(boostLimitDraftMHz))
+            } label: {
+                Label(l10n.amdPower.boostLimitApply, systemImage: "gauge.with.dots.needle.67percent")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(controls.isWriting)
+            if let applied = controls.powerControlState?.boostLimitMHz {
+                Text("\(applied) MHz")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
         }
     }

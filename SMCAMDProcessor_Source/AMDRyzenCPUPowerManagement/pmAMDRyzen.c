@@ -8,6 +8,7 @@
 #include "pmAMDRyzen.h"
 
 #include <pexpert/pexpert.h>
+#include <architecture/i386/pio.h>
 
 x86_lcpu_t *pmRyzen_cpunum_to_lcpu[XNU_MAX_CPU];
 
@@ -19,9 +20,10 @@ uint64_t pmRyzen_effective_timetsc;
 
 uint32_t pmRyzen_num_phys;
 uint32_t pmRyzen_num_logi;
-pmRyzen_idle_strategy_t pmRyzen_idle_strategy = PMRYZEN_IDLE_STRATEGY_SIMPLE;
 
-uint64_t pmRyzen_exit_idle_false_c;
+volatile uint32_t pmRyzen_c6_port = 0;
+// Set once by pmRyzen_init: legacy P-state stepping is allowed (Zen 1/2).
+static uint32_t pmRyzen_pstate_control = 0;
 
 uint64_t pmRyzen_p_sdtsc;
 uint64_t pmRyzen_p_sutsc;
@@ -95,7 +97,8 @@ void pmRyzen_init_PState(void){
 }
 
 static inline void set_PState(pmProcessor_t *cpu, uint8_t state){
-    if(pmRyzen_pstatelimit == 0) return;
+    // Zen 3+ never writes MSR_PSTATE_CTL, whatever PPM/LPM ask for.
+    if(!pmRyzen_pstate_control || pmRyzen_pstatelimit == 0) return;
     if (state >= 8) state = 7;
     if (state > pmRyzen_pstatelimit) state = (uint8_t)pmRyzen_pstatelimit;
     if(cpu->PState == state) return;
@@ -124,6 +127,7 @@ void pmRyzen_doPState_reset(void *arg){
 }
 
 void pmRyzen_PState_reset(void){
+    if (!pmRyzen_pstate_control) return;
     pmRyzen_hpcpus = 0;
     if(pmRyzen_pstatelimit == 0) pmRyzen_pstatelimit = 1;
     mp_rendezvous_no_intrs(&pmRyzen_doPState_reset, NULL);
@@ -131,9 +135,11 @@ void pmRyzen_PState_reset(void){
 
 #pragma mark - Init / Stop
 
-void pmRyzen_init(void *handle, int allowDispatch){
+void pmRyzen_init(void *handle, int allowDispatch, int pstateControl){
 
     pmRyzen_io_service_handle = handle;
+    pmRyzen_c6_port = 0;
+    pmRyzen_pstate_control = (allowDispatch && pstateControl) ? 1 : 0;
     IOLog("AMDRyzenCPUPowerManagement::pmRyzen_init sizeof(pmProcessor_t) = %lu bytes (cacheline aligned)\n", (unsigned long)sizeof(pmProcessor_t));
 
 
@@ -185,8 +191,6 @@ void pmRyzen_init(void *handle, int allowDispatch){
 
                 pmProcessor_t *cpu = &pmRyzen_cpus[lcpu->cpu_num];
                 cpu->lcpu = lcpu;
-                cpu->stat_exit_idle = 0;
-                cpu->arm_flag = 0;
                 cpu->cpu_awake = 1;
 
                 lcpu = lcpu->next_in_core;
@@ -202,7 +206,7 @@ void pmRyzen_init(void *handle, int allowDispatch){
     pmRyzen_p_sdtsc = (uint64_t)((double)pmRyzen_effective_timetsc * PSTATE_STEPDOWN_THRE);
     pmRyzen_p_sutsc = (uint64_t)((double)pmRyzen_effective_timetsc * PSTATE_STEPUP_THRE);
 
-    if (allowDispatch) {
+    if (pmRyzen_pstate_control) {
         pmRyzen_init_PState();
         pmRyzen_PState_reset();
     }
@@ -211,17 +215,17 @@ void pmRyzen_init(void *handle, int allowDispatch){
 }
 
 void pmRyzen_stop(void){
+    // Back to hlt first: no core may enter CC6 through a port the kext no
+    // longer owns. A core already idling returns on its next interrupt.
+    pmRyzen_c6_port = 0;
 
     if (pmRyzen_pmUnRegister) {
         (*pmRyzen_pmUnRegister)(&pmRyzen_cpuFuncs);
     }
+}
 
-    // Make sure all managed cores exited idle thread.
-    // With the SIMPLE (sti;hlt) strategy, exit is immediate — just set arm_flag.
-    for (uint32_t i = 0; i < pmRyzen_num_logi && i < XNU_MAX_CPU; i++) {
-        if (!pmRyzen_cpunum_to_lcpu[i]) continue;
-        pmRyzen_cpus[i].arm_flag = 1;
-    }
+void pmRyzen_set_c6_port(uint32_t port){
+    pmRyzen_c6_port = port;
 }
 
 
@@ -262,22 +266,22 @@ uint64_t pmRyzen_machine_idle(uint64_t maxDur){
     }
     pmProcessor_t *self = &pmRyzen_cpus[cn];
 
-
     self->cpu_awake = 0;
-    self->arm_flag = 0;
 
     uint64_t tscnow = rdtsc64();
 
     self->last_idle_tsc = tscnow;
 
-    // sti; hlt is the only idle strategy (see pmRyzen_idle_strategy_t).
-    __asm__ volatile("sti;hlt;");
-
+    const uint32_t c6Port = pmRyzen_c6_port;
+    if (c6Port) {
+        // CC6 entry; returns once an interrupt is pending, which sti then serves.
+        (void)inb((uint16_t)c6Port);
+        __asm__ volatile("sti;");
+    } else {
+        __asm__ volatile("sti;hlt;");
+    }
 
     self->cpu_awake = 1;
-    if(!self->arm_flag)
-        pmRyzen_exit_idle_false_c++;
-
 
     tscnow = rdtsc64();
 
@@ -308,7 +312,6 @@ uint64_t pmRyzen_machine_idle(uint64_t maxDur){
     }
 
     self->last_start_tsc = tscnow;
-    self->last_idle_length = tscela;
 
     pmRyzen_last_woken_cpu = cn;
     return 0;

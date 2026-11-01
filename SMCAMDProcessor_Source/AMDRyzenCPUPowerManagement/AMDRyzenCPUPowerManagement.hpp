@@ -314,6 +314,82 @@ public:
     /// CPUID 8000_0008h EBX[27]: CPPC is driven through MSRs, so EPP can be
     /// programmed. Without it CPPC lives in ACPI shared memory only.
     bool cppcMsrSupported {false};
+    /// EPP reaches the CPU through MSRs or through ACPI CPPC (PCC).
+    bool cppcEppSupported() const { return cppcMsrSupported || acpiCppc.supported; }
+
+    // ACPI CPPC (Linux amd-pstate "shared memory" mode): each processor's
+    // _CPC names registers in a PCC subspace of the PCCT or in system
+    // memory. Used when the CPPC MSRs are missing (Ryzen 5000 desktop, among
+    // others). Discovered once at start; selector 63 reports what was found.
+    struct AcpiGas {
+        uint8_t  space;       // 0 memory, 1 IO, 0x0A PCC, 0x7F FFH
+        uint8_t  bitWidth;
+        uint8_t  bitOffset;
+        uint8_t  accessSize;  // PCC: subspace index
+        uint64_t address;     // PCC: offset after the 8-byte channel header
+    };
+    struct CpcValue {
+        bool     isRegister;
+        uint64_t integer;     // when !isRegister
+        AcpiGas  reg;
+    };
+    // The _CPC package entries this driver uses (ACPI 6.x, 8.4.6.1).
+    enum CpcIndex : uint8_t {
+        kCpcHighest = 2, kCpcNominal = 3, kCpcLowestNonlinear = 4, kCpcLowest = 5,
+        kCpcDesired = 7, kCpcMin = 8, kCpcMax = 9, kCpcEnable = 16, kCpcAutoSel = 17,
+        kCpcEpp = 19,
+    };
+    static constexpr uint8_t kCpcUsed[] = { kCpcHighest, kCpcNominal, kCpcLowestNonlinear, kCpcLowest,
+                                            kCpcDesired, kCpcMin, kCpcMax, kCpcEnable, kCpcAutoSel, kCpcEpp };
+    static constexpr uint32_t kCpcUsedCount = sizeof(kCpcUsed);
+    // Positions in kCpcUsed (and in AcpiCppcState::cpc[cpu]).
+    enum CpcSlot : uint8_t {
+        kSlotHighest, kSlotNominal, kSlotLowestNonlinear, kSlotLowest, kSlotDesired,
+        kSlotMin, kSlotMax, kSlotEnable, kSlotAutoSel, kSlotEpp,
+    };
+    static constexpr uint32_t kPccMaxSubspaces = 8;
+    struct PccSubspace {
+        bool          present;
+        uint8_t       type;           // PCCT subspace type 0, 1 or 2
+        uint64_t      base, length;   // shared memory
+        AcpiGas       doorbell;
+        uint64_t      preserve, write;
+        uint32_t      latencyUs;      // nominal latency
+        uint16_t      turnaroundUs;   // minimum request turnaround
+        IOMemoryMap  *shm;
+        IOMemoryMap  *doorbellMap;    // when the doorbell is in memory
+        uint64_t      lastCmdNs;
+    };
+    // SystemMemory registers: each 4 KiB page mapped once, uncached.
+    static constexpr uint32_t kCpcMaxMemPages = 32;
+    struct CpcMemPage {
+        uint64_t     base;
+        IOMemoryMap *map;
+    };
+    struct AcpiCppcState {
+        bool        supported;
+        uint8_t     error;            // 0 ok, else AcpiCppcError
+        uint32_t    cpuCount;         // processors with a usable _CPC
+        uint32_t    cpcRevision;
+        CpcValue    cpc[CPUInfo::MaxCpus][kCpcUsedCount];
+        PccSubspace pcc[kPccMaxSubspaces];
+        CpcMemPage  memPages[kCpcMaxMemPages];
+        uint16_t    lastStatus;       // channel status after the last command
+        int32_t     lastResult;       // 0 ok, -1 timeout, -2 error bit, -3 not ready
+    } acpiCppc {};
+    enum AcpiCppcError : uint8_t {
+        kAcpiCppcOk = 0, kAcpiCppcNoPlane, kAcpiCppcNoCpc, kAcpiCppcBadCpc,
+        kAcpiCppcNotPcc, kAcpiCppcNoPcct, kAcpiCppcBadPcct, kAcpiCppcMapFailed,
+        kAcpiCppcCountMismatch,
+    };
+    void discoverAcpiCppc(IOService *provider);
+    void releaseAcpiCppc();
+    bool pccCommand(PccSubspace &ss, uint16_t command);
+    volatile uint8_t *cpcAddress(const AcpiGas &reg);
+    bool cpcRead(const CpcValue &v, uint64_t &out);
+    bool cpcWrite(const CpcValue &v, uint64_t value);
+    bool applyEPPAcpi(uint8_t epp);
+    bool applyEPPMsr(uint8_t epp);
     /// Wanted: CPPC autonomous mode with cppcEPPValue (selector 24/25 or
     /// the -amdcppcactive boot-arg).
     bool cppcActiveMode {false};
@@ -324,7 +400,16 @@ public:
     uint8_t cppcAppliedEPP {0};
     uint8_t cppcHighestPerf_perCore[CPUInfo::MaxCpus] {};
     bool cppcThrottled {false};
-    bool disableCStates = true;
+    // CC6 idle (selector 61). The kext owns the idle loop on every supported
+    // family unless `-amdnoidle`; amdcstate=1 forbids CC6, otherwise the app
+    // switches it on and off live. cstateIoBase is the firmware's
+    // CSTATE_ADDR[15:0], read before anything else touches the MSR.
+    bool idleDispatchActive {false};
+    bool c6Forbidden {false};
+    uint16_t cstateIoBase {0};
+    bool c6IdleActive {false};
+    bool c6IdleSupported() const { return idleDispatchActive && !c6Forbidden && cstateIoBase != 0; }
+    bool setC6Idle(bool on);
     uint64_t cstateAddrConfig {0};
 
     uint8_t cpuFamily {0};
@@ -338,7 +423,6 @@ public:
     uint8_t  ccdSlot[kMAX_CCD_COUNT] {};
     float    ccdTemperatures[kMAX_CCD_COUNT] {};
     char     cpuArchName[16] {};
-    pmRyzen_idle_strategy_t cpuIdleStrategy{PMRYZEN_IDLE_STRATEGY_SIMPLE};
 
     // Curve Optimizer offsets last acknowledged by the SMU (selector 110)
     int8_t curveOptimizerOffsets[CPUInfo::MaxCpus] {};
@@ -347,7 +431,7 @@ public:
     uint32_t coreSmuMask[CPUInfo::MaxCpus] {};
     bool coreMapValid {false};
 
-    // Precision Boost Overdrive limits (Vermeer-only SMU commands).
+    // Precision Boost Overdrive limits (the family's SMU commands).
     // Values are the last successfully-programmed limits, cached for read-back
     // (the SMU has no read command for these — same approach as the CO cache).
     // Defaults of 0 mean "unknown / never set this boot"; the capability
@@ -358,29 +442,49 @@ public:
     uint32_t pboEDCMilliamps  {0};
     uint32_t pboScalarPercentX100 {0};  // e.g. 200 = 2x
 
-    // Returns true only when the silicon matches the Vermeer RSMU command
-    // set documented in ryzen_smu rsmu_commands.md (family 0x19, 0x21-0x2F) —
-    // the same gate as Curve Optimizer. Fail-closed everywhere else.
-    bool pboLimitsSupported() const {
-        return (cpuFamily == 0x19 && cpuModel >= 0x21 && cpuModel <= 0x2F) &&
-               rsmu.supported;
-    }
-    // int setPBOLimit(uint32_t cmd, uint32_t value): shared SMU write path for
-    // PPT/TDC/EDC/scalar; negative return maps like setCurveOptimizer.
-    int setPBOLimit(uint32_t smuCmd, uint32_t arg, uint32_t &cacheSlot);
+    // Feature gates, all derived from the detected family's SMU command set
+    // (selectSmuCommandSet) and reported to the app by selector 62.
+    bool smuPptLimitsSupported() const { return rsmu.supported && smuCmd.setPpt && smuCmd.setTdc && smuCmd.setEdc; }
+    bool smuApuLimitsSupported() const { return rsmu.supported && smuCmd.setStapm && smuCmd.setFast && smuCmd.setSlow; }
+    bool smuTctlSupported() const      { return rsmu.supported && smuCmd.setTctl; }
+    bool smuScalarSupported() const    { return rsmu.supported && smuCmd.setScalar; }
+    bool smuOcSupported() const        { return rsmu.supported && smuCmd.ocEnable && smuCmd.ocDisable && smuCmd.ocClkAll; }
+    bool smuOcPerCcdSupported() const  { return smuOcSupported() && smuCmd.ocClkPerCore && coreMapValid; }
+    bool smuOcVidSupported() const     { return smuOcSupported() && smuCmd.ocVid; }
+    bool smuCoPerCoreSupported() const { return mp1.supported && smuCmd.mp1CoPerCore && coreMapValid; }
+    bool smuCoAllSupported() const     { return mp1.supported && smuCmd.mp1CoAll; }
+    bool smuBoostLimitSupported() const { return mp1.supported && smuCmd.mp1BoostLimit; }
+    bool smuPmTableSupported() const   { return rsmu.supported && smuCmd.pmVersion && smuCmd.pmBase && smuCmd.pmTransfer; }
+    // Shared RSMU write path for the power limits and the scalar: thermal
+    // interlock, one command, cache on success. cmd 0 (not on this family)
+    // returns -1; other negatives map like setCurveOptimizer.
+    int setPBOLimit(uint32_t cmd, uint32_t arg, uint32_t &cacheSlot);
+    // Power limits for selector 41: PPT/TDC/EDC on desktop parts, or PPT as
+    // the STAPM, fast and slow limits on APUs (TDC/EDC have no APU command).
+    int setPowerLimits(uint32_t pptMilliwatts, uint32_t tdcMilliamps, uint32_t edcMilliamps);
+    int setPboScalar(uint32_t percentX100);
+    // OC VID (SVI2), all-core Curve Optimizer and boost ceiling (selectors
+    // 65-67). Same thermal interlock and error mapping as setPBOLimit.
+    int setOcVid(uint32_t vid);
+    int setCurveOptimizerAll(int8_t offset);
+    int setBoostLimit(uint32_t mhz);
+    uint32_t ocVidCache {0};               // last VID this driver wrote (0 = none)
+    int8_t   curveOptimizerAllCache {0};
+    bool     curveOptimizerAllSet {false};
+    uint32_t boostLimitMHzCache {0};       // 0 = never set this boot
 
     // Refresh both boost-telemetry caches; throttled to one SMU round trip
     // per kSMU_BOOST_POLL_MIN_INTERVAL_MS (the main timer cadence is shorter).
     void pollBoostTelemetry();
 
-    // Shared write path for the Vermeer cHTC thermal limit (SMU 0x56,
+    // Shared write path for the cHTC thermal limit (smuCmd.setTctl,
     // Arg0 = degrees Celsius). Same capability gate + thermal interlock policy
     // as setPBOLimit; on success the new limit is cached for read-back.
     // Negative return maps like setPBOLimit (-1 unsupported, -4 hot, -5 SMU
     // error, -10 timeout, -11 unknown command, -12 rejected, -13 busy).
     int setCHTCLimit(uint32_t arg);
 
-    // One-shot read of the Vermeer ProcessorParameters bitfield (SMU 0x6F:
+    // One-shot read of the ProcessorParameters bitfield (smuCmd.getProcessorParams, 0x6F:
     // bit 0 IsOverclockable, bit 1 PBO support). Returns the raw word on OK,
     // else 0. Timer command gate only — never from user threads.
     uint32_t pollProcessorParameters();
@@ -390,9 +494,9 @@ public:
     // version word on OK, else 0. Timer command gate only.
     uint32_t pollSmuVersion();
 
-    // Enable/disable Vermeer OC mode (RSMU 0x5A / 0x5B, Arg0 0). Writes are
+    // Enable/disable OC mode (smuCmd.ocEnable/ocDisable, Arg0 0). Writes are
     // blocked under the same thermal interlock as the PBO/CO/cHTC paths. On
-    // disable, `resetScalar` also writes the PBO scalar back to 1.0 via 0x58
+    // disable, `resetScalar` also writes the PBO scalar back to 1.0
     // for SMU firmware that does not reset it. Returns 0 on success;
     // negative maps like setPBOLimit.
     int setOcMode(bool enable, bool resetScalar);
@@ -411,10 +515,10 @@ public:
     // the same policy as every other privileged SMU write path (CO/cHTC/PBO).
     int forcePMTableCapture();
 
-    // Program a frequency override via the Vermeer RSMU OC commands:
-    // all-core (0x5C, one call) or per-CCD (0x5D to every core of the CCD).
-    // Refuses with -3 unless this driver enabled OC mode via 0x5A earlier
-    // this boot (another tool's enable does not count). Same Vermeer gate,
+    // Program a frequency override via the family's RSMU OC commands:
+    // all-core (one call) or per-CCD (the per-core command to every core of
+    // the CCD). Refuses with -3 unless this driver enabled OC mode earlier
+    // this boot (another tool's enable does not count). Same command-set gate,
     // thermal interlock and error mapping as setOcMode/setPBOLimit. A
     // failure stops a per-CCD sequence; the cache keeps only the CCDs that
     // were fully written.
@@ -710,7 +814,7 @@ public:
     // Decodes one plane word; false when the plane is off or has no VID.
     static bool sviDecodeMillivolts(uint32_t word, bool planeOff, uint16_t &millivolts);
 
-    // Cached boost telemetry (Vermeer RSMU read commands 0x6E/0x59).
+    // Cached boost telemetry (the family's RSMU max clock / fastest core reads).
     // Refreshed from the main command-gate timer; 0 = unknown / never read
     // this boot. Raw SMU response words are cached byte-identically (no
     // kernel-side decode) so the app owns the decode — keep it that way and
@@ -719,7 +823,7 @@ public:
     uint32_t smuFastestCoreRaw {0};
     uint64_t smuBoostTelemetryLastPollMs {0};
 
-    // Cached ProcessorParameters bitfield (Vermeer RSMU 0x6F). Static
+    // Cached ProcessorParameters bitfield (RSMU 0x6F where the family has it). Static
     // silicon configuration, so it is read once from the timer command gate
     // and cached; smuProcParamsPolled distinguishes a real 0 response from
     // "never read this boot". Raw word cached byte-identically — decode in
@@ -763,11 +867,11 @@ public:
     /// sleeps; see the definition for why.
     void forgetSMUSettingsForSleep();
 
-    // SMU PM-table plumbing (Vermeer RSMU 0x05/0x06/0x08 — the same
+    // SMU PM-table plumbing (the family's smuCmd.pm* commands — the same
     // table ryzen_smu/HWiNFO feed from). The table lives at a SMU-provided
     // physical address in DRAM; the kext maps it read-only and snapshots it
     // into a fixed buffer that user space reads through selector 57.
-    static constexpr uint32_t kPM_TABLE_MAX_SIZE = 0x2000;   // covers every documented Vermeer size (max 0x1BB0)
+    static constexpr uint32_t kPM_TABLE_MAX_SIZE = 0x2000;   // covers every documented size (max 0x1E48)
     static constexpr uint64_t kPM_REFRESH_MIN_INTERVAL_MS = 1000; // one 0x05 + re-map check per second, worst case
     uint64_t pmRefreshLastPollMs {0};
     // Last time a client read the PM table or its info (selectors 56/57).
@@ -789,7 +893,7 @@ public:
     // mailbox (SMN register layout) private.
     bool smuMailboxSupported() const { return rsmu.supported; }
     uint32_t smuCurveOptimizerCmd() const {
-        return (mp1.supported && coreMapValid) ? kMP1_SET_DLDO_PSM_MARGIN : 0;
+        return smuCoPerCoreSupported() ? smuCmd.mp1CoPerCore : 0;
     }
 
     // On-demand mailbox health report (UserClient selector 58). Runs the
@@ -899,9 +1003,37 @@ private:
     SMUMailbox rsmu{};
     SMUMailbox mp1{};
 
+    // Command numbers of the detected family's SMU, from the ZenMaster
+    // tables (runner.py, mailbox.py, pmtable.py) and ryzen_smu. 0 means the
+    // family has no such command, and every feature built on it reports
+    // unsupported instead of sending a number meant for another chip.
+    struct SmuCommandSet {
+        const char *name;
+        // RSMU
+        uint8_t setPpt, setTdc, setEdc;        // desktop limits: mW, mA, mA
+        uint8_t setStapm, setFast, setSlow;    // APU power limits, mW
+        uint8_t setTctl;                       // cHTC / Tctl limit, °C
+        uint8_t setScalar, getScalar;          // PBO scalar, %x100
+        uint8_t ocEnable, ocDisable;
+        uint8_t ocClkAll, ocClkPerCore;        // MHz in [19:0]
+        uint8_t ocVid;                         // SVI2 VID
+        uint8_t getMaxClk, getFastestCore, getProcessorParams;
+        uint8_t pmVersion, pmBase, pmTransfer;
+        uint8_t pmBaseArg0, pmBaseArg1, pmTransferArg;
+        bool    pmBase64;                      // base comes back as arg0 | arg1 << 32
+        // MP1
+        uint8_t mp1CoPerCore, mp1CoAll;        // margin, 16-bit two's complement
+        uint8_t mp1BoostLimit;                 // MHz
+        // Core positions readable with the Zen 3 fuse layout: per-core
+        // Curve Optimizer and per-CCD frequency need them.
+        bool    zen3CoreFuses;
+    };
+    SmuCommandSet smuCmd{};
+    // Picks the command set and mailboxes for cpuFamily/cpuModel; the CPU
+    // name tells first- and second-generation Threadripper from Ryzen.
+    void selectSmuCommandSet(const char *cpuName);
+
     static constexpr uint32_t kSMU_ARG_COUNT = 6;
-    // Vermeer MP1 SetDldoPsmMargin (ZenStates-Core Zen3Settings).
-    static constexpr uint32_t kMP1_SET_DLDO_PSM_MARGIN = 0x35;
 
     // One complete mailbox transaction. args[] goes out in the argument
     // registers and, on SMU_RSP_OK, comes back with the reply words.

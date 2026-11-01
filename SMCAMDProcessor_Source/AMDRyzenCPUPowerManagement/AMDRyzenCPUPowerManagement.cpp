@@ -1,4 +1,6 @@
 #include "AMDRyzenCPUPowerManagement.hpp"
+#include <IOKit/acpi/IOACPIPlatformDevice.h>
+#include <architecture/i386/pio.h>
 #include <string.h>
 #include <mach/mach_time.h>
 #include <kern/clock.h>
@@ -327,7 +329,7 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
             provider->idleResidencySampled = true;
         }
 
-        // Refresh cached boost telemetry (Vermeer RSMU 0x6E/0x59 reads)
+        // Refresh cached boost telemetry (the family's RSMU max clock / fastest core reads)
         // From the same command gate — never from user threads.
         provider->pollBoostTelemetry();
 
@@ -538,14 +540,10 @@ bool AMDRyzenCPUPowerManagement::start(IOService *provider){
 
     disablePrivilegeCheck = checkKernelArgument("-amdpnopchk");
 
-    uint32_t amdcstateVal = 1;
-    if (PE_parse_boot_argn("amdcstate", &amdcstateVal, sizeof(amdcstateVal))) {
-        disableCStates = (amdcstateVal != 0);
-    } else {
-        disableCStates = true;
-    }
-    IOLog("AMDRyzenCPUPowerManagement::start C-States (C6) %s (amdcstate=%u)\n",
-          disableCStates ? "disabled (low-latency)" : "enabled (power-saving)", amdcstateVal);
+    // amdcstate=1 forbids CC6 idle; absent or 0 lets the app switch it on.
+    uint32_t amdcstateVal = 0;
+    PE_parse_boot_argn("amdcstate", &amdcstateVal, sizeof(amdcstateVal));
+    c6Forbidden = (amdcstateVal != 0);
 
     uint32_t cpuid_eax = 0;
     uint32_t cpuid_ebx = 0;
@@ -596,6 +594,9 @@ bool AMDRyzenCPUPowerManagement::start(IOService *provider){
         if (activeProfile) {
             legacyPstateAllowed = activeProfile->legacyPstateAllowed;
             pmDispatchAllowed = activeProfile->pmDispatchAllowed;
+            // The idle loop is the kernel's sti; hlt until CC6 is switched
+            // on; `-amdnoidle` leaves it to the kernel entirely.
+            idleDispatchActive = !checkKernelArgument("-amdnoidle");
             supportsCPPC = activeProfile->supportsCPPC;
             zenGeneration = activeProfile->zenGeneration;
             strlcpy(cpuArchName, activeProfile->generationName, sizeof(cpuArchName));
@@ -628,13 +629,6 @@ bool AMDRyzenCPUPowerManagement::start(IOService *provider){
                   cpuFamily, cpuModel);
         }
     }
-
-    // Single idle strategy for all CPUs: sti; hlt (SIMPLE).
-    // Intel-style MONITOR/MWAIT was removed (unsafe on AMD — CPUs don't report CPUID.01h:ECX[3]).
-    // AMD MONITORX/MWAITX may be added as a future enhancement for Zen 3+.
-    cpuIdleStrategy = PMRYZEN_IDLE_STRATEGY_SIMPLE;
-    pmRyzen_idle_strategy = cpuIdleStrategy;
-    IOLog("AMDRyzenCPUPowerManagement::start Idle strategy: SIMPLE (sti;hlt)\n");
 
     CPUInfo::getCpuid(0x80000005, 0, &cpuid_eax, &cpuid_ebx, &cpuid_ecx, &cpuid_edx);
     // L1-D size in bits [31:24] of ECX, L1-I size in bits [31:24] of EDX (CPUID 0x80000005)
@@ -670,6 +664,7 @@ bool AMDRyzenCPUPowerManagement::start(IOService *provider){
         }
     }
 
+    discoverAcpiCppc(provider);
     reinitHwState();
 
     fetchOEMBaseBoardInfo();
@@ -736,19 +731,22 @@ bool AMDRyzenCPUPowerManagement::start(IOService *provider){
         return false;
     }
 
-    pmRyzen_init(this, pmDispatchAllowed ? 1 : 0);
-
-    // SMU mailboxes (ryzen_smu smu.c, ZenStates-Core Zen2/Zen3Settings).
-    // Only Vermeer is driven: the command numbers used below (PBO, OC, PM
-    // table, Curve Optimizer) are Vermeer's, and other families either use
-    // different numbers or have not been verified, so their mailboxes stay off.
-    if (cpuFamily == 0x19 && cpuModel >= 0x21 && cpuModel <= 0x2F) {
-        rsmu = { 0x3B10524, 0x3B10A40, 0x3B10570, true };
-        mp1  = { 0x3B10530, 0x3B109C4, 0x3B1057C, true };
-    } else {
-        IOLog("AMDRyzenCPUPowerManagement: SMU control not implemented for family %02Xh model %02Xh\n",
-              cpuFamily, cpuModel);
+    // The firmware's C-state IO base (CstateAddr + 1 is _CST's CC6 port),
+    // read before any core is reprogrammed. A base below 0x100 would make
+    // the CC6 read hit a legacy port (0xF1 is the x87 error latch), so it
+    // counts as no base at all.
+    uint64_t cstateAddr = 0;
+    if (read_msr(kMSR_CSTATE_ADDR, &cstateAddr)) {
+        const uint16_t base = (uint16_t)(cstateAddr & 0xFFFF);
+        cstateIoBase = (base >= 0x100 && base < 0xFFFF) ? base : 0;
     }
+    IOLog("AMDRyzenCPUPowerManagement::start C-state IO base 0x%X, idle loop %s, CC6 %s\n",
+          cstateIoBase, idleDispatchActive ? "owned" : "kernel's",
+          c6IdleSupported() ? "available" : (c6Forbidden ? "forbidden by amdcstate" : "unavailable"));
+
+    pmRyzen_init(this, idleDispatchActive ? 1 : 0, pmDispatchAllowed ? 1 : 0);
+
+    selectSmuCommandSet(nameString);
 
     // One-shot SMU mailbox diagnostic probe at boot
     if (rsmu.supported) {
@@ -842,6 +840,7 @@ void AMDRyzenCPUPowerManagement::stop(IOService *provider){
 
     // 4. pmRyzen_stop() after timers are completely drained and unlinked
     pmRyzen_stop();
+    releaseAcpiCppc();
 
     // 5. release() of fIOPCIDevice and null
     if (fIOPCIDevice) { fIOPCIDevice->release(); fIOPCIDevice = nullptr; }
@@ -1208,14 +1207,6 @@ void AMDRyzenCPUPowerManagement::reapplyPerCoreConfig() {
         auto out = static_cast<Outcome*>(obj);
         auto provider = out->provider;
 
-        // Writing kMSR_CSTATE_ADDR (0xC0010073) with 0xF0 disables deep
-        // C-states (C6+), reducing wake latency for telemetry and audio.
-        // Configured via the amdcstate boot-arg (amdcstate=0 enables C6;
-        // amdcstate=1 or default disables C6).
-        if (provider->disableCStates) {
-            provider->write_msr(kMSR_CSTATE_ADDR, 0xf0);
-        }
-
         // HWCR[30] IRPerfEn: the instructions-retired counter behind
         // kMSR_PERF_IRPC (selectors 5 and 33).
         uint64_t hwConfig;
@@ -1273,6 +1264,13 @@ void AMDRyzenCPUPowerManagement::reapplyPerCoreConfig() {
     uint64_t cstateAddr = 0;
     if (read_msr(kMSR_CSTATE_ADDR, &cstateAddr)) {
         cstateAddrConfig = cstateAddr;
+    }
+    // Firmware re-initialises CSTATE_ADDR on resume; CC6 entry only goes on
+    // while it still points at the port the kext enters CC6 through.
+    if (c6IdleActive && (cstateAddrConfig & 0xFFFF) != cstateIoBase) {
+        IOLog("AMDRyzenCPUPowerManagement: C-state base moved to 0x%llX, CC6 idle off\n",
+              cstateAddrConfig & 0xFFFF);
+        setC6Idle(false);
     }
     IOLog("AMDRyzenCPUPowerManagement::reapplyPerCoreConfig C-state address 0x%llX, "
           "HWCR failures %d, counter failures %d, CPPC CAP1 failures %d\n",
@@ -1356,7 +1354,7 @@ bool AMDRyzenCPUPowerManagement::applyEPPControl() {
 // does not compete with anything for frequency control; it replaces the
 // "every core asks for P0" default that keeps an idle Zen 3 at full clocks.
 bool AMDRyzenCPUPowerManagement::applyEPPControlLocked() {
-    if (!cppcMsrSupported) return false;
+    if (!cppcEppSupported()) return false;
     // Nothing engaged and nothing wanted: leave the firmware's state alone.
     if (!cppcActiveMode && !cppcEngaged) return true;
 
@@ -1365,6 +1363,17 @@ bool AMDRyzenCPUPowerManagement::applyEPPControlLocked() {
     uint8_t epp = 0x00;
     if (cppcActiveMode) epp = cppcThrottled ? 0xFF : cppcEPPValue;
 
+    const bool ok = cppcMsrSupported ? applyEPPMsr(epp) : applyEPPAcpi(epp);
+    if (ok) {
+        cppcAppliedEPP = epp;
+        IOLog("AMDRyzenCPUPowerManagement::applyEPPControl: CPPC %s, EPP 0x%02X on every CPU (%s)\n",
+              cppcActiveMode ? "autonomous" : "performance", epp, cppcMsrSupported ? "MSR" : "ACPI");
+    }
+    return ok;
+}
+
+// MSR CPPC: CPPC_ENABLE, then CPPC_REQ with the core's own CAP1 range.
+bool AMDRyzenCPUPowerManagement::applyEPPMsr(uint8_t epp) {
     struct EPPArgs {
         AMDRyzenCPUPowerManagement *provider;
         uint64_t epp;
@@ -1421,15 +1430,405 @@ bool AMDRyzenCPUPowerManagement::applyEPPControlLocked() {
 
     const bool ok = args.enableFailures == 0 && args.capFailures == 0 && args.reqFailures == 0;
     if (args.enableFailures == 0) cppcEngaged = true;
-    if (ok) {
-        cppcAppliedEPP = epp;
-        IOLog("AMDRyzenCPUPowerManagement::applyEPPControl: CPPC %s, EPP 0x%02X on every CPU\n",
-              cppcActiveMode ? "autonomous" : "performance", epp);
-    } else {
+    if (!ok) {
         IOLog("AMDRyzenCPUPowerManagement::applyEPPControl: EPP 0x%02X not applied (enable %d, cap %d, req %d CPU failures)\n",
               epp, (int)args.enableFailures, (int)args.capFailures, (int)args.reqFailures);
     }
     return ok;
+}
+
+#pragma mark - ACPI CPPC (PCC shared memory)
+
+// Little-endian field readers for ACPI tables and resource buffers.
+static uint64_t acpiLE(const uint8_t *p, uint32_t bytes) {
+    uint64_t v = 0;
+    for (uint32_t i = 0; i < bytes; i++) v |= (uint64_t)p[i] << (8 * i);
+    return v;
+}
+
+static AMDRyzenCPUPowerManagement::AcpiGas acpiGasAt(const uint8_t *p) {
+    AMDRyzenCPUPowerManagement::AcpiGas g;
+    g.space = p[0]; g.bitWidth = p[1]; g.bitOffset = p[2]; g.accessSize = p[3];
+    g.address = acpiLE(p + 4, 8);
+    return g;
+}
+
+// Discovery, following Linux drivers/acpi/cppc_acpi.c (acpi_cppc_processor_probe)
+// and drivers/mailbox/pcc.c: every ACPI processor beside the provider must
+// return a _CPC package whose used registers live in PCC subspaces the PCCT
+// describes; the subspaces' shared memory is mapped once, uncached. Any
+// mismatch leaves acpiCppc.supported false with the reason in .error.
+void AMDRyzenCPUPowerManagement::discoverAcpiCppc(IOService *provider) {
+    acpiCppc = {};
+    const IORegistryPlane *plane = IORegistryEntry::getPlane("IOACPIPlane");
+    IORegistryEntry *parent = (plane && provider) ? provider->getParentEntry(plane) : nullptr;
+    OSIterator *it = parent ? parent->getChildIterator(plane) : nullptr;
+    if (!it) { acpiCppc.error = kAcpiCppcNoPlane; return; }
+
+    uint32_t processors = 0;
+    uint32_t subspacesUsed = 0;
+    while (OSObject *obj = it->getNextObject()) {
+        IOACPIPlatformDevice *dev = OSDynamicCast(IOACPIPlatformDevice, obj);
+        if (!dev) continue;
+        OSNumber *index = OSDynamicCast(OSNumber, dev->getProperty("processor-index"));
+        if (!index) continue;
+        processors++;
+        const uint32_t cpu = index->unsigned32BitValue();
+        if (cpu >= CPUInfo::MaxCpus) continue;
+
+        OSObject *result = nullptr;
+        if (dev->evaluateObject("_CPC", &result) != kIOReturnSuccess || !result) {
+            if (!acpiCppc.error) acpiCppc.error = kAcpiCppcNoCpc;
+            continue;
+        }
+        OSArray *pkg = OSDynamicCast(OSArray, result);
+        OSNumber *revision = pkg ? OSDynamicCast(OSNumber, pkg->getObject(1)) : nullptr;
+        // Revision 2 has 21 entries, revision 3 has 23; both hold every used index.
+        if (!pkg || pkg->getCount() < 21 || !revision) {
+            if (!acpiCppc.error) acpiCppc.error = kAcpiCppcBadCpc;
+            result->release();
+            continue;
+        }
+        acpiCppc.cpcRevision = revision->unsigned32BitValue();
+
+        bool usable = true;
+        for (uint32_t i = 0; i < kCpcUsedCount && usable; i++) {
+            CpcValue &v = acpiCppc.cpc[cpu][i];
+            OSObject *entry = pkg->getObject(kCpcUsed[i]);
+            if (OSNumber *n = OSDynamicCast(OSNumber, entry)) {
+                v.isRegister = false;
+                v.integer = n->unsigned64BitValue();
+                continue;
+            }
+            // Generic Register descriptor: 0x82, length 0x000C, then the GAS.
+            OSData *d = OSDynamicCast(OSData, entry);
+            const uint8_t *b = d ? (const uint8_t *)d->getBytesNoCopy() : nullptr;
+            if (!b || d->getLength() < 15 || b[0] != 0x82) {
+                if (!acpiCppc.error) acpiCppc.error = kAcpiCppcBadCpc;
+                usable = false;
+                break;
+            }
+            v.isRegister = true;
+            v.reg = acpiGasAt(b + 3);
+            // An all-zero register is "not implemented" (ACPI 6.x, 8.4.6.1).
+            if (v.reg.space == 0 && v.reg.address == 0) {
+                v.isRegister = false;
+                v.integer = 0;
+                continue;
+            }
+            // SystemMemory (0) or PCC (0x0A), the spaces Linux cppc_acpi drives
+            // for AMD shared-memory CPPC; FFH would mean MSRs, which are absent.
+            if (v.reg.space == 0x0A && v.reg.accessSize < kPccMaxSubspaces) {
+                subspacesUsed |= 1u << v.reg.accessSize;
+            } else if (v.reg.space != 0) {
+                if (!acpiCppc.error) acpiCppc.error = kAcpiCppcNotPcc;
+                usable = false;
+                break;
+            }
+        }
+        result->release();
+        // EPP and the min/max/desired requests must be writable registers.
+        const CpcValue *c = acpiCppc.cpc[cpu];
+        if (usable && c[kSlotEpp].isRegister && c[kSlotMin].isRegister && c[kSlotMax].isRegister &&
+            c[kSlotDesired].isRegister) {
+            acpiCppc.cpuCount++;
+        } else if (!acpiCppc.error) {
+            acpiCppc.error = kAcpiCppcNotPcc;
+        }
+    }
+    it->release();
+
+    if (acpiCppc.error) return;
+    if (acpiCppc.cpuCount == 0 || acpiCppc.cpuCount != processors) {
+        acpiCppc.error = kAcpiCppcCountMismatch;
+        return;
+    }
+
+    IOACPIPlatformDevice *acpiDev = OSDynamicCast(IOACPIPlatformDevice, provider);
+    const OSData *pcct = (subspacesUsed && acpiDev) ? acpiDev->getACPITableData("PCCT", 0) : nullptr;
+    const uint8_t *t = pcct ? (const uint8_t *)pcct->getBytesNoCopy() : nullptr;
+    const uint32_t tableLength = t && pcct->getLength() >= 48 ? (uint32_t)acpiLE(t + 4, 4) : 0;
+    if (subspacesUsed &&
+        (!t || tableLength < 48 || tableLength > pcct->getLength() || memcmp(t, "PCCT", 4) != 0)) {
+        acpiCppc.error = kAcpiCppcNoPcct;
+        return;
+    }
+
+    // Subspaces follow the 36-byte header, Flags (4) and Reserved (8).
+    uint32_t offset = 48;
+    for (uint32_t id = 0; id < kPccMaxSubspaces && offset + 2 <= tableLength; id++) {
+        const uint8_t *ss = t + offset;
+        const uint8_t type = ss[0], length = ss[1];
+        if (length < 2 || offset + length > tableLength) break;
+        offset += length;
+        if (!(subspacesUsed & (1u << id))) continue;
+        if (type > 2 || length < 62) { acpiCppc.error = kAcpiCppcBadPcct; return; }
+
+        PccSubspace &p = acpiCppc.pcc[id];
+        p.present = true;
+        p.type = type;
+        p.base = acpiLE(ss + 8, 8);
+        p.length = acpiLE(ss + 16, 8);
+        p.doorbell = acpiGasAt(ss + 24);
+        p.preserve = acpiLE(ss + 36, 8);
+        p.write = acpiLE(ss + 44, 8);
+        p.latencyUs = (uint32_t)acpiLE(ss + 52, 4);
+        p.turnaroundUs = (uint16_t)acpiLE(ss + 60, 2);
+        if (p.base == 0 || p.length < 8 || (p.doorbell.space != 0 && p.doorbell.space != 1)) {
+            acpiCppc.error = kAcpiCppcBadPcct;
+            return;
+        }
+    }
+    for (uint32_t id = 0; id < kPccMaxSubspaces; id++) {
+        if ((subspacesUsed & (1u << id)) && !acpiCppc.pcc[id].present) {
+            acpiCppc.error = kAcpiCppcBadPcct;
+            return;
+        }
+    }
+
+    // Every PCC register must lie inside its subspace, every memory register
+    // inside one page.
+    for (uint32_t cpu = 0; cpu < CPUInfo::MaxCpus; cpu++) {
+        for (uint32_t i = 0; i < kCpcUsedCount; i++) {
+            const CpcValue &v = acpiCppc.cpc[cpu][i];
+            if (!v.isRegister) continue;
+            if (v.reg.bitWidth == 0 || (uint32_t)v.reg.bitOffset + v.reg.bitWidth > 64) {
+                acpiCppc.error = kAcpiCppcBadCpc;
+                return;
+            }
+            if (v.reg.space == 0x0A) {
+                if (8 + v.reg.address + 8 > acpiCppc.pcc[v.reg.accessSize].length) {
+                    acpiCppc.error = kAcpiCppcBadPcct;
+                    return;
+                }
+            } else if ((v.reg.address & 0xFFF) + 8 > 0x1000) {
+                acpiCppc.error = kAcpiCppcBadCpc;
+                return;
+            }
+        }
+    }
+
+    for (uint32_t id = 0; id < kPccMaxSubspaces; id++) {
+        PccSubspace &p = acpiCppc.pcc[id];
+        if (!p.present) continue;
+        IOMemoryDescriptor *md = IOMemoryDescriptor::withPhysicalAddress(
+            (IOPhysicalAddress)p.base, (IOByteCount)p.length, kIODirectionInOut);
+        p.shm = md ? md->createMappingInTask(kernel_task, 0, kIOMapAnywhere | kIOMapInhibitCache) : nullptr;
+        if (md) md->release();
+        if (p.doorbell.space == 0) {
+            IOMemoryDescriptor *dmd = IOMemoryDescriptor::withPhysicalAddress(
+                (IOPhysicalAddress)p.doorbell.address, 8, kIODirectionInOut);
+            p.doorbellMap = dmd ? dmd->createMappingInTask(kernel_task, 0, kIOMapAnywhere | kIOMapInhibitCache) : nullptr;
+            if (dmd) dmd->release();
+        }
+        if (!p.shm || (p.doorbell.space == 0 && !p.doorbellMap)) {
+            acpiCppc.error = kAcpiCppcMapFailed;
+            releaseAcpiCppc();
+            return;
+        }
+    }
+
+    // Map the pages that hold SystemMemory registers.
+    for (uint32_t cpu = 0; cpu < CPUInfo::MaxCpus; cpu++) {
+        for (uint32_t i = 0; i < kCpcUsedCount; i++) {
+            const CpcValue &v = acpiCppc.cpc[cpu][i];
+            if (!v.isRegister || v.reg.space != 0) continue;
+            const uint64_t page = v.reg.address & ~0xFFFULL;
+            uint32_t slot = 0;
+            while (slot < kCpcMaxMemPages && acpiCppc.memPages[slot].map &&
+                   acpiCppc.memPages[slot].base != page) slot++;
+            if (slot == kCpcMaxMemPages) {
+                acpiCppc.error = kAcpiCppcMapFailed;
+                releaseAcpiCppc();
+                return;
+            }
+            if (acpiCppc.memPages[slot].map) continue;
+            IOMemoryDescriptor *md = IOMemoryDescriptor::withPhysicalAddress(
+                (IOPhysicalAddress)page, 0x1000, kIODirectionInOut);
+            acpiCppc.memPages[slot].map = md
+                ? md->createMappingInTask(kernel_task, 0, kIOMapAnywhere | kIOMapInhibitCache) : nullptr;
+            if (md) md->release();
+            if (!acpiCppc.memPages[slot].map) {
+                acpiCppc.error = kAcpiCppcMapFailed;
+                releaseAcpiCppc();
+                return;
+            }
+            acpiCppc.memPages[slot].base = page;
+        }
+    }
+    acpiCppc.supported = true;
+    IOLog("AMDRyzenCPUPowerManagement: ACPI CPPC on %u CPUs (_CPC revision %u, PCC subspaces 0x%X)\n",
+          acpiCppc.cpuCount, acpiCppc.cpcRevision, subspacesUsed);
+}
+
+void AMDRyzenCPUPowerManagement::releaseAcpiCppc() {
+    acpiCppc.supported = false;
+    for (uint32_t id = 0; id < kPccMaxSubspaces; id++) {
+        PccSubspace &p = acpiCppc.pcc[id];
+        if (p.shm) { p.shm->release(); p.shm = nullptr; }
+        if (p.doorbellMap) { p.doorbellMap->release(); p.doorbellMap = nullptr; }
+    }
+    for (uint32_t slot = 0; slot < kCpcMaxMemPages; slot++) {
+        CpcMemPage &page = acpiCppc.memPages[slot];
+        if (page.map) { page.map->release(); page.map = nullptr; }
+    }
+}
+
+// One PCC command (0x00 read, 0x01 write) on a generic communication
+// channel: wait for the previous command and the minimum turnaround, clear
+// the status, ring the doorbell (read & preserve | write), poll for
+// command-complete. Thread context, caller holds the lock that serialises
+// EPP changes.
+bool AMDRyzenCPUPowerManagement::pccCommand(PccSubspace &ss, uint16_t command) {
+    volatile uint16_t *cmd = (volatile uint16_t *)(ss.shm->getVirtualAddress() + 4);
+    volatile uint16_t *status = (volatile uint16_t *)(ss.shm->getVirtualAddress() + 6);
+    const uint32_t timeoutUs = ss.latencyUs * 10 < 1000 ? 1000
+                             : (ss.latencyUs * 10 > 20000 ? 20000 : ss.latencyUs * 10);
+
+    // The channel is free once the previous command completed.
+    uint32_t waited = 0;
+    while (!(*status & 0x1) && waited < timeoutUs) { IODelay(10); waited += 10; }
+    if (!(*status & 0x1)) {
+        acpiCppc.lastStatus = *status;
+        acpiCppc.lastResult = -3;
+        return false;
+    }
+    if (ss.turnaroundUs && ss.lastCmdNs) {
+        const uint64_t elapsedUs = (getCurrentTimeNs() - ss.lastCmdNs) / 1000;
+        if (elapsedUs < ss.turnaroundUs) IODelay((uint32_t)(ss.turnaroundUs - elapsedUs));
+    }
+
+    *cmd = command;
+    *status = 0;
+    __sync_synchronize();
+
+    const uint8_t width = ss.doorbell.bitWidth;
+    if (ss.doorbell.space == 0) {
+        volatile uint8_t *db = (volatile uint8_t *)ss.doorbellMap->getVirtualAddress();
+        switch (width) {
+            case 8:  *db = (uint8_t)((*db & ss.preserve) | ss.write); break;
+            case 16: *(volatile uint16_t *)db = (uint16_t)((*(volatile uint16_t *)db & ss.preserve) | ss.write); break;
+            case 64: *(volatile uint64_t *)db = (*(volatile uint64_t *)db & ss.preserve) | ss.write; break;
+            default: *(volatile uint32_t *)db = (uint32_t)((*(volatile uint32_t *)db & ss.preserve) | ss.write); break;
+        }
+    } else {
+        const uint16_t port = (uint16_t)ss.doorbell.address;
+        switch (width) {
+            case 8:  outb(port, (uint8_t)((inb(port) & ss.preserve) | ss.write)); break;
+            case 16: outw(port, (uint16_t)((inw(port) & ss.preserve) | ss.write)); break;
+            default: outl(port, (uint32_t)((inl(port) & ss.preserve) | ss.write)); break;
+        }
+    }
+
+    waited = 0;
+    while (!(*status & 0x1) && waited < timeoutUs) { IODelay(10); waited += 10; }
+    ss.lastCmdNs = getCurrentTimeNs();
+    acpiCppc.lastStatus = *status;
+    if (!(*status & 0x1)) { acpiCppc.lastResult = -1; return false; }
+    if (*status & 0x4)    { acpiCppc.lastResult = -2; return false; }
+    acpiCppc.lastResult = 0;
+    return true;
+}
+
+// Register access inside a mapped subspace; the field is bitWidth bits at
+// bitOffset within the smallest naturally sized container that holds it.
+static uint32_t cpcContainerBytes(const AMDRyzenCPUPowerManagement::AcpiGas &g) {
+    const uint32_t bits = (uint32_t)g.bitOffset + g.bitWidth;
+    return bits <= 8 ? 1 : bits <= 16 ? 2 : bits <= 32 ? 4 : 8;
+}
+
+// Kernel address of a register: inside its PCC subspace (after the 8-byte
+// channel header), or inside its mapped SystemMemory page. nullptr when the
+// mapping is missing.
+volatile uint8_t *AMDRyzenCPUPowerManagement::cpcAddress(const AcpiGas &reg) {
+    if (reg.space == 0x0A) {
+        const PccSubspace &p = acpiCppc.pcc[reg.accessSize];
+        return p.shm ? (volatile uint8_t *)(p.shm->getVirtualAddress() + 8 + reg.address) : nullptr;
+    }
+    const uint64_t page = reg.address & ~0xFFFULL;
+    for (uint32_t slot = 0; slot < kCpcMaxMemPages; slot++) {
+        const CpcMemPage &m = acpiCppc.memPages[slot];
+        if (m.map && m.base == page) {
+            return (volatile uint8_t *)(m.map->getVirtualAddress() + (reg.address & 0xFFF));
+        }
+    }
+    return nullptr;
+}
+
+bool AMDRyzenCPUPowerManagement::cpcRead(const CpcValue &v, uint64_t &out) {
+    if (!v.isRegister) { out = v.integer; return true; }
+    volatile uint8_t *addr = cpcAddress(v.reg);
+    if (!addr) return false;
+    uint64_t raw = 0;
+    switch (cpcContainerBytes(v.reg)) {
+        case 1:  raw = *addr; break;
+        case 2:  raw = *(volatile uint16_t *)addr; break;
+        case 4:  raw = *(volatile uint32_t *)addr; break;
+        default: raw = *(volatile uint64_t *)addr; break;
+    }
+    const uint64_t mask = v.reg.bitWidth >= 64 ? ~0ULL : ((1ULL << v.reg.bitWidth) - 1);
+    out = (raw >> v.reg.bitOffset) & mask;
+    return true;
+}
+
+bool AMDRyzenCPUPowerManagement::cpcWrite(const CpcValue &v, uint64_t value) {
+    if (!v.isRegister) return true;   // a constant needs no write
+    volatile uint8_t *addr = cpcAddress(v.reg);
+    if (!addr) return false;
+    const uint64_t mask = (v.reg.bitWidth >= 64 ? ~0ULL : ((1ULL << v.reg.bitWidth) - 1)) << v.reg.bitOffset;
+    switch (cpcContainerBytes(v.reg)) {
+        case 1:  *addr = (uint8_t)((*addr & ~mask) | ((value << v.reg.bitOffset) & mask)); break;
+        case 2:  *(volatile uint16_t *)addr = (uint16_t)((*(volatile uint16_t *)addr & ~mask) | ((value << v.reg.bitOffset) & mask)); break;
+        case 4:  *(volatile uint32_t *)addr = (uint32_t)((*(volatile uint32_t *)addr & ~mask) | ((value << v.reg.bitOffset) & mask)); break;
+        default: *(volatile uint64_t *)addr = (*(volatile uint64_t *)addr & ~mask) | ((value << v.reg.bitOffset) & mask); break;
+    }
+    return true;
+}
+
+// Autonomous mode through ACPI CPPC, like amd-pstate shared memory mode: a
+// PCC READ refreshes the capabilities, then for every CPU min = lowest,
+// max = highest, desired = 0 (autonomous), autonomous selection and CPPC
+// enable on, EPP; one PCC WRITE per subspace carries all of them. Registers
+// in SystemMemory take the writes directly, no command needed.
+bool AMDRyzenCPUPowerManagement::applyEPPAcpi(uint8_t epp) {
+    if (!acpiCppc.supported) return false;
+
+    for (uint32_t id = 0; id < kPccMaxSubspaces; id++) {
+        if (acpiCppc.pcc[id].present && !pccCommand(acpiCppc.pcc[id], 0x00)) {
+            IOLog("AMDRyzenCPUPowerManagement: PCC read on subspace %u failed (status 0x%X)\n",
+                  id, acpiCppc.lastStatus);
+            return false;
+        }
+    }
+
+    for (uint32_t cpu = 0; cpu < CPUInfo::MaxCpus; cpu++) {
+        const CpcValue *c = acpiCppc.cpc[cpu];
+        if (!c[kSlotEpp].isRegister) continue;   // no _CPC for this index
+        uint64_t highest = 0, lowest = 0;
+        if (!cpcRead(c[kSlotHighest], highest) || !cpcRead(c[kSlotLowest], lowest) ||
+            highest == 0 || lowest == 0 || lowest > highest) {
+            IOLog("AMDRyzenCPUPowerManagement: CPU %u has no usable CPPC range (%llu..%llu)\n",
+                  cpu, lowest, highest);
+            return false;
+        }
+        cpcWrite(c[kSlotMin], lowest);
+        cpcWrite(c[kSlotMax], highest);
+        cpcWrite(c[kSlotDesired], 0);       // autonomous
+        cpcWrite(c[kSlotEnable], 1);
+        cpcWrite(c[kSlotAutoSel], 1);
+        cpcWrite(c[kSlotEpp], epp);
+    }
+    __sync_synchronize();
+
+    for (uint32_t id = 0; id < kPccMaxSubspaces; id++) {
+        if (acpiCppc.pcc[id].present && !pccCommand(acpiCppc.pcc[id], 0x01)) {
+            IOLog("AMDRyzenCPUPowerManagement: PCC write on subspace %u failed (status 0x%X)\n",
+                  id, acpiCppc.lastStatus);
+            return false;
+        }
+    }
+    cppcEngaged = true;
+    return true;
 }
 
 void AMDRyzenCPUPowerManagement::setCPBState(bool enabled){
@@ -1641,6 +2040,143 @@ void AMDRyzenCPUPowerManagement::smnWrite32(uint32_t addr, uint32_t val) {
     IOSimpleLockUnlock(pciConfigLock);
 }
 
+#pragma mark - SMU Command Sets
+
+// Per-family SMU command numbers (ZenMaster runner.py _CMD_* tables and
+// pmtable.py PM_TABLE_CMDS, ryzen_smu, ZenStates-Core). Only commands whose
+// argument encoding is the same as on Vermeer are filled in; a family that
+// lacks one keeps 0 and the feature reports unsupported there.
+//   - OC mode needs both an enable and a disable command on RSMU.
+//   - The OC VID is SVI2 (1.55 V - VID * 6.25 mV): left out on AM5 (SVI3).
+//   - Curve Optimizer exists from Zen 3 on; per-core margins also need the
+//     Zen 3 core fuse layout (Vermeer).
+//   - APUs take STAPM/fast/slow power limits instead of PPT/TDC/EDC.
+void AMDRyzenCPUPowerManagement::selectSmuCommandSet(const char *cpuName) {
+    static const SmuCommandSet kSmuSummitRidge = {
+        .name = "Summit Ridge / Threadripper 1000-2000",
+        .setPpt = 0x64, .setTdc = 0x65, .setEdc = 0x66, .setTctl = 0x68, .setScalar = 0x6A,
+        .pmVersion = 0x08, .pmBase = 0x06, .pmTransfer = 0x05, .pmBaseArg0 = 1, .pmBaseArg1 = 1,
+        .pmBase64 = true,
+    };
+    static const SmuCommandSet kSmuPinnacleRidge = {
+        .name = "Pinnacle Ridge",
+        .setPpt = 0x64, .setTdc = 0x65, .setEdc = 0x66, .setTctl = 0x68, .setScalar = 0x6A,
+        .pmVersion = 0x0C, .pmBase = 0x0B, .pmTransfer = 0x3D, .pmBaseArg0 = 3, .pmTransferArg = 3,
+    };
+    static const SmuCommandSet kSmuMatisse = {
+        .name = "Matisse / Castle Peak",
+        .setPpt = 0x53, .setTdc = 0x54, .setEdc = 0x55, .setTctl = 0x56,
+        .setScalar = 0x58, .getScalar = 0x6C,
+        .ocEnable = 0x5A, .ocDisable = 0x5B, .ocClkAll = 0x5C, .ocClkPerCore = 0x5D, .ocVid = 0x61,
+        .getMaxClk = 0x6E, .getFastestCore = 0x59, .getProcessorParams = 0x6F,
+        .pmVersion = 0x08, .pmBase = 0x06, .pmTransfer = 0x05, .pmBaseArg0 = 1, .pmBaseArg1 = 1,
+        .pmBase64 = true,
+        .mp1BoostLimit = 0x2B,
+    };
+    static const SmuCommandSet kSmuChagall = {
+        .name = "Chagall",
+        .setPpt = 0x53, .setTdc = 0x54, .setEdc = 0x55, .setTctl = 0x56,
+        .setScalar = 0x58, .getScalar = 0x6C,
+        .ocEnable = 0x5A, .ocDisable = 0x5B, .ocClkAll = 0x5C, .ocClkPerCore = 0x5D, .ocVid = 0x61,
+        .getMaxClk = 0x6E, .getFastestCore = 0x59, .getProcessorParams = 0x6F,
+        .pmVersion = 0x08, .pmBase = 0x06, .pmTransfer = 0x05, .pmBaseArg0 = 1, .pmBaseArg1 = 1,
+        .pmBase64 = true,
+        .mp1CoAll = 0x36, .mp1BoostLimit = 0x2B,
+    };
+    static const SmuCommandSet kSmuVermeer = {
+        .name = "Vermeer",
+        .setPpt = 0x53, .setTdc = 0x54, .setEdc = 0x55, .setTctl = 0x56,
+        .setScalar = 0x58, .getScalar = 0x6C,
+        .ocEnable = 0x5A, .ocDisable = 0x5B, .ocClkAll = 0x5C, .ocClkPerCore = 0x5D, .ocVid = 0x61,
+        .getMaxClk = 0x6E, .getFastestCore = 0x59, .getProcessorParams = 0x6F,
+        .pmVersion = 0x08, .pmBase = 0x06, .pmTransfer = 0x05, .pmBaseArg0 = 1, .pmBaseArg1 = 1,
+        .pmBase64 = true,
+        .mp1CoPerCore = 0x35, .mp1CoAll = 0x36, .mp1BoostLimit = 0x2B,
+        .zen3CoreFuses = true,
+    };
+    static const SmuCommandSet kSmuAM5 = {
+        .name = "Raphael / Storm Peak / Granite Ridge",
+        .setPpt = 0x56, .setTdc = 0x57, .setEdc = 0x58, .setTctl = 0x59,
+        .setScalar = 0x5B, .getScalar = 0x6D,
+        .ocEnable = 0x5D, .ocDisable = 0x5E, .ocClkAll = 0x5F, .ocClkPerCore = 0x60,
+        .getMaxClk = 0x6E, .getProcessorParams = 0x6F,
+        .pmVersion = 0x05, .pmBase = 0x04, .pmTransfer = 0x03, .pmBase64 = true,
+        .mp1CoAll = 0x36, .mp1BoostLimit = 0x2B,
+    };
+    static const SmuCommandSet kSmuRavenPicasso = {
+        .name = "Raven Ridge / Picasso / Dali",
+        .setStapm = 0x2E, .setFast = 0x30, .setSlow = 0x2F, .setTctl = 0x33,
+        .pmVersion = 0x0C, .pmBase = 0x0B, .pmTransfer = 0x3D, .pmBaseArg0 = 3, .pmTransferArg = 3,
+    };
+    static const SmuCommandSet kSmuRenoirCezanne = {
+        .name = "Renoir / Lucienne / Cezanne",
+        .setStapm = 0x31, .setFast = 0x32, .setSlow = 0x33,
+        .pmVersion = 0x06, .pmBase = 0x66, .pmTransfer = 0x65,
+    };
+    static const SmuCommandSet kSmuRembrandtPhoenix = {
+        .name = "Rembrandt / Phoenix / Hawk Point",
+        .setStapm = 0x31, .setFast = 0x32, .setSlow = 0x33,
+        .pmVersion = 0x06, .pmBase = 0x66, .pmTransfer = 0x65, .pmBase64 = true,
+    };
+
+    // Mailbox register triples (message, first argument, response), from
+    // ZenMaster mailbox.py and ryzen_smu smu.c.
+    static const SMUMailbox kRsmuAM4V1 = { 0x3B1051C, 0x3B10590, 0x3B10568, true };
+    static const SMUMailbox kMp1AM4V1  = { 0x3B10528, 0x3B10598, 0x3B10564, true };
+    static const SMUMailbox kRsmuAM4V2 = { 0x3B10524, 0x3B10A40, 0x3B10570, true };
+    static const SMUMailbox kMp1AM4V2  = { 0x3B10530, 0x3B109C4, 0x3B1057C, true };
+    static const SMUMailbox kRsmuApu   = { 0x3B10A20, 0x3B10A88, 0x3B10A80, true };
+    static const SMUMailbox kMp1Apu    = { 0x3B10528, 0x3B10998, 0x3B10564, true };
+    static const SMUMailbox kMp1ApuFT6 = { 0x3B10528, 0x3B10998, 0x3B10578, true };
+
+    const SmuCommandSet *set = nullptr;
+    const SMUMailbox *r = nullptr, *m = nullptr;
+    const bool threadripper = cpuName && strstr(cpuName, "Threadripper");
+
+    if (cpuFamily == 0x17) {
+        switch (cpuModel) {
+        case 0x01:                    set = &kSmuSummitRidge; r = &kRsmuAM4V1; m = &kMp1AM4V1; break;
+        case 0x08:
+            set = threadripper ? &kSmuSummitRidge : &kSmuPinnacleRidge;
+            r = &kRsmuAM4V1; m = &kMp1AM4V1;
+            break;
+        case 0x11: case 0x12: case 0x18: case 0x20:
+                                      set = &kSmuRavenPicasso; r = &kRsmuApu; m = &kMp1Apu; break;
+        case 0x31: case 0x71:         set = &kSmuMatisse; r = &kRsmuAM4V2; m = &kMp1AM4V2; break;
+        case 0x60: case 0x68:         set = &kSmuRenoirCezanne; r = &kRsmuApu; m = &kMp1Apu; break;
+        default: break;
+        }
+    } else if (cpuFamily == 0x19) {
+        if (cpuModel == 0x08) {
+            set = &kSmuChagall; r = &kRsmuAM4V2; m = &kMp1AM4V2;
+        } else if (cpuModel == 0x18 && threadripper) {
+            set = &kSmuAM5; r = &kRsmuAM4V2; m = &kMp1AM4V2;
+        } else if (cpuModel >= 0x21 && cpuModel <= 0x2F) {
+            set = &kSmuVermeer; r = &kRsmuAM4V2; m = &kMp1AM4V2;
+        } else if (cpuModel == 0x3F || cpuModel == 0x40 || cpuModel == 0x44 ||
+                   cpuModel == 0x74 || cpuModel == 0x75 || cpuModel == 0x78 || cpuModel == 0x7C) {
+            set = &kSmuRembrandtPhoenix; r = &kRsmuApu; m = &kMp1ApuFT6;
+        } else if (cpuModel == 0x50) {
+            set = &kSmuRenoirCezanne; r = &kRsmuApu; m = &kMp1Apu;
+        } else if (cpuModel == 0x61) {
+            set = &kSmuAM5; r = &kRsmuAM4V2; m = &kMp1AM4V2;
+        }
+    } else if (cpuFamily == 0x1A && cpuModel == 0x44) {
+        set = &kSmuAM5; r = &kRsmuAM4V2; m = &kMp1AM4V2;
+    }
+
+    if (!set) {
+        IOLog("AMDRyzenCPUPowerManagement: no SMU command set for family %02Xh model %02Xh, SMU control off\n",
+              cpuFamily, cpuModel);
+        return;
+    }
+    smuCmd = *set;
+    rsmu = *r;
+    mp1 = *m;
+    IOLog("AMDRyzenCPUPowerManagement: SMU command set %s (family %02Xh model %02Xh)\n",
+          smuCmd.name, cpuFamily, cpuModel);
+}
+
 #pragma mark - SMU Mailbox Commands
 
 // One mailbox transaction, following ryzen_smu smu_send_command() and
@@ -1719,7 +2255,8 @@ int AMDRyzenCPUPowerManagement::smuSendCmd(uint32_t cmd, uint32_t arg) {
 // PM-table transfer (0x05) waits on a DMA copy, hence the longer deadline.
 int AMDRyzenCPUPowerManagement::smuSendCmd(uint32_t cmd, uint32_t arg, uint32_t &outArg0, uint32_t *outElapsedUs) {
     uint32_t args[kSMU_ARG_COUNT] = { arg };
-    int rsp = smuExecute(rsmu, cmd, args, (cmd == 0x05) ? 25000 : 10000, outElapsedUs);
+    int rsp = smuExecute(rsmu, cmd, args,
+                         (smuCmd.pmTransfer && cmd == smuCmd.pmTransfer) ? 25000 : 10000, outElapsedUs);
     outArg0 = (rsp == SMU_RSP_OK) ? args[0] : arg;
     return rsp;
 }
@@ -1745,29 +2282,31 @@ void AMDRyzenCPUPowerManagement::pollBoostTelemetry() {
     }
     smuBoostTelemetryLastPollMs = now;
 
-    // Vermeer RSMU read commands documented in ryzen_smu rsmu_commands.md:
-    //   GetMaxFrequency        0x6E  Res0: MHz
-    //   GetFastestCoreOfSocket 0x59  raw word; decode lives app-side
-    //   GetPBOScalar           0x6C  active scalar (IEEE-754 float)
-    // 0 responses are cached as "unknown" rather than retried every tick —
-    // the SMU only returns 0 while clocks are being reconfigured.
-    uint32_t maxFreq = 0;
-    uint32_t fastestCore = 0;
-    uint32_t activeScalar = 0;
-    uint32_t elap6E = 0, elap59 = 0, elap6C = 0;
-
-    int rsp6E = smuSendCmd(0x6E, 0, maxFreq, &elap6E);
-    int rsp59 = smuSendCmd(0x59, 0, fastestCore, &elap59);
-    int rsp6C = smuSendCmd(0x6C, 0, activeScalar, &elap6C);
-
-    if (rsp6E == SMU_RSP_OK) smuMaxBoostFreqMHz = maxFreq;
-    if (rsp59 == SMU_RSP_OK) smuFastestCoreRaw = fastestCore;
-    if (rsp6C == SMU_RSP_OK) smuActiveScalarRaw = activeScalar;
+    // RSMU read commands (ryzen_smu rsmu_commands.md, ZenMaster): the
+    // family's GetMaxFrequency (Res0: MHz), GetFastestCoreOfSocket (raw
+    // word, decoded app-side) and GetPBOScalar (IEEE-754 float). A family
+    // without one skips it. 0 responses are cached as "unknown" rather than
+    // retried every tick: the SMU only returns 0 while clocks are being
+    // reconfigured.
+    int rspMax = -1, rspFastest = -1, rspScalar = -1;
+    uint32_t value = 0;
+    if (smuCmd.getMaxClk) {
+        rspMax = smuSendCmd(smuCmd.getMaxClk, 0, value);
+        if (rspMax == SMU_RSP_OK) smuMaxBoostFreqMHz = value;
+    }
+    if (smuCmd.getFastestCore) {
+        rspFastest = smuSendCmd(smuCmd.getFastestCore, 0, value);
+        if (rspFastest == SMU_RSP_OK) smuFastestCoreRaw = value;
+    }
+    if (smuCmd.getScalar) {
+        rspScalar = smuSendCmd(smuCmd.getScalar, 0, value);
+        if (rspScalar == SMU_RSP_OK) smuActiveScalarRaw = value;
+    }
 
     static bool sLoggedBoostFirst = false;
     if (!sLoggedBoostFirst) {
-        IOLog("AMDRyzenCPUPowerManagement: Boost telemetry initial: 0x6E(rsp=0x%X, %u MHz, %u us), 0x59(rsp=0x%X, 0x%X, %u us), 0x6C(rsp=0x%X, 0x%X, %u us)\n",
-              rsp6E, smuMaxBoostFreqMHz, elap6E, rsp59, smuFastestCoreRaw, elap59, rsp6C, smuActiveScalarRaw, elap6C);
+        IOLog("AMDRyzenCPUPowerManagement: Boost telemetry initial: max clock rsp=0x%X %u MHz, fastest core rsp=0x%X 0x%X, scalar rsp=0x%X 0x%X\n",
+              rspMax, smuMaxBoostFreqMHz, rspFastest, smuFastestCoreRaw, rspScalar, smuActiveScalarRaw);
         sLoggedBoostFirst = true;
     }
 }
@@ -1799,7 +2338,8 @@ uint32_t AMDRyzenCPUPowerManagement::pollSmuVersion() {
 }
 
 // ------------------------------------------------------------------
-// SMU PM-table plumbing (Vermeer RSMU 0x08 / 0x05 / 0x06).
+// SMU PM-table plumbing (the family's version / base / transfer commands,
+// smuCmd.pm*; Vermeer: RSMU 0x08 / 0x06 / 0x05).
 //
 // The SMU exposes a live metrics table (per-core clocks/temps/power —
 // the same table ryzen_smu and HWiNFO feed from). The flow follows
@@ -1817,22 +2357,99 @@ uint32_t AMDRyzenCPUPowerManagement::pollSmuVersion() {
 // Runs exclusively on the timer command gate.
 // ------------------------------------------------------------------
 
-// Documented Vermeer/Chagall PM-table sizes (Ryzen-Master-sourced list,
-// reference smu.c smu_update_pmtablesize). Unknown versions → 0 (fail
+// PM-table size per version (ZenMaster pmtable.py TABLE_SIZES, which
+// extends the Ryzen-Master-sourced list in ryzen_smu smu.c
+// smu_update_pmtablesize to every family). Unknown versions -> 0 (fail
 // closed; the snapshot stays invalid rather than mapping a guessed size).
 static uint32_t pmTableSizeForVersion(uint32_t version) {
     switch (version) {
-    case 0x2D0803: return 0x0894;
-    case 0x2D0903: return 0x0594;
-    case 0x380005: return 0x1BB0;
-    case 0x380505: return 0x0F30;
-    case 0x380605: return 0x0C10;
-    case 0x380705: return 0x08F0;
-    case 0x380804: return 0x08A4;
-    case 0x380805: return 0x08F0;
-    case 0x380904: return 0x05A4;
-    case 0x380905: return 0x05D0;
-    default:       return 0;    // unknown version — fail closed
+    case 0x00000400: return 0x0948;
+    case 0x001E0001: return 0x0568;
+    case 0x001E0002: return 0x0580;
+    case 0x001E0003: return 0x0578;
+    case 0x001E0004: return 0x0608;
+    case 0x001E0005: return 0x0608;
+    case 0x001E000A: return 0x0608;
+    case 0x001E0101: return 0x0608;
+    case 0x00240003: return 0x18AC;
+    case 0x00240503: return 0x0D7C;
+    case 0x00240603: return 0x0AB0;
+    case 0x00240703: return 0x07E4;
+    case 0x00240802: return 0x07E0;
+    case 0x00240803: return 0x07E4;
+    case 0x00240902: return 0x0514;
+    case 0x00240903: return 0x0518;
+    case 0x002D0008: return 0x1AB0;
+    case 0x002D0803: return 0x0894;
+    case 0x002D0903: return 0x0594;
+    case 0x00370000: return 0x0794;
+    case 0x00370001: return 0x0884;
+    case 0x00370002: return 0x088C;
+    case 0x00370003: return 0x08AC;
+    case 0x00370004: return 0x08AC;
+    case 0x00370005: return 0x08C8;
+    case 0x00380005: return 0x1BB0;
+    case 0x00380505: return 0x0F30;
+    case 0x00380605: return 0x0C10;
+    case 0x00380705: return 0x08F0;
+    case 0x00380804: return 0x08A4;
+    case 0x00380805: return 0x08F0;
+    case 0x00380904: return 0x05A4;
+    case 0x00380905: return 0x05D0;
+    case 0x003F0000: return 0x07AC;
+    case 0x00400001: return 0x0910;
+    case 0x00400002: return 0x0928;
+    case 0x00400003: return 0x094C;
+    case 0x00400004: return 0x0944;
+    case 0x00400005: return 0x0944;
+    case 0x00450004: return 0x0AA4;
+    case 0x00450005: return 0x0AB0;
+    case 0x004C0003: return 0x0B18;
+    case 0x004C0004: return 0x0B1C;
+    case 0x004C0005: return 0x0AF8;
+    case 0x004C0006: return 0x0AFC;
+    case 0x004C0007: return 0x0B00;
+    case 0x004C0008: return 0x0AF0;
+    case 0x004C0009: return 0x0B00;
+    case 0x00540000: return 0x0828;
+    case 0x00540001: return 0x082C;
+    case 0x00540002: return 0x087C;
+    case 0x00540003: return 0x089C;
+    case 0x00540004: return 0x08BC;
+    case 0x00540005: return 0x08C8;
+    case 0x00540208: return 0x08D0;
+    case 0x00540100: return 0x0618;
+    case 0x00540101: return 0x061C;
+    case 0x00540102: return 0x066C;
+    case 0x00540103: return 0x068C;
+    case 0x00540104: return 0x06A8;
+    case 0x00540105: return 0x06B4;
+    case 0x00540108: return 0x06BC;
+    case 0x005C0002: return 0x1E3C;
+    case 0x005C0003: return 0x1E48;
+    case 0x005C0102: return 0x1A14;
+    case 0x005C0103: return 0x1A20;
+    case 0x005C0202: return 0x15EC;
+    case 0x005C0203: return 0x15F8;
+    case 0x005C0302: return 0x0D9C;
+    case 0x005C0303: return 0x0DA8;
+    case 0x005C0402: return 0x0974;
+    case 0x005C0403: return 0x0980;
+    case 0x005D0008: return 0x0D54;
+    case 0x005D0009: return 0x0D54;
+    case 0x005D000A: return 0x0D54;
+    case 0x005D000B: return 0x0D54;
+    case 0x00620105: return 0x0724;
+    case 0x00620205: return 0x0994;
+    case 0x00621102: return 0x0724;
+    case 0x00621202: return 0x0994;
+    case 0x0064010C: return 0x0E50;
+    case 0x0064020C: return 0x0E50;
+    case 0x00650004: return 0x0B74;
+    case 0x00650005: return 0x0B78;
+    case 0x00650006: return 0x0B80;
+    case 0x00650007: return 0x0D54;
+    default:         return 0;
     }
 }
 
@@ -1841,20 +2458,13 @@ static uint32_t pmTableSizeForVersion(uint32_t version) {
 // error, -10 timeout, -11 unknown command, -12 rejected, -13 busy, -14
 // unknown table version, -15 map failed).
 int AMDRyzenCPUPowerManagement::forcePMTableCapture() {
-    if (!pboLimitsSupported()) {
-        static bool sLoggedNotSupp = false;
-        if (!sLoggedNotSupp) {
-            IOLog("AMDRyzenCPUPowerManagement: forcePMTableCapture aborted: pboLimitsSupported() returned false.\n");
-            sLoggedNotSupp = true;
-        }
-        return -1;
-    }
+    if (!smuPmTableSupported()) return -1;
 
     // 0x08: version (one-shot — static per firmware)
     if (!pmTableVersionPolled) {
         uint32_t versionWord = 0;
         uint32_t elap08 = 0;
-        int rsp = smuSendCmd(0x08, 0, versionWord, &elap08);
+        int rsp = smuSendCmd(smuCmd.pmVersion, 0, versionWord, &elap08);
         if (rsp != SMU_RSP_OK) {
             static bool sLogged08Fail = false;
             if (!sLogged08Fail) {
@@ -1887,7 +2497,7 @@ int AMDRyzenCPUPowerManagement::forcePMTableCapture() {
     {
         uint32_t arg0 = 0;
         uint32_t elap05 = 0;
-        int rsp = smuSendCmd(0x05, 0, arg0, &elap05);
+        int rsp = smuSendCmd(smuCmd.pmTransfer, smuCmd.pmTransferArg, arg0, &elap05);
         if (rsp != SMU_RSP_OK) {
             static bool sLogged05Fail = false;
             if (!sLogged05Fail) {
@@ -1900,10 +2510,10 @@ int AMDRyzenCPUPowerManagement::forcePMTableCapture() {
 
     // 0x06: 64-bit physical base (Arg0=1/Arg1=1 in, arg0|arg1<<32 out).
     {
-        uint32_t args[kSMU_ARG_COUNT] = { 1, 1 };
+        uint32_t args[kSMU_ARG_COUNT] = { smuCmd.pmBaseArg0, smuCmd.pmBaseArg1 };
         uint32_t elap06 = 0;
-        int rsp = smuExecute(rsmu, 0x06, args, 10000, &elap06);
-        uint32_t lo = args[0], hi = args[1];
+        int rsp = smuExecute(rsmu, smuCmd.pmBase, args, 10000, &elap06);
+        uint32_t lo = args[0], hi = smuCmd.pmBase64 ? args[1] : 0;
         if (rsp != SMU_RSP_OK) {
             static bool sLogged06Fail = false;
             if (!sLogged06Fail) {
@@ -1969,7 +2579,7 @@ int AMDRyzenCPUPowerManagement::forcePMTableCapture() {
 // must never disturb the PBO/CO/OC command flow (it shares smuCmdLock,
 // which stays a leaf).
 void AMDRyzenCPUPowerManagement::pollPMTable() {
-    if (!pboLimitsSupported()) return;
+    if (!smuPmTableSupported()) return;
 
     uint64_t now = getCurrentTimeNs() / 1000000; // ms
     if (pmRefreshLastPollMs != 0 &&
@@ -1988,17 +2598,17 @@ void AMDRyzenCPUPowerManagement::pollPMTable() {
     (void)forcePMTableCapture();
 }
 
-// One-shot ProcessorParameters read (Vermeer RSMU 0x6F, per ryzen_smu
-// rsmu_commands.md — Res0 bitfield, no input arg). Static silicon config:
+// One-shot ProcessorParameters read (RSMU 0x6F on AM4 Zen 2/3 and AM5,
+// per ryzen_smu rsmu_commands.md — Res0 bitfield, no input arg). Static silicon config:
 // on the first SMU_RSP_OK the result is cached and the command is never
 // re-issued this boot. Runs on the timer command gate only.
 uint32_t AMDRyzenCPUPowerManagement::pollProcessorParameters() {
-    if (!rsmu.supported) return 0;
+    if (!rsmu.supported || !smuCmd.getProcessorParams) return 0;
     if (smuProcParamsPolled) return smuProcessorParametersRaw;
 
     uint32_t result = 0;
     uint32_t elapsed = 0;
-    int rsp = smuSendCmd(0x6F, 0, result, &elapsed);
+    int rsp = smuSendCmd(smuCmd.getProcessorParams, 0, result, &elapsed);
     if (rsp == SMU_RSP_OK) {
         smuProcessorParametersRaw = result;
         smuProcParamsPolled = true;
@@ -2058,7 +2668,7 @@ bool AMDRyzenCPUPowerManagement::runMailboxDiagnostics(SMUDiagnosticReport &out)
     return (out.testRsp == SMU_RSP_OK && out.testArg0 == 0x43);
 }
 
-// Enable/disable Vermeer OC mode: RSMU 0x5A EnableOcMode / 0x5B
+// Enable/disable OC mode (smuCmd.ocEnable/ocDisable; Vermeer: RSMU 0x5A EnableOcMode / 0x5B
 // DisableOcMode, both with Arg0 = 0 (ZenStates-Core Zen2Settings and
 // SetOcMode.ExecuteOcMode; ryzen_smu rsmu_commands.md lists 0 as "enabled"
 // for 0x5A, while 0x1000000 in that argument is the PROCHOT switch).
@@ -2067,39 +2677,40 @@ bool AMDRyzenCPUPowerManagement::runMailboxDiagnostics(SMUDiagnosticReport &out)
 // (ZenStates-Core SetOcMode), so `resetScalar` writes 1.0 (100) via 0x58
 // after a successful disable.
 int AMDRyzenCPUPowerManagement::setOcMode(bool enable, bool resetScalar) {
-    if (!pboLimitsSupported()) return -1;
+    if (!smuOcSupported()) return -1;
+    const uint32_t cmd = enable ? smuCmd.ocEnable : smuCmd.ocDisable;
 
     // Thermal safety interlock, same policy as CO/PBO/cHTC: no new OC-mode
     // transitions while the package is already hot.
     float currentTemp = PACKAGE_TEMPERATURE_perPackage[0];
     if (currentTemp > kCURVE_OPTIMIZER_BLOCK_TEMP_C) {
         IOLog("AMDRyzenCPUPowerManagement: Blocked OC mode %s (0x%X) due to high package temperature (%.1f C).\n",
-              enable ? "enable" : "disable", enable ? 0x5A : 0x5B, currentTemp);
+              enable ? "enable" : "disable", cmd, currentTemp);
         return -4;
     }
 
-    int response = smuSendCmd(enable ? 0x5A : 0x5B, 0);
+    int response = smuSendCmd(cmd, 0);
 
     if (response == SMU_RSP_OK) {
         smuOcModeState = enable ? 1 : 2;
-        IOLog("AMDRyzenCPUPowerManagement: OC mode %s (0x%X).\n", enable ? "ENABLED" : "DISABLED", enable ? 0x5A : 0x5B);
+        IOLog("AMDRyzenCPUPowerManagement: OC mode %s (0x%X).\n", enable ? "ENABLED" : "DISABLED", cmd);
 
-        if (!enable && resetScalar) {
+        if (!enable && resetScalar && smuCmd.setScalar) {
             // Pass the real cache slot: setPBOLimit updates it on success.
-            int scalarRc = setPBOLimit(0x58, 100, pboScalarPercentX100);
-            IOLog("AMDRyzenCPUPowerManagement: OC disable scalar reset (0x58 → 100): %s.\n",
-                  scalarRc == 0 ? "ok" : "failed");
+            int scalarRc = setPBOLimit(smuCmd.setScalar, 100, pboScalarPercentX100);
+            IOLog("AMDRyzenCPUPowerManagement: OC disable scalar reset (0x%X → 100): %s.\n",
+                  smuCmd.setScalar, scalarRc == 0 ? "ok" : "failed");
         }
         return 0;
     }
 
     IOLog("AMDRyzenCPUPowerManagement: SMU OC mode command 0x%X failed with response code: 0x%X\n",
-          enable ? 0x5A : 0x5B, response);
+          cmd, response);
     return smuError(response);
 }
 
 // ------------------------------------------------------------------
-// Frequency overrides (Vermeer RSMU 0x5C all-core / 0x5D per-core).
+// Frequency overrides (smuCmd.ocClkAll/ocClkPerCore; Vermeer: RSMU 0x5C all-core / 0x5D per-core).
 //
 //   0x5C SetOverclockFrequencyAllCores: Arg0 = MHz & 0xFFFFF.
 //   0x5D SetOverclockFrequencyPerCore:  Arg0 = core mask | (MHz & 0xFFFFF).
@@ -2107,13 +2718,13 @@ int AMDRyzenCPUPowerManagement::setOcMode(bool enable, bool resetScalar) {
 // a Vermeer CCD is one CCX, so a CCD is set by writing 0x5D to each of its
 // cores, as ZenStates-Core SetFrequencyCCD does.
 // The SMU cannot read these back: the caches hold this driver's last
-// successful writes. Writes need Vermeer, OC mode enabled by this driver
+// successful writes. Writes need the family's OC commands, OC mode enabled by this driver
 // this boot (another tool's enable does not count) and a package below the
 // thermal interlock.
 // ------------------------------------------------------------------
 
 int AMDRyzenCPUPowerManagement::setOverclockFreqAllCores(uint32_t mhz) {
-    if (!pboLimitsSupported()) return -1;
+    if (!smuOcSupported()) return -1;
 
     if (mhz < 400 || mhz > 8000) {
         IOLog("AMDRyzenCPUPowerManagement: Freq override %u MHz outside the 400..8000 envelope. Blocking.\n", mhz);
@@ -2135,7 +2746,7 @@ int AMDRyzenCPUPowerManagement::setOverclockFreqAllCores(uint32_t mhz) {
     }
 
     uint32_t arg = mhz & 0xFFFFF;   // 0x5C: absolute MHz in the low 20 bits
-    int response = smuSendCmd(0x5C, arg);
+    int response = smuSendCmd(smuCmd.ocClkAll, arg);
 
     if (response == SMU_RSP_OK) {
         ocFreqMHzAllCores = mhz;
@@ -2148,7 +2759,7 @@ int AMDRyzenCPUPowerManagement::setOverclockFreqAllCores(uint32_t mhz) {
 }
 
 int AMDRyzenCPUPowerManagement::setOverclockFreqPerCcd(const uint32_t *mhzByCcd, uint8_t windowLen, uint8_t startCcd) {
-    if (!pboLimitsSupported() || !coreMapValid) return -1;
+    if (!smuOcPerCcdSupported()) return -1;
 
     if (!mhzByCcd || windowLen == 0 || windowLen > kOC_MAX_CCDS || startCcd >= kOC_MAX_CCDS ||
         startCcd + windowLen > kOC_MAX_CCDS) {
@@ -2190,7 +2801,7 @@ int AMDRyzenCPUPowerManagement::setOverclockFreqPerCcd(const uint32_t *mhzByCcd,
         uint32_t written = 0;
         for (uint32_t core = 0; core < totalNumberOfPhysicalCores; core++) {
             if ((coreSmuMask[core] >> 28) != physicalCcd) continue;
-            int response = smuSendCmd(0x5D, coreSmuMask[core] | (mhz & 0xFFFFF));
+            int response = smuSendCmd(smuCmd.ocClkPerCore, coreSmuMask[core] | (mhz & 0xFFFFF));
             if (response != SMU_RSP_OK) {
                 IOLog("AMDRyzenCPUPowerManagement: SMU 0x5D CCD%u core %u failed, response 0x%X\n", ccd, core, response);
                 return smuError(response);
@@ -2216,12 +2827,12 @@ bool AMDRyzenCPUPowerManagement::physicalCcdForIndex(uint8_t index, uint32_t &ph
     return false;
 }
 
-// Program the cHTC thermal limit (Vermeer SMU 0x56, Arg0 = °C, per
+// Program the cHTC thermal limit (smuCmd.setTctl; Vermeer: SMU 0x56, Arg0 = °C, per
 // ryzen_smu rsmu_commands.md). Same capability gate and thermal interlock
-// policy as the PBO limits: Vermeer-with-mailbox only, writes blocked while
+// policy as the PBO limits: the family must have the command, writes blocked while
 // the package is already hot. Cache updated for read-back on success.
 int AMDRyzenCPUPowerManagement::setCHTCLimit(uint32_t arg) {
-    if (!pboLimitsSupported()) return -1;
+    if (!smuTctlSupported()) return -1;
 
     // Thermal safety interlock, same policy as Curve Optimizer / PBO: don't
     // push a new thermal limit while the package is already hot.
@@ -2231,7 +2842,7 @@ int AMDRyzenCPUPowerManagement::setCHTCLimit(uint32_t arg) {
         return -4;
     }
 
-    int response = smuSendCmd(0x56, arg);
+    int response = smuSendCmd(smuCmd.setTctl, arg);
 
     if (response == SMU_RSP_OK) {
         smuCHTCLimitCelsius = arg;
@@ -2255,7 +2866,7 @@ int AMDRyzenCPUPowerManagement::setCHTCLimit(uint32_t arg) {
 // voltage offset at the wrong core.
 void AMDRyzenCPUPowerManagement::buildCoreMap() {
     coreMapValid = false;
-    if (!mp1.supported) return;
+    if (!mp1.supported || !smuCmd.zen3CoreFuses) return;
 
     uint32_t ccdPresent = smnRead32(0x5D218);
     uint32_t ccdDown = smnRead32(0x5D21C);
@@ -2290,11 +2901,11 @@ void AMDRyzenCPUPowerManagement::buildCoreMap() {
     IOLog("AMDRyzenCPUPowerManagement::buildCoreMap %u cores, CCD map 0x%02X\n", cores, ccdEnabled);
 }
 
-// Per-core Curve Optimizer margin: Vermeer MP1 SetDldoPsmMargin (0x35) with
+// Per-core Curve Optimizer margin: smuCmd.mp1CoPerCore (Vermeer MP1 SetDldoPsmMargin 0x35) with
 // arg = core mask | margin as a 16-bit two's complement value
 // (ZenStates-Core SetPsmMarginSingleCore, Utils.MakePsmMarginArg).
 int AMDRyzenCPUPowerManagement::setCurveOptimizer(uint8_t core, int8_t offset) {
-    if (!mp1.supported || !coreMapValid) return -1;
+    if (!smuCoPerCoreSupported()) return -1;
 
     if (core >= totalNumberOfPhysicalCores) {
         IOLog("AMDRyzenCPUPowerManagement: Invalid core index %d (max: %d).\n", core, totalNumberOfPhysicalCores - 1);
@@ -2314,7 +2925,7 @@ int AMDRyzenCPUPowerManagement::setCurveOptimizer(uint8_t core, int8_t offset) {
     }
 
     uint32_t args[kSMU_ARG_COUNT] = { coreSmuMask[core] | ((uint32_t)(int32_t)offset & 0xFFFF) };
-    int response = smuExecute(mp1, kMP1_SET_DLDO_PSM_MARGIN, args, 25000);
+    int response = smuExecute(mp1, smuCmd.mp1CoPerCore, args, 25000);
 
     if (response == SMU_RSP_OK) {
         curveOptimizerOffsets[core] = offset;
@@ -2326,42 +2937,116 @@ int AMDRyzenCPUPowerManagement::setCurveOptimizer(uint8_t core, int8_t offset) {
 }
 
 // ------------------------------------------------------------------
-// Precision Boost Overdrive limits + scalar (Vermeer RSMU set).
+// Precision Boost Overdrive limits, scalar, OC VID, all-core Curve
+// Optimizer and boost ceiling, through the family's command set.
 //
-// Vermeer RSMU commands (ryzen_smu rsmu_commands.md, ZenStates-Core
-// Zen2Settings):
-//   0x53 SetPptLimit   (arg in mW)
-//   0x54 SetTdcLimit   (arg in mA)
-//   0x55 SetEdcLimit   (arg in mA)
-//   0x58 SetPboScalar  (arg in %x100, 100..1000 => 1x..10x)
+//   PPT / TDC / EDC     mW / mA / mA   (desktop)
+//   STAPM / fast / slow mW             (APU: the PPT value goes to all three)
+//   PBO scalar          %x100, 100..1000 => 1x..10x
+//   OC VID              SVI2 VID: 1.55 V - VID * 6.25 mV, OC mode only
+//   CO all-core         MP1, margin as 16-bit two's complement
+//   Boost ceiling       MP1, MHz
 // These are write-only SMU commands: there is no read-back, so the
-// successfully-programmed values are cached for the UI in the same
-// way as Curve Optimizer offsets.
-//
-// Fail-closed: requires Vermeer (family 0x19, model 0x21..0x2F) with the
-// RSMU mailbox up.
+// successfully-programmed values are cached for the UI in the same way as
+// Curve Optimizer offsets. Every write is blocked while the package is
+// above the thermal interlock.
 // ------------------------------------------------------------------
 
-int AMDRyzenCPUPowerManagement::setPBOLimit(uint32_t smuCmd, uint32_t arg, uint32_t &cacheSlot) {
-    if (!pboLimitsSupported()) return -1;
+int AMDRyzenCPUPowerManagement::setPBOLimit(uint32_t cmd, uint32_t arg, uint32_t &cacheSlot) {
+    if (!rsmu.supported || cmd == 0) return -1;
 
-    // Thermal safety interlock, same policy as Curve Optimizer: don't push
-    // new power limits while the package is already hot.
     float currentTemp = PACKAGE_TEMPERATURE_perPackage[0];
     if (currentTemp > kCURVE_OPTIMIZER_BLOCK_TEMP_C) {
-        IOLog("AMDRyzenCPUPowerManagement: Blocked PBO limit write (cmd 0x%X) due to high package temperature (%.1f C).\n", smuCmd, currentTemp);
+        IOLog("AMDRyzenCPUPowerManagement: Blocked SMU write 0x%X due to high package temperature (%.1f C).\n", cmd, currentTemp);
         return -4;
     }
 
-    int response = smuSendCmd(smuCmd, arg);
+    int response = smuSendCmd(cmd, arg);
 
     if (response == SMU_RSP_OK) {
         cacheSlot = arg;
-        IOLog("AMDRyzenCPUPowerManagement: PBO limit applied (cmd 0x%X, arg %u).\n", smuCmd, arg);
+        IOLog("AMDRyzenCPUPowerManagement: SMU write applied (cmd 0x%X, arg %u).\n", cmd, arg);
         return 0;
     }
 
-    IOLog("AMDRyzenCPUPowerManagement: SMU PBO command 0x%X failed with response code: 0x%X\n", smuCmd, response);
+    IOLog("AMDRyzenCPUPowerManagement: SMU write 0x%X failed with response code: 0x%X\n", cmd, response);
+    return smuError(response);
+}
+
+int AMDRyzenCPUPowerManagement::setPowerLimits(uint32_t pptMilliwatts, uint32_t tdcMilliamps, uint32_t edcMilliamps) {
+    if (smuPptLimitsSupported()) {
+        int rc = setPBOLimit(smuCmd.setPpt, pptMilliwatts, pboPPTMilliwatts);
+        if (rc == 0) rc = setPBOLimit(smuCmd.setTdc, tdcMilliamps, pboTDCMilliamps);
+        if (rc == 0) rc = setPBOLimit(smuCmd.setEdc, edcMilliamps, pboEDCMilliamps);
+        return rc;
+    }
+    if (smuApuLimitsSupported()) {
+        uint32_t written = 0;
+        int rc = setPBOLimit(smuCmd.setStapm, pptMilliwatts, written);
+        if (rc == 0) rc = setPBOLimit(smuCmd.setFast, pptMilliwatts, written);
+        if (rc == 0) rc = setPBOLimit(smuCmd.setSlow, pptMilliwatts, pboPPTMilliwatts);
+        return rc;
+    }
+    return -1;
+}
+
+int AMDRyzenCPUPowerManagement::setPboScalar(uint32_t percentX100) {
+    if (!smuScalarSupported()) return -1;
+    return setPBOLimit(smuCmd.setScalar, percentX100, pboScalarPercentX100);
+}
+int AMDRyzenCPUPowerManagement::setOcVid(uint32_t vid) {
+    if (!smuOcVidSupported()) return -1;
+    // 16..120 = 1.45 V .. 0.80 V: nothing outside it is a sane fixed core voltage.
+    if (vid < 16 || vid > 120) return -2;
+    if (smuOcModeState != 1) {
+        IOLog("AMDRyzenCPUPowerManagement: Blocked OC VID: OC mode not enabled by this driver this boot.\n");
+        return -3;
+    }
+    return setPBOLimit(smuCmd.ocVid, vid, ocVidCache);
+}
+
+int AMDRyzenCPUPowerManagement::setCurveOptimizerAll(int8_t offset) {
+    if (!smuCoAllSupported()) return -1;
+    if (offset < -30 || offset > 30) return -2;
+
+    float currentTemp = PACKAGE_TEMPERATURE_perPackage[0];
+    if (currentTemp > kCURVE_OPTIMIZER_BLOCK_TEMP_C) {
+        IOLog("AMDRyzenCPUPowerManagement: Blocked all-core Curve Optimizer due to high package temperature (%.1f C).\n", currentTemp);
+        return -4;
+    }
+
+    uint32_t args[kSMU_ARG_COUNT] = { (uint32_t)(int32_t)offset & 0xFFFF };
+    int response = smuExecute(mp1, smuCmd.mp1CoAll, args, 25000);
+    if (response == SMU_RSP_OK) {
+        curveOptimizerAllCache = offset;
+        curveOptimizerAllSet = true;
+        // The all-core margin replaces every per-core one.
+        for (uint32_t core = 0; core < CPUInfo::MaxCpus; core++) curveOptimizerOffsets[core] = offset;
+        IOLog("AMDRyzenCPUPowerManagement: Curve Optimizer all cores set to %d.\n", offset);
+        return 0;
+    }
+    IOLog("AMDRyzenCPUPowerManagement: all-core Curve Optimizer failed, response 0x%X\n", response);
+    return smuError(response);
+}
+
+int AMDRyzenCPUPowerManagement::setBoostLimit(uint32_t mhz) {
+    if (!smuBoostLimitSupported()) return -1;
+    if (mhz < 400 || mhz > 8000) return -2;
+
+    float currentTemp = PACKAGE_TEMPERATURE_perPackage[0];
+    if (currentTemp > kCURVE_OPTIMIZER_BLOCK_TEMP_C) {
+        IOLog("AMDRyzenCPUPowerManagement: Blocked boost ceiling due to high package temperature (%.1f C).\n", currentTemp);
+        return -4;
+    }
+
+    uint32_t args[kSMU_ARG_COUNT] = { mhz };
+    int response = smuExecute(mp1, smuCmd.mp1BoostLimit, args, 10000);
+    if (response == SMU_RSP_OK) {
+        boostLimitMHzCache = mhz;
+        IOLog("AMDRyzenCPUPowerManagement: boost ceiling set to %u MHz.\n", mhz);
+        return 0;
+    }
+    IOLog("AMDRyzenCPUPowerManagement: boost ceiling failed, response 0x%X\n", response);
     return smuError(response);
 }
 
@@ -2491,9 +3176,7 @@ void AMDRyzenCPUPowerManagement::reinitHwState() {
     CPUInfo::getCpuid(0x80000007, 0, &cpuid_eax, &cpuid_ebx, &cpuid_ecx, &cpuid_edx);
     cpbSupported = (cpuid_edx >> 9) & 0x1;
 
-    // Probe CPPC support: read CAP1 MSR. All Zen families (17h/19h/1Ah) support CPPC,
-    // but CPPC writes (ENABLE/REQ MSRs) are disabled in the current baseline.
-    // CPPC writes may be enabled in a future profile update once validated.
+    // Probe CPPC support: read CAP1 MSR. All Zen families (17h/19h/1Ah) support CPPC.
     uint64_t cppcVal = 0;
     bool msrSuccess = read_msr(kMSR_AMD_CPPC_CAP1, &cppcVal);
     const bool zenFamily = (cpuFamily == 0x17 || cpuFamily == 0x19 || cpuFamily == 0x1A);
@@ -2508,11 +3191,17 @@ void AMDRyzenCPUPowerManagement::reinitHwState() {
         cppcSupported = false;
     }
 
-    // EPP needs the MSR flavour of CPPC (CPUID 8000_0008h EBX[27]); without
-    // it the controls live in ACPI shared memory, which this kext does not drive.
-    uint32_t ext8_eax = 0, ext8_ebx = 0, ext8_ecx = 0, ext8_edx = 0;
-    CPUInfo::getCpuid(0x80000008, 0, &ext8_eax, &ext8_ebx, &ext8_ecx, &ext8_edx);
-    cppcMsrSupported = cppcSupported && ((ext8_ebx >> 27) & 0x1);
+    // MSR CPPC: probe the registers rather than trusting CPUID 8000_0008h
+    // EBX[27]. rdmsr_carefully fails on an MSR the CPU does not implement,
+    // and CAP1 must hold a real perf range. Ryzen 5000 desktop parts (0x21)
+    // have neither the bit nor the MSRs; their CPPC is ACPI's (acpiCppc).
+    uint64_t cppcEnableProbe = 0, cppcReqProbe = 0;
+    const uint32_t capHighest = (uint32_t)((cppcVal >> 24) & 0xFF);
+    const uint32_t capLowest = (uint32_t)(cppcVal & 0xFF);
+    cppcMsrSupported = cppcSupported && msrSuccess
+        && capHighest != 0 && capLowest != 0 && capLowest <= capHighest
+        && read_msr(kMSR_AMD_CPPC_ENABLE, &cppcEnableProbe)
+        && read_msr(kMSR_AMD_CPPC_REQ, &cppcReqProbe);
 
     // Firmware (boot) or S3 (wake) left CPPC_ENABLE in its reset state, so
     // the next applyEPPControl() must write it again.
@@ -2522,10 +3211,11 @@ void AMDRyzenCPUPowerManagement::reinitHwState() {
     // runs; the app then sends the EPP it wants. The first tick applies it.
     // On wake the flag keeps whatever the app last chose.
     if (!serviceInitialized && checkKernelArgument("-amdcppcactive")) {
-        cppcActiveMode = cppcMsrSupported;
+        cppcActiveMode = cppcEppSupported();
     }
-    IOLog("AMDRyzenCPUPowerManagement::reinitHwState: MSR CPPC %s, active mode %s\n",
-          cppcMsrSupported ? "available" : "unavailable", cppcActiveMode ? "on" : "off");
+    IOLog("AMDRyzenCPUPowerManagement::reinitHwState: MSR CPPC %s, ACPI CPPC %s, active mode %s\n",
+          cppcMsrSupported ? "available" : "unavailable", acpiCppc.supported ? "available" : "unavailable",
+          cppcActiveMode ? "on" : "off");
 
     uint64_t rapl = 0;
     if (read_msr(kMSR_RAPL_PWR_UNIT, &rapl)) {
@@ -2649,6 +3339,15 @@ bool AMDRyzenCPUPowerManagement::initSuperIO(uint16_t *chipIntel, bool allowUnlo
     bool ok = (superIO != nullptr);
     IOLockUnlock(superIOLock);
     return ok;
+}
+
+// Caller holds controlLock (selector 61) or runs on the work loop (resume).
+bool AMDRyzenCPUPowerManagement::setC6Idle(bool on){
+    if (on && !c6IdleSupported()) return false;
+    c6IdleActive = on;
+    pmRyzen_set_c6_port(on ? (uint32_t)cstateIoBase + 1 : 0);
+    IOLog("AMDRyzenCPUPowerManagement: CC6 idle %s\n", on ? "on" : "off");
+    return true;
 }
 
 uint32_t AMDRyzenCPUPowerManagement::getPMPStateLimit(){

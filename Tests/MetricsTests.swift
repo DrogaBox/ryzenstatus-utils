@@ -8797,49 +8797,65 @@ struct MetricsTests {
         }
 
 
-        // Classification ranges (family 0x19: Zen 3 0x00–0x0F and 0x20–0x5F,
-        // Zen 4 0x10–0x1F, 0x60–0x7F and 0xA0–0xAF; family 0x1A = Zen 5), the
-        // same table as the kext's CPU profiles.
-        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x21) == .zen3, "Vermeer is Zen 3")
-        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x50) == .zen3, "Cezanne is Zen 3")
-        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x08) == .zen3, "Chagall (Threadripper 5000) is Zen 3")
-        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x18) == .zen4, "Storm Peak (Threadripper 7000) is Zen 4")
-        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x61) == .zen4, "Raphael is Zen 4")
-        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x74) == .zen4, "Phoenix is Zen 4")
-        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x7F) == .zen4, "upper Zen 4 model bound")
-        expect(AMDCpuGeneration.classify(family: 0x19, model: 0xA0) == .zen4, "Bergamo (Zen 4c) is Zen 4")
-        expect(AMDCpuGeneration.classify(family: 0x1A, model: 0x44) == .zen5, "Granite Ridge (family 0x1A) is Zen 5")
-        expect(AMDCpuGeneration.classify(family: 0x1A, model: 0x24) == .zen5, "Strix Point family 0x1A is Zen 5")
-        // The 0x80–0x9F band on family 0x19 is unpopulated silicon; it classifies
-        // as Zen 3 today. Harmless: the CO grid is still gated on Vermeer below.
-        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x85) == .zen3, "unpopulated 0x80–0x9F band classifies as zen3")
-        expect(AMDCpuGeneration.classify(family: 0x19, model: 0x90) == .zen3, "unpopulated 0x90 classifies as zen3")
-        expect(AMDCpuGeneration.classify(family: 0x17, model: 0x71) == .zen2AndOlder, "Matisse is Zen 2")
-        expect(AMDCpuGeneration.classify(family: 0x0F, model: 0x08) == .zen2AndOlder, "family below 0x19 is older")
-        expect(AMDCpuGeneration.classify(family: 0, model: 0) == .zen2AndOlder,
-               "zero family classifies as older")
-        expect(AMDCpuGeneration.zen4.isZen4OrNewer && AMDCpuGeneration.zen5.isZen4OrNewer,
-               "Zen 4/5 trigger the not-supported message")
-        expect(!AMDCpuGeneration.zen3.isZen4OrNewer && !AMDCpuGeneration.zen2AndOlder.isZen4OrNewer,
-               "Zen 3 and older keep the grid")
+        // Selector 62: the kext's per-family capability report.
+        let caps = AMDPowerControlState(raw: [0b1_1001_1011_1101, 120, UInt64(UInt8(bitPattern: -12)), 1, 4600])
+        expect(caps.capabilities.contains(.pptTdcEdcLimits) && caps.capabilities.contains(.chtcLimit)
+               && caps.capabilities.contains(.ocMode) && caps.capabilities.contains(.c6Idle)
+               && caps.capabilities.contains(.epp),
+               "capability bits decode in selector 62 order")
+        expect(!caps.capabilities.contains(.apuPowerLimit) && caps.capabilities.hasPowerLimits,
+               "desktop limits count as power limits")
+        expect(caps.ocVid == 120 && caps.curveOptimizerAll == -12 && caps.boostLimitMHz == 4600,
+               "written values decode with the all-core margin sign-extended")
+        let empty = AMDPowerControlState(raw: [0, 0, 0, 0, 0])
+        expect(empty.capabilities.isEmpty && empty.ocVid == nil && empty.curveOptimizerAll == nil
+               && empty.boostLimitMHz == nil, "nothing written reads as nil")
+        expect(AMDPowerCapabilities.apuPowerLimit.hasPowerLimits, "an APU limit is a power limit")
 
-        // The kext only accepts Curve Optimizer writes on Vermeer
-        // (family 0x19, model 0x21–0x2F). The legacy-P-states gate moved into
-        // the kext's capability profile — see AMDCurveOptimizer.supported.
-        expect(AMDCurveOptimizer.supported(family: 0x19, model: 0x21),
-               "Vermeer accepts CO writes")
-        expect(AMDCurveOptimizer.supported(family: 0x19, model: 0x2F),
-               "upper Vermeer model bound accepts CO writes")
-        expect(!AMDCurveOptimizer.supported(family: 0x19, model: 0x20),
-               "below-Vermeer model is not a supported CO target")
-        expect(!AMDCurveOptimizer.supported(family: 0x19, model: 0x61),
-               "Raphael (Zen 4) never accepts CO writes")
-        expect(!AMDCurveOptimizer.supported(family: 0x19, model: 0x50),
-               "Cezanne (non-Vermeer Zen 3) is not a supported CO target")
-        expect(!AMDCurveOptimizer.supported(family: 0x17, model: 0x71),
-               "Matisse (Zen 2) is not a supported CO target")
-        expect(!AMDCurveOptimizer.supported(family: 0x19, model: 0xA0),
-               "Granite Ridge (Zen 5) never accepts CO writes")
+        // SVI2 OC VID: 1.55 V - VID x 6.25 mV, kept inside 16...120.
+        expect(AMDOcVoltage.vid(millivolts: 1250) == 48 && AMDOcVoltage.millivolts(vid: 48) == 1250,
+               "1.250 V is VID 48")
+        expect(AMDOcVoltage.vid(millivolts: 2000) == 16 && AMDOcVoltage.vid(millivolts: 100) == 120,
+               "out-of-range voltages clamp to the kext's VID window")
+
+        // Selector 34: six fields from kext 3.40.0, two before.
+        let policy = AMDCStatePolicy(raw: [0, 0x413, 1, 0x413, 1, 0], count: 6)
+        expect(!policy.c6Off && policy.c6On && policy.c6Available && policy.ioBase == 0x413
+               && !policy.forbiddenByBootArg, "a 3.40.0 policy decodes every field")
+        let oldPolicy = AMDCStatePolicy(raw: [1, 0xF0, 0, 0, 0, 0], count: 2)
+        expect(oldPolicy.c6Off && !oldPolicy.c6Available, "an older kext reads as CC6 unavailable")
+
+        // Selector 63: ACPI CPPC report layout.
+        var words = [UInt32](repeating: 0, count: AMDAcpiCppcReport.wordCount)
+        words[0] = 1; words[2] = 32; words[3] = 3
+        let eppSlot = 7 + 9 * 6
+        words[eppSlot] = 1; words[eppSlot + 1] = 0x0A; words[eppSlot + 2] = 8; words[eppSlot + 4] = 0x2C
+        let subspace = 7 + 10 * 6
+        words[subspace] = 1; words[subspace + 2] = 0xBB00_0000; words[subspace + 4] = 0x1000
+        let cppcReport = AMDAcpiCppcReport(words: words)
+        expect(cppcReport?.supported == true && cppcReport?.cpuCount == 32 && cppcReport?.revision == 3,
+               "ACPI CPPC header decodes")
+        expect(cppcReport?.registers[9].isRegister == true && cppcReport?.registers[9].space == 0x0A
+               && cppcReport?.registers[9].bitWidth == 8 && cppcReport?.registers[9].offset == 0x2C,
+               "the EPP register decodes as an 8-bit PCC field")
+        expect(cppcReport?.subspaces[0]?.base == 0xBB00_0000 && cppcReport?.subspaces[1] == nil,
+               "only present subspaces are kept")
+        expect(AMDAcpiCppcReport(words: [1, 2, 3]) == nil, "a short buffer is rejected")
+
+        // Kext: per-family SMU command sets, no feature gated on Vermeer alone.
+        let kextSrc = (try? String(contentsOfFile: "SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.cpp", encoding: .utf8)) ?? ""
+        expect(kextSrc.contains("void AMDRyzenCPUPowerManagement::selectSmuCommandSet(const char *cpuName)")
+               && kextSrc.contains("kSmuVermeer") && kextSrc.contains("kSmuAM5") && kextSrc.contains("kSmuMatisse")
+               && kextSrc.contains("kSmuRenoirCezanne") && kextSrc.contains("kSmuRembrandtPhoenix")
+               && kextSrc.contains("kSmuSummitRidge") && kextSrc.contains("kSmuPinnacleRidge")
+               && kextSrc.contains("kSmuRavenPicasso") && kextSrc.contains("kSmuChagall"),
+               "every README family has an SMU command set")
+        expect(!kextSrc.contains("pboLimitsSupported") && !kextSrc.contains("smuSendCmd(0x5C")
+               && !kextSrc.contains("smuSendCmd(0x56") && !kextSrc.contains("smuSendCmd(0x6F"),
+               "SMU call sites take their numbers from the command set")
+        expect(kextSrc.contains("void AMDRyzenCPUPowerManagement::discoverAcpiCppc(IOService *provider)")
+               && kextSrc.contains("bool AMDRyzenCPUPowerManagement::applyEPPAcpi(uint8_t epp)"),
+               "EPP has an ACPI PCC path")
 
         expect(AMDCurveOptimizer.clamp(-100) == -30, "clamp floor is -30")
         expect(AMDCurveOptimizer.clamp(100) == 30, "clamp ceiling is +30")
@@ -9089,6 +9105,21 @@ struct MetricsTests {
             expect(NowPlayingAutomation.isKaset("COM.SERTACOZERCAN.KASET"), "isKaset is case-insensitive")
             expect(!NowPlayingAutomation.isKaset("com.apple.Music"), "isKaset rejects Music")
             expect(!NowPlayingAutomation.isKaset(nil), "isKaset rejects nil")
+
+            // A failing script (what a denied Automation consent looks like)
+            // makes executeAndReturnError return nil; the runner must answer
+            // an empty descriptor with the error, never trap. Both paths: the
+            // shared queue and a call already on it.
+            if let failing = NSAppleScript(source: "error \"refused\" number -1743") {
+                var failure: NSDictionary?
+                let answer = AppleScriptRunner.execute(failing, error: &failure)
+                expect(failure?[NSAppleScript.errorNumber] as? Int == -1743 && answer.numberOfItems == 0,
+                       "a failing AppleScript answers empty with its error instead of crashing")
+            } else {
+                expect(false, "the failing AppleScript compiles")
+            }
+            let denied = AppleScriptRunner.runDetailed("error \"refused\" number -1743")
+            expect(!denied.ok && denied.errorNumber == -1743, "runDetailed reports a refused script")
 
             // JSON decoding with playing track
             let sampleKasetPlaying = """
@@ -9549,40 +9580,24 @@ struct MetricsTests {
 
         // MARK: AMD Boot-Args Formatter & C-State Options
 
-        expectEqual(
-            CStateNvramService.formatAmdBootArgs(isC6Enabled: false, isCppcActiveEnabled: false, isPnopchkEnabled: false),
-            "amdcstate=1",
-            "formatAmdBootArgs defaults (C6 disabled)"
-        )
-        expectEqual(
-            CStateNvramService.formatAmdBootArgs(isC6Enabled: true, isCppcActiveEnabled: false, isPnopchkEnabled: false),
-            "amdcstate=0",
-            "formatAmdBootArgs C6 enabled"
-        )
-        expectEqual(
-            CStateNvramService.formatAmdBootArgs(isC6Enabled: true, isCppcActiveEnabled: true, isPnopchkEnabled: false),
-            "-amdcppcactive amdcstate=0",
-            "formatAmdBootArgs CPPC + C6 enabled"
-        )
-        expectEqual(
-            CStateNvramService.formatAmdBootArgs(isC6Enabled: false, isCppcActiveEnabled: true, isPnopchkEnabled: true),
-            "-amdcppcactive -amdpnopchk amdcstate=1",
-            "formatAmdBootArgs CPPC + pnopchk + C6 disabled"
-        )
+        expectEqual(AmdBootArgsService.formatAmdBootArgs(isCppcActiveEnabled: false, isPnopchkEnabled: false),
+                    "", "no AMD boot-args to copy")
+        expectEqual(AmdBootArgsService.formatAmdBootArgs(isCppcActiveEnabled: true, isPnopchkEnabled: true),
+                    "-amdcppcactive -amdpnopchk", "CPPC + pnopchk")
+        expectEqual(AmdBootArgsService.formatAmdBootArgs(isCppcActiveEnabled: false, isPnopchkEnabled: true),
+                    "-amdpnopchk", "pnopchk alone")
 
         // MARK: AMD Boot-Args Parser
 
         do {
-            let flags = CStateNvramService.amdFlags(inBootArgs: "keepsyms=1 -amdcppcactive  amdcstate=0\t-amdpnopchk")
-            expect(flags.c6Enabled && flags.cppcActive && flags.pnopchk,
+            let flags = AmdBootArgsService.amdFlags(inBootArgs: "keepsyms=1 -amdcppcactive  amdcstate=0\t-amdpnopchk")
+            expect(flags.cppcActive && flags.pnopchk,
                    "boot-args flags are found among other arguments and any whitespace")
-            let lookalikes = CStateNvramService.amdFlags(inBootArgs: "-amdcppcactivex amdcstate=01 x-amdpnopchk")
-            expect(!lookalikes.c6Enabled && !lookalikes.cppcActive && !lookalikes.pnopchk,
+            let lookalikes = AmdBootArgsService.amdFlags(inBootArgs: "-amdcppcactivex x-amdpnopchk")
+            expect(!lookalikes.cppcActive && !lookalikes.pnopchk,
                    "a longer argument that merely contains a flag is not that flag")
-            let c6Off = CStateNvramService.amdFlags(inBootArgs: "amdcstate=1")
-            expect(!c6Off.c6Enabled, "amdcstate=1 leaves deep C-states off")
-            let none = CStateNvramService.amdFlags(inBootArgs: "")
-            expect(!none.c6Enabled && !none.cppcActive && !none.pnopchk, "no boot-args, no flags")
+            let none = AmdBootArgsService.amdFlags(inBootArgs: "")
+            expect(!none.cppcActive && !none.pnopchk, "no boot-args, no flags")
         }
 
         // MARK: Fan polling and launch
@@ -9621,9 +9636,9 @@ struct MetricsTests {
             expect(target(cpu: 35, gpu: 0) == .balanced, "load between the thresholds is balanced")
             expect(target(cpu: 10, gpu: 70) == .gpuPerformance, "a busy GPU keeps the CPU at full performance")
             expect(target(cpu: 10, gpu: 40) == .gpuActive, "an active GPU keeps the CPU from idling down")
-            expect(AutoEppTarget.powerSave.epp == 255 && AutoEppTarget.performance.epp == 0
-                   && AutoEppTarget.balanced.epp == 128,
-                   "Auto EPP keeps its EPP values")
+            expect(AutoEppTarget.powerSave.preset == .eco && AutoEppTarget.performance.preset == .performance
+                   && AutoEppTarget.balanced.preset == .balance,
+                   "Auto EPP targets pick the Eco, Performance and Balance presets")
 
             let first = AutoEppPolicy.settle(candidate: .powerSave, current: nil, pendingStepDownPolls: 0)
             expect(first.target == .powerSave && first.pendingStepDownPolls == 0,
@@ -9646,18 +9661,23 @@ struct MetricsTests {
             expect(relabel.target == .gpuActive, "a target with the same EPP is relabelled without waiting")
         }
 
-        // MARK: AMD Power Strings Invariant (gamingModeC6Hint)
+        // MARK: AMD Power Strings Invariant (CC6 idle)
 
         for lang in AppLanguage.allCases {
             let s = AMDPowerFeatureStrings.current(lang)
-            expect(
-                !s.gamingModeC6Hint.contains("amdcstate=0"),
-                "Language \(lang.rawValue) gamingModeC6Hint must NOT contain amdcstate=0: \(s.gamingModeC6Hint)"
-            )
-            expect(
-                s.gamingModeC6Hint.contains("amdcstate=1"),
-                "Language \(lang.rawValue) gamingModeC6Hint must contain amdcstate=1: \(s.gamingModeC6Hint)"
-            )
+            expect(s.c6IdleForbidden.contains("amdcstate=1"),
+                   "Language \(lang.rawValue) c6IdleForbidden names the boot argument: \(s.c6IdleForbidden)")
+            expect(s.c6IdleUnavailable.contains("3.40.0"),
+                   "Language \(lang.rawValue) c6IdleUnavailable names the kext version: \(s.c6IdleUnavailable)")
+            for (key, value) in [("deepCStatesTitle", s.deepCStatesTitle), ("c6IdleCaption", s.c6IdleCaption),
+                                 ("smuSettingUnsupported", s.smuSettingUnsupported),
+                                 ("apuPowerLimitNote", s.apuPowerLimitNote), ("coAllLabel", s.coAllLabel),
+                                 ("coAllApply", s.coAllApply), ("ocVoltageLabel", s.ocVoltageLabel),
+                                 ("ocVoltageApply", s.ocVoltageApply), ("ocVoltageCaption", s.ocVoltageCaption),
+                                 ("boostLimitHeader", s.boostLimitHeader), ("boostLimitLabel", s.boostLimitLabel),
+                                 ("boostLimitApply", s.boostLimitApply), ("boostLimitFooter", s.boostLimitFooter)] {
+                expect(!value.isEmpty, "Language \(lang.rawValue) amdPower.\(key) must not be empty")
+            }
         }
 
         // MARK: S2-T3/T5 New Strings Invariants (non-empty across all 12 locales)
@@ -9674,10 +9694,6 @@ struct MetricsTests {
                 ("panelSectionTitle", a.panelSectionTitle),
                 ("sidebarTitle", a.sidebarTitle),
                 ("loadingControls", a.loadingControls),
-                ("runtimeC6DisabledBadge", a.runtimeC6DisabledBadge),
-                ("runtimeC6EnabledBadge", a.runtimeC6EnabledBadge),
-                ("c6RuntimeRowTitle", a.c6RuntimeRowTitle),
-                ("c6DriftWarning", a.c6DriftWarning),
                 ("panelSmcFanControl", a.panelSmcFanControl),
                 ("panelManagedByGamingMode", a.panelManagedByGamingMode),
                 ("autoEppToggle", a.autoEppToggle),
@@ -9727,8 +9743,6 @@ struct MetricsTests {
                 ("pboScalarLabel", a.pboScalarLabel),
                 ("pboApplyLimits", a.pboApplyLimits),
                 ("pboApplyScalar", a.pboApplyScalar),
-                ("pboUnsupportedZen4", a.pboUnsupportedZen4),
-                ("pboDisabledLegacy", a.pboDisabledLegacy),
                 ("pboUnitWatts", a.pboUnitWatts),
                 ("pboUnitAmps", a.pboUnitAmps),
                 ("pboUnitMilliwatts", a.pboUnitMilliwatts),
@@ -9773,9 +9787,7 @@ struct MetricsTests {
                 ("chtcApply", a.chtcApply),
                 ("chtcActiveFormat", a.chtcActiveFormat),
                 ("chtcOverclockable", a.chtcOverclockable),
-                ("chtcPBOSupport", a.chtcPBOSupport),
-                ("chtcUnsupportedZen4", a.chtcUnsupportedZen4),
-                ("chtcUnsupportedVermeer", a.chtcUnsupportedVermeer)
+                ("chtcPBOSupport", a.chtcPBOSupport)
             ]
             for (key, value) in chtcKeys {
                 expect(!value.isEmpty, "Language \(lang.rawValue) amdPower.\(key) must not be empty")
@@ -9802,8 +9814,6 @@ struct MetricsTests {
                 ("ocResetScalarLabel", a.ocResetScalarLabel),
                 ("ocEnable", a.ocEnable),
                 ("ocDisable", a.ocDisable),
-                ("ocUnsupportedZen4", a.ocUnsupportedZen4),
-                ("ocUnsupportedVermeer", a.ocUnsupportedVermeer),
                 // S8 hardware-risk disclaimer (S8 disclaimer wave).
                 ("hardwareRiskBanner", a.hardwareRiskBanner),
                 ("ocRiskConfirmTitle", a.ocRiskConfirmTitle),
@@ -10202,26 +10212,33 @@ struct MetricsTests {
         // ZenStates-Core: RSMU cmd 0x3B10524 / args 0x3B10A40 / rsp 0x3B10570,
         // MP1 cmd 0x3B10530 / args 0x3B109C4 / rsp 0x3B1057C (values+order
         // pinned; whitespace-tolerant so reformatting does not false-fail).
-        expect(kextCpp.range(of: "rsmu\\s*=\\s*\\{\\s*0x3B10524,\\s*0x3B10A40,\\s*0x3B10570,\\s*true\\s*\\}",
+        // Since kexts 3.40.0 every family has its own triple; Vermeer takes
+        // the AM4 V2 pair. 0x3B10528 is the MP1 message register of Zen/Zen+
+        // and the APUs, so only the contiguous Vermeer layout is forbidden.
+        expect(kextCpp.range(of: "kRsmuAM4V2\\s*=\\s*\\{\\s*0x3B10524,\\s*0x3B10A40,\\s*0x3B10570,\\s*true\\s*\\}",
                              options: .regularExpression) != nil,
                "Vermeer RSMU must initialize cmd/args/rsp = 0x3B10524/0x3B10A40/0x3B10570 (supported)")
-        expect(kextCpp.range(of: "mp1\\s*=\\s*\\{\\s*0x3B10530,\\s*0x3B109C4,\\s*0x3B1057C,\\s*true\\s*\\}",
+        expect(kextCpp.range(of: "kMp1AM4V2\\s*=\\s*\\{\\s*0x3B10530,\\s*0x3B109C4,\\s*0x3B1057C,\\s*true\\s*\\}",
                              options: .regularExpression) != nil,
                "Vermeer MP1 must initialize cmd/args/rsp = 0x3B10530/0x3B109C4/0x3B1057C (supported)")
+        expect(kextCpp.contains("set = &kSmuVermeer; r = &kRsmuAM4V2; m = &kMp1AM4V2;"),
+               "Vermeer must use the AM4 V2 RSMU and MP1 mailboxes")
         // Curve Optimizer is MP1 SetDldoPsmMargin 0x35 with the fuse core mask
         // (ZenStates-Core); RSMU 0x3D with a core|offset<<8 word is not a
         // Vermeer Curve Optimizer command.
-        expect(kextCpp.contains("smuExecute(mp1, kMP1_SET_DLDO_PSM_MARGIN"),
+        expect(kextCpp.contains("smuExecute(mp1, smuCmd.mp1CoPerCore"),
                "Curve Optimizer writes must go through the MP1 mailbox")
-        expect(!kextCpp.contains("0x3B10528") && !kextCpp.contains("0x3B1052C"),
+        expect(kextCpp.range(of: "0x3B10524,\\s*0x3B10528", options: .regularExpression) == nil
+               && !kextCpp.contains("0x3B1052C"),
                "old wrong Vermeer registers 0x3B10528/0x3B1052C must never reappear")
+        expect(kextCpp.range(of: "kSmuVermeer\\s*=\\s*\\{[^}]*\\.mp1CoPerCore\\s*=\\s*0x35,",
+                             options: .regularExpression) != nil,
+               "Vermeer per-core CO must stay MP1 0x35 (SetDldoPsmMargin)")
 
-        // The positional initializer above relies on struct field order —
+        // The positional initializers above rely on struct field order —
         // pin it in the header so a field reorder cannot reinterpret values.
         let kextHpp = kextSource("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.hpp")
         expect(!kextHpp.isEmpty, "kernel header must be readable for the pin checks")
-        expect(kextHpp.range(of: "kMP1_SET_DLDO_PSM_MARGIN\\s*=\\s*0x35;", options: .regularExpression) != nil,
-               "kMP1_SET_DLDO_PSM_MARGIN must stay 0x35 (Vermeer MP1 SetDldoPsmMargin)")
         if let m = kextHpp.range(of: "msgReg"), let a = kextHpp.range(of: "argReg"), let r = kextHpp.range(of: "rspReg") {
             expect(m.lowerBound < a.lowerBound && a.lowerBound < r.lowerBound,
                    "SMUMailbox field order must stay msgReg/argReg/rspReg (the positional initializers depend on it)")
@@ -10346,20 +10363,28 @@ struct MetricsTests {
                "selector 25 engages CPPC and applies the EPP it stores")
         expect(userClientCpp.range(of: "case 24:\\s*\\{[\\s\\S]*?if \\(!applied\\) return kIOReturnError;", options: .regularExpression) != nil,
                "selector 24 reports a CPPC write that did not land")
-        expect(userClientCpp.contains("if (provider->cppcMsrSupported)     flags |= (1ULL << 3);"),
-               "selector 26 advertises eppApplied in bit 3 for the app")
+        expect(userClientCpp.contains("if (provider->cppcEppSupported())  flags |= (1ULL << 3);"),
+               "selector 26 advertises eppApplied in bit 3 for the app, MSR or ACPI PCC")
+        expect(userClientCpp.contains("case 61:") && userClientCpp.contains("case 62:")
+               && userClientCpp.contains("case 63:") && userClientCpp.contains("case 64:")
+               && userClientCpp.contains("case 65:") && userClientCpp.contains("case 66:")
+               && userClientCpp.contains("case 67:"),
+               "kext 3.40.0 selectors 61-67 are served")
+        expect(userClientCpp.range(of: "case 61:\\s*\\{[\\s\\S]*?hasPrivilege\\(61\\)", options: .regularExpression) != nil
+               && userClientCpp.range(of: "case 64:\\s*\\{[\\s\\S]*?hasPrivilege\\(64\\)", options: .regularExpression) != nil,
+               "CC6 and the PCC probe need privilege")
+        let kextCppC6 = kextSource("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.cpp")
+        expect(!kextCppC6.contains("write_msr(kMSR_CSTATE_ADDR, 0xf0)"),
+               "the kext never overwrites the firmware C-state address")
+        let pmIdle = kextSource("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/pmAMDRyzen.c")
+        expect(pmIdle.contains("(void)inb((uint16_t)c6Port);") && pmIdle.contains("if(!pmRyzen_pstate_control || pmRyzen_pstatelimit == 0) return;"),
+               "CC6 idle enters through the C-state port and Zen 3+ never steps P-states")
         let kextHppS9d = kextSource("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.hpp")
         expect(kextHppS9d.contains("bool runMailboxDiagnostics(SMUDiagnosticReport &out);"),
                "provider must keep the public runMailboxDiagnostics entry point")
 
         // MARK: S4 AMDPBOLimits Helpers (gate, clamps, formatters)
 
-        // Silicon gate mirrors the kext: Zen 3 Vermeer only, fail-closed.
-        expect(AMDPBOLimits.supported(family: 0x19, model: 0x21), "Vermeer 0x21 must be PBO-capable")
-        expect(AMDPBOLimits.supported(family: 0x19, model: 0x2F), "Vermeer 0x2F must be PBO-capable")
-        expect(!AMDPBOLimits.supported(family: 0x19, model: 0x61), "Raphael (Zen 4) must fail closed")
-        expect(!AMDPBOLimits.supported(family: 0x19, model: 0x50), "Cezanne must fail closed")
-        expect(!AMDPBOLimits.supported(family: 0x1A, model: 0x21), "Family 0x1A must fail closed")
 
         // Clamps: hard envelope 1000…500000 milli-units, scalar 100…1000 %×100.
         expect(AMDPBOLimits.clampLimit(0) == AMDPBOLimits.minLimit, "clampLimit must reject disable (0) writes")
@@ -12968,8 +12993,8 @@ struct MetricsTests {
 
             if let userClientSrc = try? String(contentsOf: userClientURL, encoding: .utf8) {
                 let selectors = AMDKextSelector.allKnownSelectors
-                expect(selectors.count == 66,
-                       "AMDKextSelector enumerates all 66 app-used IOKit selectors (got \(selectors.count))")
+                expect(selectors.count == 68,
+                       "AMDKextSelector enumerates all 68 app-used IOKit selectors (got \(selectors.count))")
                 expect(AMDKextSelector.corePower.rawValue == 60, "corePower selector is 60")
                 expect(userClientSrc.contains("provider->corePowerW_perCore[i]")
                        && userClientSrc.contains("if (numPhyCores > CPUInfo::MaxCpus) numPhyCores = CPUInfo::MaxCpus;"),
@@ -13057,8 +13082,11 @@ struct MetricsTests {
                        "-amdcppcactive engages CPPC instead of being switched back off")
                 expect(driverSrc.components(separatedBy: "if (provider->cppcActiveMode) provider->applyEPPControlLocked();").count == 3,
                        "the first tick and the post-wake reinit both put CPPC and the EPP back")
-                expect(driverSrc.contains("cppcMsrSupported = cppcSupported && ((ext8_ebx >> 27) & 0x1);"),
-                       "EPP writes need MSR CPPC (CPUID 8000_0008h EBX[27])")
+                expect(!driverSrc.contains("ext8_ebx >> 27"),
+                       "MSR CPPC is not gated on CPUID 8000_0008h EBX[27] (clear on Vermeer)")
+                expect(driverSrc.contains("&& read_msr(kMSR_AMD_CPPC_ENABLE, &cppcEnableProbe)")
+                       && driverSrc.contains("&& read_msr(kMSR_AMD_CPPC_REQ, &cppcReqProbe);"),
+                       "MSR CPPC is detected by probing CAP1, ENABLE and REQ")
                 expect(driverSrc.contains("provider->cppcHighestPerf_perCore[cpu_num] = (cppcCap >> 24) & 0xFF;"),
                        "the preferred-core ranking reads CAP1 HighestPerf (bits 31:24)")
                 expect(driverSrc.contains("else IOSleep(1);"),
