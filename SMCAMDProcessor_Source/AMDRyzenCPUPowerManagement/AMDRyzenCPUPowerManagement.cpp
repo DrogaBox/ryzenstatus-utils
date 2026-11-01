@@ -251,6 +251,8 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
             // baselines, CPPC ranking) and log the outcome afterwards.
             IOLockLock(provider->rendezvousLock);
             provider->reapplyPerCoreConfig();
+            // -amdcppcactive: hand the cores to CPPC from boot.
+            if (provider->cppcActiveMode) provider->applyEPPControlLocked();
 
             //Make all cores P0 state by default.
             provider->PStateCtl = 0;
@@ -274,6 +276,9 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
             IOLockLock(provider->rendezvousLock);
             provider->reinitHwState();
             provider->reapplyPerCoreConfig();
+            // S3 reset CPPC_ENABLE/REQ with the cores: put back the mode
+            // and EPP in force before sleep.
+            if (provider->cppcActiveMode) provider->applyEPPControlLocked();
             IOLockUnlock(provider->rendezvousLock);
             provider->resumeSuperIO();
             armCoalescedTimeout(sender, provider->updateTimeInterval);
@@ -1230,12 +1235,13 @@ void AMDRyzenCPUPowerManagement::reapplyPerCoreConfig() {
             provider->readPstateDefs(false);
         }
 
-        // CPPC CAP1 bits 7:0 are HighestPerformance (the preferred-core
-        // ranking). Read only; CPPC_ENABLE/REQ are never written.
+        // CPPC CAP1 bits 31:24 are HighestPerformance, the per-core value
+        // the preferred-core ranking comes from (7:0 is LowestPerformance,
+        // the same on every core).
         if (provider->cppcSupported) {
             uint64_t cppcCap = 0;
             if (provider->read_msr(kMSR_AMD_CPPC_CAP1, &cppcCap)) {
-                provider->cppcHighestPerf_perCore[cpu_num] = cppcCap & 0xFF;
+                provider->cppcHighestPerf_perCore[cpu_num] = (cppcCap >> 24) & 0xFF;
             } else {
                 OSIncrementAtomic(&out->cppcFailures);
             }
@@ -1337,12 +1343,93 @@ void AMDRyzenCPUPowerManagement::applyPowerControl(){
     IOLockUnlock(rendezvousLock);
 }
 
-void AMDRyzenCPUPowerManagement::applyEPPControl() {
-    // CPPC writes (ENABLE/REQ MSRs) are disabled in the current baseline.
-    // This function is a no-op until validated CPPC write support is added
-    // via a per-profile capability flag.
-    IOLog("AMDRyzenCPUPowerManagement::applyEPPControl ignored - CPPC writes disabled in baseline\n");
-    return;
+bool AMDRyzenCPUPowerManagement::applyEPPControl() {
+    IOLockLock(rendezvousLock);
+    bool applied = applyEPPControlLocked();
+    IOLockUnlock(rendezvousLock);
+    return applied;
+}
+
+// CPPC autonomous mode, the same programming as Linux amd-pstate-epp: the
+// CPU picks its own frequency between LowestPerf and HighestPerf, biased
+// by the EPP. P-states (PStateCtl / PStateDef) are never touched, so this
+// does not compete with anything for frequency control; it replaces the
+// "every core asks for P0" default that keeps an idle Zen 3 at full clocks.
+bool AMDRyzenCPUPowerManagement::applyEPPControlLocked() {
+    if (!cppcMsrSupported) return false;
+    // Nothing engaged and nothing wanted: leave the firmware's state alone.
+    if (!cppcActiveMode && !cppcEngaged) return true;
+
+    // Off after being on: CPPC_ENABLE cannot be cleared before a reset, so
+    // ask for full performance, the closest match to running without CPPC.
+    uint8_t epp = 0x00;
+    if (cppcActiveMode) epp = cppcThrottled ? 0xFF : cppcEPPValue;
+
+    struct EPPArgs {
+        AMDRyzenCPUPowerManagement *provider;
+        uint64_t epp;
+        volatile SInt32 enableFailures;
+        volatile SInt32 capFailures;
+        volatile SInt32 reqFailures;
+    } args{this, epp, 0, 0, 0};
+
+    // Integer-only handler: it runs on every CPU with interrupts off.
+    mp_rendezvous(nullptr, [](void *obj) {
+        auto a = static_cast<EPPArgs*>(obj);
+        auto p = a->provider;
+
+        uint64_t enable = 0;
+        if (!p->read_msr(kMSR_AMD_CPPC_ENABLE, &enable)) {
+            OSIncrementAtomic(&a->enableFailures);
+            return;
+        }
+        if (!(enable & 1) && !p->write_msr(kMSR_AMD_CPPC_ENABLE, enable | 1)) {
+            OSIncrementAtomic(&a->enableFailures);
+            return;
+        }
+
+        // CAP1 is per CPU (preferred cores report a higher HighestPerf).
+        // A zero or inverted range would cap the core at nothing, so such a
+        // core keeps whatever request it has.
+        uint64_t cap1 = 0;
+        if (!p->read_msr(kMSR_AMD_CPPC_CAP1, &cap1)) {
+            OSIncrementAtomic(&a->capFailures);
+            return;
+        }
+        uint64_t highest = (cap1 >> 24) & 0xFF;
+        uint64_t lowest = cap1 & 0xFF;
+        if (highest == 0 || lowest == 0 || lowest > highest) {
+            OSIncrementAtomic(&a->capFailures);
+            return;
+        }
+
+        // Bits 63:32 are reserved; keep what the CPU holds there.
+        uint64_t req = 0;
+        if (!p->read_msr(kMSR_AMD_CPPC_REQ, &req)) {
+            OSIncrementAtomic(&a->reqFailures);
+            return;
+        }
+        req = (req & 0xFFFFFFFF00000000ULL)
+            | highest                   // max perf
+            | (lowest << 8)             // min perf
+            | (0ULL << 16)              // desired perf: autonomous
+            | ((a->epp & 0xFF) << 24);  // EPP
+        if (!p->write_msr(kMSR_AMD_CPPC_REQ, req)) {
+            OSIncrementAtomic(&a->reqFailures);
+        }
+    }, nullptr, &args);
+
+    const bool ok = args.enableFailures == 0 && args.capFailures == 0 && args.reqFailures == 0;
+    if (args.enableFailures == 0) cppcEngaged = true;
+    if (ok) {
+        cppcAppliedEPP = epp;
+        IOLog("AMDRyzenCPUPowerManagement::applyEPPControl: CPPC %s, EPP 0x%02X on every CPU\n",
+              cppcActiveMode ? "autonomous" : "performance", epp);
+    } else {
+        IOLog("AMDRyzenCPUPowerManagement::applyEPPControl: EPP 0x%02X not applied (enable %d, cap %d, req %d CPU failures)\n",
+              epp, (int)args.enableFailures, (int)args.capFailures, (int)args.reqFailures);
+    }
+    return ok;
 }
 
 void AMDRyzenCPUPowerManagement::setCPBState(bool enabled){
@@ -2421,14 +2508,24 @@ void AMDRyzenCPUPowerManagement::reinitHwState() {
         cppcSupported = false;
     }
 
-    // CPPC write paths (ENABLE/REQ) are disabled in the current baseline.
-    // cppcActiveMode requires a future profile flag and boot-arg to enable.
-    cppcActiveMode = checkKernelArgument("-amdcppcactive");
-    // CPPC writes blocked until per-profile cppcWriteAllowed flag is implemented.
-    if (cppcActiveMode) {
-        cppcActiveMode = false;
-        IOLog("AMDRyzenCPUPowerManagement::reinitHwState: CPPC Active Mode blocked — writes disabled in baseline\n");
+    // EPP needs the MSR flavour of CPPC (CPUID 8000_0008h EBX[27]); without
+    // it the controls live in ACPI shared memory, which this kext does not drive.
+    uint32_t ext8_eax = 0, ext8_ebx = 0, ext8_ecx = 0, ext8_edx = 0;
+    CPUInfo::getCpuid(0x80000008, 0, &ext8_eax, &ext8_ebx, &ext8_ecx, &ext8_edx);
+    cppcMsrSupported = cppcSupported && ((ext8_ebx >> 27) & 0x1);
+
+    // Firmware (boot) or S3 (wake) left CPPC_ENABLE in its reset state, so
+    // the next applyEPPControl() must write it again.
+    cppcEngaged = false;
+
+    // -amdcppcactive engages CPPC autonomous mode from boot, before the app
+    // runs; the app then sends the EPP it wants. The first tick applies it.
+    // On wake the flag keeps whatever the app last chose.
+    if (!serviceInitialized && checkKernelArgument("-amdcppcactive")) {
+        cppcActiveMode = cppcMsrSupported;
     }
+    IOLog("AMDRyzenCPUPowerManagement::reinitHwState: MSR CPPC %s, active mode %s\n",
+          cppcMsrSupported ? "available" : "unavailable", cppcActiveMode ? "on" : "off");
 
     uint64_t rapl = 0;
     if (read_msr(kMSR_RAPL_PWR_UNIT, &rapl)) {

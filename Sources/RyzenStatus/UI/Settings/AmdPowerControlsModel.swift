@@ -13,6 +13,10 @@ final class AmdPowerControlsModel: ObservableObject {
     static let shared = AmdPowerControlsModel()
 
     @Published var selectedEpp: UInt8 = 127
+    /// Selector 23 readback: CPPC active mode and the EPP the kext holds
+    /// (nil when the kext did not answer), refreshed by every sync.
+    @Published private(set) var cppcActiveMode: Bool = false
+    @Published private(set) var cppcCurrentEPP: UInt8?
     @Published var cppcSupported: Bool = false
     @Published var cpbSupported: Bool = false
     @Published var legacyPstateAllowed: Bool = false
@@ -144,18 +148,42 @@ final class AmdPowerControlsModel: ObservableObject {
     // MARK: - Actions
 
     func setEPP(_ value: UInt8) {
+        AmdSettingsStore.shared.manualEpp = value
         userWriteGeneration &+= 1
         selectedEpp = value
-        Task {
-            let res = await perform { await ProcessorModel.shared.setCPPCEPPValue(epp: value) }
-            if res == kIOReturnUnsupported {
-                // The kext would store the value and change nothing; say so
-                // instead of letting the picker look applied.
-                self.privilegeWarning = L10n.shared.amdPower.eppNotApplied
-            } else {
-                await self.reportWriteFailure(res)
-            }
+        Task { await self.sendEPP(value) }
+    }
+
+    /// The EPP the user chose by hand: the picker's last value, else the
+    /// applied preset's. nil when they never chose one.
+    var manualEPPIntent: UInt8? {
+        AmdSettingsStore.shared.manualEpp ?? AMDPowerPreset.saved()?.eppValue
+    }
+
+    /// Writes the manual EPP again, through the same ordered write queue as
+    /// the picker: once a kext that applies EPP has loaded (it holds none of
+    /// the user's) and when Auto EPP is switched off. Without a manual choice
+    /// it writes `fallback`, or nothing. Callers keep it away from Gaming Mode.
+    /// Returns the kext's answer, nil when nothing was written.
+    @discardableResult
+    func restoreManualEPP(fallback: UInt8? = nil) async -> kern_return_t? {
+        guard let value = manualEPPIntent ?? fallback else { return nil }
+        userWriteGeneration &+= 1
+        selectedEpp = value
+        return await sendEPP(value)
+    }
+
+    @discardableResult
+    private func sendEPP(_ value: UInt8) async -> kern_return_t {
+        let res = await perform { await ProcessorModel.shared.setCPPCEPPValue(epp: value) }
+        if res == kIOReturnUnsupported {
+            // The kext would store the value and change nothing; say so
+            // instead of letting the picker look applied.
+            privilegeWarning = L10n.shared.amdPower.eppNotApplied
+        } else {
+            await reportWriteFailure(res)
         }
+        return res
     }
 
     func setCPB(_ enabled: Bool) {
@@ -314,9 +342,7 @@ final class AmdPowerControlsModel: ObservableObject {
             // Package power and temperature for the panel graphs.
             let telemetry = kernelAnswered ? ProcessorModel.shared.getTelemetry() : nil
             let cpb = ProcessorModel.shared.getCPB()
-            let cppcState: (active: Bool, epp: UInt8) = kernelAnswered
-                ? ProcessorModel.shared.getCPPCActiveMode()
-                : (active: false, epp: 0)
+            let cppcState = kernelAnswered ? ProcessorModel.shared.getCPPCActiveMode() : nil
             let ppm = kernelAnswered ? ProcessorModel.shared.getPPM() : false
             let lpm = kernelAnswered ? ProcessorModel.shared.getLPM() : false
             // Cached boost telemetry — the kext call never touches the SMU,
@@ -351,13 +377,18 @@ final class AmdPowerControlsModel: ObservableObject {
 
         cppcSupported = kernelAnswered
         legacyPstateAllowed = profile.legacyPstateAllowed
+        // What the kext really holds, refreshed on every sync tick.
+        if cppcActiveMode != (cppcState?.active ?? false) { cppcActiveMode = cppcState?.active ?? false }
+        if cppcCurrentEPP != cppcState?.epp { cppcCurrentEPP = cppcState?.epp }
 
         // A user write made while this sync was reading carries the newer
         // intent; the values read here would put the old state back.
         let userWroteMeanwhile = generation != userWriteGeneration
         if !userWroteMeanwhile {
-            let target = AMDPowerPreset.snapEPP(cppcState.epp)
-            if selectedEpp != target { selectedEpp = target }
+            if let cppcState {
+                let target = AMDPowerPreset.snapEPP(cppcState.epp)
+                if selectedEpp != target { selectedEpp = target }
+            }
 
             if kernelAnswered {
                 if ppmEnabled != ppm { ppmEnabled = ppm }

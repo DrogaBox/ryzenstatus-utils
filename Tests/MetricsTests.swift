@@ -10341,6 +10341,13 @@ struct MetricsTests {
                "kernel must static-assert the 48-byte diagnostics wire")
         expect(userClientCpp.range(of: "case 58:\\s*\\{[\\s\\S]*?rendezvousLock\\) IOLockLock", options: .regularExpression) != nil,
                "selector 58 must serialize the probe run under rendezvousLock")
+        // 3.39.0: EPP selectors apply for real and say so.
+        expect(userClientCpp.range(of: "case 25:\\s*\\{[\\s\\S]*?hasPrivilege\\(25\\)[\\s\\S]*?cppcActiveMode = true;[\\s\\S]*?applyEPPControl\\(\\)", options: .regularExpression) != nil,
+               "selector 25 engages CPPC and applies the EPP it stores")
+        expect(userClientCpp.range(of: "case 24:\\s*\\{[\\s\\S]*?if \\(!applied\\) return kIOReturnError;", options: .regularExpression) != nil,
+               "selector 24 reports a CPPC write that did not land")
+        expect(userClientCpp.contains("if (provider->cppcMsrSupported)     flags |= (1ULL << 3);"),
+               "selector 26 advertises eppApplied in bit 3 for the app")
         let kextHppS9d = kextSource("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.hpp")
         expect(kextHppS9d.contains("bool runMailboxDiagnostics(SMUDiagnosticReport &out);"),
                "provider must keep the public runMailboxDiagnostics entry point")
@@ -13036,6 +13043,24 @@ struct MetricsTests {
                        "sleep clears the idle state so nothing restarts the sampler before the post-wake tick")
                 expect(driverSrc.contains("IOLockLock(provider->rendezvousLock);\n            provider->reinitHwState();"),
                        "the post-wake reinit holds rendezvousLock like writePstate")
+                // 3.39.0: EPP reaches the CPU again (CPPC autonomous mode).
+                expect(driverSrc.contains("write_msr(kMSR_AMD_CPPC_ENABLE, enable | 1)")
+                       && driverSrc.contains("write_msr(kMSR_AMD_CPPC_REQ, req)")
+                       && driverSrc.contains("| (0ULL << 16)")
+                       && driverSrc.contains("((a->epp & 0xFF) << 24)"),
+                       "applyEPPControl enables CPPC and writes max/min perf, autonomous desired perf and the EPP")
+                expect(driverSrc.contains("if (highest == 0 || lowest == 0 || lowest > highest)"),
+                       "a CPU reporting an empty CPPC range keeps its request instead of being capped")
+                expect(!driverSrc.contains("CPPC writes disabled in baseline")
+                       && !driverSrc.contains("CPPC Active Mode blocked")
+                       && driverSrc.contains("checkKernelArgument(\"-amdcppcactive\")"),
+                       "-amdcppcactive engages CPPC instead of being switched back off")
+                expect(driverSrc.components(separatedBy: "if (provider->cppcActiveMode) provider->applyEPPControlLocked();").count == 3,
+                       "the first tick and the post-wake reinit both put CPPC and the EPP back")
+                expect(driverSrc.contains("cppcMsrSupported = cppcSupported && ((ext8_ebx >> 27) & 0x1);"),
+                       "EPP writes need MSR CPPC (CPUID 8000_0008h EBX[27])")
+                expect(driverSrc.contains("provider->cppcHighestPerf_perCore[cpu_num] = (cppcCap >> 24) & 0xFF;"),
+                       "the preferred-core ranking reads CAP1 HighestPerf (bits 31:24)")
                 expect(driverSrc.contains("else IOSleep(1);"),
                        "the SMU mailbox sleeps instead of spinning once a command runs past 1 ms")
                 expect(driverSrc.contains("return fanRPMCache[fan];")

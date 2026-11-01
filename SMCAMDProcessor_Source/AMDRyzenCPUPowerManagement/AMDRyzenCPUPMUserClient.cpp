@@ -808,9 +808,11 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
         // Get CPPC Active Mode status and current EPP value
         case 23: {
+            // Active only once the CPUs really run CPPC autonomous mode, and
+            // the EPP they hold rather than the one last asked for.
             arguments->scalarOutputCount = 2;
-            arguments->scalarOutput[0] = provider->cppcActiveMode ? 1 : 0;
-            arguments->scalarOutput[1] = provider->cppcEPPValue;
+            arguments->scalarOutput[0] = (provider->cppcActiveMode && provider->cppcEngaged) ? 1 : 0;
+            arguments->scalarOutput[1] = provider->cppcEngaged ? provider->cppcAppliedEPP : provider->cppcEPPValue;
 
             break;
         }
@@ -823,15 +825,18 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             if (arguments->scalarInputCount != 1)
                 return kIOReturnBadArgument;
 
+            if (!provider->cppcMsrSupported)
+                return kIOReturnUnsupported;
+
             // controlLock protects cppcActiveMode + applyEPPControl as an atomic
-            // Critical section against concurrent UserClient calls.
+            // Critical section against concurrent UserClient calls. Turning
+            // it off writes EPP 0 (CPPC cannot be disabled before a reset).
             if (provider->controlLock) IOLockLock(provider->controlLock);
             provider->cppcActiveMode = (arguments->scalarInput[0] == 1);
-            if (provider->cppcActiveMode) {
-                provider->applyEPPControl();
-            }
+            bool applied = provider->applyEPPControl();
             if (provider->controlLock) IOLockUnlock(provider->controlLock);
 
+            if (!applied) return kIOReturnError;
             break;
         }
 
@@ -843,15 +848,21 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             if (arguments->scalarInputCount != 1)
                 return kIOReturnBadArgument;
 
+            if (!provider->cppcMsrSupported)
+                return kIOReturnUnsupported;
+            if (arguments->scalarInput[0] > 0xFF)
+                return kIOReturnBadArgument;
+
             // controlLock protects cppcEPPValue + applyEPPControl as an atomic
-            // Critical section against concurrent UserClient calls.
+            // Critical section against concurrent UserClient calls. Asking
+            // for an EPP means wanting it applied, so it engages CPPC too.
             if (provider->controlLock) IOLockLock(provider->controlLock);
             provider->cppcEPPValue = (uint8_t)arguments->scalarInput[0];
-            if (provider->cppcActiveMode) {
-                provider->applyEPPControl();
-            }
+            provider->cppcActiveMode = true;
+            bool applied = provider->applyEPPControl();
             if (provider->controlLock) IOLockUnlock(provider->controlLock);
 
+            if (!applied) return kIOReturnError;
             break;
         }
 
@@ -862,7 +873,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
         //   bit 0: pmDispatchAllowed
         //   bit 1: legacyPstateAllowed
         //   bit 2: supportsCPPC
-        //   bits 3-7: reserved
+        //   bit 3: eppApplied (MSR CPPC: selectors 24/25 program CPPC_REQ)
+        //   bits 4-7: reserved
         case 26: {
             arguments->scalarOutputCount = 0;
 
@@ -892,6 +904,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
                 if (provider->pmDispatchAllowed)    flags |= (1ULL << 0);
                 if (provider->legacyPstateAllowed)  flags |= (1ULL << 1);
                 if (provider->supportsCPPC)         flags |= (1ULL << 2);
+                if (provider->cppcMsrSupported)     flags |= (1ULL << 3);
                 memcpy(dataOut + nameSize, &flags, flagsSize);
             }
 

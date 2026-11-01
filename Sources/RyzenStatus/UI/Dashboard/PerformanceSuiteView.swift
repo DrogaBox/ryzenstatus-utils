@@ -1000,6 +1000,7 @@ struct PerformanceSuiteView: View {
         guard isActive, !refreshInFlight else { return }
         refreshInFlight = true
         let currentTab = selectedTab
+        let language = l10n.language
         // The adapter rates are deltas between two scans, so a 2 s rescan
         // keeps them close to live.
         let adaptersStale = Date().timeIntervalSince(lastAdaptersRefresh) >= 2
@@ -1020,7 +1021,7 @@ struct PerformanceSuiteView: View {
                 _ = ProcessUsageService.shared.topMemory(limit: 10) // D4: feed LeakDetector
             case .insights:
                 procs = ProcessUsageService.shared.topCPU(limit: 20)
-                cards = InsightEngine.shared.evaluate(snapshot: snapshot, processes: procs)
+                cards = InsightEngine.shared.evaluate(snapshot: snapshot, processes: procs, language: language)
             case .analytics:
                 break
             case .energy:

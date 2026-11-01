@@ -9,6 +9,7 @@ import Cocoa
 import Darwin
 import Metal
 import IOKit.kext
+import os
 
 
 actor ProcessorModel {
@@ -455,6 +456,9 @@ actor ProcessorModel {
         var pmDispatchAllowed: Bool = false // Full PM dispatch (Zen 1/2)
         var legacyPstateAllowed: Bool = false
         var supportsCPPC: Bool = false
+        /// The kext programs MSR CPPC_REQ with the EPP it is sent (flag bit 3,
+        /// kext 3.39.0+). Older kexts leave the bit clear.
+        var eppApplied: Bool = false
 
         var modeDescription: String {
             pmDispatchAllowed ? "Full PM Dispatch" : "Telemetry-only"
@@ -471,6 +475,18 @@ actor ProcessorModel {
     }
 
     private(set) var cpuProfile = CPUProfile()
+
+    /// The capability flags of selector 26: bit 0 PM dispatch, bit 1 legacy
+    /// P-states, bit 2 CPPC, bit 3 EPP applied.
+    nonisolated static func decodeProfileFlags(_ flags: UInt64, archName: String = "") -> CPUProfile {
+        CPUProfile(
+            archName: archName,
+            pmDispatchAllowed: (flags & (1 << 0)) != 0,
+            legacyPstateAllowed: (flags & (1 << 1)) != 0,
+            supportsCPPC: (flags & (1 << 2)) != 0,
+            eppApplied: (flags & (1 << 3)) != 0
+        )
+    }
 
     private func loadCPUProfile() {
         guard isConnected else { return }
@@ -508,12 +524,8 @@ actor ProcessorModel {
             }
         }
 
-        cpuProfile = CPUProfile(
-            archName: name,
-            pmDispatchAllowed: (flags & (1 << 0)) != 0,
-            legacyPstateAllowed: (flags & (1 << 1)) != 0,
-            supportsCPPC: (flags & (1 << 2)) != 0
-        )
+        cpuProfile = Self.decodeProfileFlags(flags, archName: name)
+        Self.eppWritesTakeEffect = cpuProfile.eppApplied
     }
 
     var isLegacyPStateSupported: Bool {
@@ -613,7 +625,7 @@ actor ProcessorModel {
 
     /// Forgets everything read from a kext that went away, so no view keeps
     /// showing its last values; `_finishInit()` reads them again on reload.
-    private func forgetUnloadedKext() {
+    private func forgetUnloadedKext() async {
         isKextAvailable = false
         cachedMetric = []
         numberOfCores = 0
@@ -623,6 +635,10 @@ actor ProcessorModel {
         gpuCache.update(count: 0, temperatures: [], powers: [])
         identityCache.reset()
         favoriteThreadsCache.set([])
+        // No kext, no EPP: writes are refused until a reload reads the flag
+        // again. Awaited, so it cannot land after the reload's `true`.
+        Self.eppWritesTakeEffect = false
+        await MainActor.run { AutoEppService.shared.kextEppSupportChanged(false) }
     }
 
     /// One call a live connection always answers: selector 8 (the version
@@ -738,6 +754,13 @@ actor ProcessorModel {
 
         // Initialize SuperIO for fan reading (selector 90)
         _ = kernelGetUInt64(count: 2, selector: AMDKextSelector.fanInit)
+
+        // Every load and reload hands the eppApplied flag to Auto EPP: with
+        // it set, Auto EPP starts (launch may have tried before the profile
+        // was read) or the user's manual EPP goes back on, since a freshly
+        // loaded kext holds none.
+        let eppApplied = cpuProfile.eppApplied
+        await MainActor.run { AutoEppService.shared.kextEppSupportChanged(eppApplied) }
 
         if numberOfCores < 1 {
             await MainActor.run {
@@ -1298,24 +1321,30 @@ actor ProcessorModel {
         return PStateCur
     }
 
-    nonisolated func getCPPCActiveMode() -> (active: Bool, epp: UInt8) {
+    /// Selector 23: CPPC active mode and the EPP the kext holds, or nil when
+    /// the call fails (no placeholder EPP for a view to show as real).
+    nonisolated func getCPPCActiveMode() -> (active: Bool, epp: UInt8)? {
         var output: [UInt64] = [0, 0]
         var outputCount: UInt32 = 2
         let res = safeIOConnectCallMethod( AMDKextSelector.cppcActive.id, nil, 0, nil, 0, &output, &outputCount, nil, nil)
-        if res != KERN_SUCCESS {
+        if res != KERN_SUCCESS || outputCount < 2 {
             logKernelError(res)
-            return (false, 0x3F)
+            return nil
         }
-        return (output[0] == 1, UInt8(output[1]))
+        return (output[0] == 1, UInt8(truncatingIfNeeded: output[1]))
     }
 
-    /// Whether the loaded kext programs the EPP it is sent. Its
-    /// `applyEPPControl()` is still a stub that only logs: selectors 24 and
-    /// 25 store the value and answer success with no effect on the CPU.
-    /// While this is false those writes are not sent and report
-    /// `kIOReturnUnsupported`, for every caller. Flip it in the release whose
-    /// kext implements `applyEPPControl()`.
-    nonisolated static let eppWritesTakeEffect = false
+    /// Whether the loaded kext programs the EPP it is sent. It follows the
+    /// kext's eppApplied flag (selector 26, bit 3), read by `loadCPUProfile()`
+    /// and cleared when the kext unloads: an older kext, or a CPU without
+    /// MSR-based CPPC, would store the value and change nothing. While this
+    /// is false selectors 24 and 25 are not sent and report
+    /// `kIOReturnUnsupported`, for every caller.
+    nonisolated static private(set) var eppWritesTakeEffect: Bool {
+        get { eppWritesTakeEffectBox.withLock { $0 } }
+        set { eppWritesTakeEffectBox.withLock { $0 = newValue } }
+    }
+    nonisolated private static let eppWritesTakeEffectBox = OSAllocatedUnfairLock(initialState: false)
 
     /// The status an EPP write (selector 24 or 25) answers without IPC, or nil
     /// when it goes to the kext.
@@ -1323,12 +1352,18 @@ actor ProcessorModel {
         writesTakeEffect ? nil : kIOReturnUnsupported
     }
 
+    /// Selector 24. `true` engages CPPC autonomous mode with the stored EPP.
+    /// `false` cannot switch CPPC off before a reboot: the kext writes EPP 0
+    /// (max performance) and reports inactive, so leaving Auto EPP writes the
+    /// manual EPP through selector 25 instead.
     nonisolated func setCPPCActiveMode(active: Bool) -> kern_return_t {
         if let refusal = Self.eppWriteRefusal(writesTakeEffect: Self.eppWritesTakeEffect) { return refusal }
         var input: [UInt64] = [active ? 1 : 0]
         return safeIOConnectCallMethod( AMDKextSelector.cppcActiveMode.id, &input, 1, nil, 0, nil, nil, nil, nil)
     }
 
+    /// Selector 25: stores the EPP (0 max performance, 255 max power saving)
+    /// and, on a kext that applies EPP, engages active mode and programs it.
     func setCPPCEPPValue(epp: UInt8) -> kern_return_t {
         if let refusal = Self.eppWriteRefusal(writesTakeEffect: Self.eppWritesTakeEffect) { return refusal }
         var input: [UInt64] = [UInt64(epp)]

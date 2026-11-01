@@ -159,8 +159,30 @@ enum HardwareLayerTests {
     // MARK: - EPP and P-states
 
     private static func eppWrites(_ suite: TestSuite) {
-        suite.expect(!ProcessorModel.eppWritesTakeEffect,
-                     "EPP writes stay off while the kext's applyEPPControl() is a stub")
+        let older = ProcessorModel.decodeProfileFlags(0b0111, archName: "Zen 3 Vermeer")
+        suite.expect(older.supportsCPPC && older.pmDispatchAllowed && older.legacyPstateAllowed
+                     && !older.eppApplied && older.archName == "Zen 3 Vermeer",
+                     "an older kext's flags (bit 3 clear) decode as CPPC without applied EPP")
+        let applying = ProcessorModel.decodeProfileFlags(0b1100)
+        suite.expect(applying.eppApplied && applying.supportsCPPC
+                     && !applying.pmDispatchAllowed && !applying.legacyPstateAllowed,
+                     "bit 3 of the profile flags is eppApplied, apart from the other bits")
+        suite.expect(!ProcessorModel.decodeProfileFlags(0).eppApplied
+                     && !ProcessorModel.decodeProfileFlags(~UInt64(0b1000)).eppApplied,
+                     "eppApplied is read from bit 3 alone")
+        suite.expect(AutoEppPolicy.shownEPP(writesTakeEffect: false, autoActive: false,
+                                            autoEPP: nil, manualEPP: 0) == nil
+                     && AutoEppPolicy.shownEPP(writesTakeEffect: false, autoActive: true,
+                                               autoEPP: 255, manualEPP: 0) == nil,
+                     "the EPP picker shows no value while the kext ignores EPP writes")
+        suite.expect(AutoEppPolicy.shownEPP(writesTakeEffect: true, autoActive: true,
+                                            autoEPP: nil, manualEPP: 0) == nil,
+                     "Auto EPP that has applied nothing yet shows no value, not Max")
+        suite.expect(AutoEppPolicy.shownEPP(writesTakeEffect: true, autoActive: true,
+                                            autoEPP: 128, manualEPP: 0) == 170
+                     && AutoEppPolicy.shownEPP(writesTakeEffect: true, autoActive: false,
+                                               autoEPP: 255, manualEPP: 32) == 0,
+                     "the picker shows what Auto EPP applied, else the manual EPP")
         suite.expect(ProcessorModel.eppWriteRefusal(writesTakeEffect: false) == kIOReturnUnsupported,
                      "an EPP write the kext would ignore answers unsupported without IPC")
         suite.expect(ProcessorModel.eppWriteRefusal(writesTakeEffect: true) == nil,
@@ -263,6 +285,16 @@ enum HardwareLayerTests {
         let model = source("Sources/RyzenStatus/Services/AMD/ProcessorModel.swift", suite)
         suite.expect(model.contains("await self.forgetUnloadedKext()"),
                      "the watchdog clears the kext's caches when it unloads")
+        suite.expect(body(of: "_finishInit", in: model).contains("kextEppSupportChanged(eppApplied)")
+                     && body(of: "forgetUnloadedKext", in: model).contains("kextEppSupportChanged(false)"),
+                     "every kext load and unload hands the eppApplied flag to Auto EPP")
+        let autoEpp = source("Sources/RyzenStatus/Services/AMD/AutoEppService.swift", suite)
+        let setActive = body(of: "setCPPCActive", in: autoEpp)
+        suite.expect(setActive.contains("setCPPCActiveMode(active: true)")
+                     && !setActive.contains("setCPPCActiveMode(active: active)")
+                     && !setActive.contains("setCPPCActiveMode(active: false)")
+                     && setActive.contains("restoreManualEPP"),
+                     "switching Auto EPP off writes the manual EPP, never selector 24 = 0")
         suite.expect(model.contains("isLikelyStale, !self.probeConnection()"),
                      "a suspect handle is reopened only when the probe fails too")
         suite.expect(!model.contains("func setPState(def"), "the unused P-state definition write is gone")

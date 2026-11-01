@@ -11,20 +11,23 @@ struct SensorsView: View {
     @AppStorage(DefaultsKey.showRawSMCSensors) private var showRawSMCSensors = false
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnitRaw = TemperatureUnit.celsius.rawValue
     @ObservedObject private var monitor = SystemMonitor.shared
+    @ObservedObject private var l10n = L10n.shared
+
+    private var strings: SensorStrings { FeatureStrings.sensors(l10n.language) }
     
     @State private var showingCPUDetails = false
     
     var body: some View {
         Form {
             Section {
-                Toggle("Show precise temperature (e.g. 45.4)", isOn: $showPreciseTemperature)
+                Toggle(strings.preciseTemperature, isOn: $showPreciseTemperature)
                     .tint(.blue)
                 
                 VStack(alignment: .leading, spacing: 8) {
-                    Toggle("Show raw SMC sensors (advanced)", isOn: $showRawSMCSensors)
+                    Toggle(strings.rawSensorsToggle, isOn: $showRawSMCSensors)
                         .tint(.gray)
                     
-                    Text("Lists every undocumented SMC key in the firmware, with its technical name. Useful for debugging, but most have no publicly known meaning.")
+                    Text(strings.rawSensorsCaption)
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -32,26 +35,26 @@ struct SensorsView: View {
                 .padding(.vertical, 4)
                 
                 HStack {
-                    Text("Sensors with a known name")
+                    Text(strings.namedSensors)
                     Spacer()
                     Text("\(smcDump.readings.filter { $0.category != "Other" }.count)")
                         .foregroundColor(.secondary)
                 }
                 
                 HStack {
-                    Text("Total SMC keys in firmware")
+                    Text(strings.totalKeys)
                     Spacer()
                     Text("\(smcDump.readings.count)")
                         .foregroundColor(.secondary)
                 }
             }
             
-            Section(header: Text("SMC Sensor Export"), footer: Text("Export a snapshot of all active AppleSMC keys, data types, and values to a CSV file for analysis or hardware diagnostics.")) {
+            Section(header: Text(strings.exportHeader), footer: Text(strings.exportFooter)) {
                 HStack {
                     Button {
                         exportSensorDumpCSV()
                     } label: {
-                        Label("Export Sensor Dump (CSV)", systemImage: "square.and.arrow.up")
+                        Label(strings.exportButton, systemImage: "square.and.arrow.up")
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(.blue)
@@ -129,7 +132,7 @@ struct SensorsView: View {
                                 Image(systemName: "cpu")
                                     .frame(width: 24)
                                     .foregroundColor(.blue)
-                                Text("Ryzen Architecture & Core Topology Details")
+                                Text(strings.cpuDetailsButton)
                                 Spacer()
                                 Image(systemName: "info.circle")
                                     .foregroundColor(.secondary)
@@ -138,20 +141,20 @@ struct SensorsView: View {
                         .buttonStyle(.plain)
                         
                         // A missing reading shows a dash, never 0 °C or 0 W.
-                        SensorRow(name: "CPU Package Temp", value: monitor.snapshot.cpuTemperature.map(formatTemp) ?? "—", icon: "thermometer")
-                        SensorRow(name: "CPU Package Power", value: monitor.snapshot.cpuPower.map { String(format: "%.1f W", $0) } ?? "—", icon: "bolt.fill")
+                        SensorRow(name: strings.cpuPackageTemp, value: monitor.snapshot.cpuTemperature.map(formatTemp) ?? "—", icon: "thermometer")
+                        SensorRow(name: strings.cpuPackagePower, value: monitor.snapshot.cpuPower.map { MetricFormat.fixed($0, decimals: 1, unit: "W") } ?? "—", icon: "bolt.fill")
                         // SVI2 planes read by the kext (selector 59); Zen 4/5 report none.
                         if let coreVolts = monitor.snapshot.cpuCoreVoltage {
-                            SensorRow(name: "CPU Core Voltage (SVI2)", value: String(format: "%.3f V", coreVolts), icon: "bolt.horizontal")
+                            SensorRow(name: strings.cpuCoreVoltageSVI2, value: MetricFormat.fixed(coreVolts, decimals: 3, unit: "V"), icon: "bolt.horizontal")
                         }
                         if let socVolts = monitor.snapshot.cpuSocVoltage {
-                            SensorRow(name: "SoC Voltage (SVI2)", value: String(format: "%.3f V", socVolts), icon: "bolt.horizontal.circle")
+                            SensorRow(name: strings.socVoltageSVI2, value: MetricFormat.fixed(socVolts, decimals: 3, unit: "V"), icon: "bolt.horizontal.circle")
                         }
                         
                         Divider()
                             .padding(.vertical, 4)
                         
-                        Text("CCD Temperatures (\(cpuSensors.count))")
+                        Text(String(format: strings.ccdTemperaturesFormat, cpuSensors.count))
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .padding(.bottom, 2)
@@ -181,7 +184,8 @@ struct SensorsView: View {
                         // counters (selector 60); absent on older kexts.
                         let corePowers = monitor.snapshot.cpuCorePowers
                         if !corePowers.isEmpty {
-                            Text("Core Power (\(corePowers.count)) · \(String(format: "%.1f W", corePowers.reduce(0, +)))")
+                            Text(String(format: strings.corePowerFormat, corePowers.count,
+                                        MetricFormat.fixed(corePowers.reduce(0, +), decimals: 1, unit: "W")))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                                 .padding(.top, 4)
@@ -190,10 +194,10 @@ struct SensorsView: View {
                             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
                                 ForEach(Array(corePowers.enumerated()), id: \.offset) { index, watts in
                                     HStack {
-                                        Text("Core \(index)")
+                                        Text(String(format: strings.coreFormat, index))
                                             .font(.subheadline)
                                         Spacer(minLength: 4)
-                                        Text(String(format: "%.2f W", watts))
+                                        Text(MetricFormat.fixed(watts, decimals: 2, unit: "W"))
                                             .font(.system(.subheadline, design: .monospaced, weight: .semibold))
                                     }
                                     .padding(.horizontal, 8)
@@ -208,10 +212,10 @@ struct SensorsView: View {
                         HStack {
                             Image(systemName: "cpu")
                                 .foregroundColor(.blue)
-                            Text("CPU & Processor")
+                            Text(strings.cpuSection)
                                 .font(.headline)
                             Spacer()
-                            Text("\(cpuSensors.count + 2) items")
+                            Text(strings.sensorCount(cpuSensors.count + 2))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -230,7 +234,7 @@ struct SensorsView: View {
                                         Image(systemName: "display")
                                             .foregroundColor(.orange)
                                             .frame(width: 24)
-                                        Text("GPU \(gpu.id) (RadeonSensor / Kext)")
+                                        Text(String(format: strings.gpuDeviceFormat, gpu.id))
                                             .font(.subheadline)
                                         Spacer()
                                     }
@@ -238,7 +242,7 @@ struct SensorsView: View {
                                         Image(systemName: "thermometer.snowflake")
                                             .frame(width: 24)
                                             .foregroundColor(.secondary)
-                                        Text("Temperature")
+                                        Text(strings.temperature)
                                         Spacer()
                                         // The kext reports 0 for a reading it does not have.
                                         Text(gpu.temperature > 0 ? formatTemp(gpu.temperature) : "—")
@@ -249,9 +253,9 @@ struct SensorsView: View {
                                             Image(systemName: "bolt")
                                                 .frame(width: 24)
                                                 .foregroundColor(.secondary)
-                                            Text("Power")
+                                            Text(strings.power)
                                             Spacer()
-                                            Text(gpu.power > 0 ? String(format: "%.1f W", gpu.power) : "—")
+                                            Text(gpu.power > 0 ? MetricFormat.fixed(gpu.power, decimals: 1, unit: "W") : "—")
                                                 .font(.system(.body, design: .monospaced))
                                         }
                                     }
@@ -261,10 +265,10 @@ struct SensorsView: View {
                         } else {
                             // Fallback: show monitor snapshot GPU data ONLY when no discrete kext devices detected
                             if let temp = monitor.snapshot.gpuTemperature, temp > 0 {
-                                SensorRow(name: "GPU Temperature", value: formatTemp(temp), icon: "thermometer.snowflake")
+                                SensorRow(name: strings.gpuTemperature, value: formatTemp(temp), icon: "thermometer.snowflake")
                             }
                             if let power = monitor.snapshot.gpuPower, power > 0 {
-                                SensorRow(name: "GPU Power", value: String(format: "%.1f W", power), icon: "bolt")
+                                SensorRow(name: strings.gpuPower, value: MetricFormat.fixed(power, decimals: 1, unit: "W"), icon: "bolt")
                             }
                         }
                         // The card's own fan, as its driver reports it; it cannot be set from macOS.
@@ -281,13 +285,13 @@ struct SensorsView: View {
                         HStack {
                             Image(systemName: "display")
                                 .foregroundColor(.orange)
-                            Text("Graphics (GPU)")
+                            Text(strings.gpuSection)
                                 .font(.headline)
                             Spacer()
                             let kextCount = monitor.snapshot.gpuDevices.count
                             let fanCount = (monitor.snapshot.gpuFan ?? 0) > 0 ? 1 : 0
                             let totalGpuCount = fanCount + (kextCount > 0 ? (kextCount + gpuSensors.count) : (gpuSensors.count + (monitor.snapshot.gpuTemperature != nil ? 1 : 0)))
-                            Text("\(totalGpuCount) items")
+                            Text(strings.sensorCount(totalGpuCount))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -306,10 +310,10 @@ struct SensorsView: View {
                             HStack {
                                 Image(systemName: "internaldrive")
                                     .foregroundColor(.purple)
-                                Text("Storage & NVMe SSDs")
+                                Text(strings.storageSection)
                                     .font(.headline)
                                 Spacer()
-                                Text("\(diskSensors.count) items")
+                                Text(strings.sensorCount(diskSensors.count))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -329,10 +333,10 @@ struct SensorsView: View {
                             HStack {
                                 Image(systemName: "memorychip")
                                     .foregroundColor(.green)
-                                Text("Memory (RAM)")
+                                Text(strings.memorySection)
                                     .font(.headline)
                                 Spacer()
-                                Text("\(ramSensors.count) items")
+                                Text(strings.sensorCount(ramSensors.count))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -352,10 +356,10 @@ struct SensorsView: View {
                             HStack {
                                 Image(systemName: "fanblades")
                                     .foregroundColor(.cyan)
-                                Text("Fans & Cooling")
+                                Text(strings.fansSection)
                                     .font(.headline)
                                 Spacer()
-                                Text("\(fanSensors.count) items")
+                                Text(strings.sensorCount(fanSensors.count))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -381,10 +385,10 @@ struct SensorsView: View {
                             HStack {
                                 Image(systemName: "bolt.fill")
                                     .foregroundColor(.yellow)
-                                Text("Voltages, Power & Current")
+                                Text(strings.powerSection)
                                     .font(.headline)
                                 Spacer()
-                                Text("\(voltageSensors.count + powerSensors.count + currentSensors.count) items")
+                                Text(strings.sensorCount(voltageSensors.count + powerSensors.count + currentSensors.count))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -407,10 +411,10 @@ struct SensorsView: View {
                             HStack {
                                 Image(systemName: "wind")
                                     .foregroundColor(.teal)
-                                Text("Environment & Airflow")
+                                Text(strings.environmentSection)
                                     .font(.headline)
                                 Spacer()
-                                Text("\(airSensors.count + batterySensors.count) items")
+                                Text(strings.sensorCount(airSensors.count + batterySensors.count))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -419,9 +423,9 @@ struct SensorsView: View {
                     }
                 }
             } else {
-                Section(header: Text("AppleSMC Raw Sensors")) {
+                Section(header: Text(strings.rawSection)) {
                     if smcDump.readings.isEmpty {
-                        Text("Reading SMC...")
+                        Text(strings.readingSMC)
                             .foregroundColor(.secondary)
                     } else {
                         ForEach(smcDump.readings) { reading in
@@ -429,7 +433,7 @@ struct SensorsView: View {
                                 VStack(alignment: .leading) {
                                     Text(sensorDisplayName(for: reading.key))
                                         .font(.system(.body, weight: .semibold))
-                                    Text("\(reading.key) • \(reading.category)")
+                                    Text("\(reading.key) • \(strings.category(reading.category))")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
@@ -465,7 +469,7 @@ struct SensorsView: View {
             VStack {
                 HStack {
                     Spacer()
-                    Button("Done") {
+                    Button(strings.done) {
                         showingCPUDetails = false
                     }
                     .padding()
@@ -499,70 +503,71 @@ struct SensorsView: View {
         } else if key.hasPrefix("F") {
             return String(format: "%.0f RPM", sensor.value)
         } else if key.hasPrefix("V") {
-            return String(format: "%.3f V", sensor.value)
+            return MetricFormat.fixed(sensor.value, decimals: 3, unit: "V")
         } else if key.hasPrefix("P") {
-            return String(format: "%.2f W", sensor.value)
+            return MetricFormat.fixed(sensor.value, decimals: 2, unit: "W")
         } else if key.hasPrefix("I") {
-            return String(format: "%.2f A", sensor.value)
+            return MetricFormat.fixed(sensor.value, decimals: 2, unit: "A")
         }
-        return String(format: "%.2f", sensor.value)
+        return String(format: "%.2f", locale: MetricFormat.locale, sensor.value)
     }
     
     private func sensorDisplayName(for key: String) -> String {
+        let s = strings
         // TC<Hex>C and TC<Hex>c are one CCD each (TC0C = CCD 1), not one core.
         if key.hasPrefix("TC") && key.count == 4 {
             let idx = key.index(key.startIndex, offsetBy: 2)
             let lastChar = key.last!
             if lastChar == "C" || lastChar == "c", let ccd = Int(String(key[idx]), radix: 16) {
-                return "CCD \(ccd + 1) Temp"
+                return String(format: s.ccdTempFormat, ccd + 1)
             }
         }
-        
+
         switch key {
-        case "TC0D", "TC0P": return "CPU Package"
-        case "TCCD", "TCCD1": return "CPU CCD1 (Core Complex)"
-        case "TCCD2": return "CPU CCD2 (Core Complex)"
-        case "TDS0": return "CPU Socket 0"
-        case "TDS1": return "CPU Socket 1"
-        case "Tp0D": return "CPU VRM / Power Plane"
-        case "Te0D": return "System Environment"
-        case "Tf0D": return "Motherboard Chipset / VRM"
-        case "TG0D", "TG0d": return "GPU Die"
-        case "TG0P", "TG0p": return "GPU Proximity"
-        case "TG0H": return "GPU Hotspot"
-        case "TG0V", "TG0M": return "GPU Memory (VRAM)"
-        case "TGDD": return "GPU Display Engine"
-        case "TH0P", "TH0D": return "SSD / NVMe Drive 1"
-        case "TH1P", "TH1D": return "SSD / NVMe Drive 2"
-        case "TH2P", "TH2D": return "SSD / NVMe Drive 3"
-        case "TM0P", "TM0S": return "RAM Memory Module 1"
-        case "TM1P", "TM1S": return "RAM Memory Module 2"
-        case "TA0P", "TA0S": return "Ambient Air Intake"
-        case "TA1P", "TA1S": return "Ambient Exhaust"
-        case "TW0P": return "Wi-Fi / PCIe Card"
-        case "VC0C": return "CPU Core Voltage (VCore)"
-        case "VG0C": return "GPU Voltage"
-        case "PC0C": return "CPU Power Consumed"
-        case "PG0C": return "GPU Power Consumed"
+        case "TC0D", "TC0P": return s.cpuPackage
+        case "TCCD", "TCCD1": return String(format: s.cpuCCDFormat, 1)
+        case "TCCD2": return String(format: s.cpuCCDFormat, 2)
+        case "TDS0": return String(format: s.cpuSocketFormat, 0)
+        case "TDS1": return String(format: s.cpuSocketFormat, 1)
+        case "Tp0D": return s.cpuVRM
+        case "Te0D": return s.systemEnvironment
+        case "Tf0D": return s.chipsetVRM
+        case "TG0D", "TG0d": return s.gpuDie
+        case "TG0P", "TG0p": return s.gpuProximity
+        case "TG0H": return s.gpuHotspot
+        case "TG0V", "TG0M": return s.gpuMemory
+        case "TGDD": return s.gpuDisplayEngine
+        case "TH0P", "TH0D": return String(format: s.ssdDriveFormat, 1)
+        case "TH1P", "TH1D": return String(format: s.ssdDriveFormat, 2)
+        case "TH2P", "TH2D": return String(format: s.ssdDriveFormat, 3)
+        case "TM0P", "TM0S": return String(format: s.ramModuleFormat, 1)
+        case "TM1P", "TM1S": return String(format: s.ramModuleFormat, 2)
+        case "TA0P", "TA0S": return s.ambientIntake
+        case "TA1P", "TA1S": return s.ambientExhaust
+        case "TW0P": return s.pcieCard
+        case "VC0C": return s.cpuCoreVoltageVCore
+        case "VG0C": return s.gpuVoltage
+        case "PC0C": return s.cpuPowerConsumed
+        case "PG0C": return s.gpuPowerConsumed
         default:
             // FxAc / FxID: one Super I/O header each, x = 0-9, A-Z (the kext
             // publishes FNum + FxAc from 3.36.0; SMCSuperIO uses the same keys).
             if key.count == 4, key.hasPrefix("F"), key.hasSuffix("Ac") || key.hasSuffix("ID"),
                let fan = Int(String(key[key.index(key.startIndex, offsetBy: 1)]), radix: 36) {
-                return "Fan \(fan + 1) Speed"
+                return String(format: s.fanSpeedFormat, fan + 1)
             }
-            if key.hasPrefix("TC") { return "CPU Sensor (\(key))" }
-            if key.hasPrefix("TG") { return "GPU Sensor (\(key))" }
-            if key.hasPrefix("TH") { return "SSD Sensor (\(key))" }
-            if key.hasPrefix("TM") { return "RAM Sensor (\(key))" }
-            if key.hasPrefix("TA") { return "Air Sensor (\(key))" }
-            if key.hasPrefix("F") { return "Fan Sensor (\(key))" }
-            if key.hasPrefix("V") { return "Voltage Sensor (\(key))" }
-            if key.hasPrefix("P") { return "Power Sensor (\(key))" }
+            if key.hasPrefix("TC") { return String(format: s.cpuSensorFormat, key) }
+            if key.hasPrefix("TG") { return String(format: s.gpuSensorFormat, key) }
+            if key.hasPrefix("TH") { return String(format: s.ssdSensorFormat, key) }
+            if key.hasPrefix("TM") { return String(format: s.ramSensorFormat, key) }
+            if key.hasPrefix("TA") { return String(format: s.airSensorFormat, key) }
+            if key.hasPrefix("F") { return String(format: s.fanSensorFormat, key) }
+            if key.hasPrefix("V") { return String(format: s.voltageSensorFormat, key) }
+            if key.hasPrefix("P") { return String(format: s.powerSensorFormat, key) }
             return key
         }
     }
-    
+
     /// S2-T5: export the current SMC dump as CSV via a save panel (replaces
     /// the dead stub; the verification flow was never implemented and is gone).
     private func exportSensorDumpCSV() {

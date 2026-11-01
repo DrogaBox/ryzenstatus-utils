@@ -208,6 +208,12 @@ public:
     static constexpr uint32_t kMSR_PERF_IRPC = 0xC00000E9;
     static constexpr uint32_t kMSR_CSTATE_ADDR = 0xC0010073;
     static constexpr uint32_t kMSR_AMD_CPPC_CAP1 = 0xC00102B0;
+    // CPPC_ENABLE bit 0 hands frequency selection to the CPU's CPPC
+    // controller; once set it stays set until reset. CPPC_REQ: [7:0] max
+    // perf, [15:8] min perf, [23:16] desired perf (0 = autonomous),
+    // [31:24] EPP (0 = performance, 0xFF = power saving).
+    static constexpr uint32_t kMSR_AMD_CPPC_ENABLE = 0xC00102B1;
+    static constexpr uint32_t kMSR_AMD_CPPC_REQ = 0xC00102B3;
 
 
 
@@ -254,7 +260,12 @@ public:
     // IRPerfCount (MSR C000_00E9) is 48 bits wide.
     static constexpr uint64_t kIRPERF_MASK = (1ULL << 48) - 1;
     void applyPowerControl();
-    void applyEPPControl();
+    /// Programs CPPC_ENABLE/CPPC_REQ on every CPU from cppcActiveMode,
+    /// cppcEPPValue and cppcThrottled. Takes rendezvousLock; the Locked
+    /// variant is for callers that already hold it. False when the CPU has
+    /// no MSR CPPC or any CPU refused the write.
+    bool applyEPPControl();
+    bool applyEPPControlLocked();
 
     void setCPBState(bool enabled);
     bool getCPBState();
@@ -300,8 +311,17 @@ public:
     uint32_t totalNumberOfLogicalCores {0};
 
     bool cppcSupported {false};
+    /// CPUID 8000_0008h EBX[27]: CPPC is driven through MSRs, so EPP can be
+    /// programmed. Without it CPPC lives in ACPI shared memory only.
+    bool cppcMsrSupported {false};
+    /// Wanted: CPPC autonomous mode with cppcEPPValue (selector 24/25 or
+    /// the -amdcppcactive boot-arg).
     bool cppcActiveMode {false};
     uint8_t cppcEPPValue {0x3F};
+    /// CPPC_ENABLE was written this power cycle; S3 clears it with the cores.
+    bool cppcEngaged {false};
+    /// The EPP the last successful applyEPPControl() wrote to every CPU.
+    uint8_t cppcAppliedEPP {0};
     uint8_t cppcHighestPerf_perCore[CPUInfo::MaxCpus] {};
     bool cppcThrottled {false};
     bool disableCStates = true;
@@ -496,8 +516,10 @@ public:
     // Each profile defines what features should be enabled for a given CPU.
     // - pmDispatchAllowed + legacyPstateAllowed = true on Zen 1/2 where
     //   macOS lacks native AMD power management.
-    // - pmDispatchAllowed + legacyPstateAllowed = false on Zen 3+ where
-    //   macOS AMD Vanilla handles CPPC natively — kext is telemetry-only.
+    // - pmDispatchAllowed + legacyPstateAllowed = false on Zen 3+: the kext
+    //   never writes P-states there (that raced the kernel and panicked).
+    //   macOS has no AMD power management of its own, so frequency scaling
+    //   on these CPUs comes from CPPC autonomous mode (applyEPPControl).
     struct ZenCpuFeatureMap {
         uint32_t family;
         uint32_t modelStart;

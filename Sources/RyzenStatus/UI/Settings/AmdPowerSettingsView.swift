@@ -6,8 +6,6 @@ import SwiftUI
 struct AmdPowerSettingsView: View {
     @ObservedObject private var controls = AmdPowerControlsModel.shared
     @State private var cpuProfile = ProcessorModel.CPUProfile()
-    @State private var cppcActiveMode: Bool = false
-    @State private var cppcCurrentEPP: UInt8 = 0
     @State private var telemetryPacket: CPUSensorPacket?
     // PM-table export status
     @State private var pmStatusMessage: String?
@@ -28,8 +26,17 @@ struct AmdPowerSettingsView: View {
     @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 25
     @AppStorage(DefaultsKey.autoEppLoadThreshold) private var loadThreshold: Int = 50
 
+    /// The picker value shown, nil (unselected) while nothing true can be.
+    private var shownEpp: UInt8? {
+        AutoEppPolicy.shownEPP(writesTakeEffect: autoEpp.writesTakeEffect,
+                               autoActive: autoEpp.isActive,
+                               autoEPP: autoEpp.currentEPP,
+                               manualEPP: controls.selectedEpp)
+    }
+
     private var eppLabel: String {
-        switch AMDPowerPreset.snapEPP(controls.selectedEpp) {
+        switch shownEpp {
+        case nil: return "…"
         case 0:   return l10n.amdPower.perfMax
         case 85:  return l10n.amdPower.perfBalPlus
         case 170: return l10n.amdPower.perfBalMinus
@@ -308,6 +315,10 @@ struct AmdPowerSettingsView: View {
                             get: { autoEpp.isActive },
                             set: { autoEpp.setCPPCActive($0) }
                         ))
+                        // It cannot be switched on while the kext ignores
+                        // EPP (the notice below says so); an Auto EPP left
+                        // on can still be switched off.
+                        .disabled(!autoEpp.writesTakeEffect && !autoEpp.isActive)
 
                         if autoEpp.isActive {
                             VStack(alignment: .leading, spacing: 6) {
@@ -341,7 +352,7 @@ struct AmdPowerSettingsView: View {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                 Spacer()
-                                Text(autoEpp.currentTarget)
+                                Text(autoEpp.currentTarget.isEmpty ? "…" : autoEpp.currentTarget)
                                     .font(.system(size: 12, weight: .semibold))
                                     .foregroundColor(autoEppTargetColor)
                             }
@@ -404,33 +415,32 @@ struct AmdPowerSettingsView: View {
                                 }
 
                             // CPPC info (selector 23): active mode + raw EPP value.
+                            // Refreshed by the shared kext poll this page holds.
                             HStack {
-                                Image(systemName: cppcActiveMode ? "bolt.fill" : "bolt.slash")
+                                Image(systemName: controls.cppcActiveMode ? "bolt.fill" : "bolt.slash")
                                     .font(.caption)
-                                    .foregroundColor(cppcActiveMode ? .green : .secondary)
-                                Text(cppcActiveMode ? l10n.amdPower.cppcActiveOn : l10n.amdPower.cppcActiveOff)
+                                    .foregroundColor(controls.cppcActiveMode ? .green : .secondary)
+                                Text(controls.cppcActiveMode ? l10n.amdPower.cppcActiveOn : l10n.amdPower.cppcActiveOff)
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                                 Spacer()
-                                Text(String(format: l10n.amdPower.eppValueFormat, cppcCurrentEPP))
-                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                    .foregroundColor(.cyan)
+                                if let epp = controls.cppcCurrentEPP {
+                                    Text(String(format: l10n.amdPower.eppValueFormat, epp))
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                        .foregroundColor(.cyan)
+                                }
                             }
 
-                            Picker(l10n.amdPower.energyProfileHeader, selection: Binding(
-                                get: {
-                                    if autoEpp.isActive {
-                                        return AMDPowerPreset.snapEPP(autoEpp.currentEPP)
-                                    } else {
-                                        return AMDPowerPreset.snapEPP(controls.selectedEpp)
-                                    }
-                                },
-                                set: { controls.setEPP($0) }
+                            // Unselected (nil) while the kext ignores EPP or
+                            // Auto EPP has not applied a value yet.
+                            Picker(l10n.amdPower.energyProfileHeader, selection: Binding<UInt8?>(
+                                get: { shownEpp },
+                                set: { if let value = $0 { controls.setEPP(value) } }
                             )) {
-                                Text(l10n.amdPower.perfMax).tag(UInt8(0))
-                                Text(l10n.amdPower.perfBalPlus).tag(UInt8(85))
-                                Text(l10n.amdPower.perfBalMinus).tag(UInt8(170))
-                                Text(l10n.amdPower.perfEco).tag(UInt8(255))
+                                Text(l10n.amdPower.perfMax).tag(UInt8?.some(0))
+                                Text(l10n.amdPower.perfBalPlus).tag(UInt8?.some(85))
+                                Text(l10n.amdPower.perfBalMinus).tag(UInt8?.some(170))
+                                Text(l10n.amdPower.perfEco).tag(UInt8?.some(255))
                             }
                             .pickerStyle(.segmented)
                             .labelsHidden()
@@ -441,7 +451,7 @@ struct AmdPowerSettingsView: View {
 
                         // Neither the picker, Auto EPP nor a preset's EPP
                         // reaches the CPU while the kext ignores EPP writes.
-                        if !ProcessorModel.eppWritesTakeEffect {
+                        if !autoEpp.writesTakeEffect {
                             Label(l10n.amdPower.eppNotApplied, systemImage: "exclamationmark.triangle")
                                 .font(.caption2)
                                 .foregroundColor(.orange)
@@ -995,7 +1005,6 @@ struct AmdPowerSettingsView: View {
     private struct PowerLoadState {
         let kernelAnswered: Bool
         let cpb: [Bool]
-        let cppcState: (active: Bool, epp: UInt8)
         let ppm: Bool
         let lpm: Bool
         let profile: ProcessorModel.CPUProfile
@@ -1009,9 +1018,6 @@ struct AmdPowerSettingsView: View {
         let worker = Task.detached(priority: .userInitiated) {
             let kernelAnswered = ProcessorModel.shared.isConnected
             let cpb = ProcessorModel.shared.getCPB()
-            let cppcState: (active: Bool, epp: UInt8) = kernelAnswered
-                ? ProcessorModel.shared.getCPPCActiveMode()
-                : (active: false, epp: 0)
             let ppm = kernelAnswered ? ProcessorModel.shared.getPPM() : false
             let lpm = kernelAnswered ? ProcessorModel.shared.getLPM() : false
             let profile = await ProcessorModel.shared.cpuProfile
@@ -1032,7 +1038,6 @@ struct AmdPowerSettingsView: View {
 
             return PowerLoadState(kernelAnswered: kernelAnswered,
                                   cpb: cpb,
-                                  cppcState: cppcState,
                                   ppm: ppm,
                                   lpm: lpm,
                                   profile: profile,
@@ -1048,8 +1053,6 @@ struct AmdPowerSettingsView: View {
         guard !Task.isCancelled else { return }
 
         await controls.syncFromKext()
-        cppcActiveMode = state.cppcState.active
-        cppcCurrentEPP = state.cppcState.epp
         cpuProfile = state.profile
         telemetryPacket = state.packet
         isLoading = false

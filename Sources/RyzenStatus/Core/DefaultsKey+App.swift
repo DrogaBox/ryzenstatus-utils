@@ -481,6 +481,7 @@ extension DefaultsKey {
     static let amdCpbEnabled = "amdCpbEnabled"                   // Bool, last Core Performance Boost state
     static let amdPpmEnabled = "amdPpmEnabled"                   // Bool, last PPM state
     static let amdLpmEnabled = "amdLpmEnabled"                   // Bool, last LPM state
+    static let amdManualEpp = "amdManualEpp"                     // Int 0-255, last EPP chosen by hand (picker or preset); absent until one is
     static let showFansInAmdPower = "showFansInAmdPower"         // Bool, fan picker DisclosureGroup expanded in the panel
     static let showPmTableCoresInPanel = "showPmTableCoresInPanel" // Bool, per-core clock/temp/power disclosure in the AMD Power panel section
     static let showPmCoreVoltage = "showPmCoreVoltage"           // Bool, per-core SMU voltage column in the panel rows

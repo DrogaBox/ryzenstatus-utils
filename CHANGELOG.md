@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.74.0] — 2026-11-01 — kexts 3.39.0
+
+### Fixed
+
+- **Auto EPP works again**: the driver once more hands the processor to CPPC autonomous mode and writes the energy preference to every core, so an idle CPU drops its clocks and temperature again instead of running at full speed. Auto EPP, the manual energy profile and the power presets reach the processor again, the `-amdcppcactive` boot argument is honoured from boot, and the mode and preference come back after sleep. Above 95 °C the driver still switches to power saving until the CPU cools to 85 °C.
+- **No more fake "Max"**: while Auto EPP has not applied anything yet, or the driver cannot apply it, the energy profile no longer shows maximum performance.
+- **Preferred cores**: the per-core CPPC ranking now reads each core's highest performance instead of its lowest, which was the same on every core.
+
+## [1.73.2] — 2026-10-31 — kexts 3.38.0 (No kext changes)
+
+### Added
+
+- **GPU fan on the Fans page**: Fans and cooling now shows the speed your graphics card's driver reports for its fan, read-only, with a note that macOS cannot change it. It shows even when no motherboard fans are found.
+
+### Fixed
+
+- **Sensors and processor details are translated**: the Sensors page, its sensor names and the processor details sheet were still in English. They now follow the app's language in all 15 languages.
+- **Performance insights are translated**: the memory leak, CPU load, memory pressure and temperature cards now follow the app's language.
+- **One decimal mark everywhere**: watts, volts and amps on the Sensors page now use your region's decimal mark, like the temperatures already did.
+
 ## [1.73.1] — 2026-10-31 — kexts 3.38.0 (No kext changes)
 
 ### Fixed

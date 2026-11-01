@@ -68,6 +68,8 @@ struct FanControlFeatureStrings {
     let sensorsSidebarTitle: String
     let pumpBadge: String
     let pumpWarning: String
+    /// Caption under the read-only GPU fan row on the Fans page.
+    let gpuFanReadOnly: String
 }
 
 extension FeatureStrings {
@@ -162,7 +164,8 @@ extension FanControlFeatureStrings {
         sidebarTitle: "Fans & Cooling",
         sensorsSidebarTitle: "Sensors",
         pumpBadge: "PUMP",
-        pumpWarning: "AIO / Water pump header: running below safe floor or stopping can cause thermal runaway or pump damage"
+        pumpWarning: "AIO / Water pump header: running below safe floor or stopping can cause thermal runaway or pump damage",
+        gpuFanReadOnly: "The graphics card's own driver runs this fan. macOS can read its speed but not change it."
     )
 
     static let es = FanControlFeatureStrings(
@@ -228,7 +231,8 @@ extension FanControlFeatureStrings {
         sidebarTitle: "Ventiladores y refrigeración",
         sensorsSidebarTitle: "Sensores",
         pumpBadge: "BOMBA",
-        pumpWarning: "Cabezal de bomba AIO / líquida: operar por debajo del umbral seguro o detenerla puede causar problemas térmicos"
+        pumpWarning: "Cabezal de bomba AIO / líquida: operar por debajo del umbral seguro o detenerla puede causar problemas térmicos",
+        gpuFanReadOnly: "El driver de la propia tarjeta gráfica controla este ventilador. macOS puede leer su velocidad, pero no cambiarla."
     )
 
     static let ptBR = FanControlFeatureStrings(
@@ -294,7 +298,8 @@ extension FanControlFeatureStrings {
         sidebarTitle: "Ventiladores e refrigeração",
         sensorsSidebarTitle: "Sensores",
         pumpBadge: "BOMBA",
-        pumpWarning: "Conector de bomba AIO / líquida: operar abaixo do limite seguro ou parar pode causar superaquecimento"
+        pumpWarning: "Conector de bomba AIO / líquida: operar abaixo do limite seguro ou parar pode causar superaquecimento",
+        gpuFanReadOnly: "O driver da própria placa de vídeo controla esta ventoinha. O macOS pode ler a velocidade, mas não alterá-la."
     )
 
     static let de = FanControlFeatureStrings(
@@ -360,7 +365,8 @@ extension FanControlFeatureStrings {
         sidebarTitle: "Lüfter & Kühlung",
         sensorsSidebarTitle: "Sensoren",
         pumpBadge: "PUMPE",
-        pumpWarning: "AIO- / Wasserpumpen-Anschluss: Ein Betrieb unterhalb der Sicherheitsschwelle kann zu Überhitzung führen"
+        pumpWarning: "AIO- / Wasserpumpen-Anschluss: Ein Betrieb unterhalb der Sicherheitsschwelle kann zu Überhitzung führen",
+        gpuFanReadOnly: "Diesen Lüfter steuert der Treiber der Grafikkarte selbst. macOS kann seine Drehzahl lesen, aber nicht ändern."
     )
 
     static let fr = FanControlFeatureStrings(
@@ -426,7 +432,8 @@ extension FanControlFeatureStrings {
         sidebarTitle: "Ventilateurs & refroidissement",
         sensorsSidebarTitle: "Capteurs",
         pumpBadge: "POMPE",
-        pumpWarning: "Connecteur de pompe AIO / liquide : fonctionner en dessous du seuil de sécurité peut provoquer une surchauffe"
+        pumpWarning: "Connecteur de pompe AIO / liquide : fonctionner en dessous du seuil de sécurité peut provoquer une surchauffe",
+        gpuFanReadOnly: "Ce ventilateur est piloté par le pilote de la carte graphique elle-même. macOS peut lire sa vitesse, mais pas la modifier."
     )
 
     static let it = FanControlFeatureStrings(
@@ -492,7 +499,8 @@ extension FanControlFeatureStrings {
         sidebarTitle: "Ventole e raffreddamento",
         sensorsSidebarTitle: "Sensori",
         pumpBadge: "POMPA",
-        pumpWarning: "Connettore pompa AIO / liquido: operare sotto la soglia di sicurezza può causare surriscaldamento o danni"
+        pumpWarning: "Connettore pompa AIO / liquido: operare sotto la soglia di sicurezza può causare surriscaldamento o danni",
+        gpuFanReadOnly: "Questa ventola è gestita dal driver della scheda grafica. macOS può leggerne la velocità, ma non modificarla."
     )
 
     static let ru = FanControlFeatureStrings(
@@ -558,7 +566,8 @@ extension FanControlFeatureStrings {
         sidebarTitle: "Вентиляторы и охлаждение",
         sensorsSidebarTitle: "Датчики",
         pumpBadge: "ПОМПА",
-        pumpWarning: "Разъем помпы СЖО: работа ниже безопасного порога или остановка может привести к перегреву"
+        pumpWarning: "Разъем помпы СЖО: работа ниже безопасного порога или остановка может привести к перегреву",
+        gpuFanReadOnly: "Этим вентилятором управляет драйвер самой видеокарты. macOS может читать его скорость, но не менять её."
     )
 
     static let tr = FanControlFeatureStrings(
@@ -624,7 +633,8 @@ extension FanControlFeatureStrings {
         sidebarTitle: "Fanlar ve Soğutma",
         sensorsSidebarTitle: "Sensörler",
         pumpBadge: "POMPA",
-        pumpWarning: "Sıvı soğutma / AIO pompa başlığı: Güvenli eşiğin altında çalıştırma aşırı ısınmaya yol açabilir"
+        pumpWarning: "Sıvı soğutma / AIO pompa başlığı: Güvenli eşiğin altında çalıştırma aşırı ısınmaya yol açabilir",
+        gpuFanReadOnly: "Bu fanı ekran kartının kendi sürücüsü yönetir. macOS hızını okuyabilir ama değiştiremez."
     )
 
     static let ja = FanControlFeatureStrings(
@@ -690,7 +700,8 @@ extension FanControlFeatureStrings {
         sidebarTitle: "ファンと冷却",
         sensorsSidebarTitle: "センサー",
         pumpBadge: "ポンプ",
-        pumpWarning: "AIO / 水冷ポンプヘッダー: 安全下限未満での動作や停止は急激な温度上昇を招く恐れがあります"
+        pumpWarning: "AIO / 水冷ポンプヘッダー: 安全下限未満での動作や停止は急激な温度上昇を招く恐れがあります",
+        gpuFanReadOnly: "このファンはグラフィックカード自身のドライバが制御しています。macOS は回転数を読み取れますが、変更はできません。"
     )
 
     static let ko = FanControlFeatureStrings(
@@ -756,7 +767,8 @@ extension FanControlFeatureStrings {
         sidebarTitle: "팬 및 냉각",
         sensorsSidebarTitle: "센서",
         pumpBadge: "펌프",
-        pumpWarning: "AIO / 수랭 펌프 헤더: 안전 기준치 미만으로 구동하거나 중지하면 급격한 과열이 발생할 수 있습니다"
+        pumpWarning: "AIO / 수랭 펌프 헤더: 안전 기준치 미만으로 구동하거나 중지하면 급격한 과열이 발생할 수 있습니다",
+        gpuFanReadOnly: "이 팬은 그래픽 카드 자체 드라이버가 제어합니다. macOS는 속도를 읽을 수 있지만 변경할 수는 없습니다."
     )
 
     static let zhHans = FanControlFeatureStrings(
@@ -822,7 +834,8 @@ extension FanControlFeatureStrings {
         sidebarTitle: "风扇与散热",
         sensorsSidebarTitle: "传感器",
         pumpBadge: "水泵",
-        pumpWarning: "水冷 / AIO 水泵接口：低于安全阈值运行或停转可能导致温度急剧上升或损坏水泵"
+        pumpWarning: "水冷 / AIO 水泵接口：低于安全阈值运行或停转可能导致温度急剧上升或损坏水泵",
+        gpuFanReadOnly: "此风扇由显卡自身的驱动程序控制。macOS 可以读取其转速，但无法更改。"
     )
 
     static let zhTW = FanControlFeatureStrings(
@@ -888,7 +901,8 @@ extension FanControlFeatureStrings {
         sidebarTitle: "風扇與散熱",
         sensorsSidebarTitle: "感測器",
         pumpBadge: "水泵",
-        pumpWarning: "水冷 / AIO 水泵接頭：低於安全閾值運行或停轉可能導致過熱或損壞水泵"
+        pumpWarning: "水冷 / AIO 水泵接頭：低於安全閾值運行或停轉可能導致過熱或損壞水泵",
+        gpuFanReadOnly: "此風扇由顯示卡本身的驅動程式控制。macOS 可以讀取其轉速，但無法更改。"
     )
 
     static let zhHK = zhTW
@@ -956,7 +970,8 @@ extension FanControlFeatureStrings {
         sidebarTitle: "Ventilátory a chladenie",
         sensorsSidebarTitle: "Senzory",
         pumpBadge: "ČERPADLO",
-        pumpWarning: "Konektor AIO / vodného čerpadla: chod pod bezpečnou hranicou alebo zastavenie môže spôsobiť tepelný únik alebo poškodenie čerpadla"
+        pumpWarning: "Konektor AIO / vodného čerpadla: chod pod bezpečnou hranicou alebo zastavenie môže spôsobiť tepelný únik alebo poškodenie čerpadla",
+        gpuFanReadOnly: "Tento ventilátor riadi ovládač samotnej grafickej karty. macOS dokáže čítať jeho otáčky, ale nie ich meniť."
     )
 
     static let uk = FanControlFeatureStrings(
@@ -1022,7 +1037,8 @@ extension FanControlFeatureStrings {
         sidebarTitle: "Вентилятори та охолодження",
         sensorsSidebarTitle: "Датчики",
         pumpBadge: "ПОМПА",
-        pumpWarning: "Роз’єм AIO / водяної помпи: робота нижче безпечної межі або зупинка може спричинити некерований перегрів або пошкодження помпи"
+        pumpWarning: "Роз’єм AIO / водяної помпи: робота нижче безпечної межі або зупинка може спричинити некерований перегрів або пошкодження помпи",
+        gpuFanReadOnly: "Цим вентилятором керує драйвер самої відеокарти. macOS може читати його швидкість, але не змінювати її."
     )
 }
 

@@ -28,11 +28,19 @@ struct AmdControlSection: View {
     @AppStorage(DefaultsKey.showPmCoreC0) private var showsPmCoreC0 = false
     @AppStorage(DefaultsKey.showPmCoreCC6) private var showsPmCoreCC6 = false
 
+    /// The picker value shown, nil (unselected) while nothing true can be.
+    private var shownEpp: UInt8? {
+        AutoEppPolicy.shownEPP(writesTakeEffect: autoEpp.writesTakeEffect,
+                               autoActive: autoEpp.isActive,
+                               autoEPP: autoEpp.currentEPP,
+                               manualEPP: controls.selectedEpp)
+    }
     private var eppLabel: String {
         if autoEpp.isActive {
             return autoEpp.currentTarget.isEmpty ? "…" : autoEpp.currentTarget
         }
-        switch AMDPowerPreset.snapEPP(controls.selectedEpp) {
+        switch shownEpp {
+        case nil: return "…"
         case 0:   return L10n.shared.amdPower.perfMax
         case 85:  return L10n.shared.amdPower.perfBalPlus
         case 170: return L10n.shared.amdPower.perfBalMinus
@@ -42,7 +50,8 @@ struct AmdControlSection: View {
 
     private var eppColor: Color {
         if autoEpp.isActive { return .secondary }
-        switch AMDPowerPreset.snapEPP(controls.selectedEpp) {
+        switch shownEpp {
+        case nil: return .secondary
         case 0:   return .red
         case 85:  return .orange
         case 170: return .yellow
@@ -264,20 +273,16 @@ struct AmdControlSection: View {
                         }
 
                         VStack(spacing: 8) {
-                            Picker(L10n.shared.amdPower.energyProfileManual, selection: Binding(
-                                get: {
-                                    if autoEpp.isActive {
-                                        return AMDPowerPreset.snapEPP(autoEpp.currentEPP)
-                                    } else {
-                                        return AMDPowerPreset.snapEPP(controls.selectedEpp)
-                                    }
-                                },
-                                set: { controls.setEPP($0) }
+                            // Unselected (nil) while the kext ignores EPP or
+                            // Auto EPP has not applied a value yet.
+                            Picker(L10n.shared.amdPower.energyProfileManual, selection: Binding<UInt8?>(
+                                get: { shownEpp },
+                                set: { if let value = $0 { controls.setEPP(value) } }
                             )) {
-                                Text(L10n.shared.amdPower.perfMaxShort).tag(UInt8(0))
-                                Text(L10n.shared.amdPower.perfBalPlusShort).tag(UInt8(85))
-                                Text(L10n.shared.amdPower.perfBalMinusShort).tag(UInt8(170))
-                                Text(L10n.shared.amdPower.perfEcoShort).tag(UInt8(255))
+                                Text(L10n.shared.amdPower.perfMaxShort).tag(UInt8?.some(0))
+                                Text(L10n.shared.amdPower.perfBalPlusShort).tag(UInt8?.some(85))
+                                Text(L10n.shared.amdPower.perfBalMinusShort).tag(UInt8?.some(170))
+                                Text(L10n.shared.amdPower.perfEcoShort).tag(UInt8?.some(255))
                             }
                             .labelsHidden()
                             .pickerStyle(.segmented)
@@ -287,7 +292,7 @@ struct AmdControlSection: View {
 
                         // The picker, Auto EPP and the presets' EPP do not
                         // reach the CPU while the kext ignores EPP writes.
-                        if !ProcessorModel.eppWritesTakeEffect {
+                        if !autoEpp.writesTakeEffect {
                             Text(L10n.shared.amdPower.eppNotApplied)
                                 .font(.system(size: 9))
                                 .foregroundColor(.orange)
@@ -413,7 +418,10 @@ struct AmdControlSection: View {
                                 ))
                                     .font(.system(size: 12))
                                     .toggleStyle(SwitchToggleStyle(tint: .cyan))
-                                    .disabled(gaming.isActive)
+                                    // Not switched on while the kext ignores
+                                    // EPP (the orange notice says so).
+                                    .disabled(gaming.isActive
+                                              || (!autoEpp.writesTakeEffect && !autoEpp.isActive))
                             }
                         }
 

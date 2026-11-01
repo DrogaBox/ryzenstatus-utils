@@ -356,6 +356,14 @@ enum MetricFormat {
         String(format: "%.0fW", locale: Self.locale, value.rounded())
     }
 
+    /// A sensor reading with a set number of decimals and its unit, e.g.
+    /// "1.250 V" or "1,250 V". Sensor pages keep the decimals fixed so a
+    /// column of readings lines up; the decimal mark follows the region.
+    static func fixed(_ value: Double, decimals: Int, unit: String) -> String {
+        let suffix = unit.replacingOccurrences(of: "%", with: "%%")
+        return String(format: "%.\(max(0, decimals))f \(suffix)", locale: Self.locale, value)
+    }
+
     static func systemPowerWatts(measured: Double?,
                                  batteryWatts: Double?,
                                  externalConnected: Bool) -> Double? {
