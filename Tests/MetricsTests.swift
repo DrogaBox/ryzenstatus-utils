@@ -9106,6 +9106,21 @@ struct MetricsTests {
             expect(!NowPlayingAutomation.isKaset("com.apple.Music"), "isKaset rejects Music")
             expect(!NowPlayingAutomation.isKaset(nil), "isKaset rejects nil")
 
+            // A failing script (what a denied Automation consent looks like)
+            // makes executeAndReturnError return nil; the runner must answer
+            // an empty descriptor with the error, never trap. Both paths: the
+            // shared queue and a call already on it.
+            if let failing = NSAppleScript(source: "error \"refused\" number -1743") {
+                var failure: NSDictionary?
+                let answer = AppleScriptRunner.execute(failing, error: &failure)
+                expect(failure?[NSAppleScript.errorNumber] as? Int == -1743 && answer.numberOfItems == 0,
+                       "a failing AppleScript answers empty with its error instead of crashing")
+            } else {
+                expect(false, "the failing AppleScript compiles")
+            }
+            let denied = AppleScriptRunner.runDetailed("error \"refused\" number -1743")
+            expect(!denied.ok && denied.errorNumber == -1743, "runDetailed reports a refused script")
+
             // JSON decoding with playing track
             let sampleKasetPlaying = """
             {
