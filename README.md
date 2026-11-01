@@ -79,6 +79,7 @@ All AMD pages live together in their own **AMD Ryzen** section of Settings: dash
 - **EPP through MSRs or ACPI:** Energy Performance Preference reaches CPUs with the CPPC MSRs directly and, on CPUs that publish CPPC only through ACPI (`_CPC` and PCC shared memory, such as Ryzen 5000 desktop parts), through PCC. Hardware Validation shows which path your CPU uses and what the driver found.
 - **SMU controls for every family:** PPT/TDC/EDC (or STAPM/fast/slow on APUs), cHTC, PBO scalar, OC mode with frequency and voltage, Curve Optimizer and a boost ceiling go through the command set of your CPU's family (Zen and Zen+, Zen 2, Zen 3, AM5, and the Raven Ridge, Renoir/Cezanne and Rembrandt/Phoenix APUs). A control your CPU does not accept says so instead of sending a command meant for another chip.
 - **Gaming Mode:** A one-click toggle to apply the Extreme power preset and prevent display sleep during intense workloads.
+- **Hardware Validation:** Lists every power control your CPU accepts, the deep idle state, which path EPP takes and what the driver found in ACPI, and reads the CPPC values back from the firmware, so you can see what really reaches the processor.
 
 <p align="center">
   <img src="docs/assets/readme/settings-dashboard.png" width="720" alt="The Performance Suite dashboard with CPU, RAM, GPU and network cards, SMU per-core telemetry and the process manager">
@@ -187,22 +188,23 @@ Permissions get the same treatment. Every one is optional, the app explains each
 | Notifications | Keep awake, battery, monitor and update alerts | The app stays silent |
 | Calendars, optional | Upcoming events in the Dynamic Island | The island shows no events |
 | Bluetooth, optional | Accessory notices in the Dynamic Island and Bluetooth sleep | Those features stay off |
-| Full Disk Access, optional | Deeper cleaner and uninstaller scans | Only reachable places are scanned |
+| Full Disk Access, optional | Deeper cleaner and uninstaller scans, Repair permissions | Only reachable places are scanned |
+| Automation | Now Playing (Music, Spotify), Finder cut and paste, the uninstaller, the Homebrew Terminal handoff | Those players, Finder or Terminal steps stay out of reach |
 | Administrator, once, optional | Password free closed lid toggling | A password prompt per toggle |
 
-The shelf and almost every quick toggle need no permission at all. Finder cut and paste, the uninstaller, emptying the Trash and the Homebrew terminal handoff ask macOS for Automation access the first time they talk to Finder or Terminal.
+The shelf and almost every quick toggle need no permission at all. Automation is asked the first time RyzenStatus talks to Music, Spotify, Finder or Terminal: since macOS 15.4, Now Playing reads Music and Spotify this way. After an update, **Repair permissions** (Settings › Advanced) ties the permissions you already gave back to the new version without granting anything new.
 
 ## What you need
 
-- A Hackintosh with an **AMD Ryzen CPU** (Zen architecture or newer)
+- A Hackintosh with an **AMD Ryzen CPU**: Ryzen 1000 through Ryzen 9000, Threadripper 1000 through 7000, and the Raven Ridge, Picasso, Renoir, Cezanne, Rembrandt and Phoenix APUs. The per-family table is in the [driver README](SMCAMDProcessor_Source/README.md#supported-amd-processors). Everything outside the AMD pages also runs on any Intel Mac.
 - **macOS 14 Sonoma through macOS 26 Tahoe** for `RyzenStatus.app` (`AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` support macOS 13 Ventura through macOS 26 Tahoe)
-- **Kernel Extensions (For AMD CPU telemetry & fan curves):** You must have `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` injected via OpenCore in your EFI folder. The source code for these is bundled in the `SMCAMDProcessor_Source` folder for reference.
+- **Kernel Extensions (for AMD telemetry, power controls and fan curves):** `AMDRyzenCPUPowerManagement.kext` and `SMCAMDProcessor.kext` injected through OpenCore, after Lilu and VirtualSMC. Each release ships the matching pair in the disk image; install them together with the app. Their source lives in `SMCAMDProcessor_Source`.
 
 ### Kernel Extension Boot Arguments & Features
 
-By default, any local process may read telemetry from the kext, while hardware **writes** (fan curves, EPP, P-States, SMU PBO/OC, and Curve Optimizer) require `root` privileges. You can configure the kext in your OpenCore `boot-args`:
+By default, any local process may read telemetry from the kext, while hardware **writes** (fan curves, EPP, presets, P-States, SMU power limits and OC, and Curve Optimizer) require `root` privileges. You can configure the kext in your OpenCore `boot-args`:
 
-- **`-amdcppcactive`**: Enables CPPC Active Mode at boot, allowing the OS to respect EPP (Energy Performance Preference) profiles like Power Save or Performance.
+- **`-amdcppcactive`**: Starts CPPC autonomous mode at boot, before the app runs; RyzenStatus then sends the energy preference of your preset or Auto EPP. Without it, the app switches autonomous mode on itself when it applies an energy preference.
 - **`amdcstate=1`**: Forbids deep idle (CC6). Since kext 3.40.0 deep idle is switched live from **Settings › AMD Ryzen Power › Advanced energy** and the app puts your choice back whenever the kext loads; the driver reads the firmware's C-state IO address (MSR `0xC0010073`) at start and never overwrites it. Without the argument, or with `amdcstate=0`, the switch is available.
 - **`-amdnoidle`**: Leaves the idle loop to macOS (`hlt` only), for troubleshooting. Deep idle is then unavailable.
 - **`-amdpnopchk`**: *(Optional — Security Trade-off)* Disables UserClient root privilege checks so RyzenStatus can control fans, EPP, P-States, and Curve Optimizer without running as `root`. **Warning:** when `-amdpnopchk` is set, *any* local process on the machine can issue privileged hardware writes through the UserClient; enable only on trusted single-user systems.

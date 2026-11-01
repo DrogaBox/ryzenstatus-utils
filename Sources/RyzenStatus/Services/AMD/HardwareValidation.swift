@@ -11,7 +11,7 @@ import Foundation
 /// kernel log is unreadable for our tooling (`log show` is sandboxed) and
 /// `--sensors` cannot be used mid-probe at all: opening and closing a user
 /// client releases all six fans to BIOS, which silently resets the very state
-/// a probe is measuring (see `.kiro/steering/hardware-safety.md`).
+/// a probe is measuring.
 ///
 /// So the app becomes the evidence surface. This type holds the three pieces
 /// that make a probe cycle auditable and repeatable:
@@ -43,7 +43,7 @@ enum HardwareValidation {
 
     /// The app release that introduced this harness. Informational — the app
     /// version coming from the bundle is what gets reported.
-    static let expectedAppVersion = "1.75.0"
+    static let expectedAppVersion = "1.75.1"
 
     /// The reference machine's Super I/O family. The probe expectations (the
     /// ~15.7 % rotor-start floor, the six ITE channels) are calibrated for it;

@@ -17,7 +17,7 @@ cd ryzenstatus-utils
 ./build.sh --install               # install into /Applications and launch
 ```
 
-You need macOS 13 or newer, an AMD Ryzen CPU (Zen architecture or newer), and the Xcode Command Line Tools. The
+You need macOS 14 or newer and the Xcode Command Line Tools; an AMD Ryzen CPU with the kexts loaded to try the AMD pages. The
 build is a plain `swiftc` invocation, see `build.sh`, with no Xcode project and
 no external dependencies, reproducible by design. `Package.swift` is there so
 SwiftPM aware editors can index the code.

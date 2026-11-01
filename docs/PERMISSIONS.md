@@ -14,9 +14,9 @@ You can review or change every grant in System Settings, under Privacy and Secur
 | Notifications | Yes | Keep awake, battery, Monitor and update alerts |
 | Calendars | Yes | Upcoming events in the Dynamic Island |
 | Bluetooth | Yes | Accessory notices in the Dynamic Island and Bluetooth sleep |
-| Full Disk Access | Yes | A deeper uninstaller scan |
+| Full Disk Access | Yes | A deeper uninstaller scan and Repair permissions |
 | Administrator (one time) | Yes | Password free closed lid toggling |
-| Automation | Yes | Finder cut and paste, moving leftovers to the Trash, emptying the Trash and Homebrew Terminal handoff |
+| Automation | Yes | Now Playing from Music and Spotify, Finder cut and paste, moving leftovers to the Trash, emptying the Trash and Homebrew Terminal handoff |
 
 ## Accessibility
 
@@ -138,16 +138,17 @@ You can review or change every grant in System Settings, under Privacy and Secur
 
 ## Automation
 
-**Why it comes up.** A few features ask Finder or Terminal to do something for you, and macOS guards that with an Automation prompt the first time it happens.
+**Why it comes up.** A few features ask another app, Music, Spotify, Finder or Terminal, to answer or do something for you, and macOS guards that with an Automation prompt the first time it happens.
 
 **What uses it.**
 
+- **Now Playing**, which asks Music or Spotify for the current song, its position and artwork. Since macOS 15.4 this is the only way an app can read them.
 - **Finder cut and paste**, which reads the current Finder selection and the destination folder, then moves the files.
 - **Uninstaller**, which moves leftover files to the Trash.
 - **Empty the Trash** in Quick toggles, which asks Finder to empty it. The other quick toggles, dark mode included, need no permission.
 - **Homebrew manager**, which can open Terminal with the exact Homebrew install or setup command when the app should not collect a password itself.
 
-**If you say no.** Those Finder or Terminal handoff steps will not go through. You can switch Automation back on in System Settings, under Privacy and Security, Automation.
+**If you say no.** Now Playing shows nothing for that player, and those Finder or Terminal handoff steps will not go through. You can switch Automation back on in System Settings, under Privacy and Security, Automation.
 
 **Optional.** Yes.
 
