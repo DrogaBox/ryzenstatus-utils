@@ -119,6 +119,12 @@ final class AmdPowerControlsModel: ObservableObject {
     // when a sync happens to run after such a request. Nil until the first
     // successful run on a 3.34.13+ kext with privileges.
     @Published private(set) var smuDiagnostics: AMDSmuDiagnostics.Report?
+    /// Selector 62: what this CPU accepts and what this driver wrote. nil
+    /// while the kext is unreachable or predates 3.40.0.
+    @Published private(set) var powerControlState: AMDPowerControlState?
+    var powerCapabilities: AMDPowerCapabilities { powerControlState?.capabilities ?? [] }
+    /// Selector 34: CC6 idle state, nil while the kext is unreachable.
+    @Published private(set) var c6Policy: AMDCStatePolicy?
     @Published private(set) var smuDiagnosticsDenied = false
 
     /// Re-entrancy guard for `syncFromKext`. User writes no longer check it:
@@ -242,6 +248,55 @@ final class AmdPowerControlsModel: ObservableObject {
         }
     }
 
+    /// CC6 idle (selector 61). The choice is kept, so it comes back when the
+    /// kext reloads after a reboot (`reapplyC6Idle`).
+    func setC6Idle(_ on: Bool) {
+        userWriteGeneration &+= 1
+        AmdSettingsStore.shared.c6IdleEnabled = on
+        Task {
+            let res = await perform { ProcessorModel.shared.setC6Idle(on) }
+            await self.reportWriteFailure(res)
+            await self.syncFromKext()
+        }
+    }
+
+    /// Puts the saved CC6 choice back on a freshly loaded kext, which always
+    /// starts with CC6 off. Silent: nothing to report when the CPU lacks it.
+    func reapplyC6Idle() async {
+        guard AmdSettingsStore.shared.c6IdleEnabled,
+              ProcessorModel.shared.getCStatePolicy()?.c6Available == true else { return }
+        _ = await perform { ProcessorModel.shared.setC6Idle(true) }
+    }
+
+    /// OC VID (selector 65); the kext needs OC mode enabled by this driver.
+    func setOcVoltage(millivolts: Int) {
+        let vid = AMDOcVoltage.vid(millivolts: millivolts)
+        Task {
+            let res = await perform { ProcessorModel.shared.setOcVid(vid) }
+            await self.reportWriteFailure(res)
+            await self.syncFromKext()
+        }
+    }
+
+    /// All-core Curve Optimizer margin (selector 66); replaces every
+    /// per-core margin.
+    func setCurveOptimizerAll(_ offset: Int8) {
+        Task {
+            let res = await perform { ProcessorModel.shared.setCurveOptimizerAll(offset) }
+            await self.reportWriteFailure(res)
+            await self.syncFromKext()
+        }
+    }
+
+    /// Boost frequency ceiling in MHz (selector 67).
+    func setBoostLimit(mhz: UInt32) {
+        Task {
+            let res = await perform { ProcessorModel.shared.setBoostLimit(mhz: mhz) }
+            await self.reportWriteFailure(res)
+            await self.syncFromKext()
+        }
+    }
+
     func setPState(_ pstate: Int) {
         userWriteGeneration &+= 1
         let previous = selectedPState
@@ -358,7 +413,7 @@ final class AmdPowerControlsModel: ObservableObject {
     private func syncOnce() async {
         let generation = userWriteGeneration
         let (kernelAnswered, telemetry, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
-             smuVersion, activeScalar, ocCap, ocFreq, pmInfo) = await Task.detached(priority: .userInitiated) {
+             smuVersion, activeScalar, ocCap, ocFreq, pmInfo, powerState, cstate) = await Task.detached(priority: .userInitiated) {
             // Thread-safe connection check to avoid data races
             let kernelAnswered = ProcessorModel.shared.isConnected
             // Package power and temperature for the panel graphs.
@@ -382,8 +437,11 @@ final class AmdPowerControlsModel: ObservableObject {
             let ocFreq = kernelAnswered ? ProcessorModel.shared.getOcFreqCache() : nil
             // PM-table info (cache only, no SMU traffic).
             let pmInfo = kernelAnswered ? ProcessorModel.shared.getPMTableInfo() : nil
+            // Capability report, written-value caches and CC6 state (cache only).
+            let powerState = kernelAnswered ? ProcessorModel.shared.getPowerControlState() : nil
+            let cstate = kernelAnswered ? ProcessorModel.shared.getCStatePolicy() : nil
             return (kernelAnswered, telemetry, cpb, cppcState, ppm, lpm, boost, procParams, chtcLimit,
-                    smuVersion, activeScalar, ocCap, ocFreq, pmInfo)
+                    smuVersion, activeScalar, ocCap, ocFreq, pmInfo, powerState, cstate)
         }.value
         // One history sample per 2.5 s at most, whoever calls this.
         let now = ProcessInfo.processInfo.systemUptime
@@ -399,6 +457,8 @@ final class AmdPowerControlsModel: ObservableObject {
 
         cppcSupported = kernelAnswered
         legacyPstateAllowed = profile.legacyPstateAllowed
+        if powerControlState != powerState { powerControlState = powerState }
+        if c6Policy != cstate { c6Policy = cstate }
         // What the kext really holds, refreshed on every sync tick.
         if cppcActiveMode != (cppcState?.active ?? false) { cppcActiveMode = cppcState?.active ?? false }
         if cppcCurrentEPP != cppcState?.epp { cppcCurrentEPP = cppcState?.epp }

@@ -27,8 +27,6 @@ enum AMDKextSelector: UInt32, CaseIterable {
     case kextVersion       = 8
     /// Baseboard vendor/name strings (2×64-byte null-terminated fields).
     case baseboardInfo     = 16
-    /// C-State MSR base address — used by `CStateNvramService`.
-    case cStateAddress     = 22
 
     // MARK: — Processor Identity (Read-only)
 
@@ -80,25 +78,16 @@ enum AMDKextSelector: UInt32, CaseIterable {
     case coreC6Residency   = 32
     /// Per-core instructions-retired delta — one UInt32 per logical core (kext 1.20.0+).
     case coreInstRetired   = 33
-    /// Read-only C-state policy: [0] = 1 if the kext disables deep C-States
-    /// (amdcstate=1 or default), [1] = raw cstateAddrConfig. Added in kext 1.21.0 (S2-T4).
+    /// Read-only CC6 idle state (`AMDCStatePolicy`): [0] idle cores stay out
+    /// of CC6, [1] raw CSTATE_ADDR, and from kext 3.40.0 [2] CC6 on, [3]
+    /// firmware C-state IO base, [4] CC6 available, [5] forbidden by amdcstate=1.
     case cStatePolicy      = 34
-    /// Read-only Curve Optimizer capability report (S3-B): [0] = 1 when the kext
-    /// accepts CO writes for this silicon, [1] = active SMU command ID,
-    /// [2]/[3] = min/max safe offset. Unsupported on pre-1.22 kexts.
-    case curveOptimizerCapability = 35
     /// Read-only PBO limits cache (S4): [0] = PPT mW, [1] = TDC mA, [2] = EDC mA
     /// — the last values successfully programmed this boot (0 = never set).
     /// The SMU has no read-back for limits; the kext caches on success.
     case pboLimitsRead = 36
     /// Read-only PBO scalar cache (S4): [0] = scalar in %×100 (200 = 2x; 0 = never set).
     case pboScalarRead = 37
-    /// Read-only PBO capability (S4): [0] = 1 when PBO limit writes are accepted
-    /// (Vermeer + SMU mailbox), [1..3] reserved. Unsupported on pre-1.24 kexts.
-    case pboCapability = 38
-    /// Read-only PBO scalar capability (S4): [0] = supported,
-    /// [1]/[2] = min/max scalar in %×100 (100…1000). Unsupported on pre-1.24 kexts.
-    case pboScalarCapability = 39
     /// Write PBO limits (S4, privileged): [0] = PPT mW, [1] = TDC mA, [2] = EDC mA.
     /// All three programmed atomically; aborts on first SMU failure.
     case pboLimitsWrite = 41
@@ -206,6 +195,27 @@ enum AMDKextSelector: UInt32, CaseIterable {
     /// the CORE_ENERGY_STAT counter; scalar [0] = core count. Cache only,
     /// refreshed by the kext's main timer. Unsupported on older kexts.
     case corePower = 60
+    /// CC6 idle on/off (kext 3.40.0+, privileged): scalar [0] = 1/0. The
+    /// kext enters CC6 through the firmware's C-state IO port on every idle
+    /// entry while it is on; selector 34 reports the state.
+    case c6IdleWrite = 61
+    /// Power-control capabilities (kext 3.40.0+): scalar [0] = bitmask
+    /// (`AMDPowerCapabilities`), [1] last OC VID, [2] all-core CO byte,
+    /// [3] all-core CO written, [4] boost ceiling MHz.
+    case powerCapabilities = 62
+    /// ACPI CPPC discovery report (kext 3.40.0+): uint32 words, see
+    /// `AMDAcpiCppcReport`.
+    case acpiCppcReport = 63
+    /// ACPI CPPC capability read through PCC (kext 3.40.0+, privileged):
+    /// [0] highest, [1] nominal, [2] lowest non-linear, [3] lowest, [4] EPP,
+    /// [5] channel status.
+    case acpiCppcProbe = 64
+    /// OC VID write (kext 3.40.0+, privileged): SVI2 VID 16…120, OC mode only.
+    case ocVidWrite = 65
+    /// All-core Curve Optimizer (kext 3.40.0+, privileged): margin −30…+30.
+    case curveOptimizerAllWrite = 66
+    /// Boost frequency ceiling (kext 3.40.0+, privileged): MHz.
+    case boostLimitWrite = 67
 
     // MARK: — Fan Control (via SuperIO)
 

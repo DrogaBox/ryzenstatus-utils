@@ -2074,7 +2074,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             arguments->scalarOutput[0] = provider->smuOcSupported() ? 1 : 0;
             arguments->scalarOutput[1] = provider->smuProcessorParametersRaw;
             arguments->scalarOutput[2] = provider->smuOcModeState;
-            arguments->scalarOutput[3] = provider->smuOcPerCcdSupported() ? 1 : 0;
+            arguments->scalarOutput[3] = provider->smuOcSupported() ? 1 : 0;
 
             break;
         }

@@ -15,13 +15,7 @@ struct AmdPowerSettingsView: View {
 
     @ObservedObject private var autoEpp = AutoEppService.shared
     @ObservedObject private var presetCtrl = AmdPresetController.shared
-    @ObservedObject private var nvramCState = CStateNvramService.shared
     @ObservedObject private var l10n = L10n.shared
-    // AMD Polish S2-T4: kext-resolved C-state runtime policy (selector 34,
-    // selector-22 fallback). nil = kext unreachable.
-    @State private var c6RuntimeDisabled: Bool?
-    @State private var c6RuntimeAddr: UInt64 = 0
-    @State private var showCopiedToast = false
 
     @AppStorage(DefaultsKey.autoEppIdleThreshold) private var idleThreshold: Int = 25
     @AppStorage(DefaultsKey.autoEppLoadThreshold) private var loadThreshold: Int = 50
@@ -313,18 +307,16 @@ struct AmdPowerSettingsView: View {
                     Section {
                         Toggle(l10n.amdPower.autoEppToggle, isOn: Binding(
                             get: { autoEpp.isActive },
-                            set: { autoEpp.setCPPCActive($0) }
+                            set: { autoEpp.setEnabled($0) }
                         ))
-                        // It cannot be switched on with neither EPP nor boost
-                        // to drive; an Auto EPP left on can still be switched off.
+                        // It cannot be switched on without a kext to write to;
+                        // an Auto EPP left on can still be switched off.
                         .disabled(!autoEpp.canRun && !autoEpp.isActive)
 
-                        if autoEpp.controlsCPB {
-                            Text(l10n.amdPower.autoEppBoostNote)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
+                        Text(l10n.amdPower.autoEppPresetNote)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
 
                         if autoEpp.isActive {
                             VStack(alignment: .leading, spacing: 6) {
@@ -511,10 +503,6 @@ struct AmdPowerSettingsView: View {
                                 if gaming.hideMenuBar {
                                     Label(l10n.amdPower.gamingModeIconHiddenHint, systemImage: "eye.slash.fill")
                                 }
-                                if nvramCState.isC6Enabled {
-                                    Label(l10n.amdPower.gamingModeC6Hint, systemImage: "exclamationmark.triangle.fill")
-                                        .foregroundColor(.orange)
-                                }
                             }
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -556,210 +544,12 @@ struct AmdPowerSettingsView: View {
                         Text(L10n.shared.amdPower.legacyPStatesFooter)
                     }
                 }
-                Section {
-                    if controls.cpbSupported {
-                        Toggle(l10n.amdPower.cpbToggle, isOn: Binding(
-                            get: { controls.corePerformanceBoost },
-                            set: { controls.setCPB($0) }
-                        ))
-                        // Auto EPP switches boost while it is on.
-                        .disabled(gaming.isActive)
-                    }
-
-                    Toggle(l10n.amdPower.ppmToggle, isOn: Binding(
-                        get: { controls.ppmEnabled },
-                        set: { controls.setPPM($0) }
-                    ))
-                    .disabled(gaming.isActive)
-
-                    Toggle(l10n.amdPower.lpmToggle, isOn: Binding(
-                        get: { controls.lpmEnabled },
-                        set: { controls.setLPM($0) }
-                    ))
-                    .disabled(gaming.isActive)
-
-                    // Deep C-States (C6) — read-only NVRAM status
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Image(systemName: "moon.zzz.fill")
-                                .foregroundColor(.purple)
-                                .font(.caption)
-                            Text(l10n.amdPower.deepCStatesTitle)
-                                .font(.subheadline)
-                            Spacer()
-                            if nvramCState.isC6Enabled {
-                                Text(l10n.amdPower.c6ActiveBadge)
-                                    .font(.caption)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.green)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Capsule().fill(Color.green.opacity(0.15)))
-                            } else {
-                                Text(l10n.amdPower.c6DisabledBadge)
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(.secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Capsule().fill(Color.secondary.opacity(0.12)))
-                            }
-                        }
-
-                        // S2-T4: kext-resolved runtime policy + NVRAM drift warning.
-                        HStack {
-                            Image(systemName: "gearshape.2.fill")
-                                .foregroundColor(.indigo)
-                                .font(.caption)
-                            Text(l10n.amdPower.c6RuntimeRowTitle)
-                                .font(.subheadline)
-                            Spacer()
-                            switch c6RuntimeDisabled {
-                            case .some(true):
-                                Text(l10n.amdPower.runtimeC6DisabledBadge)
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(.blue)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Capsule().fill(Color.blue.opacity(0.12)))
-                            case .some(false):
-                                Text(l10n.amdPower.runtimeC6EnabledBadge)
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(.green)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Capsule().fill(Color.green.opacity(0.12)))
-                            case .none:
-                                Text("--")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        if let runtimeDisabled = c6RuntimeDisabled, runtimeDisabled == nvramCState.isC6Enabled {
-                            // amdcstate in boot-args says one thing, the running
-                            // kext does another: stale boot-args vs pre-feature
-                            // kext (older than 1.21.0). They agree when the kext
-                            // has C6 disabled exactly when NVRAM has it off.
-                            Label(l10n.amdPower.c6DriftWarning, systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption2)
-                                .foregroundColor(.orange)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-
-                        Text(l10n.amdPower.c6Guidance)
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.vertical, 4)
-
-                    // CPPC Active Mode — read-only NVRAM status
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Image(systemName: "bolt.badge.clock.fill")
-                                .foregroundColor(.blue)
-                                .font(.caption)
-                            Text(l10n.amdPower.cppcTitle)
-                                .font(.subheadline)
-                            Spacer()
-                            Text(nvramCState.isCppcActiveEnabled ? l10n.amdPower.cppcActiveBadge : l10n.amdPower.cppcInactiveBadge)
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .foregroundColor(nvramCState.isCppcActiveEnabled ? .green : .secondary)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill((nvramCState.isCppcActiveEnabled ? Color.green : Color.secondary).opacity(0.12)))
-                        }
-                        Text(l10n.amdPower.cppcGuidance)
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.vertical, 4)
-
-                    // Root Privilege Bypass — read-only NVRAM status
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Image(systemName: "lock.shield.fill")
-                                .foregroundColor(.orange)
-                                .font(.caption)
-                            Text(l10n.amdPower.pnopchkTitle)
-                                .font(.subheadline)
-                            Spacer()
-                            Text(nvramCState.isPnopchkEnabled ? l10n.amdPower.pnopchkActiveBadge : l10n.amdPower.pnopchkInactiveBadge)
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .foregroundColor(nvramCState.isPnopchkEnabled ? .green : .secondary)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill((nvramCState.isPnopchkEnabled ? Color.green : Color.secondary).opacity(0.12)))
-                        }
-                        Text(l10n.amdPower.pnopchkGuidance)
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.vertical, 4)
-
-                    // Copy AMD Boot-Args — one-click clipboard copy for config.plist
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Image(systemName: "doc.on.doc.fill")
-                                .foregroundColor(.accentColor)
-                                .font(.caption)
-                            Text(l10n.amdPower.copyAmdArgsButton)
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                            Spacer()
-                            if showCopiedToast {
-                                Text(l10n.amdPower.copiedToastText + " " + nvramCState.amdBootArgsString)
-                                    .font(.caption2)
-                                    .foregroundColor(.green)
-                                    .transition(.opacity)
-                            }
-                        }
-
-                        HStack {
-                            Text(l10n.amdPower.copyAmdArgsGuidance)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 8)
-                            Button {
-                                nvramCState.copyAmdArgsToClipboard()
-                                withAnimation { showCopiedToast = true }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                                    withAnimation { showCopiedToast = false }
-                                }
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: showCopiedToast ? "checkmark" : "doc.on.doc")
-                                    Text(l10n.amdPower.copyAmdArgsButton)
-                                }
-                                .font(.caption)
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
-                    }
-                    .padding(.vertical, 6)
-                } header: {
-                    Text(L10n.shared.amdPower.advancedEnergyHeader)
-                } footer: {
-                    Text(L10n.shared.amdPower.advancedEnergyFooter)
-                }
+                AmdAdvancedEnergySection()
             }
         }
         .formStyle(.grouped)
         .task {
             await fetchState()
-            if let policy = ProcessorModel.shared.getCStatePolicy() {
-                c6RuntimeDisabled = policy.disabled
-                c6RuntimeAddr = policy.addr
-            } else {
-                c6RuntimeDisabled = nil
-            }
         }
         // The monitor client and the shared kext poll run only while the
         // page is on screen in a visible Settings window.
@@ -771,16 +561,6 @@ struct AmdPowerSettingsView: View {
             Task {
                 await controls.syncFromKext()
                 await fetchState()
-            }
-        }
-        .onReceive(nvramCState.$isC6Enabled) { _ in
-            // Re-resolve runtime policy when the NVRAM badge refreshes so the
-            // drift warning flips without leaving the settings page.
-            Task {
-                if let policy = ProcessorModel.shared.getCStatePolicy() {
-                    c6RuntimeDisabled = policy.disabled
-                    c6RuntimeAddr = policy.addr
-                }
             }
         }
         .alert(
@@ -999,12 +779,9 @@ struct AmdPowerSettingsView: View {
     }
 
     private func presetSummary(_ preset: AMDPowerPreset) -> String {
-        switch preset {
-        case .eco: return l10n.amdPower.presetEcoSummary
-        case .balance: return l10n.amdPower.presetBalanceSummary
-        case .performance: return l10n.amdPower.presetPerformanceSummary
-        case .extreme: return l10n.amdPower.presetExtremeSummary
-        }
+        presetCtrl.profile(for: preset).summary(caps: controls.powerCapabilities,
+                                                cpbSupported: controls.cpbSupported,
+                                                strings: l10n.amdPower)
     }
 
     // presetColor(_:) removed — use preset.color directly from AMDPowerPreset.

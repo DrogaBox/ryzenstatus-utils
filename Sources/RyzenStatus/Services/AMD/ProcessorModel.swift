@@ -638,7 +638,7 @@ actor ProcessorModel {
         // No kext, no EPP: writes are refused until a reload reads the flag
         // again. Awaited, so it cannot land after the reload's `true`.
         Self.eppWritesTakeEffect = false
-        await MainActor.run { AutoEppService.shared.kextEppSupportChanged(false, cpbSupported: false) }
+        await MainActor.run { AutoEppService.shared.kextChanged(loaded: false) }
     }
 
     /// One call a live connection always answers: selector 8 (the version
@@ -755,16 +755,13 @@ actor ProcessorModel {
         // Initialize SuperIO for fan reading (selector 90)
         _ = kernelGetUInt64(count: 2, selector: AMDKextSelector.fanInit)
 
-        // Every load and reload hands the eppApplied flag and CPB support to
-        // Auto EPP: with either lever it starts (launch may have tried before
-        // the profile was read), and with EPP the user's manual EPP goes back
-        // on while it is off, since a freshly loaded kext holds none.
-        let eppApplied = cpuProfile.eppApplied
-        let cpb = getCPB()
-        let cpbSupported = cpb.first ?? false
-        await MainActor.run {
-            AutoEppService.shared.kextEppSupportChanged(eppApplied, cpbSupported: cpbSupported)
-        }
+        // Every load and reload tells Auto EPP: it starts (launch may have
+        // tried before the kext answered), or, while it is off, the user's
+        // manual EPP goes back on, since a freshly loaded kext holds none.
+        await AmdPresetController.shared.refreshPresetClass()
+        await MainActor.run { AutoEppService.shared.kextChanged(loaded: true) }
+        // A freshly loaded kext idles in CC1: put the saved CC6 choice back.
+        await AmdPowerControlsModel.shared.reapplyC6Idle()
 
         if numberOfCores < 1 {
             await MainActor.run {
@@ -1435,38 +1432,6 @@ actor ProcessorModel {
         return safeIOConnectCallMethod( AMDKextSelector.lpm.id, &input, 1, nil, 0, nil, nil, nil, nil)
     }
 
-    // MARK: - Power Presets (EPP + CPB + PPM/LPM)
-
-    /// Applies a full power preset through the existing write selectors:
-    /// EPP (25), CPB (12) and PPM/LPM (14/19). PPM and LPM are mutually
-    /// exclusive — the preset's choice wins and the other is forced off.
-    /// Returns per-component IOKit statuses so the UI can surface privilege
-    /// errors (`kIOReturnNotPrivilegedCode`) per feature.
-    func applyPowerPreset(_ preset: AMDPowerPreset) -> AMDPowerPresetApplyResult {
-        let epp = setCPPCEPPValue(epp: preset.eppValue)
-        let limits = applyPresetLimits(preset)
-        return AMDPowerPresetApplyResult(epp: epp, cpb: limits.cpb, ppm: limits.ppm, lpm: limits.lpm)
-    }
-
-    /// A preset's boost and PPM/LPM without its EPP: what Auto EPP applies
-    /// when its thresholds move the CPU to another preset.
-    func applyPresetLimits(_ preset: AMDPowerPreset) -> (cpb: kern_return_t, ppm: kern_return_t, lpm: kern_return_t) {
-        let cpb = setCPB(enabled: preset.cpbEnabled)
-
-        // PPM (selector 14) and LPM (selector 19) share the kext's
-        // `setPMPStateLimit`; exactly one may be on at a time.
-        var ppm: kern_return_t = KERN_SUCCESS
-        var lpm: kern_return_t = KERN_SUCCESS
-        if preset.lpmEnabled {
-            ppm = setPPM(enabled: false)   // enforce exclusivity
-            lpm = setLPM(enabled: true)
-        } else {
-            lpm = setLPM(enabled: false)   // enforce exclusivity
-            ppm = setPPM(enabled: preset.ppmEnabled)
-        }
-        return (cpb, ppm, lpm)
-    }
-
     nonisolated func getInstructionDelta() -> [UInt64]{
         let o = kernelGetUInt64(count: 1, selector: AMDKextSelector.deltaInstructions.id)
         return o.count > 0 ? [o[0]] : [0]
@@ -1790,57 +1755,6 @@ actor ProcessorModel {
         return CPUSensorPacket.parse(output)
     }
 
-    /// S3-B: read the kext's Curve Optimizer capability report (selector 35).
-    /// Returns nil when the kernel connection is unavailable or the kext is
-    /// pre-1.22 (selector unsupported) — callers then fall back to the
-    /// app-side family/model gate (`AMDCurveOptimizer.supported`).
-    nonisolated func getCurveOptimizerCapability() -> (supported: Bool, commandID: UInt64, minOffset: Int, maxOffset: Int)? {
-        var output: [UInt64] = [0, 0, 0, 0]
-        var outputCount: UInt32 = 4
-        let res = safeIOConnectCallMethod( AMDKextSelector.curveOptimizerCapability.id, nil, 0, nil, 0,
-                                           &output, &outputCount, nil, nil)
-        guard res == KERN_SUCCESS, outputCount >= 4 else { return nil }
-        // The min/max come back through UInt64 scalars; sign-extend the
-        // two's-complement byte the kext wrote.
-        let minOff = Int(Int8(truncatingIfNeeded: output[2]))
-        let maxOff = Int(Int8(truncatingIfNeeded: output[3]))
-        return (output[0] == 1, output[1], minOff, maxOff)
-    }
-
-    nonisolated func getCStateAddress() -> UInt64 {
-        var scalerOut: UInt64 = 0
-        var outputCount: UInt32 = 1
-
-        let res = safeIOConnectCallMethod( AMDKextSelector.cStateAddress.id, nil, 0, nil, 0,
-                                      &scalerOut, &outputCount,
-                                      nil, nil)
-
-        if res != KERN_SUCCESS {
-            return 0
-        }
-        return scalerOut
-    }
-
-    /// S2-T4: kext-resolved deep C-State policy. Prefers explicit selector 34
-    /// (kext ≥ 1.21.0, reports what `start()` actually resolved from the
-    /// `amdcstate` boot-arg); falls back to selector 22 for older kexts, where
-    /// `cstateAddrConfig == 0xF0` means the boot-time write disabled C6.
-    /// Returns nil when the kernel connection is unavailable.
-    nonisolated func getCStatePolicy() -> (disabled: Bool, addr: UInt64)? {
-        var output: [UInt64] = [0, 0]
-        var outputCount: UInt32 = 2
-        let res = safeIOConnectCallMethod( AMDKextSelector.cStatePolicy.id, nil, 0, nil, 0,
-                                           &output, &outputCount, nil, nil)
-        if res == KERN_SUCCESS && outputCount >= 1 {
-            return (output[0] == 1, output[1])
-        }
-        // Selector 34 unsupported → pre-1.21.0 kext. Selector 22 existed since
-        // the first ABI; its value is the post-start MSR state.
-        let addr = getCStateAddress()
-        guard addr != 0 else { return nil }
-        return (addr == 0xF0, addr)
-    }
-
     // MARK: - Snapshot Transaction (IPC Optimization)
 
     /// Consolidated telemetry snapshot returned by `snapshotTelemetry()`.
@@ -2068,28 +1982,6 @@ actor ProcessorModel {
                                           &output, &outputCount, nil, nil)
         guard res == KERN_SUCCESS, outputCount >= 1 else { return nil }
         return output[0]
-    }
-
-    /// Read-only PBO capability report. `supported` is the kext's own verdict
-    /// (Vermeer + SMU mailbox); when nil (pre-1.24 kext) callers must fall back
-    /// to the app-side family/model gate.
-    nonisolated func getPBOCapability() -> (supported: Bool, reserved: (UInt64, UInt64, UInt64))? {
-        var output: [UInt64] = [0, 0, 0, 0]
-        var outputCount: UInt32 = 4
-        let res = safeIOConnectCallMethod(AMDKextSelector.pboCapability.id, nil, 0, nil, 0,
-                                          &output, &outputCount, nil, nil)
-        guard res == KERN_SUCCESS, outputCount >= 4 else { return nil }
-        return (output[0] == 1, (output[1], output[2], output[3]))
-    }
-
-    /// Read-only PBO scalar capability report (min/max in %×100).
-    nonisolated func getPBOScalarCapability() -> (supported: Bool, minScalar: UInt64, maxScalar: UInt64)? {
-        var output: [UInt64] = [0, 0, 0]
-        var outputCount: UInt32 = 3
-        let res = safeIOConnectCallMethod(AMDKextSelector.pboScalarCapability.id, nil, 0, nil, 0,
-                                          &output, &outputCount, nil, nil)
-        guard res == KERN_SUCCESS, outputCount >= 3 else { return nil }
-        return (output[0] == 1, output[1], output[2])
     }
 
     /// Program PPT/TDC/EDC in one call — the kext applies all three SMU writes
@@ -2381,34 +2273,6 @@ actor ProcessorModel {
                                           nil, nil, &buffer, &size)
         guard res == KERN_SUCCESS else { return (nil, res) }
         return (AMDSmuDiagnostics.decode(Data(buffer.prefix(size))), KERN_SUCCESS)
-    }
-}
-
-/// Per-component IOKit statuses of a `ProcessorModel.applyPowerPreset(_:)` call.
-struct AMDPowerPresetApplyResult {
-    let epp: kern_return_t
-    let cpb: kern_return_t
-    let ppm: kern_return_t
-    let lpm: kern_return_t
-
-    /// True when the kext rejected any write with `kIOReturnNotPrivileged`
-    /// (writes need root or the `-amdpnopchk` boot-arg).
-    var privilegeDenied: Bool {
-        [epp, cpb, ppm, lpm].contains(ProcessorModel.kIOReturnNotPrivilegedCode)
-    }
-
-    /// Localized, human-readable reason for the first failed component.
-    /// A privilege denial wins: it is the one the user can act on, and EPP,
-    /// first in line, answers `kIOReturnUnsupported` on every preset while
-    /// the kext ignores EPP writes.
-    var firstFailureMessage: String? {
-        if privilegeDenied {
-            return ProcessorModel.privilegeHint(for: ProcessorModel.kIOReturnNotPrivilegedCode)
-        }
-        for status in [epp, cpb, ppm, lpm] where status != KERN_SUCCESS {
-            return ProcessorModel.privilegeHint(for: status)
-        }
-        return nil
     }
 }
 

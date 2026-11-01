@@ -1,54 +1,8 @@
 import Foundation
 
-// MARK: - CPU Generation Classification
-
-/// Zen generation classification for gate-keeping kext features whose
-/// implementation is family/model specific — most notably Curve Optimizer
-/// (selectors 110/111), whose SMU payload is Vermeer-only.
-///
-/// Family/model come from the kext's CPUID report (selector 7):
-/// `family` = dataOut[0], `model` = dataOut[1].
-enum AMDCpuGeneration: Equatable {
-    case unknown
-    case zen2AndOlder
-    case zen3
-    case zen4
-    case zen5
-
-    /// Classification ranges (family 0x19, the same table as the kext's CPU
-    /// profiles and Linux k10temp):
-    /// - Zen 3: model 0x00–0x0F (Milan, Chagall), 0x20–0x5F (Vermeer 0x21,
-    ///   Rembrandt 0x44, Cezanne 0x50, …)
-    /// - Zen 4: model 0x10–0x1F (Genoa, Storm Peak), 0x60–0x7F (Raphael 0x61,
-    ///   Phoenix 0x74, …), 0xA0–0xAF (Bergamo, Siena: Zen 4c)
-    /// - Zen 5: family 0x1A (Granite Ridge 0x44, Strix Point 0x24, …); family
-    ///   0x19 has no Zen 5 part.
-    static func classify(family: Int, model: Int) -> AMDCpuGeneration {
-        guard family == 0x19 else {
-            return family >= 0x1A ? .zen5 : .zen2AndOlder
-        }
-        if (0x10...0x1F).contains(model) || (0x60...0x7F).contains(model)
-            || (0xA0...0xAF).contains(model) {
-            return .zen4
-        }
-        return .zen3
-    }
-
-    /// Whether the user-facing message should say "Zen 4/5 not supported".
-    var isZen4OrNewer: Bool { self == .zen4 || self == .zen5 }
-}
-
-// MARK: - Curve Optimizer Gate (selectors 110/111)
+// MARK: - Curve Optimizer (selectors 66, 110/111)
 
 enum AMDCurveOptimizer {
-    /// The kext only accepts Curve Optimizer writes on Zen 3 Vermeer
-    /// (family 0x19, model 0x21–0x2F), and only once it has mapped the
-    /// enabled cores from the fuses; selector 35 reports the live answer and
-    /// this gate is the fallback for kexts that predate it.
-    static func supported(family: Int, model: Int) -> Bool {
-        family == 0x19 && (0x21...0x2F).contains(model)
-    }
-
     /// Safe offset range enforced by the kext ([-30, +30]).
     static let minOffset = -30
     static let maxOffset = 30
@@ -68,13 +22,6 @@ enum AMDCurveOptimizer {
 // MARK: - PBO Limits & Scalar (S4, selectors 36-42)
 
 enum AMDPBOLimits {
-    /// The kext accepts PBO limit/scalar writes on the same silicon window as
-    /// Curve Optimizer: Zen 3 Vermeer (family 0x19, model 0x21–0x2F) with a
-    /// supported SMU mailbox. Fail-closed everywhere else.
-    static func supported(family: Int, model: Int) -> Bool {
-        family == 0x19 && (0x21...0x2F).contains(model)
-    }
-
     /// Hard envelope shared with the kext: 1000…500000 milli-units per axis
     /// (PPT in mW ⇒ 1…500 W; TDC/EDC in mA ⇒ 1…500 A). The lower bound also
     /// blocks "disable the limit" (0) writes.

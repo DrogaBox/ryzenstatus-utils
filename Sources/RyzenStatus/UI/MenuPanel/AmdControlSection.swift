@@ -414,7 +414,7 @@ struct AmdControlSection: View {
                                 Image(systemName: "cpu").foregroundColor(.cyan).frame(width: 20)
                                 Toggle(L10n.shared.amdPower.autoEppToggle, isOn: Binding(
                                     get: { autoEpp.isActive },
-                                    set: { autoEpp.setCPPCActive($0) }
+                                    set: { autoEpp.setEnabled($0) }
                                 ))
                                     .font(.system(size: 12))
                                     .toggleStyle(SwitchToggleStyle(tint: .cyan))
