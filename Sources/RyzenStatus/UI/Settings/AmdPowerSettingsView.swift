@@ -315,10 +315,16 @@ struct AmdPowerSettingsView: View {
                             get: { autoEpp.isActive },
                             set: { autoEpp.setCPPCActive($0) }
                         ))
-                        // It cannot be switched on while the kext ignores
-                        // EPP (the notice below says so); an Auto EPP left
-                        // on can still be switched off.
-                        .disabled(!autoEpp.writesTakeEffect && !autoEpp.isActive)
+                        // It cannot be switched on with neither EPP nor boost
+                        // to drive; an Auto EPP left on can still be switched off.
+                        .disabled(!autoEpp.canRun && !autoEpp.isActive)
+
+                        if autoEpp.controlsCPB {
+                            Text(l10n.amdPower.autoEppBoostNote)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
 
                         if autoEpp.isActive {
                             VStack(alignment: .leading, spacing: 6) {
@@ -556,7 +562,8 @@ struct AmdPowerSettingsView: View {
                             get: { controls.corePerformanceBoost },
                             set: { controls.setCPB($0) }
                         ))
-                        .disabled(gaming.isActive)
+                        // Auto EPP switches boost while it is on.
+                        .disabled(gaming.isActive || (autoEpp.isActive && autoEpp.controlsCPB))
                     }
 
                     Toggle(l10n.amdPower.ppmToggle, isOn: Binding(

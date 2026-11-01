@@ -418,10 +418,10 @@ struct AmdControlSection: View {
                                 ))
                                     .font(.system(size: 12))
                                     .toggleStyle(SwitchToggleStyle(tint: .cyan))
-                                    // Not switched on while the kext ignores
-                                    // EPP (the orange notice says so).
+                                    // Not switched on with neither EPP nor
+                                    // boost to drive.
                                     .disabled(gaming.isActive
-                                              || (!autoEpp.writesTakeEffect && !autoEpp.isActive))
+                                              || (!autoEpp.canRun && !autoEpp.isActive))
                             }
                         }
 
@@ -434,7 +434,8 @@ struct AmdControlSection: View {
                                 ))
                                     .font(.system(size: 12))
                                     .toggleStyle(SwitchToggleStyle(tint: .orange))
-                                    .disabled(gaming.isActive)
+                                    // Auto EPP switches boost while it is on.
+                                    .disabled(gaming.isActive || (autoEpp.isActive && autoEpp.controlsCPB))
                             }
                         }
 

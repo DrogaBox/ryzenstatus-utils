@@ -638,7 +638,7 @@ actor ProcessorModel {
         // No kext, no EPP: writes are refused until a reload reads the flag
         // again. Awaited, so it cannot land after the reload's `true`.
         Self.eppWritesTakeEffect = false
-        await MainActor.run { AutoEppService.shared.kextEppSupportChanged(false) }
+        await MainActor.run { AutoEppService.shared.kextEppSupportChanged(false, cpbSupported: false) }
     }
 
     /// One call a live connection always answers: selector 8 (the version
@@ -755,12 +755,16 @@ actor ProcessorModel {
         // Initialize SuperIO for fan reading (selector 90)
         _ = kernelGetUInt64(count: 2, selector: AMDKextSelector.fanInit)
 
-        // Every load and reload hands the eppApplied flag to Auto EPP: with
-        // it set, Auto EPP starts (launch may have tried before the profile
-        // was read) or the user's manual EPP goes back on, since a freshly
-        // loaded kext holds none.
+        // Every load and reload hands the eppApplied flag and CPB support to
+        // Auto EPP: with either lever it starts (launch may have tried before
+        // the profile was read), and with EPP the user's manual EPP goes back
+        // on while it is off, since a freshly loaded kext holds none.
         let eppApplied = cpuProfile.eppApplied
-        await MainActor.run { AutoEppService.shared.kextEppSupportChanged(eppApplied) }
+        let cpb = getCPB()
+        let cpbSupported = cpb.first ?? false
+        await MainActor.run {
+            AutoEppService.shared.kextEppSupportChanged(eppApplied, cpbSupported: cpbSupported)
+        }
 
         if numberOfCores < 1 {
             await MainActor.run {

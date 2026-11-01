@@ -6,13 +6,16 @@ import Combine
 import Foundation
 
 /// Global singleton that monitors CPU load and automatically adjusts the EPP
-/// (Energy Performance Preference) when Auto EPP mode is active.
+/// (Energy Performance Preference) and Core Performance Boost when Auto EPP
+/// mode is active.
 ///
 /// Unlike per-view timers, this service runs in the background while Auto EPP
 /// is on, so the CPU throttles down to Power Save during idle even when no
-/// Settings or menu panel view is open. It does not run while the kext
-/// ignores EPP writes (`ProcessorModel.eppWritesTakeEffect`), and starts as
-/// soon as a kext that applies them loads (`kextEppSupportChanged(_:)`).
+/// Settings or menu panel view is open. Boost is the lever that works on every
+/// CPU with CPB: off at idle caps the cores at base clock and voltage, which is
+/// what cools an idle Vermeer, whose EPP the kext cannot reach. EPP is written
+/// as well where the kext applies it (`ProcessorModel.eppWritesTakeEffect`).
+/// The loop runs while either lever is available.
 ///
 /// Thresholds are read live from AmdSettingsStore, so changes via `@AppStorage`
 /// in the settings views take effect immediately on the next poll cycle.
@@ -39,6 +42,10 @@ final class AutoEppService: ObservableObject {
     /// Observable mirror of `ProcessorModel.eppWritesTakeEffect`, so views
     /// update when a kext that applies EPP loads or goes away.
     @Published private(set) var writesTakeEffect: Bool = ProcessorModel.eppWritesTakeEffect
+    /// The kext reports Core Performance Boost, so Auto EPP switches it.
+    @Published private(set) var controlsCPB: Bool = false
+    /// Auto EPP has a lever that reaches the CPU: EPP, boost, or both.
+    var canRun: Bool { writesTakeEffect || controlsCPB }
 
     // MARK: - Internal state
 
@@ -48,6 +55,9 @@ final class AutoEppService: ObservableObject {
     /// Used to skip redundant MSR writes. Not a 0xFF sentinel: 255 is the
     /// Power Save target, which a sentinel would have skipped forever.
     private var lastWrittenEPP: UInt8?
+    /// The boost state last written, nil when none has been since the last
+    /// reset (S3 or a manual change may have moved it).
+    private var lastWrittenCPB: Bool?
     /// The target in force and how many polls in a row asked for less
     /// performance than it (see `AutoEppPolicy.settle`).
     private var appliedTarget: AutoEppTarget?
@@ -90,6 +100,7 @@ final class AutoEppService: ObservableObject {
     /// user happened to change presets. nil means "never written".
     private func resetWriteSentinel() {
         lastWrittenEPP = nil
+        lastWrittenCPB = nil
         appliedTarget = nil
         stepDownPolls = 0
     }
@@ -105,7 +116,8 @@ final class AutoEppService: ObservableObject {
         guard pollTask == nil,
               AutoEppPolicy.shouldRun(enabled: AmdSettingsStore.shared.autoEppEnabled,
                                       suspended: isSuspended,
-                                      writesTakeEffect: ProcessorModel.eppWritesTakeEffect)
+                                      writesTakeEffect: ProcessorModel.eppWritesTakeEffect,
+                                      controlsCPB: controlsCPB)
         else { return }
         pollTask = Task.detached(priority: .background) { [weak self] in
             // Exit the loop when the owner is gone. Previously the
@@ -139,26 +151,29 @@ final class AutoEppService: ObservableObject {
         }
     }
 
-    /// Called by `ProcessorModel` each time it reads the kext's eppApplied
-    /// flag: on every load and reload, and with `false` when the kext unloads.
-    /// A freshly loaded kext holds no EPP of the user's, so with the flag set
-    /// Auto EPP starts, or, while it is off, the manual EPP is written back
-    /// once. Nothing is written while Gaming Mode holds the EPP, including at
-    /// launch before `GamingModeService.restoreIfNeeded()` has suspended this
-    /// service; its `resume()` starts the loop when the mode ends.
-    func kextEppSupportChanged(_ applied: Bool) {
+    /// Called by `ProcessorModel` each time it reads the kext's profile: on
+    /// every load and reload with the eppApplied flag and whether the kext
+    /// reports CPB, and with `false, false` when the kext unloads. A freshly
+    /// loaded kext holds no EPP of the user's, so Auto EPP starts, or, while
+    /// it is off, the manual EPP is written back once. Nothing is written
+    /// while Gaming Mode holds the power settings, including at launch before
+    /// `GamingModeService.restoreIfNeeded()` has suspended this service; its
+    /// `resume()` starts the loop when the mode ends.
+    func kextEppSupportChanged(_ applied: Bool, cpbSupported: Bool) {
         writesTakeEffect = applied
+        controlsCPB = cpbSupported
         resetWriteSentinel()
         currentEPP = nil
         currentTarget = ""
-        guard applied,
+        if !canRun { stopLoop() }
+        guard canRun,
               !isSuspended,
               !AmdSettingsStore.shared.gamingModeActive,
               !GamingModeService.shared.isActive
         else { return }
         if AmdSettingsStore.shared.autoEppEnabled {
             start()
-        } else {
+        } else if applied {
             Task { await AmdPowerControlsModel.shared.restoreManualEPP() }
         }
     }
@@ -185,37 +200,46 @@ final class AutoEppService: ObservableObject {
 
     /// Switches Auto EPP on or off and updates published state immediately.
     ///
-    /// On engages CPPC active mode (selector 24 = 1). Off does not send
-    /// selector 24 = 0, which cannot release CPPC before a reboot and pins
-    /// EPP 0 (max performance): the user's manual EPP is written instead, so
-    /// the manual picker takes over from the last Auto EPP value.
+    /// On engages CPPC active mode (selector 24 = 1) where the kext applies
+    /// EPP. Off does not send selector 24 = 0, which cannot release CPPC
+    /// before a reboot and pins EPP 0 (max performance): the user's manual
+    /// EPP is written instead, and boost goes back to the user's own choice,
+    /// so the manual controls take over from the last Auto EPP values.
     @MainActor
     func setCPPCActive(_ active: Bool) {
         AmdSettingsStore.shared.autoEppEnabled = active
         self.isActive = active
-        // A preset or the manual picker may have written the EPP since Auto
-        // EPP last did, so its first poll after this must write again.
+        // A preset or the manual controls may have written EPP or boost since
+        // Auto EPP last did, so its first poll after this must write again.
         resetWriteSentinel()
         currentEPP = nil
         currentTarget = ""
         if active {
             start()
             Task {
-                let res = await Task.detached(priority: .userInitiated) {
-                    ProcessorModel.shared.setCPPCActiveMode(active: true)
-                }.value
-                self.privilegeDenied = res == ProcessorModel.kIOReturnNotPrivilegedCode
+                if self.writesTakeEffect {
+                    let res = await Task.detached(priority: .userInitiated) {
+                        ProcessorModel.shared.setCPPCActiveMode(active: true)
+                    }.value
+                    self.privilegeDenied = res == ProcessorModel.kIOReturnNotPrivilegedCode
+                }
                 if self.pollTask != nil { await self.poll() }
             }
         } else {
             stopLoop()
-            // Gaming Mode holds the EPP while suspended; a kext that ignores
-            // EPP would only answer unsupported.
-            guard !isSuspended, writesTakeEffect else { return }
+            // Gaming Mode holds the power settings while suspended.
+            guard !isSuspended else { return }
+            let restoreEPP = writesTakeEffect
+            let restoreCPB = controlsCPB
             Task {
-                let res = await AmdPowerControlsModel.shared.restoreManualEPP(
-                    fallback: AMDPowerPreset.balance.eppValue)
-                self.privilegeDenied = res == ProcessorModel.kIOReturnNotPrivilegedCode
+                if restoreCPB {
+                    await AmdPowerControlsModel.shared.restoreManualCPB()
+                }
+                if restoreEPP {
+                    let res = await AmdPowerControlsModel.shared.restoreManualEPP(
+                        fallback: AMDPowerPreset.balance.eppValue)
+                    self.privilegeDenied = res == ProcessorModel.kIOReturnNotPrivilegedCode
+                }
             }
         }
     }
@@ -270,10 +294,14 @@ final class AutoEppService: ObservableObject {
         appliedTarget = settled.target
         stepDownPolls = settled.pendingStepDownPolls
         let targetEPP = settled.target.epp
+        let targetCPB = settled.target.cpbEnabled
         let targetName = settled.target.label
+        let (writeEPP, writeCPB) = await MainActor.run { (self.writesTakeEffect, self.controlsCPB) }
 
+        // Any failure other than a privilege refusal records nothing, so the
+        // next poll retries.
         var newPrivilegeDenied = self.privilegeDenied
-        if targetEPP != lastWrittenEPP {
+        if writeEPP, targetEPP != lastWrittenEPP {
             let writeRes = await ProcessorModel.shared.setCPPCEPPValue(epp: targetEPP)
             if writeRes == KERN_SUCCESS {
                 newPrivilegeDenied = false
@@ -281,13 +309,23 @@ final class AutoEppService: ObservableObject {
             } else if writeRes == ProcessorModel.kIOReturnNotPrivilegedCode {
                 newPrivilegeDenied = true
             }
-            // Any other failure records nothing, so the next poll retries.
+        }
+        if writeCPB, targetCPB != lastWrittenCPB {
+            let writeRes = await ProcessorModel.shared.setCPB(enabled: targetCPB)
+            if writeRes == KERN_SUCCESS {
+                newPrivilegeDenied = false
+                lastWrittenCPB = targetCPB
+            } else if writeRes == ProcessorModel.kIOReturnNotPrivilegedCode {
+                newPrivilegeDenied = true
+            }
         }
 
         // Only what reached the kext is shown: a refused write leaves the
-        // CPU on the last value written, or on none.
+        // CPU on the last values written, or on none.
         let finalEPP = lastWrittenEPP
-        let finalTarget = lastWrittenEPP == targetEPP ? targetName : ""
+        let applied = (!writeEPP || lastWrittenEPP == targetEPP)
+            && (!writeCPB || lastWrittenCPB == targetCPB)
+        let finalTarget = applied ? targetName : ""
         let finalPrivilegeDenied = newPrivilegeDenied
 
         await MainActor.run {
@@ -313,6 +351,10 @@ enum AutoEppTarget: Equatable {
         }
     }
 
+    /// Boost is off only at idle: base clock and voltage is what cools an
+    /// idle CPU, while any real work keeps the full boost clocks.
+    var cpbEnabled: Bool { self != .powerSave }
+
     /// The same names the manual EPP picker shows for these values.
     @MainActor
     var label: String {
@@ -337,11 +379,12 @@ enum AutoEppPolicy {
     /// for before it is applied.
     static let stepDownPolls = 3
 
-    /// Whether the poll loop runs at all. While the kext ignores EPP writes
-    /// (`ProcessorModel.eppWritesTakeEffect`) it would wake the app every
-    /// 1.5 s to change nothing.
-    static func shouldRun(enabled: Bool, suspended: Bool, writesTakeEffect: Bool) -> Bool {
-        enabled && !suspended && writesTakeEffect
+    /// Whether the poll loop runs at all. With neither EPP writes
+    /// (`ProcessorModel.eppWritesTakeEffect`) nor CPB to switch it would wake
+    /// the app every 1.5 s to change nothing.
+    static func shouldRun(enabled: Bool, suspended: Bool,
+                          writesTakeEffect: Bool, controlsCPB: Bool) -> Bool {
+        enabled && !suspended && (writesTakeEffect || controlsCPB)
     }
 
     /// The EPP picker value the views show (0/85/170/255), or nil to leave it

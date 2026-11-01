@@ -187,13 +187,25 @@ enum HardwareLayerTests {
                      "an EPP write the kext would ignore answers unsupported without IPC")
         suite.expect(ProcessorModel.eppWriteRefusal(writesTakeEffect: true) == nil,
                      "an EPP write that takes effect goes to the kext")
-        suite.expect(!AutoEppPolicy.shouldRun(enabled: true, suspended: false, writesTakeEffect: false),
-                     "the Auto EPP loop never starts while EPP writes have no effect")
-        suite.expect(AutoEppPolicy.shouldRun(enabled: true, suspended: false, writesTakeEffect: true),
-                     "Auto EPP runs once it is on and the writes take effect")
-        suite.expect(!AutoEppPolicy.shouldRun(enabled: false, suspended: false, writesTakeEffect: true)
-                     && !AutoEppPolicy.shouldRun(enabled: true, suspended: true, writesTakeEffect: true),
+        suite.expect(!AutoEppPolicy.shouldRun(enabled: true, suspended: false,
+                                              writesTakeEffect: false, controlsCPB: false),
+                     "the Auto EPP loop never starts with neither EPP nor boost to drive")
+        suite.expect(AutoEppPolicy.shouldRun(enabled: true, suspended: false,
+                                             writesTakeEffect: true, controlsCPB: false)
+                     && AutoEppPolicy.shouldRun(enabled: true, suspended: false,
+                                                writesTakeEffect: false, controlsCPB: true),
+                     "Auto EPP runs once it is on and EPP writes take effect or boost can be switched")
+        suite.expect(!AutoEppPolicy.shouldRun(enabled: false, suspended: false,
+                                              writesTakeEffect: true, controlsCPB: true)
+                     && !AutoEppPolicy.shouldRun(enabled: true, suspended: true,
+                                                 writesTakeEffect: true, controlsCPB: true),
                      "Auto EPP stays off while disabled or suspended by Gaming Mode")
+        suite.expect(!AutoEppTarget.powerSave.cpbEnabled
+                     && AutoEppTarget.balanced.cpbEnabled
+                     && AutoEppTarget.performance.cpbEnabled
+                     && AutoEppTarget.gpuActive.cpbEnabled
+                     && AutoEppTarget.gpuPerformance.cpbEnabled,
+                     "Auto EPP turns boost off only at idle")
     }
 
     private static func pStateRoutes(_ suite: TestSuite) {
@@ -285,9 +297,9 @@ enum HardwareLayerTests {
         let model = source("Sources/RyzenStatus/Services/AMD/ProcessorModel.swift", suite)
         suite.expect(model.contains("await self.forgetUnloadedKext()"),
                      "the watchdog clears the kext's caches when it unloads")
-        suite.expect(body(of: "_finishInit", in: model).contains("kextEppSupportChanged(eppApplied)")
-                     && body(of: "forgetUnloadedKext", in: model).contains("kextEppSupportChanged(false)"),
-                     "every kext load and unload hands the eppApplied flag to Auto EPP")
+        suite.expect(body(of: "_finishInit", in: model).contains("kextEppSupportChanged(eppApplied, cpbSupported: cpbSupported)")
+                     && body(of: "forgetUnloadedKext", in: model).contains("kextEppSupportChanged(false, cpbSupported: false)"),
+                     "every kext load and unload hands the eppApplied flag and CPB support to Auto EPP")
         let autoEpp = source("Sources/RyzenStatus/Services/AMD/AutoEppService.swift", suite)
         let setActive = body(of: "setCPPCActive", in: autoEpp)
         suite.expect(setActive.contains("setCPPCActiveMode(active: true)")
@@ -295,6 +307,9 @@ enum HardwareLayerTests {
                      && !setActive.contains("setCPPCActiveMode(active: false)")
                      && setActive.contains("restoreManualEPP"),
                      "switching Auto EPP off writes the manual EPP, never selector 24 = 0")
+        suite.expect(setActive.contains("restoreManualCPB()")
+                     && body(of: "poll", in: autoEpp).contains("setCPB(enabled: targetCPB)"),
+                     "Auto EPP switches boost with its target and hands it back when switched off")
         suite.expect(model.contains("isLikelyStale, !self.probeConnection()"),
                      "a suspect handle is reopened only when the probe fails too")
         suite.expect(!model.contains("func setPState(def"), "the unused P-state definition write is gone")

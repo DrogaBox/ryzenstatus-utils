@@ -186,6 +186,16 @@ final class AmdPowerControlsModel: ObservableObject {
         return res
     }
 
+    /// Puts boost back to the user's own choice (the toggle's last value,
+    /// on by default) when Auto EPP stops switching it.
+    func restoreManualCPB() async {
+        let enabled = UserDefaults.standard.object(forKey: DefaultsKey.amdCpbEnabled) as? Bool ?? true
+        userWriteGeneration &+= 1
+        corePerformanceBoost = enabled
+        let res = await perform { await ProcessorModel.shared.setCPB(enabled: enabled) }
+        await reportWriteFailure(res)
+    }
+
     func setCPB(_ enabled: Bool) {
         userWriteGeneration &+= 1
         corePerformanceBoost = enabled

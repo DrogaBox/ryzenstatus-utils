@@ -4,7 +4,8 @@
 
 ### Fixed
 
-- **Auto EPP on Ryzen 5000**: the driver looked for a CPU flag that Ryzen 5000 desktop processors leave off even though they have the energy preference controls, so on those CPUs Auto EPP, the energy profile and the presets stayed locked with "the installed AMD kext does not apply EPP yet". The driver now checks the controls themselves.
+- **Auto EPP cools an idle CPU again**: Auto EPP now also switches Core Performance Boost, off while the CPU is idle and back on as soon as there is work, which is what brings an idle processor down to base clock, base voltage and a much lower temperature. This works on every Ryzen with boost, including those whose energy preference macOS cannot reach. Switching Auto EPP off puts boost back to your own setting, and the boost switch is locked while Auto EPP drives it.
+- **Energy preference detection**: the driver now checks for the energy preference controls themselves instead of a CPU flag. On processors that do not expose them, such as Ryzen 5000 desktop chips, the energy profile still says it is not applied.
 
 ## [1.74.0] — 2026-11-01 — kexts 3.39.0
 
