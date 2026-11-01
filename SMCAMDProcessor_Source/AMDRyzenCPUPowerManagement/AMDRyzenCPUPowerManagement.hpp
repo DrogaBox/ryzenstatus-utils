@@ -317,9 +317,9 @@ public:
     /// EPP reaches the CPU through MSRs or through ACPI CPPC (PCC).
     bool cppcEppSupported() const { return cppcMsrSupported || acpiCppc.supported; }
 
-    // ACPI CPPC over PCC shared memory (Linux amd-pstate "shared memory"
-    // mode): each processor's _CPC names registers in a PCC subspace of the
-    // PCCT. Used when the CPPC MSRs are missing (Ryzen 5000 desktop, among
+    // ACPI CPPC (Linux amd-pstate "shared memory" mode): each processor's
+    // _CPC names registers in a PCC subspace of the PCCT or in system
+    // memory. Used when the CPPC MSRs are missing (Ryzen 5000 desktop, among
     // others). Discovered once at start; selector 63 reports what was found.
     struct AcpiGas {
         uint8_t  space;       // 0 memory, 1 IO, 0x0A PCC, 0x7F FFH
@@ -360,6 +360,12 @@ public:
         IOMemoryMap  *doorbellMap;    // when the doorbell is in memory
         uint64_t      lastCmdNs;
     };
+    // SystemMemory registers: each 4 KiB page mapped once, uncached.
+    static constexpr uint32_t kCpcMaxMemPages = 32;
+    struct CpcMemPage {
+        uint64_t     base;
+        IOMemoryMap *map;
+    };
     struct AcpiCppcState {
         bool        supported;
         uint8_t     error;            // 0 ok, else AcpiCppcError
@@ -367,6 +373,7 @@ public:
         uint32_t    cpcRevision;
         CpcValue    cpc[CPUInfo::MaxCpus][kCpcUsedCount];
         PccSubspace pcc[kPccMaxSubspaces];
+        CpcMemPage  memPages[kCpcMaxMemPages];
         uint16_t    lastStatus;       // channel status after the last command
         int32_t     lastResult;       // 0 ok, -1 timeout, -2 error bit, -3 not ready
     } acpiCppc {};
@@ -378,9 +385,10 @@ public:
     void discoverAcpiCppc(IOService *provider);
     void releaseAcpiCppc();
     bool pccCommand(PccSubspace &ss, uint16_t command);
+    volatile uint8_t *cpcAddress(const AcpiGas &reg);
     bool cpcRead(const CpcValue &v, uint64_t &out);
     bool cpcWrite(const CpcValue &v, uint64_t value);
-    bool applyEPPPcc(uint8_t epp);
+    bool applyEPPAcpi(uint8_t epp);
     bool applyEPPMsr(uint8_t epp);
     /// Wanted: CPPC autonomous mode with cppcEPPValue (selector 24/25 or
     /// the -amdcppcactive boot-arg).
@@ -423,7 +431,7 @@ public:
     uint32_t coreSmuMask[CPUInfo::MaxCpus] {};
     bool coreMapValid {false};
 
-    // Precision Boost Overdrive limits (Vermeer-only SMU commands).
+    // Precision Boost Overdrive limits (the family's SMU commands).
     // Values are the last successfully-programmed limits, cached for read-back
     // (the SMU has no read command for these — same approach as the CO cache).
     // Defaults of 0 mean "unknown / never set this boot"; the capability
@@ -469,14 +477,14 @@ public:
     // per kSMU_BOOST_POLL_MIN_INTERVAL_MS (the main timer cadence is shorter).
     void pollBoostTelemetry();
 
-    // Shared write path for the Vermeer cHTC thermal limit (SMU 0x56,
+    // Shared write path for the cHTC thermal limit (smuCmd.setTctl,
     // Arg0 = degrees Celsius). Same capability gate + thermal interlock policy
     // as setPBOLimit; on success the new limit is cached for read-back.
     // Negative return maps like setPBOLimit (-1 unsupported, -4 hot, -5 SMU
     // error, -10 timeout, -11 unknown command, -12 rejected, -13 busy).
     int setCHTCLimit(uint32_t arg);
 
-    // One-shot read of the Vermeer ProcessorParameters bitfield (SMU 0x6F:
+    // One-shot read of the ProcessorParameters bitfield (smuCmd.getProcessorParams, 0x6F:
     // bit 0 IsOverclockable, bit 1 PBO support). Returns the raw word on OK,
     // else 0. Timer command gate only — never from user threads.
     uint32_t pollProcessorParameters();
@@ -486,9 +494,9 @@ public:
     // version word on OK, else 0. Timer command gate only.
     uint32_t pollSmuVersion();
 
-    // Enable/disable Vermeer OC mode (RSMU 0x5A / 0x5B, Arg0 0). Writes are
+    // Enable/disable OC mode (smuCmd.ocEnable/ocDisable, Arg0 0). Writes are
     // blocked under the same thermal interlock as the PBO/CO/cHTC paths. On
-    // disable, `resetScalar` also writes the PBO scalar back to 1.0 via 0x58
+    // disable, `resetScalar` also writes the PBO scalar back to 1.0
     // for SMU firmware that does not reset it. Returns 0 on success;
     // negative maps like setPBOLimit.
     int setOcMode(bool enable, bool resetScalar);
@@ -507,10 +515,10 @@ public:
     // the same policy as every other privileged SMU write path (CO/cHTC/PBO).
     int forcePMTableCapture();
 
-    // Program a frequency override via the Vermeer RSMU OC commands:
-    // all-core (0x5C, one call) or per-CCD (0x5D to every core of the CCD).
-    // Refuses with -3 unless this driver enabled OC mode via 0x5A earlier
-    // this boot (another tool's enable does not count). Same Vermeer gate,
+    // Program a frequency override via the family's RSMU OC commands:
+    // all-core (one call) or per-CCD (the per-core command to every core of
+    // the CCD). Refuses with -3 unless this driver enabled OC mode earlier
+    // this boot (another tool's enable does not count). Same command-set gate,
     // thermal interlock and error mapping as setOcMode/setPBOLimit. A
     // failure stops a per-CCD sequence; the cache keeps only the CCDs that
     // were fully written.
@@ -806,7 +814,7 @@ public:
     // Decodes one plane word; false when the plane is off or has no VID.
     static bool sviDecodeMillivolts(uint32_t word, bool planeOff, uint16_t &millivolts);
 
-    // Cached boost telemetry (Vermeer RSMU read commands 0x6E/0x59).
+    // Cached boost telemetry (the family's RSMU max clock / fastest core reads).
     // Refreshed from the main command-gate timer; 0 = unknown / never read
     // this boot. Raw SMU response words are cached byte-identically (no
     // kernel-side decode) so the app owns the decode — keep it that way and
@@ -815,7 +823,7 @@ public:
     uint32_t smuFastestCoreRaw {0};
     uint64_t smuBoostTelemetryLastPollMs {0};
 
-    // Cached ProcessorParameters bitfield (Vermeer RSMU 0x6F). Static
+    // Cached ProcessorParameters bitfield (RSMU 0x6F where the family has it). Static
     // silicon configuration, so it is read once from the timer command gate
     // and cached; smuProcParamsPolled distinguishes a real 0 response from
     // "never read this boot". Raw word cached byte-identically — decode in
@@ -859,7 +867,7 @@ public:
     /// sleeps; see the definition for why.
     void forgetSMUSettingsForSleep();
 
-    // SMU PM-table plumbing (Vermeer RSMU 0x05/0x06/0x08 — the same
+    // SMU PM-table plumbing (the family's smuCmd.pm* commands — the same
     // table ryzen_smu/HWiNFO feed from). The table lives at a SMU-provided
     // physical address in DRAM; the kext maps it read-only and snapshots it
     // into a fixed buffer that user space reads through selector 57.

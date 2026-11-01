@@ -39,11 +39,11 @@ enum HardwareValidation {
     /// so a probe against an unknown build is void before it starts. Pinned by
     /// a test that reads `Config/Version.xcconfig`, the single source of truth,
     /// so bumping the kext cannot silently leave this pointing backwards.
-    static let expectedKextVersion = "3.39.1"
+    static let expectedKextVersion = "3.40.0"
 
     /// The app release that introduced this harness. Informational — the app
     /// version coming from the bundle is what gets reported.
-    static let expectedAppVersion = "1.74.2"
+    static let expectedAppVersion = "1.75.0"
 
     /// The reference machine's Super I/O family. The probe expectations (the
     /// ~15.7 % rotor-start floor, the six ITE channels) are calibrated for it;

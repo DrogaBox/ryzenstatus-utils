@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.75.0] — 2026-11-01 — kexts 3.40.0
+
+### Added
+
+- **Deep idle (CC6)**: idle cores can now sleep in CC6 instead of only halting, which lowers idle power and temperature. Switch it on and off in Settings › AMD Ryzen Power › Advanced energy; it takes effect at once, and the app puts your choice back whenever the driver loads. The driver reads the firmware's C-state address and no longer overwrites it; the `amdcstate=1` boot argument still forbids deep idle, and `-amdnoidle` leaves the idle loop to macOS.
+- **EPP on CPUs without the CPPC registers**: on processors that publish CPPC only through ACPI, such as Ryzen 5000 desktop chips, the driver now finds each core's `_CPC` and the PCC channel in the PCCT and writes the energy preference there. Processors with the CPPC registers keep using them. Hardware Validation shows which path your CPU uses, what the driver found, and can read the CPPC values through PCC.
+- **Power presets for your CPU**: Eco, Balance, Performance and Extreme now set the PPT/TDC/EDC and temperature limits ZenTune publishes for your processor's class (desktop X3D, E, X 9-series, X and standard parts, desktop and mobile APUs), together with deep idle, boost and energy preference. Each preset card lists the values that apply on your CPU.
+- **Custom profiles**: build your own combinations of power limits, temperature limit, PBO scalar, all-core Curve Optimizer, boost ceiling, boost, deep idle and energy preference; apply, edit, export them to a file and import them back, or import a ZenTune backup.
+- **Adaptive power limit**: optionally lowers the package power limit 5 W at a time while the CPU is above a target temperature, and raises it back to the active profile's limit once it is cooler and busy.
+- **More overclocking controls**: OC core voltage, an all-core Curve Optimizer margin and a boost frequency ceiling, each shown only where the CPU accepts it.
+- **SMU support beyond Ryzen 5000**: power limits, temperature limit, PBO scalar, OC mode and the PM table now use the command set of each family: Ryzen 1000/2000 and Threadripper 1000/2000, Ryzen 3000 and Threadripper 3000, Ryzen 5000 and Threadripper 5000, Ryzen 7000/9000 and Threadripper 7000, and the Raven Ridge, Picasso, Renoir, Cezanne, Rembrandt and Phoenix APUs (whose power limit is set as the STAPM, fast and slow limits). A control a CPU does not accept says so instead of sending it a command meant for another chip.
+
+### Changed
+
+- **Auto EPP applies whole presets**: crossing the idle and load thresholds now applies the full Eco, Balance or Performance preset for your CPU, not only its energy preference and boost. Switching Auto EPP off puts back your own preset.
+- **Your preset survives sleep and restarts**: the saved preset or custom profile is applied again after wake and when the driver loads.
+- **Copy AMD Boot-Args** no longer adds `amdcstate`, since deep idle is switched in the app.
+
+### Fixed
+
+- On Ryzen 3000 and newer, the PPM and LPM switches no longer write the legacy P-state register the driver must not touch on those CPUs.
+- Messages that wrongly called Ryzen 5000 chips "Ryzen 3000" are gone.
+
 ## [1.74.2] — 2026-11-01 — kexts 3.39.1 (No kext changes)
 
 ### Fixed

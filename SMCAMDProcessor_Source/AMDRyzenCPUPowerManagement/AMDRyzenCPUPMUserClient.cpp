@@ -979,10 +979,10 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
         }
 
         // Curve Optimizer capability report (read-only, no privilege).
-        // Scalar output: [0] = 1 when the kext will accept CO writes (Vermeer
-        //                 mailboxes up and the fuse core map matches the OS),
-        //                 0 when writes are fail-closed.
-        // [1] = active SMU command ID for CO (MP1 0x35 on Vermeer, else 0),
+        // Scalar output: [0] = 1 when the kext will accept per-core CO writes
+        //                 (the family has the command and the fuse core map
+        //                 matches the OS), 0 when writes are fail-closed.
+        // [1] = active SMU command ID for per-core CO (MP1 0x35 on Vermeer, else 0),
         // [2] = minimum safe offset (-30),
         // [3] = maximum safe offset (+30).
         // Single source of truth: the app renders its CO UI from this report
@@ -1874,7 +1874,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
             break;
         }
 
-        // ---- Precision Boost Overdrive limits + scalar (Vermeer) ----
+        // ---- Precision Boost Overdrive limits + scalar (family command set) ----
         // Read-only selectors 36-39 report the last successfully-programmed
         // values plus the PBO capability; write selectors 41-42 program new
         // limits and are root/-amdpnopchk only.
@@ -1984,7 +1984,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
         // Set cHTC thermal limit (privileged): [0] = target in °C, valid
         // window 40..95 (0x56 Arg0 = degrees Celsius). Privilege required,
-        // same as the PBO limits; the provider enforces the Vermeer gate and
+        // same as the PBO limits; the provider enforces the command-set gate and
         // the package-temperature interlock.
         case 46: {
             if(!provider)
@@ -2000,7 +2000,7 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
 
             // Safety window: below 40 °C the limit could engage before the
             // package even warms up, and nothing in the Ryzen Master range
-            // asks for more than 95 °C (Tjmax is 95 °C on Vermeer).
+            // asks for more than 95 °C (the Tjmax of AM4 and AM5 desktop parts).
             if (celsius < 40 || celsius > 95)
                 return kIOReturnBadArgument;
 
@@ -2054,14 +2054,14 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
         }
 
         // Get OC capability report: [0] = 1 when the kext accepts OC-mode
-        // and frequency/VID commands on this silicon (Vermeer + SMU mailbox —
-        // same verdict policy as selector 38), [1] = cached ProcessorParameters
+        // and all-core frequency commands on this silicon (the family's
+        // command set), [1] = cached ProcessorParameters
         // (0x6F) bitfield for app-side context (bit 0 IsOverclockable fuse),
         // [2] = OC-mode cache state (0 = never touched by this driver this
         // boot, 1 = enabled via 0x5A, 2 = disabled via 0x5B — the SMU has no
         // read-back, and 0 honestly means "unknown"). [3] = 1 when the kext
-        // accepts frequency overrides (0x5C/0x5D behind the OC-mode
-        // gate) — same Vermeer verdict as [0]; the app mirrors the kext's
+        // accepts frequency overrides (behind the OC-mode gate; per-CCD
+        // needs selector 62 bit 5 too) — same verdict as [0]; the app mirrors the kext's
         // fixed 8-CCD cache model. 1.28.0 shipped [3] as reserved 0, so
         // pre-1.29 apps reading 0 simply hide those controls (compatibility-
         // safe promotion).
@@ -2083,8 +2083,8 @@ IOReturn AMDRyzenCPUPMUserClient::externalMethod(uint32_t selector, IOExternalMe
         // (RSMU 0x5B), Arg0 0 in both cases (ZenStates-Core). [1] = 1 also
         // writes the PBO scalar back to 1.0 via 0x58 after a disable, since
         // some SMU firmware does not reset it. Frequency overrides are
-        // selector 51; there is no VID (0x61) write. The provider enforces the
-        // Vermeer gate and the package-temperature interlock.
+        // selector 51, the VID selector 65. The provider enforces the
+        // command-set gate and the package-temperature interlock.
         case 50: {
             if(!provider)
                 return kIOReturnNoDevice;

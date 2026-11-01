@@ -72,7 +72,7 @@ struct AmdPowerControlsValidationSection: View {
 
     @ViewBuilder
     private func cppcLines(_ r: AMDAcpiCppcReport) -> some View {
-        let path = r.msrCppc ? "MSR" : (r.supported ? "ACPI PCC" : "none")
+        let path = r.msrCppc ? "MSR" : (r.supported ? "ACPI CPPC" : "none")
         monoLine("EPP path: \(path) · _CPC CPUs \(r.cpuCount) · revision \(r.revision)"
                  + (r.failure.map { $0 == .none ? "" : " · \(Self.failureText($0))" } ?? ""))
         if let epp = r.registers.last, epp.isRegister {

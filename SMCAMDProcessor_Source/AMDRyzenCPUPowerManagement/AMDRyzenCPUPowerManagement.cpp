@@ -329,7 +329,7 @@ void AMDRyzenCPUPowerManagement::initWorkLoop() {
             provider->idleResidencySampled = true;
         }
 
-        // Refresh cached boost telemetry (Vermeer RSMU 0x6E/0x59 reads)
+        // Refresh cached boost telemetry (the family's RSMU max clock / fastest core reads)
         // From the same command gate — never from user threads.
         provider->pollBoostTelemetry();
 
@@ -1363,11 +1363,11 @@ bool AMDRyzenCPUPowerManagement::applyEPPControlLocked() {
     uint8_t epp = 0x00;
     if (cppcActiveMode) epp = cppcThrottled ? 0xFF : cppcEPPValue;
 
-    const bool ok = cppcMsrSupported ? applyEPPMsr(epp) : applyEPPPcc(epp);
+    const bool ok = cppcMsrSupported ? applyEPPMsr(epp) : applyEPPAcpi(epp);
     if (ok) {
         cppcAppliedEPP = epp;
         IOLog("AMDRyzenCPUPowerManagement::applyEPPControl: CPPC %s, EPP 0x%02X on every CPU (%s)\n",
-              cppcActiveMode ? "autonomous" : "performance", epp, cppcMsrSupported ? "MSR" : "ACPI PCC");
+              cppcActiveMode ? "autonomous" : "performance", epp, cppcMsrSupported ? "MSR" : "ACPI");
     }
     return ok;
 }
@@ -1503,7 +1503,11 @@ void AMDRyzenCPUPowerManagement::discoverAcpiCppc(IOService *provider) {
             // Generic Register descriptor: 0x82, length 0x000C, then the GAS.
             OSData *d = OSDynamicCast(OSData, entry);
             const uint8_t *b = d ? (const uint8_t *)d->getBytesNoCopy() : nullptr;
-            if (!b || d->getLength() < 15 || b[0] != 0x82) { usable = false; break; }
+            if (!b || d->getLength() < 15 || b[0] != 0x82) {
+                if (!acpiCppc.error) acpiCppc.error = kAcpiCppcBadCpc;
+                usable = false;
+                break;
+            }
             v.isRegister = true;
             v.reg = acpiGasAt(b + 3);
             // An all-zero register is "not implemented" (ACPI 6.x, 8.4.6.1).
@@ -1512,12 +1516,15 @@ void AMDRyzenCPUPowerManagement::discoverAcpiCppc(IOService *provider) {
                 v.integer = 0;
                 continue;
             }
-            if (v.reg.space != 0x0A || v.reg.accessSize >= kPccMaxSubspaces) {
+            // SystemMemory (0) or PCC (0x0A), the spaces Linux cppc_acpi drives
+            // for AMD shared-memory CPPC; FFH would mean MSRs, which are absent.
+            if (v.reg.space == 0x0A && v.reg.accessSize < kPccMaxSubspaces) {
+                subspacesUsed |= 1u << v.reg.accessSize;
+            } else if (v.reg.space != 0) {
                 if (!acpiCppc.error) acpiCppc.error = kAcpiCppcNotPcc;
                 usable = false;
                 break;
             }
-            subspacesUsed |= 1u << v.reg.accessSize;
         }
         result->release();
         // EPP and the min/max/desired requests must be writable registers.
@@ -1538,10 +1545,11 @@ void AMDRyzenCPUPowerManagement::discoverAcpiCppc(IOService *provider) {
     }
 
     IOACPIPlatformDevice *acpiDev = OSDynamicCast(IOACPIPlatformDevice, provider);
-    const OSData *pcct = acpiDev ? acpiDev->getACPITableData("PCCT", 0) : nullptr;
+    const OSData *pcct = (subspacesUsed && acpiDev) ? acpiDev->getACPITableData("PCCT", 0) : nullptr;
     const uint8_t *t = pcct ? (const uint8_t *)pcct->getBytesNoCopy() : nullptr;
     const uint32_t tableLength = t && pcct->getLength() >= 48 ? (uint32_t)acpiLE(t + 4, 4) : 0;
-    if (!t || tableLength < 48 || tableLength > pcct->getLength() || memcmp(t, "PCCT", 4) != 0) {
+    if (subspacesUsed &&
+        (!t || tableLength < 48 || tableLength > pcct->getLength() || memcmp(t, "PCCT", 4) != 0)) {
         acpiCppc.error = kAcpiCppcNoPcct;
         return;
     }
@@ -1578,15 +1586,23 @@ void AMDRyzenCPUPowerManagement::discoverAcpiCppc(IOService *provider) {
         }
     }
 
-    // Every register a CPU uses must lie inside its subspace.
+    // Every PCC register must lie inside its subspace, every memory register
+    // inside one page.
     for (uint32_t cpu = 0; cpu < CPUInfo::MaxCpus; cpu++) {
         for (uint32_t i = 0; i < kCpcUsedCount; i++) {
             const CpcValue &v = acpiCppc.cpc[cpu][i];
             if (!v.isRegister) continue;
-            const PccSubspace &p = acpiCppc.pcc[v.reg.accessSize];
-            if (v.reg.bitWidth == 0 || v.reg.bitWidth > 64 ||
-                8 + v.reg.address + 8 > p.length) {
-                acpiCppc.error = kAcpiCppcBadPcct;
+            if (v.reg.bitWidth == 0 || (uint32_t)v.reg.bitOffset + v.reg.bitWidth > 64) {
+                acpiCppc.error = kAcpiCppcBadCpc;
+                return;
+            }
+            if (v.reg.space == 0x0A) {
+                if (8 + v.reg.address + 8 > acpiCppc.pcc[v.reg.accessSize].length) {
+                    acpiCppc.error = kAcpiCppcBadPcct;
+                    return;
+                }
+            } else if ((v.reg.address & 0xFFF) + 8 > 0x1000) {
+                acpiCppc.error = kAcpiCppcBadCpc;
                 return;
             }
         }
@@ -1611,9 +1627,38 @@ void AMDRyzenCPUPowerManagement::discoverAcpiCppc(IOService *provider) {
             return;
         }
     }
+
+    // Map the pages that hold SystemMemory registers.
+    for (uint32_t cpu = 0; cpu < CPUInfo::MaxCpus; cpu++) {
+        for (uint32_t i = 0; i < kCpcUsedCount; i++) {
+            const CpcValue &v = acpiCppc.cpc[cpu][i];
+            if (!v.isRegister || v.reg.space != 0) continue;
+            const uint64_t page = v.reg.address & ~0xFFFULL;
+            uint32_t slot = 0;
+            while (slot < kCpcMaxMemPages && acpiCppc.memPages[slot].map &&
+                   acpiCppc.memPages[slot].base != page) slot++;
+            if (slot == kCpcMaxMemPages) {
+                acpiCppc.error = kAcpiCppcMapFailed;
+                releaseAcpiCppc();
+                return;
+            }
+            if (acpiCppc.memPages[slot].map) continue;
+            IOMemoryDescriptor *md = IOMemoryDescriptor::withPhysicalAddress(
+                (IOPhysicalAddress)page, 0x1000, kIODirectionInOut);
+            acpiCppc.memPages[slot].map = md
+                ? md->createMappingInTask(kernel_task, 0, kIOMapAnywhere | kIOMapInhibitCache) : nullptr;
+            if (md) md->release();
+            if (!acpiCppc.memPages[slot].map) {
+                acpiCppc.error = kAcpiCppcMapFailed;
+                releaseAcpiCppc();
+                return;
+            }
+            acpiCppc.memPages[slot].base = page;
+        }
+    }
     acpiCppc.supported = true;
-    IOLog("AMDRyzenCPUPowerManagement: ACPI CPPC over PCC on %u CPUs (_CPC revision %u)\n",
-          acpiCppc.cpuCount, acpiCppc.cpcRevision);
+    IOLog("AMDRyzenCPUPowerManagement: ACPI CPPC on %u CPUs (_CPC revision %u, PCC subspaces 0x%X)\n",
+          acpiCppc.cpuCount, acpiCppc.cpcRevision, subspacesUsed);
 }
 
 void AMDRyzenCPUPowerManagement::releaseAcpiCppc() {
@@ -1622,6 +1667,10 @@ void AMDRyzenCPUPowerManagement::releaseAcpiCppc() {
         PccSubspace &p = acpiCppc.pcc[id];
         if (p.shm) { p.shm->release(); p.shm = nullptr; }
         if (p.doorbellMap) { p.doorbellMap->release(); p.doorbellMap = nullptr; }
+    }
+    for (uint32_t slot = 0; slot < kCpcMaxMemPages; slot++) {
+        CpcMemPage &page = acpiCppc.memPages[slot];
+        if (page.map) { page.map->release(); page.map = nullptr; }
     }
 }
 
@@ -1688,11 +1737,28 @@ static uint32_t cpcContainerBytes(const AMDRyzenCPUPowerManagement::AcpiGas &g) 
     return bits <= 8 ? 1 : bits <= 16 ? 2 : bits <= 32 ? 4 : 8;
 }
 
+// Kernel address of a register: inside its PCC subspace (after the 8-byte
+// channel header), or inside its mapped SystemMemory page. nullptr when the
+// mapping is missing.
+volatile uint8_t *AMDRyzenCPUPowerManagement::cpcAddress(const AcpiGas &reg) {
+    if (reg.space == 0x0A) {
+        const PccSubspace &p = acpiCppc.pcc[reg.accessSize];
+        return p.shm ? (volatile uint8_t *)(p.shm->getVirtualAddress() + 8 + reg.address) : nullptr;
+    }
+    const uint64_t page = reg.address & ~0xFFFULL;
+    for (uint32_t slot = 0; slot < kCpcMaxMemPages; slot++) {
+        const CpcMemPage &m = acpiCppc.memPages[slot];
+        if (m.map && m.base == page) {
+            return (volatile uint8_t *)(m.map->getVirtualAddress() + (reg.address & 0xFFF));
+        }
+    }
+    return nullptr;
+}
+
 bool AMDRyzenCPUPowerManagement::cpcRead(const CpcValue &v, uint64_t &out) {
     if (!v.isRegister) { out = v.integer; return true; }
-    const PccSubspace &p = acpiCppc.pcc[v.reg.accessSize];
-    if (!p.shm || (uint32_t)v.reg.bitOffset + v.reg.bitWidth > 64) return false;
-    volatile uint8_t *addr = (volatile uint8_t *)(p.shm->getVirtualAddress() + 8 + v.reg.address);
+    volatile uint8_t *addr = cpcAddress(v.reg);
+    if (!addr) return false;
     uint64_t raw = 0;
     switch (cpcContainerBytes(v.reg)) {
         case 1:  raw = *addr; break;
@@ -1707,9 +1773,8 @@ bool AMDRyzenCPUPowerManagement::cpcRead(const CpcValue &v, uint64_t &out) {
 
 bool AMDRyzenCPUPowerManagement::cpcWrite(const CpcValue &v, uint64_t value) {
     if (!v.isRegister) return true;   // a constant needs no write
-    const PccSubspace &p = acpiCppc.pcc[v.reg.accessSize];
-    if (!p.shm || (uint32_t)v.reg.bitOffset + v.reg.bitWidth > 64) return false;
-    volatile uint8_t *addr = (volatile uint8_t *)(p.shm->getVirtualAddress() + 8 + v.reg.address);
+    volatile uint8_t *addr = cpcAddress(v.reg);
+    if (!addr) return false;
     const uint64_t mask = (v.reg.bitWidth >= 64 ? ~0ULL : ((1ULL << v.reg.bitWidth) - 1)) << v.reg.bitOffset;
     switch (cpcContainerBytes(v.reg)) {
         case 1:  *addr = (uint8_t)((*addr & ~mask) | ((value << v.reg.bitOffset) & mask)); break;
@@ -1720,11 +1785,12 @@ bool AMDRyzenCPUPowerManagement::cpcWrite(const CpcValue &v, uint64_t value) {
     return true;
 }
 
-// Autonomous mode through PCC, like amd-pstate shared memory mode: read the
-// capabilities, then for every CPU min = lowest, max = highest, desired = 0
-// (autonomous), autonomous selection and CPPC enable on, EPP; one WRITE
-// command per subspace carries all of them.
-bool AMDRyzenCPUPowerManagement::applyEPPPcc(uint8_t epp) {
+// Autonomous mode through ACPI CPPC, like amd-pstate shared memory mode: a
+// PCC READ refreshes the capabilities, then for every CPU min = lowest,
+// max = highest, desired = 0 (autonomous), autonomous selection and CPPC
+// enable on, EPP; one PCC WRITE per subspace carries all of them. Registers
+// in SystemMemory take the writes directly, no command needed.
+bool AMDRyzenCPUPowerManagement::applyEPPAcpi(uint8_t epp) {
     if (!acpiCppc.supported) return false;
 
     for (uint32_t id = 0; id < kPccMaxSubspaces; id++) {
@@ -2272,7 +2338,8 @@ uint32_t AMDRyzenCPUPowerManagement::pollSmuVersion() {
 }
 
 // ------------------------------------------------------------------
-// SMU PM-table plumbing (Vermeer RSMU 0x08 / 0x05 / 0x06).
+// SMU PM-table plumbing (the family's version / base / transfer commands,
+// smuCmd.pm*; Vermeer: RSMU 0x08 / 0x06 / 0x05).
 //
 // The SMU exposes a live metrics table (per-core clocks/temps/power —
 // the same table ryzen_smu and HWiNFO feed from). The flow follows
@@ -2601,7 +2668,7 @@ bool AMDRyzenCPUPowerManagement::runMailboxDiagnostics(SMUDiagnosticReport &out)
     return (out.testRsp == SMU_RSP_OK && out.testArg0 == 0x43);
 }
 
-// Enable/disable Vermeer OC mode: RSMU 0x5A EnableOcMode / 0x5B
+// Enable/disable OC mode (smuCmd.ocEnable/ocDisable; Vermeer: RSMU 0x5A EnableOcMode / 0x5B
 // DisableOcMode, both with Arg0 = 0 (ZenStates-Core Zen2Settings and
 // SetOcMode.ExecuteOcMode; ryzen_smu rsmu_commands.md lists 0 as "enabled"
 // for 0x5A, while 0x1000000 in that argument is the PROCHOT switch).
@@ -2643,7 +2710,7 @@ int AMDRyzenCPUPowerManagement::setOcMode(bool enable, bool resetScalar) {
 }
 
 // ------------------------------------------------------------------
-// Frequency overrides (Vermeer RSMU 0x5C all-core / 0x5D per-core).
+// Frequency overrides (smuCmd.ocClkAll/ocClkPerCore; Vermeer: RSMU 0x5C all-core / 0x5D per-core).
 //
 //   0x5C SetOverclockFrequencyAllCores: Arg0 = MHz & 0xFFFFF.
 //   0x5D SetOverclockFrequencyPerCore:  Arg0 = core mask | (MHz & 0xFFFFF).
@@ -2651,7 +2718,7 @@ int AMDRyzenCPUPowerManagement::setOcMode(bool enable, bool resetScalar) {
 // a Vermeer CCD is one CCX, so a CCD is set by writing 0x5D to each of its
 // cores, as ZenStates-Core SetFrequencyCCD does.
 // The SMU cannot read these back: the caches hold this driver's last
-// successful writes. Writes need Vermeer, OC mode enabled by this driver
+// successful writes. Writes need the family's OC commands, OC mode enabled by this driver
 // this boot (another tool's enable does not count) and a package below the
 // thermal interlock.
 // ------------------------------------------------------------------
@@ -2760,9 +2827,9 @@ bool AMDRyzenCPUPowerManagement::physicalCcdForIndex(uint8_t index, uint32_t &ph
     return false;
 }
 
-// Program the cHTC thermal limit (Vermeer SMU 0x56, Arg0 = °C, per
+// Program the cHTC thermal limit (smuCmd.setTctl; Vermeer: SMU 0x56, Arg0 = °C, per
 // ryzen_smu rsmu_commands.md). Same capability gate and thermal interlock
-// policy as the PBO limits: Vermeer-with-mailbox only, writes blocked while
+// policy as the PBO limits: the family must have the command, writes blocked while
 // the package is already hot. Cache updated for read-back on success.
 int AMDRyzenCPUPowerManagement::setCHTCLimit(uint32_t arg) {
     if (!smuTctlSupported()) return -1;
@@ -2834,7 +2901,7 @@ void AMDRyzenCPUPowerManagement::buildCoreMap() {
     IOLog("AMDRyzenCPUPowerManagement::buildCoreMap %u cores, CCD map 0x%02X\n", cores, ccdEnabled);
 }
 
-// Per-core Curve Optimizer margin: Vermeer MP1 SetDldoPsmMargin (0x35) with
+// Per-core Curve Optimizer margin: smuCmd.mp1CoPerCore (Vermeer MP1 SetDldoPsmMargin 0x35) with
 // arg = core mask | margin as a 16-bit two's complement value
 // (ZenStates-Core SetPsmMarginSingleCore, Utils.MakePsmMarginArg).
 int AMDRyzenCPUPowerManagement::setCurveOptimizer(uint8_t core, int8_t offset) {
@@ -3124,10 +3191,10 @@ void AMDRyzenCPUPowerManagement::reinitHwState() {
         cppcSupported = false;
     }
 
-    // EPP needs the CPPC MSRs. CPUID 8000_0008h EBX[27] is not a usable gate:
-    // Vermeer desktop parts clear it although CPPC_CAP1/ENABLE/REQ are all
-    // implemented. Probe the registers instead: rdmsr_carefully fails on an
-    // MSR the CPU does not implement, and CAP1 must hold a real perf range.
+    // MSR CPPC: probe the registers rather than trusting CPUID 8000_0008h
+    // EBX[27]. rdmsr_carefully fails on an MSR the CPU does not implement,
+    // and CAP1 must hold a real perf range. Ryzen 5000 desktop parts (0x21)
+    // have neither the bit nor the MSRs; their CPPC is ACPI's (acpiCppc).
     uint64_t cppcEnableProbe = 0, cppcReqProbe = 0;
     const uint32_t capHighest = (uint32_t)((cppcVal >> 24) & 0xFF);
     const uint32_t capLowest = (uint32_t)(cppcVal & 0xFF);

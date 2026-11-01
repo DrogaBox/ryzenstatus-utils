@@ -8832,13 +8832,13 @@ struct MetricsTests {
         words[eppSlot] = 1; words[eppSlot + 1] = 0x0A; words[eppSlot + 2] = 8; words[eppSlot + 4] = 0x2C
         let subspace = 7 + 10 * 6
         words[subspace] = 1; words[subspace + 2] = 0xBB00_0000; words[subspace + 4] = 0x1000
-        let report = AMDAcpiCppcReport(words: words)
-        expect(report?.supported == true && report?.cpuCount == 32 && report?.revision == 3,
+        let cppcReport = AMDAcpiCppcReport(words: words)
+        expect(cppcReport?.supported == true && cppcReport?.cpuCount == 32 && cppcReport?.revision == 3,
                "ACPI CPPC header decodes")
-        expect(report?.registers[9].isRegister == true && report?.registers[9].space == 0x0A
-               && report?.registers[9].bitWidth == 8 && report?.registers[9].offset == 0x2C,
+        expect(cppcReport?.registers[9].isRegister == true && cppcReport?.registers[9].space == 0x0A
+               && cppcReport?.registers[9].bitWidth == 8 && cppcReport?.registers[9].offset == 0x2C,
                "the EPP register decodes as an 8-bit PCC field")
-        expect(report?.subspaces[0]?.base == 0xBB00_0000 && report?.subspaces[1] == nil,
+        expect(cppcReport?.subspaces[0]?.base == 0xBB00_0000 && cppcReport?.subspaces[1] == nil,
                "only present subspaces are kept")
         expect(AMDAcpiCppcReport(words: [1, 2, 3]) == nil, "a short buffer is rejected")
 
@@ -8854,7 +8854,7 @@ struct MetricsTests {
                && !kextSrc.contains("smuSendCmd(0x56") && !kextSrc.contains("smuSendCmd(0x6F"),
                "SMU call sites take their numbers from the command set")
         expect(kextSrc.contains("void AMDRyzenCPUPowerManagement::discoverAcpiCppc(IOService *provider)")
-               && kextSrc.contains("bool AMDRyzenCPUPowerManagement::applyEPPPcc(uint8_t epp)"),
+               && kextSrc.contains("bool AMDRyzenCPUPowerManagement::applyEPPAcpi(uint8_t epp)"),
                "EPP has an ACPI PCC path")
 
         expect(AMDCurveOptimizer.clamp(-100) == -30, "clamp floor is -30")
@@ -10197,26 +10197,33 @@ struct MetricsTests {
         // ZenStates-Core: RSMU cmd 0x3B10524 / args 0x3B10A40 / rsp 0x3B10570,
         // MP1 cmd 0x3B10530 / args 0x3B109C4 / rsp 0x3B1057C (values+order
         // pinned; whitespace-tolerant so reformatting does not false-fail).
-        expect(kextCpp.range(of: "rsmu\\s*=\\s*\\{\\s*0x3B10524,\\s*0x3B10A40,\\s*0x3B10570,\\s*true\\s*\\}",
+        // Since kexts 3.40.0 every family has its own triple; Vermeer takes
+        // the AM4 V2 pair. 0x3B10528 is the MP1 message register of Zen/Zen+
+        // and the APUs, so only the contiguous Vermeer layout is forbidden.
+        expect(kextCpp.range(of: "kRsmuAM4V2\\s*=\\s*\\{\\s*0x3B10524,\\s*0x3B10A40,\\s*0x3B10570,\\s*true\\s*\\}",
                              options: .regularExpression) != nil,
                "Vermeer RSMU must initialize cmd/args/rsp = 0x3B10524/0x3B10A40/0x3B10570 (supported)")
-        expect(kextCpp.range(of: "mp1\\s*=\\s*\\{\\s*0x3B10530,\\s*0x3B109C4,\\s*0x3B1057C,\\s*true\\s*\\}",
+        expect(kextCpp.range(of: "kMp1AM4V2\\s*=\\s*\\{\\s*0x3B10530,\\s*0x3B109C4,\\s*0x3B1057C,\\s*true\\s*\\}",
                              options: .regularExpression) != nil,
                "Vermeer MP1 must initialize cmd/args/rsp = 0x3B10530/0x3B109C4/0x3B1057C (supported)")
+        expect(kextCpp.contains("set = &kSmuVermeer; r = &kRsmuAM4V2; m = &kMp1AM4V2;"),
+               "Vermeer must use the AM4 V2 RSMU and MP1 mailboxes")
         // Curve Optimizer is MP1 SetDldoPsmMargin 0x35 with the fuse core mask
         // (ZenStates-Core); RSMU 0x3D with a core|offset<<8 word is not a
         // Vermeer Curve Optimizer command.
-        expect(kextCpp.contains("smuExecute(mp1, kMP1_SET_DLDO_PSM_MARGIN"),
+        expect(kextCpp.contains("smuExecute(mp1, smuCmd.mp1CoPerCore"),
                "Curve Optimizer writes must go through the MP1 mailbox")
-        expect(!kextCpp.contains("0x3B10528") && !kextCpp.contains("0x3B1052C"),
+        expect(kextCpp.range(of: "0x3B10524,\\s*0x3B10528", options: .regularExpression) == nil
+               && !kextCpp.contains("0x3B1052C"),
                "old wrong Vermeer registers 0x3B10528/0x3B1052C must never reappear")
+        expect(kextCpp.range(of: "kSmuVermeer\\s*=\\s*\\{[^}]*\\.mp1CoPerCore\\s*=\\s*0x35,",
+                             options: .regularExpression) != nil,
+               "Vermeer per-core CO must stay MP1 0x35 (SetDldoPsmMargin)")
 
-        // The positional initializer above relies on struct field order —
+        // The positional initializers above rely on struct field order —
         // pin it in the header so a field reorder cannot reinterpret values.
         let kextHpp = kextSource("SMCAMDProcessor_Source/AMDRyzenCPUPowerManagement/AMDRyzenCPUPowerManagement.hpp")
         expect(!kextHpp.isEmpty, "kernel header must be readable for the pin checks")
-        expect(kextHpp.range(of: "kMP1_SET_DLDO_PSM_MARGIN\\s*=\\s*0x35;", options: .regularExpression) != nil,
-               "kMP1_SET_DLDO_PSM_MARGIN must stay 0x35 (Vermeer MP1 SetDldoPsmMargin)")
         if let m = kextHpp.range(of: "msgReg"), let a = kextHpp.range(of: "argReg"), let r = kextHpp.range(of: "rspReg") {
             expect(m.lowerBound < a.lowerBound && a.lowerBound < r.lowerBound,
                    "SMUMailbox field order must stay msgReg/argReg/rspReg (the positional initializers depend on it)")
@@ -12971,8 +12978,8 @@ struct MetricsTests {
 
             if let userClientSrc = try? String(contentsOf: userClientURL, encoding: .utf8) {
                 let selectors = AMDKextSelector.allKnownSelectors
-                expect(selectors.count == 66,
-                       "AMDKextSelector enumerates all 66 app-used IOKit selectors (got \(selectors.count))")
+                expect(selectors.count == 68,
+                       "AMDKextSelector enumerates all 68 app-used IOKit selectors (got \(selectors.count))")
                 expect(AMDKextSelector.corePower.rawValue == 60, "corePower selector is 60")
                 expect(userClientSrc.contains("provider->corePowerW_perCore[i]")
                        && userClientSrc.contains("if (numPhyCores > CPUInfo::MaxCpus) numPhyCores = CPUInfo::MaxCpus;"),
