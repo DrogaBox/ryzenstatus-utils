@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.75.3] — 2026-11-01 — kexts 3.40.0 (No kext changes)
+
+### Fixed
+
+- **A companion no longer gets lost off screen**: riding on a window you drag past the edge of your displays, a companion now lets go at the edge and drops onto the screen instead of being carried out of sight, where it could neither fall nor go back to the island until the app restarted. One left off screen when a display goes away also comes back onto the nearest screen before heading home.
+
 ## [1.75.2] — 2026-11-01 — kexts 3.40.0 (No kext changes)
 
 ### Fixed

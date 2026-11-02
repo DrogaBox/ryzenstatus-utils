@@ -3285,6 +3285,15 @@ final class NotchMascotDesktop: NSObject {
             perch = (current.window, frame)
             body.position.x += dx
             body.position.y += frame.maxY - current.frame.maxY
+            // Carried past a screen's edge it would stand on no screen, where
+            // its window gets no frames to fall or go home with: it lets go
+            // at the edge instead.
+            if !NSScreen.screens.contains(where: { $0.frame.contains(body.position) }) {
+                body.position = keptOnScreen(body.position)
+                place()
+                loseFooting()
+                return
+            }
             if !riding {
                 riding = true
                 updateWindowWatch()
@@ -3884,7 +3893,11 @@ final class NotchMascotDesktop: NSObject {
     private func screensChanged() {
         guard isOut else { return }
         // A display that went away takes it back to the island.
+        // Brought onto the nearest screen first: a window on none gets no
+        // frames, and its way home would never play.
         if !NSScreen.screens.contains(where: { $0.frame.contains(body.position) }) {
+            body.position = keptOnScreen(body.position)
+            place()
             goHome()
             return
         }
@@ -3971,6 +3984,14 @@ final class NotchMascotDesktop: NSObject {
         guard let area = screen(for: point)?.visibleFrame else { return lastArea }
         lastArea = area
         return area
+    }
+
+    /// `point` moved onto the screen nearest it, the whole body on it.
+    private func keptOnScreen(_ point: CGPoint) -> CGPoint {
+        let area = self.area(for: point)
+        let half = size * figureAspect / 2
+        return CGPoint(x: min(max(area.minX + half, area.maxX - half), max(area.minX + half, point.x)),
+                       y: min(max(area.minY, area.maxY - size), max(area.minY, point.y)))
     }
 
     /// Held, it may go anywhere on a screen.
