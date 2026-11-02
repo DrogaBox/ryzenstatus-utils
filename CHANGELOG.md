@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.75.2] — 2026-11-01 — kexts 3.40.0 (No kext changes)
+
+### Fixed
+
+- **Companion items sit where they belong on every companion**: each drawn companion now knows where its hands, feet, back, nose and mouth are, and every item is placed by them. Shoes, boots, booties and the rosin box go on its own feet instead of over its face; held things sit in its hand at a size that suits it; wings and the jetpack come out of its back, behind the body, instead of covering it; the parrot perches on its shoulder; the clown nose, moustache and pacifier find its real nose and mouth, beak and snout included; the bow tie sits at the collar of the companions whose body is drawn apart from the head; the banana peel waits on the ground by its foot.
+
 ## [1.75.1] — 2026-11-01 — kexts 3.40.0 (No kext changes)
 
 ### Changed

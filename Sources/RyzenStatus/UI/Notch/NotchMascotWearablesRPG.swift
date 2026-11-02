@@ -15,10 +15,11 @@ extension NotchMascotWearableShapes {
         let w = f.width, cx = f.center, top = f.top
         let line = max(0.8, f.size * 0.045)
         let ink = NotchMascotColor.ink.cgColor
-        // Where an item is held: at its right side, a little below the middle, and on the left.
-        let right = CGPoint(x: f.outline.maxX + w * 0.02, y: f.outline.minY + f.outline.height * 0.62)
-        let left = CGPoint(x: f.outline.minX - w * 0.02, y: f.outline.minY + f.outline.height * 0.62)
-        let s = w * 0.56
+        // Where an item is held: in its right hand, and the left one for a
+        // shield; at the head's sides for a figure that is all head.
+        let right = f.rightHand
+        let left = f.leftHand
+        let s = f.prop
         let eyeY = (f.leftEye.y + f.rightEye.y) / 2
         let eyeGap = abs(f.rightEye.x - f.leftEye.x)
 
@@ -55,10 +56,13 @@ extension NotchMascotWearableShapes {
                     Part(path: cross, fill: nil, stroke: rgb(0xFFC940), lineWidth: line)]
 
         case .wingBoots:
-            let base = f.outline.maxY
+            // On its own two feet, sized to them, a little wing at each outer ankle.
+            let base = f.floor
+            let feet = f.feet(spread: 0.25)
+            let w = f.feetUnit
             var parts: [Part] = []
             for side in [-1, 1] as [CGFloat] {
-                let heel = CGPoint(x: cx + side * w * 0.25, y: base)
+                let heel = CGPoint(x: side < 0 ? feet.left : feet.right, y: base)
                 let boot = CGMutablePath()
                 boot.move(to: CGPoint(x: heel.x - w * 0.1, y: heel.y - w * 0.16))
                 boot.addLine(to: CGPoint(x: heel.x + w * 0.1, y: heel.y - w * 0.16))
@@ -66,11 +70,11 @@ extension NotchMascotWearableShapes {
                 boot.addLine(to: CGPoint(x: heel.x - side * w * 0.04 - w * 0.1, y: heel.y))
                 boot.closeSubpath()
                 let wing = CGMutablePath()
-                wing.move(to: CGPoint(x: heel.x - side * w * 0.1, y: heel.y - w * 0.1))
-                wing.addQuadCurve(to: CGPoint(x: heel.x - side * w * 0.3, y: heel.y - w * 0.28),
-                                  control: CGPoint(x: heel.x - side * w * 0.26, y: heel.y - w * 0.06))
-                wing.addQuadCurve(to: CGPoint(x: heel.x - side * w * 0.1, y: heel.y - w * 0.18),
-                                  control: CGPoint(x: heel.x - side * w * 0.16, y: heel.y - w * 0.22))
+                wing.move(to: CGPoint(x: heel.x + side * w * 0.1, y: heel.y - w * 0.1))
+                wing.addQuadCurve(to: CGPoint(x: heel.x + side * w * 0.3, y: heel.y - w * 0.28),
+                                  control: CGPoint(x: heel.x + side * w * 0.26, y: heel.y - w * 0.06))
+                wing.addQuadCurve(to: CGPoint(x: heel.x + side * w * 0.1, y: heel.y - w * 0.18),
+                                  control: CGPoint(x: heel.x + side * w * 0.16, y: heel.y - w * 0.22))
                 parts.append(Part(path: boot, fill: rgb(0xB07A45)))
                 parts.append(Part(path: wing, fill: rgb(0xF7F4EE), stroke: rgb(0xCFC9BC), lineWidth: line * 0.4))
             }
@@ -258,7 +262,7 @@ extension NotchMascotWearableShapes {
                     Part(path: lids, fill: nil, stroke: rgb(0xF7F4EE), lineWidth: line * 0.8)]
 
         case .pacifier:
-            let c = CGPoint(x: cx, y: eyeY + f.outline.height * 0.3)
+            let c = f.mouthful
             let shield = CGMutablePath()
             shield.addEllipse(in: CGRect(x: c.x - w * 0.17, y: c.y - w * 0.07, width: w * 0.34, height: w * 0.14))
             let nipple = circle(CGPoint(x: c.x, y: c.y), w * 0.06)
@@ -313,6 +317,25 @@ extension NotchMascotWearableShapes {
 
         case .jetpack:
             var parts: [Part] = []
+            if f.anatomy != nil {
+                // Strapped to its back: a tank peeking out either side of the
+                // torso, worn behind the body, the flames down past its waist.
+                let t = f.torso
+                let unit = max(w, t.width)
+                let tankWidth = unit * 0.16
+                for x in [t.minX - tankWidth * 0.55, t.maxX - tankWidth * 0.45] {
+                    let tank = CGRect(x: x, y: t.minY + t.height * 0.08, width: tankWidth, height: t.height * 0.62)
+                    let flame = CGMutablePath()
+                    flame.move(to: CGPoint(x: tank.minX + tank.width * 0.15, y: tank.maxY))
+                    flame.addLine(to: CGPoint(x: tank.midX, y: tank.maxY + unit * 0.2))
+                    flame.addLine(to: CGPoint(x: tank.maxX - tank.width * 0.15, y: tank.maxY))
+                    flame.closeSubpath()
+                    parts.append(Part(path: flame, fill: rgb(0xFF8C2B)))
+                    parts.append(Part(path: rounded(tank, tankWidth * 0.4), fill: rgb(0xAEB4C2), stroke: rgb(0x5A6070),
+                                      lineWidth: line * 0.5))
+                }
+                return parts
+            }
             let x = f.outline.minX - w * 0.04
             for index in 0..<2 {
                 let tank = CGRect(x: x - w * 0.08 - CGFloat(index) * w * 0.12, y: f.outline.minY + f.outline.height * 0.28,
@@ -343,17 +366,23 @@ extension NotchMascotWearableShapes {
 
         case .angelWings:
             var parts: [Part] = []
+            // Out of its shoulder blades, behind the body, where it has one
+            // apart from its head; out of the head's sides where it is all head.
+            let t = f.torso
+            let span = f.anatomy == nil ? w : min(max(w, t.width) * 0.95, f.size * 0.55)
             for side in [-1, 1] as [CGFloat] {
-                let root = CGPoint(x: cx + side * w * 0.46, y: f.outline.minY + f.outline.height * 0.42)
+                let root = f.anatomy == nil
+                    ? CGPoint(x: cx + side * span * 0.46, y: f.outline.minY + f.outline.height * 0.42)
+                    : CGPoint(x: t.midX + side * t.width * 0.36, y: t.minY + t.height * 0.25)
                 let wing = CGMutablePath()
                 wing.move(to: root)
-                wing.addQuadCurve(to: CGPoint(x: root.x + side * w * 0.36, y: root.y - w * 0.4),
-                                  control: CGPoint(x: root.x + side * w * 0.42, y: root.y - w * 0.1))
-                wing.addQuadCurve(to: CGPoint(x: root.x + side * w * 0.3, y: root.y - w * 0.02),
-                                  control: CGPoint(x: root.x + side * w * 0.46, y: root.y - w * 0.2))
-                wing.addQuadCurve(to: CGPoint(x: root.x + side * w * 0.22, y: root.y + w * 0.18),
-                                  control: CGPoint(x: root.x + side * w * 0.36, y: root.y + w * 0.06))
-                wing.addQuadCurve(to: root, control: CGPoint(x: root.x + side * w * 0.1, y: root.y + w * 0.14))
+                wing.addQuadCurve(to: CGPoint(x: root.x + side * span * 0.36, y: root.y - span * 0.4),
+                                  control: CGPoint(x: root.x + side * span * 0.42, y: root.y - span * 0.1))
+                wing.addQuadCurve(to: CGPoint(x: root.x + side * span * 0.3, y: root.y - span * 0.02),
+                                  control: CGPoint(x: root.x + side * span * 0.46, y: root.y - span * 0.2))
+                wing.addQuadCurve(to: CGPoint(x: root.x + side * span * 0.22, y: root.y + span * 0.18),
+                                  control: CGPoint(x: root.x + side * span * 0.36, y: root.y + span * 0.06))
+                wing.addQuadCurve(to: root, control: CGPoint(x: root.x + side * span * 0.1, y: root.y + span * 0.14))
                 wing.closeSubpath()
                 parts.append(Part(path: wing, fill: rgb(0xF7F4EE), stroke: rgb(0xCFC9BC), lineWidth: line * 0.5))
             }

@@ -218,6 +218,9 @@ enum NotchMascotCreatures {
         case .frog: return 0.5
         case .swan: return 0.4
         case .cristobal: return 0.465
+        // A shifter's blob runs far below its eyes, so the head's rule
+        // would drop the scarf under its hem.
+        case .shifter: return 0.70
         default: return nil
         }
     }

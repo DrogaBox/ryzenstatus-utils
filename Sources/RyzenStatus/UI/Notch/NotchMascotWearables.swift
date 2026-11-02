@@ -13,11 +13,14 @@ final class NotchMascotWearables {
     let head = CALayer()
     /// On the face, moving with the eyes.
     let face = CALayer()
+    /// Behind the body, for what grows out of its back: wings and a jetpack
+    /// show around it rather than over its chest.
+    let back = CALayer()
 
     private(set) var accessory = NotchMascotAccessory.none
 
     init() {
-        for layer in [head, face] { layer.actions = Self.noActions }
+        for layer in [head, face, back] { layer.actions = Self.noActions }
     }
 
     private static let noActions: [String: CAAction] = [
@@ -34,24 +37,32 @@ final class NotchMascotWearables {
         }
     }
 
+    /// Whether it is worn behind the body rather than over it.
+    static func behindBody(_ accessory: NotchMascotAccessory) -> Bool {
+        accessory == .angelWings || accessory == .jetpack
+    }
     /// Dresses it for `body`, the outline its fill is cut from, the eyes
-    /// of `face` and its `neck`, from 0 to 1 down the figure, at `size` points.
+    /// of `face`, its `neck`, from 0 to 1 down the figure, and its
+    /// `anatomy` in shares, at `size` points.
     func configure(accessory: NotchMascotAccessory, body: CGPath?, face eyes: NotchMascotFaceLayout,
-                   neck: CGFloat? = nil, size: CGFloat, scale: CGFloat) {
+                   neck: CGFloat? = nil, anatomy: NotchMascotAnatomy? = nil, size: CGFloat, scale: CGFloat) {
         self.accessory = accessory
         let box = CGRect(x: 0, y: 0, width: size, height: size)
         head.frame = box
         face.frame = box
+        back.frame = box
         head.sublayers = nil
         face.sublayers = nil
+        back.sublayers = nil
         guard accessory != .none, size > 0 else { return }
         let outline = body?.boundingBoxOfPath ?? box.insetBy(dx: size * 0.12, dy: size * 0.12)
         let frame = NotchMascotWearableFrame(outline: outline, size: size,
                                              leftEye: CGPoint(x: eyes.leftEye.x * size, y: eyes.leftEye.y * size),
                                              rightEye: CGPoint(x: eyes.rightEye.x * size, y: eyes.rightEye.y * size),
-                                             neck: neck.map { $0 * size })
+                                             neck: neck.map { $0 * size },
+                                             anatomy: anatomy?.scaled(by: size))
         let parts = NotchMascotWearableShapes.parts(for: accessory, in: frame)
-        let target = accessory.placement == .eyes ? face : head
+        let target = accessory.placement == .eyes ? face : (Self.behindBody(accessory) ? back : head)
         for part in parts {
             let layer = CAShapeLayer()
             layer.actions = Self.noActions
@@ -78,10 +89,83 @@ struct NotchMascotWearableFrame: Equatable {
     /// Where a scarf goes round its neck, for the figures whose head does
     /// not end where its outline does.
     var neck: CGFloat? = nil
+    /// Its hands, feet, torso, nose and mouth in points, for the figures
+    /// whose outline is the head alone. Without it every anchor falls back
+    /// to the outline, as for the minimal companion and the robot.
+    var anatomy: NotchMascotAnatomy? = nil
 
     var center: CGFloat { outline.midX }
     var top: CGFloat { outline.minY }
     var width: CGFloat { outline.width }
+
+    // MARK: Anchors
+
+    /// The hand that holds things, on the right of the screen.
+    var rightHand: CGPoint {
+        anatomy?.rightHand ?? CGPoint(x: outline.maxX + width * 0.02, y: outline.minY + outline.height * 0.62)
+    }
+
+    /// The other hand, for a shield.
+    var leftHand: CGPoint {
+        anatomy?.leftHand ?? CGPoint(x: outline.minX - width * 0.02, y: outline.minY + outline.height * 0.62)
+    }
+
+    /// The scale of what it holds: the head's width where the head is all
+    /// of it, and kept within reason for a tiny head on a tall figure or a
+    /// head that is the whole body, so a sword is a sword on everyone.
+    var prop: CGFloat {
+        guard anatomy != nil else { return width * 0.56 }
+        return min(max(width, size * 0.42), size * 0.62) * 0.56
+    }
+
+    /// Where its soles meet the ground.
+    var floor: CGFloat { anatomy?.floor ?? outline.maxY }
+
+    /// The middle of its two feet, across.
+    var feetCenter: CGFloat { anatomy.map { ($0.leftFoot + $0.rightFoot) / 2 } ?? center }
+
+    /// The middle of each foot; `spread` of the head's width either side
+    /// where the figure has no feet of its own.
+    func feet(spread: CGFloat) -> (left: CGFloat, right: CGFloat) {
+        anatomy.map { ($0.leftFoot, $0.rightFoot) } ?? (center - width * spread, center + width * spread)
+    }
+
+    /// The scale of what goes on its feet, sized to the feet rather than
+    /// the head: dainty pointes on a dancer, broad boots on a big blob.
+    var feetUnit: CGFloat {
+        guard let anatomy else { return width }
+        return min(max(anatomy.foot * 4.5, size * 0.3), size * 0.9)
+    }
+
+    /// Its chest and belly, for wings, a jetpack or a parrot.
+    var torso: CGRect { anatomy?.torso ?? outline }
+
+    /// Whether its body is drawn apart from its head, so a neck sits
+    /// between them rather than somewhere down a single round shape.
+    var separateBody: Bool { anatomy.map { $0.torso.minY > outline.midY } ?? false }
+
+    /// The height of its neck: as given, else at the chin where the
+    /// outline is the head alone and well under the eyes where it is the
+    /// whole body.
+    var neckY: CGFloat {
+        neck ?? min(outline.maxY - width * 0.08, max(leftEye.y, rightEye.y) + width * 0.34)
+    }
+
+    /// The tip of its nose, snout or beak.
+    var nose: CGPoint {
+        anatomy?.nose ?? CGPoint(x: center, y: (leftEye.y + rightEye.y) / 2 + outline.height * 0.12)
+    }
+
+    /// Its mouth.
+    var mouth: CGPoint {
+        anatomy?.mouth ?? CGPoint(x: center, y: (leftEye.y + rightEye.y) / 2 + outline.height * 0.2)
+    }
+
+    /// Where something in its mouth goes: its own mouth where the figure
+    /// says, else a little under the usual mouth line, as before.
+    var mouthful: CGPoint {
+        anatomy?.mouth ?? CGPoint(x: center, y: (leftEye.y + rightEye.y) / 2 + outline.height * 0.3)
+    }
 }
 
 struct NotchMascotWearablePart {
@@ -251,8 +335,7 @@ enum NotchMascotWearableShapes {
         case .scarf:
             // Round the neck: at the chin where the outline is the head
             // alone, and well under the eyes where it is the whole body.
-            let eyeY = max(f.leftEye.y, f.rightEye.y)
-            let y = f.neck ?? min(f.outline.maxY - w * 0.08, eyeY + w * 0.34)
+            let y = f.neckY
             let band = CGRect(x: f.outline.minX + w * 0.03, y: y - w * 0.02, width: w * 0.94, height: w * 0.17)
             let tail = CGRect(x: cx + w * 0.1, y: band.midY, width: w * 0.17, height: w * 0.32)
             let stripe = CGMutablePath()
@@ -321,7 +404,10 @@ enum NotchMascotWearableShapes {
                                             lineWidth: line * 0.5)]
 
         case .bowTie:
-            let knot = CGPoint(x: cx, y: f.outline.minY + f.outline.height * 0.74)
+            // At the collar where the body is drawn apart from the head, so
+            // it does not sit on the chin; low on the face where it is one shape.
+            let knot = f.separateBody ? CGPoint(x: cx, y: f.neckY + w * 0.07)
+                : CGPoint(x: cx, y: f.outline.minY + f.outline.height * 0.74)
             let s = w * 0.17
             let wings = CGMutablePath()
             for side in [-1, 1] as [CGFloat] {
