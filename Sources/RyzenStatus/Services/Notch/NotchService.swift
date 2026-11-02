@@ -5323,8 +5323,9 @@ extension NotchService {
         if let screen = NSScreen.main, let canvas = mascotFireworks.layer(over: screen) {
             NotchMascotOccasionArt.fireworks(in: canvas, area: CGRect(origin: .zero, size: screen.frame.size), duration: 10)
             mascotFireworksWork.forEach { $0.cancel() }
+            let sky = NotchMascotSoundMap.pan(screenX: screen.frame.midX, across: NSScreen.screens.map(\.frame))
             mascotFireworksWork = stride(from: 0.4, to: 9.5, by: 0.8).map { at in
-                let pan = Float.random(in: -0.8...0.8)
+                let pan = NotchMascotSoundMap.pan(Float.random(in: -0.8...0.8), about: sky)
                 let work = DispatchWorkItem { NotchMascotSound.play(.boom, pan: pan) }
                 DispatchQueue.main.asyncAfter(deadline: .now() + at, execute: work)
                 return work
@@ -5915,8 +5916,11 @@ extension NotchService {
         let now = CACurrentMediaTime()
         // Its later cues wait with the play, so a play that ends takes them along.
         let leaderOnLeft = NotchMascotSupport.side() == .left
+        // Heard about where the island is across the displays.
+        let island = NotchMascotSoundMap.pan(screenX: geometry.screen.midX, across: NSScreen.screens.map(\.frame))
         for cue in NotchMascotSoundMap.cues(for: beat) {
-            let pan = NotchMascotSoundMap.islandPan(onLeader: cue.onLeader, leaderOnLeft: leaderOnLeft)
+            let pan = NotchMascotSoundMap.pan(NotchMascotSoundMap.islandPan(onLeader: cue.onLeader, leaderOnLeft: leaderOnLeft),
+                                              about: island)
             guard cue.delay > 0 else { NotchMascotSound.play(cue.effect, pan: pan); continue }
             let work = DispatchWorkItem { NotchMascotSound.play(cue.effect, pan: pan) }
             mascotIslandPlayWork.append(work)

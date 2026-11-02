@@ -112,6 +112,22 @@ enum NotchMascotSoundMap {
         return Float(max(-1, min(1, tanh(Double(centered)))))
     }
 
+    /// Where a sound is heard for something at `x`, a screen point, across
+    /// `screens` side by side as one stage: a companion on the left display
+    /// is heard on the left, one on the right display on the right. With one
+    /// display, the same as across that display.
+    static func pan(screenX x: CGFloat, across screens: [CGRect]) -> Float {
+        guard let stage = screens.dropFirst().reduce(screens.first, { $0?.union($1) }) else { return 0 }
+        return pan(x: x - stage.minX, width: stage.width)
+    }
+
+    /// `pan`, heard within something that is itself heard at `center`: the
+    /// two sides stay apart, shifted toward where it is and kept between
+    /// the speakers.
+    static func pan(_ pan: Float, about center: Float) -> Float {
+        max(-1, min(1, center + pan * (1 - abs(center))))
+    }
+
     /// The pair at rest in the island sits at the middle of the screen: the
     /// one on the left is heard on the left.
     static func islandPan(onLeader: Bool, leaderOnLeft: Bool) -> Float {

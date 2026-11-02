@@ -141,6 +141,11 @@ final class NotchMascotPlayDirector {
     private func onCanvas(_ point: CGPoint) -> CGPoint { stage.point(point) }
 
     private func middle(_ a: CGPoint, _ b: CGPoint) -> CGPoint { CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2) }
+    /// `pan` heard about where the two are across the displays.
+    private func heard(_ pan: Float) -> Float {
+        let x = middle(leader.screenCenter, friend.screenCenter).x
+        return NotchMascotSoundMap.pan(pan, about: NotchMascotSoundMap.pan(screenX: x, across: NSScreen.screens.map(\.frame)))
+    }
 
     private func float(_ symbol: String, over one: NotchMascotDesktop, color: CGColor, count: Int = 1) {
         guard let layer = one.effects else { return }
@@ -391,7 +396,7 @@ final class NotchMascotPlayDirector {
             at(time + 0.12) {
                 swing(ownBlade, toward)
                 swing(friendBlade, -toward)
-                NotchMascotSound.play(.whoosh, pan: Float(toward * 0.3))
+                NotchMascotSound.play(.whoosh, pan: self.heard(Float(toward * 0.3)))
             }
             at(time + 0.26) { [weak self] in
                 guard let self, let canvas = self.canvas() else { return }
@@ -401,7 +406,7 @@ final class NotchMascotPlayDirector {
                 NotchMascotPlayEffects.sparks(in: canvas, at: point, reach: 26, energy: self.energy(self.leader))
                 NotchMascotPlayEffects.sparks(in: canvas, at: point, reach: 20, energy: self.energy(self.friend), count: 6)
                 NotchMascotPlayEffects.flash(in: canvas, at: point, radius: 16, energy: self.energy(self.leader))
-                NotchMascotSound.play(.clash, pan: 0)
+                NotchMascotSound.play(.clash, pan: self.heard(0))
             }
             at(time + 0.46) { [weak self] in
                 guard let self else { return }
@@ -422,7 +427,7 @@ final class NotchMascotPlayDirector {
             at(close + 1.4) { [weak self] in
                 self?.leader.react(.celebrate)
                 self?.friend.react(.celebrate)
-                NotchMascotSound.play(.chime, pan: 0)
+                NotchMascotSound.play(.chime, pan: self?.heard(0) ?? 0)
             }
             finish(after: close + 3)
         case .leaderWins, .friendWins:
@@ -432,10 +437,10 @@ final class NotchMascotPlayDirector {
             let loserBlade = outcome == .leaderWins ? friendBlade : ownBlade
             let side = direction(from: winner, to: loser)
             at(close) { [weak self] in
-                guard self != nil else { return }
+                guard let self else { return }
                 swing(winnerBlade, side)
                 winner.hop(dx: side * 120, dy: 260)
-                NotchMascotSound.play(.whoosh, pan: Float(side * 0.3))
+                NotchMascotSound.play(.whoosh, pan: self.heard(Float(side * 0.3)))
             }
             at(close + 0.18) { [weak self] in
                 guard let self, let canvas = self.canvas() else { return }
@@ -444,12 +449,12 @@ final class NotchMascotPlayDirector {
                 sheathe(loserBlade)
                 loser.hop(dx: side * 380, dy: 420)
                 loser.react(.surprised)
-                NotchMascotSound.play(.boom, pan: Float(side * 0.4))
+                NotchMascotSound.play(.boom, pan: self.heard(Float(side * 0.4)))
             }
             at(close + 1.3) {
                 loser.react(.confused)
                 winner.react(.celebrate)
-                NotchMascotSound.play(.chime, pan: 0)
+                NotchMascotSound.play(.chime, pan: self.heard(0))
             }
             at(close + 2.1) { sheathe(winnerBlade) }
             at(close + 2.9) { loser.react(.wave) }
