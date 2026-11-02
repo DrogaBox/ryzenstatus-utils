@@ -95,6 +95,7 @@ final class NotchMascotRig: NSObject {
         hopper.addSublayer(squasher)
         squasher.addSublayer(tilter)
         tilter.addSublayer(decor.back)
+        tilter.addSublayer(wearables.back)
         for layer in [ears, antenna, bulb, fill, visor, shine, bodyFlash] { tilter.addSublayer(layer) }
         tilter.addSublayer(sprite)
         sprite.isHidden = true
@@ -203,7 +204,8 @@ final class NotchMascotRig: NSObject {
         let headOutline = NotchMascotCreatures.headOutline(look.style, size: size)
         wearables.configure(accessory: look.accessory,
                             body: headOutline.map { CGPath(rect: $0, transform: nil) } ?? fillMask.path,
-                            face: look.face, neck: NotchMascotCreatures.neck(look.style), size: size, scale: scale)
+                            face: look.face, neck: NotchMascotCreatures.neck(look.style),
+                            anatomy: NotchMascotCreatures.anatomy(look.style), size: size, scale: scale)
         aura.configure(form: look.form, size: size, scale: scale, reduceMotion: reduceMotion)
         bodyFlash.frame = box
         bodyFlash.contentsScale = scale
@@ -239,6 +241,7 @@ final class NotchMascotRig: NSObject {
         }
         wearables.head.isHidden = drawsSprite
         wearables.face.isHidden = drawsSprite
+        wearables.back.isHidden = drawsSprite
         apply(mood.expression, animated: false)
         applyAmbient()
     }

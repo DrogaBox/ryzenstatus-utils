@@ -4,8 +4,8 @@
 import CoreGraphics
 
 /// The twelve toys and charms of luck, traced with a few bold paths like the
-/// rest: what it holds sits by its right hand, what it wears on its feet
-/// under them, and the parrot on its left shoulder.
+/// rest: what it holds sits in its right hand, what it wears on its feet
+/// on its own two feet, and the parrot on its left shoulder.
 extension NotchMascotWearableShapes {
     private typealias Part = NotchMascotWearablePart
 
@@ -13,10 +13,18 @@ extension NotchMascotWearableShapes {
     static func toyParts(for accessory: NotchMascotAccessory, in f: NotchMascotWearableFrame) -> [NotchMascotWearablePart] {
         let w = f.width, cx = f.center, top = f.top
         let line = max(0.8, f.size * 0.045)
-        let right = CGPoint(x: f.outline.maxX + w * 0.02, y: f.outline.minY + f.outline.height * 0.62)
-        let shoulder = CGPoint(x: f.outline.minX + w * 0.04, y: f.outline.minY + f.outline.height * 0.3)
-        let feet = f.outline.maxY
-        let s = w * 0.56
+        let right = f.rightHand
+        // Its left shoulder: the top corner of the torso where it has one
+        // apart from its head, kept clear of the face. A figure that is one
+        // round shape has no shoulder, and its sides slope away into thin
+        // air, so the parrot perches on top of it, a little to the left.
+        let shoulder = f.anatomy == nil
+            ? CGPoint(x: f.outline.minX + w * 0.04, y: f.outline.minY + f.outline.height * 0.3)
+            : !f.separateBody ? CGPoint(x: cx - w * 0.2, y: top + f.outline.height * 0.1)
+            : CGPoint(x: min(f.torso.minX + f.torso.width * 0.12, f.outline.minX) - f.prop * 0.08, y: f.torso.minY + w * 0.04)
+        let feet = f.floor
+        let fc = f.feetCenter, fu = f.feetUnit
+        let s = f.prop
         let ink = rgb(0x16161C)
 
         func p(_ origin: CGPoint, _ dx: CGFloat, _ dy: CGFloat) -> CGPoint { CGPoint(x: origin.x + dx * s, y: origin.y + dy * s) }
@@ -69,33 +77,37 @@ extension NotchMascotWearableShapes {
                     Part(path: circle(p(shoulder, 0.04, -0.32), s * 0.035), fill: ink)]
 
         case .springShoes:
-            // Two red sneakers on silver coils.
-            let left = CGRect(x: cx - w * 0.36, y: feet - w * 0.06, width: w * 0.3, height: w * 0.12)
-            let rightShoe = CGRect(x: cx + w * 0.06, y: feet - w * 0.06, width: w * 0.3, height: w * 0.12)
+            // Two red sneakers on silver coils, one on each foot.
+            let at = f.feet(spread: 0.21)
+            let left = CGRect(x: at.left - fu * 0.15, y: feet - fu * 0.06, width: fu * 0.3, height: fu * 0.12)
+            let rightShoe = CGRect(x: at.right - fu * 0.15, y: feet - fu * 0.06, width: fu * 0.3, height: fu * 0.12)
             let coils = CGMutablePath()
             for shoe in [left, rightShoe] {
                 let x = shoe.midX
                 var y = shoe.maxY
                 for k in 0..<3 {
-                    let dx = (k.isMultiple(of: 2) ? 1 : -1) * w * 0.07
+                    let dx = (k.isMultiple(of: 2) ? 1 : -1) * fu * 0.07
                     coils.move(to: CGPoint(x: x - dx, y: y))
-                    coils.addLine(to: CGPoint(x: x + dx, y: y + w * 0.05))
-                    y += w * 0.05
+                    coils.addLine(to: CGPoint(x: x + dx, y: y + fu * 0.05))
+                    y += fu * 0.05
                 }
             }
             return [Part(path: coils, fill: nil, stroke: rgb(0xC0C4CC), lineWidth: line * 0.9),
-                    Part(path: rounded(left, w * 0.05), fill: rgb(0xE63946), stroke: ink, lineWidth: line * 0.5),
-                    Part(path: rounded(rightShoe, w * 0.05), fill: rgb(0xE63946), stroke: ink, lineWidth: line * 0.5)]
+                    Part(path: rounded(left, fu * 0.05), fill: rgb(0xE63946), stroke: ink, lineWidth: line * 0.5),
+                    Part(path: rounded(rightShoe, fu * 0.05), fill: rgb(0xE63946), stroke: ink, lineWidth: line * 0.5)]
 
         case .skateboard:
-            // A deck under its feet with two pairs of wheels.
-            let deck = CGRect(x: cx - w * 0.5, y: feet - w * 0.02, width: w, height: w * 0.08)
-            let stripe = stroke(CGPoint(x: cx - w * 0.36, y: feet + w * 0.02), CGPoint(x: cx + w * 0.36, y: feet + w * 0.02))
+            // A deck under its feet with two pairs of wheels, long enough for
+            // both feet however far apart they stand.
+            let at = f.feet(spread: 0.25)
+            let half = max(fu * 0.5, (at.right - at.left) / 2 + fu * 0.18)
+            let deck = CGRect(x: fc - half, y: feet - fu * 0.02, width: half * 2, height: fu * 0.08)
+            let stripe = stroke(CGPoint(x: fc - half * 0.72, y: feet + fu * 0.02), CGPoint(x: fc + half * 0.72, y: feet + fu * 0.02))
             let wheels = CGMutablePath()
-            for x in [cx - w * 0.32, cx + w * 0.32] {
-                wheels.addPath(circle(CGPoint(x: x, y: feet + w * 0.11), w * 0.05))
+            for x in [fc - half * 0.64, fc + half * 0.64] {
+                wheels.addPath(circle(CGPoint(x: x, y: feet + fu * 0.11), fu * 0.05))
             }
-            return [Part(path: rounded(deck, w * 0.04), fill: rgb(0x8338EC), stroke: ink, lineWidth: line * 0.5),
+            return [Part(path: rounded(deck, fu * 0.04), fill: rgb(0x8338EC), stroke: ink, lineWidth: line * 0.5),
                     Part(path: stripe, fill: nil, stroke: rgb(0xFFBE0B), lineWidth: line * 0.7),
                     Part(path: wheels, fill: rgb(0xF1FAEE), stroke: ink, lineWidth: line * 0.4)]
 

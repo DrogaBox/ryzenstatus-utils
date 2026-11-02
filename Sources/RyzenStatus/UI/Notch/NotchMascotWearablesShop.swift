@@ -12,11 +12,21 @@ extension NotchMascotWearableShapes {
     static func shopParts(for accessory: NotchMascotAccessory, in f: NotchMascotWearableFrame) -> [NotchMascotWearablePart] {
         let w = f.width, cx = f.center, top = f.top
         let line = max(0.8, f.size * 0.045)
-        let right = CGPoint(x: f.outline.maxX + w * 0.02, y: f.outline.minY + f.outline.height * 0.62)
-        let s = w * 0.56
+        // What it holds sits in its right hand, sized like a held thing; what
+        // goes on its face is sized to the head and finds its nose and mouth.
+        let right = f.rightHand
+        let s = f.prop
+        let fs = w * 0.56
         let eyeY = (f.leftEye.y + f.rightEye.y) / 2
         let eyeGap = abs(f.rightEye.x - f.leftEye.x)
-        let mouth = CGPoint(x: cx, y: eyeY + f.outline.height * 0.2)
+        // A moustache goes under the nose: halfway to the mouth where the
+        // figure says where both are, on the usual mouth line otherwise.
+        let mouth = f.anatomy?.nose != nil && f.anatomy?.mouth != nil
+            ? CGPoint(x: (f.nose.x + f.mouth.x) / 2, y: (f.nose.y + f.mouth.y) / 2 + fs * 0.04)
+            : CGPoint(x: f.mouth.x, y: f.mouth.y)
+        // A peel lies on the ground by its right foot, waiting to be slipped on.
+        let ground = CGPoint(x: min(f.feet(spread: 0.25).right + f.feetUnit * 0.12 + s * 0.4, f.size * 0.98 - s * 0.5),
+                             y: f.floor - s * 0.42)
 
         func p(_ origin: CGPoint, _ dx: CGFloat, _ dy: CGFloat) -> CGPoint { CGPoint(x: origin.x + dx * s, y: origin.y + dy * s) }
         func poly(_ points: [CGPoint]) -> CGPath {
@@ -48,22 +58,25 @@ extension NotchMascotWearableShapes {
                     Part(path: circle(p(right, 0.2, -0.3), s * 0.03), fill: rgb(0x16161C))]
 
         case .bananaPeel:
+            let peel = ground
             let skin = CGMutablePath()
-            skin.move(to: p(right, -0.4, 0.2))
-            skin.addQuadCurve(to: p(right, 0.4, 0.2), control: p(right, 0, -0.5))
-            skin.addQuadCurve(to: p(right, -0.4, 0.2), control: p(right, 0, -0.1))
+            skin.move(to: p(peel, -0.4, 0.2))
+            skin.addQuadCurve(to: p(peel, 0.4, 0.2), control: p(peel, 0, -0.5))
+            skin.addQuadCurve(to: p(peel, -0.4, 0.2), control: p(peel, 0, -0.1))
             let flaps = CGMutablePath()
-            flaps.move(to: p(right, -0.3, 0.2))
-            flaps.addQuadCurve(to: p(right, -0.5, 0.42), control: p(right, -0.5, 0.24))
-            flaps.move(to: p(right, 0.3, 0.2))
-            flaps.addQuadCurve(to: p(right, 0.5, 0.42), control: p(right, 0.5, 0.24))
+            flaps.move(to: p(peel, -0.3, 0.2))
+            flaps.addQuadCurve(to: p(peel, -0.5, 0.42), control: p(peel, -0.5, 0.24))
+            flaps.move(to: p(peel, 0.3, 0.2))
+            flaps.addQuadCurve(to: p(peel, 0.5, 0.42), control: p(peel, 0.5, 0.24))
             return [Part(path: skin, fill: rgb(0xFFE24A), stroke: rgb(0x8A6B00), lineWidth: line * 0.5),
                     Part(path: flaps, fill: nil, stroke: rgb(0xE6C31F), lineWidth: line * 1.3)]
 
         case .clownNose:
-            return [Part(path: circle(CGPoint(x: cx, y: eyeY + f.outline.height * 0.12), s * 0.2), fill: rgb(0xE5384F),
+            // On the tip of its own nose, snout or beak.
+            let nose = f.nose
+            return [Part(path: circle(nose, fs * 0.2), fill: rgb(0xE5384F),
                          stroke: rgb(0x8A1F2E), lineWidth: line * 0.5),
-                    Part(path: circle(CGPoint(x: cx - s * 0.06, y: eyeY + f.outline.height * 0.08), s * 0.05),
+                    Part(path: circle(CGPoint(x: nose.x - fs * 0.06, y: nose.y - f.outline.height * 0.04), fs * 0.05),
                          fill: rgb(0xFFFFFF))]
 
         case .creamPie:
@@ -83,11 +96,11 @@ extension NotchMascotWearableShapes {
 
         case .fakeMustache:
             let stache = CGMutablePath()
-            stache.move(to: CGPoint(x: cx, y: mouth.y - s * 0.04))
-            stache.addQuadCurve(to: CGPoint(x: cx - s * 0.46, y: mouth.y + s * 0.1), control: CGPoint(x: cx - s * 0.2, y: mouth.y - s * 0.2))
-            stache.addQuadCurve(to: CGPoint(x: cx, y: mouth.y + s * 0.04), control: CGPoint(x: cx - s * 0.22, y: mouth.y + s * 0.14))
-            stache.addQuadCurve(to: CGPoint(x: cx + s * 0.46, y: mouth.y + s * 0.1), control: CGPoint(x: cx + s * 0.22, y: mouth.y + s * 0.14))
-            stache.addQuadCurve(to: CGPoint(x: cx, y: mouth.y - s * 0.04), control: CGPoint(x: cx + s * 0.2, y: mouth.y - s * 0.2))
+            stache.move(to: CGPoint(x: mouth.x, y: mouth.y - fs * 0.04))
+            stache.addQuadCurve(to: CGPoint(x: mouth.x - fs * 0.46, y: mouth.y + fs * 0.1), control: CGPoint(x: mouth.x - fs * 0.2, y: mouth.y - fs * 0.2))
+            stache.addQuadCurve(to: CGPoint(x: mouth.x, y: mouth.y + fs * 0.04), control: CGPoint(x: mouth.x - fs * 0.22, y: mouth.y + fs * 0.14))
+            stache.addQuadCurve(to: CGPoint(x: mouth.x + fs * 0.46, y: mouth.y + fs * 0.1), control: CGPoint(x: mouth.x + fs * 0.22, y: mouth.y + fs * 0.14))
+            stache.addQuadCurve(to: CGPoint(x: mouth.x, y: mouth.y - fs * 0.04), control: CGPoint(x: mouth.x + fs * 0.2, y: mouth.y - fs * 0.2))
             return [Part(path: stache, fill: rgb(0x3A2A1E), stroke: rgb(0x16161C), lineWidth: line * 0.4)]
 
         case .trafficCone:

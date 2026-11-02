@@ -12638,6 +12638,32 @@ struct MetricsTests {
                        "\(item.rawValue) stays close to the companion")
             }
             expect(NotchMascotWearableShapes.parts(for: .none, in: frame).isEmpty, "no accessory draws nothing")
+            // Every item goes where it belongs on every drawn figure: what goes
+            // on the feet never climbs up to the face, and what is held in the
+            // hand leaves the eyes clear.
+            for style in NotchMascotStyle.allCases where style.takesAccessory {
+                guard let anatomy = NotchMascotCreatures.anatomy(style), let face = NotchMascotCreatures.face(style),
+                      let head = NotchMascotCreatures.headOutline(style, size: 40) else { continue }
+                let fitted = NotchMascotWearableFrame(outline: head, size: 40,
+                                                      leftEye: CGPoint(x: face.leftEye.x * 40, y: face.leftEye.y * 40),
+                                                      rightEye: CGPoint(x: face.rightEye.x * 40, y: face.rightEye.y * 40),
+                                                      neck: NotchMascotCreatures.neck(style).map { $0 * 40 },
+                                                      anatomy: anatomy.scaled(by: 40))
+                let eyes = CGRect(x: (face.leftEye.x - face.eyeSize.width / 2) * 40, y: (face.leftEye.y - face.eyeSize.height / 2) * 40,
+                                  width: (face.rightEye.x - face.leftEye.x + face.eyeSize.width) * 40,
+                                  height: face.eyeSize.height * 40)
+                for item in NotchMascotAccessory.allCases where item != .none {
+                    let bounds = NotchMascotWearableShapes.parts(for: item, in: fitted)
+                        .reduce(CGRect.null) { $0.union($1.path.boundingBoxOfPath) }
+                    if item.placement == .feet {
+                        expect(bounds.minY > eyes.maxY, "\(item.rawValue) stays at the \(style.rawValue)'s feet")
+                    } else if item.placement == .hand {
+                        expect(!bounds.intersects(eyes), "\(item.rawValue) in the \(style.rawValue)'s hand leaves its eyes clear")
+                    }
+                }
+            }
+            expect(NotchMascotWearables.behindBody(.angelWings) && NotchMascotWearables.behindBody(.jetpack)
+                   && !NotchMascotWearables.behindBody(.parrot), "wings and the jetpack are worn behind the body")
             expect(NotchEvent.companion.preferenceKey == DefaultsKey.notchMascotSpeech,
                    "its notices follow their own switch")
             for key in [DefaultsKey.notchMascotSeasonal, DefaultsKey.notchMascotSpeech, DefaultsKey.notchMascotHardware] {
