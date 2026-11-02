@@ -12282,6 +12282,16 @@ struct MetricsTests {
                        && cues.contains { $0.effect == .boom && $0.onLeader }, "a beat sounds out what flies, bursts and is said")
                 expect(NotchMascotSoundMap.pan(x: 0, width: 1000) < -0.9 && NotchMascotSoundMap.pan(x: 1000, width: 1000) > 0.9
                        && abs(NotchMascotSoundMap.pan(x: 500, width: 1000)) < 0.01, "left, middle and right pan as they are")
+                // Across two displays side by side, each one is heard on its own side.
+                let displays = [CGRect(x: 0, y: 0, width: 1920, height: 1080), CGRect(x: 1920, y: 0, width: 1920, height: 1080)]
+                expect(NotchMascotSoundMap.pan(screenX: 960, across: displays) < -0.8
+                       && NotchMascotSoundMap.pan(screenX: 2880, across: displays) > 0.8
+                       && NotchMascotSoundMap.pan(screenX: 960, across: [displays[0]])
+                           == NotchMascotSoundMap.pan(x: 960, width: 1920), "each display is heard on its side, one alone as before")
+                let onLeft = NotchMascotSoundMap.pan(screenX: 960, across: displays)
+                expect(NotchMascotSoundMap.pan(-0.7, about: onLeft) < NotchMascotSoundMap.pan(0.7, about: onLeft)
+                       && NotchMascotSoundMap.pan(0.7, about: onLeft) < 0 && NotchMascotSoundMap.pan(0.7, about: 0) == 0.7
+                       && NotchMascotSoundMap.pan(1, about: -1) == -1, "a pair stays apart about where it is, inside the speakers")
                 expect(NotchMascotSoundMap.islandPan(onLeader: true, leaderOnLeft: true) < 0
                        && NotchMascotSoundMap.islandPan(onLeader: false, leaderOnLeft: true) > 0, "the pair in the island pans apart")
                 // The shifter takes the look of whoever it plays with, and gives it back.

@@ -15,6 +15,23 @@ enum NotchMascotPlayEffects {
 
     private static let white = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
 
+    /// Where a sound is heard for something at `x` in `layer`, across every
+    /// display: on a stage over a whole display, where it happens on screen;
+    /// in the island, the two sides kept apart about where the island is.
+    /// Across the layer alone when it is in no window.
+    static func pan(x: CGFloat, in layer: CALayer) -> Float {
+        let local = NotchMascotSoundMap.pan(x: x, width: layer.bounds.width)
+        var root = layer
+        while let above = root.superlayer { root = above }
+        guard let view = root.delegate as? NSView, let window = view.window else { return local }
+        let screens = NSScreen.screens.map(\.frame)
+        if screens.contains(window.frame) {
+            let inWindow = view.convert(layer.convert(CGPoint(x: x, y: 0), to: root), to: nil)
+            return NotchMascotSoundMap.pan(screenX: window.convertPoint(toScreen: inWindow).x, across: screens)
+        }
+        return NotchMascotSoundMap.pan(local, about: NotchMascotSoundMap.pan(screenX: window.frame.midX, across: screens))
+    }
+
     /// Takes `layer` away after `delay` seconds.
     static func remove(_ layer: CALayer, after delay: TimeInterval) {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak layer] in layer?.removeFromSuperlayer() }
@@ -482,7 +499,7 @@ extension NotchMascotPlayEffects {
     /// a warm light, stays `duration` seconds and closes. `height` is the
     /// door's, and its width a little over half of it.
     static func secretDoor(in parent: CALayer, at base: CGPoint, height: CGFloat, duration: TimeInterval) {
-        NotchMascotSound.play(.creak, pan: NotchMascotSoundMap.pan(x: base.x, width: parent.bounds.width))
+        NotchMascotSound.play(.creak, pan: pan(x: base.x, in: parent))
         let width = height * 0.62
         let side = max(width, height)
         let rect = CGRect(x: (side - width) / 2, y: (side - height) / 2, width: width, height: height)
@@ -526,7 +543,7 @@ extension NotchMascotPlayEffects {
     /// A treasure chest that drops onto the desktop floor at `base`, pops open its lid,
     /// and showers sparkling gold coins for both companions to enjoy.
     static func treasureChest(in parent: CALayer, at base: CGPoint, size: CGFloat, duration: TimeInterval) {
-        NotchMascotSound.play(.chime, pan: NotchMascotSoundMap.pan(x: base.x, width: parent.bounds.width))
+        NotchMascotSound.play(.chime, pan: pan(x: base.x, in: parent))
         let width = size * 1.15
         let height = size * 0.9
         let holder = CALayer()
@@ -588,7 +605,7 @@ extension NotchMascotPlayEffects {
         parent.addSublayer(holder)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            NotchMascotSound.play(.coin, pan: NotchMascotSoundMap.pan(x: base.x, width: parent.bounds.width))
+            NotchMascotSound.play(.coin, pan: pan(x: base.x, in: parent))
             goldCoins(in: parent, at: CGPoint(x: base.x, y: base.y + height * 0.4), radius: width * 0.12, count: 8)
             sparks(in: parent, at: CGPoint(x: base.x, y: base.y + height * 0.5), reach: width * 0.45,
                    energy: NotchMascotPlay.Energy(red: 1, green: 0.85, blue: 0.25), count: 10)
@@ -691,7 +708,7 @@ extension NotchMascotPlayEffects {
         let size = NotchMascotRPGShapes.pixelSize(text, cell: cell)
         guard size.width > 0 else { return }
         if let effect = NotchMascotSoundMap.effect(forMarker: text) {
-            NotchMascotSound.play(effect, pan: NotchMascotSoundMap.pan(x: point.x, width: parent.bounds.width))
+            NotchMascotSound.play(effect, pan: pan(x: point.x, in: parent))
         }
         let path = NotchMascotRPGShapes.pixelPath(text, cell: cell)
         let holder = CALayer()
@@ -803,17 +820,16 @@ extension NotchMascotPlayEffects {
                     duration: TimeInterval, side: CGFloat = 16, falls: Bool = false,
                     energy: NotchMascotPlay.Energy = NotchMascotPlay.Energy(red: 1, green: 0.86, blue: 0.3),
                     while alive: (() -> Bool)? = nil) {
-        let width = parent.bounds.width
-        NotchMascotSound.play(NotchMascotSoundMap.launch(of: thing), pan: NotchMascotSoundMap.pan(x: start.x, width: width))
+        NotchMascotSound.play(NotchMascotSoundMap.launch(of: thing), pan: pan(x: start.x, in: parent))
         if !falls {
             let landing = NotchMascotSoundMap.landing(of: thing)
-            let pan = NotchMascotSoundMap.pan(x: end.x, width: width)
+            let heard = pan(x: end.x, in: parent)
             if let alive {
                 DispatchQueue.main.asyncAfter(deadline: .now() + duration * 0.92) {
-                    if alive() { NotchMascotSound.play(landing, pan: pan) }
+                    if alive() { NotchMascotSound.play(landing, pan: heard) }
                 }
             } else {
-                NotchMascotSound.play(landing, pan: pan, after: duration * 0.92)
+                NotchMascotSound.play(landing, pan: heard, after: duration * 0.92)
             }
         }
         let holder = propLayer(thingParts(thing, side: side, energy: energy), side: side, at: start,
@@ -855,7 +871,7 @@ extension NotchMascotPlayEffects {
     static func burst(_ burst: NotchMascotIslandPlay.Burst, in parent: CALayer, at point: CGPoint, size: CGFloat,
                       energy: NotchMascotPlay.Energy, duration: TimeInterval = NotchMascotIslandPlay.burstLength) {
         if burst != .door {
-            NotchMascotSound.play(NotchMascotSoundMap.effect(for: burst), pan: NotchMascotSoundMap.pan(x: point.x, width: parent.bounds.width))
+            NotchMascotSound.play(NotchMascotSoundMap.effect(for: burst), pan: pan(x: point.x, in: parent))
         }
         switch burst {
         case .coins: goldCoins(in: parent, at: point, radius: max(3, size * 0.13))

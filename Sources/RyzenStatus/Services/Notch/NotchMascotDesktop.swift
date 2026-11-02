@@ -732,8 +732,7 @@ final class NotchMascotDesktop: NSObject {
     }
     private func onStage(_ point: CGPoint) -> CGPoint { encounterStage?.point(point) ?? point }
     private func pan(_ x: CGFloat) -> Float {
-        let area = self.area(for: body.position)
-        return Float(max(-1, min(1, (x - area.midX) / max(1, area.width / 2))))
+        NotchMascotSoundMap.pan(screenX: x, across: NSScreen.screens.map(\.frame))
     }
     /// Great footsteps, then a tail sweeping in at the nearer edge: it
     /// jumps away and trembles.
