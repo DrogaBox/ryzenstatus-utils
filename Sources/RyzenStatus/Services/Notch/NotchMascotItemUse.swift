@@ -36,6 +36,8 @@ enum NotchMascotItemAction: Equatable {
     case face(NotchMascotMood, TimeInterval)
     /// Luck pays out this much gold, within the day's share (see `NotchMascotLuck`).
     case gold(Int)
+    /// A comic balloon over its head: a fright, a doubt, an idea, a heart.
+    case emote(NotchMascotEmote)
 
     /// How long it keeps it busy. What lasts on its own, the thing gone or
     /// the size grown, does not: it goes about its life meanwhile.
@@ -51,6 +53,7 @@ enum NotchMascotItemAction: Equatable {
         case .slash: return 0.7
         case .lightning: return 0.5
         case .sparks: return 0.45
+        case .emote: return 0.6
         case .hide, .grow: return 0
         case .doze(let length), .face(_, let length): return length
         }
@@ -132,7 +135,7 @@ struct NotchMascotItemUse: Equatable {
             case .gold(let amount):
                 score.burst(step.at, .coins, onStarter: true)
                 score.marker(step.at, "+\(amount)", onStarter: true)
-            case .symbol, .fling, .juggle, .sparks, .hide, .grow: break
+            case .symbol, .fling, .juggle, .sparks, .hide, .grow, .emote: break
             }
         }
         return score.beats.sorted { $0.at < $1.at }
@@ -154,16 +157,18 @@ struct NotchMascotItemUse: Equatable {
         return copy
     }
 
-    private init(_ steps: [(TimeInterval, NotchMascotItemAction)]) {
+    init(_ steps: [(TimeInterval, NotchMascotItemAction)]) {
         self.steps = steps.map { Step(at: $0.0, action: $0.1) }
     }
 
     // swiftlint:disable:next cyclomatic_complexity function_body_length
     /// `random` decides what luck brings: the dice's roll, the cookie's fortune.
     /// `style`, the figure that wears it, where it changes what happens: a
-    /// dragon or a phoenix lights the marshmallow with its own fire.
+    /// dragon or a phoenix lights the marshmallow with its own fire, and
+    /// every pair in `NotchMascotItemTwists` has its own take.
     static func of(_ item: NotchMascotAccessory, style: NotchMascotStyle? = nil,
                    random: () -> Double = { Double.random(in: 0..<1) }) -> NotchMascotItemUse? {
+        if let style, let twist = twist(item, style: style) { return twist }
         switch item {
         case .none: return nil
         case .bow: return .init([(0, .move(.bow)), (0, .react(.love)), (0.8, .symbol("♥", .pink, count: 2))])
@@ -392,7 +397,7 @@ struct NotchMascotItemUse: Equatable {
             return .init([(0, .react(.ready)), (0.6, .react(.flash)), (0.6, .burst(.sparkles)), (1.0, .marker("CLICK!")),
                           (1.5, .symbol("★", .gold, count: 1)), (1.8, .move(.strut))])
         default:
-            return partyUse(item, style: style)
+            return partyUse(item, style: style) ?? oddityUse(item)
         }
     }
     // swiftlint:disable:next cyclomatic_complexity function_body_length

@@ -25,6 +25,8 @@ final class NotchMascotDecor {
     private(set) var sleeping = false
     private var ambient = MascotMoodState()
     private var motion = false
+    /// Until when Cristóbal has his mug out for a sip, on the media clock.
+    private var sipUntil: CFTimeInterval = -.infinity
 
     // Creature parts.
     private let pins = CAShapeLayer()
@@ -52,6 +54,8 @@ final class NotchMascotDecor {
     private var tails = 1
     /// Walking: a kitsune's tails stream behind, a penguin's flippers swing.
     private var striding = false
+    /// The hologram and the android, drawn in layers of their own.
+    private let signal = NotchMascotSignalParts()
 
     // Props.
     private let sweatDrop = CAShapeLayer()
@@ -91,6 +95,9 @@ final class NotchMascotDecor {
         for layer in [wisps, sweatDrop, heat, note, mug, steam, zee, arrow, battery, batteryLevel, paw] { props.addSublayer(layer) }
         confetti = (0..<NotchMascotCreatures.confettiFlights.count).map { _ in CAShapeLayer() }
         confetti.forEach(props.addSublayer)
+        back.addSublayer(signal.back)
+        middle.addSublayer(signal.middle)
+        props.addSublayer(signal.front)
         for layer in [back, middle, props] + creatureLayers + propLayers {
             layer.actions = Self.noActions
         }
@@ -172,11 +179,18 @@ final class NotchMascotDecor {
             chipMark.fillColor = NotchMascotWearableShapes.rgb(0x6B5446).copy(alpha: 0.32)
             catNose.path = NotchMascotCreatures.cristobalSmile(size: size)
             catNose.fillColor = NotchMascotWearableShapes.rgb(0x6A3C2E)
-            fanHub.path = NotchMascotCreatures.cristobalSleeves(armsPose, size: size)
+            fanHub.path = armsPath(armsPose)
             fanHub.fillColor = palette.light.cgColor
             dogNose.path = NotchMascotCreatures.cristobalMug(size: size)
             dogNose.fillColor = NotchMascotWearableShapes.rgb(0xF6F6F8)
-            whiskers.path = NotchMascotCreatures.cristobalHands(armsPose, size: size)
+            dogNose.opacity = holdsMug ? 1 : 0
+            slimeDrip.path = NotchMascotCreatures.cristobalSteam(size: size)
+            slimeDrip.fillColor = nil
+            slimeDrip.strokeColor = NSColor.white.withAlphaComponent(0.6).cgColor
+            slimeDrip.lineWidth = max(0.4, size * 0.014)
+            slimeDrip.lineCap = .round
+            slimeDrip.opacity = holdsMug && !sleeping ? 1 : 0
+            whiskers.path = cristobalHandsPath(armsPose)
             whiskers.fillColor = skin
             fanScrews.path = NotchMascotCreatures.cristobalGlasses(size: size)
             fanScrews.fillColor = nil
@@ -189,7 +203,8 @@ final class NotchMascotDecor {
                 layer.strokeColor = ink
                 layer.lineWidth = outline
             }
-            show(catEars, catInnerEars, catTail, plume, chipMark, catNose, fanHub, dogNose, whiskers, fanScrews, ghostMouth)
+            show(catEars, catInnerEars, catTail, plume, chipMark, catNose, fanHub, dogNose, whiskers, fanScrews, ghostMouth,
+                 slimeDrip)
         case .whiteRabbit:
             // The palette dyes its apron; white fur, pink ears and nose, all
             // outlined in ink as in the comic.
@@ -351,40 +366,9 @@ final class NotchMascotDecor {
             chipMark.path = NotchMascotCreatures.penguinCheeks(size: size)
             chipMark.fillColor = NotchMascotWearableShapes.rgb(0xFFC83D)
             show(pins, plume, dogNose, chipMark)
-        case .hologram:
-            // One hue from head to toe, her hair a shade darker; a pink visor
-            // with its glints, mint boots and trim, fine lines of light across
-            // her, and the disc of light she is cast from.
-            pins.path = NotchMascotCreatures.hologramArms(armsPose, size: size)
-            pins.fillColor = palette.light.cgColor
-            plume.path = NotchMascotCreatures.hologramHair(size: size)
-            plume.fillColor = palette.shade.cgColor
-            dogNose.path = NotchMascotCreatures.hologramVisor(size: size)
-            dogNose.fillColor = NotchMascotWearableShapes.rgb(0xFF4FA8)
-            catNose.path = NotchMascotCreatures.hologramVisorGlint(size: size)
-            catNose.fillColor = NotchMascotWearableShapes.rgb(0xFFE3F2)
-            ghostMouth.path = NotchMascotCreatures.hologramTrim(size: size)
-            ghostMouth.fillColor = NotchMascotWearableShapes.rgb(0x46E6C4)
-            ghostMouth.opacity = 1
-            chipMark.path = NotchMascotCreatures.hologramScanlines(size: size)
-            chipMark.fillColor = NSColor.white.withAlphaComponent(0.24).cgColor
-            glowing(wisps, path: NotchMascotCreatures.hologramProjector(size: size), color: 0x5FF2FF)
-            show(pins, plume, dogNose, catNose, ghostMouth, chipMark, wisps)
-        case .android:
-            // Plates, fin and joints in graphite, the load gauge at its heart,
-            // a light on its helmet and the glow it floats on.
-            pins.path = NotchMascotCreatures.androidArms(armsPose, size: size)
-            pins.fillColor = palette.shade.cgColor
-            plume.path = NotchMascotCreatures.androidPlates(size: size)
-            plume.fillColor = NotchMascotWearableShapes.rgb(0x3A4252)
-            chipMark.path = NotchMascotCreatures.androidGauge(size: size)
-            chipMark.fillColor = NotchMascotWearableShapes.rgb(0x262B37)
-            dogNose.path = NotchMascotCreatures.androidGaugeCells(level: gaugeLevel, size: size)
-            dogNose.fillColor = NotchMascotWearableShapes.rgb(0xFFB547)
-            catNose.path = NotchMascotCreatures.androidShine(size: size)
-            catNose.fillColor = NSColor.white.withAlphaComponent(0.75).cgColor
-            glowing(wisps, path: NotchMascotCreatures.androidHover(size: size), color: 0xFFB547)
-            show(pins, plume, chipMark, dogNose, catNose, wisps)
+        case .hologram, .android:
+            // Drawn by their own parts, configured below for every figure.
+            break
         case .chip:
             pins.path = NotchMascotCreatures.chipPins(size: size)
             pins.fillColor = palette.shade.cgColor
@@ -436,6 +420,7 @@ final class NotchMascotDecor {
             slimeDrip.fillColor = palette.shade.cgColor
             show(slimeDrip)
         }
+        signal.configure(look: look, size: size, scale: scale, sleeping: sleeping, level: gaugeLevel)
         // A kitsune curls its tails, a penguin tucks its flippers and the
         // hologram and the android fold their arms instead.
         pins.opacity = sleeping && ![.kitsune, .penguin, .hologram, .android].contains(style) ? 0.45 : 1
@@ -520,17 +505,15 @@ final class NotchMascotDecor {
             morph(pins, to: NotchMascotCreatures.penguinFlippers(sleeping ? .tucked : .rest, size: size),
                   duration: duration, animated: animated)
         case .cristobal, .whiteRabbit:
-            // Arms folded for a nap; Cristóbal keeps hold of his mug.
+            // Arms folded for a nap; Cristóbal keeps hold of his mug if he has one.
             morph(fanHub, to: armsPath(armsPose), duration: duration, animated: animated)
             if look.style == .cristobal {
-                morph(whiskers, to: NotchMascotCreatures.cristobalHands(armsPose, size: size), duration: duration,
-                      animated: animated)
+                morph(whiskers, to: cristobalHandsPath(armsPose), duration: duration, animated: animated)
+                fade(slimeDrip, to: holdsMug && !sleeping ? 1 : 0, duration: duration, animated: animated)
             }
         case .hologram, .android:
             // Arms folded; the projection, or the light it floats on, dims.
-            morph(pins, to: armsPath(armsPose), duration: duration, animated: animated)
-            fade(wisps, to: sleeping ? 0.35 : 0.85, duration: duration, animated: animated)
-            if look.style == .hologram { fade(dogNose, to: sleeping ? 0.45 : 1, duration: duration, animated: animated) }
+            signal.setSleeping(sleeping, animated: animated)
         case .phoenix, .axolotl, .dog, .mouse, .capybara, .dragon, .frog, .swan, .ballerina, .danseur, .contemporary:
             fade(pins, to: sleeping ? 0.55 : 1, duration: duration, animated: animated)
             fade(plume, to: sleeping ? 0.55 : 1, duration: duration, animated: animated)
@@ -589,8 +572,9 @@ final class NotchMascotDecor {
             sweatDrop: mood == .working || mood == .overheated,
             heat: mood == .overheated,
             note: mood == .dancing,
-            mug: mood == .caffeinated,
-            steam: mood == .caffeinated,
+            // Cristóbal takes up his own mug instead.
+            mug: mood == .caffeinated && look.style != .cristobal,
+            steam: mood == .caffeinated && look.style != .cristobal,
             zee: mood == .asleep,
             arrow: mood == .downloading,
             battery: mood == .lowBattery,
@@ -609,6 +593,7 @@ final class NotchMascotDecor {
         applyGlow(sleeping ? 0 : ambient.glow)
         applyGauge()
         applyIdleTails()
+        syncMug(animated: motion)
     }
 
     /// The chip's pin-one mark lights up with the package's power: dark at
@@ -859,36 +844,15 @@ final class NotchMascotDecor {
             }
         case .cristobal, .whiteRabbit:
             let length = min(1.4, max(0.7, reaction.length))
-            if Self.cheers.contains(reaction) {
+            if reaction == .sip, look.style == .cristobal {
+                sip()
+            } else if Self.cheers.contains(reaction) {
                 playArms([.rest, .up, .up, .rest], duration: length, key: "flourish")
             } else if Self.waves.contains(reaction) {
                 playArms([.rest, .wave, .waveOut, .wave, .waveOut, .rest], duration: length, key: "flourish")
             }
         case .hologram, .android:
-            let length = min(1.4, max(0.7, reaction.length))
-            if Self.cheers.contains(reaction) {
-                playArms([.rest, .up, .up, .rest], duration: length, key: "flourish")
-            } else if Self.waves.contains(reaction) {
-                playArms([.rest, .wave, .waveOut, .wave, .waveOut, .rest], duration: length, key: "flourish")
-            }
-            if look.style == .hologram {
-                // The projection stutters: the lines of light and the visor
-                // flicker, and the disc she is cast from with them.
-                let flicker = keyframes("opacity", [1, 0.25, 1, 0.5, 1], [0, 0.12, 0.3, 0.42, 0.6])
-                flicker.duration = min(0.8, length)
-                for layer in [chipMark, dogNose, wisps] { layer.add(flicker, forKey: "flicker") }
-            } else {
-                // Its gauge flares white for a moment and the jet beneath it with it.
-                let flare = CAKeyframeAnimation(keyPath: "fillColor")
-                let amber = NotchMascotWearableShapes.rgb(0xFFB547), white = NotchMascotWearableShapes.rgb(0xFFF4DC)
-                flare.values = [amber, white, amber]
-                flare.keyTimes = [0, 0.3, 1]
-                flare.duration = min(0.9, length)
-                dogNose.add(flare, forKey: "flare")
-                let jet = keyframes("transform.scale.x", [1, 1.35, 1], [0, 0.3, 1], additive: false)
-                jet.duration = flare.duration
-                wisps.add(jet, forKey: "flare")
-            }
+            signal.flourish(reaction)
         case .slime, .minimal, .robot, .devourer, .shifter, .phoenix, .axolotl, .dog, .mouse,
              .capybara, .dragon, .frog, .swan, .ballerina, .danseur, .contemporary:
             break
@@ -959,6 +923,7 @@ final class NotchMascotDecor {
     /// Everything that plays stops, as when the companion is reset.
     func removeAllAnimations() {
         for layer in creatureLayers + propLayers where layer !== blades { layer.removeAllAnimations() }
+        signal.removeAllAnimations()
         applyAmbient()
     }
 
@@ -1004,27 +969,22 @@ final class NotchMascotDecor {
         pins.add(move, forKey: key)
     }
 
-    // MARK: Hologram and android
+    // MARK: Arms, gauge and light
 
-    /// Folded asleep, otherwise one hand on the hip.
+    /// Folded asleep, otherwise at rest.
     private var armsPose: NotchMascotCreatures.ArmsPose { sleeping ? .folded : .rest }
 
-    /// The android's gauge: one cell lit at rest, all four with the CPU
-    /// flat out, none asleep.
+    /// The android's gauge: a quarter of its ring lit at rest, all of it
+    /// with the CPU flat out, none asleep.
     private var gaugeLevel: Int { sleeping ? 0 : min(4, 1 + Int(ambient.effort * 4)) }
 
     private func armsPath(_ pose: NotchMascotCreatures.ArmsPose) -> CGPath {
-        switch look.style {
-        case .android: return NotchMascotCreatures.androidArms(pose, size: size)
-        case .cristobal: return NotchMascotCreatures.cristobalSleeves(pose, size: size)
-        case .whiteRabbit: return NotchMascotCreatures.rabbitArms(pose, size: size)
-        default: return NotchMascotCreatures.hologramArms(pose, size: size)
-        }
+        look.style == .cristobal ? NotchMascotCreatures.cristobalSleeves(pose, mug: holdsMug, size: size)
+            : NotchMascotCreatures.rabbitArms(pose, size: size)
     }
 
-    /// The comic's two hold their arms in front, over the jumper or the
-    /// apron; the hologram and the android behind.
-    private var armsLayer: CAShapeLayer { [.cristobal, .whiteRabbit].contains(look.style) ? fanHub : pins }
+    /// The comic's two hold their arms in front, over the jumper or the apron.
+    private var armsLayer: CAShapeLayer { fanHub }
 
     private func playArms(_ poses: [NotchMascotCreatures.ArmsPose], duration: TimeInterval, key: String) {
         let times = poses.indices.map { NSNumber(value: Double($0) / Double(max(1, poses.count - 1))) }
@@ -1039,39 +999,71 @@ final class NotchMascotDecor {
         armsLayer.add(move(poses.map(armsPath)), forKey: key)
         // Cristóbal's hands go with his sleeves.
         if look.style == .cristobal {
-            whiskers.add(move(poses.map { NotchMascotCreatures.cristobalHands($0, size: size) }), forKey: key)
+            whiskers.add(move(poses.map(cristobalHandsPath)), forKey: key)
         }
     }
 
-    /// The android's gauge follows the CPU as the load changes.
+    // MARK: Cristóbal's coffee
+    /// Cristóbal has his mug in the morning, while Keep Awake holds the Mac
+    /// up, and for a sip; the rest of the day his hands are free.
+    private var holdsMug: Bool {
+        guard look.style == .cristobal else { return false }
+        return Self.coffeeHours.contains(Calendar.current.component(.hour, from: Date()))
+            || ambient.ambient == .caffeinated || CACurrentMediaTime() < sipUntil
+    }
+    /// The morning, when his coffee goes everywhere with him.
+    static let coffeeHours = 7..<11
+    private func cristobalHandsPath(_ pose: NotchMascotCreatures.ArmsPose) -> CGPath {
+        NotchMascotCreatures.cristobalHands(pose, mug: holdsMug, size: size)
+    }
+    /// Takes up the mug or puts it away when the hour, Keep Awake or a sip says so.
+    private func syncMug(animated: Bool) {
+        guard look.style == .cristobal, size > 0 else { return }
+        let shown: Float = holdsMug ? 1 : 0
+        guard dogNose.opacity != shown else { return }
+        morph(fanHub, to: armsPath(armsPose), duration: 0.35, animated: animated)
+        morph(whiskers, to: cristobalHandsPath(armsPose), duration: 0.35, animated: animated)
+        fade(dogNose, to: shown, duration: 0.3, animated: animated)
+        fade(slimeDrip, to: holdsMug && !sleeping ? 1 : 0, duration: 0.3, animated: animated)
+    }
+    /// He brings the mug out if it was put away, lifts it to his mouth for
+    /// a sip, lowers it, and puts it away again if it is not coffee time.
+    private func sip() {
+        guard look.style == .cristobal, size > 0, !sleeping else { return }
+        let length: TimeInterval = 1.8
+        sipUntil = CACurrentMediaTime() + length + 0.6
+        syncMug(animated: true)
+        let hold = NotchMascotCreatures.cristobalSleeves(armsPose, mug: true, size: size)
+        let lifted = NotchMascotCreatures.cristobalSleeves(armsPose, mug: true, sipping: true, size: size)
+        let holdHands = NotchMascotCreatures.cristobalHands(armsPose, mug: true, size: size)
+        let liftedHands = NotchMascotCreatures.cristobalHands(armsPose, mug: true, sipping: true, size: size)
+        let times: [NSNumber] = [0, 0.3, 0.7, 1]
+        func move(_ keyPath: String, _ values: [Any]) -> CAKeyframeAnimation {
+            let move = CAKeyframeAnimation(keyPath: keyPath)
+            move.values = values
+            move.keyTimes = times
+            move.duration = length
+            move.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            return move
+        }
+        fanHub.add(move("path", [hold, lifted, lifted, hold]), forKey: "sip")
+        whiskers.add(move("path", [holdHands, liftedHands, liftedHands, holdHands]), forKey: "sip")
+        let lift = NotchMascotCreatures.cristobalSipLift
+        let up = NSValue(caTransform3D: CATransform3DMakeTranslation(lift.dx * size, lift.dy * size, 0))
+        let still = NSValue(caTransform3D: CATransform3DIdentity)
+        for layer in [dogNose, slimeDrip] { layer.add(move("transform", [still, up, up, still]), forKey: "sip") }
+        DispatchQueue.main.asyncAfter(deadline: .now() + length + 0.7) { [weak self] in self?.syncMug(animated: true) }
+    }
+    /// The android's gauge follows the CPU as the load changes, and the
+    /// hologram's and the android's light idles while motion is welcome.
     private func applyGauge() {
-        guard look.style == .android else { return }
-        dogNose.path = NotchMascotCreatures.androidGaugeCells(level: gaugeLevel, size: size)
+        signal.setLevel(gaugeLevel)
+        signal.setIdle(motion && !sleeping)
     }
 
-    /// Empty to full, a cell at a time, then back to what the CPU says.
+    /// Empty to full, a quarter at a time, then back to what the CPU says.
     func charge(for duration: TimeInterval) {
-        guard look.style == .android, size > 0, !sleeping, duration > 0 else { return }
-        let levels = [0, 1, 2, 3, 4, 4]
-        let fill = CAKeyframeAnimation(keyPath: "path")
-        fill.values = levels.map { NotchMascotCreatures.androidGaugeCells(level: $0, size: size) }
-        fill.keyTimes = levels.indices.map { NSNumber(value: Double($0) / Double(levels.count - 1)) }
-        fill.calculationMode = .discrete
-        fill.duration = duration
-        dogNose.add(fill, forKey: "charge")
-    }
-
-    /// A shape of light with a soft glow round it: a projector's disc, the
-    /// jet an android floats on.
-    private func glowing(_ layer: CAShapeLayer, path: CGPath, color: UInt32) {
-        let light = NotchMascotWearableShapes.rgb(color)
-        layer.path = path
-        layer.fillColor = light
-        layer.shadowColor = light
-        layer.shadowOffset = .zero
-        layer.shadowRadius = max(1, size * 0.06)
-        layer.shadowOpacity = 0.9
-        layer.opacity = sleeping ? 0.35 : 0.85
+        signal.charge(for: duration)
     }
 
     /// Two wisps of foxfire flicker up beside its head and go out.

@@ -699,7 +699,13 @@ struct NotchMascotSettings: View {
         }
         if gangVisits != NotchMascotGangVisits.off.rawValue {
             SettingsChoiceRow(symbol: "person.3.sequence", title: gangText.atOnce, selection: $gangAtOnce) {
-                ForEach(Array(NotchMascotGangVisits.atOnce), id: \.self) { Text(verbatim: "\($0)").tag($0) }
+                ForEach(NotchMascotGangVisits.atOnceChoices, id: \.self) { choice in
+                    if choice == NotchMascotGangVisits.everyone {
+                        Text(gangText.everyone).tag(choice)
+                    } else {
+                        Text(verbatim: "\(choice)").tag(choice)
+                    }
+                }
             }
             .transition(.opacity)
         }
@@ -1047,7 +1053,7 @@ private struct NotchMascotStageCard: View {
     /// What it does with the thing it wears, alone, here on the stage and,
     /// out on the desktop, there too.
     private func playItemUse() {
-        guard awake, visit == nil, comboWork.isEmpty, let use = NotchMascotItemUse.of(look.accessory) else { return }
+        guard awake, visit == nil, comboWork.isEmpty, let use = NotchMascotItemUse.of(look.accessory, style: look.style) else { return }
         NotchService.shared.useMascotItemOnDesktop()
         comboName = FeatureStrings.notchMascotLife(language).name(of: look.accessory)
         var work: [DispatchWorkItem] = []

@@ -1392,6 +1392,8 @@ final class NotchService: ObservableObject {
             if mascotEnabled { mascotDesktop.goHome() } else { mascotDesktop.dismiss(); mascotOnDesktop = false }
         }
         if !mascotEnabled { dismissMascotFriend() }
+        // A colour picked for a figure stays with that figure, wherever it comes out.
+        NotchMascotStyleColors.track()
         // Guests come by while the companion may roam the desktop at all.
         mascotGang.sync()
         refreshPresentation(animated: (mascotToggled || hidingToggled) && !expanded)

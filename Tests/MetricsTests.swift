@@ -11293,9 +11293,11 @@ struct MetricsTests {
                            && words.text(for: .review).contains("\n") && words.text(for: .runRight).hasSuffix(">")
                            && words.text(for: .runLeft).hasPrefix("<")
                    }, "the sign has words for every row in every language, done over take a look")
-            expect(NotchMascotRoam.size(for: NotchMascotLook(style: .whiteRabbit, shape: .ball, palette: .pearl))
-                   == NotchMascotRoam.size(for: NotchMascotLook(style: .cat, shape: .ball, palette: .pearl)),
-                   "drawn, the comic's two stand on the desktop at every figure's size")
+            let rabbitSize = NotchMascotRoam.size(for: NotchMascotLook(style: .whiteRabbit, shape: .ball, palette: .pearl))
+            let cristobalSize = NotchMascotRoam.size(for: NotchMascotLook(style: .cristobal, shape: .ball, palette: .pearl))
+            expect(cristobalSize == NotchMascotRoam.size(for: NotchMascotLook(style: .cat, shape: .ball, palette: .pearl))
+                   && rabbitSize < cristobalSize && rabbitSize >= cristobalSize * 0.7,
+                   "drawn, Cristóbal stands at every figure's size and the White Rabbit almost a head shorter")
             expect(NotchMascotSpriteChoreography.walking(dx: 3) == .runRight
                    && NotchMascotSpriteChoreography.walking(dx: -3) == .runLeft
                    && NotchMascotSpriteChoreography.walking(dx: 0.2) == .idle,
@@ -11614,11 +11616,19 @@ struct MetricsTests {
                 // The Wonder Boy side: the catalog, the state, the wardrobe, the words.
                 do {
                     let all = NotchMascotSynergyCatalog.all
-                    expect(all.count == 320 && NotchMascotSynergyCatalog.total == 320, "the catalog holds 320 combos")
-                    expect(all.map(\.number) == Array(1...320) && Set(all.map(\.id)).count == 320,
-                           "the combos are numbered 1 to 320 with an id each")
+                    expect(all.count == 340 && NotchMascotSynergyCatalog.total == 340, "the catalog holds 340 combos")
+                    expect(all.map(\.number) == Array(1...340) && Set(all.map(\.id)).count == 340,
+                           "the combos are numbered 1 to 340 with an id each")
                     let sizes = SynergyCategory.allCases.map { NotchMascotSynergyCatalog.synergies(in: $0).count }
-                    expect(sizes == [15, 20, 15, 15, 12, 12, 12, 16, 10, 8, 50, 47, 14, 12, 16, 22, 24], "each family holds its share: \(sizes)")
+                    expect(sizes == [15, 20, 15, 15, 12, 12, 12, 16, 10, 8, 50, 47, 14, 12, 16, 22, 24, 20], "each family holds its share: \(sizes)")
+                    expect(NotchMascotSynergyCatalog.synergies(in: .oddities).allSatisfy { synergy in
+                        switch synergy.match {
+                        case .pair(let a, let b): return a.isOddity || b.isOddity
+                        case .twin(let a): return a.isOddity
+                        default: return false
+                        }
+                    } && NotchMascotAccessory.oddityItems.allSatisfy { !NotchMascotSynergyCatalog.partners(of: $0).isEmpty },
+                           "every oddity makes a combo with something, and every oddities combo needs one")
                     for synergy in all {
                         for starter in [true, false] {
                             let play = synergy.play(starterIsLeader: starter)
@@ -11668,6 +11678,37 @@ struct MetricsTests {
                         .flatMap(\.steps).compactMap { $0.action.heldMood }
                     expect(faces.contains(.dizzy) && faces.contains(.angry) && faces.contains(.mischievous),
                            "the party gear pulls the new faces")
+                    let odd = NotchMascotAccessory.oddityItems.compactMap { NotchMascotItemUse.of($0) }.flatMap(\.steps)
+                    let oddFaces = Set(odd.compactMap { $0.action.heldMood })
+                    let balloons = odd.compactMap { step -> NotchMascotEmote? in
+                        if case .emote(let emote) = step.action { return emote } else { return nil }
+                    }
+                    expect(oddFaces.isSuperset(of: [.greedy, .embarrassed, .terrified, .starstruck, .dizzy, .smug])
+                           && balloons.contains(.idea) && balloons.contains(.exclaim) && balloons.contains(.heart),
+                           "the oddities pull faces and pop balloons")
+                    // Figures with a way of their own with a thing.
+                    let twists = NotchMascotItemTwists.pairs
+                    expect(twists.count >= 25 && Set(twists).count == twists.count, "at least twenty-five figures have a twist, each once")
+                    var twistPrints = Set(uses.map { "\($0.1.steps)" })
+                    for pair in twists {
+                        let twisted = NotchMascotItemUse.of(pair.item, style: pair.style)
+                        expect(twisted != nil && twisted != NotchMascotItemUse.of(pair.item)
+                               && twisted == NotchMascotItemUse.twist(pair.item, style: pair.style),
+                               "the \(pair.style.rawValue) does its own thing with the \(pair.item.rawValue)")
+                        guard let twisted else { continue }
+                        expect(twistPrints.insert("\(twisted.steps)").inserted,
+                               "\(pair.style.rawValue) \(pair.item.rawValue) is a twist of its own")
+                        expect(twisted.length > 0.5 && twisted.length < 15 && !twisted.islandBeats(byLeader: false).isEmpty,
+                               "\(pair.style.rawValue) \(pair.item.rawValue) plays in a few seconds, in the island too")
+                        for step in twisted.steps {
+                            if case .marker(let text) = step.action {
+                                expect(NotchMascotRPGShapes.cells(of: text) == text.count * 4 - 1,
+                                       "\(pair.style.rawValue) marker \(text) can be drawn in pixels")
+                            }
+                        }
+                    }
+                    expect(Set(twists.map(\.item)).intersection(NotchMascotAccessory.oddityItems).count >= 12,
+                           "most oddities have a figure that takes them its own way")
                     let mushroom = NotchMascotItemUse.of(.magicMushroom)?.steps ?? []
                     let grows = mushroom.compactMap { step -> (TimeInterval, TimeInterval)? in
                         if case .grow(let length) = step.action { return (step.at, length) } else { return nil }
@@ -11965,15 +12006,18 @@ struct MetricsTests {
                                        && NotchMascotCreatures.body(style, size: 40).map { !$0.isEmpty } == true
                                }, "Cristóbal and the White Rabbit are drawn figures that wear items and take a colour")
                         let poses = NotchMascotCreatures.ArmsPose.allCases
-                        expect(Set(poses.map { elements(NotchMascotCreatures.cristobalSleeves($0, size: 40)) }).count == 1
-                               && Set(poses.map { elements(NotchMascotCreatures.cristobalHands($0, size: 40)) }).count == 1
+                        let holds = [(false, false), (true, false), (true, true)]
+                        expect(Set(holds.flatMap { hold in poses.map {
+                                   elements(NotchMascotCreatures.cristobalSleeves($0, mug: hold.0, sipping: hold.1, size: 40)) } }).count == 1
+                               && Set(holds.flatMap { hold in poses.map {
+                                   elements(NotchMascotCreatures.cristobalHands($0, mug: hold.0, sipping: hold.1, size: 40)) } }).count == 1
                                && Set(poses.map { elements(NotchMascotCreatures.rabbitArms($0, size: 40)) }).count == 1,
                                "their arms and hands morph between every pose")
                         let mug = NotchMascotCreatures.cristobalMug(size: 40).boundingBox
                         expect(poses.allSatisfy { pose in
-                                   let hands = NotchMascotCreatures.cristobalHands(pose, size: 40)
+                                   let hands = NotchMascotCreatures.cristobalHands(pose, mug: true, size: 40)
                                    return hands.boundingBox.intersects(mug.insetBy(dx: -4, dy: -4))
-                               }, "whatever he does with his other hand, Cristóbal keeps hold of his mug")
+                               }, "with his mug, whatever he does with his other hand, Cristóbal keeps hold of it")
                         expect(comic.allSatisfy { style in
                                    let box = NotchMascotCreatures.body(style, size: 40)?.boundingBox ?? .null
                                    return box.minX >= 0 && box.maxX <= 40 && box.minY >= 0 && box.maxY <= 40
@@ -12004,17 +12048,30 @@ struct MetricsTests {
                         let poses = NotchMascotCreatures.ArmsPose.allCases
                         expect(Set(poses.map { elements(NotchMascotCreatures.hologramArms($0, size: 40)) }).count == 1
                                && Set(poses.map { elements(NotchMascotCreatures.androidArms($0, size: 40)) }).count == 1
+                               && Set(poses.map { elements(NotchMascotCreatures.androidHands($0, size: 40)) }).count == 1
                                && Set((0...4).map { elements(NotchMascotCreatures.androidGaugeCells(level: $0, size: 40)) }).count == 1,
-                               "their arms and the android's gauge morph between their poses")
+                               "their arms, the android's hands and its gauge morph between their poses")
                         let gauge = NotchMascotCreatures.androidGauge(size: 40).boundingBox
-                        // The middle of each cell, from the bottom up.
-                        let cells = (0..<4).map { CGPoint(x: 0.5 * 40, y: (0.606 - CGFloat($0) * 0.027) * 40) }
+                        // The middle of each quarter of the ring, clockwise from the top.
+                        let core = NotchMascotCreatures.androidCoreCenter, radii = NotchMascotCreatures.androidGaugeRadii
+                        let reach = (radii.inner + radii.outer) / 2
+                        let cells = (0..<4).map { quarter -> CGPoint in
+                            let angle = -CGFloat.pi / 4 + CGFloat(quarter) * .pi / 2
+                            return CGPoint(x: (core.x + reach * cos(angle)) * 40, y: (core.y + reach * sin(angle)) * 40)
+                        }
                         expect((0...4).allSatisfy { level in
                                    let lit = NotchMascotCreatures.androidGaugeCells(level: level, size: 40)
                                    return cells.indices.allSatisfy { lit.contains(cells[$0]) == ($0 < level) }
                                }
                                && gauge.contains(NotchMascotCreatures.androidGaugeCells(level: 4, size: 40).boundingBox),
-                               "the gauge fills from empty to full, a cell at a time, inside its frame")
+                               "the gauge's ring fills from empty to full, a quarter at a time, inside its socket")
+                        expect([NotchMascotPalette.pearl, .lemon, .sky].allSatisfy { palette in
+                                   let colors = NotchMascotSignalColors(light: palette.light, shade: palette.shade)
+                                   return colors.skin.hsb.2 > 0.85 && colors.glow.hsb.2 > 0.95
+                               }
+                               && NotchMascotSignalColors(light: NotchMascotColor(red: 0.1, green: 0.1, blue: 0.1),
+                                                          shade: .ink).skin.hsb.2 > 0.85,
+                               "the hologram stays a figure of light and the android's eyes glow, whatever the colour")
                         expect(newcomers.allSatisfy { style in
                                    let box = NotchMascotCreatures.body(style, size: 40)?.boundingBox ?? .null
                                    return box.minX >= 0 && box.maxX <= 40 && box.minY >= 0 && box.maxY <= 40
@@ -12188,15 +12245,17 @@ struct MetricsTests {
                            "snacks score in arcade points")
 
                     // The wardrobe: a hundred and nine, drawn and named in every language.
-                    expect(NotchMascotAccessory.allCases.count == 113 && NotchMascotAccessory.rpgItems.count == 32
+                    expect(NotchMascotAccessory.allCases.count == 129 && NotchMascotAccessory.rpgItems.count == 32
                            && NotchMascotAccessory.shopItems.count == 24 && NotchMascotAccessory.danceItems.count == 7
                            && NotchMascotAccessory.toyItems.count == 12 && NotchMascotAccessory.partyItems.count == 16
-                           && NotchMascotAccessory.wardrobe.count == 109, "a hundred and thirteen accessories, a hundred and nine to pick")
+                           && NotchMascotAccessory.oddityItems.count == 16
+                           && NotchMascotAccessory.wardrobe.count == 125,
+                           "a hundred and twenty-nine accessories, a hundred and twenty-five to pick")
                     expect(NotchMascotAccessory.rpgItems.allSatisfy { $0.isPurchasable }, "the thirty-two are bought in the shop now")
                     let sample = NotchMascotWearableFrame(outline: CGRect(x: 4, y: 6, width: 20, height: 18), size: 28,
                                                           leftEye: CGPoint(x: 11, y: 14), rightEye: CGPoint(x: 18, y: 14))
                     for item in NotchMascotAccessory.rpgItems + NotchMascotAccessory.danceItems + NotchMascotAccessory.toyItems
-                        + NotchMascotAccessory.partyItems {
+                        + NotchMascotAccessory.partyItems + NotchMascotAccessory.oddityItems {
                         let parts = NotchMascotWearableShapes.parts(for: item, in: sample)
                         expect(!parts.isEmpty && parts.allSatisfy { !$0.path.boundingBoxOfPath.isNull }, "\(item) is drawn")
                     }
@@ -12229,7 +12288,7 @@ struct MetricsTests {
             do {
                 expect(NotchMascotRarity.allCases.reduce(0) { $0 + $1.chance } == 100, "the rarities share a hundred chances")
                 let purchasable = NotchMascotAccessory.rpgItems + NotchMascotAccessory.shopItems + NotchMascotAccessory.danceItems + NotchMascotAccessory.toyItems
-                    + NotchMascotAccessory.partyItems
+                    + NotchMascotAccessory.partyItems + NotchMascotAccessory.oddityItems
                 expect(purchasable.allSatisfy { $0.price > 0 && $0.rarity.priceRange.contains($0.price) },
                        "every thing for sale costs what its rarity costs")
                 expect(NotchMascotAccessory.allCases.filter { !$0.isPurchasable }.allSatisfy { $0.price == 0 },
@@ -12253,12 +12312,17 @@ struct MetricsTests {
                     expect(party.isComplete && Set(party.items).count == NotchMascotPartyStrings.itemCount
                            && NotchMascotAccessory.partyItems.allSatisfy { party.name(of: $0) != nil && party.gag(of: $0) != nil },
                            "\(language) names every party thing apart and says what it does")
+                    let oddities = FeatureStrings.notchMascotOddities(language)
+                    expect(oddities.isComplete && Set(oddities.items).count == NotchMascotOdditiesStrings.itemCount
+                           && NotchMascotAccessory.oddityItems.allSatisfy { oddities.name(of: $0) != nil && oddities.gag(of: $0) != nil },
+                           "\(language) names every oddity apart and says what it does")
                 }
                 let forSale = Set(NotchMascotShop.unowned)
                 expect(NotchMascotAccessory.danceItems.allSatisfy { forSale.contains($0) || NotchMascotShop.owns($0) }
                        && NotchMascotAccessory.toyItems.allSatisfy { forSale.contains($0) || NotchMascotShop.owns($0) }
-                       && NotchMascotAccessory.partyItems.allSatisfy { forSale.contains($0) || NotchMascotShop.owns($0) },
-                       "the dance gear, the toys and the party things can turn up in the shop")
+                       && NotchMascotAccessory.partyItems.allSatisfy { forSale.contains($0) || NotchMascotShop.owns($0) }
+                       && NotchMascotAccessory.oddityItems.allSatisfy { forSale.contains($0) || NotchMascotShop.owns($0) },
+                       "the dance gear, the toys, the party things and the oddities can turn up in the shop")
                 // Luck: the dice roll one to six and a six pays; the cookie reads
                 // one of six fortunes; only a few payouts a day.
                 expect((0..<6).map { NotchMascotLuck.face(random: (Double($0) + 0.5) / 6) } == [1, 2, 3, 4, 5, 6]
@@ -12498,7 +12562,7 @@ struct MetricsTests {
             let wardrobe = NotchMascotWardrobe.self
             expect(NotchMascotAccessory.crown.unlockLevel == 10 && NotchMascotAccessory.eyePatch.unlockLevel == 18
                    && NotchMascotAccessory.wardrobe.count == 18 + NotchMascotAccessory.rpgItems.count + NotchMascotAccessory.shopItems.count + NotchMascotAccessory.danceItems.count + NotchMascotAccessory.toyItems.count
-                       + NotchMascotAccessory.partyItems.count
+                       + NotchMascotAccessory.partyItems.count + NotchMascotAccessory.oddityItems.count
                    && NotchMascotAccessory.wardrobe.prefix(18).allSatisfy { $0.unlockLevel < NotchMascotForm.golden.unlockLevel },
                    "one accessory unlocks at each of the first eighteen levels, all before the first transformation")
             expect(NotchMascotAccessory.monocle.placement == .eyes && NotchMascotAccessory.eyePatch.placement == .eyes
@@ -12688,6 +12752,23 @@ struct MetricsTests {
                     } else if item.placement == .hand {
                         expect(!bounds.intersects(eyes), "\(item.rawValue) in the \(style.rawValue)'s hand leaves its eyes clear")
                     }
+                }
+            }
+            // A frog's eyes bulge out of the top of its head: a hat sits
+            // between them rather than over them.
+            if let face = NotchMascotCreatures.face(.frog), let anatomy = NotchMascotCreatures.anatomy(.frog),
+               let head = NotchMascotCreatures.headOutline(.frog, size: 40) {
+                let frog = NotchMascotWearableFrame(outline: head, size: 40,
+                                                    leftEye: CGPoint(x: face.leftEye.x * 40, y: face.leftEye.y * 40),
+                                                    rightEye: CGPoint(x: face.rightEye.x * 40, y: face.rightEye.y * 40),
+                                                    anatomy: anatomy.scaled(by: 40))
+                let leftEdge = (face.leftEye.x + face.eyeSize.width / 2) * 40
+                let rightEdge = (face.rightEye.x - face.eyeSize.width / 2) * 40
+                for hat in [NotchMascotAccessory.santaHat, .beanie, .knightHelm, .cap, .jesterHat, .crackerCrown] {
+                    let bounds = NotchMascotWearableShapes.parts(for: hat, in: frog)
+                        .reduce(CGRect.null) { $0.union($1.path.boundingBoxOfPath) }
+                    expect(bounds.minX > leftEdge - 1 && bounds.maxX < rightEdge + 1,
+                           "the frog's \(hat.rawValue) leaves its bulging eyes clear")
                 }
             }
             expect(NotchMascotWearables.behindBody(.angelWings) && NotchMascotWearables.behindBody(.jetpack)
@@ -13026,6 +13107,7 @@ struct MetricsTests {
                 ("DashboardMetricsTests", DashboardMetricsTests.run),
                 ("NotchMascotRuntimeTests", NotchMascotRuntimeTests.run),
                 ("NotchMascotGroupSynergyTests", NotchMascotGroupSynergyTests.run),
+                ("NotchMascotFusionTests", NotchMascotFusionTests.run),
                 ("IslandPanelTests", IslandPanelTests.run),
             ]
             for (name, run) in suites { suite.run(name) { run(suite) } }

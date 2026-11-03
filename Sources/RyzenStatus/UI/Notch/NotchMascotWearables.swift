@@ -32,7 +32,7 @@ final class NotchMascotWearables {
         switch accessory {
         case .topHat, .beanie, .crown, .witchHat, .santaHat, .partyHat, .headphones,
              .cap, .cowboyHat, .chefHat, .halo, .knightHelm, .vikingHelm,
-             .trafficCone, .tinfoilHat, .unicornHorn: return true
+             .trafficCone, .tinfoilHat, .unicornHorn, .jesterHat, .crackerCrown, .ufoHat, .beeHalo: return true
         default: return false
         }
     }
@@ -156,6 +156,18 @@ struct NotchMascotWearableFrame: Equatable {
         anatomy?.nose ?? CGPoint(x: center, y: (leftEye.y + rightEye.y) / 2 + outline.height * 0.12)
     }
 
+    /// Where a hat goes. On most figures that is the head's outline; on one
+    /// whose eyes bulge out of the top of its head, as the frog's do, a hat
+    /// pulled over the whole outline would cover them, so it sits smaller,
+    /// nestled between the two.
+    var forHats: NotchMascotWearableFrame {
+        let eyeY = (leftEye.y + rightEye.y) / 2
+        guard anatomy != nil, eyeY - outline.minY < width * 0.2 else { return self }
+        let gap = abs(rightEye.x - leftEye.x) * 0.66
+        var copy = self
+        copy.outline = CGRect(x: center - gap / 2, y: outline.minY, width: gap, height: outline.height)
+        return copy
+    }
     /// Its mouth.
     var mouth: CGPoint {
         anatomy?.mouth ?? CGPoint(x: center, y: (leftEye.y + rightEye.y) / 2 + outline.height * 0.2)
@@ -182,7 +194,8 @@ enum NotchMascotWearableShapes {
                 blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
     }
 
-    static func parts(for accessory: NotchMascotAccessory, in f: NotchMascotWearableFrame) -> [NotchMascotWearablePart] {
+    static func parts(for accessory: NotchMascotAccessory, in frame: NotchMascotWearableFrame) -> [NotchMascotWearablePart] {
+        let f = accessory.placement == .head ? frame.forHats : frame
         let w = f.width, cx = f.center, top = f.top
         let line = max(0.8, f.size * 0.045)
         switch accessory {

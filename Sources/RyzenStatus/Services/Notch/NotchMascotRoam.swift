@@ -16,10 +16,11 @@ enum NotchMascotRoam {
     static let spriteSize: CGFloat = 104
 
     /// Its size on the desktop with `look`: a sprite as tall as it stands
-    /// beside the others.
+    /// beside the others, and a fused one bigger than either.
     static func size(for look: NotchMascotLook) -> CGFloat {
-        guard let sheet = look.style.sprite else { return drawnSize }
-        return (spriteSize * sheet.stature).rounded()
+        let fused = look.fusion?.scale ?? 1
+        guard let sheet = look.style.sprite else { return (drawnSize * look.style.stature * fused).rounded() }
+        return (spriteSize * sheet.stature * fused).rounded()
     }
 
     /// Its window: room around it to lean, hop and show its hearts.

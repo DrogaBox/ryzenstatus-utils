@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.77.0] — 2026-11-03 — kexts 3.40.0 (No kext changes)
+
+**Fusion!** Two companions out on the desktop can now dance the fusion dance and merge into one, and the gang gets more of everything.
+
+### Added
+
+- **Fusion**: two companions who get on well sometimes do the three-beat fusion dance, flash and merge into a single, bigger companion with both their colours, an aura and earrings, who shows off its powers for a while and then splits back into two, a little dizzy. Many pairs have a fused form all their own, with its own name and look, and some only appear at certain times. Not every fusion goes to plan. Right-click a companion to ask it to fuse with another one that is out, or to split them apart.
+- **Sixteen oddities in the shop**: a pizza slice, a kazoo, bubble gum, a cracker crown, a rubber chicken, a pet snail, a jester hat, a snorkel and mask, a pirate hook, a feather boa, roller skates, a lantern, a wizard beard, a halo of bees, a spider monocle and a little UFO hat. Each has a thing of its own to do, many companions do something unique with certain items, and 20 new combos use them in a new family.
+- **Every companion can visit at once**: the "at once" choice for visits now goes up to 6, 8 and 12, and All lets one of every figure come by together.
+
+### Changed
+
+- **The hologram and the android, drawn anew**: the hologram is now a little idol cast in light, with twin tails, big eyes and a cone of light from her projector; the android has a rounded helmet with a glass face where its eyes glow, and its CPU gauge is a ring at its heart. Both take every colour well and every item sits where it should on them.
+- **Colours stay with each companion**: the colour you pick for a figure is remembered for it, so it wears it again when you pick it later, when it comes out as the friend, and when it drops by on a visit.
+- **Visits come sooner**: set to frequent, the first ones arrive within a minute and more keep coming, several at a time, until as many are out as you allow.
+- **Small changes to two of the companions**: one only carries what it holds at certain times of day, and the two stand at their true heights beside each other.
+
+### Fixed
+
+- **Hats no longer cover the frog's eyes**, and the pointe shoes' ribbons stay on the cat's feet.
+
 ## [1.76.0] — 2026-11-02 — kexts 3.40.0 (No kext changes)
 
 **The companions get a gang.** The desktop is no longer a place for two: other companions drop by, meet each other and play together, every face can now pull a real cartoon expression, and there is a lot more to do with them.

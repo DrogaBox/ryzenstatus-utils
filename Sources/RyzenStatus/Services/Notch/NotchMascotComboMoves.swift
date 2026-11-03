@@ -182,6 +182,22 @@ struct NotchMascotItemSignature: Equatable {
         case .jugglingBalls: return .init(.hop, .ball, .sparkles, .celebrate)
         case .walkieTalkie: return .init(.sneak, .spark, .sparkles, .peek)
         case .picnicBasket: return .init(.bow, .snack(.apple), .hearts, .relax)
+        case .pizzaSlice: return .init(.hop, .pie, .hearts, .sip)
+        case .kazoo: return .init(.strut, .note, .confetti, .groove)
+        case .bubbleGum: return .init(.float, .balloon, .confetti, .surprised)
+        case .crackerCrown: return .init(.bow, .star, .confetti, .celebrate)
+        case .rubberChicken: return .init(.shiver, .duck, .confetti, .surprised)
+        case .snail: return .init(.sneak, .heart, .sparkles, .relax)
+        case .jesterHat: return .init(.backflip, .ball, .confetti, .celebrate)
+        case .snorkelMask: return .init(.float, .snowball, .sparkles, .perk)
+        case .pirateHook: return .init(.strut, .coin, .coins, .ready)
+        case .featherBoa: return .init(.spin, .flower, .hearts, .wave)
+        case .rollerSkates: return .init(.charge, .star, .confetti, .bounce)
+        case .lantern: return .init(.sneak, .spark, .sparkles, .peek)
+        case .wizardBeard: return .init(.bow, .potion, .magic, .relax)
+        case .beeHalo: return .init(.shiver, .spark, .smoke, .panic)
+        case .spiderMonocle: return .init(.slip, .key, .smoke, .panic)
+        case .ufoHat: return .init(.float, .bolt, .magic, .surprised)
         }
     }
 }

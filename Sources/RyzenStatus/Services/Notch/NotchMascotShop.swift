@@ -37,23 +37,26 @@ extension NotchMascotAccessory {
              .rubberDuck, .bananaPeel, .clownNose, .whoopeeCushion, .trafficCone, .wiltedFlower, .tissueBox,
              .piggyBank, .alarmClock, .rosinBox, .plantarBall,
              .umbrella, .yoyo, .bubbleWand, .fortuneCookie,
-             .maracas, .soccerBall, .pillow, .marshmallowStick, .paperPlane, .whistle:
+             .maracas, .soccerBall, .pillow, .marshmallowStick, .paperPlane, .whistle,
+             .pizzaSlice, .kazoo, .bubbleGum, .crackerCrown, .rubberChicken:
             return .common
         case .legendShield, .knightHelm, .vikingHelm, .wingBoots, .rangerBow, .boomerang, .heartPotion, .bardLute,
              .dumbbells, .detectiveLens, .gameController, .goldenKey,
              .creamPie, .fakeMustache, .stormCloud, .lonelyBalloon, .teddyBear, .tinfoilHat, .dynamiteStick,
              .icePack, .warmUpBooties, .pointeShoes,
              .propellerCap, .springShoes, .skateboard, .horseshoeMagnet,
-             .kite, .waterPistol, .megaphone, .hulaHoop, .jugglingBalls, .walkieTalkie, .picnicBasket:
+             .kite, .waterPistol, .megaphone, .hulaHoop, .jugglingBalls, .walkieTalkie, .picnicBasket,
+             .snail, .jesterHat, .snorkelMask, .pirateHook, .featherBoa, .rollerSkates, .lantern:
             return .uncommon
         case .legendSword, .katana, .wizardStaff, .magicTome, .crystalOrb, .fireballSpell, .tornadoSpell,
              .laserVisor, .jetpack,
              .brokenLocket, .magicMushroom, .discoBall, .alienAntenna, .mimicChest, .spanishFan,
              .parrot, .snowGlobe, .instantCamera,
-             .drum, .microphone, .confettiCannon:
+             .drum, .microphone, .confettiCannon,
+             .wizardBeard, .beeHalo, .spiderMonocle:
             return .rare
         case .kingScepter, .thunderTalisman, .angelWings, .crystalSkull, .cursedMask, .unicornHorn, .swanCrown,
-             .luckyDice:
+             .luckyDice, .ufoHat:
             return .legendary
         default:
             return .common
@@ -133,6 +136,7 @@ enum NotchMascotShop {
         let owned = ownedSet()
         let forSale = NotchMascotAccessory.rpgItems + NotchMascotAccessory.shopItems
             + NotchMascotAccessory.danceItems + NotchMascotAccessory.toyItems + NotchMascotAccessory.partyItems
+            + NotchMascotAccessory.oddityItems
         return forSale.filter { !owned.contains($0.rawValue) }
     }
 

@@ -127,6 +127,15 @@ final class NotchMascotDesktop: NSObject {
     private var patStreak = NotchMascotPatStreak()
     /// What the cheats typed lately do to it, and until when.
     var cheat = NotchMascotCheatState()
+    /// The look it wears while fused with another, over the one chosen for
+    /// it; what its person picks meanwhile waits underneath.
+    var fusedLook: NotchMascotLook? {
+        didSet { if fusedLook != oldValue { configure(look: baseLook, mood: mood) } }
+    }
+    /// Out of sight inside another companion while the two are fused.
+    private(set) var fusedAway = false
+    /// The fusion's entry for its menu, which its gang keeps.
+    var fusionMenu: (() -> NSMenuItem?)?
 
     /// The window it stands on, and where that window was when last seen.
     private var perch: (window: CGWindowID, frame: CGRect)?
@@ -308,9 +317,9 @@ final class NotchMascotDesktop: NSObject {
         }
         baseLook = newLook
         self.mood = mood
-        var look = newLook
-        if let dressUpItem { look.accessory = dressUpItem }
-        if itemHidden { look.accessory = .none }
+        var look = fusedLook ?? newLook
+        if fusedLook == nil, let dressUpItem { look.accessory = dressUpItem }
+        if fusedLook == nil, itemHidden { look.accessory = .none }
         let size = (NotchMascotRoam.size(for: look) * growth).rounded()
         // A window made just now has no size yet, whatever size it was made for.
         let resized = size != self.size || self.stage == nil
@@ -584,6 +593,8 @@ final class NotchMascotDesktop: NSObject {
             // Already paid as the use began (`NotchMascotItemUse.settled`).
             perform(.burst(.coins), toward: side)
             perform(.marker("+\(amount)"), toward: side)
+        case .emote(let balloon):
+            emote(balloon)
         case .doze(let length), .face(_, let length):
             guard let host else { return }
             host.mascot.setMood(action.heldMood ?? .sleepy, animated: !reduceMotion)
@@ -2904,6 +2915,21 @@ final class NotchMascotDesktop: NSObject {
         if isOut, mode == .standing { planNext(after: delay) }
     }
 
+    /// Out of sight inside the companion it fused with, or back: its window
+    /// stays out but shows nothing and takes no clicks. Back, it stands at
+    /// `x` along its floor, beside the one it was part of.
+    func setFusedAway(_ away: Bool, at x: CGFloat? = nil) {
+        guard isOut, let panel, fusedAway != away else { return }
+        fusedAway = away
+        if let x {
+            let floor = self.floor
+            body.position.x = min(floor.upperBound, max(floor.lowerBound, x))
+            body.velocity = .zero
+            place()
+        }
+        panel.ignoresMouseEvents = true
+        panel.alphaValue = away ? 0 : 1
+    }
     /// Walks to `x` along the floor at `pace` times its walking pace, and
     /// says how long that takes.
     @discardableResult
@@ -3155,6 +3181,7 @@ final class NotchMascotDesktop: NSObject {
         invalidateTicking()
         panel?.orderOut(nil)
         isOut = false
+        fusedAway = false
         mode = .standing
     }
 
@@ -3172,6 +3199,7 @@ final class NotchMascotDesktop: NSObject {
             self.invalidateTicking()
             self.panel?.orderOut(nil)
             self.isOut = false
+            self.fusedAway = false
             self.cameHome?(.happy)
         }
         guard fading, let panel, !reduceMotion else { landed(); return }
@@ -4013,6 +4041,7 @@ final class NotchMascotDesktop: NSObject {
         shop.image = NSImage(systemSymbolName: "bag", accessibilityDescription: nil)
         menu.addItem(shop)
         menu.addItem(gamesItem())
+        if let fusion = fusionMenu?() { menu.addItem(fusion) }
         menu.addItem(.separator())
         let home = NSMenuItem(title: text.goHome, action: #selector(menuGoHome), keyEquivalent: "")
         home.target = self
@@ -4127,7 +4156,7 @@ final class NotchMascotDesktop: NSObject {
         guard isOut, let panel, let host else { return }
         let figure = shownFigureFrame.insetBy(dx: -4, dy: -4)
         // A yard game that takes every click keeps it out of the pointer's way.
-        let over = figure.contains(point) && yardPlay?.ownsClicks != true
+        let over = figure.contains(point) && yardPlay?.ownsClicks != true && !fusedAway
         // Mid-play it still takes a grab, which ends the play (see `pressBegan`).
         if panel.ignoresMouseEvents == over { panel.ignoresMouseEvents = !over }
         guard !inPlay, !isHoming, mode != .held else { return }
@@ -4191,7 +4220,7 @@ final class NotchMascotDesktop: NSObject {
 
     /// Whether a point in this window falls within the companion's interactive figure.
     func containsFigure(atWindowPoint point: CGPoint) -> Bool {
-        guard isOut, !isHoming, let panel else { return false }
+        guard isOut, !isHoming, !fusedAway, let panel else { return false }
         let screenPoint = panel.convertPoint(toScreen: point)
         let figure = shownFigureFrame.insetBy(dx: -4, dy: -4)
         return figure.contains(screenPoint)

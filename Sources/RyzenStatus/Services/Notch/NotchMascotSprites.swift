@@ -174,6 +174,10 @@ extension NotchMascotStyle {
     /// colour and wear items; the sheets stay for a figure that comes whole.
     var sprite: NotchMascotSpriteSheet? { nil }
 
+    /// How tall a drawn figure stands on the desktop beside the others,
+    /// the usual height being 1: the White Rabbit comes up to about
+    /// Cristóbal's brow, almost a head shorter than him.
+    var stature: CGFloat { self == .whiteRabbit ? 0.76 : 1 }
     /// Drawn with shapes, so the palette colours it.
     var takesPalette: Bool { sprite == nil }
 

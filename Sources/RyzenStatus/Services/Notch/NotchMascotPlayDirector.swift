@@ -42,6 +42,13 @@ final class NotchMascotPlayDirector {
     /// Whether `one` is one of the two.
     func involves(_ one: NotchMascotDesktop) -> Bool { one === leader || one === friend }
 
+    /// How long since their last play, or since they came out.
+    var since: TimeInterval { CACurrentMediaTime() - lastPlay }
+
+    /// They did something else together just now, as a fusion: their next
+    /// play waits its turn from here.
+    func played() { lastPlay = CACurrentMediaTime() }
+
     /// Both are out: their first play comes before long.
     func cameOut() {
         lastPlay = CACurrentMediaTime() - NotchMascotPlay.interval + 14

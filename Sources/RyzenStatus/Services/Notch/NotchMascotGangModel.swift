@@ -14,18 +14,43 @@ enum NotchMascotGangVisits: String, CaseIterable, Identifiable {
     var delay: ClosedRange<TimeInterval>? {
         switch self {
         case .off: return nil
-        case .rare: return 1500...3000
-        case .normal: return 600...1300
-        case .frequent: return 240...540
+        case .rare: return 900...1800
+        case .normal: return 300...600
+        case .frequent: return 90...210
+        }
+    }
+    /// How long the first ones take once visits start, or the island
+    /// starts: soon, so a setting just picked shows what it does.
+    var firstDelay: ClosedRange<TimeInterval>? {
+        switch self {
+        case .off: return nil
+        case .rare: return 240...600
+        case .normal: return 60...180
+        case .frequent: return 20...60
+        }
+    }
+    /// How many come together when `free` more may be out: frequent visits
+    /// come in bunches that can fill the desktop, the others one or two.
+    func arrivals(free: Int, random: () -> Double) -> Int {
+        guard free > 0 else { return 0 }
+        switch self {
+        case .off: return 0
+        case .frequent: return 1 + min(free - 1, Int(random() * Double(free)))
+        case .normal: return min(free, random() < 0.45 ? 2 : 1)
+        case .rare: return min(free, random() < Self.pairChance ? 2 : 1)
         }
     }
 
-    /// How many may be out at once, the setting's range and its default.
-    static let atOnce: ClosedRange<Int> = 1...4
+    /// How many guests may be out at once: the setting's choices, its
+    /// default, and the choice that lets every figure come.
+    static let atOnceChoices = [1, 2, 3, 4, 6, 8, 12, everyone]
     static let defaultAtOnce = 2
+    static let everyone = 99
+    /// The most guests ever out: one of every figure.
+    static var mostGuests: Int { NotchMascotStyle.allCases.count }
     /// No more than this many companions are ever out on the desktop: the
-    /// island's two and four guests.
-    static let mostOut = 6
+    /// island's two and every guest.
+    static var mostOut: Int { mostGuests + 2 }
     /// How long a visit lasts.
     static let stay: ClosedRange<TimeInterval> = 180...600
     /// What "Stay longer" adds to it.
@@ -39,7 +64,7 @@ enum NotchMascotGangVisits: String, CaseIterable, Identifiable {
 
     static func atOnce(in defaults: UserDefaults = .standard) -> Int {
         let stored = defaults.object(forKey: DefaultsKey.notchMascotGangAtOnce) as? Int ?? defaultAtOnce
-        return min(atOnce.upperBound, max(atOnce.lowerBound, stored))
+        return min(mostGuests, max(1, stored))
     }
 }
 
@@ -312,13 +337,15 @@ enum NotchMascotGangCasting {
         NotchMascotStyle.available(name: name).filter { !out.contains($0) }
     }
 
-    /// A guest of `style` in a colour and a shape of its own, wearing
+    /// A guest of `style` in the colour picked for that figure, or one of
+    /// its own when none ever was, and a shape of its own, wearing
     /// something from the whole wardrobe, bought things and party gear
     /// included, to show it off, where its figure wears things at all.
     static func look(for style: NotchMascotStyle, random: () -> Double) -> NotchMascotLook {
         func pick<T>(_ items: [T]) -> T { items[min(items.count - 1, Int(random() * Double(items.count)))] }
         var look = NotchMascotLook(style: style, shape: style.takesShape ? pick(NotchMascotShape.allCases) : .ball,
                                    palette: pick(NotchMascotPalette.allCases))
+        if let paint = NotchMascotStyleColors.paint(for: style) { look = paint.paint(look) }
         if style.takesAccessory {
             // Party gear more often than the rest, so the gang has something to play with.
             let pool = random() < 0.45 ? NotchMascotAccessory.partyItems

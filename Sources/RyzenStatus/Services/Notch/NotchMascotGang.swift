@@ -51,6 +51,8 @@ final class NotchMascotGang {
     /// One director for each pair that has met; the island's two first.
     private var duos: [NotchMascotPlayDirector] = []
     private let group = NotchMascotGroupDirector()
+    /// Two of them fused into one, one pair at a time.
+    private let fusion = NotchMascotFusionDirector()
     private var lastGroupPlay: CFTimeInterval = -.infinity
     private var groupRecent: [NotchMascotGroupPlay.Kind] = []
     /// The day the surprise party was thrown, so it is thrown once.
@@ -81,6 +83,7 @@ final class NotchMascotGang {
         group.personality = { [weak self] one in self?.guest(one)?.personality }
         group.mishap = { [weak self] one in self?.spread(.laugh, from: one) }
         group.ended = { [weak self] _, cast in self?.playedTogether(cast) }
+        wireFusion()
         summonObserver = NotificationCenter.default.addObserver(forName: .notchMascotSummonGang, object: nil,
                                                                 queue: .main) { [weak self] _ in self?.summon() }
     }
@@ -107,7 +110,9 @@ final class NotchMascotGang {
     private func others(near one: NotchMascotDesktop) -> [NotchMascotDesktop] {
         guard let screen = one.playScreen else { return [] }
         let here = x(one)
-        return out.filter { $0 !== one && $0.playScreen == screen }.sorted { abs(x($0) - here) < abs(x($1) - here) }
+        // One fused into another is out of sight, and no one's neighbour.
+        return out.filter { $0 !== one && !$0.fusedAway && $0.playScreen == screen }
+            .sorted { abs(x($0) - here) < abs(x($1) - here) }
     }
 
     /// The nearest other out on its screen with its feet on the floor.
@@ -117,7 +122,7 @@ final class NotchMascotGang {
 
     /// Whether `one` is in a play just now.
     private func busy(_ one: NotchMascotDesktop) -> Bool {
-        group.involves(one) || duos.contains { $0.playing != nil && $0.involves(one) }
+        fusion.involves(one) || group.involves(one) || duos.contains { $0.playing != nil && $0.involves(one) }
     }
 
     private var guestsMayPlay: Bool {
@@ -165,6 +170,25 @@ final class NotchMascotGang {
             guard let self, let one else { return }
             self.rescue(one)
         }
+        one.fusionMenu = { [weak self, weak one] in
+            guard let self, let one else { return nil }
+            return self.fusion.menuItem(for: one, partners: self.others(near: one))
+        }
+    }
+    /// The fusion watches with those about, stops what two were doing when
+    /// asked for from a menu, and brings a guest closer to the one it fused with.
+    private func wireFusion() {
+        fusion.level = { [weak self] in self?.level() ?? 1 }
+        fusion.watchers = { [weak self] one in
+            guard let self else { return [] }
+            return self.others(near: one).filter { $0.isFree && !self.busy($0) }
+        }
+        fusion.release = { [weak self] one in self?.interrupted(one) }
+        fusion.ended = { [weak self] first, second, wentWell in
+            guard let self, self.guest(first) != nil || self.guest(second) != nil else { return }
+            NotchMascotRapport.record(NotchMascotRapport.good * (wentWell ? 1.5 : 0.5), between: first.playLook.style,
+                                       and: second.playLook.style)
+        }
     }
 
     // MARK: The island's two
@@ -179,6 +203,7 @@ final class NotchMascotGang {
     func cancel() {
         duos.forEach { $0.cancel() }
         group.cancel()
+        fusion.cancel()
     }
 
     /// The friend's own take on what the companion just reacted to, and
@@ -217,7 +242,12 @@ final class NotchMascotGang {
         let partner = NotchMascotRapport.weighted(partners, weight: { other in
             self.preference(one, other) / (1 + Double(abs(self.x(other) - here)) / 300)
         }, random: Double.random(in: 0..<1)) ?? partners[0]
-        return director(for: one, partner).invite()
+        let pair = director(for: one, partner)
+        // Now and then two who get on well fuse instead of playing.
+        let relation = guest(one) == nil && guest(partner) == nil ? nil
+            : NotchMascotRapport.relation(one.playLook.style, partner.playLook.style)
+        if fusion.invite(one, with: partner, pair: pair, relation: relation) { return true }
+        return pair.invite()
     }
 
     private func preference(_ one: NotchMascotDesktop, _ other: NotchMascotDesktop) -> Double {
@@ -304,6 +334,7 @@ final class NotchMascotGang {
     private func interrupted(_ one: NotchMascotDesktop) {
         for pair in duos where pair.involves(one) { pair.cancel() }
         if group.involves(one) { group.cancel() }
+        fusion.interrupted(one)
     }
 
     // MARK: Between plays
@@ -632,7 +663,7 @@ final class NotchMascotGang {
             stopVisits()
             for guest in guests where !guest.leaving { leave(guest, quickly: !guestsMayPlay) }
         } else if visitWork == nil || visitsScheduled != visits {
-            scheduleVisit(visits)
+            scheduleVisit(visits, first: visitsScheduled != visits)
         }
         // Fewer allowed at once than before: the last to come go first.
         let atOnce = NotchMascotGangVisits.atOnce(in: defaults)
@@ -661,17 +692,21 @@ final class NotchMascotGang {
         visitsScheduled = nil
     }
 
-    private func scheduleVisit(_ visits: NotchMascotGangVisits) {
+    /// The next arrival, soon after visits start and then as often as
+    /// `visits` says.
+    private func scheduleVisit(_ visits: NotchMascotGangVisits, first: Bool = false) {
         visitWork?.cancel(); visitWork = nil
         visitsScheduled = visits
-        guard let delay = visits.delay else { return }
+        guard let delay = first ? visits.firstDelay : visits.delay else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.visitWork = nil
-            let count = Double.random(in: 0..<1) < NotchMascotGangVisits.pairChance ? 2 : 1
-            // They come to see the companion: more surely while it is out.
-            if self.lead.isOut || Bool.random() { self.bring(count, stagger: 1.6) }
-            self.scheduleVisit(NotchMascotGangVisits.current())
+            let defaults = UserDefaults.standard
+            let staying = self.guests.filter { !$0.leaving && !$0.summoned }.count
+            let free = NotchMascotGangVisits.atOnce(in: defaults) - staying
+            let count = visits.arrivals(free: free) { Double.random(in: 0..<1) }
+            if count > 0 { self.bring(count, stagger: 1.6) }
+            self.scheduleVisit(NotchMascotGangVisits.current(in: defaults))
         }
         visitWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Double.random(in: delay), execute: work)
@@ -681,7 +716,7 @@ final class NotchMascotGang {
     /// out, coming in one after another, whatever the visits are set to.
     private func summon() {
         guard canHost(), NotchMascotSupport.roamsDesktop(), guestsMayPlay else { return }
-        bring(NotchMascotGangVisits.atOnce.upperBound, stagger: 1.1, summoned: true)
+        bring(NotchMascotGangVisits.mostGuests, stagger: 1.1, summoned: true)
     }
 
     /// Brings `count` guests out, `stagger` seconds apart.
@@ -700,9 +735,9 @@ final class NotchMascotGang {
     private func bringGuest(summoned: Bool) -> Bool {
         let defaults = UserDefaults.standard
         guard canHost(), NotchMascotSupport.roamsDesktop(in: defaults), guestsMayPlay else { return false }
-        let limit = summoned ? NotchMascotGangVisits.atOnce.upperBound : NotchMascotGangVisits.atOnce(in: defaults)
+        let limit = summoned ? NotchMascotGangVisits.mostGuests : NotchMascotGangVisits.atOnce(in: defaults)
         let counted = summoned ? guests.count : guests.filter { !$0.summoned }.count
-        guard counted < limit, guests.count < NotchMascotGangVisits.atOnce.upperBound,
+        guard counted < limit, guests.count < NotchMascotGangVisits.mostGuests,
               out.count < NotchMascotGangVisits.mostOut else { return false }
         var taken = Set(out.map(\.playLook.style))
         taken.insert(NotchMascotSupport.look(in: defaults).style)
@@ -1019,6 +1054,7 @@ final class NotchMascotGang {
                                            and: other.playLook.style)
             }
         }
+        if let fuse = fusion.menuItem(for: desktop, partners: others(near: desktop)) { menu.addItem(fuse) }
         menu.addItem(.separator())
         add(text.sayGoodbye, symbol: "hand.wave") { [weak self, weak desktop] in
             guard let self, let desktop, let guest = self.guest(desktop), !guest.leaving else { return }
