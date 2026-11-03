@@ -195,6 +195,8 @@ final class NotchMascotDesktop: NSObject {
     private var leapTarget: (window: CGWindowID, y: CGFloat)?
     private var laserTimer: DispatchSourceTimer?
     private var laserDot: CALayer?
+    /// The yard game under way, which it puts away as the game ends.
+    private(set) var yardPlay: NotchMascotYardPlay?
     private var rosinUntil: CFTimeInterval = -.infinity
     private var lastPrintX: CGFloat?
     /// Its last usable area, for the moment a display change leaves no screen.
@@ -218,6 +220,7 @@ final class NotchMascotDesktop: NSObject {
     init(leads: Bool = true) {
         self.leads = leads
         super.init()
+        NotchMascotYardPlay.enroll(self)
     }
 
     deinit {
@@ -1597,6 +1600,8 @@ final class NotchMascotDesktop: NSObject {
     private enum Occasion: Equatable {
         case craving(NotchMascotCraving), tantrum, fed, tickled
         case fishing, bite, seeking, laser, game, dance
+        /// A yard game, played by `yardPlay`.
+        case yard
         case show(NotchMascotOccasion)
     }
     private func occasionStep(after delay: TimeInterval, _ block: @escaping () -> Void) {
@@ -1651,6 +1656,11 @@ final class NotchMascotDesktop: NSObject {
             host?.mascot.setUpsideDown(false)
         }
         if occasion == .seeking { endPeek() }
+        if let yard = yardPlay {
+            yardPlay = nil
+            yard.close()
+            endPeek()
+        }
         askedFor = false
         guard occasion != nil else { return }
         occasion = nil
@@ -2146,6 +2156,55 @@ final class NotchMascotDesktop: NSObject {
         occasion = .game
         NotchMascotBondStore.shared.record(.moment)
         finishOccasion(after: 3)
+    }
+    // Yard games, played by `NotchMascotYardPlay`.
+    /// Takes `play` up as what it is busy with: it stops a walk and its
+    /// plans, wakes, comes down off any window onto the floor, stays out
+    /// and moves for the game even with Reduce Motion. False when it cannot now.
+    func beginYard(_ play: NotchMascotYardPlay) -> Bool {
+        guard beginOccasion(.yard) != nil else { return false }
+        excursionWork?.cancel(); excursionWork = nil
+        lastTouched = CACurrentMediaTime()
+        askedFor = true
+        yardPlay = play
+        host?.mascot.wake(animated: true)
+        if play.ownsClicks { panel?.ignoresMouseEvents = true }
+        if perch != nil {
+            perch = nil
+            body.airborne = true
+            mode = .flying
+            resumeTicking()
+        }
+        return true
+    }
+    /// The game is over: it goes on with its own life `delay` seconds from now.
+    func endYard(after delay: TimeInterval) {
+        guard occasion == .yard else { return }
+        finishOccasion(after: delay)
+    }
+    /// Its feet on screen wherever it is, and the part of its body that shows.
+    var yardFeet: CGPoint { body.position }
+    var yardFigure: CGRect { shownFigureFrame }
+    /// It stops a walk where it is.
+    func yardStand() {
+        guard isWalking else { return }
+        setRun(nil)
+        mode = .standing
+    }
+    /// Puts on `face` for the game, or its own face again with nil.
+    func yardFace(_ face: NotchMascotMood?) {
+        host?.mascot.setMood(face ?? mood, animated: !reduceMotion)
+    }
+    func yardSpin(turns: CGFloat, duration: TimeInterval) { host?.mascot.spin(turns: turns, duration: duration) }
+    /// Over to `x` along the floor at once, as from one hole to the next.
+    func yardMove(to x: CGFloat) {
+        yardStand()
+        body.position.x = onFloor(x)
+        place()
+    }
+    /// Down into the floor `depth` below its feet, or back up with 0, over `duration`.
+    func yardBurrow(to depth: CGFloat, over duration: TimeInterval, then done: @escaping () -> Void) {
+        sink(to: depth, over: duration, then: done)
     }
     // What the Mac and the calendar bring.
     /// Shows `occasion` where it stands. True when it did.
@@ -3179,7 +3238,7 @@ final class NotchMascotDesktop: NSObject {
         if body.airborne { checkTrampoline() }
         let area = cheatArea(self.area(for: body.position), body: &body)
         let events = NotchMascotRoam.step(&body, by: dt, in: area, width: size * figureAspect,
-                                          ledges: inPlay || cheatPassesThrough ? [] : currentLedges(),
+                                          ledges: inPlay || yardPlay != nil || cheatPassesThrough ? [] : currentLedges(),
                                           gravityScale: cheatGravity)
         place()
         if body.airborne, leaping { catchEdge() }
@@ -3996,6 +4055,8 @@ final class NotchMascotDesktop: NSObject {
             entry.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
             menu.addItem(entry)
         }
+        menu.addItem(.separator())
+        yardGameItems().forEach(menu.addItem)
         item.submenu = menu
         return item
     }
@@ -4065,7 +4126,8 @@ final class NotchMascotDesktop: NSObject {
     private func pointerMoved(_ point: CGPoint) {
         guard isOut, let panel, let host else { return }
         let figure = shownFigureFrame.insetBy(dx: -4, dy: -4)
-        let over = figure.contains(point)
+        // A yard game that takes every click keeps it out of the pointer's way.
+        let over = figure.contains(point) && yardPlay?.ownsClicks != true
         // Mid-play it still takes a grab, which ends the play (see `pressBegan`).
         if panel.ignoresMouseEvents == over { panel.ignoresMouseEvents = !over }
         guard !inPlay, !isHoming, mode != .held else { return }
