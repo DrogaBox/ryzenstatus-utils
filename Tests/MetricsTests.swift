@@ -11293,9 +11293,11 @@ struct MetricsTests {
                            && words.text(for: .review).contains("\n") && words.text(for: .runRight).hasSuffix(">")
                            && words.text(for: .runLeft).hasPrefix("<")
                    }, "the sign has words for every row in every language, done over take a look")
-            expect(NotchMascotRoam.size(for: NotchMascotLook(style: .whiteRabbit, shape: .ball, palette: .pearl))
-                   == NotchMascotRoam.size(for: NotchMascotLook(style: .cat, shape: .ball, palette: .pearl)),
-                   "drawn, the comic's two stand on the desktop at every figure's size")
+            let rabbitSize = NotchMascotRoam.size(for: NotchMascotLook(style: .whiteRabbit, shape: .ball, palette: .pearl))
+            let cristobalSize = NotchMascotRoam.size(for: NotchMascotLook(style: .cristobal, shape: .ball, palette: .pearl))
+            expect(cristobalSize == NotchMascotRoam.size(for: NotchMascotLook(style: .cat, shape: .ball, palette: .pearl))
+                   && rabbitSize < cristobalSize && rabbitSize >= cristobalSize * 0.7,
+                   "drawn, Cristóbal stands at every figure's size and the White Rabbit almost a head shorter")
             expect(NotchMascotSpriteChoreography.walking(dx: 3) == .runRight
                    && NotchMascotSpriteChoreography.walking(dx: -3) == .runLeft
                    && NotchMascotSpriteChoreography.walking(dx: 0.2) == .idle,
