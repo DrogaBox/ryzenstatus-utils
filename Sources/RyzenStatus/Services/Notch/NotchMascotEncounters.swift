@@ -132,7 +132,33 @@ enum NotchMascotEncounter: String, CaseIterable, Equatable {
     }
 }
 
+/// What the others out on the desktop do about something rare together,
+/// rather than each watching it from where it stands.
+enum NotchMascotGroupEncounter: Equatable {
+    /// Scared, they all run into each other's arms and shake in a heap.
+    case pile
+    /// One is taken, and the others run after the one that took it.
+    case chase
+    /// They line up behind it for a turn of their own.
+    case queue
+}
+
+extension NotchMascotEncounter {
+    /// What a crowd makes of it; nil where each just watches.
+    var gathers: NotchMascotGroupEncounter? {
+        switch self {
+        case .ghost: return .pile
+        case .ufo: return .chase
+        case .merchant: return .queue
+        default: return nil
+        }
+    }
+}
+
 enum NotchMascotEncounters {
+    /// At most this many queue at the seller's, each taking this long.
+    static let queueLength = 3
+    static let queueTurn: TimeInterval = 3.2
     /// At least this long between two, wherever the companion was meanwhile,
     /// and the chance of one each time it looks for something to do after.
     static let interval: TimeInterval = 8 * 60

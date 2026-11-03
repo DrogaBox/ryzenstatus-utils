@@ -28,6 +28,8 @@ struct NotchMascotSettings: View {
     @AppStorage(DefaultsKey.notchMascotExcursions) private var excursions = true
     @AppStorage(DefaultsKey.notchMascotDesktopFriend) private var friend = ""
     @AppStorage(DefaultsKey.notchMascotDesktopPlay) private var friendsPlay = true
+    @AppStorage(DefaultsKey.notchMascotGangVisits) private var gangVisits = NotchMascotGangVisits.rare.rawValue
+    @AppStorage(DefaultsKey.notchMascotGangAtOnce) private var gangAtOnce = NotchMascotGangVisits.defaultAtOnce
     @AppStorage(DefaultsKey.notchMascotDressUp) private var dressUp = true
     @AppStorage(DefaultsKey.notchMascotClimbsWindows) private var climbsWindows = true
     @AppStorage(DefaultsKey.notchMascotFriendAccessory) private var friendAccessory = ""
@@ -673,10 +675,34 @@ struct NotchMascotSettings: View {
                           isOn: $friendsPlay)
                     .padding(.leading, settingsRowTextInset)
                     .transition(.opacity)
+                gangRows
+                    .padding(.leading, settingsRowTextInset)
+                    .transition(.opacity)
             }
         }
         .animation(animation, value: visits)
         .animation(animation, value: desktop)
+        .animation(animation, value: gangVisits)
+    }
+
+    /// Other companions coming by the desktop: how often, and how many at once.
+    @ViewBuilder
+    private var gangRows: some View {
+        let gangText = FeatureStrings.notchMascotGang(l10n.language)
+        SettingsRow(symbol: "person.3", title: gangText.visits, caption: gangText.visitsCaption) {
+            Picker(gangText.visits, selection: $gangVisits) {
+                ForEach(NotchMascotGangVisits.allCases) { Text(gangText.frequency($0)).tag($0.rawValue) }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .fixedSize()
+        }
+        if gangVisits != NotchMascotGangVisits.off.rawValue {
+            SettingsChoiceRow(symbol: "person.3.sequence", title: gangText.atOnce, selection: $gangAtOnce) {
+                ForEach(Array(NotchMascotGangVisits.atOnce), id: \.self) { Text(verbatim: "\($0)").tag($0) }
+            }
+            .transition(.opacity)
+        }
     }
 
     // MARK: Automatic reactions

@@ -532,6 +532,8 @@ enum Defaults {
         DefaultsKey.notchMascotCustomColor: "",
         DefaultsKey.notchMascotFriendPalette: "",
         DefaultsKey.notchMascotFriendCustomColor: "",
+        DefaultsKey.notchMascotGangVisits: NotchMascotGangVisits.rare.rawValue,
+        DefaultsKey.notchMascotGangAtOnce: NotchMascotGangVisits.defaultAtOnce,
         DefaultsKey.notchMascotAutomatic: true,
         DefaultsKey.notchMascotAutoLoad: true,
         DefaultsKey.notchMascotAutoMusic: true,

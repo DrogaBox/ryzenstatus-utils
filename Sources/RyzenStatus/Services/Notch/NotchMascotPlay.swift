@@ -95,6 +95,10 @@ enum NotchMascotPlay: Equatable {
         var friendLook: NotchMascotLook = .standard
         /// Hearts, the hourglass, gold and the combos found.
         var rpg = NotchMascotRPGSnapshot()
+        /// How much more, or less, each play is wanted by these two: what
+        /// they feel for each other and who they are. Empty for the island's
+        /// own pair, which plays as it always has.
+        var leanings: [Kind: Double] = [:]
 
         var leaderWears: NotchMascotAccessory { leaderLook.accessory }
         var friendWears: NotchMascotAccessory { friendLook.accessory }
@@ -133,7 +137,7 @@ enum NotchMascotPlay: Equatable {
             weight = calls ? 6 : 0.8
         }
         if context.recent.suffix(memory).contains(kind) { weight *= 0.3 }
-        return weight
+        return weight * max(0, context.leanings[kind] ?? 1)
     }
 
     /// The play they start now, if any. `random` gives numbers in 0..<1.
