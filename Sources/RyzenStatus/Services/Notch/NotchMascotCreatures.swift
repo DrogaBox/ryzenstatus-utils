@@ -63,9 +63,10 @@ enum NotchMascotCreatures {
                                          shineCenter: CGPoint(x: 0.41, y: 0.52), shineRadii: CGSize(width: 0.02, height: 0.02),
                                          shineAngle: 0)
         case .phoenix:
-            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.39, y: 0.48), rightEye: CGPoint(x: 0.61, y: 0.48),
-                                         eyeSize: CGSize(width: 0.07, height: 0.18),
-                                         shineCenter: CGPoint(x: 0.35, y: 0.34), shineRadii: CGSize(width: 0.05, height: 0.03),
+            // Big eyes over its little beak, the shine up on its crown.
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.425, y: 0.375), rightEye: CGPoint(x: 0.575, y: 0.375),
+                                         eyeSize: CGSize(width: 0.07, height: 0.12),
+                                         shineCenter: CGPoint(x: 0.4, y: 0.255), shineRadii: CGSize(width: 0.045, height: 0.022),
                                          shineAngle: -0.5)
         case .axolotl:
             return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.37, y: 0.30), rightEye: CGPoint(x: 0.63, y: 0.30),
@@ -148,7 +149,7 @@ enum NotchMascotCreatures {
         case .slime: return CGRect(x: 0.07, y: 0.22, width: 0.86, height: 0.76)
         case .devourer: return CGRect(x: 0.04, y: 0.20, width: 0.92, height: 0.78)
         case .shifter: return CGRect(x: 0.07, y: 0.30, width: 0.86, height: 0.66)
-        case .phoenix: return CGRect(x: 0.02, y: 0.01, width: 0.96, height: 0.98)
+        case .phoenix: return critterBounds(style)
         case .axolotl: return CGRect(x: 0.02, y: 0.12, width: 0.96, height: 0.82)
         case .dog: return CGRect(x: 0.04, y: 0.04, width: 0.94, height: 0.88)
         case .mouse: return CGRect(x: 0.10, y: 0.04, width: 0.88, height: 0.86)
@@ -181,7 +182,7 @@ enum NotchMascotCreatures {
         case .slime: return rect(0.09, 0.22, 0.82, 0.64, size)
         case .devourer: return rect(0.12, 0.20, 0.76, 0.66, size)
         case .shifter: return rect(0.10, 0.30, 0.80, 0.60, size)
-        case .phoenix: return rect(0.33, 0.10, 0.34, 0.34, size)
+        case .phoenix: return rect(0.285, 0.18, 0.43, 0.39, size)
         case .axolotl: return rect(0.16, 0.14, 0.68, 0.42, size)
         case .dog: return rect(0.22, 0.08, 0.56, 0.44, size)
         case .mouse: return rect(0.30, 0.18, 0.40, 0.34, size)
@@ -199,13 +200,14 @@ enum NotchMascotCreatures {
 
     /// Where a scarf goes, from 0 to 1 down the figure, for those whose neck
     /// is not just under the head outline nor well under the eyes: a cat that
-    /// is all head, a phoenix whose eyes sit low, a frog with no neck at all,
-    /// a swan with a long one, Cristóbal, whose stubble wants showing, and
-    /// the hologram and the android, whose heads are most of them.
+    /// is all head, a phoenix whose head sits on its chest, a frog with no
+    /// neck at all, a swan with a long one, Cristóbal, whose stubble wants
+    /// showing, and the hologram and the android, whose heads are most of
+    /// them.
     static func neck(_ style: NotchMascotStyle) -> CGFloat? {
         switch style {
         case .cat: return 0.78
-        case .phoenix: return 0.6
+        case .phoenix: return 0.545
         case .frog: return 0.5
         case .swan: return 0.4
         case .cristobal: return 0.465
@@ -266,30 +268,7 @@ enum NotchMascotCreatures {
             path.addQuadCurve(to: point(0.09, 0.88), control: point(0.5, 0.97))
             path.closeSubpath()
         case .phoenix:
-            // A flame bird, front on: a round head under a two-lick crest, a
-            // round chest, and three licks of tail fanning below.
-            path.addEllipse(in: rect(0.33, 0.10, 0.34, 0.34, size))
-            path.addEllipse(in: rect(0.26, 0.36, 0.48, 0.46, size))
-            path.move(to: point(0.46, 0.13))
-            path.addQuadCurve(to: point(0.40, 0.02), control: point(0.38, 0.08))
-            path.addQuadCurve(to: point(0.50, 0.11), control: point(0.44, 0.05))
-            path.closeSubpath()
-            path.move(to: point(0.52, 0.12))
-            path.addQuadCurve(to: point(0.56, 0.01), control: point(0.55, 0.07))
-            path.addQuadCurve(to: point(0.60, 0.14), control: point(0.58, 0.06))
-            path.closeSubpath()
-            path.move(to: point(0.40, 0.74))
-            path.addQuadCurve(to: point(0.28, 0.95), control: point(0.30, 0.86))
-            path.addQuadCurve(to: point(0.46, 0.80), control: point(0.36, 0.86))
-            path.closeSubpath()
-            path.move(to: point(0.46, 0.80))
-            path.addQuadCurve(to: point(0.50, 0.99), control: point(0.44, 0.92))
-            path.addQuadCurve(to: point(0.56, 0.80), control: point(0.54, 0.91))
-            path.closeSubpath()
-            path.move(to: point(0.56, 0.80))
-            path.addQuadCurve(to: point(0.70, 0.94), control: point(0.66, 0.88))
-            path.addQuadCurve(to: point(0.58, 0.74), control: point(0.64, 0.84))
-            path.closeSubpath()
+            path.addPath(critterBody(style, size: size))
         case .axolotl:
             // The wide flat head every axolotl wears, over a slim body that
             // rounds off into its tail.
@@ -386,40 +365,6 @@ enum NotchMascotCreatures {
         path.addEllipse(in: rect(0.76, 0.46, 0.20, 0.17, size))
         path.addEllipse(in: rect(0.14, 0.84, 0.30, 0.14, size))
         path.addEllipse(in: rect(0.56, 0.84, 0.30, 0.14, size))
-        return path
-    }
-
-    // MARK: Phoenix
-
-    /// Two wings of three swept feathers each, raised behind the body.
-    static func phoenixWings(size: CGFloat) -> CGPath {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
-        let path = CGMutablePath()
-        for mirror in [false, true] {
-            func x(_ v: CGFloat) -> CGFloat { mirror ? 1 - v : v }
-            for (baseX, baseY, tipX, tipY, bow) in [(0.34, 0.44, 0.10, 0.16, 0.13),
-                                                    (0.32, 0.50, 0.05, 0.34, 0.15),
-                                                    (0.33, 0.56, 0.10, 0.52, 0.13)] {
-                path.move(to: point(x(baseX), baseY))
-                path.addQuadCurve(to: point(x(tipX), tipY), control: point(x(baseX - bow), baseY - bow * 0.7))
-                path.addQuadCurve(to: point(x(baseX + 0.055), baseY + 0.07), control: point(x(tipX + 0.075), tipY + 0.11))
-                path.closeSubpath()
-            }
-        }
-        return path
-    }
-
-    /// The hooked beak under the eyes, and two talons at the chest's foot.
-    static func phoenixBeakAndTalons(size: CGFloat) -> CGPath {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
-        let path = CGMutablePath()
-        path.move(to: point(0.5, 0.27))
-        path.addLine(to: point(0.565, 0.335))
-        path.addLine(to: point(0.5, 0.40))
-        path.addLine(to: point(0.435, 0.335))
-        path.closeSubpath()
-        path.addEllipse(in: rect(0.36, 0.80, 0.12, 0.055, size))
-        path.addEllipse(in: rect(0.52, 0.80, 0.12, 0.055, size))
         return path
     }
 

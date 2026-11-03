@@ -130,6 +130,8 @@ struct NotchMascotGait: Equatable {
         case .ballerina: return NotchMascotGait(period: 0.16, bob: 0.012, rock: 0)
         case .danseur: return NotchMascotGait(period: 0.32, bob: 0.035, rock: 0)
         case .contemporary: return NotchMascotGait(period: 0.42, bob: 0.025, rock: 0.04)
+        // The phoenix hops along on its little talons, wings bobbing.
+        case .phoenix: return NotchMascotGait(period: 0.24, bob: 0.08, rock: 0)
         // The White Rabbit hops along, always in a hurry.
         case .whiteRabbit: return NotchMascotGait(period: 0.2, bob: 0.11, rock: 0)
         default: return .standard

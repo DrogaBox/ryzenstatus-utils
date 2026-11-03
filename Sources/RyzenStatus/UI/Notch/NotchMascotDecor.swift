@@ -58,6 +58,8 @@ final class NotchMascotDecor {
     private let signal = NotchMascotSignalParts()
     /// The three dancers, drawn in layers of their own.
     private let dancer = NotchMascotDancerParts()
+    /// The five animals, drawn in layers of their own.
+    private let critter = NotchMascotCritterParts()
 
     // Props.
     private let sweatDrop = CAShapeLayer()
@@ -99,9 +101,12 @@ final class NotchMascotDecor {
         confetti.forEach(props.addSublayer)
         back.addSublayer(signal.back)
         back.addSublayer(dancer.back)
+        back.addSublayer(critter.back)
         middle.addSublayer(signal.middle)
         middle.addSublayer(dancer.middle)
+        middle.addSublayer(critter.middle)
         props.addSublayer(signal.front)
+        props.addSublayer(critter.front)
         for layer in [back, middle, props] + creatureLayers + propLayers {
             layer.actions = Self.noActions
         }
@@ -253,14 +258,6 @@ final class NotchMascotDecor {
             slimeDrip.path = NotchMascotCreatures.slimeDrip(melted: sleeping, size: size)
             slimeDrip.fillColor = palette.shade.cgColor
             show(slimeDrip)
-        case .phoenix:
-            // Swept wings behind the body; the beak and talons over it.
-            pins.path = NotchMascotCreatures.phoenixWings(size: size)
-            pins.fillColor = palette.light.cgColor
-            show(pins)
-            plume.path = NotchMascotCreatures.phoenixBeakAndTalons(size: size)
-            plume.fillColor = palette.shade.cgColor
-            show(plume)
         case .axolotl:
             // Gill fronds fanning out of the head; feet and smile over the body.
             pins.path = NotchMascotCreatures.axolotlGills(size: size)
@@ -354,7 +351,7 @@ final class NotchMascotDecor {
             chipMark.path = NotchMascotCreatures.penguinCheeks(size: size)
             chipMark.fillColor = NotchMascotWearableShapes.rgb(0xFFC83D)
             show(pins, plume, dogNose, chipMark)
-        case .hologram, .android, .ballerina, .danseur, .contemporary:
+        case .hologram, .android, .ballerina, .danseur, .contemporary, .phoenix:
             // Drawn by their own parts, configured below for every figure.
             break
         case .chip:
@@ -410,6 +407,7 @@ final class NotchMascotDecor {
         }
         signal.configure(look: look, size: size, scale: scale, sleeping: sleeping, level: gaugeLevel)
         dancer.configure(look: look, size: size, scale: scale, sleeping: sleeping)
+        critter.configure(look: look, size: size, scale: scale, sleeping: sleeping)
         // A kitsune curls its tails, a penguin tucks its flippers and the
         // hologram and the android fold their arms instead.
         pins.opacity = sleeping && ![.kitsune, .penguin, .hologram, .android].contains(style) ? 0.45 : 1
@@ -506,7 +504,10 @@ final class NotchMascotDecor {
         case .ballerina, .danseur, .contemporary:
             // Arms folded, down off their toes.
             dancer.setSleeping(sleeping, animated: animated)
-        case .phoenix, .axolotl, .dog, .mouse, .capybara, .dragon, .frog, .swan:
+        case .phoenix:
+            // Wings folded, its fire sunk to embers.
+            critter.setSleeping(sleeping, animated: animated)
+        case .axolotl, .dog, .mouse, .capybara, .dragon, .frog, .swan:
             fade(pins, to: sleeping ? 0.55 : 1, duration: duration, animated: animated)
             fade(plume, to: sleeping ? 0.55 : 1, duration: duration, animated: animated)
             fade(dogNose, to: sleeping ? 0.55 : 1, duration: duration, animated: animated)
@@ -847,7 +848,9 @@ final class NotchMascotDecor {
             signal.flourish(reaction)
         case .ballerina, .danseur, .contemporary:
             dancer.flourish(reaction)
-        case .slime, .minimal, .robot, .devourer, .shifter, .phoenix, .axolotl, .dog, .mouse,
+        case .phoenix:
+            critter.flourish(reaction)
+        case .slime, .minimal, .robot, .devourer, .shifter, .axolotl, .dog, .mouse,
              .capybara, .dragon, .frog, .swan:
             break
         }
@@ -919,6 +922,7 @@ final class NotchMascotDecor {
         for layer in creatureLayers + propLayers where layer !== blades { layer.removeAllAnimations() }
         signal.removeAllAnimations()
         dancer.removeAllAnimations()
+        critter.removeAllAnimations()
         applyAmbient()
     }
 
@@ -1055,6 +1059,7 @@ final class NotchMascotDecor {
         signal.setLevel(gaugeLevel)
         signal.setIdle(motion && !sleeping)
         dancer.setIdle(motion && !sleeping)
+        critter.setIdle(motion)
     }
 
     /// Empty to full, a quarter at a time, then back to what the CPU says.
@@ -1065,6 +1070,7 @@ final class NotchMascotDecor {
     /// A dancer's arms and legs take the steps of `move`.
     func dance(_ move: NotchMascotSoloDance) {
         dancer.dance(move)
+        critter.dance(move)
     }
     /// Two wisps of foxfire flicker up beside its head and go out.
     func foxfire(for duration: TimeInterval) {
@@ -1103,6 +1109,8 @@ final class NotchMascotDecor {
             }
         case .ballerina, .danseur, .contemporary:
             dancer.setStriding(striding && !sleeping, period: period)
+        case .phoenix:
+            critter.setStriding(striding && !sleeping, period: period)
         default:
             break
         }

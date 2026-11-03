@@ -8,8 +8,8 @@ import CoreGraphics
 /// sword in its hand rather than floating by its cheek, wings out of its
 /// back. Shares of its size from the top left corner, y growing downward;
 /// left and right as seen on screen. Read off the outlines in
-/// `NotchMascotCreatures`, `NotchMascotHologramAndroid` and
-/// `NotchMascotDancers`, so a figure
+/// `NotchMascotCreatures`, `NotchMascotHologramAndroid`,
+/// `NotchMascotDancers` and the animals' own files, so a figure
 /// redrawn there wants its numbers checked here too.
 struct NotchMascotAnatomy: Equatable {
     /// The hand that holds things, on the right of the screen, and the other.
@@ -88,11 +88,9 @@ extension NotchMascotCreatures {
         case .shifter:
             return .init(rightHand: at(0.92, 0.72), leftHand: at(0.09, 0.72), floor: 0.95,
                          leftFoot: 0.34, rightFoot: 0.66, foot: 0.16, torso: box(0.08, 0.34, 0.85, 0.62))
-        // A bird holds things against its chest and stands on its talons.
+        // The five animals, where their own parts put hands and feet.
         case .phoenix:
-            return .init(rightHand: at(0.78, 0.64), leftHand: at(0.22, 0.64), floor: 0.855,
-                         leftFoot: 0.42, rightFoot: 0.58, foot: 0.12, torso: box(0.26, 0.36, 0.48, 0.46),
-                         nose: at(0.50, 0.36), mouth: at(0.50, 0.40))
+            return critterAnatomy(style)
         // Its head is wider than its body, so it holds things out past the
         // head's edge, where a sword raised up stays clear of its eyes.
         case .axolotl:

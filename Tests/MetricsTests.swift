@@ -12178,6 +12178,71 @@ struct MetricsTests {
                                && NotchMascotGait.of(.ballerina).period < NotchMascotGait.of(.danseur).period,
                                "the dancers glide, the ballerina in quick little steps")
                     }
+                    // The animals drawn in layers: the phoenix.
+                    do {
+                        typealias C = NotchMascotCreatures
+                        func elements(_ path: CGPath) -> [Int32] {
+                            var kinds: [Int32] = []
+                            path.applyWithBlock { kinds.append($0.pointee.type.rawValue) }
+                            return kinds
+                        }
+                        let animals: [NotchMascotStyle] = [.phoenix]
+                        let square = CGRect(x: 0, y: 0, width: 40, height: 40)
+                        let sky = NotchMascotCritterColors(light: NotchMascotPalette.sky.light, shade: NotchMascotPalette.sky.shade)
+                        expect(animals.allSatisfy { style in
+                                   C.critters.contains(style) && C.face(style) != nil && C.headOutline(style, size: 40) != nil
+                                       && C.body(style, size: 40).map { !$0.isEmpty && square.contains($0.boundingBox) } == true
+                                       && C.anatomy(style) != nil && style.takesAccessory
+                                       && !C.critterParts(style, colors: sky, size: 40).isEmpty
+                               }, "the animals are drawn figures in parts that stand inside their square and wear items")
+                        let poses = C.CritterPose.allCases
+                        expect(animals.allSatisfy { style in
+                                   C.critterParts(style, colors: sky, size: 40).allSatisfy { part in
+                                       Set(poses.map { elements(part.path($0, 0)) }).count == 1
+                                           && Set([0, 0.25, 0.5, 0.75].map { elements(part.path(.rest, $0)) }).count == 1
+                                   }
+                               }, "every part of every animal morphs between every pose and through its idle motion")
+                        expect(animals.allSatisfy { style in
+                                   C.critterParts(style, colors: sky, size: 40).allSatisfy { part in
+                                       part.effect || poses.allSatisfy {
+                                           square.insetBy(dx: -1, dy: -1).contains(part.path($0, 0).boundingBoxOfPath)
+                                       }
+                                   }
+                               }, "every pose stays inside the figure's square")
+                        expect(animals.allSatisfy { style in
+                                   guard let anatomy = C.anatomy(style), let face = C.face(style), let figure = C.bounds(style)
+                                   else { return false }
+                                   let eyes = face.leftEye.y + face.eyeSize.height / 2
+                                   return abs(figure.maxY - anatomy.floor) < 0.04 && anatomy.leftFoot < anatomy.rightFoot
+                                       && anatomy.rightHand.y > eyes && anatomy.leftHand.y > eyes
+                                       && anatomy.rightHand.x > 0.5 && anatomy.leftHand.x < 0.5
+                                       && figure == C.critterBounds(style)
+                               }, "what they hold is in their paws or wings and what they wear on their feet is on their feet")
+                        expect(C.critterParts(.phoenix, colors: sky, hat: true, size: 40).count
+                               < C.critterParts(.phoenix, colors: sky, size: 40).count,
+                               "a hat puts out the phoenix's crest")
+                        let rest = C.critterParts(.phoenix, colors: sky, size: 40)
+                        func part(_ name: String, _ parts: [NotchMascotCritterPart]) -> NotchMascotCritterPart? {
+                            parts.first { $0.name == name }
+                        }
+                        expect(part("crest", rest).map { crest in
+                                   crest.path(.asleep, 0).boundingBox.minY > crest.path(.rest, 0).boundingBox.minY
+                                       && crest.path(.cheer, 0).boundingBox.minY < crest.path(.rest, 0).boundingBox.minY
+                                       && crest.asleep < 1 && crest.idle != nil
+                               } == true
+                               && part("embers", rest).map { $0.idlesAsleep && $0.effect } == true
+                               && part("wings", rest).map { wings in
+                                   wings.path(.cheer, 0).boundingBox.minY < wings.path(.rest, 0).boundingBox.minY
+                               } == true,
+                               "the phoenix's fire sinks to embers asleep and flares back up, its wings rise in a cheer")
+                        let rose = NotchMascotCritterColors(light: NotchMascotPalette.rose.light, shade: NotchMascotPalette.rose.shade)
+                        expect(part("crest", rest)?.paint == part("crest", C.critterParts(.phoenix, colors: rose, size: 40))?.paint
+                               && part("wings", rest)?.paint != part("wings", C.critterParts(.phoenix, colors: rose, size: 40))?.paint,
+                               "the phoenix burns in fire's own colours on every palette, while its feathers take the palette")
+                        expect(NotchMascotGait.of(.phoenix).period < NotchMascotGait.standard.period
+                               && NotchMascotGait.of(.phoenix).bob > 0,
+                               "the phoenix hops along on its little talons")
+                    }
                     expect(AppLanguage.allCases.allSatisfy { language in
                                let games = FeatureStrings.notchMascotGames(language)
                                return [games.play, games.roshambo, games.rock, games.paper, games.scissors, games.laser,
