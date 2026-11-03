@@ -677,6 +677,7 @@ extension DefaultsKey {
     static let notchMascotGangVisits = "notchMascotGangVisits"   // String, NotchMascotGangVisits: how often other companions come by the desktop
     static let notchMascotGangAtOnce = "notchMascotGangAtOnce"   // Int 1...4, how many of them may be out at once
     static let notchMascotGangAffinity = "notchMascotGangAffinity" // [String: Double], "style+style" -> how well the pair gets on, -1...1
+    static let notchMascotStyleColors = "notchMascotStyleColors" // [String: String], style -> the colour last picked for it, "palette" or "#RRGGBB"
     static let notchMascotBetaInstalled = "notchMascotBetaInstalled"
     /// Automatic reactions to what the Mac does, and each kind of them.
     static let notchMascotAutomatic = "notchMascotAutomatic"

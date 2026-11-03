@@ -312,13 +312,15 @@ enum NotchMascotGangCasting {
         NotchMascotStyle.available(name: name).filter { !out.contains($0) }
     }
 
-    /// A guest of `style` in a colour and a shape of its own, wearing
+    /// A guest of `style` in the colour picked for that figure, or one of
+    /// its own when none ever was, and a shape of its own, wearing
     /// something from the whole wardrobe, bought things and party gear
     /// included, to show it off, where its figure wears things at all.
     static func look(for style: NotchMascotStyle, random: () -> Double) -> NotchMascotLook {
         func pick<T>(_ items: [T]) -> T { items[min(items.count - 1, Int(random() * Double(items.count)))] }
         var look = NotchMascotLook(style: style, shape: style.takesShape ? pick(NotchMascotShape.allCases) : .ball,
                                    palette: pick(NotchMascotPalette.allCases))
+        if let paint = NotchMascotStyleColors.paint(for: style) { look = paint.paint(look) }
         if style.takesAccessory {
             // Party gear more often than the rest, so the gang has something to play with.
             let pool = random() < 0.45 ? NotchMascotAccessory.partyItems

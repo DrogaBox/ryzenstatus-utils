@@ -1626,12 +1626,15 @@ enum NotchMascotSupport {
         var friend = undisguisedLook(in: defaults)
         friend.style = style
         // Its own color when one is set: its own hand-picked one, or its own
-        // preset; with neither it wears the companion's.
+        // preset; with neither, the one last picked for its figure, and
+        // failing that the companion's.
         if let hand = friendCustomColor(in: defaults) {
             friend.customColor = hand
         } else if let own = NotchMascotPalette(rawValue: defaults.string(forKey: DefaultsKey.notchMascotFriendPalette) ?? "") {
             friend.palette = own
             friend.customColor = nil
+        } else if let remembered = NotchMascotStyleColors.paint(for: style, in: defaults) {
+            friend = remembered.paint(friend)
         }
         friend.accessory = style.takesAccessory
             ? NotchMascotWardrobe.friendAccessory(main: friend.accessory, level: shownLevel(in: defaults),
