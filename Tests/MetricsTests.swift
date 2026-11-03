@@ -11965,15 +11965,18 @@ struct MetricsTests {
                                        && NotchMascotCreatures.body(style, size: 40).map { !$0.isEmpty } == true
                                }, "Cristóbal and the White Rabbit are drawn figures that wear items and take a colour")
                         let poses = NotchMascotCreatures.ArmsPose.allCases
-                        expect(Set(poses.map { elements(NotchMascotCreatures.cristobalSleeves($0, size: 40)) }).count == 1
-                               && Set(poses.map { elements(NotchMascotCreatures.cristobalHands($0, size: 40)) }).count == 1
+                        let holds = [(false, false), (true, false), (true, true)]
+                        expect(Set(holds.flatMap { hold in poses.map {
+                                   elements(NotchMascotCreatures.cristobalSleeves($0, mug: hold.0, sipping: hold.1, size: 40)) } }).count == 1
+                               && Set(holds.flatMap { hold in poses.map {
+                                   elements(NotchMascotCreatures.cristobalHands($0, mug: hold.0, sipping: hold.1, size: 40)) } }).count == 1
                                && Set(poses.map { elements(NotchMascotCreatures.rabbitArms($0, size: 40)) }).count == 1,
                                "their arms and hands morph between every pose")
                         let mug = NotchMascotCreatures.cristobalMug(size: 40).boundingBox
                         expect(poses.allSatisfy { pose in
-                                   let hands = NotchMascotCreatures.cristobalHands(pose, size: 40)
+                                   let hands = NotchMascotCreatures.cristobalHands(pose, mug: true, size: 40)
                                    return hands.boundingBox.intersects(mug.insetBy(dx: -4, dy: -4))
-                               }, "whatever he does with his other hand, Cristóbal keeps hold of his mug")
+                               }, "with his mug, whatever he does with his other hand, Cristóbal keeps hold of it")
                         expect(comic.allSatisfy { style in
                                    let box = NotchMascotCreatures.body(style, size: 40)?.boundingBox ?? .null
                                    return box.minX >= 0 && box.maxX <= 40 && box.minY >= 0 && box.maxY <= 40

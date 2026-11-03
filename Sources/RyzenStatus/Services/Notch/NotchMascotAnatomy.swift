@@ -50,14 +50,14 @@ extension NotchMascotCreatures {
         switch style {
         case .minimal, .robot:
             return nil
-        // The two comic figures are drawn from sprite sheets and wear nothing
-        // drawn over them, but keep honest numbers for the day they do.
+        // Cristóbal's hands where they hang at rest; the left one holds his
+        // mug at his middle when he has it, so things go in the right.
         case .cristobal:
-            return .init(rightHand: at(0.72, 0.60), leftHand: at(0.34, 0.60), floor: 0.94,
+            return .init(rightHand: at(0.70, 0.73), leftHand: at(0.30, 0.73), floor: 0.94,
                          leftFoot: 0.46, rightFoot: 0.62, foot: 0.10, torso: box(0.33, 0.46, 0.42, 0.40),
                          nose: at(0.50, 0.36), mouth: at(0.50, 0.41))
         case .whiteRabbit:
-            return .init(rightHand: at(0.72, 0.62), leftHand: at(0.32, 0.62), floor: 0.91,
+            return .init(rightHand: at(0.67, 0.71), leftHand: at(0.33, 0.71), floor: 0.91,
                          leftFoot: 0.44, rightFoot: 0.60, foot: 0.09, torso: box(0.32, 0.50, 0.40, 0.34),
                          nose: at(0.50, 0.41), mouth: at(0.50, 0.45))
         // A chip holds things by its side pins and stands on its bottom row.

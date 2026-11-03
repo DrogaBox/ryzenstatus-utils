@@ -632,7 +632,7 @@ final class NotchMascotGang {
             stopVisits()
             for guest in guests where !guest.leaving { leave(guest, quickly: !guestsMayPlay) }
         } else if visitWork == nil || visitsScheduled != visits {
-            scheduleVisit(visits)
+            scheduleVisit(visits, first: visitsScheduled != visits)
         }
         // Fewer allowed at once than before: the last to come go first.
         let atOnce = NotchMascotGangVisits.atOnce(in: defaults)
@@ -661,17 +661,21 @@ final class NotchMascotGang {
         visitsScheduled = nil
     }
 
-    private func scheduleVisit(_ visits: NotchMascotGangVisits) {
+    /// The next arrival, soon after visits start and then as often as
+    /// `visits` says.
+    private func scheduleVisit(_ visits: NotchMascotGangVisits, first: Bool = false) {
         visitWork?.cancel(); visitWork = nil
         visitsScheduled = visits
-        guard let delay = visits.delay else { return }
+        guard let delay = first ? visits.firstDelay : visits.delay else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.visitWork = nil
-            let count = Double.random(in: 0..<1) < NotchMascotGangVisits.pairChance ? 2 : 1
-            // They come to see the companion: more surely while it is out.
-            if self.lead.isOut || Bool.random() { self.bring(count, stagger: 1.6) }
-            self.scheduleVisit(NotchMascotGangVisits.current())
+            let defaults = UserDefaults.standard
+            let staying = self.guests.filter { !$0.leaving && !$0.summoned }.count
+            let free = NotchMascotGangVisits.atOnce(in: defaults) - staying
+            let count = visits.arrivals(free: free) { Double.random(in: 0..<1) }
+            if count > 0 { self.bring(count, stagger: 1.6) }
+            self.scheduleVisit(NotchMascotGangVisits.current(in: defaults))
         }
         visitWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Double.random(in: delay), execute: work)

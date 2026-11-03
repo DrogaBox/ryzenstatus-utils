@@ -18,7 +18,7 @@ enum NotchMascotRoam {
     /// Its size on the desktop with `look`: a sprite as tall as it stands
     /// beside the others.
     static func size(for look: NotchMascotLook) -> CGFloat {
-        guard let sheet = look.style.sprite else { return drawnSize }
+        guard let sheet = look.style.sprite else { return (drawnSize * look.style.stature).rounded() }
         return (spriteSize * sheet.stature).rounded()
     }
 

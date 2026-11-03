@@ -126,20 +126,31 @@ extension NotchMascotCreatures {
         return path
     }
 
-    /// The mug he never puts down, held at his middle.
+    /// His coffee mug, held at his middle when he has one.
     static func cristobalMug(size: CGFloat) -> CGPath {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
         let path = CGMutablePath()
         path.addRoundedRect(in: box(0.435, 0.545, 0.105, 0.115, size), cornerWidth: 0.015 * size, cornerHeight: 0.015 * size)
         // The handle, round on the side his hand is.
         path.addEllipse(in: box(0.405, 0.565, 0.05, 0.07, size))
         return path
     }
-
-    /// Where his hands are: one round the mug, the other as `pose` has it.
-    private static func cristobalJoints(_ pose: ArmsPose) -> (mug: [CGPoint], free: [CGPoint]) {
-        let mug = [CGPoint(x: 0.335, y: 0.505), CGPoint(x: 0.30, y: 0.62), CGPoint(x: 0.425, y: 0.60)]
-        let shoulder = CGPoint(x: 0.665, y: 0.505)
+    /// The steam curling off a fresh mug, to be stroked.
+    static func cristobalSteam(size: CGFloat) -> CGPath {
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
+        let path = CGMutablePath()
+        for x in [0.465 as CGFloat, 0.505] {
+            path.move(to: point(x, 0.535))
+            path.addCurve(to: point(x + 0.004, 0.455), control1: point(x - 0.025, 0.51), control2: point(x + 0.03, 0.485))
+        }
+        return path
+    }
+    /// How far the mug travels from his middle to his mouth for a sip.
+    static let cristobalSipLift = CGVector(dx: 0.03, dy: -0.165)
+    /// Where his hands are as `pose` has them. With his mug, one hand stays
+    /// round it, or lifts it to his mouth for a sip; without, both arms
+    /// move together, the left one mirroring the right.
+    private static func cristobalJoints(_ pose: ArmsPose, mug: Bool, sipping: Bool) -> (left: [CGPoint], right: [CGPoint]) {
+        let leftShoulder = CGPoint(x: 0.335, y: 0.505), shoulder = CGPoint(x: 0.665, y: 0.505)
         let (elbow, hand): (CGPoint, CGPoint)
         switch pose {
         case .rest: (elbow, hand) = (CGPoint(x: 0.705, y: 0.62), CGPoint(x: 0.70, y: 0.73))
@@ -148,27 +159,38 @@ extension NotchMascotCreatures {
         case .up: (elbow, hand) = (CGPoint(x: 0.76, y: 0.40), CGPoint(x: 0.75, y: 0.26))
         case .folded: (elbow, hand) = (CGPoint(x: 0.70, y: 0.625), CGPoint(x: 0.56, y: 0.62))
         }
-        return (mug, [shoulder, elbow, hand])
+        let right = [shoulder, elbow, hand]
+        if mug {
+            let lift = sipping ? cristobalSipLift : .zero
+            return ([leftShoulder, CGPoint(x: 0.30 + lift.dx * 0.4, y: 0.62 + lift.dy * 0.7),
+                     CGPoint(x: 0.425 + lift.dx, y: 0.60 + lift.dy)], right)
+        }
+        // The free left arm: at rest or folded it mirrors the right; while
+        // the right one waves, the left stays down.
+        func mirrored(_ point: CGPoint) -> CGPoint { CGPoint(x: 1 - point.x, y: point.y) }
+        switch pose {
+        case .wave, .waveOut:
+            return ([leftShoulder, CGPoint(x: 0.295, y: 0.62), CGPoint(x: 0.30, y: 0.73)], right)
+        case .rest, .up, .folded:
+            return ([leftShoulder, mirrored(elbow), mirrored(hand)], right)
+        }
     }
-
     /// His sleeves, dyed with the jumper.
-    static func cristobalSleeves(_ pose: ArmsPose, size: CGFloat) -> CGPath {
-        let joints = cristobalJoints(pose)
+    static func cristobalSleeves(_ pose: ArmsPose, mug: Bool = false, sipping: Bool = false, size: CGFloat) -> CGPath {
+        let joints = cristobalJoints(pose, mug: mug, sipping: sipping)
         let path = CGMutablePath()
-        limb(into: path, joints.mug, width: 0.08, hand: 0.001, size: size)
-        limb(into: path, joints.free, width: 0.08, hand: 0.001, size: size)
+        limb(into: path, joints.left, width: 0.08, hand: 0.001, size: size)
+        limb(into: path, joints.right, width: 0.08, hand: 0.001, size: size)
         return path
     }
-
-    static func cristobalHands(_ pose: ArmsPose, size: CGFloat) -> CGPath {
-        let joints = cristobalJoints(pose)
+    static func cristobalHands(_ pose: ArmsPose, mug: Bool = false, sipping: Bool = false, size: CGFloat) -> CGPath {
+        let joints = cristobalJoints(pose, mug: mug, sipping: sipping)
         let path = CGMutablePath()
-        for hand in [joints.mug.last, joints.free.last].compactMap({ $0 }) {
+        for hand in [joints.left.last, joints.right.last].compactMap({ $0 }) {
             path.addEllipse(in: box(hand.x - 0.034, hand.y - 0.034, 0.068, 0.068, size))
         }
         return path
     }
-
     // MARK: The White Rabbit
 
     /// Its apron, which the palette dyes: a bib with straps and a full skirt.

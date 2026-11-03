@@ -14,9 +14,30 @@ enum NotchMascotGangVisits: String, CaseIterable, Identifiable {
     var delay: ClosedRange<TimeInterval>? {
         switch self {
         case .off: return nil
-        case .rare: return 1500...3000
-        case .normal: return 600...1300
-        case .frequent: return 240...540
+        case .rare: return 900...1800
+        case .normal: return 300...600
+        case .frequent: return 90...210
+        }
+    }
+    /// How long the first ones take once visits start, or the island
+    /// starts: soon, so a setting just picked shows what it does.
+    var firstDelay: ClosedRange<TimeInterval>? {
+        switch self {
+        case .off: return nil
+        case .rare: return 240...600
+        case .normal: return 60...180
+        case .frequent: return 20...60
+        }
+    }
+    /// How many come together when `free` more may be out: frequent visits
+    /// come in bunches that can fill the desktop, the others one or two.
+    func arrivals(free: Int, random: () -> Double) -> Int {
+        guard free > 0 else { return 0 }
+        switch self {
+        case .off: return 0
+        case .frequent: return 1 + min(free - 1, Int(random() * Double(free)))
+        case .normal: return min(free, random() < 0.45 ? 2 : 1)
+        case .rare: return min(free, random() < Self.pairChance ? 2 : 1)
         }
     }
 
