@@ -157,7 +157,7 @@ final class NotchMascotAlarmRing {
 /// The ringing sign's face: the rattling clock with sound coming off it,
 /// what comics letter a ringing as, the time, the alarm's label, and the
 /// buttons.
-private struct NotchMascotAlarmRingFace: View {
+struct NotchMascotAlarmRingFace: View {
     let alarm: NotchMascotAlarm
     let text: NotchMascotAlarmStrings
     let reduceMotion: Bool
